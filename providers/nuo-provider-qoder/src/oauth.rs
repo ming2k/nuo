@@ -23,8 +23,9 @@ use serde::Deserialize;
 use sha2::Digest;
 
 use crate::identity::{QoderRequestIdentity, QoderStoredIdentity};
-use nuo_inference_wire::{ResolvedAuth, SecretString};
+use nuo_host::SecretString;
 use nuo_oauth::oauth::{AuthError, TokenResponse};
+use nuo_provider::ResolvedAuth;
 use nuo_provider::{CredentialHost, CredentialStore, TokenSet};
 
 pub fn stored_qoder_request_identity(
@@ -683,7 +684,7 @@ impl QoderApiKeyCredentialSource {
         uid
     }
 }
-impl nuo_inference_wire::CredentialSource for QoderApiKeyCredentialSource {
+impl nuo_provider::CredentialSource for QoderApiKeyCredentialSource {
     fn resolve_auth<'a>(&'a self) -> futures::future::BoxFuture<'a, Result<ResolvedAuth, String>> {
         Box::pin(async move {
             let identity = self.load_or_create_identity().await?;

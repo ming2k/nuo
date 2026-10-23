@@ -5,7 +5,7 @@
 //! WebSocket streams into the same [`BoxWireStream`] and [`BoxWireSink`] interfaces.
 use bytes::{Buf, BufMut, BytesMut};
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use nuo_client::wire::Wire;
+use nuo_wire::Wire;
 use std::io;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};

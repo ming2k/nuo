@@ -6,14 +6,13 @@ use super::{ModelRequest, ModelResponse, Provider, TokenUsage};
 use crate::error::{AgentError, Result};
 use crate::message::{Role, ToolCall};
 use async_trait::async_trait;
-use nuo_inference_wire::{
-    ContentBlock, Endpoint, WireClient, WireMessage, WireRequest, WireRole, WireTool,
-};
+use nuo_egress::Client;
+use nuo_inference_wire::{ContentBlock, Endpoint, WireMessage, WireRequest, WireRole, WireTool};
 
 /// A universal model provider powered by the `model-wire` multi-vendor protocol engine.
 #[derive(Clone)]
 pub struct WireProvider {
-    client: WireClient,
+    client: Client,
     endpoint: Endpoint,
 }
 
@@ -21,13 +20,13 @@ impl WireProvider {
     /// Creates a provider for an arbitrary endpoint.
     pub fn new(endpoint: Endpoint) -> Self {
         Self {
-            client: WireClient::new(),
+            client: Client::new(),
             endpoint,
         }
     }
 
     /// Creates a provider with a shared, pre-configured [`WireClient`] for connection pool reuse.
-    pub fn with_client(endpoint: Endpoint, client: WireClient) -> Self {
+    pub fn with_client(endpoint: Endpoint, client: Client) -> Self {
         Self { client, endpoint }
     }
 
@@ -149,10 +148,26 @@ impl WireProvider {
 impl Provider for WireProvider {
     async fn complete(&self, request: ModelRequest) -> Result<ModelResponse> {
         let wire_req = self.to_wire_request(&request);
-        let resp = self
-            .client
-            .execute(&self.endpoint, &wire_req)
+        let token = self
+            .endpoint
+            .resolve_api_key()
             .await
+            .map_err(|err| AgentError::Provider(err.to_string()))?;
+        let (url, headers, body) =
+            nuo_inference_wire::protocol::build_request(&self.endpoint, &token, &wire_req, false);
+
+        let mut builder = nuo_egress::RequestBuilder::new(http::Method::POST, url).json(&body);
+        for (name, value) in headers.iter() {
+            if let Ok(value_str) = value.to_str() {
+                builder = builder.header(name.as_str(), value_str);
+            }
+        }
+        let json_val = self
+            .client
+            .send_json(builder, "wire-provider")
+            .await
+            .map_err(|err| AgentError::Provider(err.to_string()))?;
+        let resp = nuo_inference_wire::protocol::parse_response(&self.endpoint, &json_val)
             .map_err(|err| AgentError::Provider(err.to_string()))?;
 
         Ok(ModelResponse {
@@ -181,51 +196,92 @@ impl Provider for WireProvider {
         request: ModelRequest,
     ) -> Result<futures::channel::mpsc::Receiver<Result<super::ProviderDelta>>> {
         let wire_req = self.to_wire_request(&request);
-        let mut wire_stream = self
+        let token = self
+            .endpoint
+            .resolve_api_key()
+            .await
+            .map_err(|err| AgentError::Provider(err.to_string()))?;
+        let (url, headers, body) =
+            nuo_inference_wire::protocol::build_request(&self.endpoint, &token, &wire_req, true);
+
+        let mut builder = nuo_egress::RequestBuilder::new(http::Method::POST, url).json(&body);
+        for (name, value) in headers.iter() {
+            if let Ok(value_str) = value.to_str() {
+                builder = builder.header(name.as_str(), value_str);
+            }
+        }
+        let resp = self
             .client
-            .execute_stream(&self.endpoint, &wire_req)
+            .send(builder, "wire-provider")
             .await
             .map_err(|err| AgentError::Provider(err.to_string()))?;
 
         let (mut tx, rx) = futures::channel::mpsc::channel(64);
-        use futures::{SinkExt, StreamExt};
+        let mut byte_stream = resp.into_byte_stream();
+        let endpoint = self.endpoint.clone();
 
         tokio::spawn(async move {
-            while let Some(chunk_res) = wire_stream.next().await {
+            use futures::{SinkExt, StreamExt};
+            let mut decoder = nuo_inference_wire::stream::SseDecoder::new();
+
+            while let Some(chunk_res) = byte_stream.next().await {
                 match chunk_res {
-                    Ok(chunk) => {
-                        let deltas: Vec<super::ToolCallDelta> = chunk
-                            .delta_tool_calls
-                            .iter()
-                            .map(|tc| super::ToolCallDelta {
-                                index: tc.index,
-                                id: tc.id.clone(),
-                                name: tc.name.clone(),
-                                arguments_delta: tc.arguments_delta.clone(),
-                            })
-                            .collect();
+                    Ok(bytes) => match decoder.feed(&endpoint, &bytes) {
+                        Ok(chunks) => {
+                            for chunk in chunks {
+                                let deltas: Vec<super::ToolCallDelta> = chunk
+                                    .delta_tool_calls
+                                    .iter()
+                                    .map(|tc| super::ToolCallDelta {
+                                        index: tc.index,
+                                        id: tc.id.clone(),
+                                        name: tc.name.clone(),
+                                        arguments_delta: tc.arguments_delta.clone(),
+                                    })
+                                    .collect();
 
-                        let primary_delta = deltas
-                            .first()
-                            .map(|tc| (tc.index, tc.name.clone(), tc.arguments_delta.clone()));
+                                let primary_delta = deltas.first().map(|tc| {
+                                    (tc.index, tc.name.clone(), tc.arguments_delta.clone())
+                                });
 
-                        let delta = super::ProviderDelta {
-                            content_delta: chunk.delta_content,
-                            thinking_delta: chunk.delta_thinking,
-                            tool_calls: Vec::new(),
-                            tool_call_delta: primary_delta,
-                            tool_call_deltas: deltas,
-                            usage: chunk.usage.map(Into::into),
-                            is_done: chunk.is_done,
-                        };
-                        if tx.send(Ok(delta)).await.is_err() {
+                                let delta = super::ProviderDelta {
+                                    content_delta: chunk.delta_content,
+                                    thinking_delta: chunk.delta_thinking,
+                                    tool_calls: Vec::new(),
+                                    tool_call_delta: primary_delta,
+                                    tool_call_deltas: deltas,
+                                    usage: chunk.usage.map(Into::into),
+                                    is_done: chunk.is_done,
+                                };
+                                if tx.send(Ok(delta)).await.is_err() {
+                                    return;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(AgentError::Provider(e.to_string()))).await;
                             return;
                         }
-                    }
+                    },
                     Err(e) => {
                         let _ = tx.send(Err(AgentError::Provider(e.to_string()))).await;
                         return;
                     }
+                }
+            }
+
+            if let Ok(chunks) = decoder.finish(&endpoint) {
+                for chunk in chunks {
+                    let delta = super::ProviderDelta {
+                        content_delta: chunk.delta_content,
+                        thinking_delta: chunk.delta_thinking,
+                        tool_calls: Vec::new(),
+                        tool_call_delta: None,
+                        tool_call_deltas: Vec::new(),
+                        usage: chunk.usage.map(Into::into),
+                        is_done: chunk.is_done,
+                    };
+                    let _ = tx.send(Ok(delta)).await;
                 }
             }
         });

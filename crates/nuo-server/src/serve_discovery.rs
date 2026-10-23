@@ -7,7 +7,7 @@
 //! Clients (an attaching `nuo` TUI, the web app, the dashboard) read that
 //! record to reach the already-running server instead of spawning a second
 //! one. The module lives in this crate while the read-side contract is shared
-//! with `nuo-client`, so writer and reader agree on the record and the
+//! with `nuo-protocol`, so writer and reader agree on the record and the
 //! path-resolution rule.
 //!
 //! The pre-`server.json` per-project layout (`serve/<bucket>.json`) is dead:
@@ -17,82 +17,7 @@ use std::path::{Path, PathBuf};
 
 use nuo_persistence::paths;
 
-/// The discovery record, written once the bound port is known.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
-pub struct Discovery {
-    /// The serving process's id (staleness probe for readers).
-    pub pid: u32,
-    /// OS process creation token paired with `pid`, preventing a stale record
-    /// from targeting an unrelated process after PID reuse.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub process_birth_token: Option<u64>,
-    /// The bound TCP port the WebSocket listener serves.
-    pub port: u16,
-    /// The bearer token clients must present, when auth is active
-    /// (`--public`, or loopback with `[server] local_auth`);
-    /// `null` for an unauthenticated loopback listener.
-    pub token: Option<String>,
-    /// The project root the host serves. Empty for the unified server
-    /// which is project-agnostic; retained for the legacy
-    /// per-project records.
-    pub project_root: String,
-    /// Unix seconds at startup.
-    pub started_at: u64,
-    /// Unix domain socket the control plane also listens on.
-    /// `None` for legacy records and when UDS is disabled.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub uds_path: Option<PathBuf>,
-    /// Native local control endpoint. `uds_path` above is retained only for
-    /// reading discovery records written before v0.30.2.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
-    /// The server build's `CARGO_PKG_VERSION` (rule 4): a client
-    /// that reads a record whose version differs from its own refuses with
-    /// an actionable both-versions message instead of speaking a wire
-    /// protocol it may not share. `None` on records predating the field —
-    /// treated as "unknown", which also mismatches, prompting a restart.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
-    /// The server's configured graceful-drain budget, **seconds**
-    /// `nuo stop` reads this so its escalation
-    /// tiers wait *the server's own budget* before SIGTERM/SIGKILL: a
-    /// signal arriving mid-drain escalates the server to a forced exit,
-    /// so a client that escalates early destroys the graceful drain it
-    /// just requested. `None` on records predating the field — clients
-    /// fall back to a conservative default.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grace_secs: Option<u64>,
-    /// The wire protocol number this server speaks. Lets a
-    /// local client refuse a server outside its window *before* the
-    /// handshake, the same way `version` above always has. `None` on
-    /// records predating the field — the client then falls back to the
-    /// product-version judgment.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<u32>,
-    /// Bounded content digest (lowercase hex) of the server's own executable
-    /// image: its exact length folded with a sampled SHA-256, captured once at
-    /// boot (ADR-0021). Lets a client detect a stale *same-version* server by
-    /// executable **content** — portably across Linux, macOS, and Windows —
-    /// instead of the Linux-only inode probe. `None` on records predating the
-    /// field; clients then fall back to inode equality.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_digest: Option<String>,
-    /// Byte length of the server's executable image: a cheap pre-hash gate
-    /// paired with `image_digest`, so a client can reject a size-changed
-    /// image without hashing (ADR-0021).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_len: Option<u64>,
-}
-
-impl Discovery {
-    pub fn effective_local_endpoint(&self) -> Option<nuo_host::ipc::LocalEndpoint> {
-        self.local_endpoint.clone().or_else(|| {
-            self.uds_path
-                .clone()
-                .map(nuo_host::ipc::LocalEndpoint::UnixSocket)
-        })
-    }
-}
+pub use nuo_wire::discovery::Discovery;
 
 /// The global discovery path for the unified server: one record
 /// per user, in the instance dir (`NUO_HOME`, else

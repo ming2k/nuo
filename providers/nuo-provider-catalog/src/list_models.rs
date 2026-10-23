@@ -48,10 +48,11 @@
 //! has a bare API root can pass it directly.
 use std::collections::HashSet;
 
-use nuo_inference_wire::{Availability, ReasoningSupport, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::{Availability, ReasoningSupport};
 use serde_json::Value;
 
-pub use nuo_inference_wire::CatalogShape;
+pub use nuo_provider::CatalogShape;
 
 /// Everything a live catalog request needs, borrowed from the instance's
 /// first channel. Fields mirror what a chat request would use so the auth
@@ -88,7 +89,7 @@ pub fn models_endpoint_for(
     protocol: CatalogShape,
     base_url: &str,
 ) -> Result<String, ModelListError> {
-    let root = nuo_inference_wire::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
+    let root = nuo_provider::ApiRoot::parse(base_url).map_err(ModelListError::BadEndpoint)?;
     Ok(root.append(protocol.path()))
 }
 
@@ -183,7 +184,7 @@ pub async fn fetch_remote_catalog(
                 &endpoint,
                 &[(
                     "client_version",
-                    nuo_inference_wire::client_identity::CODEX_VERSION,
+                    nuo_provider::client_identity::CODEX_VERSION,
                 )],
             );
             let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
@@ -330,7 +331,7 @@ pub trait CatalogParser: Send + Sync {
 /// must remain strictly separated per ADR-0068 [INV-CATALOG-02]. Suffixes like
 /// `(Thinking)` inside model names are redundant with orthogonal reasoning capabilities.
 fn clean_display_label(raw: &str) -> String {
-    nuo_inference_wire::catalog::clean_model_display_name(raw)
+    nuo_provider::clean_model_display_name(raw)
 }
 
 pub struct OpenAiCatalogParser;
@@ -640,13 +641,21 @@ fn discovered_model_from_entry(entry: &Value) -> Option<DiscoveredModel> {
         .get("supported_endpoints")
         .and_then(Value::as_array)
         .and_then(|endpoints| {
-            let has_messages = endpoints.iter().any(|e| e.as_str() == Some("/messages"));
-            let has_chat = endpoints
-                .iter()
-                .any(|e| e.as_str() == Some("/chat/completions"));
-            if has_messages && !has_chat {
+            let has = |needle: &str| {
+                endpoints.iter().any(|e| {
+                    e.as_str()
+                        .is_some_and(|s| s == needle || s.ends_with(needle))
+                })
+            };
+            if has("/messages") && !has("/chat/completions") && !has("/responses") {
                 Some(WireProtocol::AnthropicMessages)
-            } else if has_chat {
+            } else if has("/responses") {
+                // OpenAI Responses API is the modern, reasoning-native protocol
+                // (ADR-0083). When an endpoint advertises both /responses and
+                // /chat/completions (e.g. CommandCode for DeepSeek/GPT), the
+                // Responses API takes precedence over legacy Chat Completions.
+                Some(WireProtocol::OpenAiResponses)
+            } else if has("/chat/completions") {
                 Some(WireProtocol::OpenAiChatCompletions)
             } else {
                 None
@@ -962,7 +971,7 @@ fn deepseek_accepted_efforts(advertised: &[String]) -> Vec<String> {
         }
     }
     accepted.sort_by_key(|level| {
-        nuo_inference_wire::Effort::ORDER
+        nuo_provider::Effort::ORDER
             .iter()
             .position(|rung| rung.as_str() == level)
             .unwrap_or(usize::MAX)
@@ -1654,9 +1663,9 @@ mod tests {
         assert_eq!(
             remote.effort_levels,
             Some(vec![
-                nuo_inference_wire::EffortLevel::Known(nuo_inference_wire::Effort::Low),
-                nuo_inference_wire::EffortLevel::Known(nuo_inference_wire::Effort::Medium),
-                nuo_inference_wire::EffortLevel::Known(nuo_inference_wire::Effort::High)
+                nuo_provider::EffortLevel::Known(nuo_provider::Effort::Low),
+                nuo_provider::EffortLevel::Known(nuo_provider::Effort::Medium),
+                nuo_provider::EffortLevel::Known(nuo_provider::Effort::High)
             ])
         );
         assert_eq!(remote.thinking, Some(ReasoningSupport::AnthropicAdaptive));
@@ -1716,6 +1725,43 @@ mod tests {
         let models = parse_models(CatalogShape::OpenAi, &json);
         assert_eq!(models[0].reasoning, Some(false));
         assert_eq!(models[1].reasoning, Some(true));
+    }
+
+    #[test]
+    fn endpoint_advertising_both_responses_and_chat_resolves_to_responses_api() {
+        // CommandCode's live /provider/v1/models advertises
+        // `supported_endpoints: ["/chat/completions", "/responses"]` for DeepSeek
+        // and modern GPT models. Nuo prefers the reasoning-native Responses API
+        // over legacy Chat Completions (ADR-0083).
+        let json = serde_json::json!({
+            "data": [
+                {
+                    "id": "deepseek/deepseek-v4.1-flash",
+                    "name": "DeepSeek V4.1 Flash (latest)",
+                    "context_length": 1000000,
+                    "supported_endpoints": ["/chat/completions", "/responses"]
+                },
+                {
+                    "id": "z-ai/glm-5.3-flash",
+                    "name": "GLM-5.3 Flash",
+                    "context_length": 1000000,
+                    "supported_endpoints": ["/chat/completions"]
+                },
+                {
+                    "id": "claude-sonnet-5-5",
+                    "name": "Claude Sonnet 5.5",
+                    "context_length": 1000000,
+                    "supported_endpoints": ["/messages"]
+                }
+            ]
+        });
+        let models = parse_models(CatalogShape::OpenAi, &json);
+        assert_eq!(models[0].protocol, Some(WireProtocol::OpenAiResponses));
+        assert_eq!(
+            models[1].protocol,
+            Some(WireProtocol::OpenAiChatCompletions)
+        );
+        assert_eq!(models[2].protocol, Some(WireProtocol::AnthropicMessages));
     }
 
     #[test]

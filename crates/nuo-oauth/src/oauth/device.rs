@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use nuo_host::SecretString;
 
+use crate::config::OAuthConfig;
 use crate::oauth::token::TokenResponse;
-use nuo_inference_wire::provider_auth::OAuthConfig;
 
 /// Response from the device-authorization endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]

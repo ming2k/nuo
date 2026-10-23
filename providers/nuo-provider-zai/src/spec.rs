@@ -1,8 +1,9 @@
 //! The `zai-code` provider template and its legacy registry preset: Z.AI /
 //! Zhipu BigModel coding-plan platform (`open.bigmodel.cn/api/coding/paas/v4`).
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
@@ -10,7 +11,7 @@ use nuo_provider::*;
 /// order — the first entry is the initial active channel. `glm-5.3-flash`
 /// joined the plan alongside the flagship (native multimodal, 1M context,
 /// ~1/3 the credit burn), so it is offered ahead of the older flagships.
-pub use nuo_inference_wire::model_providers::ZAI_CODE_MODELS;
+pub use nuo_provider::model_providers::ZAI_CODE_MODELS;
 
 // ZAI Code (CN) — Zhipu BigModel / Z.AI coding-plan platform
 // (open.bigmodel.cn/api/coding/paas/v4). A coding-agent membership endpoint
@@ -21,7 +22,7 @@ pub use nuo_inference_wire::model_providers::ZAI_CODE_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // GLM family (Zhipu / Z.AI / opencode-go)
     Model {
@@ -128,10 +129,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -148,7 +149,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // the picker. Baselines stay the single source of capability truth either
     // way (capability overlay is unavailable here).
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::ZCode,
+    default_client_profile: nuo_provider::ClientPreset::ZCode,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,

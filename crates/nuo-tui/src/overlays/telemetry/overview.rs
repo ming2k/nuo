@@ -36,7 +36,7 @@ pub(crate) fn build_overview_body(
 
     layout = layout.kv("Used Tokens", &used_text);
     if window_max > 0 {
-        layout = layout.kv_muted("Capacity", &format!("{} tokens", fmt_num(window_max)));
+        layout = layout.kv_muted("Capacity", format!("{} tokens", fmt_num(window_max)));
         let pct_str = format!("{:.1}%", ratio * 100.0);
         layout = layout.kv_progress("Utilization", ratio as f32, 20, Some(pct_str));
     }
@@ -45,7 +45,7 @@ pub(crate) fn build_overview_body(
             layout = layout.kv_indented(
                 2,
                 "History",
-                &format!("{} tokens", fmt_num(h)),
+                format!("{} tokens", fmt_num(h)),
                 Style::default().fg(theme.muted()),
             );
         }
@@ -53,7 +53,7 @@ pub(crate) fn build_overview_body(
             layout = layout.kv_indented(
                 2,
                 "Overhead",
-                &format!("{} tokens", fmt_num(o)),
+                format!("{} tokens", fmt_num(o)),
                 Style::default().fg(theme.muted()),
             );
         }
@@ -61,7 +61,7 @@ pub(crate) fn build_overview_body(
             layout = layout.kv_indented(
                 2,
                 "Temporary",
-                &format!("{} tokens", fmt_num(t)),
+                format!("{} tokens", fmt_num(t)),
                 Style::default().fg(theme.muted()),
             );
         }
@@ -69,7 +69,7 @@ pub(crate) fn build_overview_body(
     if context.draft_tokens > 0 {
         layout = layout.kv_muted(
             "Draft Input",
-            &format!("~{} tokens", fmt_num(context.draft_tokens)),
+            format!("~{} tokens", fmt_num(context.draft_tokens)),
         );
     }
 
@@ -84,15 +84,15 @@ pub(crate) fn build_overview_body(
 
     layout = layout.kv_bold(
         "Grand Total",
-        &format!("{} ({})", fmt_tokens(grand_total), fmt_num(grand_total)),
+        format!("{} ({})", fmt_tokens(grand_total), fmt_num(grand_total)),
     );
     layout = layout.kv(
         "Input (Prompt)",
-        &format!("{} tokens", fmt_num(total_prompt)),
+        format!("{} tokens", fmt_num(total_prompt)),
     );
     layout = layout.kv(
         "Output (Completion)",
-        &format!("{} tokens", fmt_num(total_completion)),
+        format!("{} tokens", fmt_num(total_completion)),
     );
 
     let hit_rate = if total_prompt > 0 {
@@ -107,7 +107,7 @@ pub(crate) fn build_overview_body(
     };
     layout = layout.kv_styled(
         "Cache Read",
-        &format!(
+        format!(
             "{} tokens ({:.1}% hit rate)",
             fmt_num(total_cache_read),
             hit_rate
@@ -117,7 +117,7 @@ pub(crate) fn build_overview_body(
     if total_cache_write > 0 {
         layout = layout.kv_muted(
             "Cache Written",
-            &format!("{} tokens", fmt_num(total_cache_write)),
+            format!("{} tokens", fmt_num(total_cache_write)),
         );
     }
 
@@ -153,7 +153,7 @@ pub(crate) fn build_overview_body(
     let rate = (tokens > 0 && span_us > 0)
         .then(|| tokens as f64 * 1_000_000.0 / span_us as f64)
         .filter(|rate| rate.is_finite() && *rate > 0.0);
-    layout = layout.kv("Streaming Rate", &fmt_tps(rate));
+    layout = layout.kv("Streaming Rate", fmt_tps(rate));
     let span_desc = if rate.is_some() {
         format!("{} tok over {}", fmt_num(tokens), fmt_duration_us(span_us))
     } else {
@@ -174,11 +174,11 @@ pub(crate) fn build_overview_body(
     };
     layout = layout.kv("TTFT (median)", &ttft_desc);
 
-    layout = layout.kv_muted("Total Duration", &fmt_duration_ms(total_e2e_ms));
+    layout = layout.kv_muted("Total Duration", fmt_duration_ms(total_e2e_ms));
 
     layout = layout.kv_muted(
         "Activity Count",
-        &format!("{} rounds · {} tool turns", rounds.len(), total_turns),
+        format!("{} rounds · {} tool turns", rounds.len(), total_turns),
     );
 
     layout.build()

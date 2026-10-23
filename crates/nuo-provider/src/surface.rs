@@ -56,14 +56,13 @@ pub enum CatalogShape {
     SceneMap,
 }
 impl CatalogShape {
-    pub fn from_wire_protocol(protocol: crate::WireProtocol) -> Self {
+    pub fn from_wire_protocol(protocol: nuo_inference_wire::WireProtocol) -> Self {
         match protocol {
-            crate::WireProtocol::AnthropicMessages => Self::Anthropic,
-            crate::WireProtocol::GoogleGenerateContent
-            | crate::WireProtocol::GoogleInteractions => Self::Google,
-            crate::WireProtocol::OpenAiChatCompletions | crate::WireProtocol::OpenAiResponses => {
-                Self::OpenAi
-            }
+            nuo_inference_wire::WireProtocol::AnthropicMessages => Self::Anthropic,
+            nuo_inference_wire::WireProtocol::GoogleGenerateContent
+            | nuo_inference_wire::WireProtocol::GoogleInteractions => Self::Google,
+            nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+            | nuo_inference_wire::WireProtocol::OpenAiResponses => Self::OpenAi,
         }
     }
 
@@ -142,16 +141,16 @@ pub enum RemoteCatalogSource {
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProviderPromptCache {
-    pub default: Option<crate::PromptCacheCapabilities>,
-    pub models: std::collections::BTreeMap<String, crate::PromptCacheCapabilities>,
+    pub default: Option<crate::cache::PromptCacheCapabilities>,
+    pub models: std::collections::BTreeMap<String, crate::cache::PromptCacheCapabilities>,
 }
 impl ProviderPromptCache {
-    pub fn resolve(&self, model: &str) -> crate::PromptCacheCapabilities {
+    pub fn resolve(&self, model: &str) -> crate::cache::PromptCacheCapabilities {
         self.models
             .get(model)
             .or(self.default.as_ref())
             .cloned()
-            .unwrap_or_else(crate::PromptCacheCapabilities::unsupported)
+            .unwrap_or_else(crate::cache::PromptCacheCapabilities::unsupported)
     }
     pub fn validate(&self) -> Result<(), String> {
         for capabilities in self.default.iter().chain(self.models.values()) {

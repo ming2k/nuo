@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Provider Integration, Server Runtime
 - Amends: [ADR-0001](0001-flat-workspace-and-microkernel-capability-topology.md) §2 (the `nuo-model-codec` bullet and its flat-topology diagram row)
-- Amends: [ADR-0014](0014-model-provider-invocation-schemes.md) (dialect surface ownership wording for the renamed crate)
+- Amends: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md) (dialect surface ownership wording for the renamed crate)
 
 ---
 

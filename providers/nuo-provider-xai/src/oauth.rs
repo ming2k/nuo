@@ -7,11 +7,11 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_inference_wire::LoginMethod;
-use nuo_inference_wire::provider_auth::{
+use nuo_oauth::OAuthProvider;
+use nuo_oauth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
-use nuo_oauth::OAuthProvider;
+use nuo_provider::LoginMethod;
 
 pub const XAI_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 

@@ -22,12 +22,11 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
                     ▼                                ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │               Component Libraries (crates/nuo-*)                       │
-│   crates/nuo-wire              crates/nuo-acp                          │
+│   crates/nuo-protocol          crates/nuo-acp                          │
 │   crates/nuo-server            crates/nuo-tui                          │
-│   crates/nuo-client            crates/nuo-agent                        │
-│   crates/nuo-host              crates/nuo-persistence                  │
-│   crates/nuo-harness           crates/nuo-mcp                          │
-│   crates/nuo-oauth             crates/nuo-provider                     │
+│   crates/nuo-host              crates/nuo-agent                        │
+│   crates/nuo-harness           crates/nuo-persistence                  │
+│   crates/nuo-oauth             crates/nuo-mcp                          │
 │   crates/nuo-egress            crates/nuo-inference-wire                 │
 │   crates/nuo-catalog                                                   │
 │   crates/nuo-tool              crates/nuo-tool-derive                  │
@@ -48,7 +47,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 ## 2. Core Subsystems and Domain Responsibilities
 
 ### 2.1 Protocols & Substrates
-- **`nuo-wire`**: Canonical wire contracts — byte-level envelopes (`WireEnvelope`), control verbs (`ControlRequest`), streaming deltas (`StreamDelta`), barrier interception frames, and the shared zero-I/O domain contracts (capability traits, conversation/tool-output types, context-pressure model, events). Consolidated from the former `nuo-contracts` crate (ADR-0001).
+- **`nuo-protocol`** (published compatibly as the `nuo-wire` package alias, ADR-0066): Canonical East-West IPC contracts — byte-level envelopes (`WireEnvelope`), control verbs (`ControlRequest`), streaming deltas (`StreamDelta`), barrier interception frames, session/thread entities, server discovery records and version negotiation, plus the shared zero-I/O domain contracts (capability traits, conversation/tool-output types, context-pressure model, events). Consolidated from the former `nuo-contracts` crate (ADR-0001); discovery and version DTOs repatriated from the retired `nuo-client` (ADR-0089). North-South model streaming belongs to `nuo-inference-wire`, never here (ADR-0066).
 - **`nuo-acp`** (*Agent Coordination Protocol*): Defines canonical inter-agent communication, addressing (`agent://`, `acp://`), tamper-evident HMAC signature envelopes, mailboxes, and multi-party channels. Optional feature-gated capability on `nuo-server`.
 - **`nuo-agent`**: Implements the autonomous cognitive loop (think → act → observe), session turns, channel notification policies, two-tier context hygiene, and token compaction.
 - **`nuo-tool` & **`nuo-tool-derive`**: Zero-runtime tool contracts defining schema, hazard risk profiles (`RiskProfile`), execution scopes (`ToolScope`), cancellation tokens, and the zero-dependency class-based token estimator ([ADR-0056](../adr/0056-zero-dependency-class-based-token-estimator.md)). `nuo-tool-derive` provides compile-time derive macros for JSON schemas.
@@ -61,8 +60,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 
 ### 2.2 Applications & Interface Engines
 - **`nuo`**: The unified CLI application executable (ADR-0005). Dispatches the interactive TUI (default), the headless pipeline (`--headless` / `-p`), and the session server (`nuo server start`, ADR-0061).
-- **`nuo-tui`**: High-performance semantic terminal presentation engine built on `nuotc`. Library-only view crate consumed by `nuo`.
-- **`nuo-client`**: Standalone client SDK providing discovery, connection management, event streaming, and command completion over IPC/WebSocket.
+- **`nuo-tui`**: High-performance semantic terminal presentation engine built on `nuotc`. Library-only view crate consumed by `nuo`. Houses internal client transport and server connection lifecycle drivers (`nuo_tui::client`) following the retirement of `nuo-client` (ADR-0089).
 
 ### 2.3 Subsystems & Host Infrastructure
 - **`nuo-server`**: Pure service runtime managing Unix Domain Socket / WebSocket connection gateways, session registry, SQLite persistence coordination, and graceful shutdown.
@@ -130,7 +128,7 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - **`[INV-ARCH-FLAT-01]` Flat Workspace Topology**: No intermediate directory grouping (`apps/` or `crates/`). Every crate lives directly at the workspace root to eliminate path indirection.
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
-- **`[INV-VER-01]` Federated Cluster SemVer**: Autonomous substrates (`nuotc`, `acp`) maintain independent versions; the host suite (`nuo`, `nuox`, `nuo-*`) evolves in unified lockstep.
+- **`[INV-VER-01]` Federated Cluster SemVer**: Autonomous substrates (`nuotc`, `acp`) maintain independent versions; the host suite (`nuo`, `nuo-*`) evolves in unified lockstep.
 - **`[INV-MOD-01]` Zero Domain Leakage**: Terminal graphics substrates (`nuotc`) and wire codecs (`nuo-inference-wire`, renaming to `nuo-inference-wire` per ADR-0084) must remain completely free of application-level agent concepts. Mechanism (ADR-0084 S1): the `Provider` cognitive contract lives in `nuo-provider::capability`; the codec's dependency pruning in S3 removes `tokio`/`async-trait`, structurally forbidding cognitive hosting. `[INV-AP-01]`/`[INV-AP-02]` refine this for the split crate.
 - **`[INV-MOD-02]` Ghost-Free CJK Cells**: Wide-character trailing cells are populated by the writer with matching background attributes; diff never emits unowned padding spaces.
 - **`[INV-MOD-03]` Authoritative Retained Grid**: The retained `Grid` is the single source of truth for desired visual state; dirty line tracking eliminates redundant full-frame rasterization.
@@ -144,7 +142,8 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 - **`[INV-PROV-09]` Providers Are Linked (ADR-0027)**: The shipped build links every crate that claims to be a provider; an unlinked `providers/nuo-provider-*` crate is dead code.
 - **`[INV-PROV-10]` Behaviour Behind Ports (ADR-0027)**: Static facts are `&'static` tables; runtime facts are overlays; behaviour is a trait port. No fourth mechanism.
 - **`[INV-CATALOG-04]` Single Unidirectional Catalog Pipeline (ADR-0081)**: Catalog rows flow Source → Mapping → Overwrite, once and in that order; no stage re-derives what a previous stage settled, and a Source is never labelled by its own downstream.
-- **`[INV-CATALOG-05]` Declared Display Policy (ADR-0081)**: A surface's labels come from its declared `DisplayPolicy` (`Native` trusts the published name; `Structural` lifts bare ids), never from an id-shaped guess or a per-model lookup table.
+- **`[INV-CATALOG-05]` Declared Display Policy (ADR-0081)**: A surface's labels come from its declared `DisplayPolicy` (`Native` trusts the published name; `Structural` lifts bare ids), never from an id-shaped guess or a per-model lookup table. The declaration is enforced registry-wide by `every_registered_surface_renders_its_seeds_without_routing_syntax` (`crates/nuo-server/src/provider_registry/tests.rs`): no registered surface may publish an id whose rendered label still contains `/` or `:` — an ids-only surface must declare `Structural`.
+- **`[INV-CATALOG-05a]` Routing Syntax Is Never Presentation (ADR-0081)**: `vendor/` namespaces and OpenRouter-style `:variant` service tiers are routing facts, not name parts. Both are absorbed by the structural lift applied to *wire ids*; authored labels are only stripped of execution-mode annotations. A relay namespace survives into the label solely when it states something the tail does not (`meta/muse-spark-1.1` → `Meta Muse Spark 1.1`), decided by the shared `BRAND_LEXICON` so a model added upstream renders without a Nuo release.
 - **`[INV-CATALOG-06]` Structural Noise Hygiene (ADR-0081)**: Relay noise is pruned by structural markers only (`-free`, `-preview`, `-contributor`, `alpha-`, `-alpha`, `test`), never by an ad-hoc product blacklist; a connection's `models.include` bypasses the valve unconditionally.
 - **`[INV-CATALOG-07]` Single Definition of the Catalog Pipeline (ADR-0082)**: The pipeline exists in exactly one crate (`nuo-catalog`); consumers import it directly and MUST NOT host a `catalog` module or re-export it as a local path shim.
 
@@ -156,9 +155,9 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 | :--- | :--- | :--- | :--- |
 | **ADR-0001** | Flat Workspace Topology and Microkernel Capability Architecture | Abolish nested dirs for flat workspace, enforce microkernel harness role, decentralize capability tools, and eliminate catch-all contracts | Workspace topology, `nuo-harness`, `nuo-host`, `nuo-inference-wire` |
 | **ADR-0002** | Canonical Agent Coordination Protocol (ACP) Standard | Establish ACP specification with URI addressing, HMAC envelopes, fabric channels, and native collaboration tools | `acp`, inter-agent collaboration |
-| **ADR-0003** | Autonomous Retained-Mode Terminal Canvas Engine (Nuotc) | Retained-mode 2D terminal canvas with differential double-buffered rendering strictly decoupled from AI domain concepts | `nuotc`, `nuox` |
+| **ADR-0003** | Autonomous Retained-Mode Terminal Canvas Engine (Nuotc) | Retained-mode 2D terminal canvas with differential double-buffered rendering strictly decoupled from AI domain concepts | `nuotc` |
 | **ADR-0004** | Federated Cluster SemVer and Release Topology | Partition workspace into 4 SemVer clusters with dual-resolving version and path dependencies | Release engineering, manifests, versioning |
 | **ADR-0014** | Model Provider Invocation Schemes: Local Direct, and the Subscription Server-Proxy Lane | Ratify three-lane dispatch (`ConnectionAuth::{ApiKey, Subscription}` over trait-object credential sources + verified SSPL `/alpha/generate` server-proxy DialectSurface); entitlement authority belongs to the credential-holding lane, never to client UI gating | `nuo-providers`, `nuo-inference-wire`, `nuo-persistence/connections`, `nuo-server` |
 | **ADR-0015** | Canonical Model Provider Contract Crate (nuo-provider) and Dedicated Providers Namespace Architecture | Establish canonical leaf contract crate `nuo-provider`, dedicate `providers/nuo-provider-*` namespace matching `tools/`, extract `nuo-provider-transport`, and sandbox cryptographic dialects | `nuo-provider`, `providers/nuo-provider-*`, `nuo-harness`, `nuo-server` |
-| **ADR-0026** | Streamed Tool-Input Progress: Announce the Tool Call Before Its Arguments Finish | Emit `ToolCallStarted` (name known, arguments still streaming) plus a count-only `ToolInputProgress` tick; the full argument object still gates execution, so a running step and the tool phase appear before arguments finish | `nuo-harness`, `nuo-wire`, `nuo-tui` |
+| **ADR-0026** | Streamed Tool-Input Progress: Announce the Tool Call Before Its Arguments Finish | Emit `ToolCallStarted` (name known, arguments still streaming) plus a count-only `ToolInputProgress` tick; the full argument object still gates execution, so a running step and the tool phase appear before arguments finish | `nuo-harness`, `nuo-protocol`, `nuo-tui` |
 | **ADR-0027** (Accepted) | Provider Definition Single Source: Retire nuo-provider-adapters and Relocate Its Residual Engines | Make `providers/nuo-provider-*` the single authoritative definition per provider and retire the duplicated `nuo-provider-adapters` (OAuth engine, catalog parsers, and composition root relocated to dedicated crates / `nuo-server`); establishes one-definition, no-orphan-contract, no-string-sniffing, and linked-provider invariants | `nuo-provider-adapters` (removed), `providers/nuo-provider-*`, `nuo-server`, `nuo-provider` |

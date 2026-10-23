@@ -531,6 +531,56 @@ fn model_bar_renders_unavailable_model_indicator() {
     );
 }
 
+/// Name-first, id-fallback (ADR-0081): the bar draws the label the catalog
+/// resolved once for this route, never its own typography. A namespaced relay
+/// id must not put `vendor/` in front of the user — the exact defect reported
+/// for `deepseek/deepseek-v4.1-flash-fast` on the CommandCode surface.
+#[test]
+fn model_bar_draws_the_resolved_label_over_the_wire_id() {
+    let row_text = |props: ModelBarProps<'_>| -> String {
+        let theme = Theme::default();
+        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        terminal.draw(|f| {
+            draw_model_bar(
+                f,
+                Rect::new(0, 0, 80, 1),
+                props,
+                &theme,
+                &crate::keymap::GlobalOverrides::default(),
+            );
+        });
+        let buf = terminal.buffer();
+        (0..buf.area().width as usize)
+            .map(|x| buf.content[x].symbol().to_string())
+            .collect::<String>()
+    };
+
+    let labelled = row_text(ModelBarProps {
+        current_model: "deepseek/deepseek-v4.1-flash",
+        model_label: Some("DeepSeek V4.1 Flash"),
+        ..Default::default()
+    });
+    assert!(
+        labelled.contains("DeepSeek V4.1 Flash"),
+        "the resolved label must lead the bar: {labelled:?}"
+    );
+    assert!(
+        !labelled.contains("deepseek/"),
+        "the wire namespace must never reach the bar: {labelled:?}"
+    );
+
+    // No resolved label (a curated platform that publishes none): the wire id
+    // is the honest fallback, because for those surfaces it *is* the name.
+    let unlabelled = row_text(ModelBarProps {
+        current_model: "claude-sonnet-5-5",
+        ..Default::default()
+    });
+    assert!(
+        unlabelled.contains("claude-sonnet-5-5"),
+        "an absent label falls back to the id: {unlabelled:?}"
+    );
+}
+
 #[test]
 fn model_bar_click_rects_follow_context_and_connection_layout() {
     let theme = Theme::default();

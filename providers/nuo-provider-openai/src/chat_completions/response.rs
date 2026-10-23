@@ -121,7 +121,7 @@ impl ReasoningDetailsAccumulator {
 /// hit rate and the cost is attributed correctly. `cache_creation_input_tokens`
 /// stays zero: OpenAI-style auto-caching has no separate write counter.
 pub fn usage(usage: &Value) -> Option<TokenUsage> {
-    let cache = nuo_inference_wire::read_prompt_cache_usage(usage);
+    let cache = nuo_provider::read_prompt_cache_usage(usage);
     let prompt = usage["prompt_tokens"].as_i64();
     let completion = usage["completion_tokens"].as_i64();
     let total = usage["total_tokens"].as_i64();

@@ -1,11 +1,12 @@
 //! Capability-fidelity proof for the baseline-registry migration (Phase 3).
 //!
-//! `PRE_MIGRATION` is the old `nuo_inference_wire::model::KNOWN_MODELS` table,
+//! `PRE_MIGRATION` is the old `nuo_provider::model::KNOWN_MODELS` table,
 //! embedded verbatim. The test resolves every id through the new
 //! provider-registered baselines and compares every field, proving the
 //! per-provider distribution changed no capability data.
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol, resolve_model};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::reasoning::ReasoningSupport;
+use nuo_provider::{Model, resolve_model};
 
 use nuo_provider::effort_ladders;
 

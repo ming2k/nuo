@@ -1,11 +1,13 @@
 //! Provider static specifications, route resolutions, and prompt-cache policies (ADR-0015).
 
-pub use nuo_inference_wire::RemoteCatalogSource;
-pub use nuo_inference_wire::provider_surface::ProviderPromptCache;
-use nuo_inference_wire::{
-    ApiRoot, ClientPreset, Model, PromptCacheCapabilities, PromptCacheSpec, ProviderDialect,
-    WireProtocol,
-};
+use crate::cache::{PromptCacheCapabilities, PromptCacheSpec};
+use crate::client_identity::ClientPreset;
+use crate::dialects::{ProviderDialect, clean_model_display_name, format_model_display_name};
+use crate::model::Model;
+use crate::model_providers::{UserDeclaredProvider, canonical_provider_id};
+use crate::surface::CatalogShape;
+pub use crate::surface::{ApiRoot, ProviderPromptCache, RemoteCatalogSource};
+use nuo_inference_wire::WireProtocol;
 use std::borrow::Cow;
 use std::sync::{Arc, RwLock};
 
@@ -107,11 +109,10 @@ impl ModelProviderSpec {
     pub fn resolve_display_label(&self, advertised: Option<&str>, model: &str) -> Option<String> {
         match self.display_policy {
             DisplayPolicy::Native => advertised
-                .map(nuo_inference_wire::catalog::clean_model_display_name)
+                .map(clean_model_display_name)
                 .filter(|label| !label.is_empty() && label != model),
             DisplayPolicy::Structural => {
-                let label =
-                    nuo_inference_wire::catalog::format_model_display_name(advertised, model);
+                let label = format_model_display_name(advertised, model);
                 (label != model).then_some(label)
             }
         }
@@ -199,8 +200,7 @@ pub fn register_provider_specs(specs: impl IntoIterator<Item = ModelProviderSpec
 
 /// Look up a provider specification by its stable id.
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
-    let canonical = nuo_inference_wire::model_providers::canonical_provider_id(id)
-        .unwrap_or_else(|| id.to_string());
+    let canonical = canonical_provider_id(id).unwrap_or_else(|| id.to_string());
     let map = SPECS.read().unwrap_or_else(|e| e.into_inner());
     map.get(id).or_else(|| map.get(&canonical)).cloned()
 }
@@ -221,29 +221,20 @@ pub fn route_for_model(
 
 /// Synchronize user-declared provider definitions into the provider specifications registry.
 pub fn sync_user_declared_providers(
-    declared: &impl AsRef<
-        std::collections::BTreeMap<
-            String,
-            nuo_inference_wire::model_providers::UserDeclaredProvider,
-        >,
-    >,
+    declared: &impl AsRef<std::collections::BTreeMap<String, UserDeclaredProvider>>,
 ) -> Result<(), String> {
     let mut next = std::collections::BTreeMap::new();
     for (id, provider) in declared.as_ref() {
         provider.validate(id)?;
         let wire = provider
             .default_protocol
-            .unwrap_or(nuo_inference_wire::WireProtocol::OpenAiChatCompletions);
+            .unwrap_or(WireProtocol::OpenAiChatCompletions);
         let dialect = provider.dialect.unwrap_or_default();
         let catalog_source = provider.catalog.unwrap_or_else(|| {
             RemoteCatalogSource::Endpoint(match dialect {
-                nuo_inference_wire::ProviderDialect::Antigravity => {
-                    nuo_inference_wire::CatalogShape::GoogleCloudCode
-                }
-                nuo_inference_wire::ProviderDialect::ChatGpt => {
-                    nuo_inference_wire::CatalogShape::Codex
-                }
-                _ => nuo_inference_wire::CatalogShape::from_wire_protocol(wire),
+                ProviderDialect::Antigravity => CatalogShape::GoogleCloudCode,
+                ProviderDialect::ChatGpt => CatalogShape::Codex,
+                _ => CatalogShape::from_wire_protocol(wire),
             })
         });
         let spec = ModelProviderSpec {
@@ -263,9 +254,7 @@ pub fn sync_user_declared_providers(
             catalog_root_url: provider.catalog_root_url.clone().map(Cow::Owned),
             models: &[],
             catalog_source,
-            default_client_profile: provider
-                .client_profile
-                .unwrap_or(nuo_inference_wire::ClientPreset::Native),
+            default_client_profile: provider.client_profile.unwrap_or(ClientPreset::Native),
             client_profile_sensitive: provider.client_profile_sensitive,
             prompt_cache: PromptCachePolicy::Declared(
                 provider.prompt_cache.clone().unwrap_or_default(),

@@ -43,7 +43,7 @@ pub fn build_request(
         }
     }
 
-    for (k, v) in endpoint.client_profile.headers() {
+    for (k, v) in &endpoint.client_headers {
         if let (Ok(name), Ok(val)) = (k.parse::<http::header::HeaderName>(), v.parse()) {
             headers.insert(name, val);
         }

@@ -7,7 +7,7 @@
 //!
 //! These constants are provider/model capability metadata and belong here in
 //! the provider registry rather than in the core `nuo-wire` domain vocabulary.
-use nuo_inference_wire::effort::Effort;
+use crate::effort::Effort;
 
 /// Universal conservative subset: `low`/`medium`/`high`. Safe fallback for
 /// models whose full depth capability is unknown.

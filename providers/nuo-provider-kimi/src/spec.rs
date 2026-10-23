@@ -1,8 +1,9 @@
 //! The `kimi-code` provider template and its legacy registry preset:
 //! Moonshot AI's Kimi Code coding platform (`api.kimi.com/coding/v1`).
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
@@ -10,7 +11,7 @@ use nuo_provider::*;
 /// order — the first entry is the initial active channel. `k3` is the
 /// platform's current flagship; `kimi-k2.7-code` remains as the previous
 /// pinned alias.
-pub use nuo_inference_wire::model_providers::KIMI_CODE_MODELS;
+pub use nuo_provider::model_providers::KIMI_CODE_MODELS;
 
 // Kimi Code — Moonshot AI's coding platform (api.kimi.com/coding/v1).
 // The platform pins the model id to the fixed `k3` alias (Kimi K3, 1M
@@ -25,7 +26,7 @@ pub use nuo_inference_wire::model_providers::KIMI_CODE_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Kimi (Moonshot / opencode-go)
     Model {
@@ -87,12 +88,12 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
-    nuo_inference_wire::PromptCacheSpec {
-        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
+    nuo_provider::PromptCacheSpec {
+        modes: &[nuo_provider::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -106,7 +107,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -120,7 +121,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // The Kimi Code platform exposes a live /models endpoint, so instances
     // created from this preset track the platform's actual model list.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::KimiBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,

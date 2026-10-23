@@ -27,10 +27,3 @@ pub enum WireError {
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
 }
-
-#[cfg(feature = "reqwest-oracle")]
-impl From<reqwest::Error> for WireError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::Http(err.to_string())
-    }
-}

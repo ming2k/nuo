@@ -1,9 +1,9 @@
 use futures::{SinkExt, StreamExt};
-use nuo_client::wire::{
+use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
+use nuo_wire::{
     ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
     protocol_accepts,
 };
-use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, Ordering};
@@ -17,11 +17,11 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use crate::shutdown::ShutdownGate;
 use crate::wire_channel::{BoxWireSink, BoxWireStream, native_framed_split, websocket_split};
 
-// The transport envelope and its constants live in `nuo-client::wire` — one
-// source of truth for the whole wire surface, next to the payload types.
+// The transport envelope and its constants live in `nuo-protocol` (nuo-wire) —
+// one source of truth for the whole wire surface, next to the payload types.
 // Re-exported here so every existing `serve::Wire` / `serve::AttachAction`
-// path (tests, examples, the TUI, the CLI) keeps working unchanged.
-pub use nuo_client::wire::{AttachAction, ControlRequest, Wire};
+// path keeps working unchanged.
+pub use nuo_wire::{AttachAction, ControlRequest, Wire};
 
 /// How long a draining server waits, per connection, for the client to
 /// complete the closing handshake after it is sent `Close(1001 GoingAway)`
@@ -301,7 +301,7 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
 /// field — a client that declares a protocol number is judged on
 /// the window alone, its product version never enters the decision.
 fn version_mismatch_error(client: &str, server: &str) -> String {
-    use nuo_client::{VersionRelation, compare_versions};
+    use nuo_wire::{VersionRelation, compare_versions};
     match compare_versions(client, server) {
         VersionRelation::ClientOlder => format!(
             "client/server version mismatch: client ({client}) is older than server ({server}). \

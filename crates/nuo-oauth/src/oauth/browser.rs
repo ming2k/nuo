@@ -6,7 +6,7 @@
 //! - Modern HTML success & error response pages.
 //! - Manual code/URL injection support for seamless CLI paste integration.
 
-use nuo_inference_wire::provider_auth::{OAuthConfig, PortMode};
+use crate::config::{OAuthConfig, PortMode};
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::sync::{Arc, Mutex};

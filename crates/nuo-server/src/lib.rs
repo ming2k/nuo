@@ -28,13 +28,12 @@
 //!   lazily resumes persisted sessions on attach.
 //! - [`host`] is the server runtime; the `nuo` binary runs it via
 //!   `nuo start --fg`, or a frontend starts it on demand.
-//! - Clients — the `nuo-tui` TUI and the web client — talk to the server over
-//!   the [`serve`] WebSocket control plane: owner-only native IPC by default
+//! - Clients — the `nuo-tui` TUI and headless CLI — talk to the server over
+//!   the [`serve`] WebSocket/UDS control plane: owner-only native IPC by default
 //!   (a Unix domain socket or Windows Named Pipe), plus TCP with a bearer
-//!   token when started `--public`. The client side of that control plane
-//!   lives in the dedicated SDK crate `nuo-client`, which publishes the same
-//!   `nuo_client::wire` protocol the server drives ([`serve`] re-exports the
-//!   envelope types), so the two cannot drift.
+//!   token when started `--public`. The wire protocol contracts live in
+//!   `nuo-protocol` (`nuo-wire`), which publishes the typed wire protocol
+//!   the server drives ([`serve`] re-exports the envelope types).
 //! - [`serve_discovery`] publishes the global `server.json` record clients
 //!   use to find the server; on graceful shutdown the server tears every
 //!   hosted session down through the registry, firing each one's

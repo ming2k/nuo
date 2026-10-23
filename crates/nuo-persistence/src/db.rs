@@ -14,6 +14,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{info, warn};
 
 mod actor;
+pub mod backup;
 mod connection;
 pub mod context_store;
 pub mod garbage_collection;
@@ -30,7 +31,7 @@ pub mod session_ir;
 pub mod session_store;
 pub mod usage_projection;
 
-pub use handle::get_persistence_handle;
+pub use handle::{StorageMaintenanceReport, get_persistence_handle};
 pub(crate) use migrations::*;
 pub use migrations::{CURRENT_DB_VERSION, SessionTranscriptView, open_in_memory_for_tests};
 
@@ -921,6 +922,10 @@ pub(crate) enum PersistenceCommand {
     /// Create an online hot backup snapshot using `VACUUM INTO`.
     CreateBackup {
         target_path: PathBuf,
+        ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
+    /// Optimize SQLite internal indexes and statistics via `PRAGMA optimize`.
+    Optimize {
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
     /// Persist an incremental Session IR delta directly into SQLite (INV-SESSION-05).

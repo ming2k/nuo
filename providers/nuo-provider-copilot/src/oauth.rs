@@ -7,11 +7,11 @@ use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_inference_wire::LoginMethod;
-use nuo_inference_wire::provider_auth::{
+use nuo_oauth::OAuthProvider;
+use nuo_oauth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
-use nuo_oauth::OAuthProvider;
+use nuo_provider::LoginMethod;
 
 pub const COPILOT_CLIENT_ID: &str = "Ov23li8tweQw6odWQebz";
 

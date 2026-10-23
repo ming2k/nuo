@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet};
 use super::response::{TEXT_THOUGHT_SIGNATURE_META_KEY, THOUGHT_SIGNATURES_META_KEY};
 
 /// The resolved reasoning-depth directive to stamp into `thinkingConfig` — the
-/// wire form of a channel's [`nuo_inference_wire::Effort`] override once it has been
+/// wire form of a channel's [`nuo_provider::Effort`] override once it has been
 /// clamped and translated for this Gemini model.
 ///
 /// Gemini exposes **two mutually exclusive** depth surfaces, so a single field
@@ -39,11 +39,11 @@ pub enum GoogleThinking {
     /// `thinkingLevel` for a Gemini 3.x model: one of `minimal`/`low`/
     /// `medium`/`high`. Never `none`/`xhigh`/`max` (Gemini 3.x rejects them);
     /// the resolver clamps those down before constructing this variant.
-    Level(nuo_inference_wire::Effort),
+    Level(nuo_provider::Effort),
     /// `thinkingBudget` for a Gemini 2.5 model: a token count in the model's
     /// supported range. `0` disables thinking (Flash/Lite only — Pro's floor is
     /// `128`, so the resolver only emits `0` when the model's ladder allows
-    /// [`nuo_inference_wire::Effort::None`]).
+    /// [`nuo_provider::Effort::None`]).
     Budget(i64),
 }
 
@@ -61,8 +61,8 @@ pub enum GoogleThinking {
 /// `max_budget` is only consulted for the budget surface; pass any value for a
 /// level-only model.
 pub fn resolve_thinking(
-    effort: Option<nuo_inference_wire::Effort>,
-    effort_levels: &[nuo_inference_wire::EffortLevel],
+    effort: Option<nuo_provider::Effort>,
+    effort_levels: &[nuo_provider::EffortLevel],
     max_budget: u32,
 ) -> Option<GoogleThinking> {
     // A model that does not advertise a depth ladder has no thinking surface to
@@ -76,15 +76,15 @@ pub fn resolve_thinking(
     // Gemini's ladders are always compiled-in known rungs, so extract the known
     // subset for ranking; `Other` (a provider tier outside the vocabulary) has
     // no Gemini surface to map onto and is ignored here.
-    let known: Vec<nuo_inference_wire::Effort> = effort_levels
+    let known: Vec<nuo_provider::Effort> = effort_levels
         .iter()
-        .filter_map(nuo_inference_wire::EffortLevel::as_known)
+        .filter_map(nuo_provider::EffortLevel::as_known)
         .collect();
     let clamped = requested.clamp_to(&known);
     // Decide the surface from the ladder's deepest rung: the budget ladder tops
     // out at `max`, the level ladder at `high`. This keeps the model-specific
     // choice in one place and never inspects the free-form model id string.
-    let is_budget = known.contains(&nuo_inference_wire::Effort::Max);
+    let is_budget = known.contains(&nuo_provider::Effort::Max);
     Some(if is_budget {
         GoogleThinking::Budget(clamped.gemini_thinking_budget(max_budget))
     } else {
@@ -96,7 +96,7 @@ pub fn resolve_thinking(
 /// shape, if any.
 pub struct BodyInput<'a> {
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_inference_wire::InstructionBundle>,
+    pub instructions: Option<&'a nuo_provider::InstructionBundle>,
     pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
     /// Stamp `generationConfig.thinkingConfig.includeThoughts`. The Google API
     /// only returns reasoning *text* when the request asks for it, and rejects
@@ -124,7 +124,7 @@ pub fn body_with_capabilities(
     model: &str,
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_inference_wire::ModelCapabilities,
+    capabilities: &nuo_provider::ModelCapabilities,
 ) -> Value {
     let (messages, _dropped_images) =
         nuo_provider::project_images_for_route(model, messages, capabilities);
@@ -910,7 +910,7 @@ pub fn stream_url(base_url: &str, model: &str) -> String {
 }
 
 /// The maximum `thinkingBudget` a Gemini 2.5 model accepts, in tokens — the cap
-/// [`nuo_inference_wire::Effort::gemini_thinking_budget`] buckets against. Gemini 2.5 Flash tops
+/// [`nuo_provider::Effort::gemini_thinking_budget`] buckets against. Gemini 2.5 Flash tops
 /// out at `24576`; Pro at `32768`; Flash-Lite (floor `512`) also at `24576`.
 /// Any other model id (Gemini 3.x, non-reasoning) returns `0`, signaling "no
 /// budget surface" so [`resolve_thinking`] never constructs a `Budget` for it.
@@ -947,12 +947,12 @@ mod tests {
     }
 
     /// Route capabilities with only the vision declaration varied.
-    fn caps_with_vision(vision: Option<bool>) -> nuo_inference_wire::ModelCapabilities {
-        nuo_inference_wire::ModelCapabilities {
+    fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
+        nuo_provider::ModelCapabilities {
             family: "google".into(),
             context_window: 1_000_000,
             max_output_tokens: None,
-            thinking: nuo_inference_wire::ReasoningSupport::None,
+            thinking: nuo_provider::ReasoningSupport::None,
             tool_call: true,
             vision,
             effort_levels: Vec::new(),
@@ -1534,9 +1534,9 @@ mod tests {
     fn resolve_thinking_level_for_gemini_3x() {
         // Gemini 3.x uses a level ladder; each rung maps to thinkingLevel,
         // clamping down from unsupported depths.
-        use nuo_inference_wire::effort::Effort;
+        use nuo_provider::effort::Effort;
         let gemini_level: &[Effort] = &[Effort::Minimal, Effort::Low, Effort::Medium, Effort::High];
-        let level: Vec<nuo_inference_wire::EffortLevel> =
+        let level: Vec<nuo_provider::EffortLevel> =
             gemini_level.iter().copied().map(Into::into).collect();
         assert_eq!(
             resolve_thinking(Some(Effort::High), &level, 0),
@@ -1559,7 +1559,7 @@ mod tests {
     fn resolve_thinking_budget_for_gemini_2_5() {
         // Gemini 2.5 uses a budget ladder; rungs map to token buckets against
         // the model's max (Flash: 24576).
-        use nuo_inference_wire::effort::Effort;
+        use nuo_provider::effort::Effort;
         let gemini_budget: &[Effort] = &[
             Effort::Minimal,
             Effort::Low,
@@ -1567,7 +1567,7 @@ mod tests {
             Effort::High,
             Effort::Max,
         ];
-        let budget: Vec<nuo_inference_wire::EffortLevel> =
+        let budget: Vec<nuo_provider::EffortLevel> =
             gemini_budget.iter().copied().map(Into::into).collect();
         assert_eq!(
             resolve_thinking(Some(Effort::Medium), &budget, 24576),
@@ -1588,7 +1588,7 @@ mod tests {
     fn resolve_thinking_empty_ladder_is_no_override() {
         // A non-reasoning / unknown model (empty ladder) never stamps thinking.
         assert_eq!(
-            resolve_thinking(Some(nuo_inference_wire::Effort::High), &[], 24576),
+            resolve_thinking(Some(nuo_provider::Effort::High), &[], 24576),
             None
         );
     }
@@ -1601,7 +1601,7 @@ mod tests {
             test_body_input(
                 None,
                 false,
-                Some(GoogleThinking::Level(nuo_inference_wire::Effort::Medium)),
+                Some(GoogleThinking::Level(nuo_provider::Effort::Medium)),
             ),
         );
         assert_eq!(

@@ -3,6 +3,16 @@
 use super::actor::run_supervisor;
 use super::*;
 
+/// Summary of unified storage maintenance operations (ADR-0090).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StorageMaintenanceReport {
+    pub reclaimed_entries: usize,
+    pub reclaimed_blobs: usize,
+    pub reclaimed_blob_bytes: u64,
+    pub created_backup: Option<PathBuf>,
+    pub pruned_backups: usize,
+}
+
 impl fmt::Debug for PersistenceHandle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PersistenceHandle")
@@ -512,6 +522,18 @@ impl PersistenceHandle {
 
     /// Open a reader against this handle's database.
     ///
+    /// Check whether this handle encountered single-writer lock contention on startup (INV-PERSIST-LOCK-01).
+    pub fn is_lock_contention(&self) -> bool {
+        self.startup_error
+            .as_deref()
+            .map(|e| {
+                e.contains("could not acquire advisory lock")
+                    || e.contains("timed out waiting for process lock")
+                    || e.contains("Resource temporarily unavailable")
+            })
+            .unwrap_or(false)
+    }
+
     /// This is the **only** way to obtain a connection snapshot: the engine
     /// type is crate-private, so a caller cannot open one on a path of its own
     /// choosing. Reads never need the actor — WAL readers run concurrently
@@ -521,8 +543,7 @@ impl PersistenceHandle {
         if let Some(error) = &self.startup_error {
             // When another process already holds the single-writer advisory lock (e.g. background server),
             // this process cannot become the supervisor, but SQLite WAL mode safely allows concurrent read-only queries.
-            let is_lock_contention = error.contains("could not acquire advisory lock");
-            if !is_lock_contention {
+            if !self.is_lock_contention() {
                 return Err(rusqlite::Error::InvalidParameterName(error.to_string()));
             }
         }
@@ -697,6 +718,16 @@ impl PersistenceHandle {
         )
     }
 
+    /// Create a rolling online hot backup with automatic retention pruning (ADR-0090).
+    pub fn create_rolling_backup_blocking(
+        &self,
+        backups_dir: PathBuf,
+        retention_limit: usize,
+    ) -> Result<super::backup::BackupMetadata, String> {
+        let manager = super::backup::BackupManager::new(backups_dir);
+        manager.create_rolling_backup(self, retention_limit)
+    }
+
     /// A storage-observability snapshot (D7): WAL size, active reader
     /// count, and the oldest reader snapshot's age. A large WAL or an old
     /// reader is the pressure that blocks checkpoint reclamation.
@@ -741,6 +772,73 @@ impl PersistenceHandle {
             PersistenceCommand::CollectEntryGarbage { ack: ack_tx },
             ack_rx,
         )
+    }
+
+    /// Asynchronously optimize internal indexes and statistics via `PRAGMA optimize`.
+    pub async fn optimize(&self) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::Optimize { ack: ack_tx })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Synchronously optimize internal indexes and statistics on a blocking thread.
+    pub fn optimize_blocking(&self) -> Result<(), PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(PersistenceCommand::Optimize { ack: ack_tx }, ack_rx)
+    }
+
+    /// Unified storage maintenance (ADR-0090):
+    /// 1. Reclaims orphaned fact entries from SQLite.
+    /// 2. Sweeps unreferenced CAS blobs.
+    /// 3. Generates rolling atomic hot backup and prunes excess snapshots.
+    /// 4. Optimizes SQLite internal indexes.
+    pub fn perform_storage_maintenance_blocking(
+        &self,
+        retention_limit: usize,
+    ) -> Result<StorageMaintenanceReport, PersistenceError> {
+        let mut report = StorageMaintenanceReport::default();
+
+        // 1. Reclaim zero-reference fact entries
+        let entries = self.collect_entry_garbage_blocking().unwrap_or(0);
+        report.reclaimed_entries = entries;
+
+        // 2. CAS blob sweep against reader snapshot
+        if let Some(ref blob_store) = self.blob_store {
+            let (blob_count, blob_bytes) = match self.reader().and_then(|r| r.live_blob_hashes()) {
+                Ok(live) => blob_store.retain_only(&live),
+                Err(error) => {
+                    tracing::warn!(%error, "blob garbage collection failed during maintenance; skipping");
+                    (0, 0)
+                }
+            };
+            report.reclaimed_blobs = blob_count;
+            report.reclaimed_blob_bytes = blob_bytes;
+        }
+
+        // 3. Online hot rolling backup
+        let backup_dir = super::backup::BackupManager::default_dir();
+        let backup_mgr = super::backup::BackupManager::new(backup_dir);
+        match backup_mgr.create_rolling_backup(self, retention_limit) {
+            Ok(meta) => {
+                report.created_backup = Some(meta.path);
+            }
+            Err(error) => {
+                tracing::warn!(%error, "rolling hot backup failed during maintenance");
+            }
+        }
+
+        // 4. Prune excess snapshots
+        if let Ok(pruned) = backup_mgr.prune_excess_backups(retention_limit) {
+            report.pruned_backups = pruned;
+        }
+
+        // 5. Run PRAGMA optimize
+        let _ = self.optimize_blocking();
+
+        Ok(report)
     }
 
     /// Save an incremental [`nuo_wire::SessionDelta`] asynchronously (INV-SESSION-05).

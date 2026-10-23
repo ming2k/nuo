@@ -2,13 +2,14 @@
 //! (`opencode.ai/zen/v1`), authenticated via an OpenCode API key
 //! (`OPENCODE_API_KEY`) or public keyless bearer.
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
 /// Curated seed models offered by the OpenCode Zen preset.
-pub use nuo_inference_wire::model_providers::OPENCODE_ZEN_MODELS;
+pub use nuo_provider::model_providers::OPENCODE_ZEN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 pub const MODELS: &[Model] = &[
@@ -108,10 +109,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::AnthropicMessages,
@@ -130,12 +131,12 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_inference_wire::client_identity::OPENCODE_USER_AGENT,
+        nuo_provider::client_identity::OPENCODE_USER_AGENT,
     )),
     protocol: WireProtocol::OpenAiChatCompletions,
     // Served models come from the live /zen/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Structural,
@@ -145,7 +146,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_inference_wire::model::{BaselineModels, resolve};
+    use nuo_provider::model::{BaselineModels, resolve};
 
     #[test]
     fn baseline_ids_are_unique() {

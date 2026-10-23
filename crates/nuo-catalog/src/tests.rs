@@ -11,12 +11,12 @@ use super::{
     build_catalog, build_picker_state, refresh_connection_models_for_etag, sync_connection_catalog,
     sync_fitted_model_registry, sync_remote_catalog,
 };
-use nuo_inference_wire::catalog::Transport;
 use nuo_persistence::config::{
     Config, Credentials, FittedModelInfo, ModelListCacheState, RemoteCatalogCache,
 };
 use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::route_settings::RouteSettingsStore;
+use nuo_provider::catalog::Transport;
 use nuo_provider::oauth::{CredentialStore, TokenSet};
 use nuo_provider::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
 use nuo_wire::{
@@ -500,9 +500,9 @@ fn commandcode_connection_derives_routes() {
         } if base_url == "https://api.commandcode.ai/provider/v1/messages"
     ));
 
-    let channel_chat = derive_channel(
+    let channel_responses = derive_channel(
         &connection,
-        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4.1-flash",
         &inputs_of(
             &RemoteCatalogCache::default(),
             &RouteSettingsStore::default(),
@@ -511,11 +511,12 @@ fn commandcode_connection_derives_routes() {
     )
     .unwrap();
     assert!(matches!(
-        channel_chat.transport,
-        Transport::OpenAiChatCompletions {
+        channel_responses.transport,
+        Transport::OpenAiResponses {
             ref base_url,
+            dialect: nuo_wire::OpenAiResponsesDialect::DeepSeek,
             ..
-        } if base_url == "https://api.commandcode.ai/provider/v1/chat/completions"
+        } if base_url == "https://api.commandcode.ai/provider/v1/responses"
     ));
 }
 
@@ -1086,7 +1087,7 @@ fn model_level_protocol_cascade_resolution() {
         matches!(
             &channel.transport,
             Transport::AnthropicMessages {
-                dialect: nuo_inference_wire::catalog::AnthropicMessagesDialect::Standard,
+                dialect: nuo_provider::catalog::AnthropicMessagesDialect::Standard,
                 ..
             }
         ),
@@ -1127,7 +1128,7 @@ fn build_picker_state_reflects_instances() {
 fn channel_model_info_effort_ladders_survive() {
     // A Gemini model advertises an effort ladder, so its picker row exposes an
     // effort defaulting to `high` (the ladder's top rung) when unset.
-    let gemini37 = nuo_inference_wire::catalog::Channel {
+    let gemini37 = nuo_provider::catalog::Channel {
         id: "default".to_string(),
         transport: Transport::GoogleGenerateContent {
             base_url: "https://cloudcode-pa.googleapis.com".to_string(),

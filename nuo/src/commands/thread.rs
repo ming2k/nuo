@@ -3,8 +3,7 @@
 //! Listing is `nuo thread ls`, administrative termination is `nuo thread rm <id>`.
 
 use crate::cli::ThreadAction;
-use nuo::serve::ControlRequest;
-use nuo_client as client;
+use nuo_tui::client::{self, ControlRequest};
 use nuo_wire::{MonitorAction, MonitorEvent, MonitoredSession};
 use std::path::PathBuf;
 

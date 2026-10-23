@@ -90,7 +90,7 @@ pub enum StreamTokenSource {
 /// setup cost or whether nothing was watching. Absent `dns_us`/`tcp_us`/
 /// `tls_us` reads as "reused a pooled socket" only in the second state below;
 /// in the first it asserts nothing at all.
-pub use nuo_inference_wire::endpoint::TransportObservation;
+pub use nuo_provider::TransportObservation;
 
 /// High-resolution performance telemetry for one concrete provider attempt.
 ///
@@ -199,7 +199,7 @@ pub struct RequestPerformance {
 /// elsewhere must re-anchor every offset before merging the two — and must drop
 /// the offsets entirely when no anchor came with them. The durations (`dns_us`,
 /// `tcp_us`, `tls_us`, `rtt_us`) are anchor-free and transfer either way.
-pub use nuo_inference_wire::endpoint::{TransportTelemetry, TransportTimings};
+pub use nuo_provider::{TransportTelemetry, TransportTimings};
 
 /// Minimum duration of an observed streaming span required for the streaming
 /// rate sample to be statistically and physically defensible (20ms).

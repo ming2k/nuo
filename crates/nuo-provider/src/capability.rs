@@ -5,7 +5,12 @@
 //! [`ModelRequest`] envelope. Wire vocabulary is referenced from the wire
 //! substrate (`nuo-inference-wire`) — contracts flow down, never up
 //! (`[INV-AP-02]`).
-use nuo_inference_wire::endpoint::TransportTelemetry;
+use crate::cache::{CachePlan, PromptCachePreference};
+use crate::effort::Effort;
+use crate::instructions::InstructionBundle;
+use crate::model::ModelCapabilities;
+use crate::state::*;
+use nuo_egress::EgressTelemetry as TransportTelemetry;
 pub use nuo_tool::Tool;
 use nuo_tool::message::Message;
 use nuo_tool::usage::TokenUsage;
@@ -140,11 +145,8 @@ pub struct ModelRequest {
     #[serde(skip)]
     pub transport_telemetry: TransportTelemetry,
     /// Structured instruction manifest (tiers: Base, Session, Task, Ephemeral).
-    #[serde(
-        default,
-        skip_serializing_if = "nuo_inference_wire::InstructionBundle::is_empty"
-    )]
-    pub instructions: nuo_inference_wire::InstructionBundle,
+    #[serde(default, skip_serializing_if = "InstructionBundle::is_empty")]
+    pub instructions: InstructionBundle,
     pub messages: Vec<Message>,
     /// Request-local temporary context (`E_n`): optional,
     /// bounded, and never persisted to the durable interaction record. Provider
@@ -165,14 +167,14 @@ pub struct ModelRequest {
     /// Explicit wire delivery plan selected from the conversation state and
     /// the concrete provider route.
     #[serde(default)]
-    pub delivery: nuo_inference_wire::RequestDelivery,
+    pub delivery: RequestDelivery,
     /// Semantic context version for diagnostics and state validation.
-    pub context_revision: nuo_inference_wire::ContextRevision,
-    pub context_relation: nuo_inference_wire::ContextRelation,
+    pub context_revision: ContextRevision,
+    pub context_relation: ContextRelation,
     /// Request-envelope version (instructions/tools/controls).
-    pub envelope_revision: nuo_inference_wire::EnvelopeRevision,
+    pub envelope_revision: EnvelopeRevision,
     /// Per-request prompt-cache intent. Ephemeral requests default to disabled.
-    pub prompt_cache_preference: nuo_inference_wire::PromptCachePreference,
+    pub prompt_cache_preference: PromptCachePreference,
 }
 
 impl ModelRequest {
@@ -181,16 +183,16 @@ impl ModelRequest {
         Self {
             turn_context: Arc::default(),
             transport_telemetry: TransportTelemetry::default(),
-            instructions: nuo_inference_wire::InstructionBundle::default(),
+            instructions: InstructionBundle::default(),
             messages,
             temporary_context: Vec::new(),
             tool_specs: Vec::new(),
             ephemeral: false,
-            delivery: nuo_inference_wire::RequestDelivery::FullReplay,
-            context_revision: nuo_inference_wire::ContextRevision::empty(),
-            context_relation: nuo_inference_wire::ContextRelation::Initial,
-            envelope_revision: nuo_inference_wire::EnvelopeRevision::ephemeral(),
-            prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+            delivery: RequestDelivery::FullReplay,
+            context_revision: ContextRevision::empty(),
+            context_relation: ContextRelation::Initial,
+            envelope_revision: EnvelopeRevision::ephemeral(),
+            prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
     }
@@ -200,25 +202,22 @@ impl ModelRequest {
         Self {
             turn_context: Arc::default(),
             transport_telemetry: TransportTelemetry::default(),
-            instructions: nuo_inference_wire::InstructionBundle::default(),
+            instructions: InstructionBundle::default(),
             messages,
             temporary_context: Vec::new(),
             tool_specs: Vec::new(),
             ephemeral: true,
-            delivery: nuo_inference_wire::RequestDelivery::FullReplay,
-            context_revision: nuo_inference_wire::ContextRevision::empty(),
-            context_relation: nuo_inference_wire::ContextRelation::Initial,
-            envelope_revision: nuo_inference_wire::EnvelopeRevision::ephemeral(),
-            prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+            delivery: RequestDelivery::FullReplay,
+            context_revision: ContextRevision::empty(),
+            context_relation: ContextRelation::Initial,
+            envelope_revision: EnvelopeRevision::ephemeral(),
+            prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
     }
 
     /// Set instructions on the request.
-    pub fn with_instructions(
-        mut self,
-        instructions: nuo_inference_wire::InstructionBundle,
-    ) -> Self {
+    pub fn with_instructions(mut self, instructions: InstructionBundle) -> Self {
         self.instructions = instructions;
         self.with_recomputed_revisions()
     }
@@ -241,23 +240,23 @@ impl ModelRequest {
         Self {
             turn_context: Arc::default(),
             transport_telemetry: TransportTelemetry::default(),
-            instructions: nuo_inference_wire::InstructionBundle::default(),
+            instructions: InstructionBundle::default(),
             messages,
             temporary_context: Vec::new(),
             tool_specs,
             ephemeral: false,
-            delivery: nuo_inference_wire::RequestDelivery::FullReplay,
-            context_revision: nuo_inference_wire::ContextRevision::empty(),
-            context_relation: nuo_inference_wire::ContextRelation::Initial,
-            envelope_revision: nuo_inference_wire::EnvelopeRevision::ephemeral(),
-            prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+            delivery: RequestDelivery::FullReplay,
+            context_revision: ContextRevision::empty(),
+            context_relation: ContextRelation::Initial,
+            envelope_revision: EnvelopeRevision::ephemeral(),
+            prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
     }
 
     /// Build a request with structured instructions and pre-computed tool declarations.
     pub fn with_instructions_and_tool_specs(
-        instructions: nuo_inference_wire::InstructionBundle,
+        instructions: InstructionBundle,
         messages: Vec<Message>,
         mut tool_specs: Vec<ToolSpec>,
     ) -> Self {
@@ -270,16 +269,16 @@ impl ModelRequest {
             temporary_context: Vec::new(),
             tool_specs,
             ephemeral: false,
-            delivery: nuo_inference_wire::RequestDelivery::FullReplay,
-            context_revision: nuo_inference_wire::ContextRevision::empty(),
-            context_relation: nuo_inference_wire::ContextRelation::Initial,
-            envelope_revision: nuo_inference_wire::EnvelopeRevision::ephemeral(),
-            prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+            delivery: RequestDelivery::FullReplay,
+            context_revision: ContextRevision::empty(),
+            context_relation: ContextRelation::Initial,
+            envelope_revision: EnvelopeRevision::ephemeral(),
+            prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
     }
     pub fn with_instructions_and_tools(
-        instructions: nuo_inference_wire::InstructionBundle,
+        instructions: InstructionBundle,
         messages: Vec<Message>,
         tools: &[Arc<dyn Tool>],
     ) -> Self {
@@ -296,46 +295,39 @@ impl ModelRequest {
             temporary_context: Vec::new(),
             tool_specs,
             ephemeral: false,
-            delivery: nuo_inference_wire::RequestDelivery::FullReplay,
-            context_revision: nuo_inference_wire::ContextRevision::empty(),
-            context_relation: nuo_inference_wire::ContextRelation::Initial,
-            envelope_revision: nuo_inference_wire::EnvelopeRevision::ephemeral(),
-            prompt_cache_preference: nuo_inference_wire::PromptCachePreference::default(),
+            delivery: RequestDelivery::FullReplay,
+            context_revision: ContextRevision::empty(),
+            context_relation: ContextRelation::Initial,
+            envelope_revision: EnvelopeRevision::ephemeral(),
+            prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
     }
 
-    pub fn with_delivery(mut self, delivery: nuo_inference_wire::RequestDelivery) -> Self {
+    pub fn with_delivery(mut self, delivery: RequestDelivery) -> Self {
         self.delivery = delivery;
         self
     }
 
-    pub fn with_route_state(
-        mut self,
-        route: &nuo_inference_wire::RouteFingerprint,
-        mode: nuo_inference_wire::ContinuationMode,
-    ) -> Self {
-        let (delivery, relation) =
-            nuo_inference_wire::select_request_delivery(&self.messages, route, mode);
+    pub fn with_route_state(mut self, route: &RouteFingerprint, mode: ContinuationMode) -> Self {
+        let (delivery, relation) = select_request_delivery(&self.messages, route, mode);
         self.delivery = delivery;
         self.context_relation = relation;
         self
     }
 
     pub fn with_recomputed_revisions(mut self) -> Self {
-        self.context_revision = nuo_inference_wire::ContextRevision {
+        self.context_revision = ContextRevision {
             sequence: self
                 .messages
                 .iter()
                 .filter(|message| message.role != nuo_tool::Role::System)
                 .count() as u64,
-            head: Some(nuo_inference_wire::semantic_context_head(
-                self.messages.iter(),
-            )),
+            head: Some(semantic_context_head(self.messages.iter())),
         };
-        self.envelope_revision = nuo_inference_wire::EnvelopeRevision {
+        self.envelope_revision = EnvelopeRevision {
             sequence: 0,
-            fingerprint: nuo_inference_wire::request_envelope_fingerprint(
+            fingerprint: request_envelope_fingerprint(
                 &self.instructions,
                 &self.messages,
                 &self.tool_specs,
@@ -344,10 +336,7 @@ impl ModelRequest {
         self
     }
 
-    pub fn with_prompt_cache_preference(
-        mut self,
-        preference: nuo_inference_wire::PromptCachePreference,
-    ) -> Self {
+    pub fn with_prompt_cache_preference(mut self, preference: PromptCachePreference) -> Self {
         self.prompt_cache_preference = preference;
         self
     }
@@ -367,14 +356,10 @@ impl ModelRequest {
 
     /// Derive the provider-neutral cache plan: the identity of the cacheable
     /// prefix `S | H | I` plus message counts separated from `E`. See
-    /// [`nuo_inference_wire::CachePlan`] and.
-    pub fn cache_plan(&self) -> nuo_inference_wire::CachePlan {
-        nuo_inference_wire::CachePlan::new(
-            nuo_inference_wire::request_prefix_fingerprint(
-                &self.instructions,
-                &self.messages,
-                &self.tool_specs,
-            ),
+    /// [`CachePlan`] and.
+    pub fn cache_plan(&self) -> CachePlan {
+        CachePlan::new(
+            request_prefix_fingerprint(&self.instructions, &self.messages, &self.tool_specs),
             self.messages.len(),
             self.temporary_context.len(),
         )
@@ -430,27 +415,25 @@ pub enum ProviderStreamEvent {
     Usage(TokenUsage),
     /// Terminal metadata for this exact stream. A stream that ends without
     /// this event is incomplete and must not advance provider continuation.
-    Completed(nuo_inference_wire::ProviderCompletionMeta),
+    Completed(ProviderCompletionMeta),
 }
 
-pub type ProviderTextStream = BoxStream<'static, Result<String, nuo_inference_wire::ProviderError>>;
+pub type ProviderTextStream = BoxStream<'static, Result<String, crate::ProviderError>>;
 pub type ProviderEventStream =
-    BoxStream<'static, Result<ProviderStreamEvent, nuo_inference_wire::ProviderError>>;
+    BoxStream<'static, Result<ProviderStreamEvent, crate::ProviderError>>;
 
 #[async_trait]
 pub trait Provider: Send + Sync {
-    async fn chat(
-        &self,
-        request: ModelRequest,
-    ) -> Result<nuo_inference_wire::ProviderCompletion, nuo_inference_wire::ProviderError>;
+    async fn chat(&self, request: ModelRequest)
+    -> Result<ProviderCompletion, crate::ProviderError>;
     async fn stream_chat(
         &self,
         request: ModelRequest,
-    ) -> Result<ProviderTextStream, nuo_inference_wire::ProviderError>;
+    ) -> Result<ProviderTextStream, crate::ProviderError>;
     async fn stream_chat_events(
         &self,
         request: ModelRequest,
-    ) -> Result<ProviderEventStream, nuo_inference_wire::ProviderError> {
+    ) -> Result<ProviderEventStream, crate::ProviderError> {
         let events = self
             .stream_chat(request)
             .await?
@@ -464,7 +447,7 @@ pub trait Provider: Send + Sync {
         Ok(events
             .chain(futures::stream::once(async {
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_inference_wire::ProviderCompletionMeta::default(),
+                    ProviderCompletionMeta::default(),
                 ))
             }))
             .boxed())
@@ -498,15 +481,15 @@ pub trait Provider: Send + Sync {
     /// transcript can show the depth each turn actually ran at. Defaults to
     /// `None` for providers (mostly test doubles and sentinel channels) that
     /// carry no effort knob — including thinking-disabled Anthropic channels.
-    fn effort(&self) -> Option<nuo_inference_wire::effort::Effort> {
+    fn effort(&self) -> Option<Effort> {
         None
     }
 
     /// Effective model capabilities for this concrete provider channel. The
     /// default resolves the static baseline by id; providers backed by a trusted
     /// remote catalogue override it with their channel-scoped snapshot.
-    fn model_capabilities(&self) -> nuo_inference_wire::ModelCapabilities {
-        nuo_inference_wire::ModelCapabilities::for_channel(&self.model(), None)
+    fn model_capabilities(&self) -> ModelCapabilities {
+        ModelCapabilities::for_channel(&self.model(), None)
     }
 
     /// Provider/protocol-specific prompt hints for the agent's system prompt.
@@ -519,13 +502,13 @@ pub trait Provider: Send + Sync {
     }
 
     /// Stable identity of the concrete protocol/endpoint/model route.
-    fn route_fingerprint(&self) -> nuo_inference_wire::RouteFingerprint {
-        nuo_inference_wire::RouteFingerprint(format!("{}:{}", self.provider_id(), self.model()))
+    fn route_fingerprint(&self) -> RouteFingerprint {
+        RouteFingerprint(format!("{}:{}", self.provider_id(), self.model()))
     }
 
     /// How this route can carry prior response state.
-    fn continuation_mode(&self) -> nuo_inference_wire::ContinuationMode {
-        nuo_inference_wire::ContinuationMode::FullReplay
+    fn continuation_mode(&self) -> ContinuationMode {
+        ContinuationMode::FullReplay
     }
 
     /// Toggle capture for debugging. When `enabled` is true, every
@@ -552,7 +535,7 @@ pub trait Provider: Send + Sync {
     /// Whether this provider surfaces real token usage from the upstream API.
     ///
     /// The harness uses this (together with [`ProviderStreamEvent::Usage`] or
-    /// [`nuo_inference_wire::ProviderCompletionMeta::usage`]) to decide whether a turn's
+    /// [`ProviderCompletionMeta::usage`]) to decide whether a turn's
     /// token accounting is **reported** (authoritative) or **estimated** (local
     /// heuristic). The token-source report modal surfaces this distinction so
     /// the user can see which turns are measured and which are guessed.
@@ -562,18 +545,6 @@ pub trait Provider: Send + Sync {
     fn usage_supported(&self) -> bool {
         false
     }
-}
-
-/// Optional orthogonal capability: remote model catalog discovery (ADR-0015).
-#[async_trait]
-pub trait CatalogDiscovery: Send + Sync {
-    /// Discover available models from the provider endpoint.
-    async fn list_models(
-        &self,
-    ) -> Result<
-        Vec<nuo_inference_wire::catalog::DiscoveredModel>,
-        nuo_inference_wire::catalog::ModelListError,
-    >;
 }
 
 /// Optional orthogonal capability: token quota and usage balance query (ADR-0015).

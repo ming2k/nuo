@@ -1,6 +1,5 @@
 //! Endpoint configuration and vendor target definitions.
 
-use crate::client_identity::ClientProfile;
 use crate::credentials::CredentialsProvider;
 use crate::error::Result;
 use std::collections::HashMap;
@@ -21,11 +20,6 @@ pub enum ProviderVendor {
     Ollama,
 }
 
-pub use nuo_egress::{
-    EgressObservation as TransportObservation, EgressTelemetry as TransportTelemetry,
-    EgressTimings as TransportTimings,
-};
-
 /// Target API endpoint configuration.
 #[derive(Debug, Clone)]
 pub struct Endpoint {
@@ -35,7 +29,7 @@ pub struct Endpoint {
     pub credentials: Arc<dyn CredentialsProvider>,
     pub model: String,
     pub timeout: Duration,
-    pub client_profile: ClientProfile,
+    pub client_headers: Vec<(String, String)>,
     pub custom_headers: HashMap<String, String>,
 }
 
@@ -64,7 +58,7 @@ impl Endpoint {
             credentials: Arc::new(crate::credentials::StaticApiKey::new(api_key)),
             model: model.into(),
             timeout: DEFAULT_TIMEOUT,
-            client_profile: ClientProfile::Native,
+            client_headers: Vec::new(),
             custom_headers: HashMap::new(),
         }
     }
@@ -158,9 +152,15 @@ impl Endpoint {
         self
     }
 
-    /// Attaches a client fingerprint profile (e.g. Copilot, ClaudeCode, Cursor).
-    pub fn with_client_profile(mut self, profile: ClientProfile) -> Self {
-        self.client_profile = profile;
+    /// Attaches client identity headers to be sent on every request.
+    pub fn with_client_headers(
+        mut self,
+        headers: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.client_headers = headers
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
         self
     }
 

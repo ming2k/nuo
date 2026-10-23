@@ -1,6 +1,6 @@
 # Parked Request State Model Reference
 
-Reference for the lifecycle of a request that parks an agent mid-round on a human decision. Cited by the shared vocabulary module (`crates/nuo-wire/src/human_request.rs`) and the broker that enforces it (`crates/nuo-harness/src/interop/human_broker.rs`).
+Reference for the lifecycle of a request that parks an agent mid-round on a human decision. Cited by the shared vocabulary module (`crates/nuo-protocol/src/human_request.rs`) and the broker that enforces it (`crates/nuo-harness/src/interop/human_broker.rs`).
 
 ---
 

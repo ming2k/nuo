@@ -1033,17 +1033,17 @@ pub(crate) async fn edit_model(
     let mut routes = RouteSettingsStore::load();
     let entry = routes.settings_for_mut(&connection, &model);
     match transport {
-        nuo_inference_wire::catalog::Transport::AnthropicMessages { .. } => {
+        nuo_provider::catalog::Transport::AnthropicMessages { .. } => {
             entry.effort = valid_effort;
             entry.thinking = thinking;
         }
-        nuo_inference_wire::catalog::Transport::OpenAiChatCompletions { .. }
-        | nuo_inference_wire::catalog::Transport::OpenAiResponses { .. } => {
+        nuo_provider::catalog::Transport::OpenAiChatCompletions { .. }
+        | nuo_provider::catalog::Transport::OpenAiResponses { .. } => {
             entry.effort = valid_effort;
             entry.thinking = None;
         }
-        nuo_inference_wire::catalog::Transport::GoogleGenerateContent { .. }
-        | nuo_inference_wire::catalog::Transport::GoogleInteractions { .. } => {}
+        nuo_provider::catalog::Transport::GoogleGenerateContent { .. }
+        | nuo_provider::catalog::Transport::GoogleInteractions { .. } => {}
     }
     // Capability overrides (layer 1): `None` keeps the stored
     // record untouched; `Some(record)` replaces it wholesale (empty clears).
@@ -1952,7 +1952,7 @@ pub(crate) async fn fetch_usage_for_connection(
         match nuo_wire::CredentialSource::resolve_auth(&source).await {
             Ok(auth) => {
                 let project = auth
-                    .extension::<nuo_inference_wire::GoogleAuthMetadata>()
+                    .extension::<nuo_provider::auth::GoogleAuthMetadata>()
                     .map(|m| m.project_id.clone());
                 let account_id = auth.user_email.clone().or_else(|| project.clone());
                 (
@@ -1992,7 +1992,7 @@ pub(crate) async fn fetch_usage_for_connection(
             nuo_wire::CredentialSource::force_refresh_after_rejection(&source, &rejected).await
         {
             let refreshed_project = refreshed
-                .extension::<nuo_inference_wire::GoogleAuthMetadata>()
+                .extension::<nuo_provider::auth::GoogleAuthMetadata>()
                 .map(|m| m.project_id.as_str())
                 .or(project.as_deref());
             usage = crate::provider_registry::fetch_provider_usage_ext(

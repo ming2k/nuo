@@ -6,11 +6,9 @@ use base64::engine::general_purpose::STANDARD as BASE64_STD;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::{Deserialize, Serialize};
 
+use crate::config::{ClientAuthMethod, OAuthConfig, PkceMode, TokenRequestFormat};
 use crate::oauth::pkce::PkceCodes;
 use nuo_host::SecretString;
-use nuo_inference_wire::provider_auth::{
-    ClientAuthMethod, OAuthConfig, PkceMode, TokenRequestFormat,
-};
 
 /// Refresh the access token ahead of expiry so long-running calls don't hit a 401.
 pub const ACCESS_TOKEN_REFRESH_SKEW_MS: i64 = 120_000;
@@ -32,7 +30,7 @@ pub struct TokenResponse {
     pub scope: Option<String>,
     /// Qoder's device-token/device-exchange responses carry the account's
     /// uid; every other issuer leaves this absent. Consumed by the runtime
-    /// to assemble the connection's typed [`nuo_inference_wire::QoderRequestIdentity`]
+    /// to assemble the connection's typed [`nuo_provider::QoderRequestIdentity`]
     /// at login time.
     #[serde(default, alias = "uid", alias = "userId")]
     pub qoder_uid: Option<String>,

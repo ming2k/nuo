@@ -6,8 +6,9 @@
 //! unique to its wire format.
 use std::sync::Arc;
 
-pub use nuo_inference_wire::client_identity::*;
-use nuo_inference_wire::{CredentialSource, ResolvedAuth, SecretString, static_credential};
+use crate::auth::{CredentialSource, ResolvedAuth, static_credential};
+pub use crate::client_identity::*;
+use nuo_host::SecretString;
 
 /// The connection fields every provider shares.
 ///

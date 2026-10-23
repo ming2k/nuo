@@ -38,6 +38,19 @@ pub use color_scheme_config::{
     KeycapThemeConfig, OverlayThemeConfig, SheetThemeConfig, SurfacesThemeConfig, ThemeFile,
     ViewThemeConfig,
 };
+pub mod discovery;
+#[cfg(unix)]
+pub use discovery::default_uds_path;
+pub use discovery::{
+    Discovery, ServerInfo, default_local_endpoint, global_discovery_path, global_lock_path,
+    global_spawn_lock_path, instance_dir,
+};
+pub mod version;
+pub use version::{
+    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, VersionRelation, compare_versions,
+    incompatibility_error, protocol_accepts, protocol_mismatch, server_image_is_current,
+    version_mismatch, versions_compatible,
+};
 pub mod cache;
 pub use cache::{
     CachePlan, CacheResolutionError, CacheRetention, PromptCacheCapabilities, PromptCacheMode,
@@ -107,7 +120,6 @@ pub mod client_identity;
 pub mod connection_auth;
 pub mod connection_detail;
 pub mod model_providers;
-pub mod provider_auth;
 pub mod provider_state;
 pub mod wire_surface;
 pub use client_identity::{
@@ -298,15 +310,6 @@ pub use policy_schema::*;
 pub const PROTOCOL_VERSION: u32 = 14;
 /// Minimum supported client protocol version.
 pub const MIN_PROTOCOL_VERSION: u32 = 12;
-
-/// Stable machine-readable error codes.
-pub const ERR_PROTOCOL_MISMATCH: &str = "protocol_mismatch";
-pub const ERR_VERSION_MISMATCH: &str = "version_mismatch";
-
-/// Check whether the advertised client version is supported by this runtime protocol.
-pub const fn protocol_accepts(client: u32) -> bool {
-    matches!(client, MIN_PROTOCOL_VERSION..=PROTOCOL_VERSION)
-}
 
 /// Initial options and postures when creating a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -52,6 +52,8 @@ mod web_migration;
 pub mod workspace_security;
 
 pub use asset_attestation::AssetAttestationLedger;
+pub use db::StorageMaintenanceReport;
+pub use db::backup::{BackupManager, BackupMetadata, DEFAULT_BACKUP_RETENTION_LIMIT};
 pub use role_memory::{RecalledMemory, RoleMemoryEntry, RoleMemoryStore, get_role_memory_store};
 pub use session::{CommitTurn, ForkTarget, SessionStore};
 pub use tools::{RecallMemoryArgs, RecallMemoryTool, create_persistence_tools};

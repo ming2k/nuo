@@ -7,13 +7,13 @@
 //! record is a clean "no server" report, not an excuse to start one.
 //!
 //! This module is presentation only: the monitor-protocol client
-//! ([`nuo_client::monitor_stream`]) and the stream-folding helper
-//! ([`nuo_client::upsert_session_row`]) live with the wire protocol
-//! in `nuo-client`; what remains here is the terminal rendering of the
+//! ([`client::monitor_stream`]) and the stream-folding helper
+//! ([`client::upsert_session_row`]) live with the client transport
+//! in `nuo-tui::client`; what remains here is the terminal rendering of the
 //! snapshot.
 use std::path::Path;
 
-use nuo_client::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
+use nuo_tui::client::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
 use nuo_wire::{
     MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession, SessionHosting, SessionStatus,
 };
@@ -669,7 +669,7 @@ mod tests {
         // installed image must be surfaced as rebuilt-binary drift, taking
         // precedence over the generic "healthy" line.
         let diag = ServerDiagnostics {
-            discovery_record: Some(nuo_client::ServerInfo {
+            discovery_record: Some(client::ServerInfo {
                 pid: 12345,
                 version: Some("0.25.1".to_string()),
                 protocol: Some(1),
@@ -697,7 +697,7 @@ mod tests {
     #[test]
     fn diagnostics_formatter_renders_healthy_state() {
         let diag = ServerDiagnostics {
-            discovery_record: Some(nuo_client::ServerInfo {
+            discovery_record: Some(client::ServerInfo {
                 pid: 12345,
                 process_birth_token: None,
                 port: 9800,
@@ -734,7 +734,7 @@ mod tests {
         // ADR-0033 & ADR-0045: an interactive client-bound server binds only local UDS (port 0,
         // zero TCP listeners) and must be recognized as healthy rather than unresponsive.
         let diag = ServerDiagnostics {
-            discovery_record: Some(nuo_client::ServerInfo {
+            discovery_record: Some(client::ServerInfo {
                 pid: 12345,
                 port: 0,
                 started_at: 1000,

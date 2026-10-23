@@ -6,7 +6,7 @@ This document specifies the style guide, markdown conventions, and hyperlink sta
 
 ## 1. Hyperlink Standards
 
-1. **Relative Paths**: All cross-references between documentation files must use explicit relative paths (e.g., `[ADR-0005](../adr/0005-unified-binary-and-concentric-runtime-architecture.md)`).
+1. **Relative Paths**: All cross-references between documentation files must use explicit relative paths (e.g., `[ADR-0005](../../adr/0005-unified-binary-and-concentric-runtime-architecture.md)`).
 2. **Never Use Absolute File URLs**: Never write hardcoded local paths (e.g., `/home/...` or `file://...`) or absolute repo URLs that break across mirrors or forks.
 3. **Target Existence**: Every relative link must resolve to a valid file. Dead links or broken anchors block publication.
 4. **Anchor Hygiene**: When linking to section headers, use clean GitHub-flavored kebab-case anchors matching the heading text.

@@ -55,13 +55,6 @@ impl SessionStore {
         Self::for_workspace(workspace, None)
     }
 
-    /// Backwards-compatible alias for [`Self::load_for_project`] using the
-    /// current process cwd.
-    pub fn load() -> Self {
-        let project_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        Self::load_for_project(project_root)
-    }
-
     /// Open a `SessionStore` pinned to an optional workspace binding.
     /// `None` is the workspace-free (unbound) set. `persona` is the staffing
     /// persona recorded on a fresh session, if any.

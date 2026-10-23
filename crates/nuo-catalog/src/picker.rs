@@ -4,9 +4,9 @@
 
 use super::derive::derive_entries;
 use super::{Stores, effective_default_connection_id};
-use nuo_inference_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_persistence::config::Config;
 use nuo_persistence::connection_usage::ConnectionUsage;
+use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
 use nuo_wire::{
     Effort, ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot, ReasoningMode,
 };

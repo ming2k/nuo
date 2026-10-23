@@ -35,10 +35,10 @@ pub fn resolve_model_pricing(provider: &str, model: &str) -> Option<ModelPricing
         return Some(ModelPricing::zero());
     }
 
-    let canonical_provider = nuo_inference_wire::model_providers::canonical_provider_id(provider)
-        .or_else(|| {
+    let canonical_provider =
+        crate::model_providers::canonical_provider_id(provider).or_else(|| {
             let lower = provider.trim().to_ascii_lowercase();
-            nuo_inference_wire::model_providers::canonical_provider_id(&lower)
+            crate::model_providers::canonical_provider_id(&lower)
         });
 
     // Explicit subscription / quota plan providers do not have per-token API pricing.
@@ -87,7 +87,7 @@ fn resolve_effective_vendor(
             } else if p == "openai" {
                 Some("openai".to_string())
             } else if let Some(v) = vendor_prefix {
-                let v_canon = nuo_inference_wire::model_providers::canonical_provider_id(v)
+                let v_canon = crate::model_providers::canonical_provider_id(v)
                     .unwrap_or_else(|| v.to_ascii_lowercase());
                 if matches!(
                     v_canon.as_str(),

@@ -19,7 +19,7 @@
 //! (`None`) is attempted — providers reject images loudly, while a client that
 //! strips them silently leaves the model answering confidently about a picture
 //! it never received.
-use nuo_inference_wire::ModelCapabilities;
+use crate::ModelCapabilities;
 use nuo_tool::Message;
 
 /// Project `messages` for a route whose image support is `capabilities`.
@@ -62,7 +62,7 @@ pub fn project_images_for_route(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_inference_wire::ModelCapabilities;
+    use crate::ModelCapabilities;
     use nuo_tool::{ImagePart, Role};
 
     fn caps(vision: Option<bool>) -> ModelCapabilities {

@@ -349,7 +349,7 @@ async fn run_inner(
         },
         local_endpoint: bound_local.clone(),
         version: Some(crate::serve::server_version().to_string()),
-        protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
+        protocol: Some(nuo_wire::PROTOCOL_VERSION),
         // ADR-0021: the server's own image identity, so a client can tell a
         // rebuilt binary apart from a live one by content, not just by path.
         image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),

@@ -268,7 +268,13 @@ impl ModelPricing {
 
     /// Calculate precise financial cost for a turn's [`TokenUsage`].
     pub fn calculate_cost(&self, usage: &TokenUsage, instant: RatingInstant) -> TurnCost {
-        let breakdown = TokenBreakdown::from_usage(usage);
+        let breakdown = TokenBreakdown::from_counts(
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.cache_read_input_tokens,
+            usage.cache_creation_input_tokens,
+            usage.reasoning_tokens,
+        );
         self.calculate_breakdown_cost(&breakdown, instant)
     }
 }

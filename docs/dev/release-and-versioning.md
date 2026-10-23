@@ -11,7 +11,7 @@ It translates the architectural mandate of **[ADR-0004](../adr/0004-federated-cl
 In a multi-crate repository spanning different technical layers, two common extremes lead to architectural decay:
 
 1. **The Monolithic Lockstep Anti-Pattern**: Forcing domain-free graphics engines (`nuotc`) or universal open standards (`acp`) to bump their versions whenever an upper application bug in `nuo` is patched. This pollutes external consumers' dependency trees and misleads the open-source ecosystem regarding stability.
-2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`nuo-client`, `nuo-host`, `nuo-persistence`, `nuo-harness`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
+2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`nuo-host`, `nuo-persistence`, `nuo-harness`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
 
 To solve this, the Nuo repository operates under **Federated Cluster SemVer**: autonomous protocol and substrate crates maintain independent versioning and release cycles, while the core host application suite evolves in lockstep.
 
@@ -41,8 +41,8 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 │  • nuo (server & unified CLI coordinator)              │
 │  • nuo-server (headless server container runtime)      │
 │  • nuo-tui (terminal presentation view library)        │
-│  • nuo-client (SDK), nuo-host (host environment)       │
-│  • nuo-agent (cognitive loop), nuo-wire (domain & wire) │
+│  • nuo-host (host environment)                         │
+│  • nuo-agent (cognitive loop), nuo-protocol (IPC wire) │
 │  • nuo-tool, nuo-tool-derive (tool specifications)     │
 │  • nuo-inference-wire (dialect translation & streaming)   │
 │  • nuo-harness (orchestrator), nuo-persistence (store) │
@@ -63,8 +63,7 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuo-server`** | **Cluster C** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
 | **`nuo-tui`** | **Cluster C** | Semantic terminal interactive presentation view library | `version.workspace = true` | crates.io package |
 | **`nuo-agent`** | **Cluster C** | Cognitive loop, session turns & token compaction | `version.workspace = true` | crates.io package |
-| **`nuo-client`** | **Cluster C** | Standalone Rust Client SDK & Wire DTOs | `version.workspace = true` | crates.io package |
-| **`nuo-wire`** | **Cluster C** | Wire envelopes, session entities & shared domain contracts | `version.workspace = true` | crates.io package |
+| **`nuo-protocol`** | **Cluster C** | IPC envelopes, session entities, discovery & shared domain contracts | `version.workspace = true` | crates.io package (`nuo-wire` alias) |
 | **`nuo-host`** | **Cluster C** | Host environment, sandboxing & native tools | `version.workspace = true` | crates.io package |
 | **`nuo-tool`** | **Cluster C** | Zero-agent-runtime tool specification & schemas | `version.workspace = true` | crates.io package |
 | **`nuo-tool-derive`** | **Cluster C** | Compile-time JSON schema derive macro | Direct path companion to `nuo-tool` | crates.io package |
@@ -85,11 +84,12 @@ All internal inter-crate dependencies declared in the root `Cargo.toml` under `[
 ```toml
 [workspace.dependencies]
 # Autonomous protocol and substrate crates
+# (versions below are illustrative — `[workspace.package].version` is the
+# single source of truth for the Cluster C lockstep suite)
 acp = { version = "0.0.46", package = "nuo-acp", path = "crates/nuo-acp" }
 nuotc = { version = "0.0.3" }
 
 # Component libraries
-nuo-client = { version = "0.0.46", path = "crates/nuo-client" }
 nuo-host = { version = "0.0.46", path = "crates/nuo-host" }
 nuo-tool = { version = "0.0.46", path = "crates/nuo-tool" }
 nuo-inference-wire = { version = "0.0.46", path = "crates/nuo-inference-wire" }
@@ -171,7 +171,7 @@ When a standalone crate reaches a new protocol or engine milestone:
    cargo publish -p acp
    ```
 
-### Playbook 2: Releasing the Unified Host Suite (`nuo`, `nuox`, `nuo-*`)
+### Playbook 2: Releasing the Unified Host Suite (`nuo`, `nuo-*`)
 
 When releasing a new version of the Nuo product and server/terminal suite:
 
@@ -192,7 +192,7 @@ When releasing a new version of the Nuo product and server/terminal suite:
    ```
 4. **CI Distribution**:
    - The CI runner matching `v*` builds pre-compiled release binary for `nuo` across Linux, macOS, and Windows.
-   - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-inference-wire`, `nuo-persistence`, `nuo-catalog`, `nuo-client`, etc.).
+   - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-inference-wire`, `nuo-persistence`, `nuo-catalog`, etc.).
 
 ---
 
@@ -209,7 +209,7 @@ When releasing a new version of the Nuo product and server/terminal suite:
 
 ### 3. Never Bypass Cluster Boundaries (`[INV-VER-01]`)
 - Autonomous crates (`acp`, `nuotc`) must **never** inherit `version.workspace = true`.
-- Host suite crates (`nuo-host`, `nuo-client`, `nuo-harness`) must **never** declare independent version numbers; they must remain strictly in lockstep.
+- Host suite crates (`nuo-host`, `nuo-server`, `nuo-harness`) must **never** declare independent version numbers; they must remain strictly in lockstep.
 
 ---
 

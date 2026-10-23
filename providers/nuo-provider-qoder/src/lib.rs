@@ -22,15 +22,15 @@ pub use usage::*;
 pub use wire::*;
 
 use nuo_inference_wire::WireProtocol;
-use nuo_inference_wire::model::Model;
-use nuo_inference_wire::reasoning::ReasoningSupport;
+use nuo_provider::model::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 use nuo_provider::spec::{ModelProviderSpec, RemoteCatalogSource};
 use serde_json::Value;
 
 /// The offline seed ids, owned by `nuo_inference_wire` so the TUI template and the
 /// registry cannot disagree about them (the convention every other curated
 /// provider follows).
-pub use nuo_inference_wire::model_providers::QODER_MODELS;
+pub use nuo_provider::model_providers::QODER_MODELS;
 
 /// Baseline capability metadata for the seeded models.
 ///
@@ -65,10 +65,10 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Qoder,
+    dialect: nuo_provider::ProviderDialect::Qoder,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -77,10 +77,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     root_url: std::borrow::Cow::Borrowed("https://api3.qoder.sh"),
     user_agent: None,
     protocol: WireProtocol::OpenAiChatCompletions,
-    catalog_source: RemoteCatalogSource::Endpoint(
-        nuo_inference_wire::provider_surface::CatalogShape::SceneMap,
-    ),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    catalog_source: RemoteCatalogSource::Endpoint(nuo_provider::surface::CatalogShape::SceneMap),
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::Qoder),
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -263,13 +261,13 @@ fn discovered_from_scene_entry(
     // `None` otherwise — no surface may invent one.
     let reason = disabled_reason(entry);
     let availability = match entry.get("enable") {
-        Some(Value::Bool(true)) => Some(nuo_inference_wire::Availability::usable()),
-        Some(Value::Bool(false)) => Some(nuo_inference_wire::Availability::locked(reason)),
+        Some(Value::Bool(true)) => Some(nuo_provider::Availability::usable()),
+        Some(Value::Bool(false)) => Some(nuo_provider::Availability::locked(reason)),
         Some(Value::Number(number)) => {
             if number.as_i64().unwrap_or(0) != 0 {
-                Some(nuo_inference_wire::Availability::usable())
+                Some(nuo_provider::Availability::usable())
             } else {
-                Some(nuo_inference_wire::Availability::locked(reason))
+                Some(nuo_provider::Availability::locked(reason))
             }
         }
         _ => None,
@@ -305,7 +303,7 @@ fn discovered_from_scene_entry(
         name: entry
             .get("display_name")
             .and_then(Value::as_str)
-            .map(nuo_inference_wire::catalog::clean_model_display_name),
+            .map(nuo_provider::clean_model_display_name),
         context_window,
         max_output_tokens: None,
         reasoning: entry.get("is_reasoning").and_then(Value::as_bool),
@@ -400,20 +398,20 @@ mod tests {
         };
         assert_eq!(
             by_id("qmodel_38max").availability,
-            Some(nuo_inference_wire::Availability::usable())
+            Some(nuo_provider::Availability::usable())
         );
         // A locked entry the payload gives no reason for stays reasonless: no
         // surface may invent one.
         assert_eq!(
             by_id("gmodel").availability,
-            Some(nuo_inference_wire::Availability::locked(None))
+            Some(nuo_provider::Availability::locked(None))
         );
         // A locked entry the payload *does* explain carries the provider's own
         // key verbatim — never resolved against the vendor's text table
         // (`[INV-AVAIL-03]`).
         assert_eq!(
             by_id("kmodel").availability,
-            Some(nuo_inference_wire::Availability::locked(Some(
+            Some(nuo_provider::Availability::locked(Some(
                 "codeSafeModelReason".to_string()
             )))
         );

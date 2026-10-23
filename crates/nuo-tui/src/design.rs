@@ -179,6 +179,12 @@ pub(crate) const JOIN_ENUMERATE_COLS: usize = 2;
 /// Container › member breadcrumb for inline hierarchy (`round 3 › turn 2`).
 #[allow(dead_code)]
 pub(crate) const JOIN_BREADCRUMB: &str = " › ";
+/// Cause that explains a state, joined with an em dash (`timed out — killed`).
+/// This is the *only* form for a cause: parentheses mean a secondary measure
+/// (`4.2k (7%)`), so `state (cause)` would misdeclare the relationship. Spaced
+/// exactly as the docs table shows it, so call sites never re-invent the
+/// spacing.
+pub(crate) const JOIN_CAUSE: &str = " — ";
 /// Queue bar: a one-line persistent region pinned in the footer stack
 /// (above the transient activity bar) that always surfaces the pending
 /// outbox (the `QUEUE` identity + count, an inline preview of the next item

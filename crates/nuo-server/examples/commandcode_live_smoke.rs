@@ -79,8 +79,8 @@ async fn main() {
     }
 
     println!("\n=== 3. Anthropic Messages Streaming (claude-sonnet-5-5) ===");
-    let cred_source: Arc<dyn nuo_inference_wire::CredentialSource> = Arc::new(
-        nuo_inference_wire::auth::StaticCredentialSource::new(secret.clone()),
+    let cred_source: Arc<dyn nuo_provider::CredentialSource> = Arc::new(
+        nuo_provider::auth::StaticCredentialSource::new(secret.clone()),
     );
     let provider_anthropic = nuo_provider_anthropic::AnthropicMessagesProvider::with_credentials(
         cred_source,

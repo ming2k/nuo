@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use crate::fsutil;
 use crate::paths;
 
-pub use nuo_inference_wire::model_providers::UserDeclaredProvider;
+pub use nuo_wire::model_providers::UserDeclaredProvider;
 
 /// Root map of user-configured model providers in `model_providers.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

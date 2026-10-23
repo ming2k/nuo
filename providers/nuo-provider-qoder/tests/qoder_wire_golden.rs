@@ -14,7 +14,8 @@
 // Golden-wire tests assert on parsed JSON; an `expect` that names the missing
 // field is the most useful failure mode here.
 
-use nuo_inference_wire::{ClientPreset, ResolvedAuth, SecretString, TransportTelemetry};
+use nuo_host::SecretString;
+use nuo_provider::{ClientPreset, ResolvedAuth, TransportTelemetry};
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 
@@ -25,7 +26,7 @@ struct StaticOAuthSource {
     identity: QoderRequestIdentity,
 }
 
-impl nuo_inference_wire::CredentialSource for StaticOAuthSource {
+impl nuo_provider::CredentialSource for StaticOAuthSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         Box::pin(
             async move { Ok(ResolvedAuth::new(self.token).with_extension(self.identity.clone())) },
@@ -60,7 +61,7 @@ fn qoder_wire_provider() -> OpenAiChatCompletionsProvider {
         "https://api2.qoder.sh",
         ClientPreset::Native,
     )
-    .with_dialect(nuo_inference_wire::OpenAiChatDialect::Qoder)
+    .with_dialect(nuo_provider::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline())
 }
 
@@ -234,17 +235,17 @@ fn qoder_golden_wire_body_is_the_qoderencoded_agent_chat_envelope() {
 /// `low`/`medium`/`xhigh` on `qfmodel`). This mirrors that so the tests below
 /// exercise the *production* chain — catalog metadata → flat body →
 /// envelope — rather than a hand-written body that skips the gate.
-fn catalog_capabilities(model: &str) -> nuo_inference_wire::ModelCapabilities {
-    let remote = nuo_inference_wire::RemoteModelMetadata {
+fn catalog_capabilities(model: &str) -> nuo_provider::ModelCapabilities {
+    let remote = nuo_provider::RemoteModelMetadata {
         effort_levels: Some(
             ["low", "medium", "xhigh"]
                 .iter()
-                .map(|level| nuo_inference_wire::EffortLevel::parse(level))
+                .map(|level| nuo_provider::EffortLevel::parse(level))
                 .collect(),
         ),
         ..Default::default()
     };
-    nuo_inference_wire::ModelCapabilities::for_channel(model, Some(&remote))
+    nuo_provider::ModelCapabilities::for_channel(model, Some(&remote))
 }
 
 /// Build the flat chat-completions body the way production does, then plan it
@@ -277,9 +278,9 @@ fn qoder_golden_wire_projects_the_requested_effort_into_parameters() {
             stream: true,
             instructions: None,
             tool_specs: None,
-            reasoning_effort: Some(nuo_inference_wire::Effort::Xhigh),
-            dialect: nuo_inference_wire::OpenAiChatDialect::Qoder,
-            cache_plan: &nuo_inference_wire::ResolvedCachePolicy::Unsupported,
+            reasoning_effort: Some(nuo_provider::Effort::Xhigh),
+            dialect: nuo_provider::OpenAiChatDialect::Qoder,
+            cache_plan: &nuo_provider::ResolvedCachePolicy::Unsupported,
         },
         &catalog_capabilities("qfmodel"),
     );
@@ -316,7 +317,7 @@ fn qoder_golden_wire_projects_effort_none_as_reasoning_off() {
 /// states `max_tokens`.
 #[test]
 fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
-    let offline = nuo_inference_wire::ModelCapabilities::for_channel("qfmodel", None);
+    let offline = nuo_provider::ModelCapabilities::for_channel("qfmodel", None);
     assert!(
         offline.effort_levels.is_empty(),
         "the baseline declares no ladder; this test is about the offline path"
@@ -328,9 +329,9 @@ fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
             stream: true,
             instructions: None,
             tool_specs: None,
-            reasoning_effort: Some(nuo_inference_wire::Effort::Xhigh),
-            dialect: nuo_inference_wire::OpenAiChatDialect::Qoder,
-            cache_plan: &nuo_inference_wire::ResolvedCachePolicy::Unsupported,
+            reasoning_effort: Some(nuo_provider::Effort::Xhigh),
+            dialect: nuo_provider::OpenAiChatDialect::Qoder,
+            cache_plan: &nuo_provider::ResolvedCachePolicy::Unsupported,
         },
         &offline,
     );

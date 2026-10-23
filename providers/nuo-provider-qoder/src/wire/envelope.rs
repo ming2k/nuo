@@ -1,8 +1,8 @@
 //! The `agent_chat_generation` request envelope (Qoder's agent surface).
 
-use nuo_inference_wire::ProviderError;
-use nuo_inference_wire::model::ModelCapabilities;
-use nuo_inference_wire::wire_surface::{AgentChatSpec, IdentityValue, ModelBinding, ModelCarrier};
+use nuo_provider::ProviderError;
+use nuo_provider::model::ModelCapabilities;
+use nuo_provider::wire_surface::{AgentChatSpec, IdentityValue, ModelBinding, ModelCarrier};
 use nuo_provider::{EnvelopePhase, ReshapedEnvelope};
 use serde_json::{Map, Value, json};
 

@@ -4,7 +4,6 @@
 //! provider counters (Gemini, Claude, OpenAI) into unambiguous, non-overlapping classes.
 //! Contains zero monetary or pricing concepts.
 
-use nuo_tool::usage::TokenUsage;
 use serde::{Deserialize, Serialize};
 
 /// Semantic classification of tokens crossing provider wire protocols.
@@ -25,40 +24,46 @@ pub enum TokenClass {
     AudioInput,
 }
 
-/// Normalized token distribution across semantic classes reported by wire protocols.
+/// Canonical, de-duplicated distribution of billable token counts across standardized classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct TokenBreakdown {
-    /// Net uncached standard input tokens.
+    /// Net uncached input text tokens.
     pub uncached_input: u64,
-    /// Tokens read from prompt cache.
+    /// Cached input prompt tokens read from storage.
     pub cache_read: u64,
-    /// Tokens written to create or retain prompt cache.
+    /// Input prompt tokens written to context cache.
     pub cache_write: u64,
-    /// Net standard generation output tokens (excluding reasoning).
+    /// Standard completion tokens generated.
     pub standard_output: u64,
-    /// Reasoning / extended thinking tokens.
+    /// Thinking / deep reasoning tokens generated.
     pub reasoning_output: u64,
     /// Audio input tokens.
     pub audio_input: u64,
 }
 
 impl TokenBreakdown {
-    /// Normalize an upstream [`TokenUsage`] into an unambiguous, non-overlapping breakdown.
+    /// Normalize raw token counters into an unambiguous, non-overlapping breakdown.
     ///
     /// Resolves the upstream semantic ambiguity where some providers (Gemini, OpenAI) include
     /// cached tokens in `prompt_tokens`, while others (Anthropic) report only the uncached suffix.
-    pub fn from_usage(usage: &TokenUsage) -> Self {
-        let cache_read = usage.cache_read_input_tokens.max(0) as u64;
-        let cache_write = usage.cache_creation_input_tokens.max(0) as u64;
-        let prompt_total = usage.prompt_tokens.max(0) as u64;
+    pub fn from_counts(
+        prompt_tokens: i64,
+        completion_tokens: i64,
+        cache_read_input_tokens: i64,
+        cache_creation_input_tokens: i64,
+        reasoning_tokens: i64,
+    ) -> Self {
+        let cache_read = cache_read_input_tokens.max(0) as u64;
+        let cache_write = cache_creation_input_tokens.max(0) as u64;
+        let prompt_total = prompt_tokens.max(0) as u64;
 
         // Disambiguate prompt tokens: net uncached input is prompt_total minus cached & written.
         let uncached_input = prompt_total
             .saturating_sub(cache_read)
             .saturating_sub(cache_write);
 
-        let reasoning_output = usage.reasoning_tokens.max(0) as u64;
-        let completion_total = usage.completion_tokens.max(0) as u64;
+        let reasoning_output = reasoning_tokens.max(0) as u64;
+        let completion_total = completion_tokens.max(0) as u64;
         let standard_output = completion_total.saturating_sub(reasoning_output);
 
         Self {
@@ -90,19 +95,7 @@ mod tests {
 
     #[test]
     fn test_gemini_openai_inclusive_prompt_normalization() {
-        // Gemini/OpenAI style: prompt_tokens=100k, cachedContentTokenCount=80k
-        let usage = TokenUsage {
-            prompt_tokens: 100_000,
-            completion_tokens: 2_000,
-            total_tokens: 102_000,
-            cache_creation_input_tokens: 0,
-            cache_read_input_tokens: 80_000,
-            cache_miss_input_tokens: 20_000,
-            reasoning_tokens: 500,
-        };
-
-        let breakdown = TokenBreakdown::from_usage(&usage);
-        // Net uncached input must be 20k (not 100k) to prevent double counting
+        let breakdown = TokenBreakdown::from_counts(100_000, 2_000, 80_000, 0, 500);
         assert_eq!(breakdown.uncached_input, 20_000);
         assert_eq!(breakdown.cache_read, 80_000);
         assert_eq!(breakdown.standard_output, 1_500);

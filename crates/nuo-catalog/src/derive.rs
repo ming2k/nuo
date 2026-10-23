@@ -20,12 +20,12 @@
 //! be exercised with hand-built inputs and cannot observe a change between two
 //! reads of the same input.
 
-use nuo_inference_wire::catalog::{Channel, ProviderEntry, Transport};
 use nuo_persistence::config::{Credentials, RemoteCatalogCache};
 use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
+use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
 use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
 use nuo_wire::model::CapabilityOverrides;
 use nuo_wire::{
@@ -224,7 +224,7 @@ pub fn derive_channel(
         .map(|spec| spec.resolve_display_label(advertised, model))
         .unwrap_or_else(|| {
             advertised
-                .map(nuo_inference_wire::catalog::clean_model_display_name)
+                .map(nuo_provider::clean_model_display_name)
                 .filter(|label| !label.is_empty() && label != model)
         });
     if label.is_some() {
@@ -285,12 +285,23 @@ pub fn derive_channel(
             thinking,
             dialect: dialect.anthropic(),
         },
-        WireProtocol::OpenAiResponses => Transport::OpenAiResponses {
-            base_url,
-            client_profile,
-            effort,
-            dialect: dialect.openai_responses(),
-        },
+        WireProtocol::OpenAiResponses => {
+            // When a model from the DeepSeek family runs over Responses API on a
+            // multi-vendor relay (e.g. CommandCode), its wire envelope must speak
+            // the DeepSeek Responses dialect (no OpenAI-specific reasoning summary,
+            // no foreign encrypted reasoning content, plaintext CoT replay per ADR-0083).
+            let responses_dialect = if model.contains("deepseek") {
+                nuo_wire::OpenAiResponsesDialect::DeepSeek
+            } else {
+                dialect.openai_responses()
+            };
+            Transport::OpenAiResponses {
+                base_url,
+                client_profile,
+                effort,
+                dialect: responses_dialect,
+            }
+        }
         WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
             base_url,
             client_profile,

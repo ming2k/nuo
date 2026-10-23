@@ -684,7 +684,7 @@ impl SessionRegistry {
     /// Control plane: create a session for `project` and return
     /// its id. The session is server-held; no client is attached yet.
     pub async fn create_session(&self, project: PathBuf) -> Result<String, String> {
-        self.create_session_with_options(project, nuo_client::wire::SessionInitOptions::default())
+        self.create_session_with_options(project, nuo_wire::SessionInitOptions::default())
             .await
     }
 
@@ -692,7 +692,7 @@ impl SessionRegistry {
     pub async fn create_session_with_options(
         &self,
         project: PathBuf,
-        options: nuo_client::wire::SessionInitOptions,
+        options: nuo_wire::SessionInitOptions,
     ) -> Result<String, String> {
         let bound = self
             .assemble_hosted(
@@ -711,7 +711,7 @@ impl SessionRegistry {
     async fn create_session_outcome(
         &self,
         project: PathBuf,
-        options: nuo_client::wire::SessionInitOptions,
+        options: nuo_wire::SessionInitOptions,
     ) -> ResolveOutcome {
         match self
             .assemble_hosted(
@@ -1219,41 +1219,32 @@ impl SessionRegistry {
         });
     }
 
-    /// One storage-maintenance pass: sweep unreferenced blobs and prune
-    /// over-age usage day files. Both phases are synchronous directory scans
-    /// proportional to the data dir's size, so the work runs on the blocking
-    /// pool. Blob liveness is decided by the durable `blob_refs` ledger
-    /// not by a filesystem scan.
+    /// One storage-maintenance pass (ADR-0090): sweep unreferenced blobs,
+    /// prune over-age usage day files, reclaim orphaned fact entries, and
+    /// generate an autonomous rolling hot-backup snapshot.
     pub fn spawn_storage_maintenance(self: &Arc<Self>) {
-        let dirs = nuo_persistence::paths::get();
-        let blobs = nuo_persistence::blobs::BlobStore::new(dirs.blobs_dir());
         let usage = nuo_persistence::usage_stats::UsageStatsStore::new();
         tokio::task::spawn_blocking(move || {
             let handle = nuo_persistence::db::get_persistence_handle();
-            // The blob sweep is a filesystem pass, so it runs here against a
-            // reader snapshot instead of holding up the writer;
-            // the entry DELETE is a real mutation and goes through the actor.
-            let (count, bytes) = match handle.reader().and_then(|r| r.live_blob_hashes()) {
-                Ok(live) => blobs.retain_only(&live),
-                Err(error) => {
-                    tracing::warn!(%error, "blob garbage collection failed; skipping pass");
-                    (0, 0)
-                }
-            };
-            let entries = handle
-                .collect_entry_garbage_blocking()
-                .unwrap_or_else(|error| {
-                    tracing::warn!(%error, "entry garbage collection failed; skipping pass");
-                    0
-                });
+            let report = handle
+                .perform_storage_maintenance_blocking(
+                    nuo_persistence::DEFAULT_BACKUP_RETENTION_LIMIT,
+                )
+                .unwrap_or_default();
             let days = usage.prune_old_days();
-            if count > 0 || entries > 0 || days > 0 {
+            if report.reclaimed_blobs > 0
+                || report.reclaimed_entries > 0
+                || report.created_backup.is_some()
+                || days > 0
+            {
                 tracing::info!(
-                    blobs = count,
-                    bytes,
-                    entries,
+                    blobs = report.reclaimed_blobs,
+                    bytes = report.reclaimed_blob_bytes,
+                    entries = report.reclaimed_entries,
+                    backup = ?report.created_backup,
+                    pruned_backups = report.pruned_backups,
                     pruned_days = days,
-                    "storage maintenance: reclaimed unreferenced data"
+                    "storage maintenance: reclaimed unreferenced data and refreshed rolling snapshot"
                 );
             }
         });
@@ -1306,7 +1297,7 @@ impl SessionRegistry {
                 drop(map);
                 self.create_session_outcome(
                     caller_project.to_path_buf(),
-                    nuo_client::wire::SessionInitOptions::default(),
+                    nuo_wire::SessionInitOptions::default(),
                 )
                 .await
             }
@@ -1357,7 +1348,7 @@ impl SessionRegistry {
             .assemble_hosted(
                 crate::startup::SessionStart::Resume(id.to_string()),
                 binding,
-                nuo_client::wire::SessionInitOptions::default(),
+                nuo_wire::SessionInitOptions::default(),
             )
             .await
         {
@@ -1375,7 +1366,7 @@ impl SessionRegistry {
         &self,
         startup: crate::startup::SessionStart,
         binding: SessionBinding,
-        init_options: nuo_client::wire::SessionInitOptions,
+        init_options: nuo_wire::SessionInitOptions,
     ) -> Result<BoundSession, AssembleErr> {
         let HostParams {
             identity,

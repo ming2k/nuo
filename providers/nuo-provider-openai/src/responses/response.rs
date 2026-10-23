@@ -40,7 +40,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
     // Route cache-read accounting through the shared helper so the cache
     // policy is enforced in one place. The Responses API hides the
     // discount in `input_tokens_details.cached_tokens`, which the helper reads.
-    let cache = nuo_inference_wire::read_prompt_cache_usage(usage);
+    let cache = nuo_provider::read_prompt_cache_usage(usage);
     match (prompt, completion, total) {
         (Some(p), Some(c), _) => Some(TokenUsage {
             prompt_tokens: p,
@@ -370,18 +370,18 @@ impl ResponsesStream {
         }
         let mut artifacts = serde_json::Map::new();
         artifacts.insert(
-            nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
+            nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY.to_string(),
             Value::Array(output),
         );
         if let Some(id) = response["id"].as_str() {
             artifacts.insert(
-                nuo_inference_wire::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
+                nuo_provider::OPENAI_RESPONSE_ID_ARTIFACT_KEY.to_string(),
                 serde_json::Value::String(id.to_string()),
             );
         }
         self.terminal_seen = true;
         Ok(vec![ProviderStreamEvent::Completed(
-            nuo_inference_wire::ProviderCompletionMeta {
+            nuo_provider::ProviderCompletionMeta {
                 usage: usage(&response["usage"]),
                 artifacts: Some(artifacts),
                 continuation: None,
@@ -432,9 +432,7 @@ mod tests {
         let output = meta
             .artifacts
             .as_ref()
-            .and_then(|artifacts| {
-                artifacts.get(nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
-            })
+            .and_then(|artifacts| artifacts.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
             .and_then(Value::as_array)
             .expect("the truncated turn stays replayable");
         assert_eq!(output[0]["content"][0]["text"], "partial");
@@ -741,9 +739,7 @@ mod tests {
         let output = meta
             .artifacts
             .as_ref()
-            .and_then(|artifacts| {
-                artifacts.get(nuo_inference_wire::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
-            })
+            .and_then(|artifacts| artifacts.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY))
             .and_then(Value::as_array)
             .unwrap();
         assert_eq!(output.len(), 2);

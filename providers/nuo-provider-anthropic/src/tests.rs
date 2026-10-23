@@ -6,7 +6,7 @@
 use super::request::{self, BodyInput};
 use super::response;
 use super::*;
-use nuo_inference_wire::{Effort, PromptCacheMode, ReasoningMode, ResolvedCachePolicy};
+use nuo_provider::{Effort, PromptCacheMode, ReasoningMode, ResolvedCachePolicy};
 use nuo_tool::Tool;
 use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
@@ -15,7 +15,7 @@ use std::sync::Arc;
 static DEFAULT_UNSUPPORTED_CACHE_PLAN: ResolvedCachePolicy = ResolvedCachePolicy::Unsupported;
 static DEFAULT_EXPLICIT_CACHE_PLAN: ResolvedCachePolicy = ResolvedCachePolicy::Enabled {
     mode: PromptCacheMode::Explicit,
-    retention: Some(nuo_inference_wire::CacheRetention::FiveMinutes),
+    retention: Some(nuo_provider::CacheRetention::FiveMinutes),
     routing_key: None,
     max_breakpoints: Some(4),
 };
@@ -35,12 +35,12 @@ fn body_input<'a>(provider: &'a AnthropicMessagesProvider, stream: bool) -> Body
 }
 
 /// Route capabilities with only the vision declaration varied.
-fn caps_with_vision(vision: Option<bool>) -> nuo_inference_wire::ModelCapabilities {
-    nuo_inference_wire::ModelCapabilities {
+fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
+    nuo_provider::ModelCapabilities {
         family: "claude".into(),
         context_window: 200_000,
         max_output_tokens: None,
-        thinking: nuo_inference_wire::ReasoningSupport::None,
+        thinking: nuo_provider::ReasoningSupport::None,
         tool_call: true,
         vision,
         effort_levels: Vec::new(),
@@ -303,7 +303,7 @@ fn disabled_cache_plan_omits_cache_breakpoints() {
             tool_specs: Some(&tool_specs),
             max_tokens: provider.max_tokens,
             thinking: provider.thinking,
-            cache_plan: &nuo_inference_wire::ResolvedCachePolicy::Disabled,
+            cache_plan: &nuo_provider::ResolvedCachePolicy::Disabled,
         },
     );
     assert_eq!(count_cache_breakpoints(&body), 0);
@@ -577,7 +577,7 @@ fn non_default_effort_is_stamped_into_output_config() {
 #[test]
 fn effort_clamps_to_model_support_levels() {
     let cfg = ThinkingConfig::default().with_effort(Effort::Xhigh);
-    let common: Vec<nuo_inference_wire::EffortLevel> = nuo_inference_wire::COMMON_LADDER
+    let common: Vec<nuo_provider::EffortLevel> = nuo_provider::COMMON_LADDER
         .iter()
         .copied()
         .map(Into::into)
@@ -595,7 +595,7 @@ fn effort_clamps_to_model_support_levels() {
         Effort::Xhigh,
         Effort::Max,
     ];
-    let claude: Vec<nuo_inference_wire::EffortLevel> =
+    let claude: Vec<nuo_provider::EffortLevel> =
         claude_levels.iter().copied().map(Into::into).collect();
     let resolved_claude = cfg.resolve_for(&claude);
     assert_eq!(resolved_claude.effort, Some(Effort::Xhigh));

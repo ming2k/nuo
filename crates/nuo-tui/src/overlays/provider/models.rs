@@ -558,14 +558,14 @@ pub(crate) fn model_detail_body(
     layout = layout.kv_styled("Wire ID", &rm.model, value_style);
     layout = layout.kv(
         "Connection",
-        &format!("{} ({})", rm.provider_label, rm.provider_id),
+        format!("{} ({})", rm.provider_label, rm.provider_id),
     );
 
     // 2. Capabilities section
     layout = layout.section("Capabilities");
-    layout = layout.kv("Context Window", &format!("{} tokens", rm.context_window));
+    layout = layout.kv("Context Window", format!("{} tokens", rm.context_window));
     if !rm.effort_levels.is_empty() {
-        layout = layout.kv("Reasoning Tiers", &rm.effort_levels.join(" · "));
+        layout = layout.kv("Reasoning Tiers", rm.effort_levels.join(" · "));
     }
 
     // 3. Pricing section (if declared or recognized)

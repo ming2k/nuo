@@ -141,7 +141,7 @@ pub struct DiscoveredModel {
     pub id: String,
     pub availability: Option<crate::model::Availability>,
     pub advertised: Option<bool>,
-    pub protocol: Option<crate::WireProtocol>,
+    pub protocol: Option<nuo_inference_wire::WireProtocol>,
     pub endpoint: Option<String>,
     pub family: Option<String>,
     pub name: Option<String>,
@@ -221,8 +221,130 @@ fn should_fold_display_hyphens(s: &str) -> bool {
     s.chars().any(|c| c.is_ascii_uppercase())
 }
 
+/// The closed set of relay service tiers (ADR-0081 [INV-CATALOG-05]).
+///
+/// A gateway appends `:<tier>` to select a routing *variant* of the same model
+/// (`nex-n2.5-pro:free`, `grok-4.7:nitro`). The tier is routing syntax, never
+/// part of a name, so it is split off exactly like a hyphen. Closedness is
+/// load-bearing in the other direction: `:` also appears inside authored labels
+/// as provenance (`OpenAI: GPT-5.6 Sol`), and stripping blindly would truncate
+/// that label to `OpenAI`.
+pub const SERVICE_TIERS: &[&str] = &["free", "nitro", "floor", "online", "beta", "extended"];
+
+/// Brand tokens that lead a model id (ADR-0081 [INV-CATALOG-05]).
+///
+/// Shared by the casing pass ([`capitalize_token`]) and the namespace-redundancy
+/// test in [`format_structural_tokens`], so "does the tail already name the
+/// vendor?" and "how is that vendor spelled?" cannot answer differently.
+pub const BRAND_LEXICON: &[(&str, &str)] = &[
+    ("deepseek", "DeepSeek"),
+    ("glm", "GLM"),
+    ("qwen", "Qwen"),
+    ("claude", "Claude"),
+    ("gpt", "GPT"),
+    ("openai", "OpenAI"),
+    ("gemini", "Gemini"),
+    ("grok", "Grok"),
+    ("mimo", "MiMo"),
+    ("minimax", "MiniMax"),
+    ("kimi", "Kimi"),
+    ("mistral", "Mistral"),
+    ("llama", "Llama"),
+    ("hy", "HY"),
+    ("step", "Step"),
+    ("longcat", "LongCat"),
+    ("omen", "Omen"),
+];
+
+/// Tier keywords that are title-cased inside a model name (ADR-0081).
+pub const TIER_LEXICON: &[&str] = &[
+    "flash",
+    "pro",
+    "max",
+    "plus",
+    "lite",
+    "turbo",
+    "exp",
+    "vision",
+    "code",
+    "chat",
+    "reasoner",
+    "haiku",
+    "sonnet",
+    "opus",
+    "preview",
+    "contributor",
+    "free",
+    "argon",
+    "luna",
+];
+
+/// Split the `vendor/` namespace from a relay wire id, if it carries one.
+///
+/// A namespace is routing syntax: `deepseek/deepseek-v4.1-flash` names one model
+/// twice, `meta/muse-spark-1.1` names a vendor the tail omits. Both are handled
+/// by the caller, which decides whether to print it.
+fn split_namespace(id: &str) -> (Option<&str>, &str) {
+    match id.split_once('/') {
+        Some((vendor, tail)) if !vendor.is_empty() && !tail.is_empty() => (Some(vendor), tail),
+        _ => (None, id),
+    }
+}
+
+/// Drop a recognised `:tier` suffix, leaving unrecognised colons untouched.
+fn strip_service_tier(id: &str) -> &str {
+    match id.rsplit_once(':') {
+        Some((head, tier))
+            if !head.is_empty()
+                && SERVICE_TIERS
+                    .iter()
+                    .any(|known| known.eq_ignore_ascii_case(tier)) =>
+        {
+            head
+        }
+        _ => id,
+    }
+}
+
+/// Whether `vendor` states nothing the already-lifted `tail` does not.
+///
+/// True when the tail's first token is a brand from [`BRAND_LEXICON`] (whether
+/// or not it is the same brand), because the model name then already carries a
+/// family identity and a redundant `vendor/` prefix would read as a double
+/// name: `deepseek/deepseek-v4.1-flash` and `openai/gpt-5.6-sol`.
+fn namespace_is_redundant(vendor: &str, tail: &str) -> bool {
+    let vendor_key = vendor.to_ascii_lowercase();
+    let tail_key = tail.to_ascii_lowercase();
+    let tail_head = tail_key
+        .split('-')
+        .next()
+        .unwrap_or_default()
+        .split('.')
+        .next()
+        .unwrap_or_default();
+    if vendor_key == tail_key || vendor_key == tail_head {
+        return true;
+    }
+    BRAND_LEXICON.iter().any(|(brand, _)| *brand == tail_head)
+}
+
 /// Tokenize and structurally format an identifier or brand name into clean typography (ADR-0081).
+///
+/// Routing syntax is absorbed first: a recognised `:tier` suffix is dropped, and
+/// a `vendor/` namespace is printed only when it states something the model name
+/// does not.
 fn format_structural_tokens(s: &str) -> String {
+    let without_tier = strip_service_tier(s.trim());
+    match split_namespace(without_tier) {
+        (Some(vendor), tail) if !namespace_is_redundant(vendor, tail) => {
+            format!("{} {}", lift_hyphenated(vendor), lift_hyphenated(tail))
+        }
+        (_, tail) => lift_hyphenated(tail),
+    }
+}
+
+/// Lift one hyphen-and-dot separated identifier fragment into typography.
+fn lift_hyphenated(s: &str) -> String {
     let raw_tokens: Vec<&str> = s.split('-').filter(|t| !t.is_empty()).collect();
     let normalized_tokens = normalize_adjacent_version_tokens(&raw_tokens);
     normalized_tokens
@@ -252,79 +374,53 @@ fn normalize_adjacent_version_tokens(tokens: &[&str]) -> Vec<String> {
 
 fn capitalize_token(token: &str) -> String {
     let lower = token.to_ascii_lowercase();
-    match lower.as_str() {
-        "deepseek" => "DeepSeek".to_string(),
-        "glm" => "GLM".to_string(),
-        "qwen" => "Qwen".to_string(),
-        "claude" => "Claude".to_string(),
-        "gpt" => "GPT".to_string(),
-        "mimo" => "MiMo".to_string(),
-        "minimax" => "MiniMax".to_string(),
-        "kimi" => "Kimi".to_string(),
-        "gemini" => "Gemini".to_string(),
-        "grok" => "Grok".to_string(),
-        "mistral" => "Mistral".to_string(),
-        "llama" => "Llama".to_string(),
-        "hy" => "HY".to_string(),
-        "step" => "Step".to_string(),
-        "longcat" => "LongCat".to_string(),
-        "omen" => "Omen".to_string(),
-        "openai" => "OpenAI".to_string(),
-        "flash" => "Flash".to_string(),
-        "pro" => "Pro".to_string(),
-        "max" => "Max".to_string(),
-        "plus" => "Plus".to_string(),
-        "lite" => "Lite".to_string(),
-        "turbo" => "Turbo".to_string(),
-        "exp" => "Exp".to_string(),
-        "vision" => "Vision".to_string(),
-        "code" => "Code".to_string(),
-        "chat" => "Chat".to_string(),
-        "reasoner" => "Reasoner".to_string(),
-        "haiku" => "Haiku".to_string(),
-        "sonnet" => "Sonnet".to_string(),
-        "opus" => "Opus".to_string(),
-        "preview" => "Preview".to_string(),
-        "contributor" => "Contributor".to_string(),
-        "free" => "Free".to_string(),
-        "argon" => "Argon".to_string(),
-        "luna" => "Luna".to_string(),
-        _ => {
-            if let Some(rest) = lower.strip_prefix('v') {
-                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                    return format!("V{rest}");
-                }
-            }
-            if let Some(rest) = lower.strip_prefix('k') {
-                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                    return format!("K{rest}");
-                }
-            }
-            if let Some(rest) = lower.strip_prefix('m') {
-                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                    return format!("M{rest}");
-                }
-            }
-            if let Some(rest) = lower.strip_prefix("qwen") {
-                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                    return format!("Qwen {rest}");
-                }
-            }
-            if let Some(rest) = lower.strip_prefix("glm") {
-                if !rest.is_empty() && rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                    return format!("GLM {rest}");
-                }
-            }
-            let mut chars = token.chars();
+    if let Some((_, canonical)) = BRAND_LEXICON.iter().find(|(brand, _)| *brand == lower) {
+        return (*canonical).to_string();
+    }
+    if let Some(canonical) = TIER_LEXICON
+        .iter()
+        .find(|tier| **tier == lower)
+        .map(|tier| {
+            let mut chars = tier.chars();
             match chars.next() {
-                Some(first) => {
-                    let mut res = first.to_uppercase().to_string();
-                    res.extend(chars);
-                    res
-                }
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
                 None => String::new(),
             }
+        })
+    {
+        return canonical;
+    }
+    let stripped = lower
+        .strip_prefix('v')
+        .filter(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .map(|rest| format!("V{rest}"));
+    if let Some(model) = stripped {
+        return model;
+    }
+    for (prefix, emitter) in [("k", "K"), ("m", "M")] {
+        if let Some(rest) = lower
+            .strip_prefix(prefix)
+            .filter(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        {
+            return format!("{emitter}{rest}");
         }
+    }
+    for (prefix, emitter) in [("qwen", "Qwen"), ("glm", "GLM")] {
+        if let Some(rest) = lower
+            .strip_prefix(prefix)
+            .filter(|rest| rest.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        {
+            return format!("{emitter} {rest}");
+        }
+    }
+    let mut chars = token.chars();
+    match chars.next() {
+        Some(first) => {
+            let mut res = first.to_uppercase().to_string();
+            res.extend(chars);
+            res
+        }
+        None => String::new(),
     }
 }
 
@@ -351,14 +447,21 @@ pub fn format_model_display_name(raw_name: Option<&str>, model_id: &str) -> Stri
 /// Whether this model identifier represents ephemeral relay noise (ADR-0081 [INV-CATALOG-06]).
 ///
 /// Prunes ephemeral promotional tiers, unstable preview snapshots, and partner contributor
-/// nodes from default listing surfaces on multi-model aggregation relays.
+/// nodes from default listing surfaces on multi-model aggregation relays. Both tier
+/// spellings are read (`-free` and `:free`) because they are the same routing fact
+/// (ADR-0081 [INV-CATALOG-05]): a gateway that suffixes `:free` must not slip a
+/// promotional tier past a valve that only recognises `-free`.
 pub fn is_relay_promotional_noise(id: &str) -> bool {
     let lower = id.to_ascii_lowercase();
+    let tier = lower.rsplit_once(':').map(|(_, tier)| tier);
+    let carries = |needle: &str| tier.is_some_and(|tier| tier.eq_ignore_ascii_case(needle));
     lower.ends_with("-free")
+        || carries("free")
         || lower.ends_with("-preview")
         || lower.ends_with("-contributor")
         || lower.starts_with("alpha-")
         || lower.ends_with("-alpha")
+        || carries("alpha")
         || lower == "test"
 }
 
@@ -390,7 +493,7 @@ impl DiscoveredModel {
             effort_levels: self.effort_levels.as_ref().map(|levels| {
                 levels
                     .iter()
-                    .map(|level| crate::EffortLevel::parse(level))
+                    .map(|level| crate::effort::EffortLevel::parse(level))
                     .collect()
             }),
             catalog_source: self.catalog_source.clone(),
@@ -424,8 +527,8 @@ impl std::str::FromStr for ProviderDialect {
 
 impl ProviderDialect {
     /// Reject protocol families that cannot use this service's required envelope.
-    pub fn supports(self, protocol: crate::WireProtocol) -> bool {
-        use crate::WireProtocol;
+    pub fn supports(self, protocol: nuo_inference_wire::WireProtocol) -> bool {
+        use nuo_inference_wire::WireProtocol;
         match self {
             Self::Antigravity => protocol == WireProtocol::GoogleGenerateContent,
             Self::ChatGpt => protocol == WireProtocol::OpenAiResponses,
@@ -1017,6 +1120,77 @@ mod tests {
         assert_eq!(format_model_display_name(None, "grok-4.7"), "Grok 4.7");
     }
 
+    /// ADR-0081 [INV-CATALOG-05]: a relay id carries two routing separators that
+    /// are never part of a model's name. The tier is always dropped (closed set
+    /// only), the namespace only when the tail already names a brand.
+    #[test]
+    fn structural_lift_absorbs_routing_syntax() {
+        // A redundant `vendor/` namespace is absorbed: the tail already leads
+        // with the family brand, so printing it twice would be a double name.
+        assert_eq!(
+            format_model_display_name(None, "deepseek/deepseek-v4.1-flash"),
+            "DeepSeek V4.1 Flash"
+        );
+        assert_eq!(
+            format_model_display_name(None, "openai/gpt-5.6-sol"),
+            "GPT 5.6 Sol"
+        );
+        // A namespace the tail does not state is kept, because it is the only
+        // place the vendor is named at all.
+        assert_eq!(
+            format_model_display_name(None, "meta/muse-spark-1.1"),
+            "Meta Muse Spark 1.1"
+        );
+        // A recognised `:tier` is routing syntax, not a name.
+        assert_eq!(
+            format_model_display_name(None, "nex-agi/nex-n2.5-pro:free"),
+            "Nex Agi Nex N2.5 Pro"
+        );
+        assert_eq!(
+            format_model_display_name(None, "x-ai/grok-4.7:nitro"),
+            "Grok 4.7"
+        );
+        // An unrecognised colon belongs to the name and survives untouched.
+        assert_eq!(
+            format_model_display_name(None, "vendor/model:v2"),
+            "Vendor Model:v2"
+        );
+    }
+
+    /// An authored label is prose, not routing syntax: it is cleaned and
+    /// hyphen-folded, never restructured (ADR-0081 [INV-CATALOG-05]).
+    #[test]
+    fn authored_labels_are_never_restructured() {
+        assert_eq!(
+            format_model_display_name(Some("OpenAI: GPT-5.6 Sol"), "gpt-5.6-sol"),
+            "OpenAI: GPT 5.6 Sol"
+        );
+        assert_eq!(
+            format_model_display_name(Some("Mixtral 8x7B / Instruct"), "mixtral-8x7b"),
+            "Mixtral 8x7B / Instruct"
+        );
+    }
+
+    /// The casing pass and the namespace-redundancy test read one pair of
+    /// tables, so they cannot disagree about a brand's identity or spelling.
+    #[test]
+    fn lexicons_are_the_single_answer_for_brand_identity() {
+        for (brand, canonical) in BRAND_LEXICON {
+            assert_eq!(&capitalize_token(brand), canonical, "{brand}");
+            assert!(
+                namespace_is_redundant("some-vendor", &format!("{brand}-v9")),
+                "{brand} must lead a family, so a namespace in front of it is redundant"
+            );
+        }
+        for tier in TIER_LEXICON {
+            let cased = capitalize_token(tier);
+            assert!(
+                cased.chars().next().is_some_and(char::is_uppercase),
+                "{tier} must be title-cased, got {cased}"
+            );
+        }
+    }
+
     #[test]
     fn is_relay_promotional_noise_filters_transient_models() {
         assert!(is_relay_promotional_noise("beam-free"));
@@ -1033,5 +1207,11 @@ mod tests {
         assert!(!is_relay_promotional_noise("glm-5.3-flash"));
         assert!(!is_relay_promotional_noise("claude-haiku-5-5"));
         assert!(!is_relay_promotional_noise("qwen3.8-max"));
+
+        // The same routing fact in its colon spelling (ADR-0081).
+        assert!(is_relay_promotional_noise("nex-agi/nex-n2.5-pro:free"));
+        assert!(is_relay_promotional_noise("vendor/model:alpha"));
+        // A colon that belongs to a name is not a tier.
+        assert!(!is_relay_promotional_noise("vendor/model:v2"));
     }
 }

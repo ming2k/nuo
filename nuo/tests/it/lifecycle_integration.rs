@@ -455,21 +455,21 @@ async fn server_persists_when_interactive_client_disconnects() {
     }
 
     let stream = tokio::net::UnixStream::connect(&sock).await.unwrap();
-    let (mut sink, mut source) = nuo_client::wire::native_framed_split(stream);
+    let (mut sink, mut source) = nuo_tui::client::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(nuo_client::wire::Wire::Select {
-        action: nuo_client::wire::AttachAction::Attach(None),
+    sink.send(nuo_wire::Wire::Select {
+        action: nuo_wire::AttachAction::Attach(None),
         project: Some(proj_dir),
         posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         version: None,
-        protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
+        protocol: Some(nuo_wire::PROTOCOL_VERSION),
     })
     .await
     .unwrap();
 
     let welcome = source.next().await.unwrap().unwrap();
-    assert!(matches!(welcome, nuo_client::wire::Wire::Welcome { .. }));
+    assert!(matches!(welcome, nuo_wire::Wire::Welcome { .. }));
 
     // Disconnect (Detach) the interactive client
     drop(sink);
@@ -543,21 +543,21 @@ async fn client_detach_spares_active_autonomous_work() {
     }
 
     let stream = tokio::net::UnixStream::connect(&sock).await.unwrap();
-    let (mut sink, mut source) = nuo_client::wire::native_framed_split(stream);
+    let (mut sink, mut source) = nuo_tui::client::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(nuo_client::wire::Wire::Select {
-        action: nuo_client::wire::AttachAction::Attach(None),
+    sink.send(nuo_wire::Wire::Select {
+        action: nuo_wire::AttachAction::Attach(None),
         project: Some(proj_dir),
         posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
         version: None,
-        protocol: Some(nuo_client::wire::PROTOCOL_VERSION),
+        protocol: Some(nuo_wire::PROTOCOL_VERSION),
     })
     .await
     .unwrap();
 
     let welcome = source.next().await.unwrap().unwrap();
-    assert!(matches!(welcome, nuo_client::wire::Wire::Welcome { .. }));
+    assert!(matches!(welcome, nuo_wire::Wire::Welcome { .. }));
 
     // Disconnect (Detach) the interactive client
     drop(sink);

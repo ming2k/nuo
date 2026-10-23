@@ -10,14 +10,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use nuo_egress::http::Http;
-use nuo_inference_wire::LoginMethod;
-use nuo_inference_wire::ResolvedAuth;
-use nuo_inference_wire::provider_auth::{
-    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
-};
 use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
+use nuo_oauth::{
+    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
+};
 use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
+use nuo_provider::LoginMethod;
+use nuo_provider::ResolvedAuth;
 
 /// Extract the ChatGPT account id from a JWT (id_token or access_token).
 pub fn chatgpt_account_id(token: &str) -> Option<String> {
@@ -143,7 +143,7 @@ fn project_metadata(tokens: &TokenSet, mut auth: ResolvedAuth) -> ResolvedAuth {
                 .and_then(chatgpt_account_id)
         });
     if let Some(acct) = account_id {
-        auth = auth.with_extension(nuo_inference_wire::ChatGptAuthMetadata { account_id: acct });
+        auth = auth.with_extension(nuo_provider::auth::ChatGptAuthMetadata { account_id: acct });
     }
     auth
 }
@@ -264,7 +264,7 @@ mod tests {
         let resolved = provider.project_metadata(&tokens, ResolvedAuth::new(tokens.access.clone()));
         assert_eq!(
             resolved
-                .extension::<nuo_inference_wire::ChatGptAuthMetadata>()
+                .extension::<nuo_provider::auth::ChatGptAuthMetadata>()
                 .map(|m| m.account_id.as_str()),
             Some("org-xyz789")
         );

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::identity::{ServerUiBridge, agent_code};
-use nuo_client as client;
+use nuo_tui::client;
 
 /// The server-start flags that reach the runtime (one struct, one place).
 #[derive(Debug, Clone, Default)]

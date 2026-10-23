@@ -11,7 +11,13 @@ pub const CONTEXT_USAGE_CRIT_THRESHOLD: f64 = 0.90;
 /// Inputs for [`draw_model_bar`]. The split row's halves — context usage
 /// on the left, model identity on the right.
 pub struct ModelBarProps<'a> {
+    /// The route's wire model id. Identity, keying and the baseline
+    /// context-window fallback all read this value — never the label.
     pub current_model: &'a str,
+    /// The route's resolved display label (ADR-0081), when the catalog
+    /// resolved one. Presentation only: the bar draws this and falls back to
+    /// the wire id, so no surface ever re-derives typography on its own.
+    pub model_label: Option<&'a str>,
     pub model_available: bool,
     pub provider_name: Option<&'a str>,
     pub reasoning_effort: Option<&'a str>,
@@ -23,6 +29,7 @@ impl<'a> Default for ModelBarProps<'a> {
     fn default() -> Self {
         Self {
             current_model: "",
+            model_label: None,
             model_available: true,
             provider_name: None,
             reasoning_effort: None,
@@ -95,6 +102,7 @@ pub fn draw_model_bar(
 ) -> ModelBarRects {
     let ModelBarProps {
         current_model,
+        model_label,
         model_available,
         provider_name,
         reasoning_effort,
@@ -112,13 +120,19 @@ pub fn draw_model_bar(
         nuo_wire::model::resolve(current_model).context_window
     };
 
+    // Name-first, id-fallback (ADR-0081): the catalog resolved this route's
+    // label once, inside the derivation boundary, so the bar draws that rather
+    // than re-deriving typography. A route with no resolved label (a curated
+    // platform that published none) draws its wire id — which for those
+    // surfaces *is* the human-readable name.
+    let identity_label = model_label.filter(|label| !label.is_empty());
     let (model_label, model_style) = if current_model.is_empty() {
         (
             "(no model)".to_string(),
             Style::default().fg(theme.muted()).bg(bg),
         )
     } else if !model_available {
-        let name = current_model;
+        let name = identity_label.unwrap_or(current_model);
         (
             format!("{name} [unavailable]"),
             Style::default()
@@ -128,7 +142,7 @@ pub fn draw_model_bar(
         )
     } else {
         (
-            current_model.to_string(),
+            identity_label.unwrap_or(current_model).to_string(),
             Style::default()
                 .fg(theme.brand())
                 .add_modifier(Modifier::BOLD)

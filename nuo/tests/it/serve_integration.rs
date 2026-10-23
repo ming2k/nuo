@@ -2261,7 +2261,7 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
 /// and rejection of bare un-schemed hostnames.
 #[test]
 fn test_inv_remote_01_endpoint_resolution() {
-    use nuo_client::RemoteServer;
+    use nuo_tui::client::RemoteServer;
 
     let t = |addr| RemoteServer::parse(addr, Some("test-tok".into())).unwrap();
 
@@ -2326,7 +2326,7 @@ fn test_inv_remote_01_endpoint_resolution() {
 /// without destroying the remote server process.
 #[tokio::test]
 async fn test_inv_remote_02_remote_symmetry_and_detach() {
-    use nuo_client::{ClientTarget, Handshake, RemoteServer};
+    use nuo_tui::client::{AttachAction, ClientTarget, Handshake, RemoteServer};
 
     let registry = Arc::new(SessionRegistry::prehost_only());
     let _session_id = host_with_project(&registry, std::env::temp_dir()).await;

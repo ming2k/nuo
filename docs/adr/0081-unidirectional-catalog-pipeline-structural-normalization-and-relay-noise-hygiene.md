@@ -77,25 +77,39 @@ The model catalog ingestion and resolution pipeline is formally codified into th
 ```
 
 ### 2. [INV-CATALOG-05] Rule-Based Structural Display Normalization
-Abolish manual per-model name dictionaries. In their place, `nuo-model-codec::catalog` provides deterministic structural normalization, and each provider spec declares its `DisplayPolicy` (ADR-0081) so the *surface*, never the id string shape, decides which normalization applies:
+Abolish manual per-model name dictionaries. In their place, `nuo-inference-wire::catalog` provides deterministic structural normalization, and each provider spec declares its `DisplayPolicy` (ADR-0081) so the *surface*, never the id string shape, decides which normalization applies:
 - `DisplayPolicy::Native` — a curated platform publishes real names; a published label is trusted verbatim (still stripped of `(Thinking)` annotations), and an absent label leaves the surfaces on the wire id.
 - `DisplayPolicy::Structural` — an aggregation relay publishes bare ids, so every label is lifted structurally.
 
 Structural normalization consists of:
 - **Tokenization**: Tokenizes hyphenated identifiers into constituent semantic tokens.
-- **Lexicon Casing**: Matches tokens against canonical brand dictionaries (`DeepSeek`, `GLM`, `Qwen`, `Claude`, `GPT`, `MiMo`, `MiniMax`, `Kimi`, `Gemini`, `Grok`, `Mistral`, `Llama`) and tier keywords (`Flash`, `Pro`, `Max`, `Plus`, `Lite`, `Turbo`, `Vision`, `Code`, `Chat`, `Reasoner`, `Haiku`, `Sonnet`, `Opus`).
+- **Routing-Syntax Absorption**: A relay's id carries two routing separators that are never part of a model's name — a `vendor/` namespace and a `:variant` service tier (`:free`, `:nitro`, `:floor`, `:online`). Both are split off for the same reason a hyphen is:
+  - The **tier** is dropped when it is a recognised member of the closed `SERVICE_TIERS` set (`nex-agi/nex-n2.5-pro:free` ➔ `Nex Agi Nex N2.5 Pro`, `x-ai/grok-4.7:nitro` ➔ `Grok 4.7`). The closed-set guard is load-bearing in the other direction too: `:` also appears in *authored* labels as provenance (`OpenAI: GPT-5.6 Sol`), and stripping blindly would truncate that label to `OpenAI`.
+  - The **namespace** is printed only when it states something the tail does not (`meta/muse-spark-1.1` ➔ `Meta Muse Spark 1.1`) and dropped when the tail already leads with a model-family brand from the lexicon (`deepseek/deepseek-v4.1-flash` ➔ `DeepSeek V4.1 Flash`, `openai/gpt-5.6-sol` ➔ `GPT 5.6 Sol`).
+  - A label never carries a raw `/` or a service-tier `:`.
+
+  This lift applies to **wire ids only**. An authored label (a vendor's advertised `name`) is prose: `clean_model_display_name` strips execution-mode annotations and folds hyphenated brand names, and does nothing else — so `Mixtral 8x7B / Instruct` survives verbatim.
+
+  The precedence is identical on both policies: **a published label wins, and is never restructured.** `DisplayPolicy` decides only what happens when a surface publishes *no* label — `Native` leaves the wire id, `Structural` lifts it. A gateway's `name` is authored text regardless of which policy the gateway declares.
+- **Lexicon Casing**: Matches tokens against canonical brand dictionaries (`DeepSeek`, `GLM`, `Qwen`, `Claude`, `GPT`, `MiMo`, `MiniMax`, `Kimi`, `Gemini`, `Grok`, `Mistral`, `Llama`) and tier keywords (`Flash`, `Pro`, `Max`, `Plus`, `Lite`, `Turbo`, `Vision`, `Code`, `Chat`, `Reasoner`, `Haiku`, `Sonnet`, `Opus`). A single pair of tables (`BRAND_LEXICON` / `TIER_LEXICON` in `nuo-inference-wire::catalog`) is shared by the casing pass and the namespace-redundancy test, so the two answers cannot drift.
 - **Version Preserving**: Identifies version patterns (`V4.1`, `V4`, `K3`, `M3`) and formats adjacent numeric version tokens (e.g., `5-5` ➔ `5.5`, `4-6` ➔ `4.6`).
 - **Separator Elevation**: Folds inter-token hyphens to natural spaces (`deepseek-v4.1-flash` ➔ `DeepSeek V4.1 Flash`).
 
-The mapping is applied exactly once, inside the catalog derivation boundary (`nuo-server`/`nuo-harness` `catalog::derive_channel`), and written onto the route's resolved label. Server projections and clients consume that resolved label and never re-derive it, so a relay's typography can never diverge between surfaces.
+The mapping is applied exactly once, inside the catalog derivation boundary (`nuo-catalog` `derive_channel`), and written onto the route's resolved label. Server projections and clients consume that resolved label and never re-derive it, so a relay's typography can never diverge between surfaces. That includes the model bar: `render::ModelBarProps` carries the resolved label beside the wire id (name-first, id-fallback), so a namespaced relay id cannot reach the bottom chrome raw while the picker shows its typography.
+
+**Which policy a surface declares is a fact about the surface, and it is machine-checked.** `Native` demands that the surface publishes human-readable names; an ids-only relay that declares it invents no label and therefore leaves the raw wire id on every presentation surface — the failure that shipped `deepseek/deepseek-v4.1-flash` (CommandCode) and `nex-agi/nex-n2.5-pro:free` (OpenRouter) in front of users. A per-surface test cannot see a surface that simply declared the wrong policy, because the defect is a *disagreement between two declarations*; the registry-wide invariant `every_registered_surface_renders_its_seeds_without_routing_syntax` (`crates/nuo-server/src/provider_registry/tests.rs`) reads both and fails on any rendered label containing `/` or `:`.
 
 ### 3. [INV-CATALOG-06] Relay Noise Hygiene
 Multi-model relay catalogs filter ephemeral, unstable, and promotional identifiers through the `NamedFilterPolicy::Curated` pipe valve, applied by default to surfaces that declare `DisplayPolicy::Structural`. Identifiers satisfying any of the following structural predicates are pruned from default display surfaces:
-- Ending with `-free` (ephemeral promotional tier);
+- Ending with `-free` or carrying a `:free` tier (ephemeral promotional tier);
 - Ending with `-preview` (unstable staging snapshot);
 - Ending with `-contributor` (third-party sponsored relay node);
-- Starting with `alpha-` or ending with `-alpha`;
+- Starting with `alpha-`, ending with `-alpha`, or carrying an `alpha` tier;
 - Literally `test`.
+
+Both tier spellings are read because they are the same routing fact: a gateway
+that suffixes `:free` must not slip a promotional tier past a valve that only
+recognises `-free`.
 
 The predicate is a small set of **structural markers**, never a per-id blacklist
 of specific products. A vendor's featured production model with a published quota

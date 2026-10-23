@@ -23,7 +23,7 @@
 //! 3. Reasoning replay is projected per dialect: an assistant turn's CoT
 //!    reaches the wire only where that surface defines a replayable field
 //!    (ADR-0083).
-use nuo_inference_wire::{Effort, OpenAiChatDialect};
+use nuo_provider::{Effort, OpenAiChatDialect};
 use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 
@@ -69,7 +69,7 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions to project as the leading system message.
-    pub instructions: Option<&'a nuo_inference_wire::InstructionBundle>,
+    pub instructions: Option<&'a nuo_provider::InstructionBundle>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
     pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
     /// Optional OpenAI reasoning-effort override. `None` omits the field and
@@ -78,7 +78,7 @@ pub struct BodyInput<'a> {
     /// Provider-specific behavior layered on the shared Chat Completions wire.
     pub dialect: OpenAiChatDialect,
     /// Cache controls resolved against this exact provider route.
-    pub cache_plan: &'a nuo_inference_wire::ResolvedCachePolicy,
+    pub cache_plan: &'a nuo_provider::ResolvedCachePolicy,
 }
 
 /// Build the chat-completions request body.
@@ -94,7 +94,7 @@ pub struct BodyInput<'a> {
 /// reach the wire. Serialization is therefore a pure projection of the
 /// session: no field on the wire exists that the session did not produce.
 pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
-    let capabilities = nuo_inference_wire::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(messages, input, &capabilities)
 }
 
@@ -104,7 +104,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 pub fn body_with_capabilities(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_inference_wire::ModelCapabilities,
+    capabilities: &nuo_provider::ModelCapabilities,
 ) -> Value {
     let BodyInput {
         model: model_id,
@@ -363,15 +363,15 @@ mod tests {
     use super::*;
     use nuo_tool::ToolCall;
 
-    static DEFAULT_CACHE_PLAN: nuo_inference_wire::ResolvedCachePolicy =
-        nuo_inference_wire::ResolvedCachePolicy::Unsupported;
+    static DEFAULT_CACHE_PLAN: nuo_provider::ResolvedCachePolicy =
+        nuo_provider::ResolvedCachePolicy::Unsupported;
 
     fn test_body_input<'a>(
         model: &'a str,
         stream: bool,
         tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
         reasoning_effort: Option<Effort>,
-        cache_plan: &'a nuo_inference_wire::ResolvedCachePolicy,
+        cache_plan: &'a nuo_provider::ResolvedCachePolicy,
     ) -> BodyInput<'a> {
         BodyInput {
             model,
@@ -386,12 +386,12 @@ mod tests {
 
     /// Route capabilities with only the vision declaration varied, for the
     /// image-projection tests below.
-    fn caps_with_vision(vision: Option<bool>) -> nuo_inference_wire::ModelCapabilities {
-        nuo_inference_wire::ModelCapabilities {
+    fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
+        nuo_provider::ModelCapabilities {
             family: "test".into(),
             context_window: 200_000,
             max_output_tokens: None,
-            thinking: nuo_inference_wire::ReasoningSupport::None,
+            thinking: nuo_provider::ReasoningSupport::None,
             tool_call: true,
             vision,
             effort_levels: Vec::new(),
@@ -471,12 +471,12 @@ mod tests {
 
     /// The DeepSeek capability row this provider's chat surface can be pointed
     /// at: reasoning via `reasoning_content`, the full native ladder.
-    fn deepseek_capabilities() -> nuo_inference_wire::ModelCapabilities {
-        nuo_inference_wire::ModelCapabilities {
+    fn deepseek_capabilities() -> nuo_provider::ModelCapabilities {
+        nuo_provider::ModelCapabilities {
             family: "deepseek".into(),
             context_window: 1_000_000,
             max_output_tokens: None,
-            thinking: nuo_inference_wire::ReasoningSupport::ReasoningContent,
+            thinking: nuo_provider::ReasoningSupport::ReasoningContent,
             tool_call: true,
             vision: Some(true),
             effort_levels: vec![
@@ -591,11 +591,11 @@ mod tests {
             tool_call_id: Some("call_1".into()),
             ..Message::new(Role::Tool, "")
         };
-        let capabilities = nuo_inference_wire::ModelCapabilities {
+        let capabilities = nuo_provider::ModelCapabilities {
             family: "nex".into(),
             context_window: 262_144,
             max_output_tokens: Some(235_929),
-            thinking: nuo_inference_wire::ReasoningSupport::ReasoningContent,
+            thinking: nuo_provider::ReasoningSupport::ReasoningContent,
             tool_call: true,
             vision: Some(true),
             effort_levels: vec![
@@ -644,8 +644,8 @@ mod tests {
 
     #[test]
     fn request_injects_prompt_cache_key_when_present() {
-        let cache_plan = nuo_inference_wire::ResolvedCachePolicy::Enabled {
-            mode: nuo_inference_wire::PromptCacheMode::Implicit,
+        let cache_plan = nuo_provider::ResolvedCachePolicy::Enabled {
+            mode: nuo_provider::PromptCacheMode::Implicit,
             retention: None,
             routing_key: Some("session-42".into()),
             max_breakpoints: None,

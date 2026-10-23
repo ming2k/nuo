@@ -40,18 +40,19 @@
 //! See `docs/reference/openapi/deepseek.yml` for the full OpenAPI 3.1
 //! specification.
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
 /// The model ids the built-in `deepseek` provider seeds. Each id exists in the
 /// model registry and floats with the upstream latest.
-pub use nuo_inference_wire::model_providers::DEEPSEEK_BUILTIN_MODELS;
+pub use nuo_provider::model_providers::DEEPSEEK_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 ///
 /// The seeded ids come first; the retired V4 Flash aliases follow so an older
 /// config keeps its capabilities without being offered to new users.
@@ -114,12 +115,12 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
-    nuo_inference_wire::PromptCacheSpec {
-        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
+    nuo_provider::PromptCacheSpec {
+        modes: &[nuo_provider::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -133,7 +134,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::DeepSeek,
+    dialect: nuo_provider::ProviderDialect::DeepSeek,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -144,7 +145,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::OpenAiResponses,
     models: DEEPSEEK_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::DeepSeekBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -155,7 +156,7 @@ mod tests {
     use super::{DEEPSEEK_BUILTIN_MODELS, MODELS};
     use nuo_provider::effort_ladders;
 
-    fn model(id: &str) -> &'static nuo_inference_wire::Model {
+    fn model(id: &str) -> &'static nuo_provider::Model {
         MODELS
             .iter()
             .find(|model| model.id == id)
@@ -223,7 +224,7 @@ mod tests {
         }
         assert_eq!(
             effort_ladders::DEEPSEEK_NATIVE.first(),
-            Some(&nuo_inference_wire::Effort::None),
+            Some(&nuo_provider::Effort::None),
             "`none` is the thinking off switch and must survive the clamp"
         );
     }

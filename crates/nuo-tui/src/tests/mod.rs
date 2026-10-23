@@ -33,7 +33,7 @@ use nuo_wire::{AgentRequest, ProviderPickerSnapshot};
 use std::collections::HashMap;
 
 fn test_command_catalog() -> nuo_wire::CommandCatalog {
-    nuo_client::command_catalog(&[])
+    crate::completion::command_catalog(&[])
 }
 
 fn thread_with_subagents() -> Vec<TranscriptMessage> {

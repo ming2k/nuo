@@ -3,7 +3,7 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use nuo_client as client;
+use nuo_tui::client;
 mod cli;
 mod commands;
 mod identity;
@@ -24,7 +24,7 @@ const WORKER_STACK_BYTES: usize = 8 * 1024 * 1024;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     nuo_server::provider_registry::init();
     nuo_tui::runner::ensure_dev_environment();
-    let _tracing_guard = nuo_client::init_tracing();
+    let _tracing_guard = client::init_tracing();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .thread_stack_size(WORKER_STACK_BYTES)
         .enable_all()

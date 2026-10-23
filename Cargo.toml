@@ -54,8 +54,12 @@ thiserror = "2.0"
 # netune is distributed by git tag only: the crates.io `0.1.x` line is yanked
 # and unmaintained, and the registry `0.0.1` is a stale stub. Pin the release
 # tag here; `Cargo.lock` records the exact commit for reproducible builds.
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.1" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.1" }
+# v0.0.3 makes pooled connections runtime-affine: a keep-alive socket dialled by
+# one tokio runtime is discarded rather than handed to another, which is how a
+# process-global `shared_client()` pool could surface
+# `RUNTIME_SHUTTING_DOWN_ERROR` as a provider transport failure.
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.3" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.3" }
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 windows-sys = "0.61"
@@ -117,7 +121,6 @@ nuotc = "0.0.3"
 # In-house Nuo crates
 nuo-protocol = { version = "0.0.46", path = "crates/nuo-protocol" }
 nuo-wire = { version = "0.0.46", package = "nuo-protocol", path = "crates/nuo-protocol" }
-nuo-client = { version = "0.0.46", path = "crates/nuo-client" }
 nuo = { version = "0.0.46", path = "nuo" }
 nuo-server = { version = "0.0.46", path = "crates/nuo-server" }
 nuo-tui = { version = "0.0.46", path = "crates/nuo-tui" }

@@ -31,6 +31,7 @@ fn owned_egress() -> Arc<dyn Egress> {
 }
 
 /// Pooled HTTP client executing requests through netune.
+#[derive(Clone)]
 pub struct Client {
     egress: Arc<dyn Egress>,
     request_timeout: Duration,

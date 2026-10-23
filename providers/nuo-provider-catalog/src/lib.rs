@@ -22,7 +22,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 // ── Ports & envelopes (unchanged home: the contract leaf) ──
-pub use nuo_inference_wire::CatalogShape;
+pub use nuo_provider::CatalogShape;
 pub use nuo_provider::catalog::{
     CatalogSignature, CatalogSigning, DiscoveredModel, ModelListError, RemoteCatalogOptions,
     RemoteCatalogRequest, RemoteCatalogUpdate,

@@ -204,7 +204,7 @@ pub struct InferenceSpec {
 /// The live catalog endpoint a dialect discovers its models from.
 ///
 /// The *shape* of the response is one of a closed set
-/// ([`CatalogShape`](crate::provider_surface::CatalogShape)); the provider is
+/// ([`CatalogShape`](crate::surface::CatalogShape)); the provider is
 /// not. The shape carries the catalog's path, query, auth, signed path, and
 /// dimensions, and the *root* is the provider spec's `catalog_root_url` — so
 /// this descriptor is exactly "which shape the catalog parses as". A provider
@@ -213,7 +213,7 @@ pub struct InferenceSpec {
 pub struct CatalogSpec {
     /// The response shape to parse (also carries the path, query, auth, signed
     /// path, and dimensions).
-    pub shape: crate::provider_surface::CatalogShape,
+    pub shape: crate::surface::CatalogShape,
 }
 
 /// The complete declarative description of one wire dialect.

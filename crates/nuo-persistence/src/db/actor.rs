@@ -115,6 +115,13 @@ impl PersistenceCommand {
                 let res = guarded(|| engine.create_backup(&target_path));
                 let _ = ack.send(res);
             }
+            Self::Optimize { ack } => {
+                let res = guarded(|| {
+                    engine.conn.execute_batch("PRAGMA optimize;")?;
+                    Ok(())
+                });
+                let _ = ack.send(res);
+            }
             Self::RecordInputHistory { entry, dedup, ack } => {
                 let res = guarded(|| {
                     crate::db::input_history::record_input_history(&engine.conn, &entry, dedup)
@@ -297,7 +304,7 @@ impl PersistenceCommand {
                     let _ = ack.send(Err(error));
                 }
             }
-            Self::CreateBackup { ack, .. } => {
+            Self::CreateBackup { ack, .. } | Self::Optimize { ack, .. } => {
                 let _ = ack.send(Err(error));
             }
             #[cfg(test)]

@@ -1,8 +1,8 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 use crate::cli::{self, CliArgs, Mode};
+use crate::client;
 use crate::headless;
-use nuo_client as client;
 use std::path::PathBuf;
 
 pub fn run_main() -> Result<(), Box<dyn std::error::Error>> {
@@ -363,7 +363,7 @@ pub async fn run_attached(
     let mut startup_overlay_pending = initial_overlay;
     let mut preserved_tabs: Option<Vec<crate::surfaces::ClientTab>> = None;
     let mut preserved_tab_history: Option<Vec<crate::surfaces::TabKind>> = None;
-    let init_options = nuo_client::SessionInitOptions::new(unattended_at_start, confined_at_start)
+    let init_options = client::SessionInitOptions::new(unattended_at_start, confined_at_start)
         .with_role(role.clone())
         .with_resume(resume);
 

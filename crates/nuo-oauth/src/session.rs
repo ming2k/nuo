@@ -14,10 +14,10 @@ pub use crate::oauth::token::{
 };
 pub use crate::oauth::{AuthError, browser, device, pkce};
 
+use crate::config::{DeviceFlowMode, OAuthConfig};
 use crate::oauth::token::TokenResponse;
 use futures::future::BoxFuture;
 use nuo_egress::http::Http;
-use nuo_inference_wire::provider_auth::{DeviceFlowMode, OAuthConfig};
 use nuo_provider::credentials::{CredentialHost, CredentialStore, TokenSet};
 
 use crate::enricher::{OAuthTokenEnricher, StandardOAuthEnricher, build_token_set_with_enricher};
@@ -25,7 +25,7 @@ use crate::manual::parse_authorization_response;
 use crate::provider::{OAuthProvider, oauth_provider};
 
 use nuo_host::SecretString;
-pub use nuo_inference_wire::LoginMethod;
+pub use nuo_provider::LoginMethod;
 use std::sync::{Arc, Mutex};
 
 const OAUTH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);

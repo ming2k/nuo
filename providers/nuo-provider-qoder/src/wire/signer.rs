@@ -3,8 +3,9 @@ use base64::Engine as _;
 use cbc::cipher::{BlockEncryptMut, KeyIvInit};
 use md5::Md5;
 use nuo_egress::RequestBuilder;
-use nuo_inference_wire::{PreflightValidator, ProviderError, ProviderErrorKind, ResolvedAuth};
 use nuo_provider::RequestSignerPhase;
+use nuo_provider::auth::PreflightValidator;
+use nuo_provider::{ProviderError, ProviderErrorKind, ResolvedAuth};
 use sha2::Digest;
 use std::any::TypeId;
 

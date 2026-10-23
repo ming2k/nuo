@@ -232,10 +232,6 @@ fn compose_frame(
     // owns the cursor through its scene chrome rather than through SceneKeys.
     let scene_prompt_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::CaretOwner::Scene;
-    // A scene hint row (head legend, model-bar keycaps) advertises chords that
-    // are suspended the moment an overlay takes the keyboard foreground, so it
-    // is suppressed rather than left dimmed-but-readable behind the backdrop.
-    let scene_chrome_hints = !has_overlay;
 
     // When zoomed into a Subagent, render its child messages and
     // show a contextual first-row header; otherwise render the
@@ -397,11 +393,7 @@ fn compose_frame(
                     tasks: &app.background_tasks,
                 },
                 subagent_bar,
-                // A head legend advertises scene chords, which are
-                // suspended the moment an overlay takes the keyboard
-                // foreground — so the row is withheld rather than left
-                // dimmed-but-readable behind the backdrop.
-                page_hints: scene_chrome_hints.then_some(page_hints),
+                page_hints: Some(page_hints),
                 thread_head: Some(render::ThreadHead {
                     thread_id: viewed_session_id,
                     workspace: &app.current_workspace,
@@ -481,6 +473,15 @@ fn compose_frame(
         // instance's display name, so identical models served by
         // different instances stay attributable.
         let hint_instance = active_provider_row.map(|row| row.name.as_str());
+        // The catalog resolved this route's label once (ADR-0081); the bar
+        // draws it name-first and falls back to the wire id. Projections never
+        // re-derive typography — a namespaced relay id like
+        // `deepseek/deepseek-v4.1-flash` must read `DeepSeek V4.1 Flash` here
+        // exactly as it does in the picker.
+        let hint_label = app
+            .active_model_info()
+            .and_then(|info| info.name.as_deref())
+            .filter(|label| !label.is_empty());
         let hint_reasoning = effective_reasoning_effort(app);
         let model_available = active_provider_row
             .is_none_or(|row| row.models.iter().any(|m| m == &app.current_model));
@@ -499,6 +500,7 @@ fn compose_frame(
                 hint_rect,
                 render::ModelBarProps {
                     current_model: &app.current_model,
+                    model_label: hint_label,
                     model_available,
                     provider_name: hint_instance,
                     reasoning_effort: hint_reasoning,

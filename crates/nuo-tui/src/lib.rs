@@ -26,6 +26,8 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+pub mod client;
+
 pub mod app;
 pub mod browser;
 pub mod cli;
@@ -407,14 +409,14 @@ pub async fn run_tui_with_terminal(
         tokio::spawn(async move {
             let project_root =
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let Some(info) = nuo_client::discover(&project_root) else {
+            let Some(info) = client::discover(&project_root) else {
                 return;
             };
             let action = nuo_wire::MonitorAction {
                 watch: true,
                 include_idle: true,
             };
-            let Ok(mut rx) = nuo_client::monitor_stream(&info, action).await else {
+            let Ok(mut rx) = client::monitor_stream(&info, action).await else {
                 return;
             };
             let mut rows: Vec<nuo_wire::MonitoredSession> = Vec::new();
@@ -430,7 +432,7 @@ pub async fn run_tui_with_terminal(
                     }
                     nuo_wire::MonitorEvent::SessionAdded(row)
                     | nuo_wire::MonitorEvent::SessionUpdated(row) => {
-                        nuo_client::upsert_session_row(&mut rows, row);
+                        client::upsert_session_row(&mut rows, row);
                     }
                     nuo_wire::MonitorEvent::SessionRemoved { session_id } => {
                         rows.retain(|r| r.id != session_id);

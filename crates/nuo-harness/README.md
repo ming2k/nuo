@@ -4,7 +4,7 @@ Host execution harness, policy governor, and cognitive orchestration engine for 
 
 ## Overview
 
-In the Nuo architecture, `nuo-harness` is the runtime execution bridge between capability substrates (`nuo-host`, `acp`, `nuo-persistence`), the client/SDK layer (`nuo-client`), and the session daemon (`nuo`).
+In the Nuo architecture, `nuo-harness` is the runtime execution bridge between capability substrates (`nuo-host`, `acp`, `nuo-persistence`), the presentation/transport layer (`nuo-tui::client`, which owns client transport after ADR-0089), and the session daemon (`nuo`).
 
 It embodies the core inspiration of Nuo (傩): in traditional Nuo rituals, the priest dons a Nuo mask to convey intent according to the image and persona embodied by the mask to commune with the divine; in engineering, `nuo-harness` uses an execution harness to employ different identities to communicate and collaborate with underlying intelligence safely.
 

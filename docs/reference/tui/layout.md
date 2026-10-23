@@ -71,7 +71,7 @@ The footer is a **declarative** stack: the caller lists rows `(id, height)` in d
 | `TopGap` | `FOOTER_TOP_GAP_ROWS = 0` | Persistent separator between transcript and chrome |
 | `ActivityStrip` | `ACTIVITY_STRIP_ROWS = 1` (or 0) | Consolidated status: queued follow-ups, background tasks, active round |
 | `Composer` | adaptive, `COMPOSER_MIN_HEIGHT = 4` | The input box |
-| `ModelBar` | `MODEL_BAR_ROWS = 1` (or 0) | Context usage meter + model identity |
+| `ModelBar` | `MODEL_BAR_ROWS = 1` (or 0) | Context usage meter + model identity (the route's catalog-resolved label, name-first / id-fallback per ADR-0081 — never the raw `vendor/model` wire id) |
 
 The rows place flush by construction: the zero-gap tokens (`FOOTER_TOP_GAP_ROWS`, `ACTIVITY_COMPOSER_GAP_ROWS`, `COMPOSER_HINT_GAP_ROWS`, all `0`) mean no gap row is ever inserted between adjacent chrome rows. This flush-ness is the contract asserted by `crates/nuo-tui/src/footer_stack.rs`.
 

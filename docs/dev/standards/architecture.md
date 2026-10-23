@@ -36,9 +36,9 @@ Nuo organizes its Cargo workspace into four concentric layers. Dependencies flow
 
 ## 2. Architectural Red-Lines
 
-### 2.1 Server-Client Anti-Inversion
-- **Red-Line**: `nuo-server` must NEVER depend directly or indirectly on `nuo-client`.
-- **Enforcement**: Client and Server interact strictly as peer processes across IPC boundaries. IPC messaging is typed and serialized via `nuo-protocol`. Any attempt to introduce `nuo-client` as a dependency of `nuo-server` is rejected at build time.
+### 2.1 Server-Client Anti-Inversion & Zero-Client Topology
+- **Red-Line**: `nuo-server` must NEVER depend directly or indirectly on `nuo-tui`, presentation substrates, or retired client crates (`nuo-client`).
+- **Enforcement**: Client presentation surfaces and Server interact strictly as peer processes across IPC boundaries. IPC messaging and discovery records are typed and serialized via `nuo-protocol` (ADR-0089). The obsolete intermediate crate `nuo-client` is permanently retired [INV-ARCH-CLIENT-01]; client transport belongs to `nuo-tui::client` and protocol contracts to `nuo-protocol`. Any attempt to introduce presentation or client dependencies into `nuo-server` is rejected at build time.
 
 ### 2.2 Headless Server Container Purity
 - **Red-Line**: `nuo-server` must NEVER link terminal presentation libraries (`nuotc`, `crossterm`) or `nuo-tui`.

@@ -1,8 +1,9 @@
 //! The `copilot-oauth` provider preset: GitHub Copilot subscription models
 //! over OpenAI-compatible chat completions against `api.githubcopilot.com`.
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
@@ -13,11 +14,11 @@ use nuo_provider::*;
 /// that endpoint at runtime — this seed only needs one universally available
 /// id so a brand-new instance activates without a 400. `gpt-4o-mini` is
 /// unlocked on every Copilot plan (incl. Free/Student).
-pub use nuo_inference_wire::model_providers::COPILOT_SEED_MODELS;
+pub use nuo_provider::model_providers::COPILOT_SEED_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[Model {
     id: "gpt-4o-mini",
     family: "gpt",
@@ -31,10 +32,10 @@ pub const MODELS: &[Model] = &[Model {
     wire_entities: None,
 }];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Copilot,
+    dialect: nuo_provider::ProviderDialect::Copilot,
     protocol_roots: std::borrow::Cow::Borrowed(&[(
         WireProtocol::AnthropicMessages,
         std::borrow::Cow::Borrowed("https://api.githubcopilot.com/v1"),
@@ -54,7 +55,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // advertised capability metadata, mirroring the kimi-code flow.
     protocol: WireProtocol::OpenAiChatCompletions,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::Copilot,
+    default_client_profile: nuo_provider::ClientPreset::Copilot,
     client_profile_sensitive: true,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,

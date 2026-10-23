@@ -1,8 +1,9 @@
 //! The built-in `openai` provider preset: OpenAI's chat-completions API,
 //! one key (`OPENAI_API_KEY`).
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
@@ -13,11 +14,11 @@ use nuo_provider::*;
 /// The legacy `gpt-4o`/`gpt-4o-mini` ids stay registered for existing
 /// configs but are no longer seeded for the official provider. Each id exists
 /// in the model registry.
-pub use nuo_inference_wire::model_providers::OPENAI_BUILTIN_MODELS;
+pub use nuo_provider::model_providers::OPENAI_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     Model {
         id: "gpt-6-astra",
@@ -206,30 +207,29 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
-const OPENAI_GPT_56_CACHE: nuo_inference_wire::PromptCacheSpec =
-    nuo_inference_wire::PromptCacheSpec {
-        modes: &[
-            nuo_inference_wire::PromptCacheMode::Implicit,
-            nuo_inference_wire::PromptCacheMode::Explicit,
-        ],
-        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
-        supported_retentions: &[nuo_inference_wire::CacheRetention::ThirtyMinutes],
-        default_retention: Some(nuo_inference_wire::CacheRetention::ThirtyMinutes),
-        disable_supported: false,
-        routing_key_supported: true,
-        max_breakpoints: Some(4),
-        min_cacheable_tokens: Some(1024),
-        reports_reads: true,
-        reports_writes: true,
-        reports_misses: false,
-    };
+const OPENAI_GPT_56_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
+    modes: &[
+        nuo_provider::PromptCacheMode::Implicit,
+        nuo_provider::PromptCacheMode::Explicit,
+    ],
+    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+    supported_retentions: &[nuo_provider::CacheRetention::ThirtyMinutes],
+    default_retention: Some(nuo_provider::CacheRetention::ThirtyMinutes),
+    disable_supported: false,
+    routing_key_supported: true,
+    max_breakpoints: Some(4),
+    min_cacheable_tokens: Some(1024),
+    reports_reads: true,
+    reports_writes: true,
+    reports_misses: false,
+};
 
-const OPENAI_24H_CACHE: nuo_inference_wire::PromptCacheSpec = nuo_inference_wire::PromptCacheSpec {
-    modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
-    default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
-    supported_retentions: &[nuo_inference_wire::CacheRetention::TwentyFourHours],
+const OPENAI_24H_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
+    modes: &[nuo_provider::PromptCacheMode::Implicit],
+    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+    supported_retentions: &[nuo_provider::CacheRetention::TwentyFourHours],
     default_retention: None,
     disable_supported: false,
     routing_key_supported: true,
@@ -240,40 +240,38 @@ const OPENAI_24H_CACHE: nuo_inference_wire::PromptCacheSpec = nuo_inference_wire
     reports_misses: false,
 };
 
-const OPENAI_LEGACY_CACHE: nuo_inference_wire::PromptCacheSpec =
-    nuo_inference_wire::PromptCacheSpec {
-        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
-        supported_retentions: &[
-            nuo_inference_wire::CacheRetention::InMemory,
-            nuo_inference_wire::CacheRetention::TwentyFourHours,
-        ],
-        default_retention: None,
-        disable_supported: false,
-        routing_key_supported: true,
-        max_breakpoints: None,
-        min_cacheable_tokens: Some(2048),
-        reports_reads: true,
-        reports_writes: false,
-        reports_misses: false,
-    };
+const OPENAI_LEGACY_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
+    modes: &[nuo_provider::PromptCacheMode::Implicit],
+    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+    supported_retentions: &[
+        nuo_provider::CacheRetention::InMemory,
+        nuo_provider::CacheRetention::TwentyFourHours,
+    ],
+    default_retention: None,
+    disable_supported: false,
+    routing_key_supported: true,
+    max_breakpoints: None,
+    min_cacheable_tokens: Some(2048),
+    reports_reads: true,
+    reports_writes: false,
+    reports_misses: false,
+};
 
-const OPENAI_IN_MEMORY_CACHE: nuo_inference_wire::PromptCacheSpec =
-    nuo_inference_wire::PromptCacheSpec {
-        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
-        supported_retentions: &[nuo_inference_wire::CacheRetention::InMemory],
-        default_retention: None,
-        disable_supported: false,
-        routing_key_supported: true,
-        max_breakpoints: None,
-        min_cacheable_tokens: Some(2048),
-        reports_reads: true,
-        reports_writes: false,
-        reports_misses: false,
-    };
+const OPENAI_IN_MEMORY_CACHE: nuo_provider::PromptCacheSpec = nuo_provider::PromptCacheSpec {
+    modes: &[nuo_provider::PromptCacheMode::Implicit],
+    default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
+    supported_retentions: &[nuo_provider::CacheRetention::InMemory],
+    default_retention: None,
+    disable_supported: false,
+    routing_key_supported: true,
+    max_breakpoints: None,
+    min_cacheable_tokens: Some(2048),
+    reports_reads: true,
+    reports_writes: false,
+    reports_misses: false,
+};
 
-pub(super) fn prompt_cache_for_model(model: &str) -> nuo_inference_wire::PromptCacheSpec {
+pub(super) fn prompt_cache_for_model(model: &str) -> nuo_provider::PromptCacheSpec {
     if model == "gpt-5.6" || model.starts_with("gpt-5.6-") {
         OPENAI_GPT_56_CACHE
     } else if model == "gpt-5.5" || model.starts_with("gpt-5.5-") {
@@ -286,12 +284,12 @@ pub(super) fn prompt_cache_for_model(model: &str) -> nuo_inference_wire::PromptC
     } else if matches!(model, "gpt-4o" | "gpt-4o-mini" | "gpt-5.3-codex-spark") {
         OPENAI_IN_MEMORY_CACHE
     } else {
-        nuo_inference_wire::PromptCacheSpec::UNSUPPORTED
+        nuo_provider::PromptCacheSpec::UNSUPPORTED
     }
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
@@ -302,7 +300,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::OpenAiChatCompletions,
     models: OPENAI_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,

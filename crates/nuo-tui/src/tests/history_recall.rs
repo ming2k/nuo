@@ -2386,3 +2386,51 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
         "Ctrl-r must open history search when composer is active"
     );
 }
+
+#[tokio::test]
+async fn history_search_opening_preserves_scene_bar_and_context_bar() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "session-test".to_string();
+    app.record_input_history("existing entry".to_string(), Vec::new(), Vec::new());
+
+    // 1. Render normal frame
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-test");
+    });
+    let buffer_normal = terminal.buffer().clone();
+    let row1_normal: String = (0..80).map(|x| buffer_normal[(x, 1)].symbol()).collect();
+    let row2_normal: String = (0..80).map(|x| buffer_normal[(x, 2)].symbol()).collect();
+    assert!(
+        row1_normal.contains("THREAD"),
+        "Row 1 must be SceneBar carrying THREAD tag: {row1_normal:?}"
+    );
+
+    // 2. Open HistorySearch
+    app.open_dialog(crate::surfaces::DialogKind::HistorySearch);
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::surfaces::DialogKind::HistorySearch)
+    );
+
+    // 3. Render frame during HistorySearch
+    let mut terminal_hist = nuotc::TestTerminal::new(80, 24);
+    terminal_hist.draw(|f| {
+        crate::event_loop::render_frame(&mut app, f, "session-test");
+    });
+    let buffer_hist = terminal_hist.buffer();
+    let row1_hist: String = (0..80).map(|x| buffer_hist[(x, 1)].symbol()).collect();
+    let row2_hist: String = (0..80).map(|x| buffer_hist[(x, 2)].symbol()).collect();
+    assert!(
+        row1_hist.contains("THREAD"),
+        "Row 1 SceneBar must NOT be hidden when HistorySearch is opened: {row1_hist:?}"
+    );
+    assert_eq!(
+        row1_hist, row1_normal,
+        "SceneBar must remain identical during HistorySearch"
+    );
+    assert_eq!(
+        row2_hist, row2_normal,
+        "ThreadContextBar must remain identical during HistorySearch"
+    );
+}

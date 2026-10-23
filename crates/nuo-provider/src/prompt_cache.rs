@@ -1,9 +1,9 @@
 //! Shared resolution of route defaults and per-request prompt-cache intent.
 
-use crate::capability::ModelRequest;
-use nuo_inference_wire::{
+use crate::cache::{
     PromptCacheCapabilities, PromptCacheModePreference, PromptCachePreference, ResolvedCachePolicy,
 };
+use crate::capability::ModelRequest;
 
 /// Immutable prompt-cache policy attached to one concrete provider route.
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl PromptCacheConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_inference_wire::{CacheRetention, PromptCacheMode};
+    use crate::cache::{CacheRetention, PromptCacheMode};
 
     #[test]
     fn request_retention_overrides_route_retention_without_losing_route_mode() {

@@ -18,7 +18,7 @@
 //!   stamped across `tools → system → messages` (last tool, last system block,
 //!   and the two newest messages) so the stable prefix is cached at 0.1× input
 //!   cost. See `stamp_cache_control` and friends.
-use nuo_inference_wire::ReasoningSupport;
+use nuo_provider::ReasoningSupport;
 use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 
@@ -36,18 +36,18 @@ pub struct BodyInput<'a> {
     pub model: &'a str,
     pub stream: bool,
     /// Structured instructions from the instruction manifest.
-    pub instructions: Option<&'a nuo_inference_wire::InstructionBundle>,
+    pub instructions: Option<&'a nuo_provider::InstructionBundle>,
     /// OpenAI-shaped tool specs (`{type:"function", function:{...}}`), if any.
     /// Converted to Anthropic's `{name, description, input_schema}` shape.
     pub tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
     pub max_tokens: u32,
     pub thinking: ThinkingConfig,
-    pub cache_plan: &'a nuo_inference_wire::ResolvedCachePolicy,
+    pub cache_plan: &'a nuo_provider::ResolvedCachePolicy,
 }
 
 /// Build the `/messages` request body from the harness message list.
 pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
-    let capabilities = nuo_inference_wire::ModelCapabilities::for_channel(input.model, None);
+    let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
     body_with_capabilities(messages, input, &capabilities)
 }
 
@@ -57,7 +57,7 @@ pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 pub fn body_with_capabilities(
     messages: Vec<Message>,
     input: BodyInput<'_>,
-    capabilities: &nuo_inference_wire::ModelCapabilities,
+    capabilities: &nuo_provider::ModelCapabilities,
 ) -> Value {
     let BodyInput {
         model: model_id,
@@ -166,16 +166,16 @@ pub fn body_with_capabilities(
         body["system"] = json!(system_text);
     }
 
-    if let nuo_inference_wire::ResolvedCachePolicy::Enabled {
+    if let nuo_provider::ResolvedCachePolicy::Enabled {
         mode, retention, ..
     } = cache_plan
     {
         let control = cache_control(*retention);
         match mode {
-            nuo_inference_wire::PromptCacheMode::Automatic => {
+            nuo_provider::PromptCacheMode::Automatic => {
                 body["cache_control"] = control;
             }
-            nuo_inference_wire::PromptCacheMode::Explicit => {
+            nuo_provider::PromptCacheMode::Explicit => {
                 stamp_caching_breakpoints(
                     &mut body,
                     &static_system_text,
@@ -183,7 +183,7 @@ pub fn body_with_capabilities(
                     &control,
                 );
             }
-            nuo_inference_wire::PromptCacheMode::Implicit => {}
+            nuo_provider::PromptCacheMode::Implicit => {}
         }
     }
     stamp_thinking(&mut body, capabilities, max_tokens, thinking);
@@ -198,7 +198,7 @@ pub fn body_with_capabilities(
 /// the resolved model is not a manual-thinking model or the user has thinking
 /// turned off.
 pub fn beta_header(
-    capabilities: &nuo_inference_wire::ModelCapabilities,
+    capabilities: &nuo_provider::ModelCapabilities,
     thinking: ThinkingConfig,
 ) -> Option<&'static str> {
     thinking
@@ -211,7 +211,7 @@ pub fn beta_header(
 /// beta header for manual thinking.
 pub fn headers(
     api_key: &str,
-    capabilities: &nuo_inference_wire::ModelCapabilities,
+    capabilities: &nuo_provider::ModelCapabilities,
     thinking: ThinkingConfig,
     copilot: bool,
 ) -> Vec<(&'static str, String)> {
@@ -291,15 +291,15 @@ fn stamp_caching_breakpoints(
     );
 }
 
-fn cache_control(retention: Option<nuo_inference_wire::CacheRetention>) -> Value {
+fn cache_control(retention: Option<nuo_provider::CacheRetention>) -> Value {
     let mut control = json!({"type": "ephemeral"});
     if let Some(retention) = retention {
         control["ttl"] = json!(match retention {
-            nuo_inference_wire::CacheRetention::FiveMinutes => "5m",
-            nuo_inference_wire::CacheRetention::OneHour => "1h",
-            nuo_inference_wire::CacheRetention::InMemory
-            | nuo_inference_wire::CacheRetention::ThirtyMinutes
-            | nuo_inference_wire::CacheRetention::TwentyFourHours => {
+            nuo_provider::CacheRetention::FiveMinutes => "5m",
+            nuo_provider::CacheRetention::OneHour => "1h",
+            nuo_provider::CacheRetention::InMemory
+            | nuo_provider::CacheRetention::ThirtyMinutes
+            | nuo_provider::CacheRetention::TwentyFourHours => {
                 unreachable!("cache plan was resolved against Anthropic capabilities")
             }
         });
@@ -367,7 +367,7 @@ fn manual_thinking_budget(max_tokens: u32) -> u32 {
 /// knobs and the opt-in default.
 fn stamp_thinking(
     body: &mut Value,
-    capabilities: &nuo_inference_wire::ModelCapabilities,
+    capabilities: &nuo_provider::ModelCapabilities,
     max_tokens: u32,
     thinking: ThinkingConfig,
 ) {

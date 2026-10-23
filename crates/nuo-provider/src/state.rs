@@ -165,7 +165,7 @@ fn update_semantic_message(digest: &mut Sha256, message: &Message) {
 /// `temporary_context`.
 #[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
 pub fn request_prefix_fingerprint<T: Serialize>(
-    instructions: &crate::InstructionBundle,
+    instructions: &crate::instructions::InstructionBundle,
     messages: &[Message],
     tools: &[T],
 ) -> String {
@@ -186,7 +186,7 @@ pub fn request_prefix_fingerprint<T: Serialize>(
 
 #[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
 pub fn request_envelope_fingerprint<T: Serialize>(
-    instructions: &crate::InstructionBundle,
+    instructions: &crate::instructions::InstructionBundle,
     messages: &[Message],
     tools: &[T],
 ) -> String {

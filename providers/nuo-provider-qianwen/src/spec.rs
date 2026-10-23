@@ -35,19 +35,20 @@
 //! DeepSeek ids therefore ride their home platform's vocabulary — the narrower
 //! `DEEPSEEK_V4_PLAN` floor on this surface is documented, not enforceable
 //! here, exactly like GLM-5.3's `xhigh` rejection above.
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
 /// The model ids the built-in `qianwen` provider seeds (the plan's
 /// Qwen-native models; the live catalog serves the rest). Each id exists in
 /// the model registry and floats with the upstream latest.
-pub use nuo_inference_wire::model_providers::QIANWEN_BUILTIN_MODELS;
+pub use nuo_provider::model_providers::QIANWEN_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the Qwen-native models this provider
 /// serves, submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Qwen hybrid models — thinking on by default, gated only by
     // `reasoning_effort`; the `none` rung is the documented off switch.
@@ -103,10 +104,10 @@ pub const MODELS: &[Model] = &[
     // and `none` requests on the Qwen-only ids are the explicit off switch.
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
@@ -119,7 +120,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::OpenAiChatCompletions,
     models: QIANWEN_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -128,9 +129,9 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_inference_wire::effort::Effort;
-    use nuo_inference_wire::model::resolve;
+    use nuo_provider::effort::Effort;
     use nuo_provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
+    use nuo_provider::model::resolve;
 
     /// Every seeded id is registered (the same invariant
     /// `builtin_provider_models_resolve_with_expected_wire_formats` enforces

@@ -10,15 +10,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use nuo_egress::http::Http;
-use nuo_inference_wire::LoginMethod;
-use nuo_inference_wire::ResolvedAuth;
-use nuo_inference_wire::SecretString;
-use nuo_inference_wire::provider_auth::{
-    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
-};
+use nuo_host::SecretString;
 use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
+use nuo_oauth::{
+    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
+};
 use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
+use nuo_provider::LoginMethod;
+use nuo_provider::ResolvedAuth;
 use nuo_provider::credentials::CredentialSession;
 
 use crate::identity::QoderStoredIdentity;

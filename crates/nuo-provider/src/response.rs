@@ -1,7 +1,7 @@
 //! Provider HTTP response validation, error classification, and JSON decoding.
 
+use crate::{ProviderError, ProviderErrorKind};
 use nuo_egress::{HttpResponse, retry_after_ms};
-use nuo_inference_wire::{ProviderError, ProviderErrorKind};
 
 /// Enforce HTTP success on provider response, classifying error kinds.
 pub async fn ensure_success(

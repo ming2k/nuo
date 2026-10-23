@@ -6,8 +6,9 @@
 // Failing loudly on a broken pre-condition is the point of a smoke run.
 #![allow(clippy::expect_used, clippy::panic)]
 
-use nuo_inference_wire::{ClientPreset, ResolvedAuth, SecretString};
+use nuo_host::SecretString;
 use nuo_provider::Provider;
+use nuo_provider::{ClientPreset, ResolvedAuth};
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 use nuo_tool::{Message, Role};
@@ -19,7 +20,7 @@ struct StoreSource {
     identity: QoderRequestIdentity,
 }
 
-impl nuo_inference_wire::CredentialSource for StoreSource {
+impl nuo_provider::CredentialSource for StoreSource {
     fn resolve_auth(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         let token = self.token.clone();
         let identity = self.identity.clone();
@@ -77,7 +78,7 @@ async fn main() {
         "https://api3.qoder.sh",
         ClientPreset::Native,
     )
-    .with_dialect(nuo_inference_wire::OpenAiChatDialect::Qoder)
+    .with_dialect(nuo_provider::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline());
 
     let stream = provider

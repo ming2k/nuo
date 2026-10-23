@@ -52,11 +52,11 @@ fn log_dispatch(app: &mut App, raw: &str, targets: Vec<usize>, action: &'static 
 }
 
 /// The control request a console verb maps to.
-fn verb_request(verb: ConsoleVerb, id: String) -> nuo_client::ControlRequest {
+fn verb_request(verb: ConsoleVerb, id: String) -> crate::client::ControlRequest {
     match verb {
-        ConsoleVerb::Kill => nuo_client::ControlRequest::KillSession { session_id: id },
-        ConsoleVerb::Interrupt => nuo_client::ControlRequest::Interrupt { session_id: id },
-        ConsoleVerb::Suspend => nuo_client::ControlRequest::SuspendSession { session_id: id },
+        ConsoleVerb::Kill => crate::client::ControlRequest::KillSession { session_id: id },
+        ConsoleVerb::Interrupt => crate::client::ControlRequest::Interrupt { session_id: id },
+        ConsoleVerb::Suspend => crate::client::ControlRequest::SuspendSession { session_id: id },
     }
 }
 
@@ -98,10 +98,10 @@ fn spawn_control_verb(runtime: &UiRuntime, verb: ConsoleVerb, target: Option<usi
 
 /// Discover the server and issue one control verb. `Err` carries either the
 /// discovery failure or the server's rejection, both receipt-ready.
-async fn discover_and_control(request: nuo_client::ControlRequest) -> Result<(), String> {
+async fn discover_and_control(request: crate::client::ControlRequest) -> Result<(), String> {
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    match nuo_client::discover(&project_root) {
-        Some(info) => nuo_client::control(&info, request).await,
+    match crate::client::discover(&project_root) {
+        Some(info) => crate::client::control(&info, request).await,
         None => {
             tracing::warn!("dashboard control: no server discovered");
             Err("no server is running".to_string())
@@ -173,11 +173,11 @@ async fn dispatch_archivist(app: &mut App, runtime: &UiRuntime, raw: &str, text:
     tokio::spawn(async move {
         let project_root =
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let outcome = match nuo_client::discover(&project_root) {
+        let outcome = match crate::client::discover(&project_root) {
             Some(info) => {
-                nuo_client::control_with_reply(
+                crate::client::control_with_reply(
                     &info,
-                    nuo_client::ControlRequest::AskArchivist { text: text.clone() },
+                    crate::client::ControlRequest::AskArchivist { text: text.clone() },
                 )
                 .await
             }
@@ -216,7 +216,7 @@ async fn dispatch_create(app: &mut App, runtime: &UiRuntime, raw: &str, text: Op
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let project = project_root.display().to_string();
     tokio::spawn(async move {
-        let outcome = discover_and_control(nuo_client::ControlRequest::CreateSession {
+        let outcome = discover_and_control(crate::client::ControlRequest::CreateSession {
             project,
             prompt: text,
             init_options: None,
@@ -349,12 +349,12 @@ pub(super) async fn dispatch_console_command(
                 resolved.iter().map(|(n, _)| *n).collect(),
                 "prompt",
             );
-            let sends: Vec<(usize, nuo_client::ControlRequest)> = resolved
+            let sends: Vec<(usize, crate::client::ControlRequest)> = resolved
                 .into_iter()
                 .map(|(n, id)| {
                     (
                         n,
-                        nuo_client::ControlRequest::SendPrompt {
+                        crate::client::ControlRequest::SendPrompt {
                             session_id: id,
                             text: text.clone(),
                         },
@@ -366,12 +366,12 @@ pub(super) async fn dispatch_console_command(
             tokio::spawn(async move {
                 let project_root =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                let Some(info) = nuo_client::discover(&project_root) else {
+                let Some(info) = crate::client::discover(&project_root) else {
                     tracing::warn!("dashboard control: no server discovered");
                     return;
                 };
                 for (n, request) in sends {
-                    let line = match nuo_client::control(&info, request).await {
+                    let line = match crate::client::control(&info, request).await {
                         Ok(()) => ConsoleLine::Receipt {
                             ok: true,
                             target: Some(n),

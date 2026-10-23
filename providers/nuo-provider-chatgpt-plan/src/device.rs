@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use nuo_host::SecretString;
 
-use nuo_inference_wire::provider_auth::OAuthConfig;
+use nuo_oauth::OAuthConfig;
 use nuo_oauth::oauth::TokenResponse;
 
 /// Response from the `deviceauth/usercode` endpoint.

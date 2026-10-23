@@ -1,7 +1,8 @@
 //! The built-in `google` provider preset: the native Google API, one key.
 
-use nuo_inference_wire::reasoning::ReasoningSupport;
-use nuo_inference_wire::{Model, WireProtocol};
+use nuo_inference_wire::WireProtocol;
+use nuo_provider::Model;
+use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
@@ -10,11 +11,11 @@ use nuo_provider::*;
 /// canonical text-generation family that Google plus common relays/中转站
 /// advertise — image/embedding/video/audio-only models are excluded since an
 /// agent only consumes the `generateContent` text surface.
-pub use nuo_inference_wire::model_providers::GOOGLE_BUILTIN_MODELS;
+pub use nuo_provider::model_providers::GOOGLE_BUILTIN_MODELS;
 
 /// Baseline capability metadata for the models this provider serves,
 /// submitted to `nuo_inference_wire`'s registry at link time (see
-/// [`nuo_inference_wire::model::BaselineModels`]).
+/// [`nuo_provider::model::BaselineModels`]).
 pub const MODELS: &[Model] = &[
     // Google (native)
     // Native Google REST surface (`generateContent`/`streamGenerateContent`).
@@ -181,12 +182,12 @@ pub const MODELS: &[Model] = &[
     },
 ];
 
-inventory::submit!(nuo_inference_wire::model::BaselineModels(MODELS));
+inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
-fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
-    nuo_inference_wire::PromptCacheSpec {
-        modes: &[nuo_inference_wire::PromptCacheMode::Implicit],
-        default_mode: Some(nuo_inference_wire::PromptCacheMode::Implicit),
+fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
+    nuo_provider::PromptCacheSpec {
+        modes: &[nuo_provider::PromptCacheMode::Implicit],
+        default_mode: Some(nuo_provider::PromptCacheMode::Implicit),
         supported_retentions: &[],
         default_retention: None,
         disable_supported: false,
@@ -200,7 +201,7 @@ fn prompt_cache_for_model(_: &str) -> nuo_inference_wire::PromptCacheSpec {
 }
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_inference_wire::ProviderDialect::Standard,
+    dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::OpenAiChatCompletions,
@@ -220,7 +221,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol: WireProtocol::GoogleGenerateContent,
     models: GOOGLE_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Google),
-    default_client_profile: nuo_inference_wire::ClientPreset::Native,
+    default_client_profile: nuo_provider::ClientPreset::Native,
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
@@ -252,7 +253,7 @@ mod tests {
             "https://generativelanguage.googleapis.com/v1beta/interactions"
         );
 
-        let argon = nuo_inference_wire::model::resolve("gemini-4-argon");
+        let argon = nuo_provider::model::resolve("gemini-4-argon");
         assert_eq!(argon.id, "gemini-4-argon");
         assert_eq!(argon.context_window, 1_000_000);
         assert_eq!(argon.protocol, WireProtocol::GoogleGenerateContent);
@@ -260,7 +261,7 @@ mod tests {
         assert!(argon.thinking.reasons());
         assert_eq!(argon.effort_levels, effort_ladders::GEMINI_LEVEL);
 
-        let flash38 = nuo_inference_wire::model::resolve("gemini-3.8-flash");
+        let flash38 = nuo_provider::model::resolve("gemini-3.8-flash");
         assert_eq!(flash38.id, "gemini-3.8-flash");
         assert_eq!(flash38.context_window, 1_000_000);
         assert_eq!(flash38.protocol, WireProtocol::GoogleGenerateContent);

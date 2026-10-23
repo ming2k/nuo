@@ -13,7 +13,7 @@
 //! legitimately route the same model id through a different surface.
 use crate::effort::Effort;
 use crate::reasoning::ReasoningSupport;
-pub use crate::wire_protocol::WireProtocol;
+pub use nuo_inference_wire::WireProtocol;
 
 /// A canonical baseline model definition.
 ///
@@ -675,7 +675,7 @@ impl ConnectionFilterPolicy {
             Self::Named(NamedFilterPolicy::Baseline) => is_in_baseline,
             Self::Named(NamedFilterPolicy::All) => true,
             Self::Named(NamedFilterPolicy::Curated) => {
-                !crate::catalog::is_relay_promotional_noise(model_id)
+                !crate::dialects::is_relay_promotional_noise(model_id)
             }
             Self::Glob(patterns) => patterns
                 .iter()
@@ -1025,6 +1025,8 @@ pub fn fallback_model(_id: &str) -> Model {
 /// runtime-fitted overlay for ids a trusted provider advertised, then a
 /// conservative fallback. Never returns `None` so callers need not branch on
 /// absence.
+pub use resolve as resolve_model;
+
 pub fn resolve(id: &str) -> Model {
     if let Some(model) = model_by_id(id) {
         // A trusted provider may have refreshed the baseline's live effort

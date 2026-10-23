@@ -83,7 +83,7 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .current_dir("/");
-    nuo_client::configure_server_detachment(&mut command);
+    nuo_tui::client::configure_server_detachment(&mut command);
     let child = command.spawn().expect("spawn the sandboxed server");
     let server_pid = child.id();
 

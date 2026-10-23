@@ -1,4 +1,4 @@
-use nuo_client::{self as client, AttachAction, Handshake};
+use crate::client::{self, AttachAction, Handshake};
 use nuo_wire::{
     AgentRequest, AgentResponse, PermissionDecision, PermissionRequest, RoundEvent,
     UserQuestionRequest,
@@ -67,7 +67,7 @@ pub async fn run_headless(
             nuo_wire::human_request::HumanChannelPosture::Autonomous
         });
     }
-    let init_options = nuo_client::SessionInitOptions::new(unattended, confined)
+    let init_options = client::SessionInitOptions::new(unattended, confined)
         .with_role(role)
         .with_resume(resume);
     let action = AttachAction::New(if init_options.is_default() {

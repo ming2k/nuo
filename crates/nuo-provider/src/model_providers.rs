@@ -137,7 +137,7 @@ pub struct UserDeclaredProvider {
     pub root_url: String,
     /// Default wire transport protocol (e.g. `chat-completions`, `responses`, `anthropic-messages`, `google-gemini`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_protocol: Option<crate::WireProtocol>,
+    pub default_protocol: Option<nuo_inference_wire::WireProtocol>,
     /// Default client profile preset for User-Agent / client headers emulation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_profile: Option<crate::ClientPreset>,
@@ -146,17 +146,17 @@ pub struct UserDeclaredProvider {
     pub user_agent: Option<String>,
     /// Catalog discovery format: `openai`, `anthropic`, `google`, `none`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub catalog: Option<crate::provider_surface::RemoteCatalogSource>,
+    pub catalog: Option<crate::surface::RemoteCatalogSource>,
     /// Typed service dialect, inherited independently of model protocol.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dialect: Option<crate::catalog::ProviderDialect>,
+    pub dialect: Option<crate::dialects::ProviderDialect>,
     /// Optional explicit transport endpoints, keyed by model wire protocol.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub protocol_roots: Vec<(crate::WireProtocol, String)>,
+    pub protocol_roots: Vec<(nuo_inference_wire::WireProtocol, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog_root_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_cache: Option<crate::provider_surface::ProviderPromptCache>,
+    pub prompt_cache: Option<crate::surface::ProviderPromptCache>,
     #[serde(default)]
     pub client_profile_sensitive: bool,
 }
@@ -169,23 +169,23 @@ impl UserDeclaredProvider {
         if is_known_model_provider(id) {
             return Err(format!("provider `{id}` collides with a built-in provider"));
         }
-        crate::provider_surface::ApiRoot::parse(&self.root_url)?;
+        crate::surface::ApiRoot::parse(&self.root_url)?;
         if let Some(cache) = &self.prompt_cache {
             cache.validate()?;
         }
         if let Some(root) = &self.catalog_root_url {
-            crate::provider_surface::ApiRoot::parse(root)?;
+            crate::surface::ApiRoot::parse(root)?;
         }
         let mut wires = std::collections::HashSet::new();
         for (wire, root) in &self.protocol_roots {
             if !wires.insert(*wire) {
                 return Err(format!("duplicate protocol root for {wire}"));
             }
-            crate::provider_surface::ApiRoot::parse(root)?;
+            crate::surface::ApiRoot::parse(root)?;
         }
         if !self.dialect.unwrap_or_default().supports(
             self.default_protocol
-                .unwrap_or(crate::WireProtocol::OpenAiChatCompletions),
+                .unwrap_or(nuo_inference_wire::WireProtocol::OpenAiChatCompletions),
         ) {
             return Err(format!(
                 "provider `{id}` has an incompatible default protocol"

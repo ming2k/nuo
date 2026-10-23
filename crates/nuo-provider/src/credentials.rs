@@ -1,8 +1,8 @@
 //! Durable credential material, token models, and store contracts (ADR-0015).
 
 use futures::future::BoxFuture;
+use nuo_host::SecretString;
 use nuo_host::fsutil::FileLock;
-use nuo_inference_wire::SecretString;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

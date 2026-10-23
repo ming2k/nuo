@@ -12,8 +12,8 @@
 //! Moved from `nuo-provider-adapters`' `registry/mod.rs` + `lib.rs::init()`;
 //! the per-provider spec modules there were duplicates of the `providers/`
 //! crates' own `spec.rs` and are deleted.
-use nuo_inference_wire::RemoteCatalogSource;
-use nuo_inference_wire::catalog::{Channel, Transport};
+use nuo_provider::RemoteCatalogSource;
+use nuo_provider::catalog::{Channel, Transport};
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -86,10 +86,7 @@ pub fn register_user_declared_provider(
 /// Replace the dynamic snapshot atomically; removed entries are released once readers finish.
 pub fn sync_user_declared_providers(
     declared: &impl AsRef<
-        std::collections::BTreeMap<
-            String,
-            nuo_inference_wire::model_providers::UserDeclaredProvider,
-        >,
+        std::collections::BTreeMap<String, nuo_provider::model_providers::UserDeclaredProvider>,
     >,
 ) -> Result<(), String> {
     let mut next = std::collections::BTreeMap::new();
@@ -101,13 +98,11 @@ pub fn sync_user_declared_providers(
         let dialect = provider.dialect.unwrap_or_default();
         let catalog_source = provider.catalog.unwrap_or_else(|| {
             RemoteCatalogSource::Endpoint(match dialect {
-                nuo_inference_wire::ProviderDialect::Antigravity => {
-                    nuo_inference_wire::CatalogShape::GoogleCloudCode
+                nuo_provider::ProviderDialect::Antigravity => {
+                    nuo_provider::CatalogShape::GoogleCloudCode
                 }
-                nuo_inference_wire::ProviderDialect::ChatGpt => {
-                    nuo_inference_wire::CatalogShape::Codex
-                }
-                _ => nuo_inference_wire::CatalogShape::from_wire_protocol(wire),
+                nuo_provider::ProviderDialect::ChatGpt => nuo_provider::CatalogShape::Codex,
+                _ => nuo_provider::CatalogShape::from_wire_protocol(wire),
             })
         });
         let spec = ModelProviderSpec {
@@ -129,7 +124,7 @@ pub fn sync_user_declared_providers(
             catalog_source,
             default_client_profile: provider
                 .client_profile
-                .unwrap_or(nuo_inference_wire::ClientPreset::Native),
+                .unwrap_or(nuo_provider::ClientPreset::Native),
             client_profile_sensitive: provider.client_profile_sensitive,
             prompt_cache: PromptCachePolicy::Declared(
                 provider.prompt_cache.clone().unwrap_or_default(),
@@ -151,8 +146,8 @@ pub fn sync_user_declared_providers(
 /// The spec for a provider id: built-in first, then whatever the host last
 /// declared.
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
-    let canonical = nuo_inference_wire::model_providers::canonical_provider_id(id)
-        .unwrap_or_else(|| id.to_string());
+    let canonical =
+        nuo_provider::model_providers::canonical_provider_id(id).unwrap_or_else(|| id.to_string());
     if let Some(spec) = MODEL_PROVIDER_SPECS
         .iter()
         .find(|spec| spec.id == id || spec.id == canonical.as_str())
@@ -264,8 +259,7 @@ pub fn build_provider_for_channel(
             {
                 provider = provider.with_max_tokens(max_tokens);
             }
-            let mut cfg =
-                ThinkingConfig::for_model(&nuo_inference_wire::model::resolve(&channel.model));
+            let mut cfg = ThinkingConfig::for_model(&nuo_provider::model::resolve(&channel.model));
             if let Some(mode) = thinking {
                 cfg = cfg.with_mode(*mode);
             }
@@ -300,7 +294,7 @@ pub fn build_provider_for_channel(
             .with_dialect(*dialect)
             .with_catalog_provenance(catalog_source, display_name)
             .with_id(entry_id.to_string());
-            if *dialect == nuo_inference_wire::OpenAiChatDialect::Qoder {
+            if *dialect == nuo_provider::OpenAiChatDialect::Qoder {
                 provider = provider.with_pipeline(qoder::build_qoder_pipeline());
             }
             if let Some(sid) = session_id {
@@ -336,16 +330,16 @@ pub fn build_provider_for_channel(
 }
 
 fn effective_channel_effort(
-    override_effort: Option<nuo_inference_wire::Effort>,
-    capabilities: &nuo_inference_wire::ModelCapabilities,
-) -> Option<nuo_inference_wire::Effort> {
+    override_effort: Option<nuo_provider::Effort>,
+    capabilities: &nuo_provider::ModelCapabilities,
+) -> Option<nuo_provider::Effort> {
     override_effort.or_else(|| {
-        let known: Vec<nuo_inference_wire::Effort> = capabilities
+        let known: Vec<nuo_provider::Effort> = capabilities
             .effort_levels
             .iter()
-            .filter_map(nuo_inference_wire::EffortLevel::as_known)
+            .filter_map(nuo_provider::EffortLevel::as_known)
             .collect();
-        nuo_inference_wire::Effort::channel_default(&capabilities.family, &known)
+        nuo_provider::Effort::channel_default(&capabilities.family, &known)
     })
 }
 
@@ -365,10 +359,10 @@ impl nuo_provider::ProviderFactory for NuoProviderFactory {
         &self,
         host: &nuo_provider::CredentialHost,
         connection_name: &str,
-        auth: &nuo_inference_wire::ConnectionAuth,
+        auth: &nuo_provider::ConnectionAuth,
         api_key: nuo_host::SecretString,
-        dialect: nuo_inference_wire::ProviderDialect,
-    ) -> Arc<dyn nuo_inference_wire::CredentialSource> {
+        dialect: nuo_provider::ProviderDialect,
+    ) -> Arc<dyn nuo_provider::CredentialSource> {
         build_credential_source(host, connection_name, auth, api_key, dialect)
     }
 }
@@ -390,24 +384,24 @@ impl nuo_provider::CatalogDiscovery for NuoCatalogDiscovery {
 pub fn build_credential_source(
     host: &nuo_provider::CredentialHost,
     connection_name: &str,
-    auth: &nuo_inference_wire::ConnectionAuth,
+    auth: &nuo_provider::ConnectionAuth,
     api_key: nuo_host::SecretString,
-    dialect: nuo_inference_wire::ProviderDialect,
-) -> std::sync::Arc<dyn nuo_inference_wire::CredentialSource> {
+    dialect: nuo_provider::ProviderDialect,
+) -> std::sync::Arc<dyn nuo_provider::CredentialSource> {
     if auth.is_oauth() {
         std::sync::Arc::new(nuo_oauth::OAuthCredentialSource::new(
             host,
             connection_name,
             auth.clone(),
         ))
-    } else if dialect == nuo_inference_wire::ProviderDialect::Qoder {
+    } else if dialect == nuo_provider::ProviderDialect::Qoder {
         std::sync::Arc::new(nuo_provider_qoder::QoderApiKeyCredentialSource::new(
             host,
             connection_name,
             api_key,
         ))
     } else {
-        nuo_inference_wire::static_credential(api_key)
+        nuo_provider::static_credential(api_key)
     }
 }
 

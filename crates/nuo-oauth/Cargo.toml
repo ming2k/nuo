@@ -12,7 +12,6 @@ nuo-provider = { workspace = true }
 # RFC 7636/8628 primitives + HTTP egress + TokenResponse (the OAuth standard).
 nuo-egress = { workspace = true }
 # Generic OAuth client types (OAuthConfig, DeviceFlowMode, LoginMethod, ResolvedAuth).
-nuo-inference-wire = { workspace = true }
 nuo-host = { workspace = true }
 
 async-trait = { workspace = true }

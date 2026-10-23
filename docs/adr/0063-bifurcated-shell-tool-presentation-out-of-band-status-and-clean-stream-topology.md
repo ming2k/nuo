@@ -44,7 +44,7 @@ This legacy layout suffered from four fundamental design defects:
 - **Bifurcated Presentation Topology**: Strictly decouple human presentation (TUI / CLI) from language model prompting (LLM Tool Result context). Human views require chronological purity and concise state indicators; model contexts require structured causal facts and actionable recovery hints.
 - **Strict Out-of-Band Control Segregation**: Treat process output (in-band stream) and lifecycle termination (out-of-band metadata) as strictly isolated types. Never rely on string-sniffing heuristics.
 - **Terminal-Native Interleaving**: Preserve authentic temporal order of `stdout` and `stderr` without artificial section headers or empty placeholder labels.
-- **Dignified Industrial Restraint**: Prohibit frivolous visual emojis and pseudo-dialogues. Use clean ANSI color grading and terse, professional status tokens (`exit 0`, `exit 101`, `timed out after 60s`, `stream cap reached`).
+- **Dignified Industrial Restraint**: Prohibit frivolous visual emojis and pseudo-dialogues. Use clean ANSI color grading and terse, professional status tokens (`exit 0`, `exit 101`, `timed out after 60s`).
 
 ---
 
@@ -70,18 +70,34 @@ Adopt **Option 3**:
 1. **Clean Stream Formatting (`nuo-tool`)**:
    - `shell_inner_text` and `shell_to_text` format authentic terminal output: chronological content first, followed strictly at the tail by status metadata when required.
    - Suppress empty `STDOUT:` or `STDERR:` labels entirely. If stdout or stderr is empty, omit its section header.
-   - When a process is terminated by the harness without a valid exit code (`exit == None`), do not synthesize `Exit -1`. Render authentic lifecycle status (`timed out`, `stream cap reached`, `cancelled`).
+   - When a process is terminated by the harness without a valid exit code (`exit == None`), do not synthesize `Exit -1`. Render authentic lifecycle status (`timed out`, `output limit reached`, `cancelled`).
 
 2. **Concise, Professional Footers (`nuo-tui`)**:
    - Eliminate verbose multi-space placeholders and emojis.
-   - Standardize termination footers to crisp, lower-case industrial diagnostics:
-     - `ShellTermination::Timeout` $\rightarrow$ `timed out`
-     - `ShellTermination::StreamGuard` $\rightarrow$ `stream cap reached`
-     - `ShellTermination::Cancelled` $\rightarrow$ `cancelled`
-     - `ShellTermination::IdleBlocked` $\rightarrow$ `idle timeout detected`
-     - `ShellTermination::InteractiveBlocked` $\rightarrow$ `interactive prompt detected`
-     - `ShellTermination::InputUnanswered` $\rightarrow$ `unanswered input prompt`
-   - Non-zero process exit codes render as `exit <code>` in warning/error tone; clean exits (`exit 0`) render dimmed.
+   - Standardize termination footers on the `state — cause` join form that
+     `docs/reference/tui/visual-language.md` assigns to a cause explaining a
+     state: the state reads first (what the operator sees happen), the cause
+     follows after an em dash (why it happened). Subsystem nouns (`stream cap`,
+     `budget`) are not carried into the operator's vocabulary, and every
+     non-`Exited` variant states `killed`, because "the harness stopped it" is
+     the one fact unrecoverable from the output stream.
+     - `ShellTermination::Timeout` $\rightarrow$ `timed out — killed`
+     - `ShellTermination::StreamGuard` $\rightarrow$ `output limit reached — killed`
+     - `ShellTermination::Cancelled` $\rightarrow$ `cancelled — killed`
+     - `ShellTermination::IdleBlocked` $\rightarrow$ `idle timeout — killed`
+     - `ShellTermination::InputUnanswered` $\rightarrow$ `input prompt unanswered — killed`
+     - `ShellTermination::InteractiveBlocked` $\rightarrow$ `not started — command asks for input`
+     - `ShellTermination::Detached` $\rightarrow$ `moved to background — still running`
+     - Output truncated without a termination cause $\rightarrow$ `output truncated — partial kept`
+   - The footer is painted flush beneath the output it explains. Marker
+     stripping on the legacy flat-string path must not leave a blank row
+     behind: a blank gap there separates the verdict from its evidence.
+   - Non-zero process exit codes keep their own `exit <code> (<explanation>)`
+     form: their parenthesized gloss is a *code reference* (a secondary measure
+     qualifying the exit status), not a cause, so the two footers legitimately
+     differ in join form. A clean `exit 0` paints nothing at all — the header
+     status already carries success, and a `exit 0` row would be a row saying
+     "nothing happened".
 
 3. **Audience-Aware Model Note Isolation**:
    - Model-facing recovery hints (`termination_model_note`) remain available for agent prompt generation but are decoupled from human display rendering.

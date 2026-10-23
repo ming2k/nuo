@@ -1,9 +1,13 @@
 //! Model catalog discovery interfaces, query types, and update envelopes (ADR-0015).
 
+use crate::surface::CatalogShape;
 use async_trait::async_trait;
-use nuo_inference_wire::{CatalogShape, SecretString};
+use nuo_host::SecretString;
 
-pub use nuo_inference_wire::catalog::{DiscoveredModel, ModelListError};
+pub use crate::dialects::{
+    AnthropicMessagesDialect, Channel, DiscoveredModel, GoogleInteractionsDialect, ModelListError,
+    ProviderEntry, Transport, clean_model_display_name, format_model_display_name,
+};
 
 /// Everything a live catalog request needs.
 #[derive(Clone)]

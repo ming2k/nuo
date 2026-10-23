@@ -8,7 +8,7 @@ use super::base::{
     MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx, nonempty_wrapped, truncate_to_width,
 };
 use crate::components::inline_layout::SemanticLine;
-use crate::design::{QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
+use crate::design::{JOIN_CAUSE, QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
 use crate::model::layout::{BlockRegion, LinkHit};
 use crate::model::selection::SelectionState;
 use crate::render::{
@@ -2149,9 +2149,18 @@ pub(crate) fn draw_matches_content(
 
 /// Resolve a shell step's `ShellTermination` into a themed footer
 /// `(text, style)`, or `None` for a healthy `Exited` run (which carries no
-/// extra marker beyond its optional `exit N` line). The footer explains *why*
-/// the command ended and — for the blocked variants — how to retry
-/// Termination footer (ADR-0063 / ADR-0070: unaggressive, clear industrial diagnostics)
+/// extra marker beyond its optional `exit N` line).
+///
+/// The footer answers the one question the output cannot: *the process did not
+/// end on its own — the harness stopped it, and here is why*. Each variant is
+/// `state — cause`, the join form `docs/reference/tui/visual-language.md`
+/// assigns to a cause that explains a state (the same form as `Edit — <name>`).
+///
+/// The vocabulary is deliberately plain (`output limit`, not `stream cap`) and
+/// free of subsystem names: the reader is a human debugging a command, not the
+/// component that named the budget (ADR-0063 §Concise, Professional Footers).
+/// Every non-`Exited` variant states `killed` explicitly, because "the harness
+/// stopped it" is the fact that cannot be recovered from the output stream.
 fn termination_footer(
     term: nuo_wire::tool_output::ShellTermination,
     theme: &Theme,
@@ -2160,18 +2169,18 @@ fn termination_footer(
     use nuo_wire::tool_output::ShellTermination as T;
     let warn_style = Style::default().bg(bg).fg(theme.warn());
     let err_style = Style::default().bg(bg).fg(theme.err());
+    // `state — cause` via the shared join token, so the separator/spacing can
+    // never drift from `docs/reference/tui/visual-language.md`.
+    let cause = |state: &str, why: &str| format!("{state}{JOIN_CAUSE}{why}");
     match term {
         T::Exited => None,
-        T::IdleBlocked => Some(("harness: idle timeout detected".to_string(), warn_style)),
-        T::InteractiveBlocked => Some((
-            "harness: interactive prompt detected".to_string(),
-            warn_style,
-        )),
-        T::InputUnanswered => Some(("harness: unanswered input prompt".to_string(), warn_style)),
-        T::Timeout => Some(("harness: timed out".to_string(), warn_style)),
-        T::Cancelled => Some(("harness: cancelled".to_string(), err_style)),
-        T::StreamGuard => Some(("harness: stream cap reached".to_string(), warn_style)),
-        T::Detached => Some(("harness: detached to background".to_string(), warn_style)),
+        T::IdleBlocked => Some((cause("idle timeout", "killed"), warn_style)),
+        T::InteractiveBlocked => Some((cause("not started", "command asks for input"), warn_style)),
+        T::InputUnanswered => Some((cause("input prompt unanswered", "killed"), warn_style)),
+        T::Timeout => Some((cause("timed out", "killed"), warn_style)),
+        T::Cancelled => Some((cause("cancelled", "killed"), err_style)),
+        T::StreamGuard => Some((cause("output limit reached", "killed"), warn_style)),
+        T::Detached => Some((cause("moved to background", "still running"), warn_style)),
     }
 }
 
@@ -2319,14 +2328,18 @@ pub(crate) fn draw_command_content(
         }
     }
 
-    // Part 3: Harness Governance Strip (Flush underneath Part 2)
-    // Only rendered when supervisor intervention occurred (timeout, stream cap, cancelled, truncation)
+    // Part 3: Harness Governance Strip (flush beneath Part 2)
+    // Only rendered when supervisor intervention occurred (timeout, output
+    // limit, cancellation, truncation).
     let harness_bg = harness_intervention_surface(termination, ctx.theme);
     let harness_pad = Style::default().bg(harness_bg);
     let governance_entry = termination_footer(termination, ctx.theme, harness_bg).or_else(|| {
         if is_truncated {
             let warn_style = Style::default().bg(harness_bg).fg(ctx.theme.warn());
-            Some(("harness: output cap reached".to_string(), warn_style))
+            Some((
+                format!("output truncated{JOIN_CAUSE}partial kept"),
+                warn_style,
+            ))
         } else {
             None
         }
@@ -2367,6 +2380,14 @@ fn parse_unstructured_shell_content(
     let mut truncated = false;
 
     let trimmed_content = content.trim_end_matches(&['\r', '\n'][..]);
+    // Markers are stripped from the stream, but the blank separator rows that
+    // surround them are not content: the model-facing text puts a `\n\n` before
+    // the `[killed by harness: …]` note (`ToolOutput::to_text`) and before the
+    // truncation banner. Consumers paint the rescued footer flush beneath the
+    // output ("Part 3 flushes underneath Part 2"), so a surviving blank row
+    // would open a phantom gap between the output and the footer it explains.
+    // Defer blank rows: emit one only once a real content row follows it.
+    let mut pending_blank = false;
     for raw_line in trimmed_content.lines() {
         let trimmed = raw_line.trim_end();
         let trimmed_leading = trimmed.trim_start();
@@ -2436,7 +2457,18 @@ fn parse_unstructured_shell_content(
             }
         }
 
-        // 5. Authentic user log row
+        // 5. Authentic user log row. Genuine blank rows *inside* the output stay
+        // (they are the command's own formatting); only blanks made leading by
+        // the marker stripping above are held back and dropped if nothing
+        // follows them.
+        if trimmed.is_empty() {
+            pending_blank = !rows.is_empty();
+            continue;
+        }
+        if pending_blank {
+            rows.push((String::new(), base));
+            pending_blank = false;
+        }
         rows.push((raw_line.to_string(), base));
     }
 
@@ -3546,9 +3578,48 @@ mod tests {
         );
         assert!(footer.is_some());
         let (text, style) = footer.unwrap();
-        assert_eq!(text, "harness: stream cap reached");
+        assert_eq!(text, "output limit reached — killed");
         assert_eq!(style.fg, theme.warn());
         assert_eq!(style.bg, theme.match_title_surface());
+    }
+
+    /// The legacy flat-string path (restored sessions, live seeds) carries the
+    /// harness note in-band. Stripping the marker must not leave the blank
+    /// separator row that precedes it: the footer is painted flush beneath the
+    /// output, so a surviving blank would open a phantom gap between the
+    /// output and the footer explaining it.
+    #[test]
+    fn parse_unstructured_shell_content_drops_blank_rows_left_by_stripped_markers() {
+        let theme = crate::Theme::default();
+        let base = Style::default().fg(theme.code_text());
+        let body = "line 1\nline 2\nline 3\n\
+                    [Output truncated: 5509 chars total; full raw log spilled to disk]\n\
+                    \n\
+                    [killed by harness: stream budget reached]";
+        let (rows, exit, termination, truncated) = parse_unstructured_shell_content(body, base);
+        assert_eq!(termination, ShellTermination::StreamGuard);
+        assert_eq!(exit, None);
+        assert!(truncated, "the truncation marker must still be detected");
+        // Output rows only — no trailing empty row for the footer to clear.
+        assert_eq!(
+            rows.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(),
+            vec!["line 1", "line 2", "line 3"]
+        );
+    }
+
+    /// Blank rows *inside* the command's own output are real formatting and
+    /// must survive; only blanks made leading by marker stripping are dropped.
+    #[test]
+    fn parse_unstructured_shell_content_keeps_interior_blank_rows() {
+        let theme = crate::Theme::default();
+        let base = Style::default().fg(theme.code_text());
+        let body = "a\n\nb\n[process killed]\n";
+        let (rows, _exit, termination, _truncated) = parse_unstructured_shell_content(body, base);
+        assert_eq!(termination, ShellTermination::Timeout);
+        assert_eq!(
+            rows.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(),
+            vec!["a", "", "b"]
+        );
     }
 
     #[test]

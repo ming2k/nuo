@@ -6,16 +6,17 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use nuo_egress::{Client, HttpResponse, RequestBuilder};
-use nuo_inference_wire::{
-    CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta,
-    ProviderError, RequestDelivery, WireProtocol,
-};
+use nuo_inference_wire::WireProtocol;
 use nuo_provider::capability::{
     ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
     ProviderTextStream,
 };
 use nuo_provider::transport::{decode_response_json, ensure_success};
 use nuo_provider::{ClientProfile, Endpoint, PromptCacheConfig};
+use nuo_provider::{
+    CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta,
+    ProviderError, RequestDelivery,
+};
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::json;
 use std::sync::Arc;
@@ -377,7 +378,7 @@ mod tests {
 
     #[test]
     fn google_interactions_provider_metadata() {
-        let creds = nuo_inference_wire::static_credential("test-key");
+        let creds = nuo_provider::static_credential("test-key");
         let provider = GoogleInteractionsProvider::new(
             creds,
             "gemini-3.8-flash".to_string(),

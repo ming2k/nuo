@@ -7,7 +7,7 @@
 ## 2. Core Mental Model & Subsystem Boundaries
 - **Concentric Architecture**: Nuo is a concentric workspace with a single public binary (`nuo`).
 - **Server Purity**: `nuo-server` is strictly headless and must never link terminal presentation libraries (`nuotc`, `crossterm`, `nuo-tui`).
-- **Client-Server Anti-Inversion**: `nuo-server` never depends on `nuo-client`. Communication flows exclusively through typed `nuo-protocol` IPC.
+- **Client-Server Anti-Inversion**: `nuo-server` never depends on presentation crates (`nuo-tui`) or retired client crates (`nuo-client`). Communication flows exclusively through typed `nuo-protocol` IPC.
 - **Protocol Separation**: Local East-West IPC (`nuo-protocol`) is strictly decoupled from external North-South LLM streaming (`nuo-model-codec`).
 
 ## 3. Engineering Discipline
