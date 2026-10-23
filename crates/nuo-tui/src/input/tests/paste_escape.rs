@@ -202,24 +202,28 @@ fn escape_never_exits_subagent_view() {
 /// Esc in an aside interrupts the aside's round and
 /// never leaves the view; `Ctrl+C` is the detach gesture.
 #[test]
-fn bracket_keys_navigate_scene_history_only_when_typing_is_empty() {
+fn raw_bracket_keys_type_characters_while_alt_brackets_navigate_scene_history() {
     let mut input = String::new();
+    key_in_view(KeyCode::Char('['), true, &mut input);
     assert_eq!(
-        key_in_view(KeyCode::Char('['), true, &mut input),
-        InputAction::TabHistoryBack
+        input, "[",
+        "raw `[` always types character even when empty (ADR-0092)"
     );
-    assert_eq!(
-        key_in_view(KeyCode::Char(']'), true, &mut input),
-        InputAction::TabHistoryForward
-    );
-
-    let mut typing = "x".to_string();
-    key_in_view(KeyCode::Char('['), true, &mut typing);
-    assert_eq!(typing, "x[");
 
     let mut other = String::new();
     key_in_view(KeyCode::Char(']'), false, &mut other);
     assert_eq!(other, "]");
+
+    // Alt+[ and Alt+] navigate scene history regardless of input contents (ADR-0092 [INV-NAV-03]):
+    let mut draft = "in flight draft".to_string();
+    assert_eq!(
+        super::key_with_mod_in_view(KeyCode::Char('['), KeyModifiers::ALT, true, &mut draft),
+        InputAction::TabHistoryBack
+    );
+    assert_eq!(
+        super::key_with_mod_in_view(KeyCode::Char(']'), KeyModifiers::ALT, true, &mut draft),
+        InputAction::TabHistoryForward
+    );
 }
 
 #[test]

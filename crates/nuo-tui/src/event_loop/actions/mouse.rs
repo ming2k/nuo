@@ -40,8 +40,8 @@ pub(super) async fn handle_selection_start(
         let _ = app.ui.runtime.capture_pointer(id);
     }
     match target {
-        Some(UiKey::TabBar) => {
-            // [INV-TAB-11] TabBar Container Purity: Clicks on container-level TabBar chrome
+        Some(UiKey::TabBar | UiKey::SceneBar) => {
+            // [INV-TAB-11] TabBar / SceneBar Container Purity: Clicks on container-level chrome
             // (empty background, margins) are inert container gestures. They cancel drags
             // and release pointer capture, but MUST NOT mutate intra-scene context (such as
             // blurring the composer, altering transcript focus, or clearing selection).
@@ -51,6 +51,41 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::TabBarItem(index)) => {
             super::activate_tab_at_index(app, index, runtime, viewed_session_id);
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
+        Some(UiKey::SceneHistoryBack) => {
+            app.tab_history_back();
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
+        Some(UiKey::SceneHistoryForward) => {
+            app.tab_history_forward();
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
+        Some(UiKey::SceneBreadcrumb(target_depth)) => {
+            if let Some(tab) = app.surfaces.active_tab() {
+                let current_cursor = tab.cursor;
+                if target_depth < current_cursor {
+                    let steps = current_cursor - target_depth;
+                    for _ in 0..steps {
+                        if !app.tab_history_back() {
+                            break;
+                        }
+                    }
+                } else if target_depth > current_cursor {
+                    let steps = target_depth - current_cursor;
+                    for _ in 0..steps {
+                        if !app.tab_history_forward() {
+                            break;
+                        }
+                    }
+                }
+            }
             app.drag.cancel();
             app.ui.runtime.release_pointer();
             return;

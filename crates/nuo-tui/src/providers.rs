@@ -346,7 +346,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
     ConnectionTemplate {
         id: "codebuddy",
         label: "Tencent CodeBuddy",
-        description: "Tencent AI CodeBuddy coding assistant with Hunyuan, DeepSeek, Kimi, and GLM models; sign in with CodeBuddy CLI or an API key.",
+        description: "Tencent AI CodeBuddy coding assistant with Hunyuan, DeepSeek, Kimi, and GLM models; sign in with your CodeBuddy account in the browser, or paste a CLI bearer token / API key.",
         protocol: WireProtocol::OpenAiChatCompletions,
         models: nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS,
         needs_url: false,
@@ -354,7 +354,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://copilot.tencent.com/v2/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::subscription_const("codebuddy"),
     },
     ConnectionTemplate {
         id: "xai",

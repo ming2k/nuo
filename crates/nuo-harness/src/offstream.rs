@@ -160,10 +160,10 @@ impl nuo_tool::VirtualFileResolver for OffstreamRegistry {
     async fn resolve_virtual(&self, path: &str) -> Option<String> {
         let handle = nuo_tool::extract_virtual_handle(path);
 
-        // 1. Check physical VFS directory
-        let vfs_dir = nuo_tool::vfs_root_dir();
+        // 1. Check physical execution spool directory (ADR-0093 [INV-SPOOL-01])
+        let spool_dir = nuo_tool::spool_root_dir();
         for ext in ["log", "txt", "md"] {
-            let candidate = vfs_dir.join(format!("{handle}.{ext}"));
+            let candidate = spool_dir.join(format!("{handle}.{ext}"));
             if let Ok(content) = tokio::fs::read_to_string(&candidate).await {
                 return Some(content);
             }

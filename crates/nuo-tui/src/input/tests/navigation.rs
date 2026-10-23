@@ -957,13 +957,14 @@ fn alt_w_routes_to_close_tab() {
 }
 
 #[test]
-fn alt_arrows_route_to_tab_history() {
+fn alt_brackets_route_to_tab_history() {
     let mut input = String::new();
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
+
     let back = route_event(
         Event::Key(crossterm::event::KeyEvent::new(
-            KeyCode::Left,
+            KeyCode::Char('['),
             KeyModifiers::ALT,
         )),
         &mut input,
@@ -978,7 +979,7 @@ fn alt_arrows_route_to_tab_history() {
 
     let fwd = route_event(
         Event::Key(crossterm::event::KeyEvent::new(
-            KeyCode::Right,
+            KeyCode::Char(']'),
             KeyModifiers::ALT,
         )),
         &mut input,

@@ -80,6 +80,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     api_key,
                     client_identity: Some(app.custom_client_identity.clone()),
                     budget: app.custom_budget.clone(),
+                    entitlement: None,
                 });
                 // Phase 3: the chain ends at chat. Pop the nav
                 // frame (the picker this editor was opened over) and hand
@@ -153,6 +154,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     auth,
                     client_identity,
                     budget: app.custom_budget.clone(),
+                    entitlement: None,
                 });
                 app.restore_chat_after_editor_chain();
                 app.custom_field = 0;

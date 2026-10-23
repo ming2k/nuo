@@ -765,7 +765,7 @@ impl App {
         }
     }
 
-    /// Step back in active tab's navigation stack (Alt+Left, ADR-0040, ADR-0042).
+    /// Step back in active tab's navigation stack (Alt+[, ADR-0092 [INV-NAV-03]).
     pub(crate) fn tab_history_back(&mut self) -> bool {
         if self.in_subagent_view() {
             return self.exit_subagent();
@@ -781,7 +781,7 @@ impl App {
         }
     }
 
-    /// Step forward in active tab's navigation stack (Alt+Right, ADR-0040, ADR-0042).
+    /// Step forward in active tab's navigation stack (Alt+], ADR-0092 [INV-NAV-03]).
     pub(crate) fn tab_history_forward(&mut self) -> bool {
         let leaving = self.current_scene();
         if self.surfaces.tab_history_forward() {

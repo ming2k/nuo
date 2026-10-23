@@ -442,6 +442,18 @@ fn compose_frame(
     for (idx, tab_rect) in &transcript_render.tab_rects {
         ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
     }
+    if let Some(rect) = transcript_render.scene_bar_rect {
+        ui.mount(UiKey::SceneBar, rect);
+    }
+    if let Some(rect) = transcript_render.scene_nav_rects.back {
+        ui.mount(UiKey::SceneHistoryBack, rect);
+    }
+    if let Some(rect) = transcript_render.scene_nav_rects.forward {
+        ui.mount(UiKey::SceneHistoryForward, rect);
+    }
+    for (idx, crumb_rect) in &transcript_render.scene_nav_rects.crumbs {
+        ui.mount(UiKey::SceneBreadcrumb(*idx), *crumb_rect);
+    }
     if let Some(rect) = layout_map.transcript_content_rect() {
         ui.mount(UiKey::Transcript, rect);
     }

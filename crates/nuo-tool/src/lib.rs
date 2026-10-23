@@ -75,8 +75,9 @@ pub use tool_output::PatchOp;
 pub use usage::TokenUsage;
 pub use validation::validate_tool_arguments;
 pub use vfs::{
-    VFS_ROOT_PREFIX, VirtualFileResolver, extract_virtual_handle, is_virtual_path,
-    vfs_canonical_path, vfs_root_dir, vfs_short_hash,
+    VFS_ROOT_PREFIX, VirtualFileResolver, extract_salient_signatures, extract_virtual_handle,
+    is_virtual_path, spool_canonical_path, spool_root_dir, vfs_canonical_path, vfs_root_dir,
+    vfs_short_hash,
 };
 
 pub use args::ToolArgs;

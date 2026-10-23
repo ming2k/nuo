@@ -142,18 +142,6 @@ pub(crate) fn resolve_modal_key(
         return Some(resolve_host_prompt_key(key, input, cursor_position));
     }
 
-    // Bracket keys (`[` / `]`) navigate active tab's scene stack when no text editing is in flight.
-    if overlay.is_none()
-        && (scene == SceneKind::Dashboard && !keys.host_prompting || scene == SceneKind::Settings)
-        && key.modifiers.is_empty()
-    {
-        match key.code {
-            KeyCode::Char('[') => return Some(InputAction::TabHistoryBack),
-            KeyCode::Char(']') => return Some(InputAction::TabHistoryForward),
-            _ => {}
-        }
-    }
-
     if keys.dialog_keys && matches!(overlay, Some(OverlaySurface::Dialog(_))) {
         return Some(resolve_dialog_keys_key(key));
     }
@@ -1098,31 +1086,18 @@ mod tests {
             code: KeyCode::Char(']'),
         };
 
-        // In Dashboard without prompt:
+        // Un-modified bracket keys do not hijack scene history (ADR-0092 [INV-NAV-03]):
+        // In Dashboard, printable chars seed host prompt:
         assert_eq!(
             resolve_scene(SceneKind::Dashboard, bracket_left, &c),
-            Some(InputAction::TabHistoryBack)
+            Some(InputAction::HostPromptSeed('['))
         );
         assert_eq!(
             resolve_scene(SceneKind::Dashboard, bracket_right, &c),
-            Some(InputAction::TabHistoryForward)
+            Some(InputAction::HostPromptSeed(']'))
         );
-
-        // In Settings:
-        assert_eq!(
-            resolve_scene(SceneKind::Settings, bracket_left, &c),
-            Some(InputAction::TabHistoryBack)
-        );
-        assert_eq!(
-            resolve_scene(SceneKind::Settings, bracket_right, &c),
-            Some(InputAction::TabHistoryForward)
-        );
-
-        // With host prompting active in Dashboard, `[` is fed to prompt input:
-        let prompting_keys = keys(|k| k.host_prompting = true);
-        assert_ne!(
-            resolve_scene(SceneKind::Dashboard, bracket_left, &prompting_keys),
-            Some(InputAction::TabHistoryBack)
-        );
+        // In Settings, bracket keys fall through:
+        assert_eq!(resolve_scene(SceneKind::Settings, bracket_left, &c), None);
+        assert_eq!(resolve_scene(SceneKind::Settings, bracket_right, &c), None);
     }
 }

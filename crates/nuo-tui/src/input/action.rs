@@ -23,9 +23,9 @@ pub enum InputAction {
     PrevTab,
     /// Close active tab (Ctrl+W, ADR-0039 [INV-TAB-03]).
     CloseTab,
-    /// Step back in active tab's navigation history stack (Alt+Left, ADR-0040 [INV-KEY-02], ADR-0042).
+    /// Step back in active tab's navigation history stack (Alt+[, ADR-0092 [INV-NAV-03]).
     TabHistoryBack,
-    /// Step forward in active tab's navigation history stack (Alt+Right, ADR-0040 [INV-KEY-02], ADR-0042).
+    /// Step forward in active tab's navigation history stack (Alt+], ADR-0092 [INV-NAV-03]).
     TabHistoryForward,
     /// Guardrail notice when a client workspace action is attempted within the thread composer (ADR-0041 [INV-ROUTER-01]).
     WorkspaceGuardrailNotice(String),

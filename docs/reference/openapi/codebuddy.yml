@@ -1,16 +1,48 @@
-# OpenAPI 3.1 reference for Tencent AI CodeBuddy API (copilot.tencent.com / codebuddy.ai),
-# reverse engineered from @tencent-ai/codebuddy-code v2.172.1 (lib/node/index.js + dist/codebuddy-headless.js)
-# and live-verified against Tencent Cloud production endpoints on 2026-10-23.
+# OpenAPI 3.1 reference for Tencent AI CodeBuddy API (copilot.tencent.com / codebuddy.ai / codebuddy.cn),
+# reverse engineered from @tencent-ai/codebuddy-code v2.172.1
+# (dist/codebuddy.js account-scoped auth service, dist-server/types/**, and the embedded
+# dist/web-ui/docs/cn/cli/*.md onboard docs) and live-verified against Tencent Cloud
+# production endpoints on 2026-10-23. Confirmed against a live logged-in
+# `Tencent-Cloud.coding-copilot.info` credential file the same day.
 #
-# Consumers: the implementer maintaining `providers/nuo-provider-codebuddy` in Nuo.
+# Consumers: the implementer maintaining `providers/nuo-provider-codebuddy` in Nuo
+# (ADR-0014 dual-lane; ADR-0027 provider-definition single source).
 #
 # Authentication & Storage:
-#   Credentials are saved by the CodeBuddy CLI in:
+#   The CLI's interactive login is a browser **web-handoff + state polling** protocol —
+#   NOT an RFC device grant and NOT a loopback PKCE redirect:
+#     1. POST {origin}/v2/plugin/auth/state?platform=CLI   (no bearer; X-No-* suppression headers)
+#        → data.authUrl (browser sign-in page) + data.state (correlation key)
+#     2. Open authUrl in the user's browser; the CLI never receives a local callback.
+#     3. GET {origin}/v2/plugin/auth/token?state={state}   (polled ~1s until sign-in completes)
+#        → data.data.{accessToken, refreshToken, tokenType, expiresIn, refreshExpiresIn,
+#                      scope, sessionState, notBeforePolicy, domain}
+#     4. POST {origin}/v2/plugin/auth/token/refresh  (X-Refresh-Token + X-Auth-Refresh-Source: plugin)
+#   Order-of-precedence between credentials in the actual CLI (iam.md):
+#     CODEBUDDY_AUTH_TOKEN > apiKeyHelper > CODEBUDDY_API_KEY
+#   Nuo's mapping (ADR-0014 dual-lane): the OAuth subscription lane stores/rotates the
+#   OIDC pair in `nuo-oauth`; a pasted platform key rides the BYOK lane (`X-API-Key`).
+#   Credentials saved by the CodeBuddy CLI land in:
 #     - Linux:   ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
 #     - macOS:   ~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
 #     - Windows: %LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
-#   JSON payload carries `auth.accessToken`, `auth.refreshToken`, `account.uid`, etc.
-#   Alternatively, direct API key or bearer token can be supplied via CODEBUDDY_API_KEY.
+#   JSON payload carries `auth.accessToken` (JWT), `auth.refreshToken`, `auth.tokenType`
+#   ("Bearer" or "ApiKey"), `auth.scope` ("openid profile offline_access email"),
+#   `auth.expiresIn` (~60d), `auth.refreshExpiresIn` (~90d), `auth.sessionState`,
+#   `auth.notBeforePolicy`, `auth.domain` (e.g. "www.codebuddy.cn"),
+#   `account.{uid, nickname, uin, type, sso}`, plus `accounts[]` and `deployStatus`.
+#
+# Environments (product.json `authentication.attributes`):
+#   internalDomain      — copilot.tencent.com, staging-copilot.tencent.com, www.codebuddy.cn,
+#                         staging.codebuddy.cn, www.workbuddy.cn, staging.workbuddy.cn
+#   externalDomain      — www.codebuddy.ai, staging-codebuddy.tencent.com
+#   iOADomain           — tencent.sso.copilot.tencent.com, tencent.sso.codebuddy.cn, …
+#   cloudHostedDomain   — *.sso.copilot.tencent.com, *.copilot.qq.com, *.sso.codebuddy.cn, …
+#   Chosen via CODEBUDDY_INTERNET_ENVIRONMENT (unset=external, internal, ioa, cloudhosted, selfhosted).
+#
+# Enterprise service-token OAuth (client_credentials) is a *provisioning* aid for
+# CI/CD only (`https://copilot.tencent.com/oauth2/token`, per iam.md) — it is not
+# the CLI's own login flow and Nuo does not implement it.
 #
 # Server-side constraints discovered:
 #   1. User-Agent format: Must match `<Product>/<Version>` (e.g. `CLI/2.172.1 CodeBuddy/2.172.1`).
@@ -18,6 +50,17 @@
 #   2. Stream requirement: `/v2/chat/completions` requires `stream: true`. Non-streaming calls
 #      return HTTP 400 `{"code":11101,"msg":"Non-stream chat request is currently not supported"}`.
 #   3. Thinking / Reasoning: Served in SSE chunks via `choices[0].delta.reasoning_content`.
+#      Body supports `reasoning_effort` ∈ {minimal, low, medium, high, xhigh, max} (EXTENDED_THINKING_LEVELS)
+#      and `reasoning.summary` ("auto"); the decision endpoint's default model `jev-decision`
+#      cannot take images (`input_image` → 400).
+#   4. The CLI's model catalog is server-published: `product.json`/`product.internal.json`
+#      `models[]` (see ModelDescriptor) may be overridden/extended by the login site's
+#      /v3/config; `~/.codebuddy/models.json` and project `.codebuddy/models.json` are local
+#      overrides. `relatedModels.{lite,reasoning,…}` map alias slots to concrete ids.
+#   5. Model-call 401 retry: the CLI defaults `CODEBUDDY_MODEL_401_MAX_RETRIES=0` (off);
+#      when opted in, it retries at a *fixed* 2s interval (CODEBUDDY_MODEL_401_RETRY_DELAY_MS), not
+#      exponential backoff — 401 carries no Retry-After semantics in the upstream.
+#      Generic transient retries (502/503/408/409/429) use base-1s exponential backoff, max 32s, 4 tries.
 
 openapi: 3.1.0
 info:
@@ -56,6 +99,41 @@ info:
     X-Agent-Intent: craft
     X-Agent-Runtime: local-agent
     ```
+    On authenticated (post-login) model calls the CLI additionally sends an
+    **enterprise identity block** assembled by `runIdentityHeaders()` and the
+    downstream identity carrier. Canonical header names (from the compiled
+    client's header constants module):
+    ```http
+    X-User-Id: <uid>            # `account.uid`
+    X-Enterprise-Id: <src_tid>   # `account.enterpriseId` when tenanted
+    X-Id-Source: tencentcloud    # `RunIdentity.account.idSource`
+    X-Auth-Method: oneid         # `RunIdentity.auth.method` (also `X-Userinfo.token_source`)
+    X-Userinfo: <base64(JSON{uin, owner_uin, id_source, token_source})>
+    X-Conversation-ID: <uuid>
+    X-Conversation-Request-ID: <uuid>
+    X-Conversation-Message-ID: <uuid>   # per-turn unique; client MAY NOT override
+    X-Request-ID: <uuid>                 # per-request unique; client MAY NOT override
+    X-Agent-Type: local-agent
+    X-Agent-Purpose: person_agent        # conditional
+    X-Private-Data: <flag>               # private-mode boundary
+    X-Compaction: <flag>
+    X-Context-Compacted: <flag>
+    X-Data-Tag: <tag>                    # conditional
+    X-Model-ID: <model>                  # conditional
+    X-Product-Version: 2.172.1
+    X-Trace-ID: <traceparent>            # OpenTelemetry / B3 instrumentation
+    ```
+    `CODEBUDDY_SKIP_INTERNAL_HEADERS=1` strips the internal X-* block for
+    user-hosted third-party gateways. Authorization header priority:
+    `Authorization: Bearer <accessToken>` (OIDC lane) overrides `X-API-Key`
+    (BYOK lane); apiKeyHelper output is sent under BOTH.
+    Requests may also carry:
+    ```http
+    X-AICC-Model: <model>       # only on the confidential-chat (AICC) boundary
+    X-AICC-Endpoint: <endpoint> # only on the confidential-chat (AICC) boundary
+    ```
+    Machine encoding of the inference request body is gzip (`GzipRequestProcessor`,
+    weight 9999, runs last).
 
 servers:
   - url: https://copilot.tencent.com/v2
@@ -63,13 +141,196 @@ servers:
   - url: https://www.codebuddy.ai/v2
     description: Production International CodeBuddy inference endpoint
   - url: https://copilot.tencent.com
-    description: Production root endpoint for configuration and plugin auth
+    description: Production root endpoint for configuration, login web-handoff, and plugin auth
+  - url: https://www.codebuddy.cn
+    description: Production domestic web login origin (consumer-facing site; auth via plugin routes carries the copilot origin)
 
 security:
   - BearerAuth: []
   - ApiKeyAuth: []
 
 paths:
+  # ── Login (browser web-handoff) ──────────────────────────────────────────
+  # Reverse-engineered from dist/codebuddy.js `AccountScopedAuth`.
+  # Mounted under `{origin}/v2/plugin/...` — the `prefixPath` declared by
+  # `product.json authentication.attributes`.
+  /plugin/auth/state:
+    post:
+      summary: Mint an anonymous login session and return the browser sign-in URL
+      description: >-
+        Step 1 of the CLI's interactive login. No bearer is sent; the request
+        suppresses enterprise-identity headers with `X-No-*` markers. The
+        response carries `data.authUrl` (the page the user signs in on) and
+        `data.state` (the correlation key for the token poll in step 2).
+        `platform` is the `authentication.attributes.platform` value
+        (`CLI` for the CodeBuddy CLI; `workbuddy` for the WeChat-flavored variant).
+      operationId: beginLoginState
+      security: []
+      servers:
+        - url: https://copilot.tencent.com
+      parameters:
+        - in: query
+          name: platform
+          required: false
+          schema:
+            type: string
+            default: CLI
+          description: Login platform identifier (`CLI`, `workbuddy`).
+        - in: header
+          name: X-No-Authorization
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+          description: Suppress auto-attaching a bearer credential.
+        - in: header
+          name: X-No-User-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Enterprise-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Department-Info
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+      responses:
+        '200':
+          description: Login session minted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    type: object
+                    properties:
+                      authUrl:
+                        type: string
+                        description: The full browser URL to open for sign-in (carries the state).
+                        example: https://www.codebuddy.cn/login?state=auth_abc123…
+                      state:
+                        type: string
+                        description: Correlation key for the token poll (prefixed `auth_` by the CLI if absent).
+                        example: auth_c7f8ab…
+        default:
+          description: Error (4xx/5xx)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /plugin/auth/token:
+    get:
+      summary: Poll the login session for the minted token pair
+      description: >-
+        Step 2 of the CLI's interactive login. The CLI polls this endpoint
+        (~1s interval, up to 300s deadline) until the user completes the
+        browser sign-in. A pending login returns `data.data = null`.
+      operationId: pollLoginToken
+      security: []
+      servers:
+        - url: https://copilot.tencent.com
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+          description: The correlation key from `/plugin/auth/state`.
+        - in: header
+          name: X-No-Authorization
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-User-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Enterprise-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Department-Info
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+      responses:
+        '200':
+          description: Login state (pending when `data.data` is null)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthCredentialPair'
+
+  /plugin/auth/token/refresh:
+    post:
+      summary: Refresh OAuth access token
+      description: Exchanges an active refresh token for a newly minted access token and refresh token. Both rotate together in one call.
+      operationId: refreshToken
+      servers:
+        - url: https://copilot.tencent.com
+      parameters:
+        - in: header
+          name: X-Refresh-Token
+          required: true
+          schema:
+            type: string
+          description: The long-lived refresh token
+        - in: header
+          name: X-Auth-Refresh-Source
+          required: true
+          schema:
+            type: string
+            example: plugin
+          description: Caller surface identifier (`plugin` from the CLI's auth service).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              default: {}
+      responses:
+        '200':
+          description: Successfully refreshed token payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /chat/completions:
     post:
       summary: Create chat completion (OpenAI SSE streaming format)
@@ -238,84 +499,89 @@ paths:
                         items:
                           $ref: '#/components/schemas/ModelDescriptor'
 
-  /v2/plugin/auth/token/refresh:
-    post:
-      summary: Refresh OAuth access token
-      description: Exchanges an active refresh token for a newly minted access token and refresh token.
-      operationId: refreshToken
-      servers:
-        - url: https://copilot.tencent.com
-      parameters:
-        - in: header
-          name: X-Refresh-Token
-          required: true
-          schema:
-            type: string
-          description: The long-lived refresh token
-        - in: header
-          name: X-Auth-Refresh-Source
-          required: true
-          schema:
-            type: string
-            example: plugin
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              default: {}
-      responses:
-        '200':
-          description: Successfully refreshed token payload
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TokenRefreshResponse'
-        '401':
-          description: Invalid or expired refresh token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /v2/plugin/account:
-    get:
-      summary: Fetch current user profile
-      description: Returns identity metadata for the authenticated user (UID, UIN, nickname, enterprise tenancy).
-      operationId: getCurrentAccount
-      servers:
-        - url: https://copilot.tencent.com
-      security:
-        - BearerAuth: []
-      parameters:
-        - in: header
-          name: X-Domain
-          schema:
-            type: string
-            example: copilot.tencent.com
-      responses:
-        '200':
-          description: Account profile information
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccountResponse'
-
 components:
   securitySchemes:
     BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: OAuth Access Token or Personal Access Token from CodeBuddy.
+      description: >-
+        OIDC bearer access token from the CLI's login (`auth.tokenType = "Bearer"`,
+        scope `openid profile offline_access email`). Claim shape is issuer-controlled
+        and additionally carried by `X-User-Id`, `X-Enterprise-Id`, `X-Id-Source`,
+        and `X-Userinfo` (base64 `JSON{uin, owner_uin, id_source, token_source}`)
+        headers on every model call — the server does not trust the JWT alone.
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
-      description: Alternative API Key header supported by Tencent CodeBuddy.
+      description: >-
+        Pasted platform key from the BYOK lane (`auth.tokenType = "ApiKey"`).
+        The CLI's own apiKeyHelper variant withholds `X-API-Key` and instead
+        sends the script output as both `Authorization: Bearer` and `X-API-Key`.
 
   schemas:
+    AuthCredentialPair:
+      type: object
+      description: >-
+        The credential payload returned by `/plugin/auth/token` on a completed
+        web-handoff login and by `/plugin/auth/token/refresh`. Matches the
+        persisted `Tencent-Cloud.coding-copilot.info` `auth` block verbatim.
+      properties:
+        accessToken:
+          type: string
+          description: OIDC bearer JWT (~60-day lifetime on live capture).
+        refreshToken:
+          type: string
+          description: Long-lived refresh token (~90-day lifetime on live capture).
+        tokenType:
+          type: string
+          enum: [Bearer, ApiKey]
+          description: Outbound header shape selector.
+        expiresIn:
+          type: integer
+          example: 5184000
+          description: Access-token TTL in seconds (~60 days).
+        refreshExpiresIn:
+          type: integer
+          example: 7776000
+          description: Refresh-token TTL in seconds (~90 days).
+        refreshExpiresAt:
+          type: integer
+          description: Absolute epoch-ms refresh expiry (the CLI's `calculateExpiresAt` post-fill).
+        expiresAt:
+          type: integer
+          description: Absolute epoch-ms access expiry (the CLI's `calculateExpiresAt` post-fill).
+        lastRefreshTime:
+          type: integer
+          description: Epoch-ms of the last successful refresh.
+        scope:
+          type: string
+          example: openid profile offline_access email
+        sessionState:
+          type: string
+          description: OIDC session UUID.
+        notBeforePolicy:
+          type: integer
+          description: Keycloak-style `nbf` policy epoch-seconds.
+        domain:
+          type: string
+          example: www.codebuddy.cn
+          description: Account line the credential belongs to.
+
+    TokenRefreshResponse:
+      type: object
+      description: The wrapped `/plugin/auth/token/refresh` envelope (same shape as `/plugin/auth/token` on success).
+      properties:
+        code:
+          type: integer
+          example: 0
+        data:
+          type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthCredentialPair'
+
     ChatCompletionRequest:
       type: object
       required:
@@ -331,10 +597,26 @@ components:
             - hy3
             - deepseek-v4-flash
             - deepseek-v4-pro
+            - deepseek-v3-2-volc
             - kimi-k3-1
+            - kimi-k2.7
+            - kimi-k2.6
+            - glm-5.3
             - glm-5.3-flash
+            - glm-5.2
+            - glm-5.1
+            - glm-5v-turbo
             - minimax-m2.5
-            - gpt-5.6-sol
+            - minimax-m2.7
+            - minimax-m3
+            - hy3
+            - hy3-x
+            - hy4-preview
+            - hy4-preview-x
+            # The upstream catalog is server-published: treat this enum as a
+            # superset snapshot, not a hard contract. Enterprise/custom models
+            # appear with a `custom:` / `custom-local:` id prefix, and the AICC
+            # confidential-chat variant with `enterprise:aicc` label.
             - default
           example: hy4-preview
         messages:
@@ -365,9 +647,18 @@ components:
         reasoning_effort:
           type: string
           enum:
+            - off
+            - minimal
             - low
             - medium
             - high
+            - xhigh
+            - max
+          description: >-
+            Extended-thinking level selector. Inferred from the agent's
+            `EXTENDED_THINKING_LEVELS = ["off","minimal","low","medium","high",
+            "xhigh","max"]`; the model's own `reasoning.effort` field provides
+            the account's default (e.g. `medium` for minimax-m3).
           example: high
         tools:
           type: array
@@ -503,6 +794,11 @@ components:
 
     ModelDescriptor:
       type: object
+      description: >-
+        One server-published catalog entry. This is the shape `/v3/config`
+        returns and `product.json models[]` ships statically; the CLI's own
+        picker additionally understands `relatedModels` alias slots,
+        `variantModels` overrides, and local `models.json` merges.
       properties:
         id:
           type: string
@@ -512,7 +808,21 @@ components:
           example: Hy4 preview
         vendor:
           type: string
+          description: Single-letter vendor slot code (v/f/e/j/t/k, …) — server-internal routing hint.
           example: j
+        api:
+          type: string
+          enum: ["openai-responses", openai-chat-completions]
+          description: >-
+            Present on models routed through the upstream's `/responses` wire
+            (the CLI's `isOpenAIResponsesApi` check); otherwise absent
+            (Chat-Completions is the fallback).
+        url:
+          type: string
+          description: >-
+            Enterprise-only. A user-supplied endpoint taking the wire base URL
+            at forward time (the CLI's `useCustomProtocol` chooses passthrough
+            vs normalized form).
         maxInputTokens:
           type: integer
           example: 1000000
@@ -522,6 +832,8 @@ components:
         maxAllowedSize:
           type: integer
           example: 1000000
+        maxImageCount:
+          type: integer
         supportsToolCall:
           type: boolean
           example: true
@@ -534,12 +846,75 @@ components:
         onlyReasoning:
           type: boolean
           example: true
+          description: >-
+            True when the model's non-reasoning output is suppressed—the
+            model is usable as a *thinking-tier* variant only.
+        reasoning:
+          type: object
+          properties:
+            effort:
+              type: string
+              enum: [minimal, low, medium, high, xhigh, max]
+              description: The account's default thinking tier.
+              example: medium
+            summary:
+              type: string
+              example: auto
+            supportedEfforts:
+              type: array
+              items:
+                type: string
+            canDisableThinking:
+              type: boolean
+        temperature:
+          type: number
+          example: 1
+        relatedModels:
+          type: object
+          description: >-
+            Alias slots (`lite` / `reasoning` / `vision` / `longContext` /
+            `subagent`) mapping to concrete model ids for variant resolution.
+          properties:
+            lite:
+              type: string
+            reasoning:
+              type: string
+            vision:
+              type: string
+            longContext:
+              type: string
+            subagent:
+              type: string
+        trustLevel:
+          type: string
+          enum: [unverified, custom, certified]
+        modelType:
+          type: string
+          enum: [built-in, enterprise]
+        labels:
+          type: array
+          items:
+            type: string
+          description: >-
+            Server-side labels (e.g. `enterprise:aicc` marks the encrypted/
+            confidential chat boundary).
+        tags:
+          type: array
+          items:
+            type: string
+        disabled:
+          type: boolean
         credits:
           type: string
           example: x0.00 credits
         descriptionZh:
           type: string
           example: 混元思考模型，具有增强的推理能力
+        descriptionEn:
+          type: string
+          example: Hunyuan 4 thinking model with enhanced reasoning
+        iconUrl:
+          type: string
 
     TokenRefreshResponse:
       type: object

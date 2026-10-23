@@ -2729,7 +2729,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
 }
 
 #[tokio::test]
-async fn test_subagent_bracket_and_q_scene_history_navigation() {
+async fn test_subagent_scene_history_navigation_and_stack_unwind() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::event_loop::UiRuntime::minimal_for_test();
     app.open_tab(crate::surfaces::ClientTab::thread("conv-1", None::<String>));
@@ -2740,7 +2740,7 @@ async fn test_subagent_bracket_and_q_scene_history_navigation() {
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
     assert!(app.in_subagent_view());
 
-    // Back in scene history via TabHistoryBack (emitted by `[` or `q`)
+    // Back in scene history via TabHistoryBack (emitted by `Alt+[` or mouse click, ADR-0092)
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
@@ -2752,7 +2752,7 @@ async fn test_subagent_bracket_and_q_scene_history_navigation() {
     assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
     assert!(!app.in_subagent_view());
 
-    // Forward in scene history via TabHistoryForward (emitted by `]`)
+    // Forward in scene history via TabHistoryForward (emitted by `Alt+]`, ADR-0092)
     crate::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,

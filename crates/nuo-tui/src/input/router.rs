@@ -298,11 +298,11 @@ pub fn route_event(
 
             // Stage 5: Global Hard-Bound Shortcuts
             // Alt+1..9 tab jump (ADR-0040 [INV-KEY-01])
-            // Alt+Left / Alt+Right tab navigation history (ADR-0040 [INV-KEY-02], ADR-0042)
+            // Alt+[ / Alt+] symmetric tab navigation history (ADR-0092 [INV-NAV-03])
             if key.modifiers == KeyModifiers::ALT {
                 match key.code {
-                    KeyCode::Left => return InputAction::TabHistoryBack,
-                    KeyCode::Right => return InputAction::TabHistoryForward,
+                    KeyCode::Char('[') => return InputAction::TabHistoryBack,
+                    KeyCode::Char(']') => return InputAction::TabHistoryForward,
                     KeyCode::Char(c) if ('1'..='9').contains(&c) => {
                         let idx = (c as usize) - ('1' as usize);
                         return InputAction::SelectTab(idx);

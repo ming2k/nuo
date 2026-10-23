@@ -402,10 +402,21 @@ pub fn build_credential_source(
             api_key,
         ))
     } else if dialect == nuo_provider::ProviderDialect::CodeBuddy {
-        std::sync::Arc::new(nuo_provider_codebuddy::CodeBuddyCredentialSource::new(
-            connection_name,
-            api_key,
-        ))
+        if auth.is_oauth() {
+            // Subscription lane: the OAuth engine owns the stored token pair.
+            std::sync::Arc::new(nuo_oauth::OAuthCredentialSource::new(
+                host,
+                connection_name,
+                auth.clone(),
+            ))
+        } else {
+            // BYOK lane: pasted CodeBuddy CLI token or API key (header shape
+            // decided by the credential source itself).
+            std::sync::Arc::new(nuo_provider_codebuddy::CodeBuddyCredentialSource::new(
+                connection_name,
+                api_key,
+            ))
+        }
     } else {
         nuo_provider::static_credential(api_key)
     }
@@ -434,6 +445,7 @@ fn register_oauth_providers() {
         nuo_provider_chatgpt_plan::oauth::providers(),
         nuo_provider_copilot::oauth::providers(),
         nuo_provider_qoder::oauth_provider::providers(),
+        nuo_provider_codebuddy::oauth::providers(),
     ];
     for providers in surfaces {
         for provider in providers {

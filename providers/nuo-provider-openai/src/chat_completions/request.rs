@@ -38,9 +38,44 @@ use serde_json::{Value, json};
 /// entitlements) and carries the same metadata a Responses request would
 /// (mirrors `responses::request::headers`).
 pub fn headers(api_key: &str, dialect: OpenAiChatDialect) -> Vec<(&'static str, String)> {
+    headers_with_lane(api_key, dialect, CodeBuddyAuthLane::Bearer)
+}
+
+/// Which header shape a CodeBuddy credential should ride.
+///
+/// CodeBuddy recognizes two credential lanes at the wire level: the logged-in
+/// OIDC bearer (`Authorization: Bearer <jwt>`) and a pasted platform key
+/// (`X-API-Key: <key>`). The upstream server accepts both; the CLI's `iam.md`
+/// assigns them different roles (subscription login vs API-key mode). The
+/// default [`CodeBuddyAuthLane::Bearer`] covers every other dialect down to
+/// the previous universal shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CodeBuddyAuthLane {
+    /// OIDC bearer from the subscription lane's login. The header is
+    /// `Authorization: Bearer <token>`.
+    #[default]
+    Bearer,
+    /// Pasted platform key from the BYOK lane. The header is `X-API-Key`.
+    ApiKey,
+}
+
+/// Credential lane decision overload of [`headers`].
+pub fn headers_with_lane(
+    api_key: &str,
+    dialect: OpenAiChatDialect,
+    lane: CodeBuddyAuthLane,
+) -> Vec<(&'static str, String)> {
     let mut h = Vec::new();
     if !api_key.trim().is_empty() {
-        h.push(("Authorization", format!("Bearer {api_key}")));
+        // For CodeBuddy the lane decides the header shape; every other
+        // dialect keeps the universal `Authorization: Bearer`.
+        let codebuddy = dialect == OpenAiChatDialect::CodeBuddy;
+        let use_bearer = !codebuddy || lane == CodeBuddyAuthLane::Bearer;
+        if use_bearer {
+            h.push(("Authorization", format!("Bearer {api_key}")));
+        } else {
+            h.push(("X-API-Key", api_key.to_string()));
+        }
     }
     if dialect == OpenAiChatDialect::Copilot {
         for (name, value) in nuo_provider::COPILOT_CLIENT_HEADERS {
@@ -59,6 +94,7 @@ pub fn headers(api_key: &str, dialect: OpenAiChatDialect) -> Vec<(&'static str, 
             h.push((*name, value.to_string()));
         }
     }
+
     // Qoder has no branch here on purpose. Its wire is built entirely by
     // `build_qoder_request` (the executor routes the Qoder dialect there and
     // never through this builder), so declaring its identity headers here

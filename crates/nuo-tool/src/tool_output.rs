@@ -756,8 +756,10 @@ fn shell_body_to_text(
 ) -> String {
     let inner = compose_shell_body(lines, stdout, stderr, exit);
     if truncated || inner.len() > SHELL_MAX_OUTPUT_CHARS {
-        let head_bytes = SHELL_TRUNCATED_CHARS / 2;
-        let tail_bytes = SHELL_TRUNCATED_CHARS / 2;
+        // ADR-0093 [INV-FOLD-01]: Tail-heavy biasing (25% head / 75% tail) keeps
+        // command invocation and setup while preserving panic traces and exit summaries.
+        let head_bytes = SHELL_TRUNCATED_CHARS / 4;
+        let tail_bytes = (SHELL_TRUNCATED_CHARS * 3) / 4;
         let head_part = truncate_utf8(&inner, head_bytes);
         let tail_target = inner.len().saturating_sub(tail_bytes);
         let mut tail_idx = tail_target;
@@ -773,10 +775,26 @@ fn shell_body_to_text(
         let middle_lines = middle_slice.lines().count();
         let middle_chars = middle_slice.chars().count();
         let middle_kb = middle_slice.len() as f64 / 1024.0;
+        let salient = crate::vfs::extract_salient_signatures(middle_slice, 3);
+        let salient_section = if !salient.is_empty() {
+            let mut s = format!(". {} salient signature(s) detected:\n", salient.len());
+            for (rel_line, sig) in salient {
+                s.push_str(&format!(">> [line +{rel_line}]: {sig}\n"));
+            }
+            s
+        } else {
+            String::new()
+        };
         let banner = if middle_lines > 1 {
-            format!(
-                "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
-            )
+            if salient_section.is_empty() {
+                format!(
+                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
+                )
+            } else {
+                format!(
+                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget{salient_section}---]"
+                )
+            }
         } else {
             format!(
                 "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"

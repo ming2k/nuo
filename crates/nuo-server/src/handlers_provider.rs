@@ -57,6 +57,7 @@ pub(crate) struct AddConnectionParams {
     pub auth: nuo_wire::ConnectionAuth,
     pub client_identity: Option<ClientIdentity>,
     pub budget: nuo_wire::ConnectionBudget,
+    pub entitlement: Option<nuo_wire::Entitlement>,
 }
 
 /// Register a user-declared model provider surface.
@@ -255,6 +256,7 @@ pub(crate) async fn add(
         auth,
         client_identity,
         budget,
+        entitlement: explicit_entitlement,
     } = params;
     let mut connections = Connections::load();
     // The name IS the connection's identity (INV-3): reject a
@@ -422,6 +424,13 @@ pub(crate) async fn add(
     }
 
     // Step 2: Publish connection to Connections store (purified pipe).
+    let entitlement = explicit_entitlement.unwrap_or_else(|| {
+        if auth.is_oauth() {
+            nuo_wire::Entitlement::FlatRate
+        } else {
+            nuo_wire::Entitlement::Metered
+        }
+    });
     let connection = Connection {
         name: name.clone(),
         provider: provider.clone(),
@@ -431,6 +440,7 @@ pub(crate) async fn add(
         models: model_rules,
         catalog_dimensions: Default::default(),
         budget,
+        entitlement,
     };
     connections.connections.push(connection);
     let conn_save_err = connections.save().err().map(|e| e.to_string());
@@ -573,6 +583,7 @@ pub(crate) async fn edit(
     api_key: SecretString,
     client_identity: Option<ClientIdentity>,
     budget: Option<nuo_wire::ConnectionBudget>,
+    entitlement: Option<nuo_wire::Entitlement>,
 ) {
     let mut connections = Connections::load();
     let trimmed_key = api_key.expose_secret().trim();
@@ -599,6 +610,9 @@ pub(crate) async fn edit(
     }
     if let Some(b) = budget {
         instance.budget = b;
+    }
+    if let Some(ent) = entitlement {
+        instance.entitlement = ent;
     }
     if !instance.auth.is_oauth() && !trimmed_key.is_empty() {
         let mut creds = Credentials::load();
@@ -2378,6 +2392,7 @@ mod tests {
             auth: nuo_wire::ConnectionAuth::subscription("chatgpt"),
             client_identity: None,
             budget: Default::default(),
+            entitlement: None,
         };
 
         add(env, params, Some(pending)).await;
@@ -2639,6 +2654,7 @@ mod tests {
             auth: nuo_wire::ConnectionAuth::ApiKey,
             client_identity: None,
             budget: Default::default(),
+            entitlement: None,
         };
 
         add(env, params, None).await;
@@ -2744,6 +2760,7 @@ mod tests {
             auth: nuo_wire::ConnectionAuth::ApiKey,
             client_identity: None,
             budget: Default::default(),
+            entitlement: None,
         };
 
         add(env, params, None).await;

@@ -152,10 +152,21 @@ impl Tool for ReadTextTool {
             match resolved {
                 Some(text) => text,
                 None => {
-                    return Err(ToolError::execution(
-                        self.name(),
-                        format!("virtual path not found or expired: `{raw_path}`"),
-                    ));
+                    // ADR-0093 [INV-SPOOL-02]: Direct disk fallback for physical spool and temporary files
+                    let p = std::path::Path::new(raw_path);
+                    if p.is_file() {
+                        fs::read_to_string(p).map_err(|err| {
+                            ToolError::execution(
+                                self.name(),
+                                format!("failed to read spooled file `{raw_path}`: {err}"),
+                            )
+                        })?
+                    } else {
+                        return Err(ToolError::execution(
+                            self.name(),
+                            format!("virtual path not found or expired: `{raw_path}`"),
+                        ));
+                    }
                 }
             }
         } else {
@@ -1245,6 +1256,44 @@ mod tests {
                     suffix.as_deref(),
                     Some("[1 more line — read with offset=4]")
                 );
+            }
+            other => panic!("expected ToolOutput::Code, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_text_resolves_spool_disk_fallback() {
+        let spool_dir = nuo_tool::spool_root_dir();
+        let _ = std::fs::create_dir_all(&spool_dir);
+        let spool_file = spool_dir.join("test_spool_fallback.log");
+        std::fs::write(&spool_file, b"line1\nline2\nline3\nline4\n").unwrap();
+
+        let dir = tempdir().unwrap();
+        // Context WITHOUT vfs_resolver
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let t_ctx = ToolContext::default();
+
+        let spool_path_str = spool_file.to_str().unwrap().to_string();
+        let out = ReadTextTool::new(ctx)
+            .execute(
+                &t_ctx,
+                json!({
+                    "path": spool_path_str,
+                    "offset": 2,
+                    "limit": 2
+                }),
+            )
+            .await
+            .unwrap();
+
+        let _ = std::fs::remove_file(&spool_file);
+
+        match out {
+            ToolOutput::Code {
+                text, start_line, ..
+            } => {
+                assert_eq!(text, "line2\nline3");
+                assert_eq!(start_line, 2);
             }
             other => panic!("expected ToolOutput::Code, got {other:?}"),
         }

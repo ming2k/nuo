@@ -3305,6 +3305,56 @@ mod transcript_scroll_tests {
     }
 
     #[tokio::test]
+    async fn mouse_click_on_scene_history_back_unwinds_subagent_to_thread() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.open_tab(crate::surfaces::ClientTab::thread("conv-1", None::<String>));
+        app.enter_subagent("call_sub_1".to_string());
+        assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
+        assert!(app.in_subagent_view());
+
+        // Mount SceneBar at row 1 and SceneHistoryBack at (50..58, 1)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui
+            .mount(crate::ui::UiKey::SceneBar, nuotc::Rect::new(0, 1, 80, 1));
+        app.ui.mount(
+            crate::ui::UiKey::SceneHistoryBack,
+            nuotc::Rect::new(50, 1, 8, 1),
+        );
+        app.ui.commit();
+
+        // Click on the SceneHistoryBack button (col 52, row 1)
+        mouse::handle_selection_start(&mut app, &runtime, "conv-1", 52, 1).await;
+        assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+        assert!(!app.in_subagent_view());
+    }
+
+    #[tokio::test]
+    async fn mouse_click_on_scene_breadcrumb_jumps_to_ancestor_depth() {
+        let mut app = crate::tests::new_app_for_relay_tests();
+        let runtime = UiRuntime::minimal_for_test();
+
+        app.open_tab(crate::surfaces::ClientTab::thread("conv-1", None::<String>));
+        app.enter_subagent("call_sub_1".to_string());
+        assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Subagent);
+        assert!(app.in_subagent_view());
+
+        // Mount SceneBreadcrumb(0) (thread ancestor) at (60..66, 1)
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::ui::UiKey::SceneBreadcrumb(0),
+            nuotc::Rect::new(60, 1, 6, 1),
+        );
+        app.ui.commit();
+
+        // Click on the thread ancestor crumb (col 62, row 1)
+        mouse::handle_selection_start(&mut app, &runtime, "conv-1", 62, 1).await;
+        assert_eq!(app.current_scene(), crate::surfaces::SceneKind::Thread);
+        assert!(!app.in_subagent_view());
+    }
+
+    #[tokio::test]
     async fn tab_switching_preserves_and_restores_sovereign_tab_context() {
         let mut app = crate::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();

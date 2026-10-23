@@ -232,7 +232,11 @@ pub use catalog::{
     AnthropicMessagesDialect, Channel, GoogleGenerateContentDialect, GoogleInteractionsDialect,
     OpenAiChatDialect, OpenAiResponsesDialect, ProviderDialect, ProviderEntry, Transport,
 };
-pub use connection_auth::{ConnectionAuth, LoginMethod};
+pub use connection_auth::{
+    AuthCapability, AuthCapabilitySet, AuthKind, AuthProtocol, ConnectionAuth, CredentialBinding,
+    CredentialCapability, Entitlement, FailoverSafetyMode, HeaderPlacement, LoginMethod,
+    RoutingPolicy, SpendGuardrail,
+};
 pub use connection_detail::{
     BalanceQuota, ConnectionDetail, ConnectionQuotaEntry, ConnectionUsageState, PeriodicQuota,
     ProviderQuotaData, ProviderQuotaSnapshot, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,

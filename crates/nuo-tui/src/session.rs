@@ -245,10 +245,10 @@ pub(crate) fn resolve_chat_surface_key(
     }
 }
 
-/// The Subagent scene's own scheme: the zoom owns its exit (`q`)
-/// and scene history navigation (`[`/`]`, a remappable `session.scene_back` /
-/// `session.scene_forward` verb, or `q` when idle), its **scene-scoped** `Esc` interrupt, and
-/// delegates every other key to the shared chat core for step-focus walking.
+/// The Subagent scene's own scheme: owns scene history navigation (`Alt+[` / `Alt+]`,
+/// remappable `session.scene_back` / `session.scene_forward` verbs, ADR-0092 [INV-NAV-03]),
+/// its **scene-scoped** `Esc` interrupt, and delegates every other key to the shared chat
+/// core for step-focus walking.
 pub(crate) fn resolve_subagent_key(
     key: crate::keymap::Key,
     keys: &SceneKeys,
@@ -257,17 +257,11 @@ pub(crate) fn resolve_subagent_key(
 ) -> Option<InputAction> {
     use crate::keymap::SurfaceVerb;
     let ov = &keys.surface_overrides;
-    // Scene stack navigation: `[` / `]` or `q` step back/forward in active tab's scene history
-    // when composer is empty and no step is focused.
-    if (ov.matches(key, SurfaceVerb::SceneHistoryBack)
-        || (key.code == KeyCode::Char('q') && key.modifiers.is_empty()))
-        && !keys.focused_target
-        && input.is_empty()
-    {
+    // Scene stack navigation: `Alt+[` / `Alt+]` (SurfaceVerb::SceneHistoryBack / Forward, ADR-0092 [INV-NAV-03])
+    if ov.matches(key, SurfaceVerb::SceneHistoryBack) {
         return Some(InputAction::TabHistoryBack);
     }
-    if ov.matches(key, SurfaceVerb::SceneHistoryForward) && !keys.focused_target && input.is_empty()
-    {
+    if ov.matches(key, SurfaceVerb::SceneHistoryForward) {
         return Some(InputAction::TabHistoryForward);
     }
     // Esc in the Subagent scene interrupts the *viewed child* (scene
@@ -996,7 +990,7 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert("open_history".to_string(), "ctrl+shift+r".to_string());
         map.insert("toggle_send_mode".to_string(), "ctrl+t".to_string());
-        map.insert("scene_back".to_string(), "alt+[".to_string());
+        map.insert("scene_back".to_string(), "alt+b".to_string());
         let ov = SurfaceOverrides::from_config(&map);
         let c = ctx(Mode::Idle, |c| c.surface_overrides = ov.clone());
 
@@ -1043,7 +1037,7 @@ mod tests {
         assert_eq!(
             resolve_scene_key(
                 SceneKind::Subagent,
-                Key::ALT_BRACKET_LEFT,
+                Key::alt('b'),
                 &rc,
                 &mut String::new(),
                 &mut 0
@@ -1053,13 +1047,13 @@ mod tests {
         assert_eq!(
             resolve_scene_key(
                 SceneKind::Subagent,
-                Key::BRACKET_LEFT,
+                Key::ALT_BRACKET_LEFT,
                 &rc,
                 &mut String::new(),
                 &mut 0
             ),
             None,
-            "the canonical `[` must go inactive once scene_back is remapped"
+            "the canonical Alt+[ must go inactive once scene_back is remapped"
         );
     }
 
@@ -1068,7 +1062,7 @@ mod tests {
         use crate::keymap::Key;
 
         // Subagent: Esc clears step focus, and otherwise resolves to nothing —
-        // it never exits the scene. `q` is the scene's own exit.
+        // it never exits the scene ([INV-TUI-CLEAN-02]). Alt+[ / Alt+] is the canonical navigation.
         assert_eq!(
             resolve_scene_key(
                 SceneKind::Subagent,
@@ -1083,16 +1077,24 @@ mod tests {
         assert_eq!(
             resolve_scene_key(
                 SceneKind::Subagent,
-                Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('q'),
-                },
+                Key::ALT_BRACKET_LEFT,
                 &ctx(Mode::Subagent, |_| {}),
                 &mut String::new(),
                 &mut 0
             ),
             Some(InputAction::TabHistoryBack),
-            "`q` in idle subagent view steps back to parent thread"
+            "`Alt+[` in subagent view steps back to parent thread (ADR-0092)"
+        );
+        assert_eq!(
+            resolve_scene_key(
+                SceneKind::Subagent,
+                Key::ALT_BRACKET_RIGHT,
+                &ctx(Mode::Subagent, |_| {}),
+                &mut String::new(),
+                &mut 0
+            ),
+            Some(InputAction::TabHistoryForward),
+            "`Alt+]` in subagent view steps forward in scene history (ADR-0092)"
         );
         assert_eq!(
             resolve_scene_key(
@@ -1138,8 +1140,7 @@ mod tests {
             Some(InputAction::InterruptSubagent),
             "a running viewed child owns Esc as the scene-scoped interrupt"
         );
-        // `[` / `]` walk scene history while the composer is empty and no step is
-        // focused; a focused step bounces the key to the composer instead.
+        // Raw `[` and `q` no longer trigger scene navigation (ADR-0092 [INV-NAV-03])
         let bracket = Key {
             modifiers: KeyModifiers::NONE,
             code: KeyCode::Char('['),
@@ -1152,7 +1153,8 @@ mod tests {
                 &mut String::new(),
                 &mut 0
             ),
-            Some(InputAction::TabHistoryBack)
+            None,
+            "raw `[` falls through to normal input"
         );
         let q_key = Key {
             modifiers: KeyModifiers::NONE,
@@ -1166,19 +1168,8 @@ mod tests {
                 &mut String::new(),
                 &mut 0
             ),
-            Some(InputAction::TabHistoryBack),
-            "idle `q` in subagent steps back to parent thread"
-        );
-        assert_eq!(
-            resolve_scene_key(
-                SceneKind::Subagent,
-                bracket,
-                &ctx(Mode::Subagent, |c| c.focused_target = true),
-                &mut String::new(),
-                &mut 0
-            ),
-            Some(InputAction::None),
-            "focused step absorbs `[` and does not bounce"
+            None,
+            "raw `q` falls through to normal input"
         );
 
         // The Thread scene never emits the subagent exits.

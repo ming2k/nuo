@@ -17,7 +17,7 @@
 //!     dummy `thread` placeholders eliminated when untitled [INV-SCENE-01]).
 //!   - For Non-Thread (`Dashboard`, `Settings`): scene label + domain summary context.
 //!   - On the right: right-aligned drill-in navigation stack / breadcrumbs
-//!     (`‹ thread › subagent #1 › diff`) with back affordance (`‹ `).
+//!     (`‹ Alt+[  thread › subagent  Alt+] ›`) with interactive navigation targets (ADR-0092 [INV-SCENE-03, INV-INTERACT-01]).
 //!
 //! - **Tier 3 — Sovereign ThreadContextBar (`draw_thread_context_bar`).**
 //!   Height: 1 row on Thread viewports; **0 rows on non-thread scenes** (`Dashboard`, `Settings`)
@@ -231,23 +231,34 @@ pub(crate) fn draw_tab_bar(
     Vec::new()
 }
 
-/// Draw Tier 2: Polymorphic SceneBar (ADR-0062 [INV-HEAD-05], [INV-SCENE-02]).
+/// Interactive bounding boxes for Tier 2 SceneBar navigation elements (ADR-0092 [INV-INTERACT-01]).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SceneNavRects {
+    /// Back navigation affordance rect (`‹ Alt+[`).
+    pub back: Option<Rect>,
+    /// Forward navigation affordance rect (`Alt+] ›`).
+    pub forward: Option<Rect>,
+    /// Hit target for each breadcrumb segment by stack depth: (depth_index, rect).
+    pub crumbs: Vec<(usize, Rect)>,
+}
+
+/// Draw Tier 2: Polymorphic SceneBar (ADR-0062 [INV-HEAD-05], [INV-SCENE-02], ADR-0092 [INV-SCENE-03, INV-INTERACT-01]).
 ///
 /// Universal to all scenes.
 /// - Left side: Scene identity and authentic task title (`THREAD <id_tail>  <title>`
 ///   for thread; `<scene_label>  <context>` for dashboard / settings).
 ///   If untitled, the title slot remains empty without layout shift.
-/// - Right side: Drill-in navigation stack / breadcrumbs (`< thread > subagent #1 > diff`)
-///   with back affordance (`< `).
+/// - Right side: Drill-in navigation stack / canonical breadcrumbs (`‹ Alt+[  thread › subagent  Alt+] ›`)
+///   with dedicated back and forward affordances.
 pub(crate) fn draw_scene_bar(
     frame: &mut Frame,
     rect: Rect,
     thread_id: Option<&str>,
     hints: &ViewHints<'_>,
     theme: &Theme,
-) {
+) -> SceneNavRects {
     if rect.height == 0 || (rect.width as usize) < STEP_MIN_WIDTH {
-        return;
+        return SceneNavRects::default();
     }
 
     let bg = theme.scenebar_bg();
@@ -265,37 +276,86 @@ pub(crate) fn draw_scene_bar(
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = width.saturating_sub(2 * pad);
 
-    // Right side: Navigation stack / breadcrumbs (when drill-in depth > 1)
-    let (right_spans, right_width) = if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1)
-    {
-        let mut spans = Vec::new();
-        let mut w = 0usize;
-        if hints.can_back {
-            let back_arrow = "< ";
-            spans.push(Span::styled(back_arrow, fill.fg(theme.dim())));
-            w += back_arrow.width();
-        }
-        for (idx, crumb) in crumbs.iter().enumerate() {
-            let crumb_str = crumb.breadcrumb_label();
-            let is_last = idx + 1 == crumbs.len();
-            if is_last {
-                spans.push(Span::styled(crumb_str, label_style));
-                w += crumb_str.width();
-            } else {
-                spans.push(Span::styled(crumb_str, fill.fg(theme.dim())));
-                spans.push(Span::styled(" > ", fill.fg(theme.dim())));
-                w += crumb_str.width() + 3;
+    // Right side: Navigation stack / canonical breadcrumbs (when drill-in depth > 1) (ADR-0092 [INV-SCENE-03])
+    struct NavElement {
+        crumb_index: Option<usize>,
+        is_back: bool,
+        is_forward: bool,
+        width: usize,
+    }
+
+    let (right_spans, right_width, elements) =
+        if let Some(crumbs) = hints.breadcrumbs.filter(|c| c.len() > 1) {
+            let mut spans = Vec::new();
+            let mut total_w = 0usize;
+            let mut elems = Vec::new();
+
+            if hints.can_back {
+                let back_str = "‹ Alt+[ ";
+                let bw = back_str.width();
+                let style = fill.fg(theme.dim());
+                spans.push(Span::styled(back_str, style));
+                elems.push(NavElement {
+                    crumb_index: None,
+                    is_back: true,
+                    is_forward: false,
+                    width: bw,
+                });
+                total_w += bw;
             }
-        }
-        if hints.can_forward {
-            let fwd_arrow = " >";
-            spans.push(Span::styled(fwd_arrow, fill.fg(theme.dim())));
-            w += fwd_arrow.width();
-        }
-        (spans, w)
-    } else {
-        (Vec::new(), 0)
-    };
+
+            for (idx, crumb) in crumbs.iter().enumerate() {
+                let crumb_str = crumb.breadcrumb_label();
+                let cw = crumb_str.width();
+                let is_last = idx + 1 == crumbs.len();
+                let style = if is_last {
+                    label_style
+                } else {
+                    fill.fg(theme.dim())
+                };
+
+                spans.push(Span::styled(crumb_str, style));
+                elems.push(NavElement {
+                    crumb_index: Some(idx),
+                    is_back: false,
+                    is_forward: false,
+                    width: cw,
+                });
+                total_w += cw;
+
+                if !is_last {
+                    let sep = " › ";
+                    let sep_w = sep.width();
+                    let sep_style = fill.fg(theme.dim());
+                    spans.push(Span::styled(sep, sep_style));
+                    elems.push(NavElement {
+                        crumb_index: None,
+                        is_back: false,
+                        is_forward: false,
+                        width: sep_w,
+                    });
+                    total_w += sep_w;
+                }
+            }
+
+            if hints.can_forward {
+                let fwd_str = "  Alt+] ›";
+                let fw = fwd_str.width();
+                let style = fill.fg(theme.dim());
+                spans.push(Span::styled(fwd_str, style));
+                elems.push(NavElement {
+                    crumb_index: None,
+                    is_back: false,
+                    is_forward: true,
+                    width: fw,
+                });
+                total_w += fw;
+            }
+
+            (spans, total_w, elems)
+        } else {
+            (Vec::new(), 0, Vec::new())
+        };
 
     // Left side:
     // If Thread scene (or thread_id is provided):
@@ -364,6 +424,25 @@ pub(crate) fn draw_scene_bar(
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(Paragraph::new(Line::from(spans)), rect);
+
+    // Compute interactive hit target bounding boxes (ADR-0092 [INV-INTERACT-01])
+    let right_start_x = rect.x + pad as u16 + left_width as u16 + gap as u16;
+    let mut cur_x = right_start_x;
+    let mut nav_rects = SceneNavRects::default();
+
+    for elem in elements {
+        let elem_rect = Rect::new(cur_x, rect.y, elem.width as u16, 1);
+        if elem.is_back {
+            nav_rects.back = Some(elem_rect);
+        } else if elem.is_forward {
+            nav_rects.forward = Some(elem_rect);
+        } else if let Some(idx) = elem.crumb_index {
+            nav_rects.crumbs.push((idx, elem_rect));
+        }
+        cur_x += elem.width as u16;
+    }
+
+    nav_rects
 }
 
 /// One persistent safety posture token of the ThreadContextBar.
@@ -907,13 +986,17 @@ mod tests {
             row.contains("[EXPLORE] inspect codebase"),
             "shows scene context: {row}"
         );
-        assert!(row.contains("< "), "shows back affordance: {row}");
+        assert!(row.contains("‹ Alt+["), "shows back affordance: {row}");
         assert!(
-            row.contains("thread > subagent"),
-            "shows breadcrumb trail: {row}"
+            row.contains("thread › subagent"),
+            "shows canonical breadcrumb trail: {row}"
+        );
+        assert!(
+            !row.contains("< thread >"),
+            "no pseudo-tag delimiter artifact: {row}"
         );
         let ctx_pos = row.find("[EXPLORE]").unwrap();
-        let stack_pos = row.find("< thread").unwrap();
+        let stack_pos = row.find("‹ Alt+[").unwrap();
         assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
 
         // With can_forward = true
@@ -930,9 +1013,45 @@ mod tests {
             },
         );
         assert!(
-            row_fwd.contains("subagent >"),
+            row_fwd.contains("Alt+] ›"),
             "shows forward affordance: {row_fwd}"
         );
+    }
+
+    #[test]
+    fn row2_computes_nav_hit_rects_accurately() {
+        let crumbs = [SceneKind::Thread, SceneKind::Subagent];
+        let theme = Theme::default();
+        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        let mut nav_rects = SceneNavRects::default();
+        terminal.draw(|frame| {
+            nav_rects = draw_scene_bar(
+                frame,
+                frame.area(),
+                None,
+                &ViewHints {
+                    kind: SceneKind::Subagent,
+                    context: Some("task 1"),
+                    context_warn: false,
+                    breadcrumbs: Some(&crumbs),
+                    can_back: true,
+                    can_forward: true,
+                },
+                &theme,
+            );
+        });
+
+        assert!(nav_rects.back.is_some());
+        assert_eq!(nav_rects.crumbs.len(), 2);
+        assert!(nav_rects.forward.is_some());
+        let back_rect = nav_rects.back.unwrap();
+        assert!(back_rect.width > 0);
+        let crumb0 = nav_rects.crumbs[0].1;
+        assert!(crumb0.x > back_rect.x);
+        let crumb1 = nav_rects.crumbs[1].1;
+        assert!(crumb1.x > crumb0.x);
+        let fwd_rect = nav_rects.forward.unwrap();
+        assert!(fwd_rect.x > crumb1.x);
     }
 
     #[test]

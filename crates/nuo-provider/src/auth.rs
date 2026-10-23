@@ -115,6 +115,19 @@ pub struct CopilotAuthMetadata {
     pub session_id: String,
 }
 
+/// Typed marker: the resolved credential is a vendor's **subscription-lane
+/// OIDC bearer** (a login pair minted by the vendor's own OAuth flow), as
+/// opposed to a pasted platform key.
+///
+/// The header layer consults its presence to decide the outgoing shape for
+/// wires the vendor splits by lane (today only Tencent CodeBuddy, where a
+/// pasted platform key rides `X-API-Key` and a logged-in bearer rides
+/// `Authorization: Bearer` — refresh exists only for the bearer lane).
+/// Made up here, consumed by whoever builds the wire; nothing but its
+/// *presence* is ever examined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BearerLoginMarker;
+
 /// Resolved authentication credentials and account metadata for an outbound request.
 ///
 /// Designed: core struct contains only generic transport authentication

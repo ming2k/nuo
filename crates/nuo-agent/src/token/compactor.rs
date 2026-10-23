@@ -120,7 +120,7 @@ pub async fn offload_tool_result(
 ) -> usize {
     let total_len = tr.output.len();
     let content_hash = nuo_tool::vfs_short_hash(tr.output.as_bytes());
-    let vfs_path = nuo_tool::vfs_canonical_path(&content_hash, "txt");
+    let spool_path = nuo_tool::spool_canonical_path(&content_hash, "txt");
     let handle = format!("obs:{}", tr.call_id);
 
     // Offload raw output to observation store under both hash and handle
@@ -128,6 +128,12 @@ pub async fn offload_tool_result(
         let _ = s.store(&content_hash, tr.output.clone()).await;
         let _ = s.store(&handle, tr.output.clone()).await;
     }
+
+    // Single atomic write to canonical spool directory (ADR-0093 [INV-SPOOL-01])
+    let spool_dir = nuo_tool::spool_root_dir();
+    let _ = std::fs::create_dir_all(&spool_dir);
+    let spool_file = spool_dir.join(format!("{content_hash}.txt"));
+    let _ = std::fs::write(&spool_file, tr.output.as_bytes());
 
     match mode {
         OffloadMode::Partial => {
@@ -157,9 +163,8 @@ pub async fn offload_tool_result(
 
             tr.output = format!(
                 "{head}\n\n[... Context Offloaded: {metric_desc} elided to relieve context pressure ...]\n\
-                - Virtual Path: \"{vfs_path}\"\n\
-                - Tail Preview: {tail}\n\
-                - Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` to inspect."
+                - Spool File: \"{spool_path}\"\n\
+                - Tail Preview: {tail}"
             );
 
             elided_bytes
@@ -175,8 +180,7 @@ pub async fn offload_tool_result(
 
             tr.output = format!(
                 "[Context Offloaded: {metric_desc} offloaded to store]\n\
-                - Virtual Path: \"{vfs_path}\"\n\
-                - Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` to inspect."
+                - Spool File: \"{spool_path}\""
             );
 
             total_len
@@ -279,9 +283,9 @@ mod tests {
         let elided = offload_tool_result(&mut tr, OffloadMode::Partial, Some(&obs_store)).await;
         assert!(elided > 0);
         assert!(tr.output.contains("Context Offloaded"));
-        assert!(tr.output.contains("/tmp/nuo/vfs/"));
+        assert!(tr.output.contains("- Spool File:"));
         assert!(tr.output.contains("Tail Preview"));
-        assert!(tr.output.contains("read_text"));
+        assert!(!tr.output.contains("Guidance:"));
 
         // Verify that raw output was stored in observation store under content hash
         let hash = nuo_tool::vfs_short_hash(b"A".repeat(500).as_slice());
@@ -306,8 +310,8 @@ mod tests {
             tr.output
                 .contains("[Context Offloaded: 1000 characters (1.0 KB) offloaded to store]")
         );
-        assert!(tr.output.contains("/tmp/nuo/vfs/"));
-        assert!(tr.output.contains("read_text"));
+        assert!(tr.output.contains("- Spool File:"));
+        assert!(!tr.output.contains("Guidance:"));
         // Full mode MUST NOT contain head or tail preview
         assert!(!tr.output.contains("Tail Preview"));
 
@@ -345,7 +349,7 @@ mod tests {
         assert!(elided > 0);
         // User dialogue turn must remain 100% untouched ([INV-CTX-01])
         assert_eq!(messages[0].content, user_content);
-        // Only tool result was offloaded to VFS
-        assert!(messages[0].tool_results[0].output.contains("/tmp/nuo/vfs/"));
+        // Only tool result was offloaded to spool
+        assert!(messages[0].tool_results[0].output.contains("- Spool File:"));
     }
 }

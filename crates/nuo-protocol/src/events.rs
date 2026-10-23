@@ -205,6 +205,10 @@ pub enum AgentRequest {
         /// Budget policy and circuit breaker posture (ADR-0065).
         #[serde(default)]
         budget: crate::ConnectionBudget,
+        /// Economic entitlement and cost model (ADR-0095).
+        /// When omitted, falls back to the provider's default entitlement.
+        #[serde(default)]
+        entitlement: Option<crate::Entitlement>,
     },
     /// Reauthenticate an existing OAuth connection. Runs the browser-loopback
     /// or device-code flow, persists directly under `name`, then activates it.
@@ -233,6 +237,9 @@ pub enum AgentRequest {
         /// Budget policy and circuit breaker posture (ADR-0065).
         #[serde(default)]
         budget: crate::ConnectionBudget,
+        /// Economic entitlement and cost model (ADR-0095).
+        #[serde(default)]
+        entitlement: Option<crate::Entitlement>,
     },
     /// Rename a connection. The server rewrites every hard join key
     /// (`credentials.toml`, `auth.toml`, `default_connection`) in one

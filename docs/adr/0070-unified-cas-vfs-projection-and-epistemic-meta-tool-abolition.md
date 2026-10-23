@@ -1,16 +1,16 @@
 ---
 id: ADR-0070
 title: "Unified Content-Addressed Storage, Virtual File System Projection, and Epistemic Meta-Tool Abolition"
-status: accepted
+status: superseded
 date: 2026-11-09
 scope: storage/cas, vfs/projection, harness/rounds, agent/compactor, tool/nuo-tool-fs, tui/nuo-tui
-superseded_by: null
+superseded_by: ADR-0093
 negative_knowledge: true
 ---
 
 # 0070. Unified Content-Addressed Storage, Virtual File System Projection, and Epistemic Meta-Tool Abolition
 
-- Status: Accepted
+- Status: Superseded by [ADR-0093](0093-abolition-of-pseudo-vfs-spool-architecture-and-salience-folding.md)
 - Date: 2026-11-09
 - Deciders: Nuo Architecture Working Group, Runtime Engineering, TUI Presentation
 - Consulted: Agent Engineering (`nuo-agent`), Harness (`nuo-harness`), Tool Infrastructure (`nuo-tool`, `nuo-tool-fs`), TUI (`nuo-tui`), Persistence (`nuo-persistence`)

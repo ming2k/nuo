@@ -50,7 +50,7 @@ pub use crate::theme::{COLOR_SCHEMES, Theme};
 use crate::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::view_header::{
-    TabBarProps, ThreadContext, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
+    SceneNavRects, TabBarProps, ThreadContext, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
     draw_thread_context_bar,
 };
 #[allow(unused_imports)]
@@ -677,6 +677,10 @@ pub struct TranscriptRender {
     pub tab_rects: Vec<(usize, Rect)>,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
+    /// Full bounding rect for the Tier 2 SceneBar row.
+    pub scene_bar_rect: Option<Rect>,
+    /// Interactive navigation bounding rects on Tier 2 SceneBar (ADR-0092 [INV-INTERACT-01]).
+    pub scene_nav_rects: SceneNavRects,
 }
 
 /// A sticky pinned step summary (returned to the app for click handling).
@@ -758,6 +762,8 @@ pub fn draw_transcript(
             sticky: None,
             tab_rects: Vec::new(),
             tab_bar_rect: None,
+            scene_bar_rect: None,
+            scene_nav_rects: SceneNavRects::default(),
         };
     }
 
@@ -912,9 +918,12 @@ pub fn draw_transcript(
     } else {
         Vec::new()
     };
-    if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), scene_rect) {
-        draw_scene_bar(frame, rect, thread_id, hints, theme);
-    }
+    let scene_nav_rects = if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), scene_rect)
+    {
+        draw_scene_bar(frame, rect, thread_id, hints, theme)
+    } else {
+        SceneNavRects::default()
+    };
     if let (Some(ctx), Some(rect)) = (thread_context.as_ref(), context_rect) {
         draw_thread_context_bar(frame, rect, ctx, theme);
     }
@@ -1154,6 +1163,8 @@ pub fn draw_transcript(
         sticky: sticky_info,
         tab_rects,
         tab_bar_rect: tab_rect,
+        scene_bar_rect: scene_rect,
+        scene_nav_rects,
     }
 }
 

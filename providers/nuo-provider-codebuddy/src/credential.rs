@@ -7,6 +7,40 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+/// The CodeBuddy inference surface distinguishes two credential lanes at the
+/// wire level, mirroring the upstream client's `auth.tokenType`:
+///
+/// - `Bearer` — the CLI login's OIDC access token (`Authorization: Bearer`),
+///   what the normal subscription lane yields.
+/// - `ApiKey` — a pasted platform key (`X-API-Key`), what the BYOK lane yields.
+///
+/// This is resolved from the stored CLI file's `auth.tokenType` when the
+/// credential comes from there, and defaults to `ApiKey` for anything the
+/// user pasted explicitly (matching the CLI's own precedence — explicit API
+/// keys annotate themselves but never look like bearer JWTs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CodeBuddyCredentialKind {
+    /// OIDC bearer from the CLI's account login (`Authorization: Bearer`).
+    Bearer,
+    /// Pasted platform key (`X-API-Key`).
+    #[default]
+    ApiKey,
+}
+
+impl CodeBuddyCredentialKind {
+    /// Map an upstream `auth.tokenType` string onto the lane.
+    pub fn from_token_type(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase) {
+            Some(v) if v == "bearer" => Self::Bearer,
+            Some(v) if v == "apikey" || v == "api_key" || v == "api-key" => Self::ApiKey,
+            // The real stored file carries `tokenType: "Bearer"` on CLI logins
+            // and the type is absent on ancient formats; treat absence as
+            // `ApiKey` (a pasted key), matching the CLI's own behavior.
+            _ => Self::ApiKey,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct StoredAuthFile {
     auth: Option<StoredAuth>,
@@ -22,6 +56,9 @@ struct StoredAuth {
     refresh_token: Option<String>,
     #[serde(rename = "expiresAt")]
     expires_at: Option<u64>,
+    /// `Bearer` for CLI logins, `ApiKey` for pasted platform keys.
+    #[serde(rename = "tokenType")]
+    token_type: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -33,6 +70,10 @@ struct StoredAccount {
 }
 
 /// Dynamic or static credential source for Tencent AI CodeBuddy.
+///
+/// This is the **BYOK lane** (ADR-0014): the user pasted a token. The
+/// subscription/OAuth lane lives in [`crate::oauth`] and is dispatched by the
+/// composition root when `ConnectionAuth::Subscription` is declared.
 ///
 /// Discovers credentials in the following order:
 /// 1. An explicit API key / access token provided in configuration.
@@ -131,7 +172,9 @@ impl CodeBuddyCredentialSource {
     }
 
     /// Read and parse saved credentials from local disk if available.
-    pub fn read_stored_credentials() -> Option<(String, Option<String>)> {
+    /// Returns the token, its credential kind (`Bearer` vs `ApiKey`), and the
+    /// account display name when present.
+    pub fn read_stored_credentials() -> Option<(String, CodeBuddyCredentialKind, Option<String>)> {
         for path in Self::candidate_auth_file_paths() {
             if path.exists() && path.is_file() {
                 if let Ok(content) = std::fs::read_to_string(&path) {
@@ -140,6 +183,9 @@ impl CodeBuddyCredentialSource {
                             if let Some(token) = auth.access_token {
                                 let trimmed = token.trim();
                                 if !trimmed.is_empty() {
+                                    let kind = CodeBuddyCredentialKind::from_token_type(
+                                        auth.token_type.as_deref(),
+                                    );
                                     let nickname = parsed
                                         .account
                                         .as_ref()
@@ -147,7 +193,7 @@ impl CodeBuddyCredentialSource {
                                         .or_else(|| {
                                             parsed.account.as_ref().and_then(|a| a.uid.clone())
                                         });
-                                    return Some((trimmed.to_string(), nickname));
+                                    return Some((trimmed.to_string(), kind, nickname));
                                 }
                             }
                         }
@@ -190,8 +236,15 @@ impl CredentialSource for CodeBuddyCredentialSource {
             }
 
             // 4. Stored local credentials
-            if let Some((token, nickname)) = Self::read_stored_credentials() {
+            if let Some((token, kind, nickname)) = Self::read_stored_credentials() {
+                // The upstream wire decides header shape from the credential
+                // kind: OIDC logins ride `Authorization: Bearer`, pasted keys
+                // ride `X-API-Key`. `ResolvedAuth.token` feeds that decision
+                // downstream; `user_email` carries the display nickname.
                 let mut auth = ResolvedAuth::new(token);
+                if matches!(kind, CodeBuddyCredentialKind::Bearer) {
+                    auth = auth.with_extension(nuo_provider::BearerLoginMarker);
+                }
                 if let Some(user) = nickname {
                     auth = auth.with_user_email(user);
                 }
@@ -236,6 +289,14 @@ impl CredentialSource for CodeBuddyCredentialSource {
         Self::read_stored_credentials().is_some()
     }
 }
+
+/// Typed marker: the credential that produced this auth was an OIDC **bearer**
+/// login (not a pasted platform key). The header layer consults it to choose
+/// `Authorization: Bearer` over `X-API-Key`.
+///
+/// Implemented as [`nuo_provider::BearerLoginMarker`] so the wire layer can
+/// consume it without knowing any vendor crate.
+pub type CodeBuddyBearerCredential = nuo_provider::BearerLoginMarker;
 
 #[cfg(test)]
 mod tests {
@@ -286,5 +347,41 @@ mod tests {
                 .expect("resolves auth from disk");
             assert!(!auth.token.expose_secret().is_empty());
         }
+    }
+
+    #[test]
+    fn stored_bearer_login_projects_bearer_marker() {
+        // The real CLI file carries `tokenType: "Bearer"` on account logins —
+        // the resolved auth must carry the bearer marker so the header layer
+        // emits `Authorization: Bearer` rather than `X-API-Key`.
+        if let Some((_token, kind, _nickname)) =
+            CodeBuddyCredentialSource::read_stored_credentials()
+        {
+            assert_eq!(kind, CodeBuddyCredentialKind::Bearer);
+        }
+    }
+
+    #[test]
+    fn token_type_mapping() {
+        assert_eq!(
+            CodeBuddyCredentialKind::from_token_type(Some("Bearer")),
+            CodeBuddyCredentialKind::Bearer
+        );
+        assert_eq!(
+            CodeBuddyCredentialKind::from_token_type(Some("bearer")),
+            CodeBuddyCredentialKind::Bearer
+        );
+        assert_eq!(
+            CodeBuddyCredentialKind::from_token_type(Some("ApiKey")),
+            CodeBuddyCredentialKind::ApiKey
+        );
+        assert_eq!(
+            CodeBuddyCredentialKind::from_token_type(Some("")),
+            CodeBuddyCredentialKind::ApiKey
+        );
+        assert_eq!(
+            CodeBuddyCredentialKind::from_token_type(None),
+            CodeBuddyCredentialKind::ApiKey
+        );
     }
 }

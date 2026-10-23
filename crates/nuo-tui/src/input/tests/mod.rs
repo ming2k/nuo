@@ -98,6 +98,34 @@ fn key_in_view(code: KeyCode, in_subagent_view: bool, input: &mut String) -> Inp
     })
 }
 
+fn key_with_mod_in_view(
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    in_subagent_view: bool,
+    input: &mut String,
+) -> InputAction {
+    let mut cursor = input.chars().count();
+    let mut drag = SelectionDrag::default();
+    let dispatch = Dispatch {
+        scene: if in_subagent_view {
+            crate::surfaces::SceneKind::Subagent
+        } else {
+            crate::surfaces::SceneKind::Thread
+        },
+        ..Default::default()
+    };
+    route_event(
+        Event::Key(crossterm::event::KeyEvent::new(code, modifiers)),
+        input,
+        &mut cursor,
+        dispatch,
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    )
+}
+
 fn key_in_view_with(
     code: KeyCode,
     input: &mut String,

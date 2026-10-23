@@ -1638,7 +1638,7 @@ impl Agent {
 
 pub(crate) fn format_tool_result_message(
     call: &ToolCall,
-    call_id: &str,
+    _call_id: &str,
     result: &ToolOutput,
     text: &str,
 ) -> Message {
@@ -1650,60 +1650,46 @@ pub(crate) fn format_tool_result_message(
         ..
     } = result
     {
-        // ADR-0069 [INV-LOG-01]: Execution Log Spilling.
-        // Store full raw un-truncated shell output in transparent session log file
-        // so AI can search it via native grep/tail tools without context blowup or meta-tool nesting.
+        // ADR-0093 [INV-SPOOL-01]: Ephemeral Session Spool.
+        // Store full raw un-truncated shell output in OS-native temporary spool file
+        // without pseudo-VFS resolver interception and without redundant triplication.
         let raw_full = nuo_tool::tool_output::shell_inner_text(stdout, stderr, *exit);
         let short_hash = nuo_tool::vfs_short_hash(raw_full.as_bytes());
-        let vfs_path = nuo_tool::vfs_canonical_path(&short_hash, "log");
 
-        // Write to physical VFS directory so grep/cut/head can read without root
-        let vfs_dir = nuo_tool::vfs_root_dir();
-        let _ = std::fs::create_dir_all(&vfs_dir);
-        let vfs_file = vfs_dir.join(format!("{short_hash}.log"));
-        let _ = std::fs::write(&vfs_file, raw_full.as_bytes());
-
-        let log_dir = nuo_host::paths::get().exec_logs_dir();
-        let _ = std::fs::create_dir_all(&log_dir);
-        let _ = std::fs::write(
-            log_dir.join(format!("{short_hash}.log")),
-            raw_full.as_bytes(),
-        );
-        let _ = std::fs::write(
-            log_dir.join(format!("exec_{call_id}.log")),
-            raw_full.as_bytes(),
-        );
+        // Single atomic write to canonical spool directory
+        let spool_dir = nuo_tool::spool_root_dir();
+        let _ = std::fs::create_dir_all(&spool_dir);
+        let spool_file = spool_dir.join(format!("{short_hash}.log"));
+        let _ = std::fs::write(&spool_file, raw_full.as_bytes());
 
         let formatted = format!("[{} result]:\n{}", call.name, text);
-        let message_content = format!(
-            "{formatted}\n\n- Virtual Path: \"{vfs_path}\"\n[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]"
-        );
+        let spool_path_str = spool_file.display().to_string();
+        // ADR-0093 [INV-TRUNC-01]: Objective metadata envelope; zero imperative pseudo-guidance
+        let message_content = format!("{formatted}\n\n- Spool File: \"{spool_path_str}\"");
         Message::tool_result(call, message_content)
     } else if call.name == "read_text"
         && (call.arguments.contains("/tmp/nuo/vfs")
+            || call.arguments.contains("/tmp/nuo/spool")
+            || call.arguments.contains("/dev/shm/nuo/spool")
             || call.arguments.contains("/tmp/vfs")
             || call.arguments.contains("/virtual")
             || call.arguments.contains(".nuo/virtual")
             || call.arguments.contains("virtual://"))
     {
-        // ADR-0070: VFS virtual reads are line-budgeted in-process and immune to secondary spilling
+        // ADR-0070 / ADR-0093: Spool and VFS virtual reads are line-budgeted in-process and immune to secondary spilling
         let formatted = format!("[{} result]:\n{}", call.name, text);
         Message::tool_result(call, formatted)
     } else if text.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
-        // ADR-0070: CAS Log Spilling & VFS projection for oversized generic tool outputs.
+        // ADR-0093: Ephemeral spooling & tail-heavy folding for oversized generic tool outputs.
         let short_hash = nuo_tool::vfs_short_hash(text.as_bytes());
-        let vfs_path = nuo_tool::vfs_canonical_path(&short_hash, "log");
+        let spool_dir = nuo_tool::spool_root_dir();
+        let _ = std::fs::create_dir_all(&spool_dir);
+        let spool_file = spool_dir.join(format!("{short_hash}.log"));
+        let _ = std::fs::write(&spool_file, text.as_bytes());
 
-        let vfs_dir = nuo_tool::vfs_root_dir();
-        let _ = std::fs::create_dir_all(&vfs_dir);
-        let _ = std::fs::write(vfs_dir.join(format!("{short_hash}.log")), text.as_bytes());
-
-        let log_dir = nuo_host::paths::get().exec_logs_dir();
-        let _ = std::fs::create_dir_all(&log_dir);
-        let _ = std::fs::write(log_dir.join(format!("{short_hash}.log")), text.as_bytes());
-
-        let head_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
-        let tail_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 2;
+        // ADR-0093 [INV-FOLD-01]: Tail-heavy biasing (25% head, 75% tail)
+        let head_len = nuo_tool::tool_output::SHELL_TRUNCATED_CHARS / 4;
+        let tail_len = (nuo_tool::tool_output::SHELL_TRUNCATED_CHARS * 3) / 4;
         let head_part: String = text.chars().take(head_len).collect();
         let tail_part: String = text
             .chars()
@@ -1719,24 +1705,39 @@ pub(crate) fn format_tool_result_message(
             .lines()
             .count()
             .saturating_sub(head_part.lines().count() + tail_part.lines().count());
+
+        // Extract salient error signatures from middle omitted section
+        let middle_text: String = text.chars().skip(head_len).take(middle_chars).collect();
+        let salient = nuo_tool::extract_salient_signatures(&middle_text, 3);
+        let salient_section = if !salient.is_empty() {
+            let mut s = format!(". {} salient signature(s) detected:\n", salient.len());
+            for (rel_line, sig) in salient {
+                s.push_str(&format!(">> [line +{rel_line}]: {sig}\n"));
+            }
+            s
+        } else {
+            String::new()
+        };
+
         let banner = if middle_lines > 1 {
-            format!(
-                "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
-            )
+            if salient_section.is_empty() {
+                format!(
+                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget] ---"
+                )
+            } else {
+                format!(
+                    "--- [Middle {middle_lines} lines ({middle_kb:.1} KB) omitted to protect context budget{salient_section}---]"
+                )
+            }
         } else {
             format!(
                 "--- [Middle {middle_chars} characters ({middle_kb:.1} KB) omitted to protect context budget] ---"
             )
         };
-        let guidance = if middle_lines <= 1 {
-            "[Guidance: Large single-line content detected. Use `execute_command` with cut/jq/head on the log or `read_text` to inspect.]".to_string()
-        } else {
-            format!(
-                "[Guidance: Use `read_text(path: \"{vfs_path}\", offset: 1, limit: 100)` or `execute_command` with grep/tail to inspect.]"
-            )
-        };
+
+        let spool_path_str = spool_file.display().to_string();
         let stub_content = format!(
-            "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Virtual Path: \"{vfs_path}\"\n{guidance}",
+            "[{name} result]:\n{head_part}\n\n{banner}\n\n{tail_part}\n\n- Spool File: \"{spool_path_str}\"",
             name = call.name
         );
         Message::tool_result(call, stub_content)
@@ -1773,21 +1774,32 @@ mod tests {
 
         let msg = format_tool_result_message(&call, &call.id, &result, &result.to_text());
         let content = &msg.content;
-        assert!(content.contains("- Virtual Path: \"/tmp/nuo/vfs/"));
+        // ADR-0093 [INV-SPOOL-01]: Ephemeral session spool path
+        assert!(content.contains("- Spool File: \""));
         assert!(content.contains(".log\""));
-        assert!(content.contains("[Guidance: Use `read_text"));
+        // ADR-0093 [INV-TRUNC-01]: Zero imperative pseudo-guidance to eliminate prompt-injection false positives
+        assert!(!content.contains("[Guidance:"));
+        assert!(!content.contains("Use `read_text"));
         assert!(!content.contains("Claim-Check Stub"));
         assert!(!content.contains("call:call_test_spill_123"));
 
-        // Verify the log file was actually created on disk
-        let log_file = nuo_host::paths::get()
-            .exec_logs_dir()
-            .join("exec_call_test_spill_123.log");
-        assert!(log_file.exists());
-        let disk_content = std::fs::read_to_string(&log_file).unwrap();
+        // Verify the spool file was actually created on disk
+        let spool_file = nuo_tool::spool_root_dir().join(format!(
+            "{}.log",
+            nuo_tool::vfs_short_hash(
+                nuo_tool::tool_output::shell_inner_text(
+                    "line 1\nline 2\n",
+                    "warning in build\n",
+                    Some(0)
+                )
+                .as_bytes()
+            )
+        ));
+        assert!(spool_file.exists());
+        let disk_content = std::fs::read_to_string(&spool_file).unwrap();
         assert!(disk_content.contains("line 1\nline 2"));
         assert!(disk_content.contains("warning in build"));
-        let _ = std::fs::remove_file(log_file);
+        let _ = std::fs::remove_file(spool_file);
     }
 
     #[test]

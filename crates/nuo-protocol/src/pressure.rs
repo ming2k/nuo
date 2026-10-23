@@ -522,8 +522,9 @@ fn plan_prune(messages: &[Message], protect_recent_tokens: usize) -> Vec<PrunePl
                 "image/gif" => "gif",
                 _ => "png",
             };
+            let artifact_path = nuo_tool::spool_canonical_path(short_hash, ext);
             invoices.push(format!(
-                "[Image Offloaded: {} elided to relieve context pressure]\n- Virtual Path: \"/tmp/nuo/vfs/{short_hash}.{ext}\"\n- Guidance: Use `read_image(path: \"/tmp/nuo/vfs/{short_hash}.{ext}\")` to inspect and rehydrate.",
+                "[Image Offloaded: {} elided to relieve context pressure]\n- Artifact Path: \"{artifact_path}\"",
                 img.mime
             ));
         }
@@ -1699,8 +1700,9 @@ mod tests {
                 .content
                 .contains("[Image Offloaded: image/png elided to relieve context pressure]")
         );
-        // The VFS invoice carries the CAS Virtual Path and the rehydrate tool.
-        assert!(messages[0].content.contains("/tmp/nuo/vfs/"));
-        assert!(messages[0].content.contains("read_image"));
+        // The Spool invoice carries the CAS Artifact Path (ADR-0093: zero imperative guidance).
+        assert!(messages[0].content.contains("Artifact Path"));
+        assert!(messages[0].content.contains(".png"));
+        assert!(!messages[0].content.contains("Guidance:"));
     }
 }

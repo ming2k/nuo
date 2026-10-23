@@ -2406,9 +2406,12 @@ fn parse_unstructured_shell_content(
             || trimmed_leading.starts_with("[output truncated")
             || trimmed_leading.starts_with("[stream truncated")
             || trimmed_leading.starts_with("⋯ [Claim-Check Stub:")
-            || trimmed_leading.starts_with("--- [Middle output omitted")
+            || trimmed_leading.starts_with("--- [Middle")
             || trimmed_leading.starts_with("[Output was large")
             || trimmed_leading.starts_with("[Full raw output saved to:")
+            || trimmed_leading.starts_with("[Full un-truncated output spooled to:")
+            || trimmed_leading.starts_with("- Spool File:")
+            || trimmed_leading.starts_with("- Virtual Path:")
             || trimmed_leading.starts_with("[Guidance:")
         {
             truncated = true;

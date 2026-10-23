@@ -163,6 +163,66 @@ impl ModelProviderSpec {
     pub fn catalog_root(&self) -> &str {
         self.catalog_root_url.as_deref().unwrap_or(&self.root_url)
     }
+
+    /// Declared credential capabilities for this provider surface (ADR-0095).
+    ///
+    /// The single source of truth for whether this ingress surface accepts
+    /// static tokens, dynamically negotiated OAuth sessions, or both.
+    /// Replaces ad-hoc string sniffing in higher layers.
+    pub fn credential_capabilities(&self) -> Vec<crate::connection_auth::CredentialCapability> {
+        use crate::connection_auth::{CredentialCapability, LoginMethod};
+        match self.id.as_ref() {
+            "openai" | "deepseek" | "kimi" | "glm-cn" | "qianwen" | "siliconflow" => {
+                vec![CredentialCapability::static_bearer(None)]
+            }
+            "anthropic" => {
+                vec![CredentialCapability::static_custom(
+                    "x-api-key",
+                    Some("ANTHROPIC_API_KEY"),
+                )]
+            }
+            "chatgpt-codex" | "chatgpt-plan" => {
+                vec![CredentialCapability::oauth2(
+                    "chatgpt",
+                    vec![LoginMethod::Browser],
+                )]
+            }
+            "google-antigravity" => {
+                vec![CredentialCapability::oauth2(
+                    "google-antigravity",
+                    vec![LoginMethod::Browser],
+                )]
+            }
+            "xai" => {
+                vec![
+                    CredentialCapability::static_bearer(Some("XAI_API_KEY")),
+                    CredentialCapability::oauth2(
+                        "xai",
+                        vec![LoginMethod::Device, LoginMethod::Browser],
+                    ),
+                ]
+            }
+            "codebuddy" => {
+                vec![
+                    CredentialCapability::oauth2("codebuddy", vec![LoginMethod::Device]),
+                    CredentialCapability::static_custom("x-api-key", Some("CODEBUDDY_API_KEY")),
+                ]
+            }
+            "copilot" => {
+                vec![CredentialCapability::oauth2(
+                    "copilot",
+                    vec![LoginMethod::Device],
+                )]
+            }
+            "qoder" => {
+                vec![
+                    CredentialCapability::oauth2("qoder", vec![LoginMethod::Device]),
+                    CredentialCapability::static_custom("x-api-key", Some("QODER_API_KEY")),
+                ]
+            }
+            _ => vec![CredentialCapability::static_bearer(None)],
+        }
+    }
 }
 
 /// Suffix algebra resolving an API root to the transport endpoint.

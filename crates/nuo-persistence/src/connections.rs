@@ -74,6 +74,10 @@ pub struct Connection {
     /// Budget policy and circuit-breaker posture for this connection (ADR-0065).
     #[serde(default)]
     pub budget: ConnectionBudget,
+    /// Economic entitlement and cost model for this connection (ADR-0095).
+    /// FlatRate (subscription/included) vs Metered (pay-as-you-go).
+    #[serde(default)]
+    pub entitlement: nuo_wire::Entitlement,
 }
 
 impl Default for Connection {
@@ -87,6 +91,7 @@ impl Default for Connection {
             models: ModelScopeConfig::default(),
             catalog_dimensions: std::collections::BTreeMap::new(),
             budget: ConnectionBudget::default(),
+            entitlement: nuo_wire::Entitlement::Metered,
         }
     }
 }
@@ -284,6 +289,11 @@ impl RawConnection {
         }
 
         let auth = migrate_connection_auth(&provider, self.auth);
+        let entitlement = if auth.is_oauth() {
+            nuo_wire::Entitlement::FlatRate
+        } else {
+            nuo_wire::Entitlement::Metered
+        };
         Ok(Connection {
             name,
             provider,
@@ -293,6 +303,7 @@ impl RawConnection {
             models,
             catalog_dimensions: self.catalog_dimensions,
             budget: self.budget,
+            entitlement,
         })
     }
 }

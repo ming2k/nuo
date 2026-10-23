@@ -534,7 +534,7 @@ async fn vfs_observation_store_resolves_virtual_path() {
 
     obs_store.store(&hash, raw_logs.to_string()).await.unwrap();
 
-    let path = nuo_tool::vfs_canonical_path(&hash, "txt");
+    let path = nuo_tool::spool_canonical_path(&hash, "txt");
     let resolved = obs_store.resolve_virtual(&path).await;
     assert_eq!(resolved.as_deref(), Some(raw_logs));
 }

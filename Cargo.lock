@@ -2066,9 +2066,13 @@ name = "nuo-provider-codebuddy"
 version = "0.0.48"
 dependencies = [
  "async-trait",
+ "futures",
  "inventory",
+ "netune",
+ "nuo-egress",
  "nuo-host",
  "nuo-inference-wire",
+ "nuo-oauth",
  "nuo-provider",
  "serde",
  "serde_json",

@@ -2233,9 +2233,9 @@ pub enum SurfaceVerb {
     /// Jump the focused step's scroll to the thread edges (`Home`/`End`).
     ScrollTop,
     ScrollBottom,
-    /// Subagent/scene navigation back (`[` / `Alt+Left`).
+    /// Subagent/scene navigation back (`Alt+[`).
     SceneHistoryBack,
-    /// Subagent/scene navigation forward (`]` / `Alt+Right`).
+    /// Subagent/scene navigation forward (`Alt+]`).
     SceneHistoryForward,
 }
 
@@ -2253,14 +2253,8 @@ impl SurfaceVerb {
             SurfaceVerb::ClearFocusedTarget => Key::ESC,
             SurfaceVerb::ScrollTop => Key::HOME,
             SurfaceVerb::ScrollBottom => Key::END,
-            SurfaceVerb::SceneHistoryBack => Key {
-                modifiers: KeyModifiers::NONE,
-                code: KeyCode::Char('['),
-            },
-            SurfaceVerb::SceneHistoryForward => Key {
-                modifiers: KeyModifiers::NONE,
-                code: KeyCode::Char(']'),
-            },
+            SurfaceVerb::SceneHistoryBack => Key::ALT_BRACKET_LEFT,
+            SurfaceVerb::SceneHistoryForward => Key::ALT_BRACKET_RIGHT,
         }
     }
 

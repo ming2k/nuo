@@ -56,6 +56,14 @@ pub enum UiKey {
     TabBar,
     /// An interactive Tab Bar item at the top of the viewport (ADR-0039, ADR-0040).
     TabBarItem(usize),
+    /// Tier 2: Polymorphic SceneBar container background (ADR-0062, ADR-0092).
+    SceneBar,
+    /// Tier 2: SceneBar Back button affordance (`‹ Alt+[`) (ADR-0092).
+    SceneHistoryBack,
+    /// Tier 2: SceneBar Forward button affordance (`Alt+] ›`) (ADR-0092).
+    SceneHistoryForward,
+    /// Tier 2: SceneBar breadcrumb ancestor jump target at depth index (ADR-0092).
+    SceneBreadcrumb(usize),
 }
 
 /// The application has one mounted UI runtime. Semantic text mappings travel
@@ -302,14 +310,17 @@ impl ComponentTree {
                 InputPolicy::Bubble,
                 true,
             ),
-            UiKey::TabBar => (
+            UiKey::TabBar | UiKey::SceneBar => (
                 Some(UiKey::Root),
                 19,
                 PointerPolicy::Target,
                 InputPolicy::None,
                 false,
             ),
-            UiKey::TabBarItem(_) => (
+            UiKey::TabBarItem(_)
+            | UiKey::SceneHistoryBack
+            | UiKey::SceneHistoryForward
+            | UiKey::SceneBreadcrumb(_) => (
                 Some(UiKey::Root),
                 20,
                 PointerPolicy::Target,

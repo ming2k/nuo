@@ -205,7 +205,23 @@ impl OpenAiChatCompletionsProvider {
             .header(http::header::USER_AGENT, self.endpoint.user_agent())
             .json(body);
         let copilot = self.dialect == nuo_provider::OpenAiChatDialect::Copilot;
-        for (name, value) in request::headers(auth.token.expose_secret(), self.dialect) {
+        // A CodeBuddy credential declares its wire lane via a typed extension
+        // on the resolved auth (`CodeBuddyBearerCredential` = OIDC login
+        // pair) — the header shape (`Authorization: Bearer` vs `X-API-Key`)
+        // follows from that marker, not from sniffing the token string.
+        // Every other lane resolves as plain Bearer.
+        let codebuddy_lane = if self.dialect != nuo_provider::OpenAiChatDialect::CodeBuddy
+            || auth
+                .extension::<nuo_provider::BearerLoginMarker>()
+                .is_some()
+        {
+            request::CodeBuddyAuthLane::Bearer
+        } else {
+            request::CodeBuddyAuthLane::ApiKey
+        };
+        for (name, value) in
+            request::headers_with_lane(auth.token.expose_secret(), self.dialect, codebuddy_lane)
+        {
             req = req.header(name, value);
         }
         for (name, value) in self.endpoint.headers() {
