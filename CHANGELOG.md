@@ -6,6 +6,29 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.49] - 2026-10-23
+
+### Added
+
+- **SceneBar Breadcrumb Topology, Bidirectional Navigation, and Symmetric Keybindings (ADR-0092).**
+  - Canonical Single-Guillemet Typography: Tier 2 SceneBar renders hierarchy using single guillemets (`›` / `\u{203A}`) and back cues (`‹` / `\u{2039}`), abolishing `< thread >` pseudo-tag conflation.
+  - Bidirectional Navigation: Added symmetric `Alt+[` (back) and `Alt+]` (forward) navigation chords across drill-in scene depths, retiring modal-sensitive bare `[` / `]` chords and ad-hoc single-view `q` escapes.
+  - Interactive Breadcrumb Hit-Testing: Added mouse click hit-testing for both the leading back affordance and individual ancestor breadcrumb segments in `ComponentTree`.
+- **Tencent CodeBuddy Subscription Lane with Browser Web-Handoff OAuth (ADR-0094).**
+  - First-Class Subscription Flow: Implemented browser web-handoff OAuth (`auth/state` → browser open → `auth/token` polling) with automatic token refresh (`auth/token/refresh`) for Tencent AI CodeBuddy.
+  - Dual-Line Origin Pinning: Scoped credentials and endpoints cleanly across domestic (`copilot.tencent.com`) and international (`www.codebuddy.ai`) account lines.
+  - Credential-Kind Header Split: Typed discrimination between Bearer subscription JWTs (`Authorization: Bearer <token>`) and BYOK keys (`X-API-Key: <token>`).
+- **Canonical Dual-Lane Model Routing and Orthogonal Entitlement Governance (ADR-0095).**
+  - Symmetrical Credential Lifecycle: Replaced asymmetric `Auth { ApiKey, OAuth }` with `CredentialCapability` (Static vs Negotiated).
+  - Orthogonal Entitlement: Decoupled authentication protocols from commercial entitlements (`FlatRate` subscription vs `Metered` pay-per-token).
+  - Priority Failover & Financial Guardrails: Added `PriorityFailover` routing policy with configurable `SpendGuardrail` (interactive confirm vs session dollar caps) to survive flat-rate rate limits seamlessly.
+
+### Changed
+
+- **Abolition of Pseudo-VFS and Adoption of Ephemeral Session Spool Architecture (ADR-0093).**
+  - Eradicated in-band prompt-injection guidance traps (`[Guidance: ...]`) and pseudo-VFS virtual path projections.
+  - Replaced with RAM-backed ephemeral session execution spools (`~/.local/state/nuo/spool/`) and salience-aware tail-heavy semantic folding with automatic error signature preservation.
+
 ## [0.0.48] - 2026-10-23
 
 ### Added
