@@ -6,6 +6,86 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.47] - 2026-10-23
+
+### Added
+
+- **`nuo-client` Is Retired and Its Responsibilities Split Four Ways**
+  ([ADR-0089](docs/adr/0089-nuo-client-retirement-and-four-way-responsibility-realignment.md)).
+  `crates/nuo-client` is deleted outright rather than kept as a compatibility shell. Its protocol DTOs and
+  discovery records move to `nuo-protocol` (`discovery`, `version`, `connection_detail`), client transport and the
+  server connection lifecycle move to `nuo-tui::client`, and the interactive command catalog stays with the
+  presentation crate that renders it. `nuo-server` therefore has no path to a client crate at all — the
+  anti-inversion red-line is now a property of the dependency graph rather than a review convention.
+- **Autonomous Persistence Resilience and Transparent Lease Handoff**
+  ([ADR-0090](docs/adr/0090-autonomous-persistence-resilience-transparent-lease-handoff-and-zero-plaintext-credentials.md)).
+  A `BackupManager` keeps rolling hot backups with `VACUUM INTO` (never `cp` on a live WAL database), prunes to a
+  retention bound, verifies `PRAGMA quick_check` plus `user_version` before any write, and preserves the previous
+  database as `<target>.pre_restore.bak` so a restore is reversible. A second process that cannot take the
+  single-writer lease now degrades into IPC attach instead of failing to start.
+- **Version and Protocol Negotiation Moved Into `nuo-protocol`**. `Discovery`, `ServerInfo`, the local endpoint
+  defaults, and the version comparator with its stable `protocol_mismatch` / `version_mismatch` error codes are
+  protocol facts, so a client can diagnose a skew without linking a transport.
+
+### Changed
+
+- **Routing Syntax No Longer Reaches the User as a Model Name**
+  ([ADR-0081](docs/adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md)
+  `[INV-CATALOG-05]`). A relay id carries two separators that are not part of a name — a `vendor/` namespace and a
+  `:variant` service tier — and the structural lifter tokenized on `-` alone, so `deepseek/deepseek-v4.1-flash`
+  and `nex-agi/nex-n2.5-pro:free` rendered as single slash/colon-bearing tokens. The lifter now absorbs both: a
+  tier is dropped when it is a member of the closed `SERVICE_TIERS` set, and a namespace is printed only when the
+  tail does not already lead with a family brand from `BRAND_LEXICON` — `deepseek/deepseek-v4.1-flash` →
+  `DeepSeek V4.1 Flash`, `openai/gpt-5.6-sol` → `GPT 5.6 Sol`, `meta/muse-spark-1.1` → `Meta Muse Spark 1.1`.
+- **A Published Label Wins on Both Policies and Is Never Restructured.** `commandcode-plan` and `openrouter`
+  declared `DisplayPolicy::Native` while publishing ids-only catalogs, which invents no label and left the raw wire
+  id on every surface; both now declare `Structural`, matching what they are. A surface that *does* publish a name
+  keeps it verbatim (execution-mode annotations stripped, hyphenated brands folded), because an authored label is
+  prose: OpenRouter's `OpenAI: GPT-5.6 Sol` no longer collapses to `OpenAI`, and `Mixtral 8x7B / Instruct` keeps its
+  separator. The closed tier set is what makes this safe — a colon that is part of a name is never eaten.
+- **Colon-Spelled Promotional Tiers Are Pruned.** `is_relay_promotional_noise` read only hyphenated markers, so
+  `nex-agi/nex-n2.5-pro:free` slipped past the `Curated` valve that prunes `beam-free`; the tier segment is now read
+  in either spelling, because they are the same routing fact.
+- **The Model Bar Draws the Route's Resolved Label.** `ModelBarProps` carries the resolved label beside the wire id,
+  so the bottom chrome reads the label the catalog resolved once instead of re-deriving — or echoing — the wire id
+  the picker had already relabelled.
+
+### Fixed
+
+- **A Pooled HTTP Connection Can No Longer Cross a Runtime Boundary.** `nuo-egress` shares one
+  process-global `shared_client()`, so its keep-alive pool outlives any single caller — but a socket is a tokio
+  I/O resource registered with the runtime that dialled it, and once that runtime is dropped the registration is
+  dead. The pool handed the socket to the next caller anyway, whose first read failed with
+  `RUNTIME_SHUTTING_DOWN_ERROR` ("A Tokio 1.x context was found, but it is being shutdown."), which reached the
+  user as a provider transport failure for a request that had never been sent. `netune` v0.0.3 records the owning
+  runtime per pooled connection and discards a foreign candidate, so the cost is one handshake instead of an
+  unattributable error. The dependency pin moves from `v0.0.1` to `v0.0.3`; `Cargo.lock` records commit `4af9be9`.
+- **The Display-Policy Declaration Is Enforced Registry-Wide.** A per-surface test cannot catch a surface that
+  declared the wrong policy, because the defect is a disagreement between two declarations.
+  `every_registered_surface_renders_its_seeds_without_routing_syntax`
+  (`crates/nuo-server/src/provider_registry/tests.rs`) sweeps every registered spec and fails if any seed renders a
+  label still carrying `/` or `:` — the check that caught the `openrouter` instance.
+- **`ADR-0087` Had No Body.** The registry row and ADR-0088 both cited
+  `ADR-0087` while `docs/adr/0087-*.md` did not exist, so the lineage gate would fail on the next commit. The
+  decision (model-wire aperture purification, provider/connection orthogonality) is now written down as referenced.
+- **The Workspace Is Green Under the Gates It Publishes.** `cargo fmt --all --check` reported 130 diffs and
+  `cargo clippy --workspace --all-targets -- -D warnings` failed on 20 sites (14 `needless_borrows_for_generic_args`
+  in the telemetry overlay, `unnecessary_sort_by` and `unnecessary_cast` in persistence). Both are silent again, so
+  the `verify` job can gate a release tag rather than failing before it.
+
+### Documentation
+
+- **Crate Names in the Contributor Docs Match the Crates.** `docs/dev/subsystems.md`,
+  `docs/dev/release-and-versioning.md`, and `docs/reference/state-model.md` still described `nuo-wire` and `nuox` as
+  the current names; they now name `nuo-protocol` (with its `nuo-wire` package alias) and drop the retired `nuox`
+  binary from the SemVer and release playbooks.
+- **`nuo-harness` and `nuo-host` Keep Their READMEs.** Both were deleted wholesale to remove a stale `nuo-client`
+  mention; the reference was the defect, not the document, so the READMEs are restored with the reference pointed at
+  `nuo-tui::client`.
+- **`ADR-0090` Records What Shipped.** Its keyring tier is not implemented: no keyring backend is linked, so Tier 2
+  is marked as a target and `[INV-PERSIST-SECRET-01]` is explicitly not claimed as enforced. Backups, lease handoff,
+  and ledger-governed reclamation are implemented and verified.
+
 ## [0.0.46] - 2026-10-22
 
 ### Added
