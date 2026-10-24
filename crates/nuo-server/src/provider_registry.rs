@@ -12,7 +12,6 @@
 //! Moved from `nuo-provider-adapters`' `registry/mod.rs` + `lib.rs::init()`;
 //! the per-provider spec modules there were duplicates of the `providers/`
 //! crates' own `spec.rs` and are deleted.
-use nuo_provider::RemoteCatalogSource;
 use nuo_provider::catalog::{Channel, Transport};
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -51,101 +50,20 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
 ];
 
-static USER_DECLARED_SPECS: std::sync::RwLock<
-    std::collections::BTreeMap<String, Arc<ModelProviderSpec>>,
-> = std::sync::RwLock::new(std::collections::BTreeMap::new());
-
-pub fn user_declared_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
-    USER_DECLARED_SPECS
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(id)
-        .cloned()
-}
-
-pub fn register_user_declared_provider(
-    spec: ModelProviderSpec,
-) -> Result<Arc<ModelProviderSpec>, String> {
-    if MODEL_PROVIDER_SPECS
-        .iter()
-        .any(|builtin| builtin.id == spec.id)
-    {
-        return Err(format!(
-            "provider `{}` collides with a built-in provider",
-            spec.id
-        ));
-    }
-    spec.validate()?;
-    let spec = Arc::new(spec);
-    USER_DECLARED_SPECS
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(spec.id.to_string(), spec.clone());
-    Ok(spec)
-}
-
-/// Replace the dynamic snapshot atomically; removed entries are released once readers finish.
-pub fn sync_user_declared_providers(
-    declared: &impl AsRef<
-        std::collections::BTreeMap<String, nuo_provider::model_providers::UserDeclaredProvider>,
-    >,
-) -> Result<(), String> {
-    let mut next = std::collections::BTreeMap::new();
-    for (id, provider) in declared.as_ref() {
-        provider.validate(id)?;
-        let wire = provider
-            .default_protocol
-            .unwrap_or(nuo_inference_wire::WireProtocol::OpenAiChatCompletions);
-        let dialect = provider.dialect.unwrap_or_default();
-        let catalog_source = provider.catalog.unwrap_or_else(|| {
-            RemoteCatalogSource::Endpoint(match dialect {
-                nuo_provider::ProviderDialect::Antigravity => {
-                    nuo_provider::CatalogShape::GoogleCloudCode
-                }
-                nuo_provider::ProviderDialect::ChatGpt => nuo_provider::CatalogShape::Codex,
-                _ => nuo_provider::CatalogShape::from_wire_protocol(wire),
-            })
-        });
-        let spec = ModelProviderSpec {
-            id: Cow::Owned(id.clone()),
-            baselines: &[],
-            root_url: Cow::Owned(provider.root_url.clone()),
-            user_agent: provider.user_agent.clone().map(Cow::Owned),
-            protocol: wire,
-            dialect,
-            protocol_roots: Cow::Owned(
-                provider
-                    .protocol_roots
-                    .iter()
-                    .map(|(wire, root)| (*wire, Cow::Owned(root.clone())))
-                    .collect(),
-            ),
-            catalog_root_url: provider.catalog_root_url.clone().map(Cow::Owned),
-            models: &[],
-            catalog_source,
-            default_client_profile: provider
-                .client_profile
-                .unwrap_or(nuo_provider::ClientPreset::Native),
-            client_profile_sensitive: provider.client_profile_sensitive,
-            prompt_cache: PromptCachePolicy::Declared(
-                provider.prompt_cache.clone().unwrap_or_default(),
-            ),
-            quota: None,
-            // A user-declared surface is never structurally relabelled: its
-            // operator publishes the names it wants shown (ADR-0081).
-            display_policy: nuo_provider::DisplayPolicy::Native,
-        };
-        spec.validate()?;
-        next.insert(id.clone(), Arc::new(spec));
-    }
-    *USER_DECLARED_SPECS
-        .write()
-        .unwrap_or_else(|e| e.into_inner()) = next;
-    Ok(())
-}
+// User-declared providers have exactly one registry — the `nuo-provider`
+// substrate's, refreshed from `model_providers.toml`. Keeping a second copy
+// here let the two disagree: after a restart this crate's copy was empty while
+// the catalog still resolved the provider, so Add/EditConnection rejected a
+// perfectly valid provider.
+pub use nuo_provider::spec::{
+    register_user_declared_provider, sync_user_declared_providers, user_declared_provider_spec,
+};
 
 /// The spec for a provider id: built-in first, then whatever the host last
 /// declared.
+///
+/// The built-in table is this crate's own const, so resolution works before
+/// [`init`] populates the `nuo-provider` registry (unit tests, early boot).
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
     let canonical =
         nuo_provider::model_providers::canonical_provider_id(id).unwrap_or_else(|| id.to_string());
@@ -402,21 +320,13 @@ pub fn build_credential_source(
             api_key,
         ))
     } else if dialect == nuo_provider::ProviderDialect::CodeBuddy {
-        if auth.is_oauth() {
-            // Subscription lane: the OAuth engine owns the stored token pair.
-            std::sync::Arc::new(nuo_oauth::OAuthCredentialSource::new(
-                host,
-                connection_name,
-                auth.clone(),
-            ))
-        } else {
-            // BYOK lane: pasted CodeBuddy CLI token or API key (header shape
-            // decided by the credential source itself).
-            std::sync::Arc::new(nuo_provider_codebuddy::CodeBuddyCredentialSource::new(
-                connection_name,
-                api_key,
-            ))
-        }
+        // BYOK lane: a pasted CodeBuddy CLI token or API key; the header shape
+        // is decided by the credential source itself. Subscriptions never reach
+        // here — they are claimed by the `auth.is_oauth()` arm above.
+        std::sync::Arc::new(nuo_provider_codebuddy::CodeBuddyCredentialSource::new(
+            connection_name,
+            api_key,
+        ))
     } else {
         nuo_provider::static_credential(api_key)
     }
@@ -432,6 +342,14 @@ pub fn init() {
         nuo_provider_qoder::build_catalog_signer(store, connection_id, bearer)
     }));
     nuo_provider::register_provider_specs(MODEL_PROVIDER_SPECS.iter().cloned());
+    // Seed user-declared providers now, so the registry is complete from boot
+    // rather than only after the first catalog load. Without this, a restarted
+    // server could reject a connection to a provider that exists on disk.
+    if let Err(error) = nuo_provider::sync_user_declared_providers(
+        &nuo_persistence::model_providers::ModelProviders::load(),
+    ) {
+        tracing::warn!(%error, "could not load user-declared model providers");
+    }
     register_oauth_providers();
 }
 
@@ -531,11 +449,6 @@ pub async fn fetch_provider_usage_with_client_ext(
         QuotaPort::Antigravity => {
             nuo_provider_google_antigravity::AntigravityUsageFetcher
                 .fetch_usage_with_project(client, base_url, api_key, project)
-                .await
-        }
-        QuotaPort::SiliconFlow => {
-            nuo_provider_siliconflow::SiliconFlowUsageFetcher
-                .fetch_usage(client, base_url, api_key)
                 .await
         }
         QuotaPort::Qoder => {

@@ -66,7 +66,7 @@ cargo build --release -p nuo
 | `nuo -t [thread_id]` | Open the interactive thread picker, or attach to a thread by id |
 | `nuo --resume` | Resume the most recent matching thread |
 | `nuo --headless -p "<prompt>"` | Execute a headless one-shot agent task and stream the result |
-| `nuo status [--watch\|--json\|--all\|--diagnostic]` | Check health, hosted threads, endpoint discovery, and providers |
+| `nuo status [--watch\|--json\|--all\|--diagnostic]` | Check health, hosted threads, endpoint discovery, and diagnostics |
 | `nuo server start [--fg] [--port <n>]` | Start the session server (detached background, or `--fg` for foreground) |
 | `nuo server stop` | Gracefully drain and stop the session server |
 | `nuo server reload` | Soft reload configuration and MCP/skills |

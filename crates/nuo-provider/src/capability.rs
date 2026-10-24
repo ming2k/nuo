@@ -547,13 +547,6 @@ pub trait Provider: Send + Sync {
     }
 }
 
-/// Optional orthogonal capability: token quota and usage balance query (ADR-0015).
-#[async_trait]
-pub trait QuotaTracker: Send + Sync {
-    /// Fetch current quota or token usage balance summary.
-    async fn fetch_quota(&self) -> Result<nuo_tool::usage::TokenUsage, String>;
-}
-
 // `InputHandler` / `ToolInvocation` were relocated to `nuo-wire::capability`
 // (the session-adapter layer) when `nuo-contracts` was consolidated. The
 // duplicates that used to live here had zero referents and are removed per

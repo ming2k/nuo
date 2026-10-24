@@ -61,8 +61,7 @@ pub mod oauth {
 pub use auth::{BearerLoginMarker, CredentialSource, ResolvedAuth, static_credential};
 pub use capability::{
     ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
-    ProviderTextStream, ProviderTurnContext, QuotaTracker, ToolSpec, VariantSelection,
-    empty_variant_selection,
+    ProviderTextStream, ProviderTurnContext, ToolSpec, VariantSelection, empty_variant_selection,
 };
 pub use catalog::{
     CatalogDiscovery, CatalogSignature, CatalogSigning, RemoteCatalogOptions, RemoteCatalogRequest,
@@ -82,8 +81,9 @@ pub use pricing::{
 };
 pub use spec::{
     DisplayPolicy, ModelProviderSpec, PromptCachePolicy, QuotaPort, endpoint_for,
-    model_provider_spec, register_provider_spec, register_provider_specs, route_for_model,
-    sync_user_declared_providers, unsupported_prompt_cache,
+    model_provider_spec, register_provider_spec, register_provider_specs,
+    register_user_declared_provider, route_for_model, sync_user_declared_providers,
+    unsupported_prompt_cache, user_declared_provider_spec,
 };
 
 pub use auth::*;

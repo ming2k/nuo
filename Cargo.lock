@@ -2281,16 +2281,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-provider-siliconflow"
-version = "0.0.49"
-dependencies = [
- "nuo-egress",
- "nuo-protocol",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "nuo-provider-xai"
 version = "0.0.49"
 dependencies = [
@@ -2353,7 +2343,6 @@ dependencies = [
  "nuo-provider-openrouter",
  "nuo-provider-qianwen",
  "nuo-provider-qoder",
- "nuo-provider-siliconflow",
  "nuo-provider-xai",
  "nuo-tool",
  "nuo-tool-ast",

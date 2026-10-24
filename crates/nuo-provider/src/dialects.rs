@@ -518,16 +518,11 @@ impl std::str::FromStr for ProviderDialect {
     type Err = String;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "standard" => Ok(Self::Standard),
-            "antigravity" => Ok(Self::Antigravity),
-            "chat-gpt" => Ok(Self::ChatGpt),
-            "copilot" => Ok(Self::Copilot),
-            "deepseek" => Ok(Self::DeepSeek),
-            "openrouter" => Ok(Self::OpenRouter),
-            "qoder" => Ok(Self::Qoder),
-            _ => Err(format!("unsupported provider dialect `{value}`")),
-        }
+        // Decode through the same serde representation the wire uses, so the
+        // accepted strings can never drift from the serialized form. A hand
+        // written match did drift: `codebuddy` deserialized but failed to parse.
+        let quoted = serde_json::to_string(value).map_err(|error| error.to_string())?;
+        serde_json::from_str(&quoted).map_err(|_| format!("unsupported provider dialect `{value}`"))
     }
 }
 
@@ -881,6 +876,31 @@ impl ProviderEntry {
 mod tests {
     use super::*;
     use crate::{PromptCacheCapabilities, PromptCachePreference};
+
+    #[test]
+    fn dialect_strings_parse_their_serialized_form() {
+        // `FromStr` and the wire share one serde representation, so every
+        // dialect's serialized name must parse back to itself. A hand-written
+        // match missed `codebuddy`, which made a valid dialect unregisterable.
+        for dialect in [
+            ProviderDialect::Standard,
+            ProviderDialect::Antigravity,
+            ProviderDialect::ChatGpt,
+            ProviderDialect::Copilot,
+            ProviderDialect::DeepSeek,
+            ProviderDialect::OpenRouter,
+            ProviderDialect::Qoder,
+            ProviderDialect::CodeBuddy,
+        ] {
+            let encoded = serde_json::to_string(&dialect).unwrap();
+            let bare: String = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(
+                bare.parse::<ProviderDialect>().unwrap(),
+                dialect,
+                "{bare} must parse back to {dialect:?}"
+            );
+        }
+    }
 
     #[test]
     fn catalog_lookup_is_exact_match() {

@@ -103,7 +103,7 @@ pub struct RateLimitSpec {
 pub enum ProviderQuotaData {
     /// Pure periodic window limits (e.g. Antigravity, Claude, ChatGPT subscription).
     Periodic(PeriodicQuota),
-    /// Pure prepaid / pay-as-you-go balance (e.g. DeepSeek, Kimi, SiliconFlow).
+    /// Pure prepaid / pay-as-you-go balance (e.g. DeepSeek, Kimi).
     Balance(BalanceQuota),
     /// Hybrid: combined periodic windows, balances, and/or rate limits (e.g. OpenRouter).
     Composite {

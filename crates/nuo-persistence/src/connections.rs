@@ -19,12 +19,16 @@
 //! persists production data it can re-derive.
 //!
 //! Stored in `$XDG_STATE_HOME/nuo/connections.toml` — a program-managed
-//! state file, separate from the user-edited `config.toml`.
-use nuo_wire::model_providers::{canonical_provider_id, is_known_model_provider};
-use nuo_wire::{ClientIdentity, ConnectionAuth, ConnectionBudget, WireProtocol};
+//! state file, separate from the user-edited `config.toml`. [`Connections::save`]
+//! and [`Connections::load`] share one schema: there is no separate legacy decode
+//! struct, so a field can never be emitted by the writer yet rejected by the
+//! reader (the failure mode that silently empties the whole store).
+use nuo_wire::model_providers::is_known_model_provider;
+use nuo_wire::{ClientIdentity, ConnectionAuth, ConnectionBudget};
 use serde::{Deserialize, Serialize};
 
 use crate::fsutil;
+use crate::model_providers::ModelProviders;
 use crate::paths;
 
 pub use nuo_wire::model::{
@@ -122,317 +126,73 @@ pub struct Connections {
     pub connections: Vec<Connection>,
 }
 
-/// Pre- wire shape, accepted only when reading an existing file. The
-/// loader rewrites it into [`Connection`] and never serializes these fields
-/// back — the migration is one-shot and leaves no alias in the schema.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawConnection {
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    provider: Option<String>,
-    #[serde(default)]
-    preset_id: Option<String>,
-    #[serde(default)]
-    auth: ConnectionAuth,
-    #[serde(default)]
-    api_key_env: Option<String>,
-    #[serde(default, alias = "client_profile")]
-    client_identity: ClientIdentity,
-    #[serde(default)]
-    protocol: Option<WireProtocol>,
-    #[serde(default)]
-    base_url: Option<String>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    catalog_source: Option<serde_json::Value>,
-    #[serde(default)]
-    user_agent: Option<String>,
-    #[serde(default, deserialize_with = "deserialize_connection_models")]
-    models: ModelScopeConfig,
-    #[serde(default)]
-    extra_models: Vec<DeclaredModel>,
-    #[serde(default)]
-    catalog_dimensions: std::collections::BTreeMap<String, String>,
-    #[serde(default)]
-    budget: ConnectionBudget,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawConnections {
-    #[serde(default)]
-    connections: Vec<RawConnection>,
-}
-
-impl RawConnection {
-    fn needs_catalog_policy_migration(&self) -> bool {
-        self.models.filter.is_none()
-    }
-
-    /// Migrate to the current shape, resolving the provider id and folding the
-    /// legacy `extra_models` list into `models.include`.
-    ///
-    /// Before, curated connections persisted the provider's entire
-    /// materialized model snapshot in `models`. A missing filter is the
-    /// unambiguous legacy marker: migrate that connection to the official
-    /// remote-catalog policy and discard the materialized snapshot. Explicit
-    /// `extra_models` remain user-owned injections and are restored afterward.
-    fn migrate(
-        self,
-        store: &mut crate::model_providers::ModelProviders,
-    ) -> Result<Connection, String> {
-        let name = self
-            .name
-            .or(self.id)
-            .map(|n| n.trim().to_string())
-            .filter(|n| !n.is_empty())
-            .ok_or_else(|| "connection has neither `name` nor a legacy `id`".to_string())?;
-
-        let declared = self.provider.or(self.preset_id);
-        let mut provider = match declared {
-            None => {
-                if name.starts_with("custom-") {
-                    name.to_lowercase().replace(' ', "-")
-                } else {
-                    format!("custom-{}", name.to_lowercase().replace(' ', "-"))
-                }
-            }
-            Some(raw) => {
-                let trimmed = raw.trim();
-                if trimmed == "custom" || trimmed == "custom-openai" {
-                    if name.starts_with("custom-") {
-                        name.to_lowercase().replace(' ', "-")
-                    } else {
-                        format!("custom-{}", name.to_lowercase().replace(' ', "-"))
-                    }
-                } else if let Some(canonical) = canonical_provider_id(trimmed) {
-                    canonical
-                } else {
-                    if store.get_provider(trimmed).is_some() {
-                        trimmed.to_string()
-                    } else {
-                        return Err(format!("unknown model provider '{raw}'"));
-                    }
-                }
-            }
-        };
-
-        if self.base_url.is_some()
-            || store.get_provider(&provider).is_none() && !is_known_model_provider(&provider)
-        {
-            // Preserve a legacy connection-specific endpoint as its own service;
-            // never shadow an immutable built-in provider ID.
-            if is_known_model_provider(&provider) {
-                provider = format!("custom-{}", name.to_lowercase().replace(' ', "-"));
-            }
-            let dialect = match &self.auth {
-                ConnectionAuth::Subscription { provider } => match provider.as_ref() {
-                    "google-antigravity" => nuo_wire::ProviderDialect::Antigravity,
-                    "chatgpt" => nuo_wire::ProviderDialect::ChatGpt,
-                    "copilot" => nuo_wire::ProviderDialect::Copilot,
-                    "qoder" => nuo_wire::ProviderDialect::Qoder,
-                    _ => nuo_wire::ProviderDialect::Standard,
-                },
-                ConnectionAuth::ApiKey => nuo_wire::ProviderDialect::Standard,
-            };
-            let protocol = self.protocol.unwrap_or(match dialect {
-                nuo_wire::ProviderDialect::Antigravity => WireProtocol::GoogleGenerateContent,
-                nuo_wire::ProviderDialect::ChatGpt => WireProtocol::OpenAiResponses,
-                _ => WireProtocol::OpenAiChatCompletions,
-            });
-            let root = self
-                .base_url
-                .as_deref()
-                .unwrap_or("http://localhost:8080/v1");
-            let definition = crate::model_providers::UserDeclaredProvider {
-                label: Some(name.clone()),
-                root_url: crate::model_providers::migrate_endpoint_root(root),
-                default_protocol: Some(protocol),
-                client_profile: None,
-                user_agent: self.user_agent,
-                catalog: None,
-                dialect: Some(dialect),
-                protocol_roots: vec![],
-                catalog_root_url: None,
-                prompt_cache: None,
-                client_profile_sensitive: false,
-            };
-            if let Some(existing) = store.get_provider(&provider) {
-                if existing.root_url != definition.root_url
-                    || existing.default_protocol != definition.default_protocol
-                    || existing.dialect != definition.dialect
-                {
-                    return Err(format!(
-                        "legacy connection `{name}` conflicts with provider `{provider}`"
-                    ));
-                }
-            } else {
-                store.set_provider(&provider, definition);
-            }
-        }
-
-        let mut models = self.models;
-        if models.filter.is_none() {
-            models.filter = Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All));
-            if is_known_model_provider(&provider) {
-                models.include.clear();
-            }
-        }
-        for extra in self.extra_models {
-            if !models.include.iter().any(|m| m.id == extra.id) {
-                models.include.push(extra);
-            }
-        }
-
-        let auth = migrate_connection_auth(&provider, self.auth);
-        let entitlement = if auth.is_oauth() {
-            nuo_wire::Entitlement::FlatRate
-        } else {
-            nuo_wire::Entitlement::Metered
-        };
-        Ok(Connection {
-            name,
-            provider,
-            auth,
-            api_key_env: self.api_key_env,
-            client_identity: self.client_identity,
-            models,
-            catalog_dimensions: self.catalog_dimensions,
-            budget: self.budget,
-            entitlement,
-        })
-    }
-}
-
-/// OpenCode Plan connects to the zen/go relay using an API
-/// key (`OPENCODE_API_KEY`). Connections still carrying the retired OpenCode
-/// Console OAuth subscription auth are restored to `ApiKey` on load so they
-/// authenticate properly.
-fn migrate_connection_auth(provider: &str, auth: ConnectionAuth) -> ConnectionAuth {
-    if matches!(provider, "opencode-plan" | "opencode-go")
-        && matches!(&auth, ConnectionAuth::Subscription { provider } if provider == "opencode")
-    {
-        tracing::info!(provider, "restoring opencode-plan connection to ApiKey");
-        ConnectionAuth::ApiKey
-    } else {
-        auth
-    }
-}
-
-fn deserialize_connection_models<'de, D>(deserializer: D) -> Result<ModelScopeConfig, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum RawModels {
-        Scope(ModelScopeConfig),
-        List(Vec<String>),
-    }
-
-    match Option::<RawModels>::deserialize(deserializer)? {
-        Some(RawModels::Scope(scope)) => Ok(scope),
-        Some(RawModels::List(list)) => Ok(ModelScopeConfig {
-            filter: None,
-            include: list
-                .into_iter()
-                .map(|id| DeclaredModel {
-                    id,
-                    ..Default::default()
-                })
-                .collect(),
-            exclude: Vec::new(),
-            overrides: std::collections::BTreeMap::new(),
-        }),
-        None => Ok(ModelScopeConfig::default()),
-    }
-}
-
 impl Connections {
     fn path() -> std::path::PathBuf {
         paths::get().connections_file()
     }
 
     /// Read the connections store, returning an empty value when missing or
-    /// unparseable. Entries that fail migration — an unknown provider id, or no
-    /// name at all — are rejected with an error log rather than reinterpreted
-    /// as a different connection kind (INV-2).
+    /// unparseable. Entries that cannot be served — a blank name, an unknown
+    /// provider id, or a duplicate name (INV-2, INV-3) — are dropped with an
+    /// error log rather than reinterpreted as a different connection kind.
     pub fn load() -> Self {
         let path = Self::path();
         let Ok(content) = std::fs::read_to_string(&path) else {
             return Self::default();
         };
-        let raw: RawConnections = match toml::from_str(&content) {
-            Ok(raw) => raw,
-            Err(e) => {
+        let parsed: Connections = match toml::from_str(&content) {
+            Ok(parsed) => parsed,
+            Err(error) => {
                 tracing::warn!(
                     path = %path.display(),
-                    error = %e,
+                    %error,
                     "could not parse connections.toml; ignoring it",
                 );
                 return Self::default();
             }
         };
-        let mut provider_store = match crate::model_providers::ModelProviders::try_load() {
-            Ok(store) => store,
-            Err(error) => {
-                tracing::error!(%error, "cannot migrate connections with invalid providers");
-                return Self::default();
+        parsed.pruned(&path)
+    }
+
+    /// Drop entries the runtime cannot resolve. Provider resolution is the
+    /// loader's only integrity gate; endpoints, channels, and model lists are
+    /// derived later, so they are deliberately not validated here.
+    fn pruned(mut self, path: &std::path::Path) -> Self {
+        let providers = ModelProviders::load();
+        let mut kept: Vec<Connection> = Vec::with_capacity(self.connections.len());
+        for mut connection in self.connections.drain(..) {
+            let name = connection.name.trim().to_string();
+            if name.is_empty() {
+                tracing::error!(path = %path.display(), "dropping a connection with no name");
+                continue;
             }
-        };
-        let original_providers = provider_store.clone();
-        let mut connections: Vec<Connection> = Vec::with_capacity(raw.connections.len());
-        let mut catalog_policy_migrated = false;
-        let mut lossless = true;
-        for raw in raw.connections {
-            catalog_policy_migrated |= raw.needs_catalog_policy_migration();
-            match raw.migrate(&mut provider_store) {
-                Ok(conn) => {
-                    if connections
-                        .iter()
-                        .any(|existing| existing.name.eq_ignore_ascii_case(&conn.name))
-                    {
-                        tracing::error!(
-                            name = %conn.name,
-                            "duplicate connection name in connections.toml; dropping the later entry",
-                        );
-                        lossless = false;
-                        continue;
-                    }
-                    connections.push(conn);
-                }
-                Err(reason) => {
-                    lossless = false;
-                    tracing::error!(
-                        path = %path.display(),
-                        reason = %reason,
-                        "rejecting invalid connection entry",
-                    );
-                }
+            if !is_known_model_provider(&connection.provider)
+                && providers.get_provider(&connection.provider).is_none()
+            {
+                tracing::error!(
+                    path = %path.display(),
+                    name = %name,
+                    provider = %connection.provider,
+                    "dropping a connection to an unknown model provider",
+                );
+                continue;
             }
-        }
-        let migrated = Self { connections };
-        if !lossless {
-            return migrated;
-        }
-        let providers_changed = original_providers != provider_store;
-        if providers_changed {
-            if let Err(error) = provider_store.save() {
-                tracing::error!(%error, "could not persist provider migration; connections left unchanged");
-                return Self::default();
+            if kept
+                .iter()
+                .any(|existing| existing.name.eq_ignore_ascii_case(&name))
+            {
+                tracing::error!(
+                    path = %path.display(),
+                    name = %name,
+                    "dropping a duplicate connection name",
+                );
+                continue;
             }
+            connection.name = name;
+            kept.push(connection);
         }
-        let canonical = toml::to_string_pretty(&migrated).unwrap_or_default();
-        if (providers_changed || catalog_policy_migrated || canonical != content)
-            && let Err(error) = migrated.save()
-        {
-            tracing::warn!(%error, "could not persist connection migration");
-        }
-        migrated
+        self.connections = kept;
+        self
     }
 
     /// Persist atomically. Errors propagate to the caller.
@@ -577,231 +337,109 @@ mod tests {
     }
 
     #[test]
-    fn legacy_id_and_preset_id_migrate_on_load() {
-        let raw: RawConnections = toml::from_str(
-            r#"
-[[connections]]
-id = "ds"
-preset_id = "deepseek"
-
-[[connections.extra_models]]
-id = "legacy-preview"
-context_window = 500000
-"#,
-        )
-        .unwrap();
-        let conn = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap();
-        assert_eq!(conn.name, "ds");
-        assert_eq!(conn.provider, "deepseek");
-        assert_eq!(conn.models.include.len(), 1);
-        assert_eq!(conn.models.include[0].id, "legacy-preview");
-        assert_eq!(conn.models.include[0].context_window, Some(500000));
-        assert_eq!(
-            conn.models.filter,
-            Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All))
-        );
-    }
-
-    #[test]
-    fn opencode_go_subscription_connection_migrates_to_api_key() {
-        let raw: RawConnections = toml::from_str(
-            r#"
-[[connections]]
-name = "opencode-go"
-provider = "opencode-go"
-auth = { type = "subscription", provider = "opencode" }
-"#,
-        )
-        .unwrap();
-        let conn = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap();
-        assert_eq!(
-            conn.auth,
-            ConnectionAuth::ApiKey,
-            "opencode-go must load as an ApiKey connection"
-        );
-    }
-
-    #[test]
-    fn other_api_key_connections_are_not_reauthed() {
-        let raw: RawConnections = toml::from_str(
-            r#"
-[[connections]]
-name = "openai"
-provider = "openai"
-auth = "api-key"
-"#,
-        )
-        .unwrap();
-        let conn = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap();
-        assert_eq!(conn.auth, ConnectionAuth::ApiKey);
-    }
-
-    #[test]
-    fn legacy_curated_snapshot_is_not_promoted_to_user_injections() {
-        let raw: RawConnections = toml::from_str(
-            r#"
-[[connections]]
-name = "ds"
-provider = "deepseek"
-models = ["deepseek-v4-flash", "deepseek-v4-flash-0731"]
-
-[[connections.extra_models]]
-id = "deepseek-v4-preview"
-context_window = 500000
-"#,
-        )
-        .unwrap();
-        let conn = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap();
-
-        assert_eq!(
-            conn.models.filter,
-            Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All))
-        );
-        assert_eq!(conn.models.include.len(), 1);
-        assert_eq!(conn.models.include[0].id, "deepseek-v4-preview");
-    }
-
-    #[test]
-    fn explicit_filter_preserves_sovereign_injections() {
-        let raw: RawConnections = toml::from_str(
-            r#"
-[[connections]]
-name = "ds"
-provider = "deepseek"
-
-[connections.models]
-filter = "all"
-
-[[connections.models.inject]]
-id = "deepseek-v4-preview"
-"#,
-        )
-        .unwrap();
-        let conn = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap();
-
-        assert_eq!(conn.models.include.len(), 1);
-        assert_eq!(conn.models.include[0].id, "deepseek-v4-preview");
-    }
-
-    #[test]
-    fn load_persists_catalog_policy_migration() {
+    fn save_then_load_roundtrip_survives_every_serialized_field() {
+        // Regression: `save` and `load` must share one schema. When the reader
+        // was a separate legacy struct, every field the writer emitted but the
+        // reader rejected — `entitlement` (ADR-0095) did — made the whole file
+        // unparseable and silently dropped every connection.
         let _sandbox = sandboxed_paths();
-        std::fs::create_dir_all(paths::get().state_dir.clone()).unwrap();
-        std::fs::write(
-            Connections::path(),
-            r#"
-[[connections]]
-name = "ds"
-provider = "deepseek"
 
-[[connections.models.inject]]
-id = "deepseek-v4-flash-0731"
-"#,
-        )
+        // Every serializable field carries a non-default value so the reader is
+        // exercised on all of them, not just the ones that changed.
+        let populated = Connection {
+            name: "flat-conn".into(),
+            provider: "anthropic".into(),
+            auth: ConnectionAuth::ApiKey,
+            api_key_env: Some("ANTHROPIC_API_KEY".into()),
+            client_identity: nuo_wire::ClientIdentity::ClaudeCode,
+            models: ModelScopeConfig {
+                filter: Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All)),
+                include: vec![DeclaredModel {
+                    id: "claude-sonnet-4".into(),
+                    ..Default::default()
+                }],
+                exclude: vec!["claude-instant".into()],
+                overrides: std::collections::BTreeMap::new(),
+            },
+            catalog_dimensions: std::collections::BTreeMap::from([(
+                "scene".to_string(),
+                "assistant".to_string(),
+            )]),
+            budget: nuo_wire::ConnectionBudget::local(25.0, nuo_wire::BudgetPeriod::Daily),
+            entitlement: nuo_wire::Entitlement::FlatRate,
+        };
+        let store = Connections {
+            connections: vec![
+                Connection {
+                    name: "metered-conn".into(),
+                    provider: "deepseek".into(),
+                    entitlement: nuo_wire::Entitlement::Metered,
+                    ..Default::default()
+                },
+                populated.clone(),
+            ],
+        };
+        store.save().unwrap();
+
+        let loaded = Connections::load();
+        assert_eq!(
+            loaded.names(),
+            vec!["metered-conn".to_string(), "flat-conn".to_string()],
+            "every connection must survive a save/load round trip",
+        );
+        assert_eq!(
+            loaded.get("flat-conn").unwrap(),
+            &populated,
+            "a fully-populated connection must round-trip unchanged",
+        );
+    }
+
+    #[test]
+    fn load_drops_a_connection_to_an_unknown_provider() {
+        let _sandbox = sandboxed_paths();
+        Connections {
+            connections: vec![
+                Connection {
+                    name: "bad".into(),
+                    provider: "nope".into(),
+                    ..Default::default()
+                },
+                Connection {
+                    name: "good".into(),
+                    provider: "deepseek".into(),
+                    ..Default::default()
+                },
+            ],
+        }
+        .save()
+        .unwrap();
+
+        assert_eq!(Connections::load().names(), vec!["good".to_string()]);
+    }
+
+    #[test]
+    fn load_drops_duplicate_names_keeping_the_first() {
+        let _sandbox = sandboxed_paths();
+        Connections {
+            connections: vec![
+                Connection {
+                    name: "dup".into(),
+                    provider: "deepseek".into(),
+                    ..Default::default()
+                },
+                Connection {
+                    name: "DUP".into(),
+                    provider: "anthropic".into(),
+                    ..Default::default()
+                },
+            ],
+        }
+        .save()
         .unwrap();
 
         let loaded = Connections::load();
-        let connection = loaded.get("ds").unwrap();
-        assert_eq!(
-            connection.models.filter,
-            Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All))
-        );
-        assert!(connection.models.include.is_empty());
-
-        let canonical = std::fs::read_to_string(Connections::path()).unwrap();
-        assert!(canonical.contains("filter = \"all\""));
-        assert!(!canonical.contains("deepseek-v4-flash-0731"));
-    }
-
-    #[test]
-    fn legacy_pure_custom_connection_becomes_the_custom_provider() {
-        let raw: RawConnections = toml::from_str(
-            r#"
-[[connections]]
-id = "custom-ollama"
-models = ["llama3:latest", "mistral:latest"]
-"#,
-        )
-        .unwrap();
-        let conn = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap();
-        assert_eq!(conn.name, "custom-ollama");
-        assert_eq!(conn.provider, "custom-ollama");
-        assert_eq!(conn.models.include.len(), 2);
-        assert_eq!(conn.models.include[0].id, "llama3:latest");
-    }
-
-    #[test]
-    fn legacy_provider_ids_are_canonicalized() {
-        for (legacy, canonical) in [
-            ("chatgpt-oauth", "chatgpt-plan"),
-            ("antigravity-oauth", "google-antigravity"),
-            ("copilot-oauth", "github-copilot"),
-            ("xai-oauth", "xai"),
-            ("custom-openai", "custom-c"),
-        ] {
-            let raw: RawConnections = toml::from_str(&format!(
-                "[[connections]]\nname = \"c\"\npreset_id = \"{legacy}\"\n"
-            ))
-            .unwrap();
-            let conn = raw
-                .connections
-                .into_iter()
-                .next()
-                .unwrap()
-                .migrate(&mut crate::model_providers::ModelProviders::default())
-                .unwrap();
-            assert_eq!(conn.provider, canonical, "{legacy} → {canonical}");
-        }
-    }
-
-    #[test]
-    fn unknown_provider_is_rejected_not_reinterpreted() {
-        let raw: RawConnections =
-            toml::from_str("[[connections]]\nname = \"c\"\nprovider = \"nope\"\n").unwrap();
-        let err = raw
-            .connections
-            .into_iter()
-            .next()
-            .unwrap()
-            .migrate(&mut crate::model_providers::ModelProviders::default())
-            .unwrap_err();
-        assert!(err.contains("unknown model provider 'nope'"), "{err}");
+        assert_eq!(loaded.names(), vec!["dup".to_string()]);
+        assert_eq!(loaded.get("dup").unwrap().provider, "deepseek");
     }
 
     #[test]

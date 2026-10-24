@@ -1,7 +1,7 @@
 //! Provider-switch / favorite / default-model handlers.
 //!
 //! Each handler is one match arm of the agent background task's dispatch.
-//! Provider instances live in the `providers.toml` state store, credentials in
+//! Provider instances live in the `model_providers.toml` store, credentials in
 //! `credentials.toml`, and per-route facts in the catalog cache — `config`
 //! holds only *behavior* (`default_provider` / `default_model` / favorites),
 //! which is what these handlers persist there. Routes are derived by the
@@ -25,7 +25,7 @@ use tokio::sync::mpsc;
 use crate::agent_setup::{reseed_prune_threshold, reseed_tool_variants};
 use crate::session_view::provider_key_status;
 
-/// `AgentRequest::SwitchProvider` — persist the chosen key/url/model/default,
+/// `AgentRequest::SwitchConnection` — persist the chosen key/url/model/default,
 /// rebuild the provider through the catalog so resolution stays shared with
 /// startup, swap it into the shared holder, re-seed mid-turn relief, and push
 /// the picker + key snapshots.
@@ -1327,7 +1327,7 @@ pub async fn reapply_session_selection(
 /// `AgentRequest::AuthorizeOAuth` — run an OAuth login before a connection
 /// exists ("+ Add connection → xAI OAuth / ChatGPT OAuth"). `auth`
 /// selects which provider's flow to run. The returned token set remains
-/// session-local until `AddProvider` consumes it into the final connection id.
+/// session-local until `AddConnection` consumes it into the final connection id.
 pub async fn authorize(
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     method: nuo_wire::LoginMethod,

@@ -31,7 +31,6 @@ nuo-provider-xai = { workspace = true }
 nuo-provider-qianwen = { workspace = true }
 nuo-provider-glm-cn = { workspace = true }
 nuo-provider-codebuddy = { workspace = true }
-nuo-provider-siliconflow = { workspace = true }
 nuo-provider-qoder = { workspace = true }
 inventory = { workspace = true }
 nuo-harness = { workspace = true }

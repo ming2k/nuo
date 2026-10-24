@@ -232,11 +232,7 @@ pub use catalog::{
     AnthropicMessagesDialect, Channel, GoogleGenerateContentDialect, GoogleInteractionsDialect,
     OpenAiChatDialect, OpenAiResponsesDialect, ProviderDialect, ProviderEntry, Transport,
 };
-pub use connection_auth::{
-    AuthCapability, AuthCapabilitySet, AuthKind, AuthProtocol, ConnectionAuth, CredentialBinding,
-    CredentialCapability, Entitlement, FailoverSafetyMode, HeaderPlacement, LoginMethod,
-    RoutingPolicy, SpendGuardrail,
-};
+pub use connection_auth::{ConnectionAuth, Entitlement, LoginMethod};
 pub use connection_detail::{
     BalanceQuota, ConnectionDetail, ConnectionQuotaEntry, ConnectionUsageState, PeriodicQuota,
     ProviderQuotaData, ProviderQuotaSnapshot, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
@@ -271,7 +267,7 @@ pub use model::{
     sanitize_model_id, simple_glob_matches,
 };
 pub use monitor::*;
-pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError, QuotaTracker};
+pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError};
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
     ContextBudget, LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,

@@ -17,3 +17,5 @@
 # Python bytecode from scripts/
 __pycache__/
 *.pyc
+
+.commandcode/

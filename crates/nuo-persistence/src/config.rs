@@ -813,11 +813,6 @@ impl LockedRemoteCatalogCache {
 #[derive(Debug, Serialize, Clone)]
 pub struct Config {
     pub default_connection: String,
-    /// Native execution routing policy for model dispatch (ADR-0095).
-    /// Supersedes naive single-string default_connection with dual-lane failover
-    /// and spend guardrails.
-    #[serde(default)]
-    pub routing: nuo_wire::RoutingPolicy,
     pub mcp: HashMap<String, McpServerConfig>,
     /// Versioned context lifecycle and admission policy.
     pub context: nuo_wire::context_lifecycle::ContextPolicy,
@@ -1009,8 +1004,6 @@ struct RawConfig {
     #[serde(default)]
     default_connection: Option<String>,
     #[serde(default)]
-    routing: Option<nuo_wire::RoutingPolicy>,
-    #[serde(default)]
     default_model: Option<String>,
     #[serde(default)]
     mcp: Option<HashMap<String, McpServerConfig>>,
@@ -1063,12 +1056,8 @@ impl<'de> Deserialize<'de> for Config {
     {
         let raw = RawConfig::deserialize(deserializer)?;
         let mut cfg = Config::default();
-        if let Some(r) = raw.routing {
-            cfg.routing = r;
-            cfg.default_connection = cfg.routing.primary_connection().to_string();
-        } else if let Some(c) = raw.default_connection {
-            cfg.default_connection = c.clone();
-            cfg.routing = nuo_wire::RoutingPolicy::direct(c);
+        if let Some(c) = raw.default_connection {
+            cfg.default_connection = c;
         }
         if let Some(m) = raw.default_model {
             cfg.default_model = Some(m);
@@ -1140,7 +1129,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             default_connection: String::new(),
-            routing: nuo_wire::RoutingPolicy::default(),
             mcp: HashMap::new(),
             context: nuo_wire::context_lifecycle::ContextPolicy::default(),
             connection_retry_max_attempts: 30,

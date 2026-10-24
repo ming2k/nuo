@@ -37,15 +37,12 @@ use nuo_oauth::oauth::AuthError;
 use nuo_oauth::oauth::token::TokenResponse;
 use nuo_oauth::{
     ClientAuthMethod, DeviceFlowMode, DeviceLogin, OAuthConfig, OAuthLoginPrompt, OAuthProvider,
-    OAuthTokenEnricher, PkceMode, PortMode, TokenRequestFormat,
+    PkceMode, PortMode, TokenRequestFormat,
 };
 use nuo_provider::LoginMethod;
-use nuo_provider::credentials::TokenSet;
 
 /// The domestic (Tencent Cloud / copilot) auth origin.
 pub const CODEBUDDY_CN_ORIGIN: &str = "https://copilot.tencent.com";
-/// The international (codebuddy.ai) auth origin.
-pub const CODEBUDDY_INTL_ORIGIN: &str = "https://www.codebuddy.ai";
 
 /// Route base every auth surface path is prefixed with.
 pub const PLUGIN_PREFIX: &str = "/v2/plugin";
@@ -111,7 +108,7 @@ struct CodeBuddyWebHandoff {
     state: String,
 }
 
-/// One subscription surface (domestic or international line).
+/// The CodeBuddy domestic subscription surface.
 pub struct CodeBuddyOAuthProvider {
     base: &'static str,
     ids: &'static [&'static str],
@@ -122,13 +119,6 @@ impl CodeBuddyOAuthProvider {
         Self {
             base: CODEBUDDY_CN_ORIGIN,
             ids: &["codebuddy"],
-        }
-    }
-
-    pub const fn international() -> Self {
-        Self {
-            base: CODEBUDDY_INTL_ORIGIN,
-            ids: &["codebuddy-intl"],
         }
     }
 
@@ -191,13 +181,6 @@ pub fn preset() -> OAuthConfig {
 /// The domestic (Tencent Cloud) preset: hosted at `copilot.tencent.com`.
 pub fn cn_preset() -> OAuthConfig {
     preset()
-}
-
-/// The international (codebuddy.ai) preset.
-pub fn intl_preset() -> OAuthConfig {
-    let mut cfg = preset();
-    cfg.provider_id = "codebuddy-intl".into();
-    cfg
 }
 
 #[async_trait]
@@ -393,65 +376,9 @@ pub async fn refresh_at(
         .ok_or_else(|| AuthError::Decode("auth/token/refresh returned no token pair".into()))
 }
 
-/// The CodeBuddy enricher: pins the durable `codebuddy` attribute — the auth
-/// origin this credential is bound to — so a later refresh stays on the line
-/// that minted it (mixing domestic with international invalidates the pair).
-#[derive(Debug, Clone, Copy)]
-pub struct CodeBuddyOAuthEnricher {
-    base: &'static str,
-}
-
-impl CodeBuddyOAuthEnricher {
-    pub const fn new(base: &'static str) -> Self {
-        Self { base }
-    }
-}
-
-const ORIGIN_ATTR: &str = "codebuddy_origin";
-
-#[async_trait]
-impl OAuthTokenEnricher for CodeBuddyOAuthEnricher {
-    async fn on_login_success(
-        &self,
-        _client: &Http,
-        _connection_label: &str,
-        _tokens: &TokenResponse,
-        _previous: Option<&TokenSet>,
-        token_set: &mut TokenSet,
-    ) -> Result<(), AuthError> {
-        token_set.set_attr(ORIGIN_ATTR, self.base);
-        Ok(())
-    }
-
-    async fn on_refresh_success(
-        &self,
-        _client: &Http,
-        _stored: &TokenSet,
-        _refreshed: &TokenResponse,
-        token_set: &mut TokenSet,
-    ) -> Result<(), AuthError> {
-        // The refresh endpoint does not repeat the origin; replay the pinned one.
-        token_set.set_attr(ORIGIN_ATTR, self.base);
-        Ok(())
-    }
-}
-
-/// Read the stored auth origin for an existing credential (the line the
-/// original login minted), defaulting to the domestic surface.
-pub fn stored_origin(stored: &TokenSet, default: &'static str) -> String {
-    stored
-        .get_attr(ORIGIN_ATTR)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| default.to_string())
-}
-
 /// The provider surfaces this crate registers.
 pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
-    vec![
-        Arc::new(CodeBuddyOAuthProvider::domestic()),
-        Arc::new(CodeBuddyOAuthProvider::international()),
-    ]
+    vec![Arc::new(CodeBuddyOAuthProvider::domestic())]
 }
 
 /// Test-only: drive the wrapped-envelope lift through an offline path.
@@ -469,14 +396,6 @@ mod tests {
             "https://copilot.tencent.com/v2/plugin"
         );
         assert_eq!(provider.origin(), "https://copilot.tencent.com");
-    }
-
-    #[test]
-    fn international_surface_uses_codebuddy_ai() {
-        let provider = CodeBuddyOAuthProvider::international();
-        assert_eq!(provider.ids(), &["codebuddy-intl"]);
-        assert_eq!(provider.route_base(), "https://www.codebuddy.ai/v2/plugin");
-        assert_eq!(provider.origin(), "https://www.codebuddy.ai");
     }
 
     #[test]
@@ -554,68 +473,5 @@ mod tests {
         let parsed: CodeBuddyAuthEnvelope = serde_json::from_str(sample).expect("parses");
         let result = parsed.into_token_response();
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn enricher_pins_origin_attribute() {
-        let enricher = CodeBuddyOAuthEnricher::new(CODEBUDDY_INTL_ORIGIN);
-        let mut token_set = TokenSet {
-            access: SecretString::from("at"),
-            refresh: String::new().into(),
-            expires_ms: i64::MAX,
-            id_token: None,
-            token_type: None,
-            scope: None,
-            user_email: None,
-            attributes: Default::default(),
-        };
-        let tokens = TokenResponse {
-            access_token: SecretString::from("at"),
-            refresh_token: None,
-            id_token: None,
-            token_type: None,
-            expires_in: None,
-            scope: None,
-            qoder_uid: None,
-        };
-        // The traits are async; drive through a minimal single-threaded run.
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()
-            .unwrap();
-        let client = Http::control_plane().unwrap();
-        let stored = token_set.clone();
-        rt.block_on(async {
-            enricher
-                .on_login_success(&client, "conn", &tokens, None, &mut token_set)
-                .await
-                .unwrap();
-            enricher
-                .on_refresh_success(&client, &stored, &tokens, &mut token_set)
-                .await
-                .unwrap();
-        });
-        assert_eq!(
-            stored_origin(&token_set, CODEBUDDY_CN_ORIGIN),
-            CODEBUDDY_INTL_ORIGIN
-        );
-    }
-
-    #[test]
-    fn stored_origin_falls_back_to_domestic() {
-        let token_set = TokenSet {
-            access: SecretString::from("at"),
-            refresh: String::new().into(),
-            expires_ms: i64::MAX,
-            id_token: None,
-            token_type: None,
-            scope: None,
-            user_email: None,
-            attributes: Default::default(),
-        };
-        assert_eq!(
-            stored_origin(&token_set, CODEBUDDY_CN_ORIGIN),
-            CODEBUDDY_CN_ORIGIN
-        );
     }
 }

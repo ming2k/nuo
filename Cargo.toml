@@ -112,7 +112,6 @@ nuo-provider-xai = { version = "0.0.49", path = "providers/nuo-provider-xai" }
 nuo-provider-qianwen = { version = "0.0.49", path = "providers/nuo-provider-qianwen" }
 nuo-provider-glm-cn = { version = "0.0.49", path = "providers/nuo-provider-glm-cn" }
 nuo-provider-codebuddy = { version = "0.0.49", path = "providers/nuo-provider-codebuddy" }
-nuo-provider-siliconflow = { version = "0.0.49", path = "providers/nuo-provider-siliconflow" }
 nuo-mcp = { version = "0.0.49", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.49", path = "crates/nuo-inference-wire", default-features = false }
 

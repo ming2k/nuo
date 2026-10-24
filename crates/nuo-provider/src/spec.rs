@@ -77,7 +77,6 @@ pub enum QuotaPort {
     CommandCodeCredits,
     OpenRouterKey,
     Antigravity,
-    SiliconFlow,
     Qoder,
 }
 
@@ -163,66 +162,6 @@ impl ModelProviderSpec {
     pub fn catalog_root(&self) -> &str {
         self.catalog_root_url.as_deref().unwrap_or(&self.root_url)
     }
-
-    /// Declared credential capabilities for this provider surface (ADR-0095).
-    ///
-    /// The single source of truth for whether this ingress surface accepts
-    /// static tokens, dynamically negotiated OAuth sessions, or both.
-    /// Replaces ad-hoc string sniffing in higher layers.
-    pub fn credential_capabilities(&self) -> Vec<crate::connection_auth::CredentialCapability> {
-        use crate::connection_auth::{CredentialCapability, LoginMethod};
-        match self.id.as_ref() {
-            "openai" | "deepseek" | "kimi" | "glm-cn" | "qianwen" | "siliconflow" => {
-                vec![CredentialCapability::static_bearer(None)]
-            }
-            "anthropic" => {
-                vec![CredentialCapability::static_custom(
-                    "x-api-key",
-                    Some("ANTHROPIC_API_KEY"),
-                )]
-            }
-            "chatgpt-codex" | "chatgpt-plan" => {
-                vec![CredentialCapability::oauth2(
-                    "chatgpt",
-                    vec![LoginMethod::Browser],
-                )]
-            }
-            "google-antigravity" => {
-                vec![CredentialCapability::oauth2(
-                    "google-antigravity",
-                    vec![LoginMethod::Browser],
-                )]
-            }
-            "xai" => {
-                vec![
-                    CredentialCapability::static_bearer(Some("XAI_API_KEY")),
-                    CredentialCapability::oauth2(
-                        "xai",
-                        vec![LoginMethod::Device, LoginMethod::Browser],
-                    ),
-                ]
-            }
-            "codebuddy" => {
-                vec![
-                    CredentialCapability::oauth2("codebuddy", vec![LoginMethod::Device]),
-                    CredentialCapability::static_custom("x-api-key", Some("CODEBUDDY_API_KEY")),
-                ]
-            }
-            "copilot" => {
-                vec![CredentialCapability::oauth2(
-                    "copilot",
-                    vec![LoginMethod::Device],
-                )]
-            }
-            "qoder" => {
-                vec![
-                    CredentialCapability::oauth2("qoder", vec![LoginMethod::Device]),
-                    CredentialCapability::static_custom("x-api-key", Some("QODER_API_KEY")),
-                ]
-            }
-            _ => vec![CredentialCapability::static_bearer(None)],
-        }
-    }
 }
 
 /// Suffix algebra resolving an API root to the transport endpoint.
@@ -238,8 +177,16 @@ pub fn endpoint_for(dialect: ProviderDialect, root: &ApiRoot, protocol: WireProt
     }
 }
 
-/// Registry storing static and user-declared provider specs.
+/// Built-in provider specs, registered once by the composition root.
 static SPECS: RwLock<std::collections::BTreeMap<String, Arc<ModelProviderSpec>>> =
+    RwLock::new(std::collections::BTreeMap::new());
+
+/// User-declared provider specs, kept apart from the built-in table.
+///
+/// The two are separate so [`sync_user_declared_providers`] can replace the
+/// user table wholesale — a provider removed from `model_providers.toml` stops
+/// resolving — without ever dropping a shipped provider.
+static USER_SPECS: RwLock<std::collections::BTreeMap<String, Arc<ModelProviderSpec>>> =
     RwLock::new(std::collections::BTreeMap::new());
 
 /// Register a provider specification.
@@ -258,11 +205,49 @@ pub fn register_provider_specs(specs: impl IntoIterator<Item = ModelProviderSpec
     }
 }
 
-/// Look up a provider specification by its stable id.
+/// Look up a provider specification by its stable id: built-in first, then
+/// whatever the host last declared from `model_providers.toml`.
 pub fn model_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
     let canonical = canonical_provider_id(id).unwrap_or_else(|| id.to_string());
-    let map = SPECS.read().unwrap_or_else(|e| e.into_inner());
-    map.get(id).or_else(|| map.get(&canonical)).cloned()
+    {
+        let map = SPECS.read().unwrap_or_else(|e| e.into_inner());
+        if let Some(spec) = map.get(id).or_else(|| map.get(&canonical)) {
+            return Some(spec.clone());
+        }
+    }
+    user_declared_provider_spec(id).or_else(|| user_declared_provider_spec(&canonical))
+}
+
+/// The user-declared spec for a provider id, if the host declared one.
+pub fn user_declared_provider_spec(id: &str) -> Option<Arc<ModelProviderSpec>> {
+    USER_SPECS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(id)
+        .cloned()
+}
+
+/// Register a single user-declared provider spec, rejecting a built-in id.
+pub fn register_user_declared_provider(
+    spec: ModelProviderSpec,
+) -> Result<Arc<ModelProviderSpec>, String> {
+    if SPECS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains_key(spec.id.as_ref())
+    {
+        return Err(format!(
+            "provider `{}` collides with a built-in provider",
+            spec.id
+        ));
+    }
+    spec.validate()?;
+    let spec = Arc::new(spec);
+    USER_SPECS
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(spec.id.to_string(), spec.clone());
+    Ok(spec)
 }
 
 /// Resolve route configuration for a given provider and model id.
@@ -327,9 +312,6 @@ pub fn sync_user_declared_providers(
         spec.validate()?;
         next.insert(id.clone(), Arc::new(spec));
     }
-    let mut map = SPECS.write().unwrap_or_else(|e| e.into_inner());
-    for (id, spec) in next {
-        map.insert(id, spec);
-    }
+    *USER_SPECS.write().unwrap_or_else(|e| e.into_inner()) = next;
     Ok(())
 }

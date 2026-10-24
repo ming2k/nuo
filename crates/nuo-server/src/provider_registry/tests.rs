@@ -2,6 +2,7 @@
 //! derivation, factory dispatch, and typed quota-port resolution.
 
 use super::*;
+use nuo_provider::RemoteCatalogSource;
 
 #[test]
 fn model_provider_specs_have_unique_nonempty_ids() {
@@ -54,6 +55,43 @@ fn user_declared_provider_can_be_registered_and_resolved() {
     assert_eq!(
         resolved.default_client_profile,
         nuo_provider::ClientPreset::Cursor
+    );
+}
+
+#[test]
+fn user_declared_provider_uses_the_shared_registry() {
+    // The server kept its own user-declared table, empty after a restart, so
+    // Add/EditConnection rejected a provider the catalog still resolved. There
+    // is now one table: registering through the server helper is immediately
+    // visible to the substrate, and the server lookup reads it back.
+    let id = "test-shared-registry-relay";
+    register_user_declared_provider(ModelProviderSpec {
+        id: Cow::Borrowed(id),
+        root_url: Cow::Borrowed("https://shared.example.com/v1"),
+        protocol_roots: Cow::Borrowed(&[]),
+        catalog_root_url: None,
+        prompt_cache: PromptCachePolicy::Compiled(unsupported_prompt_cache),
+        user_agent: None,
+        baselines: &[],
+        protocol: nuo_inference_wire::WireProtocol::OpenAiChatCompletions,
+        dialect: nuo_provider::ProviderDialect::Standard,
+        models: &[],
+        catalog_source: RemoteCatalogSource::None,
+        default_client_profile: nuo_provider::ClientPreset::Native,
+        client_profile_sensitive: false,
+        quota: None,
+        display_policy: nuo_provider::DisplayPolicy::Native,
+    })
+    .unwrap();
+
+    assert!(
+        nuo_provider::user_declared_provider_spec(id).is_some(),
+        "the substrate registry must hold the provider",
+    );
+    assert_eq!(
+        model_provider_spec(id).unwrap().root_url,
+        "https://shared.example.com/v1",
+        "the server lookup must read the same registry",
     );
 }
 
@@ -281,7 +319,6 @@ fn every_declared_quota_port_is_reachable_from_the_dispatch() {
             | QuotaPort::CommandCodeCredits
             | QuotaPort::OpenRouterKey
             | QuotaPort::Antigravity
-            | QuotaPort::SiliconFlow
             | QuotaPort::Qoder => {}
         }
     }

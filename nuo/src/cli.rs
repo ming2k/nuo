@@ -198,7 +198,7 @@ const COMMANDS: &[Spec] = &[
     Spec {
         name: "status",
         names: &["status"],
-        about: "show application health, providers, and workflows",
+        about: "show server health, hosted threads, and diagnostics",
     },
     Spec {
         name: "server",
