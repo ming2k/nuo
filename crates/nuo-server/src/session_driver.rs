@@ -898,7 +898,7 @@ impl SessionDriver {
                     }
                     pending_oauth_authorization = None;
                     let resp_tx_clone = resp_tx.clone();
-                    let provider = auth.oauth_provider_id().unwrap_or("oauth").to_string();
+                    let provider = auth.negotiated_provider().unwrap_or("oauth").to_string();
                     active_oauth_task = Some(tokio::spawn(async move {
                         let tokens = crate::handlers_provider::authorize(
                             &resp_tx_clone,

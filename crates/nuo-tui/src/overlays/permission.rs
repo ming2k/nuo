@@ -6,7 +6,7 @@ use nuotc::{
 use nuo_wire::{PermissionRequest, UserQuestionRequest};
 
 use crate::components::options::{ChoiceMarker, ChoiceOptionRow, ChoiceTone, push_wrapped_styled};
-use crate::design::MODAL_INNER_H_PADDING;
+use crate::design::{INPUT_PROMPT_PREFIX, MODAL_INNER_H_PADDING};
 use crate::model::layout::{PermissionActionHit, QuestionOptionHit};
 use crate::primitives::{
     FooterHint, contrast_fg, keyvocab, modal_footer_text, modal_frame, panel_block, render_body,
@@ -317,7 +317,7 @@ pub fn draw_question_modal(
             // the typed text. The 2-column prefix (the field's own prompt)
             // sits under the checkbox column, so the input reads as "the
             // Other value being typed" aligned with the label text start.
-            let field_prefix = "› ";
+            let field_prefix = INPUT_PROMPT_PREFIX;
             let field_indent = "  ";
             if other_text_value.is_empty() {
                 // Empty: paint a muted placeholder so the user always sees
@@ -1057,7 +1057,7 @@ pub fn draw_input_injection(
     } else {
         input.to_string()
     };
-    let entry_prefix = "> ";
+    let entry_prefix = INPUT_PROMPT_PREFIX;
     let entry_line = Line::from(vec![
         Span::styled(
             entry_prefix,

@@ -45,6 +45,7 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_qianwen::MODEL_PROVIDER_SPEC,
     nuo_provider_qoder::MODEL_PROVIDER_SPEC,
     nuo_provider_codebuddy::MODEL_PROVIDER_SPEC,
+    nuo_provider_codebuddy::INTL_MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_plan::MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_zen::MODEL_PROVIDER_SPEC,
     nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
@@ -307,7 +308,7 @@ pub fn build_credential_source(
     api_key: nuo_host::SecretString,
     dialect: nuo_provider::ProviderDialect,
 ) -> std::sync::Arc<dyn nuo_provider::CredentialSource> {
-    if auth.is_oauth() {
+    if auth.is_negotiated() {
         std::sync::Arc::new(nuo_oauth::OAuthCredentialSource::new(
             host,
             connection_name,

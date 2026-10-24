@@ -237,13 +237,13 @@ mod tests {
     fn default_separator_uses_whitespace() {
         let theme = Theme::default();
         let strip = MetaStrip::new()
-            .lead("> ", MetaTone::Accent)
+            .lead("› ", MetaTone::Accent)
             .anchor("turn 1")
             .detail("detail 1")
             .detail("detail 2");
         let line = strip.into_line(80, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text, "> turn 1  detail 1  detail 2");
+        assert_eq!(text, "› turn 1  detail 1  detail 2");
     }
 
     #[test]
@@ -251,13 +251,13 @@ mod tests {
         let theme = Theme::default();
         let strip = MetaStrip::new()
             .separator(" | ")
-            .lead("> ", MetaTone::Accent)
+            .lead("› ", MetaTone::Accent)
             .anchor("turn 13")
             .detail("glm-5.3 xhigh")
             .detail("13:51");
         let line = strip.into_line(80, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(text, "> turn 13 | glm-5.3 xhigh | 13:51");
+        assert_eq!(text, "› turn 13 | glm-5.3 xhigh | 13:51");
     }
 
     #[test]

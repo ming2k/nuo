@@ -3,6 +3,7 @@
 use nuotc::{Clear, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
+use crate::design::INPUT_PROMPT_GLYPH;
 use crate::model::layout::LayoutMap;
 use crate::primitives::{ElevationContainer, contrast_fg, viewport_rect};
 use crate::render::Theme;
@@ -126,7 +127,7 @@ pub fn draw_completion_menu(
 
             let (primary, secondary) = match &c.kind {
                 crate::completion::CompletionItemKind::IntentSuggestion { .. } => {
-                    (format!("➜ {}", c.label), String::new())
+                    (format!("{INPUT_PROMPT_GLYPH} {}", c.label), String::new())
                 }
                 crate::completion::CompletionItemKind::SlashAlias => {
                     (format!("{} [*]", c.label), String::new())

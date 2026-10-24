@@ -113,15 +113,12 @@ pub fn draw_connections_modal(
 
     if connection_info_detail {
         if connection_info_standalone {
-            let conn_title = connection_detail
-                .map(|d| format!("Connection Details [{}]", d.name))
-                .unwrap_or_else(|| "Connection Details".to_string());
-            modal_header(frame, f.header, &conn_title, theme);
+            modal_header(frame, f.header, "Connection Details", theme);
         } else {
-            let conn_title = connection_detail
-                .map(|d| format!("Details [{}]", d.name))
-                .unwrap_or_else(|| "Details".to_string());
-            let header = breadcrumb_parts("Connections", &conn_title);
+            let child_title = connection_detail
+                .map(|d| d.name.as_str())
+                .unwrap_or("Details");
+            let header = breadcrumb_parts("Connections", child_title);
             modal_header_parts(frame, f.header, &header, theme);
         }
         let mut detail_footer: Vec<FooterHint> = if connection_info_standalone {
@@ -404,9 +401,6 @@ pub(crate) fn connection_detail_body(
 ) -> Vec<SelectableRow> {
     let label = Style::default().fg(theme.dim());
     let value = Style::default().fg(theme.fg());
-    let header_style = Style::default()
-        .fg(theme.primary)
-        .add_modifier(Modifier::BOLD);
     let muted = Style::default().fg(theme.muted());
     let highlight = Style::default().fg(theme.primary);
     let warning = Style::default().fg(theme.warning);
@@ -488,70 +482,58 @@ pub(crate) fn connection_detail_body(
     };
     layout = layout.section(&models_title);
     if detail.models.is_empty() {
-        layout = layout.raw_row(
-            SelectableRow::styled("(no models configured)", muted)
-                .with_prefix(RowSegment::styled("  ", muted)),
-        );
+        layout = layout.raw_row(SelectableRow::styled("(no models configured)", muted));
     } else {
         let active_desc = detail
             .active_model
             .as_deref()
             .unwrap_or("(none configured)");
         layout = layout
-            .raw_row(
-                SelectableRow::styled(
-                    format!(
-                        "{} discovered  ·  default: {}",
-                        detail.models.len(),
-                        active_desc
-                    ),
-                    value,
-                )
-                .with_prefix(RowSegment::styled(format_detail_label("Catalog"), label)),
+            .kv(
+                "Catalog",
+                format!(
+                    "{} discovered  ·  default: {}",
+                    detail.models.len(),
+                    active_desc
+                ),
             )
-            .raw_row(
-                SelectableRow::from_segments(vec![
+            .kv_segments(
+                "Action",
+                vec![
                     RowSegment::styled("[ m ] ", highlight.add_modifier(Modifier::BOLD)),
                     RowSegment::styled("Browse & filter in /models", muted),
-                ])
-                .with_prefix(RowSegment::styled(format_detail_label("Action"), label)),
+                ],
             );
     }
 
     // Provider Usage & Quota
-    layout = layout.empty_row();
-    let mut quota_header_segments =
-        vec![RowSegment::styled("Provider Usage & Quota", header_style)];
-    if let nuo_wire::ConnectionUsageState::Available(usage) = &detail.usage
-        && let Some(plan) = &usage.plan
-        && plan.len() <= 40
-        && !plan.contains('\n')
-        && !is_redundant_plan_label(plan, &detail.provider, &detail.provider_label)
-    {
-        quota_header_segments.push(RowSegment::styled("  ", Style::default()));
-        quota_header_segments.push(RowSegment::styled(
-            format!("[ {plan} ]"),
-            Style::default()
-                .fg(theme.info())
-                .add_modifier(Modifier::BOLD),
-        ));
-    }
-    layout = layout.raw_row(SelectableRow::from_segments(quota_header_segments));
+    layout = layout.section("Provider Usage & Quota");
 
     match &detail.usage {
         nuo_wire::ConnectionUsageState::Available(usage) => {
+            if let Some(plan) = &usage.plan
+                && plan.len() <= 40
+                && !plan.contains('\n')
+                && !is_redundant_plan_label(
+                    plan,
+                    &detail.name,
+                    &detail.provider,
+                    &detail.provider_label,
+                )
+            {
+                layout = layout.kv("Plan", plan);
+            }
+
             let mut rendered_quota = false;
 
             if let Some(quota_data) = &usage.quota {
-                let mut quota_lines = Vec::new();
                 match quota_data {
                     nuo_wire::ProviderQuotaData::Periodic(periodic) => {
                         rendered_quota = true;
-                        render_periodic_quota_buckets(
+                        layout = render_periodic_quota_buckets(
                             &periodic.buckets,
-                            &mut quota_lines,
+                            layout,
                             value,
-                            label,
                             muted,
                             highlight,
                             theme,
@@ -559,14 +541,8 @@ pub(crate) fn connection_detail_body(
                     }
                     nuo_wire::ProviderQuotaData::Balance(balance) => {
                         rendered_quota = true;
-                        render_balance_quota_block(
-                            balance,
-                            &mut quota_lines,
-                            label,
-                            value,
-                            highlight,
-                            theme,
-                        );
+                        layout =
+                            render_balance_quota_block(balance, layout, value, highlight, theme);
                     }
                     nuo_wire::ProviderQuotaData::Composite {
                         balance,
@@ -575,45 +551,32 @@ pub(crate) fn connection_detail_body(
                     } => {
                         rendered_quota = true;
                         if let Some(bal) = balance {
-                            render_balance_quota_block(
-                                bal,
-                                &mut quota_lines,
-                                label,
-                                value,
-                                highlight,
-                                theme,
-                            );
+                            layout =
+                                render_balance_quota_block(bal, layout, value, highlight, theme);
                         }
                         if let Some(per) = periodic {
-                            render_periodic_quota_buckets(
+                            layout = render_periodic_quota_buckets(
                                 &per.buckets,
-                                &mut quota_lines,
+                                layout,
                                 value,
-                                label,
                                 muted,
                                 highlight,
                                 theme,
                             );
                         }
                         for rl in rate_limits {
-                            quota_lines.push(Line::from(vec![
-                                Span::raw("  "),
-                                Span::styled(format_detail_label("Rate Limit"), label),
-                                Span::styled(
-                                    format!("{} req / {}", rl.requests, rl.interval),
-                                    value,
-                                ),
-                            ]));
+                            layout = layout.kv(
+                                "Rate Limit",
+                                format!("{} req / {}", rl.requests, rl.interval),
+                            );
                         }
                     }
                 }
-                layout = layout.raw_rows(quota_lines.into_iter().map(SelectableRow::from_line));
             }
 
             if !rendered_quota {
                 if let Some(bal) = &usage.primary_balance {
-                    layout = layout.kv_indented(
-                        2,
+                    layout = layout.kv_styled(
                         "Primary Balance",
                         bal,
                         highlight.add_modifier(Modifier::BOLD),
@@ -624,44 +587,34 @@ pub(crate) fn connection_detail_body(
                         Some(u) => format!("{} {}", metric.value, u),
                         None => metric.value.clone(),
                     };
-                    layout = layout.kv_indented(2, &metric.label, &val, value);
+                    layout = layout.kv_styled(&metric.label, &val, value);
                 }
             }
 
             if let Some(desc) = &usage.description {
-                layout = layout.empty_row().raw_row(
-                    SelectableRow::styled(desc.clone(), muted)
-                        .with_prefix(RowSegment::styled("  ", muted)),
-                );
+                layout = layout
+                    .empty_row()
+                    .raw_row(SelectableRow::styled(desc.clone(), muted));
             }
         }
         nuo_wire::ConnectionUsageState::Unsupported => {
-            layout = layout.raw_row(
-                SelectableRow::styled(
-                    "Usage and quota query is not supported for this provider endpoint.",
-                    muted,
-                )
-                .with_prefix(RowSegment::styled("  ", muted)),
-            );
+            layout = layout.raw_row(SelectableRow::styled(
+                "Usage and quota query is not supported for this provider endpoint.",
+                muted,
+            ));
         }
         nuo_wire::ConnectionUsageState::Error(err) => {
-            layout = layout.raw_row(
-                SelectableRow::from_segments(vec![
-                    RowSegment::styled("⚠ Usage query failed: ", warning),
-                    RowSegment::styled(err.clone(), value),
-                ])
-                .with_prefix(RowSegment::styled("  ", muted)),
-            );
+            layout = layout.raw_row(SelectableRow::from_segments(vec![
+                RowSegment::styled("⚠ Usage query failed: ", warning),
+                RowSegment::styled(err.clone(), value),
+            ]));
         }
         nuo_wire::ConnectionUsageState::Fetching => {
             let spin = theme.glyphs.spinner_frame(spinner_phase);
-            layout = layout.raw_row(
-                SelectableRow::from_segments(vec![
-                    RowSegment::styled(format!("{spin} "), Style::default().fg(theme.primary)),
-                    RowSegment::styled("Querying upstream provider quota & balance…", muted),
-                ])
-                .with_prefix(RowSegment::styled("  ", muted)),
-            );
+            layout = layout.raw_row(SelectableRow::from_segments(vec![
+                RowSegment::styled(format!("{spin} "), Style::default().fg(theme.primary)),
+                RowSegment::styled("Querying upstream provider quota & balance…", muted),
+            ]));
         }
     }
 
@@ -683,33 +636,35 @@ pub(crate) fn connection_detail_body(
     rows
 }
 
-pub(crate) fn render_balance_quota_block(
+pub(crate) fn render_balance_quota_block<'a>(
     balance: &nuo_wire::BalanceQuota,
-    lines: &mut Vec<Line<'static>>,
-    label: Style,
+    mut layout: DetailLayout<'a>,
     value: Style,
     highlight: Style,
-    theme: &Theme,
-) {
+    theme: &'a Theme,
+) -> DetailLayout<'a> {
     if let (Some(consumed), Some(limit)) = (balance.consumed_amount, balance.credit_limit)
         && limit > 0.0
     {
         let frac = (consumed / limit) as f32;
         let pct = (frac * 100.0).round() as u32;
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(
-                "Credit Limit Consumption",
-                value.add_modifier(Modifier::BOLD),
-            ),
-        ]));
-        let mut bar_spans = vec![Span::raw("    ")];
-        bar_spans.extend(render_progress_bar_spans(frac, 20, theme));
+        layout = layout.raw_row(SelectableRow::styled(
+            "Credit Limit Consumption",
+            value.add_modifier(Modifier::BOLD),
+        ));
+        let mut bar_spans = render_progress_bar_spans(frac, 20, theme);
         bar_spans.push(Span::styled(
             format!("  ${:.2} / ${:.2} ({pct}% used)", consumed, limit),
             value,
         ));
-        lines.push(Line::from(bar_spans));
+        let segments = bar_spans
+            .into_iter()
+            .map(|s| RowSegment::styled(s.content.into_owned(), s.style))
+            .collect();
+        layout = layout.raw_row(
+            SelectableRow::from_segments(segments)
+                .with_prefix(RowSegment::styled("  ", Style::default().fg(theme.dim()))),
+        );
     }
 
     if let Some(total) = balance.total_balance {
@@ -725,17 +680,13 @@ pub(crate) fn render_balance_quota_block(
         } else {
             format!("{:.2} {}", total, balance.currency)
         };
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format_detail_label("Total Balance"), label),
-            Span::styled(total_str, highlight.add_modifier(Modifier::BOLD)),
-        ]));
+        layout = layout.kv_styled(
+            "Total Balance",
+            total_str,
+            highlight.add_modifier(Modifier::BOLD),
+        );
     } else if let Some(prim) = &balance.display_primary {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(format_detail_label("Balance"), label),
-            Span::styled(prim.clone(), highlight.add_modifier(Modifier::BOLD)),
-        ]));
+        layout = layout.kv_styled("Balance", prim, highlight.add_modifier(Modifier::BOLD));
     }
 
     if let Some(cash) = balance.cash_balance {
@@ -746,10 +697,7 @@ pub(crate) fn render_balance_quota_block(
         } else {
             ""
         };
-        lines.push(Line::from(vec![
-            Span::raw("    ├─ Recharge:     "),
-            Span::styled(format!("{sym}{:.2}", cash), value),
-        ]));
+        layout = layout.kv_indented(2, "├─ Recharge:", format!("{sym}{:.2}", cash), value);
     }
     if let Some(voucher) = balance.voucher_balance {
         let sym = if balance.currency == "CNY" {
@@ -759,28 +707,25 @@ pub(crate) fn render_balance_quota_block(
         } else {
             ""
         };
-        lines.push(Line::from(vec![
-            Span::raw("    └─ Voucher:      "),
-            Span::styled(format!("{sym}{:.2}", voucher), value),
-        ]));
+        layout = layout.kv_indented(2, "└─ Voucher:", format!("{sym}{:.2}", voucher), value);
     }
+
+    layout
 }
 
-pub(crate) fn render_periodic_quota_buckets(
+pub(crate) fn render_periodic_quota_buckets<'a>(
     buckets: &[nuo_wire::QuotaWindowBucket],
-    lines: &mut Vec<Line<'static>>,
+    mut layout: DetailLayout<'a>,
     value: Style,
-    _label: Style,
     muted: Style,
     highlight: Style,
-    theme: &Theme,
-) {
+    theme: &'a Theme,
+) -> DetailLayout<'a> {
     if buckets.is_empty() {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("Active (no specific bucket limits reported)", muted),
-        ]));
-        return;
+        return layout.raw_row(SelectableRow::styled(
+            "Active (no specific bucket limits reported)",
+            muted,
+        ));
     }
 
     let mut last_group: Option<&str> = None;
@@ -789,50 +734,61 @@ pub(crate) fn render_periodic_quota_buckets(
         if current_group != last_group {
             if let Some(grp) = current_group {
                 if last_group.is_some() {
-                    lines.push(Line::from(""));
+                    layout = layout.empty_row();
                 }
-                lines.push(Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(format!("▸ {grp}"), highlight.add_modifier(Modifier::BOLD)),
-                ]));
+                layout = layout.raw_row(SelectableRow::styled(
+                    format!("▸ {grp}"),
+                    highlight.add_modifier(Modifier::BOLD),
+                ));
             }
             last_group = current_group;
         }
 
         let has_group = bucket.group.is_some();
-        let title_indent = if has_group { "    " } else { "  " };
-        let bar_indent = if has_group { "      " } else { "    " };
+        let bar_indent = if has_group { "    " } else { "  " };
 
         let window_tag = bucket
             .window
             .map(|w| format!(" · {}", w.label()))
             .unwrap_or_default();
-        lines.push(Line::from(vec![
-            Span::raw(title_indent),
-            Span::styled(
-                format!("{}{}", bucket.label, window_tag),
-                value.add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        let bucket_label = format!("{}{}", bucket.label, window_tag);
+
+        let title_row = if has_group {
+            SelectableRow::styled(bucket_label, value.add_modifier(Modifier::BOLD))
+                .with_prefix(RowSegment::styled("  ", muted))
+        } else {
+            SelectableRow::styled(bucket_label, value.add_modifier(Modifier::BOLD))
+        };
+        layout = layout.raw_row(title_row);
 
         let pct_used = (bucket.used_fraction * 100.0).round() as u32;
-        let mut bar_spans = vec![Span::raw(bar_indent)];
-        bar_spans.extend(render_progress_bar_spans(bucket.used_fraction, 20, theme));
+        let mut bar_spans = render_progress_bar_spans(bucket.used_fraction, 20, theme);
         bar_spans.push(Span::styled(format!("  {pct_used}% used"), value));
-        lines.push(Line::from(bar_spans));
+        let segments = bar_spans
+            .into_iter()
+            .map(|s| RowSegment::styled(s.content.into_owned(), s.style))
+            .collect();
+        let bar_row = SelectableRow::from_segments(segments)
+            .with_prefix(RowSegment::styled(bar_indent, muted));
+        layout = layout.raw_row(bar_row);
 
         if let Some(reset_str) =
             format_reset_countdown(bucket.reset_at_ms, bucket.reset_time_str.as_deref())
         {
-            lines.push(Line::from(vec![
-                Span::raw(bar_indent),
-                Span::styled(reset_str, muted),
-            ]));
+            let reset_row = SelectableRow::styled(reset_str, muted)
+                .with_prefix(RowSegment::styled(bar_indent, muted));
+            layout = layout.raw_row(reset_row);
         }
     }
+    layout
 }
 
-pub(crate) fn is_redundant_plan_label(plan: &str, provider: &str, provider_label: &str) -> bool {
+pub(crate) fn is_redundant_plan_label(
+    plan: &str,
+    connection_name: &str,
+    provider: &str,
+    provider_label: &str,
+) -> bool {
     let p = plan.trim();
     if p.is_empty() {
         return true;
@@ -844,8 +800,31 @@ pub(crate) fn is_redundant_plan_label(plan: &str, provider: &str, provider_label
         || lower == "provider quota"
         || lower == "usage & quota"
         || lower == "provider usage & quota"
+        || lower == "standard"
     {
         return true;
     }
-    p.eq_ignore_ascii_case(provider.trim()) || p.eq_ignore_ascii_case(provider_label.trim())
+
+    fn normalize(s: &str) -> String {
+        s.chars()
+            .filter(|c| c.is_alphanumeric())
+            .flat_map(|c| c.to_lowercase())
+            .collect()
+    }
+
+    let norm_plan = normalize(p);
+    if norm_plan.is_empty() {
+        return true;
+    }
+
+    let norm_conn = normalize(connection_name);
+    let norm_prov = normalize(provider);
+    let norm_prov_lbl = normalize(provider_label);
+
+    norm_plan == norm_conn
+        || norm_plan == norm_prov
+        || norm_plan == norm_prov_lbl
+        || norm_plan.trim_end_matches("plan") == norm_conn.trim_end_matches("plan")
+        || norm_plan.trim_end_matches("plan") == norm_prov.trim_end_matches("plan")
+        || norm_plan.trim_end_matches("plan") == norm_prov_lbl.trim_end_matches("plan")
 }

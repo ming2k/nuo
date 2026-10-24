@@ -1,5 +1,5 @@
 //! The turn-band transcript layout: each tool-bearing ReAct turn is grouped into
-//! a labelled band with a header row (`> turn N  model effort  HH:MM`), so history reads
+//! a labelled band with a header row (`› turn N  model effort  HH:MM`), so history reads
 //! as discrete model-request chunks instead of one flush stream.
 //!
 //! ## Grouping model
@@ -11,7 +11,7 @@
 //! inner boundary of the running turn). It is typed *while* the turn is still
 //! producing output, so it lands mid-turn in append order; it is therefore
 //! absorbed into the turn it interrupted, and the band spans it, instead of
-//! splitting that turn into two bands carrying the same `> turn N` header.
+//! splitting that turn into two bands carrying the same `› turn N` header.
 //! See [`super::is_steer_insert`].
 //!
 //! Assistant-side components carry a 1-indexed ReAct `turn`, plus the enclosing
@@ -24,11 +24,11 @@
 //! a single-line header:
 //!
 //! ```text
-//! > turn 2  sonnet
-//! > turn 3  glm-5.3 xhigh        (channel exposing a reasoning effort)
+//! › turn 2  sonnet
+//! › turn 3  glm-5.3 xhigh        (channel exposing a reasoning effort)
 //! ```
 //!
-//! rendered in an info-tone bold for the `> turn N` anchor and muted for the
+//! rendered in an info-tone bold for the `› turn N` anchor and muted for the
 //! rest (model info, send time), using foreground color only — no background
 //! band. Model and reasoning depth form a single identity component
 //! (`glm-5.3 xhigh`), and components on the header row are separated entirely
@@ -103,7 +103,7 @@ impl TranscriptLayout for TurnBand {
     }
 }
 
-/// Paint the turn header row: `> turn N  model (effort)  HH:MM`,
+/// Paint the turn header row: `› turn N  model (effort)  HH:MM`,
 /// info-tone bold anchor with muted metadata, no background band. Components
 /// are separated by spatial distance (R2 enumeration whitespace, no `·`), and
 /// model + effort form a single identity component. The caller inserts the
@@ -122,7 +122,7 @@ fn draw_turn_header(stream: &mut Stream<'_, '_>, turn: u64, msg: &TranscriptMess
 
     let band = stream.band;
 
-    // Two-tone label, no background band: `> turn N` is the info-tone
+    // Two-tone label, no background band: `› turn N` is the info-tone
     // anchor, the rest (model + effort component, send time) reads as muted metadata on
     // the same line. Components are separated by plain whitespace (R2 enumeration,
     // `JOIN_ENUMERATE_COLS`), never `·`.

@@ -51,8 +51,8 @@ pub struct Connection {
     /// The model provider this connection points at. Must resolve to a
     /// registered provider; an unknown value is rejected at load.
     pub provider: String,
-    /// How this connection authenticates. [`ConnectionAuth::ApiKey`] (the default)
-    /// resolves the bearer from the connection credential; the OAuth variants
+    /// How this connection authenticates. [`ConnectionAuth::Static`] (the default)
+    /// resolves the bearer from the connection credential; the negotiated variants
     /// resolve from `auth.toml`.
     #[serde(default)]
     pub auth: ConnectionAuth,
@@ -89,7 +89,7 @@ impl Default for Connection {
         Self {
             name: String::new(),
             provider: String::new(),
-            auth: ConnectionAuth::ApiKey,
+            auth: ConnectionAuth::Static,
             api_key_env: None,
             client_identity: ClientIdentity::Native,
             models: ModelScopeConfig::default(),
@@ -349,7 +349,7 @@ mod tests {
         let populated = Connection {
             name: "flat-conn".into(),
             provider: "anthropic".into(),
-            auth: ConnectionAuth::ApiKey,
+            auth: ConnectionAuth::Static,
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
             client_identity: nuo_wire::ClientIdentity::ClaudeCode,
             models: ModelScopeConfig {

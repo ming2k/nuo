@@ -2171,7 +2171,7 @@ pub async fn run_tui_with_terminal(
         custom_models: Vec::new(),
         custom_url_hint: String::new(),
         custom_user_agent: None,
-        custom_auth: nuo_wire::ConnectionAuth::ApiKey,
+        custom_auth: nuo_wire::ConnectionAuth::Static,
         custom_provider_id: None,
         awaiting_oauth_add: false,
         oauth_pending_message: String::new(),

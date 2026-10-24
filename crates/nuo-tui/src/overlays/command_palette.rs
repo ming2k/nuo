@@ -10,6 +10,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::components::list::row_style;
 use crate::components::selectable_body::{SelectableRow, render_selectable_body};
+use crate::design::INPUT_PROMPT_PREFIX;
 use crate::fuzzy::fuzzy_match;
 use crate::keymap::{AppContext, Availability, CommandCategory, CommandId, DangerLevel};
 use crate::model::layout::LayoutMap;
@@ -222,7 +223,7 @@ pub(crate) fn draw_command_palette(
 
     let query_spans = vec![
         Span::styled(
-            "> ",
+            INPUT_PROMPT_PREFIX,
             Style::default()
                 .fg(theme.brand())
                 .add_modifier(Modifier::BOLD),

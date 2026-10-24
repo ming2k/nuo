@@ -34,7 +34,7 @@ fn shared_oauth(
     connection_id: &str,
     auth: &ConnectionAuth,
 ) -> Option<Arc<ConnectionOAuth>> {
-    let integration_id = auth.oauth_provider_id()?;
+    let integration_id = auth.negotiated_provider()?;
     let registry_key = format!("{connection_id}\0{integration_id}");
     let mut entries = registry().lock().unwrap_or_else(|error| error.into_inner());
     if let Some(existing) = entries.get(&registry_key).and_then(Weak::upgrade) {
@@ -341,7 +341,7 @@ mod tests {
         let source = OAuthCredentialSource::new(
             &CredentialHost::none(),
             "test-conn",
-            ConnectionAuth::subscription("test-provider"),
+            ConnectionAuth::negotiated("test-provider"),
         );
         assert!(source.state.is_some(), "registered provider resolves");
         let resolved = source.resolved(&tokens("access"));
@@ -359,7 +359,7 @@ mod tests {
         let source = OAuthCredentialSource::new(
             &CredentialHost::none(),
             "unknown-conn",
-            ConnectionAuth::subscription("no-such-provider"),
+            ConnectionAuth::negotiated("no-such-provider"),
         );
         assert!(source.state.is_none());
     }
@@ -370,12 +370,12 @@ mod tests {
         let source1 = OAuthCredentialSource::new(
             &CredentialHost::none(),
             "conn-shared-1",
-            ConnectionAuth::subscription("test-provider"),
+            ConnectionAuth::negotiated("test-provider"),
         );
         let source2 = OAuthCredentialSource::new(
             &CredentialHost::none(),
             "conn-shared-1",
-            ConnectionAuth::subscription("test-provider"),
+            ConnectionAuth::negotiated("test-provider"),
         );
         assert!(Arc::ptr_eq(
             &source1.state.clone().unwrap(),

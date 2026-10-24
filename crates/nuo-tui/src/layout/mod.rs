@@ -309,7 +309,7 @@ fn is_turn_component(message: &TranscriptMessage) -> bool {
 /// appending its own components *after* it. Left to terminate the group — the
 /// default for user messages and notices — the interrupted turn would paint a
 /// second header and read as two turns with the same number
-/// (`> turn 60 … < steer … > turn 60`).
+/// (`› turn 60 … › steer … › turn 60`).
 ///
 /// It also never *opens* a group: the band header carries the producing model's
 /// identity (`provider`/`effort`/send time), which only an assistant-side

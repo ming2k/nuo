@@ -354,8 +354,8 @@ pub fn draw_message_body(
                             // Two-tone label, no background band (matches the
                             // turn header row in `turn_band`): the round
                             // anchor is info-tone bold, the time reads as
-                            // muted metadata. The header leads with a `<` gutter
-                            // rail (Unix stdin redirection). The rail consumes
+                            // muted metadata. The header leads with the `›` lead
+                            // glyph (the same one the composer paints). The rail consumes
                             // the same width as `USER_MESSAGE_TEXT_GAP_COLS`, so
                             // `round N` / `⏸ Queued` stay aligned with the message body.
                             let round_gutter = if USER_MESSAGE_TEXT_GAP_COLS == 0 {

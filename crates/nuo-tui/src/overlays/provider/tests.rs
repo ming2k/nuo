@@ -1053,6 +1053,7 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         match_id: None,
         match_name: None,
         match_connection: None,
+        relevance_score: 0,
     };
     let row2 = crate::providers::RankedModel {
         section: crate::providers::ModelSection::Recent,
@@ -1073,6 +1074,7 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         match_id: None,
         match_name: None,
         match_connection: None,
+        relevance_score: 0,
     };
     let ranked = vec![row1, row2];
     // Test on body_width = 58 (typical 80-col terminal under FixedModalSpec::PROVIDER)
@@ -1427,6 +1429,33 @@ fn models_modal_search_matches_id_name_and_connection() {
             .iter()
             .any(|m| m.provider_label == "OpenAI Official" && m.match_connection.is_some())
     );
+
+    // 4. [INV-MODEL-SEARCH-01, INV-MODEL-SEARCH-03] Cross-field hybrid match: connection + model ID
+    let by_conn_and_id =
+        crate::providers::models_flat_filtered_from(&picker, "", "", "Official gpt-5.5");
+    assert_eq!(by_conn_and_id.len(), 2); // In Recent and All sections
+    assert!(
+        by_conn_and_id
+            .iter()
+            .all(|m| m.model == "gpt-5.5" && m.match_connection.is_some() && m.match_id.is_some())
+    );
+
+    // 5. [INV-MODEL-SEARCH-02] Path-style and reversed-order hybrid match
+    let by_slash = crate::providers::models_flat_filtered_from(&picker, "", "", "Official/Turbo");
+    assert_eq!(by_slash.len(), 2);
+    assert!(
+        by_slash.iter().all(|m| m.model == "gpt-5.5"
+            && m.match_connection.is_some()
+            && m.match_name.is_some())
+    );
+
+    let by_rev = crate::providers::models_flat_filtered_from(&picker, "", "", "Turbo Official");
+    assert_eq!(by_rev.len(), 2);
+    assert!(
+        by_rev.iter().all(|m| m.model == "gpt-5.5"
+            && m.match_connection.is_some()
+            && m.match_name.is_some())
+    );
 }
 
 #[test]
@@ -1725,7 +1754,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
 
     let text = buffer_text(&terminal);
     assert!(text.contains("Connections"));
-    assert!(text.contains("Details [DeepSeek Production]"));
+    assert!(text.contains("Connections › DeepSeek Production"));
     assert!(text.contains("Configuration"));
     assert!(text.contains("deepseek"));
     assert!(text.contains("https://api.deepseek.com"));
@@ -2139,7 +2168,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
     });
 
     let text = buffer_text(&terminal);
-    assert!(text.contains("Connections › Details [Google Antigravity]"));
+    assert!(text.contains("Connections › Google Antigravity"));
     assert!(text.contains("Default Active"));
     assert!(text.contains("gemini-3.7-flash  ·  reasoning: high"));
     assert!(text.contains("Served Models (3)"));
@@ -2246,12 +2275,156 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
     });
 
     let text = buffer_text(&terminal);
-    // Header should be single level, NOT "Connections › Details"
-    assert!(text.contains("Connection Details [Anthropic]"));
+    // Header should be clean single level "Connection Details", without "[Anthropic]" or breadcrumbs
+    assert!(text.contains("Connection Details"));
+    assert!(!text.contains("[Anthropic]"));
     assert!(!text.contains("Connections ›"));
     // Footer hint should say "close" instead of "list"
     assert!(text.contains("close"));
     assert!(!text.contains("list"));
+}
+
+#[test]
+fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usage() {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 30);
+    let detail = nuo_wire::ConnectionDetail {
+        name: "Command Code".to_string(),
+        provider: "commandcode-plan".to_string(),
+        provider_label: "CommandCode Plan".to_string(),
+        protocol: "openai".to_string(),
+        base_url: "https://api.commandcode.ai/provider/v1".to_string(),
+        auth_type: "API Key".to_string(),
+        api_key_masked: Some("cmd-...9999".to_string()),
+        api_key_source: "credentials.toml".to_string(),
+        client_identity: nuo_wire::ClientIdentity::Native,
+        user_agent: "nuo/0.38.0".to_string(),
+        models: vec!["claude-3-7-sonnet".to_string()],
+        model_info: Vec::new(),
+        active_model: Some("claude-3-7-sonnet".to_string()),
+        active_model_effort: None,
+        active_model_thinking: None,
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            plan: Some("Command Code".to_string()),
+            description: Some("Command Code API credits".to_string()),
+            quota: Some(nuo_wire::ProviderQuotaData::Balance(
+                nuo_wire::BalanceQuota {
+                    currency: "USD".to_string(),
+                    total_balance: Some(42.50),
+                    cash_balance: Some(30.00),
+                    voucher_balance: Some(12.50),
+                    display_primary: None,
+                    consumed_amount: None,
+                    credit_limit: None,
+                },
+            )),
+            primary_balance: Some("42.50 credits".to_string()),
+            metrics: Vec::new(),
+            updated_at_ms: None,
+        })),
+        budget: Default::default(),
+    };
+
+    // 1. Standalone header check
+    terminal.draw(|f| {
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let mut scroll = 0;
+        let mut info_scroll = 0;
+        let selection = crate::model::selection::SelectionState::None;
+        draw_connections_modal(
+            f,
+            &mut lm,
+            crate::overlays::provider::connections::ConnectionsModalProps {
+                providers: &[],
+                current_provider: "",
+                modal_index: 0,
+                query: "",
+                cursor_position: 0,
+                scroll: &mut scroll,
+                follow_selection: false,
+                search: false,
+                connection_info_detail: true,
+                show_caret: true,
+                connection_detail: Some(&detail),
+                connection_info_scroll: &mut info_scroll,
+                spinner_phase: 0,
+                connection_info_standalone: true,
+                refreshing: false,
+                connection_usages: None,
+            },
+            &theme,
+            &selection,
+        );
+    });
+
+    let standalone_text = buffer_text(&terminal);
+    assert!(standalone_text.contains("Connection Details"));
+    assert!(!standalone_text.contains("[Command Code]"));
+    assert!(!standalone_text.contains("[ Command Code ]"));
+
+    // 2. Child mode header check
+    terminal.draw(|f| {
+        let mut lm = crate::model::layout::LayoutMap::new();
+        let mut scroll = 0;
+        let mut info_scroll = 0;
+        let selection = crate::model::selection::SelectionState::None;
+        draw_connections_modal(
+            f,
+            &mut lm,
+            crate::overlays::provider::connections::ConnectionsModalProps {
+                providers: &[],
+                current_provider: "",
+                modal_index: 0,
+                query: "",
+                cursor_position: 0,
+                scroll: &mut scroll,
+                follow_selection: false,
+                search: false,
+                connection_info_detail: true,
+                show_caret: true,
+                connection_detail: Some(&detail),
+                connection_info_scroll: &mut info_scroll,
+                spinner_phase: 0,
+                connection_info_standalone: false,
+                refreshing: false,
+                connection_usages: None,
+            },
+            &theme,
+            &selection,
+        );
+    });
+
+    let child_text = buffer_text(&terminal);
+    assert!(child_text.contains("Connections › Command Code"));
+    assert!(!child_text.contains("Details ["));
+
+    // 3. Provider Usage & Quota section check
+    let rows = crate::overlays::provider::connections::connection_detail_body(&detail, 0, &theme);
+    let rendered = rows
+        .into_iter()
+        .map(|r| {
+            let mut s = String::new();
+            if let Some(p) = r.prefix {
+                s.push_str(&p.text);
+            }
+            for seg in r.segments {
+                s.push_str(&seg.text);
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Title must be clean: "Provider Usage & Quota", NEVER "Provider Usage & Quota  [ Command Code ]"
+    assert!(rendered.contains("Provider Usage & Quota"));
+    assert!(!rendered.contains("[ Command Code ]"));
+    assert!(!rendered.contains("[Command Code]"));
+
+    // Total Balance row must start flush left (no "  Total Balance")
+    assert!(
+        rendered.lines().any(|l| l.starts_with("Total Balance")),
+        "Total Balance must be left-aligned at column 0: {rendered}"
+    );
 }
 
 #[test]
@@ -2543,46 +2716,71 @@ fn redundant_plan_labels_are_identified_and_suppressed_in_header() {
 
     assert!(is_redundant_plan_label(
         "Antigravity Quota",
+        "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
     assert!(is_redundant_plan_label(
         "antigravity quota active",
+        "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
     assert!(is_redundant_plan_label(
+        "Google Antigravity",
         "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
     assert!(is_redundant_plan_label(
         "google-antigravity",
+        "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
     assert!(is_redundant_plan_label(
+        "Command Code",
+        "Command Code",
+        "commandcode-plan",
+        "CommandCode Plan"
+    ));
+    assert!(is_redundant_plan_label(
+        "Command Code",
+        "Default",
+        "commandcode-plan",
+        "CommandCode Plan"
+    ));
+    assert!(is_redundant_plan_label(
         "Quota",
+        "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
     assert!(is_redundant_plan_label(
         "  ",
+        "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
 
     assert!(!is_redundant_plan_label(
         "Google One AI Premium",
+        "Google Antigravity",
         "google-antigravity",
         "Google Antigravity"
     ));
     assert!(!is_redundant_plan_label(
         "Pay-as-you-go",
+        "DeepSeek",
         "deepseek",
         "DeepSeek"
     ));
-    assert!(!is_redundant_plan_label("Pro", "anthropic", "Anthropic"));
+    assert!(!is_redundant_plan_label(
+        "Pro",
+        "Anthropic",
+        "anthropic",
+        "Anthropic"
+    ));
 }
 
 #[test]
@@ -2607,6 +2805,7 @@ fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
         match_id: None,
         match_name: None,
         match_connection: None,
+        relevance_score: 0,
     };
     let rows = crate::overlays::provider::models::model_detail_body(&rm, 80, &theme);
     let rendered = rows

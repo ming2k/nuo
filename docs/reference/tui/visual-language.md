@@ -21,7 +21,7 @@ Each semantic relationship has exactly one join form. There is no free mixing of
 | Relationship | Form | Token / symbol | Example |
 | :--- | :--- | :--- | :--- |
 | Atomic values | ordinary spaces | — | `os_type=linux arch=amd64` |
-| Peer enumeration (same rank) | two-column gap, no glyph | `JOIN_ENUMERATE_COLS = 2` | `> turn 3  glm-5.3 xhigh  14:22` (turn band) |
+| Peer enumeration (same rank) | two-column gap, no glyph | `JOIN_ENUMERATE_COLS = 2` | `› turn 3  glm-5.3 xhigh  14:22` (turn band) |
 | Secondary → measure | parentheses | — | `4.2k (7%)` |
 | Cause / reason | em dash | — | `locked — provider refuses this account` |
 | Hierarchy (container › member) | breadcrumb | `JOIN_BREADCRUMB = " › "` | `round 3 › turn 2` |
@@ -70,12 +70,13 @@ Standalone glyphs (from `design.rs` and `primitives.rs`):
 
 | Glyph | Token | Use |
 | :--- | :--- | :--- |
-| `<` | `USER_MESSAGE_GUTTER_GLYPH` | User-message gutter |
-| `>` | `AI_OUTPUT_LEAD_GLYPH` | Assistant-output lead |
+| `›` | `INPUT_PROMPT_GLYPH` / `USER_MESSAGE_GUTTER_GLYPH` / `AI_OUTPUT_LEAD_GLYPH` | The canonical lead — composer, command-palette query, input injection, question "Other" field, dashboard console, provider search rows, completion-menu suggestions, and the user-message / assistant-turn transcript headers |
 | `▎` | `QUOTE_GUTTER_GLYPH` | Quoted content gutter |
 | `↳` | `QUESTION_ANSWER_GLYPH` | Answer marker under a question |
 | `│` / `┃` | — | Band borders (thin / thick identity bar) |
 | `▾` / `▸` | — | Expanded / collapsed disclosure markers |
+
+The ASCII `<` / `>` transcript leads (and their "Unix stdin/stdout redirection" rationale) are retired: one canonical single guillemet now fronts every lead, per the ADR-0092 single-guillemet typography standard.
 
 ---
 

@@ -240,7 +240,7 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
         provider: "opencode-go".to_string(),
         client_identity: Default::default(),
         last_used_ms: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     });
     app.input = String::new();
     app.cursor_position = 0;
@@ -302,7 +302,7 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
         provider: "opencode-go".to_string(),
         client_identity: Default::default(),
         last_used_ms: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     });
 
     assert_eq!(
@@ -352,7 +352,7 @@ fn composer_image_paste_snapshot_override_forces_off() {
         provider: String::new(),
         client_identity: Default::default(),
         last_used_ms: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     });
     app.input = String::new();
     app.cursor_position = 0;

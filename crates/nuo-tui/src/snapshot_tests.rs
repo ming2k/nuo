@@ -1687,7 +1687,7 @@ fn reasoning_trace_spacing_has_internal_gaps_and_single_trailing_separator() {
         .expect("second reasoning block must render");
     let turn2_idx = rows
         .iter()
-        .position(|row| row.contains("> turn 2"))
+        .position(|row| row.contains("› turn 2"))
         .expect("turn 2 header must render");
     let answer_idx = rows
         .iter()
@@ -1740,7 +1740,7 @@ fn default_turn_header_has_one_gap_before_first_tool() {
     let rows: Vec<&str> = grid.lines().collect();
     let turn_idx = rows
         .iter()
-        .position(|row| row.contains("> turn 7"))
+        .position(|row| row.contains("› turn 7"))
         .expect("turn header must render");
     let tool_idx = rows
         .iter()
@@ -1748,7 +1748,7 @@ fn default_turn_header_has_one_gap_before_first_tool() {
         .expect("tool header must render");
 
     assert_eq!(
-        rows[turn_idx], "  > turn 7  claude-sonnet high",
+        rows[turn_idx], "  › turn 7  claude-sonnet high",
         "turn header renders anchor  model effort:\n{grid}"
     );
     assert_eq!(
@@ -1781,10 +1781,10 @@ fn turn_header_omits_effort_when_absent() {
     let rows: Vec<&str> = grid.lines().collect();
     let turn_idx = rows
         .iter()
-        .position(|row| row.contains("> turn 2"))
+        .position(|row| row.contains("› turn 2"))
         .expect("turn header must render");
     assert_eq!(
-        rows[turn_idx], "  > turn 2  gemini-3-pro",
+        rows[turn_idx], "  › turn 2  gemini-3-pro",
         "no-effort channel renders anchor  model only:\n{grid}"
     );
 }
@@ -1816,10 +1816,10 @@ fn turn_header_with_model_effort_and_timestamp() {
     let rows: Vec<&str> = grid.lines().collect();
     let turn_idx = rows
         .iter()
-        .position(|row| row.contains("> turn 13"))
+        .position(|row| row.contains("› turn 13"))
         .expect("turn header must render");
     assert!(
-        rows[turn_idx].contains("> turn 13")
+        rows[turn_idx].contains("› turn 13")
             && rows[turn_idx].contains("glm-5.3")
             && rows[turn_idx].contains("xhigh")
             && !rows[turn_idx].contains("(xhigh)")
@@ -1841,7 +1841,7 @@ fn pure_prose_assistant_turn_renders_turn_header() {
 
     let grid = render_transcript_grid(&[assistant], 72, 14);
     assert!(
-        grid.contains("> turn 1  claude-sonnet")
+        grid.contains("› turn 1  claude-sonnet")
             && grid.contains("Hello! How can I help you today with your project?"),
         "pure prose turn must render its turn header:\n{grid}"
     );
@@ -1884,7 +1884,7 @@ fn same_turn_segments_have_gaps_but_parallel_tools_stay_flush() {
     let rows: Vec<&str> = grid.lines().collect();
     let turn_idx = rows
         .iter()
-        .position(|row| row.contains("> turn 7"))
+        .position(|row| row.contains("› turn 7"))
         .expect("turn header must render");
     let thinking_idx = rows
         .iter()
@@ -1933,7 +1933,7 @@ fn different_tool_turns_have_one_vertical_gap() {
     let turn_rows: Vec<usize> = rows
         .iter()
         .enumerate()
-        .filter(|(_, row)| row.contains("> turn"))
+        .filter(|(_, row)| row.trim_start().starts_with("› turn"))
         .map(|(index, _)| index)
         .collect();
     let tool_rows: Vec<usize> = rows
@@ -1959,7 +1959,7 @@ fn different_tool_turns_have_one_vertical_gap() {
 
 /// A steer typed while a turn is still producing output is staged at the live
 /// tail, and the turn keeps appending its own components *after* it. The band
-/// must span the insert: exactly one `> turn 60` header for the whole turn, with
+/// must span the insert: exactly one `› turn 60` header for the whole turn, with
 /// the steer panel nested inside it, and the work that continued afterwards
 /// still under that same header. Left ungrouped, the turn would paint a second
 /// header and read as two turns numbered 60.
@@ -2004,7 +2004,7 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
     let header_rows: Vec<usize> = rows
         .iter()
         .enumerate()
-        .filter(|(_, row)| row.contains("> turn"))
+        .filter(|(_, row)| row.trim_start().starts_with("› turn"))
         .map(|(index, _)| index)
         .collect();
 
@@ -2013,9 +2013,9 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
         1,
         "the interrupted turn keeps exactly one header:\n{grid}"
     );
-    assert!(grid.contains("> turn 60"), "band labels the turn:\n{grid}");
+    assert!(grid.contains("› turn 60"), "band labels the turn:\n{grid}");
     assert!(
-        grid.contains("< steer"),
+        grid.contains("› steer"),
         "the steer panel still renders inside the band:\n{grid}"
     );
 
@@ -2031,7 +2031,7 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
         .expect("the turn's pre-steer work renders");
     let steer_row = rows
         .iter()
-        .position(|row| row.contains("< steer"))
+        .position(|row| row.contains("› steer"))
         .expect("steer panel renders");
     assert!(
         first_work < steer_row && steer_row < resumed,
@@ -2076,12 +2076,14 @@ fn delivered_steer_mid_turn_keeps_one_turn_header() {
     let grid = render_transcript_grid(&messages, 72, 40);
 
     assert_eq!(
-        grid.lines().filter(|row| row.contains("> turn")).count(),
+        grid.lines()
+            .filter(|row| row.trim_start().starts_with("› turn"))
+            .count(),
         1,
         "a delivered steer stays inside its turn band:\n{grid}"
     );
     assert!(
-        grid.contains("< steer  round 3 › turn 60"),
+        grid.contains("› steer  round 3 › turn 60"),
         "the steer keeps its provenance breadcrumb:\n{grid}"
     );
 }
@@ -2124,7 +2126,9 @@ fn notice_still_splits_a_turn_band() {
 
     let grid = render_transcript_grid(&[step, notice, after], 72, 40);
     assert_eq!(
-        grid.lines().filter(|row| row.contains("> turn")).count(),
+        grid.lines()
+            .filter(|row| row.trim_start().starts_with("› turn"))
+            .count(),
         2,
         "a notice terminates the band, so the following component re-anchors:\n{grid}"
     );
@@ -2181,19 +2185,19 @@ fn user_messages_render_timestamps_and_never_sent_marker() {
 
     let grid_round = render_transcript_grid(&[round_msg], 72, 18);
     assert!(
-        grid_round.contains("< round 1"),
-        "must render '< round 1' with Unix stdin glyph:\n{grid_round}"
+        grid_round.contains("› round 1"),
+        "must render '› round 1' with the canonical lead glyph:\n{grid_round}"
     );
     assert!(
         !grid_round.contains("Sent"),
         "must not contain Sent fallback:\n{grid_round}"
     );
 
-    // Verify the blank line between `< round 1` header and the user message panel.
+    // Verify the blank line between `› round 1` header and the user message panel.
     let rows: Vec<&str> = grid_round.lines().collect();
     let header_idx = rows
         .iter()
-        .position(|r| r.contains("< round 1"))
+        .position(|r| r.contains("› round 1"))
         .expect("must contain header");
     assert!(
         rows[header_idx + 1].trim().is_empty(),
@@ -2202,7 +2206,7 @@ fn user_messages_render_timestamps_and_never_sent_marker() {
 
     let grid_prompt = render_transcript_grid(&[prompt_msg], 72, 18);
     assert!(
-        grid_prompt.contains("< prompt"),
+        grid_prompt.contains("› prompt"),
         "must render prompt anchor with Unix stdin glyph:\n{grid_prompt}"
     );
     assert!(
@@ -2225,7 +2229,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
 
     let grid_steer = render_transcript_grid(&[steer_msg], 72, 18);
     assert!(
-        grid_steer.contains("< steer  round 1 › turn 2"),
+        grid_steer.contains("› steer  round 1 › turn 2"),
         "must render steer with round › turn breadcrumb:\n{grid_steer}"
     );
     assert!(
@@ -2241,7 +2245,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
 
     let grid_queued_steer = render_transcript_grid(&[queued_steer], 72, 18);
     assert!(
-        grid_queued_steer.contains("< steer  queued"),
+        grid_queued_steer.contains("› steer  queued"),
         "must render queued steer with clean upright status:\n{grid_queued_steer}"
     );
 
@@ -2253,7 +2257,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
 
     let grid_followup = render_transcript_grid(&[followup_msg], 72, 18);
     assert!(
-        grid_followup.contains("< follow-up  round 2"),
+        grid_followup.contains("› follow-up  round 2"),
         "must render follow-up with round context:\n{grid_followup}"
     );
     assert!(
@@ -2269,7 +2273,7 @@ fn user_steer_and_followup_render_clean_unified_headers() {
 
     let grid_queued_followup = render_transcript_grid(&[queued_followup], 72, 18);
     assert!(
-        grid_queued_followup.contains("< follow-up  queued"),
+        grid_queued_followup.contains("› follow-up  queued"),
         "must render queued follow-up with clean upright status:\n{grid_queued_followup}"
     );
 }
@@ -2285,7 +2289,7 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
 
     let grid_sending = render_transcript_grid(&[sending_msg], 72, 18);
     assert!(
-        grid_sending.contains("< prompt  sending"),
+        grid_sending.contains("› prompt  sending"),
         "must render sending prompt with sending status chip:\n{grid_sending}"
     );
 
@@ -2298,7 +2302,7 @@ fn user_prompt_sending_and_cancelled_render_clean_headers() {
 
     let grid_cancelled_round = render_transcript_grid(&[cancelled_round_msg], 72, 18);
     assert!(
-        grid_cancelled_round.contains("< round 1  cancelled"),
+        grid_cancelled_round.contains("› round 1  cancelled"),
         "must render cancelled prompt with round provenance:\n{grid_cancelled_round}"
     );
 }

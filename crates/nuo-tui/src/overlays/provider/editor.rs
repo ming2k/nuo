@@ -582,7 +582,7 @@ pub fn draw_preset_chooser(
 
     let oauth_template = PROVIDER_PRESETS
         .get(selected)
-        .is_some_and(|template| template.auth.is_oauth());
+        .is_some_and(|template| template.auth.is_negotiated());
     let mut hints: Vec<FooterHint> = vec![
         FooterHint::navigation(keyvocab::ARROWS_UD, "navigate"),
         FooterHint::key_primary(crate::keymap::Key::ENTER, "select"),

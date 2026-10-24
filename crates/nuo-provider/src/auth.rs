@@ -3,6 +3,7 @@
 //! Provides a uniform [`CredentialSource`] abstraction for resolving live
 //! authentication credentials and associated account metadata just-in-time
 //! before sending requests to upstream LLMs.
+use crate::connection_auth::WirePlacement;
 pub use futures::future::BoxFuture;
 use nuo_host::SecretString;
 use std::any::{Any, TypeId};
@@ -115,19 +116,6 @@ pub struct CopilotAuthMetadata {
     pub session_id: String,
 }
 
-/// Typed marker: the resolved credential is a vendor's **subscription-lane
-/// OIDC bearer** (a login pair minted by the vendor's own OAuth flow), as
-/// opposed to a pasted platform key.
-///
-/// The header layer consults its presence to decide the outgoing shape for
-/// wires the vendor splits by lane (today only Tencent CodeBuddy, where a
-/// pasted platform key rides `X-API-Key` and a logged-in bearer rides
-/// `Authorization: Bearer` — refresh exists only for the bearer lane).
-/// Made up here, consumed by whoever builds the wire; nothing but its
-/// *presence* is ever examined.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BearerLoginMarker;
-
 /// Resolved authentication credentials and account metadata for an outbound request.
 ///
 /// Designed: core struct contains only generic transport authentication
@@ -138,6 +126,8 @@ pub struct ResolvedAuth {
     pub token: SecretString,
     /// User email address if known.
     pub user_email: Option<String>,
+    /// Wire injection placement for this credential (ADR-0098).
+    pub placement: WirePlacement,
     /// Open-world typed provider extensions (e.g. ChatGptAuthMetadata, GoogleAuthMetadata).
     pub extensions: ExtensionMap,
 }
@@ -148,6 +138,7 @@ impl ResolvedAuth {
         Self {
             token: token.into(),
             user_email: None,
+            placement: WirePlacement::Bearer,
             extensions: ExtensionMap::new(),
         }
     }
@@ -161,6 +152,17 @@ impl ResolvedAuth {
     pub fn with_extension<T: Send + Sync + 'static>(mut self, val: T) -> Self {
         self.extensions.insert(val);
         self
+    }
+
+    /// Set wire injection placement.
+    pub fn with_placement(mut self, placement: WirePlacement) -> Self {
+        self.placement = placement;
+        self
+    }
+
+    /// Retrieve the wire placement configuration.
+    pub fn placement(&self) -> &WirePlacement {
+        &self.placement
     }
 
     /// Set the user email.
@@ -180,6 +182,7 @@ impl fmt::Debug for ResolvedAuth {
         f.debug_struct("ResolvedAuth")
             .field("token", &"[REDACTED]")
             .field("user_email", &self.user_email)
+            .field("placement", &self.placement)
             .field("extensions", &self.extensions)
             .finish()
     }

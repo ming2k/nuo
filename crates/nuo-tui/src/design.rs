@@ -43,15 +43,20 @@ pub(crate) const MESSAGE_GAP_ROWS: usize = 1;
 /// preserves the hierarchy without giving every child its own top margin.
 pub(crate) const TURN_HEADER_BODY_GAP_ROWS: usize = 1;
 
-/// Blank surface gap rows between a user message header (`< round N · HH:MM`)
+/// Blank surface gap rows between a user message header (`› round N · HH:MM`)
 /// and its message body panel.
 pub(crate) const USER_MESSAGE_HEADER_BODY_GAP_ROWS: usize = 1;
 
-/// Lead glyph for sent user message headers, representing Unix stdin redirection (`<`).
-pub(crate) const USER_MESSAGE_GUTTER_GLYPH: &str = "<";
+/// Lead glyph for sent user message headers. Aliased to the canonical
+/// [`INPUT_PROMPT_GLYPH`] so a sent message carries the same `›` as the composer
+/// that produced it. The former ASCII `<` (and its "Unix stdin redirection"
+/// rationale) is retired in favour of the project's canonical single guillemet.
+pub(crate) const USER_MESSAGE_GUTTER_GLYPH: &str = INPUT_PROMPT_GLYPH;
 
-/// Lead glyph for assistant turn headers, representing Unix stdout redirection (`>`).
-pub(crate) const AI_OUTPUT_LEAD_GLYPH: &str = ">";
+/// Lead glyph for assistant turn headers. Aliased to the canonical
+/// [`INPUT_PROMPT_GLYPH`], retiring the former ASCII `>` (and its "Unix stdout
+/// redirection" rationale) so no lead drifts to a bare ASCII arrow again.
+pub(crate) const AI_OUTPUT_LEAD_GLYPH: &str = INPUT_PROMPT_GLYPH;
 
 /// Blockquote gutter glyph for transcript prose (`Block::Quote`): a light
 /// vertical rule that marks the quoted run. Painted on every wrapped row so
@@ -256,9 +261,27 @@ pub(crate) const COMPOSER_MAX_HEIGHT_DIVISOR: u16 = 2;
 pub(crate) fn sheet_max_height(terminal_height: u16) -> u16 {
     (terminal_height / COMPOSER_MAX_HEIGHT_DIVISOR).max(COMPOSER_MIN_HEIGHT)
 }
-/// Columns reserved before the composer text: the `›` prompt glyph plus one
-/// gap column on the first wrapped line; continuation lines indent the same
-/// amount so the caret stays aligned. Text starts at column 2 of the box.
+/// The canonical **lead glyph**: a single right-pointing angle quote (`›`,
+/// U+203A — one column wide) that fronts every prompt and message lead in the
+/// TUI — the composer, the command-palette query, the permission input-injection
+/// field, the question sheet's "Other" field, the dashboard console, the provider
+/// search rows, the completion menu's suggestions, and the transcript's
+/// user-message and assistant-turn headers ([`USER_MESSAGE_GUTTER_GLYPH`],
+/// [`AI_OUTPUT_LEAD_GLYPH`]). A named token so no lead can drift to a bare ASCII
+/// `<`/`>` again.
+pub(crate) const INPUT_PROMPT_GLYPH: &str = "›";
+
+/// The input prompt prefix: [`INPUT_PROMPT_GLYPH`] plus one gap column, a
+/// literal run of [`COMPOSER_PROMPT_PREFIX_COLS`] columns. Surfaces that paint
+/// the prefix as a single styled run (command palette, permission input
+/// injection) use this so their rendered width and the composer's reserved
+/// [`COMPOSER_PROMPT_PREFIX_COLS`] can never disagree.
+pub(crate) const INPUT_PROMPT_PREFIX: &str = "› ";
+
+/// Columns reserved before the composer text: the [`INPUT_PROMPT_GLYPH`] prompt
+/// glyph plus one gap column on the first wrapped line; continuation lines
+/// indent the same amount so the caret stays aligned. Text starts at column 2
+/// of the box.
 pub(crate) const COMPOSER_PROMPT_PREFIX_COLS: usize = 2;
 pub(crate) const COMPOSER_TEXT_ROW_OFFSET: u16 = 1;
 
@@ -380,4 +403,37 @@ pub(crate) const MIN_TERMINAL_ROWS: u16 = 12;
 /// animation so nothing changes behind the notice (see [`crate::event_loop`]).
 pub(crate) fn below_minimum(width: u16, height: u16) -> bool {
     width < MIN_TERMINAL_COLS || height < MIN_TERMINAL_ROWS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_prompt_prefix_matches_composer_reservation() {
+        // Every input surface starts its text at the same column: the shared
+        // prompt prefix must lead with the canonical glyph and occupy exactly
+        // the columns the composer reserves.
+        assert_eq!(
+            INPUT_PROMPT_GLYPH, "›",
+            "the input prompt lead must be the single guillemet ›",
+        );
+        assert!(
+            INPUT_PROMPT_PREFIX.starts_with(INPUT_PROMPT_GLYPH),
+            "the prefix must lead with the prompt glyph",
+        );
+        assert_eq!(INPUT_PROMPT_GLYPH.chars().count(), 1);
+        assert_eq!(
+            INPUT_PROMPT_PREFIX.chars().count(),
+            COMPOSER_PROMPT_PREFIX_COLS,
+        );
+    }
+
+    #[test]
+    fn every_lead_uses_the_canonical_glyph() {
+        // One lead everywhere: the transcript headers must render the same single
+        // guillemet as the input surfaces, so no ASCII `<`/`>` can reappear.
+        assert_eq!(USER_MESSAGE_GUTTER_GLYPH, INPUT_PROMPT_GLYPH);
+        assert_eq!(AI_OUTPUT_LEAD_GLYPH, INPUT_PROMPT_GLYPH);
+    }
 }

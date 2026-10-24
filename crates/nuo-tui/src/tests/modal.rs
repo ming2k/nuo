@@ -3598,3 +3598,28 @@ fn browse_connection_models_transitions_to_models_dialog() {
     );
     assert!(app.surfaces.dlg::<crate::surfaces::ModelsDialog>().search);
 }
+
+#[tokio::test]
+async fn models_dialog_query_edit_reanchors_cursor_to_top_match() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    assert!(app.open_dialog(crate::surfaces::DialogKind::Models));
+    let models_dlg = app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+    models_dlg.search = true;
+    models_dlg.index = 4;
+    models_dlg.scroll = 2;
+
+    // Simulate typing a character 'g' via process_event_for_test
+    let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('g'),
+        crossterm::event::KeyModifiers::NONE,
+    ));
+    crate::event_loop::process_event_for_test(&mut app, &event, "").await;
+
+    let dlg = app.surfaces.dlg::<crate::surfaces::ModelsDialog>();
+    assert_eq!(
+        dlg.index, 0,
+        "query edit must re-anchor cursor to top match"
+    );
+    assert_eq!(dlg.scroll, 0, "query edit must reset scroll to top");
+    assert!(dlg.follow, "query edit must arm follow mode");
+}

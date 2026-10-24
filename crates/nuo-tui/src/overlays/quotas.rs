@@ -54,13 +54,13 @@ pub fn draw_quotas_modal(
             vec![FooterHint::key_always(crate::keymap::Key::ESC, "close")],
         )
     } else if let Some(snap) = snapshot {
-        let title = if let Some(ref filter) = snap.provider_filter {
-            format!("Quotas [{filter}]")
+        let header = if let Some(ref filter) = snap.provider_filter {
+            crate::primitives::breadcrumb_parts("Quotas", filter).to_vec()
         } else {
-            "Quotas".to_string()
+            vec![HeaderPart::title("Quotas")]
         };
         (
-            vec![HeaderPart::title(Box::leak(title.into_boxed_str()))],
+            header,
             quotas_body_l1(snap, selected_index, expanded_index, body_width, theme),
             vec![
                 FooterHint::navigation(keyvocab::ARROWS_UD, "navigate"),

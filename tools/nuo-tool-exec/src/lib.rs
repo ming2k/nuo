@@ -17,23 +17,24 @@ use nuo_tool_fs::SystemToolContext;
 use serde::Deserialize;
 use serde_json::Value;
 
-/// Maximum lines a foreground command may produce before StreamGuard terminates it early (ADR-0057).
-/// Calibrated to ~80 bytes per terminal line (200 lines * ~80 B = 16 KB).
-pub const SHELL_STREAM_FLOOD_LINES: usize = 200;
-/// Maximum bytes a foreground command may produce before StreamGuard terminates it early (ADR-0057).
-pub const SHELL_STREAM_FLOOD_BYTES: usize = 16 * 1024;
+/// Maximum lines a foreground command may produce before StreamGuard terminates it early (ADR-0057, ADR-0099).
+/// Serves strictly as a secondary ceiling against micro-allocation heap fragmentation.
+pub const SHELL_STREAM_FLOOD_LINES: usize = 20_000;
+/// Maximum bytes a foreground command may produce before StreamGuard terminates it early (ADR-0057, ADR-0099).
+/// Primary physical memory and runaway flood watchdog (2 MB).
+pub const SHELL_STREAM_FLOOD_BYTES: usize = 2 * 1024 * 1024;
 /// Relaxed bounds when raw mode is explicitly requested.
-pub const RAW_STREAM_FLOOD_LINES: usize = 1_000;
-pub const RAW_STREAM_FLOOD_BYTES: usize = 80 * 1024;
+pub const RAW_STREAM_FLOOD_LINES: usize = 100_000;
+pub const RAW_STREAM_FLOOD_BYTES: usize = 10 * 1024 * 1024;
+/// Maximum chunk size before chunking unbounded single-line streams (ADR-0099 [INV-STREAM-02]).
+pub const MAX_LINE_CHUNK_BYTES: usize = 64 * 1024;
 
 /// Typed parameters for [`ExecuteCommandTool`].
 #[derive(Debug, Clone, Deserialize, ToolSchema)]
 pub struct ExecuteCommandArgs {
     #[tool(desc = "The shell command to execute. Commands MUST be finite and self-terminating.")]
     pub command: String,
-    #[tool(
-        desc = "Overall timeout in seconds (default 1800 = 30 minutes). Enforced by StreamGuard."
-    )]
+    #[tool(desc = "Overall wall-clock timeout in seconds (default 1800 = 30 minutes).")]
     pub timeout: Option<u64>,
     #[tool(
         desc = "Set to true to bypass semantic folding and output raw unabridged command stream (default false)."
@@ -120,51 +121,11 @@ impl Tool for ExecuteCommandTool {
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(ShellStream, String)>();
 
-        let stdout_handle = if let Some(out) = stdout {
-            let tx_out = tx.clone();
-            Some(tokio::spawn(async move {
-                use tokio::io::AsyncBufReadExt;
-                let mut reader = tokio::io::BufReader::new(out);
-                let mut buf = Vec::new();
-                while let Ok(n) = reader.read_until(b'\n', &mut buf).await {
-                    if n == 0 {
-                        break;
-                    }
-                    let line = String::from_utf8_lossy(&buf)
-                        .trim_end_matches(['\r', '\n'])
-                        .to_string();
-                    buf.clear();
-                    if tx_out.send((ShellStream::Out, line)).is_err() {
-                        break;
-                    }
-                }
-            }))
-        } else {
-            None
-        };
+        let stdout_handle =
+            stdout.map(|out| tokio::spawn(read_stream_lines(out, tx.clone(), ShellStream::Out)));
 
-        let stderr_handle = if let Some(err) = stderr {
-            let tx_err = tx.clone();
-            Some(tokio::spawn(async move {
-                use tokio::io::AsyncBufReadExt;
-                let mut reader = tokio::io::BufReader::new(err);
-                let mut buf = Vec::new();
-                while let Ok(n) = reader.read_until(b'\n', &mut buf).await {
-                    if n == 0 {
-                        break;
-                    }
-                    let line = String::from_utf8_lossy(&buf)
-                        .trim_end_matches(['\r', '\n'])
-                        .to_string();
-                    buf.clear();
-                    if tx_err.send((ShellStream::Err, line)).is_err() {
-                        break;
-                    }
-                }
-            }))
-        } else {
-            None
-        };
+        let stderr_handle =
+            stderr.map(|err| tokio::spawn(read_stream_lines(err, tx.clone(), ShellStream::Err)));
         drop(tx);
 
         let mut stdout_buf = String::new();
@@ -237,6 +198,55 @@ impl Tool for ExecuteCommandTool {
     }
 }
 
+/// Asynchronously reads an incoming stream, emitting lines or bounded 64 KB chunks to prevent
+/// memory bloat on unbounded single-line outputs (ADR-0099 [INV-STREAM-02]).
+async fn read_stream_lines(
+    stream: impl tokio::io::AsyncRead + Unpin,
+    tx: tokio::sync::mpsc::UnboundedSender<(ShellStream, String)>,
+    stream_type: ShellStream,
+) {
+    use tokio::io::AsyncBufReadExt;
+    let mut reader = tokio::io::BufReader::new(stream);
+    let mut buf = Vec::new();
+    loop {
+        let available = match reader.fill_buf().await {
+            Ok([]) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+
+        if let Some(pos) = available.iter().position(|&b| b == b'\n') {
+            let consume_len = pos + 1;
+            buf.extend_from_slice(&available[..consume_len]);
+            reader.consume(consume_len);
+            let line = String::from_utf8_lossy(&buf)
+                .trim_end_matches(['\r', '\n'])
+                .to_string();
+            buf.clear();
+            if tx.send((stream_type, line)).is_err() {
+                break;
+            }
+        } else {
+            let chunk_len = available.len();
+            buf.extend_from_slice(available);
+            reader.consume(chunk_len);
+            if buf.len() >= MAX_LINE_CHUNK_BYTES {
+                let line = String::from_utf8_lossy(&buf).to_string();
+                buf.clear();
+                if tx.send((stream_type, line)).is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    if !buf.is_empty() {
+        let line = String::from_utf8_lossy(&buf)
+            .trim_end_matches(['\r', '\n'])
+            .to_string();
+        let _ = tx.send((stream_type, line));
+    }
+}
+
 /// Creates command execution tools for an agent.
 pub fn create_exec_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
     vec![Arc::new(ExecuteCommandTool::new(ctx))]
@@ -299,11 +309,11 @@ mod tests {
         let tool = ExecuteCommandTool::new(ctx);
         let t_ctx = ToolContext::default();
 
-        // Emit more than SHELL_STREAM_FLOOD_LINES (200 lines) without raw mode
+        // Emit more than SHELL_STREAM_FLOOD_BYTES (2 MB) to trigger StreamGuard physical kill
         #[cfg(not(windows))]
-        let cmd = "seq 1 3000";
+        let cmd = "python3 -c \"import sys; sys.stdout.write('A' * (3 * 1024 * 1024))\" 2>/dev/null || yes 'streamguard_flood_payload_for_testing' | head -n 60000";
         #[cfg(windows)]
-        let cmd = "powershell -Command \"1..3000\"";
+        let cmd = "powershell -Command \"Write-Output ('A' * (3 * 1024 * 1024))\"";
 
         let res = tool
             .execute(&t_ctx, json!({"command": cmd, "raw": false}))
@@ -317,6 +327,76 @@ mod tests {
         {
             assert_eq!(termination, ShellTermination::StreamGuard);
             assert!(truncated);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_exec_tool_streamguard_unbounded_single_line_flood() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let tool = ExecuteCommandTool::new(ctx);
+        let t_ctx = ToolContext::default();
+
+        // Emit an unbounded single line (>2 MB without newlines) to verify chunked ingestion
+        #[cfg(not(windows))]
+        let cmd = "python3 -c \"import sys; sys.stdout.write('B' * (3 * 1024 * 1024))\" 2>/dev/null || head -c 3145728 /dev/zero | tr '\\0' 'B'";
+        #[cfg(windows)]
+        let cmd = "powershell -Command \"[Console]::Out.Write('B' * (3 * 1024 * 1024))\"";
+
+        let res = tool
+            .execute(&t_ctx, json!({"command": cmd, "raw": false}))
+            .await
+            .unwrap();
+        if let ToolOutput::Shell {
+            termination,
+            truncated,
+            ..
+        } = res
+        {
+            assert_eq!(termination, ShellTermination::StreamGuard);
+            assert!(truncated);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_exec_tool_large_finite_output_not_killed_by_streamguard() {
+        let dir = tempdir().unwrap();
+        let ctx = Arc::new(SystemToolContext::new(dir.path()));
+        let tool = ExecuteCommandTool::new(ctx);
+        let t_ctx = ToolContext::default();
+
+        // Emit ~2,000 lines (>8 KB, typical unit test / clippy suite) without raw mode
+        #[cfg(not(windows))]
+        let cmd = "seq 1 2000";
+        #[cfg(windows)]
+        let cmd = "powershell -Command \"1..2000\"";
+
+        let res = tool
+            .execute(&t_ctx, json!({"command": cmd, "raw": false}))
+            .await
+            .unwrap();
+        if let ToolOutput::Shell {
+            termination,
+            exit,
+            stdout,
+            truncated,
+            ..
+        } = res
+        {
+            assert_eq!(
+                termination,
+                ShellTermination::Exited,
+                "Normal finite multi-thousand line command must exit cleanly, not be murdered by StreamGuard"
+            );
+            assert_eq!(exit, Some(0));
+            assert!(
+                stdout.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS,
+                "Output should cross cognitive threshold (8 KB)"
+            );
+            assert!(
+                truncated,
+                "Downstream should mark it truncated for cognitive context protection"
+            );
         }
     }
 }

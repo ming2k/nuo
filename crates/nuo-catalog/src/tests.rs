@@ -197,8 +197,8 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
     use nuo_wire::{GoogleGenerateContentDialect, ProviderDialect};
     let _sandbox = sandboxed_paths();
     for auth in [
-        ConnectionAuth::ApiKey,
-        ConnectionAuth::subscription("google-antigravity"),
+        ConnectionAuth::Static,
+        ConnectionAuth::negotiated("google-antigravity"),
     ] {
         for remote_protocol in [None, Some(WireProtocol::GoogleGenerateContent)] {
             let mut conn = instance("dialect-inheritance", Some("google-antigravity"));
@@ -239,7 +239,7 @@ fn provider_dialect_is_inherited_independently_of_auth_and_remote_protocol() {
     }
     // Credential type cannot turn an ordinary Google service into Antigravity.
     let mut conn = instance("native-google", Some("google"));
-    conn.auth = ConnectionAuth::subscription("google-antigravity");
+    conn.auth = ConnectionAuth::negotiated("google-antigravity");
     let channel = derive_channel(
         &conn,
         "gemini-3.8-flash",
@@ -368,7 +368,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
     )
     .unwrap();
     let mut conn = instance("test-agy-wire", Some("test-antigravity-wire"));
-    conn.auth = ConnectionAuth::subscription("google-antigravity");
+    conn.auth = ConnectionAuth::negotiated("google-antigravity");
     {
         let store = test_credential_store();
         let mut auth = store.lock().await.unwrap();
@@ -1020,7 +1020,7 @@ fn copilot_route_uses_remote_endpoint_metadata() {
     let copilot = Connection {
         name: "copilot".to_string(),
         provider: "github-copilot".to_string(),
-        auth: nuo_wire::ConnectionAuth::subscription("copilot"),
+        auth: nuo_wire::ConnectionAuth::negotiated("copilot"),
         ..Default::default()
     };
     let channel = derive_channel(
@@ -1258,7 +1258,7 @@ async fn antigravity_oauth_live_catalog_sync_materializes_tiered_generations() {
         nuo_provider::CatalogShape::GoogleCloudCode,
     );
     let mut conn = instance("agy-live", Some(provider_id));
-    conn.auth = ConnectionAuth::subscription("google-antigravity");
+    conn.auth = ConnectionAuth::negotiated("google-antigravity");
     let connections = Connections {
         connections: vec![conn],
     };
@@ -1632,7 +1632,7 @@ fn catalog_builds_from_the_state_store_only() {
 fn antigravity_models_derivation_and_hidden_filter() {
     let _sandbox = sandboxed_paths();
     let mut conn = instance("g11", Some("google-antigravity"));
-    conn.auth = nuo_wire::ConnectionAuth::subscription("google-antigravity");
+    conn.auth = nuo_wire::ConnectionAuth::negotiated("google-antigravity");
     let connections = Connections {
         connections: vec![conn],
     };
@@ -2053,7 +2053,7 @@ fn declared_unavailable_model_is_listed_but_refused_by_the_server() {
     let qoder = Connection {
         name: "qoder".to_string(),
         provider: "qoder".to_string(),
-        auth: nuo_wire::ConnectionAuth::subscription("qoder"),
+        auth: nuo_wire::ConnectionAuth::negotiated("qoder"),
         ..Default::default()
     };
     Connections {

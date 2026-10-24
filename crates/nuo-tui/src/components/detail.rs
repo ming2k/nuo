@@ -22,6 +22,17 @@
 //!    All inspector rows are declared as [`SelectableRow`]s, guaranteeing mouse selection,
 //!    hit-testing, and clipboard copy support across all detail surfaces. When line-oriented
 //!    rendering is needed, [`SelectableRow::to_line`] losslessly projects back to `Line`.
+//!
+//! 4. **Clean Section Headers & Zero Title Noise**:
+//!    Section headers must be clean semantic titles created via [`DetailLayout::section`].
+//!    Never append bracketed badges, ad-hoc codes (e.g. `[ Command Code ]`), or arbitrary
+//!    trailing suffixes to section or modal titles. Sub-labels or tier plans belong in
+//!    structured key-value rows, not header titles.
+//!
+//! 5. **Uniform Column-0 Alignment**:
+//!    All top-level property rows within detail views must align flush to column 0 without
+//!    arbitrary section-wide indentation. Hierarchy within a property (e.g. tree branches or
+//!    sub-meters) must indent relative to its parent row, not by shifting the entire section.
 
 use nuotc::{Modifier, Span, Style};
 use unicode_width::UnicodeWidthStr;

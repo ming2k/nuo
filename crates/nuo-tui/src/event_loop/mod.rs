@@ -770,6 +770,36 @@ async fn process_one_event<W: io::Write>(
         } else {
             None
         };
+    let models_query_before = if app.active_dialog() == Some(crate::surfaces::DialogKind::Models)
+        && app.surfaces.dlg::<crate::surfaces::ModelsDialog>().search
+    {
+        Some(
+            app.surfaces
+                .dlg::<crate::surfaces::ModelsDialog>()
+                .query
+                .text
+                .clone(),
+        )
+    } else {
+        None
+    };
+    let connections_query_before = if app.active_dialog()
+        == Some(crate::surfaces::DialogKind::Connections)
+        && app
+            .surfaces
+            .dlg::<crate::surfaces::ConnectionsDialog>()
+            .search
+    {
+        Some(
+            app.surfaces
+                .dlg::<crate::surfaces::ConnectionsDialog>()
+                .query
+                .text
+                .clone(),
+        )
+    } else {
+        None
+    };
     let composer_owned_before = app.caret_owner() == crate::CaretOwner::Composer;
     let current_scene = app.current_scene();
 
@@ -941,6 +971,34 @@ async fn process_one_event<W: io::Write>(
         let d = &mut app
             .surfaces
             .dlg_mut::<crate::surfaces::HistorySearchDialog>();
+        d.index = 0;
+        d.scroll = 0;
+        d.follow = true;
+    }
+    if let Some(before) = models_query_before
+        && app.active_dialog() == Some(crate::surfaces::DialogKind::Models)
+        && before
+            != app
+                .surfaces
+                .dlg::<crate::surfaces::ModelsDialog>()
+                .query
+                .text
+    {
+        let d = &mut app.surfaces.dlg_mut::<crate::surfaces::ModelsDialog>();
+        d.index = 0;
+        d.scroll = 0;
+        d.follow = true;
+    }
+    if let Some(before) = connections_query_before
+        && app.active_dialog() == Some(crate::surfaces::DialogKind::Connections)
+        && before
+            != app
+                .surfaces
+                .dlg::<crate::surfaces::ConnectionsDialog>()
+                .query
+                .text
+    {
+        let d = &mut app.surfaces.dlg_mut::<crate::surfaces::ConnectionsDialog>();
         d.index = 0;
         d.scroll = 0;
         d.follow = true;

@@ -68,7 +68,7 @@ pub fn build_credential_source(
 ) -> Option<Arc<dyn CredentialSource>> {
     if let Some(factory) = PROVIDER_FACTORY.get() {
         Some(factory.build_credential_source(host, connection_name, auth, api_key, dialect))
-    } else if auth.is_oauth() {
+    } else if auth.is_negotiated() {
         None
     } else {
         Some(static_credential(api_key))

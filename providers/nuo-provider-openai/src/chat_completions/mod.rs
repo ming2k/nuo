@@ -211,9 +211,7 @@ impl OpenAiChatCompletionsProvider {
         // follows from that marker, not from sniffing the token string.
         // Every other lane resolves as plain Bearer.
         let codebuddy_lane = if self.dialect != nuo_provider::OpenAiChatDialect::CodeBuddy
-            || auth
-                .extension::<nuo_provider::BearerLoginMarker>()
-                .is_some()
+            || auth.placement == nuo_provider::WirePlacement::Bearer
         {
             request::CodeBuddyAuthLane::Bearer
         } else {

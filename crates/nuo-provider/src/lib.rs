@@ -58,7 +58,7 @@ pub mod oauth {
 }
 
 // Capability & Core Traits — the contract crate owns the `Provider` cognitive contract
-pub use auth::{BearerLoginMarker, CredentialSource, ResolvedAuth, static_credential};
+pub use auth::{CredentialSource, ResolvedAuth, static_credential};
 pub use capability::{
     ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
     ProviderTextStream, ProviderTurnContext, ToolSpec, VariantSelection, empty_variant_selection,

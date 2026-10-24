@@ -244,6 +244,7 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "qianwen",
     "commandcode-plan",
     "codebuddy",
+    "codebuddy-intl",
 ];
 
 /// Whether `id` names a registered model provider.
@@ -281,6 +282,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
         "anthropic" => "Anthropic",
         "chatgpt-plan" => "ChatGPT Plan",
         "codebuddy" => "Tencent CodeBuddy",
+        "codebuddy-intl" => "Tencent CodeBuddy Global",
         "commandcode-plan" => "CommandCode Plan",
         "deepseek" => "DeepSeek",
         "github-copilot" => "GitHub Copilot",

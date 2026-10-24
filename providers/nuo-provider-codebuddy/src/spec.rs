@@ -175,6 +175,27 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     models: CODEBUDDY_BUILTIN_MODELS,
 };
 
+/// The international surface for global users (ADR-0097).
+pub const INTL_MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
+    dialect: nuo_provider::ProviderDialect::CodeBuddy,
+    protocol_roots: std::borrow::Cow::Borrowed(&[]),
+    catalog_root_url: None,
+    prompt_cache: nuo_provider::PromptCachePolicy::Compiled(prompt_cache_for_model),
+    id: std::borrow::Cow::Borrowed("codebuddy-intl"),
+    baselines: MODELS,
+    root_url: std::borrow::Cow::Borrowed("https://www.codebuddy.ai/v2"),
+    user_agent: Some(std::borrow::Cow::Borrowed(
+        nuo_provider::client_identity::CODEBUDDY_USER_AGENT,
+    )),
+    protocol: WireProtocol::OpenAiChatCompletions,
+    catalog_source: RemoteCatalogSource::None,
+    default_client_profile: nuo_provider::ClientPreset::CodeBuddy,
+    client_profile_sensitive: true,
+    quota: None,
+    display_policy: nuo_provider::DisplayPolicy::Native,
+    models: CODEBUDDY_BUILTIN_MODELS,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

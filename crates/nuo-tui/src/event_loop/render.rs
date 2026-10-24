@@ -1015,7 +1015,7 @@ fn compose_frame(
                 )),
                 SheetKind::OAuthPending => {
                     let title: &'static str = match &app.custom_auth {
-                        nuo_wire::ConnectionAuth::Subscription { provider } => {
+                        nuo_wire::ConnectionAuth::Negotiated { provider } => {
                             match provider.as_ref() {
                                 "chatgpt" => "ChatGPT Subscription",
                                 "copilot" => "Copilot",
@@ -1025,7 +1025,7 @@ fn compose_frame(
                                 _ => "Subscription",
                             }
                         }
-                        nuo_wire::ConnectionAuth::ApiKey => "OAuth",
+                        nuo_wire::ConnectionAuth::Static => "OAuth",
                     };
                     Some(render::draw_oauth_pending(
                         title,

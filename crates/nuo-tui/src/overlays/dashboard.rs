@@ -34,6 +34,7 @@ use nuotc::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use crate::design::INPUT_PROMPT_PREFIX;
 use crate::primitives::{
     ElevationContainer, LayoutTier, SCROLL_EDGE_MARGIN, resolve_scroll, viewport_rect,
 };
@@ -1153,7 +1154,7 @@ impl ConsoleLine {
                         .join(" ")
                 };
                 Line::from(vec![
-                    Span::styled("› ".to_string(), Style::default().fg(theme.brand())),
+                    Span::styled(INPUT_PROMPT_PREFIX, Style::default().fg(theme.brand())),
                     Span::styled(format!("[{who}] "), Style::default().fg(theme.brand())),
                     Span::styled(action.to_string(), Style::default().fg(theme.muted())),
                     Span::styled(format!("  {raw}"), Style::default().fg(theme.fg())),

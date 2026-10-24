@@ -18,7 +18,7 @@ use super::Theme;
 use super::components::composer_hints::hint_row_parts;
 use super::design::{
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_TEXT_ROW_OFFSET,
-    COMPOSER_VERTICAL_CHROME_ROWS,
+    COMPOSER_VERTICAL_CHROME_ROWS, INPUT_PROMPT_GLYPH,
 };
 use super::text_layout::{WrappedLine, block_selection_range, line_selection, wrap_text};
 
@@ -541,7 +541,10 @@ fn draw_composer_impl(
     // box reads as a shell-style prompt on a tinted panel. Only the visible
     // slice is rendered so overflowing content can scroll while the box stays
     // within its terminal-sized bounds.
-    let prompt_glyph = Span::styled("›", Style::default().bg(panel_bg).fg(prompt_fg));
+    let prompt_glyph = Span::styled(
+        INPUT_PROMPT_GLYPH,
+        Style::default().bg(panel_bg).fg(prompt_fg),
+    );
     let prompt_gap = Span::styled(
         " ".repeat(COMPOSER_PROMPT_PREFIX_COLS - 1),
         Style::default().bg(panel_bg),

@@ -137,7 +137,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             needs_dialect_signing,
             dimensions,
         } => {
-            let auth = if job.connection.auth.is_oauth() {
+            let auth = if job.connection.auth.is_negotiated() {
                 let Some(source) = nuo_provider::build_credential_source(
                     &job.credentials,
                     &job.connection.name,

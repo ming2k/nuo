@@ -18,7 +18,7 @@
 //!   list is grouped into three labeled sections (Favorites → Recent → All
 //!   models; see [`ModelSection`]), and [`models_body_lines`] maps the flat
 //!   row indices onto the body's line geometry for the renderer.
-use nuo_wire::{ConnectionAuth, ProviderModelInfo, ProviderPickerSnapshot, WireProtocol};
+use nuo_wire::{ConnectionAuth, ProviderPickerSnapshot, WireProtocol};
 
 use crate::fuzzy;
 
@@ -107,7 +107,7 @@ impl ConnectionTemplate {
     /// The ordered, visible editor fields for this template (create mode).
     /// OAuth templates only ask for the connection name (auth already completed).
     pub fn fields(&self) -> Vec<CustomField> {
-        if self.auth.is_oauth() {
+        if self.auth.is_negotiated() {
             return vec![CustomField::Name];
         }
         if self.id == CUSTOM_TEMPLATE.id {
@@ -134,7 +134,7 @@ impl ConnectionTemplate {
 
     /// Whether selecting this template starts OAuth before the name editor.
     pub fn oauth_first(&self) -> bool {
-        self.auth.is_oauth()
+        self.auth.is_negotiated()
     }
 }
 
@@ -157,7 +157,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.anthropic.com/v1/messages"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "chatgpt-plan",
@@ -170,7 +170,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://chatgpt.com/backend-api/codex/responses"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::subscription_const("chatgpt-plan"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("chatgpt-plan"),
     },
     ConnectionTemplate {
         id: "commandcode-plan",
@@ -183,7 +183,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.commandcode.ai/provider/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "deepseek",
@@ -196,7 +196,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.deepseek.com/v1/responses"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "glm-cn",
@@ -209,7 +209,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::ZCODE_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "github-copilot",
@@ -222,7 +222,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.githubcopilot.com/chat/completions"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::subscription_const("copilot"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("copilot"),
     },
     ConnectionTemplate {
         id: "google",
@@ -235,7 +235,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://generativelanguage.googleapis.com/v1beta"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "google-antigravity",
@@ -248,7 +248,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://daily-cloudcode-pa.googleapis.com"),
         user_agent: Some(nuo_wire::client_identity::ANTIGRAVITY_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::subscription_const("google-antigravity"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("google-antigravity"),
     },
     ConnectionTemplate {
         id: "kimi-code",
@@ -261,7 +261,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.kimi.com/coding/v1/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "openai",
@@ -274,7 +274,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.openai.com/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "opencode-plan",
@@ -287,7 +287,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://opencode.ai/zen/go/v1/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "opencode-zen",
@@ -300,7 +300,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://opencode.ai/zen/v1/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "openrouter",
@@ -313,7 +313,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://openrouter.ai/api/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "qianwen",
@@ -328,7 +328,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
             "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1/chat/completions",
         ),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::ApiKey,
+        auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
         id: "qoder",
@@ -341,7 +341,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api3.qoder.sh"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::subscription_const("qoder"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("qoder"),
     },
     ConnectionTemplate {
         id: "codebuddy",
@@ -354,7 +354,20 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://copilot.tencent.com/v2/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::subscription_const("codebuddy"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("codebuddy"),
+    },
+    ConnectionTemplate {
+        id: "codebuddy-intl",
+        label: "Tencent CodeBuddy Global",
+        description: "Tencent CodeBuddy AI international service for global users; sign in with your CodeBuddy AI account in the browser, or paste an API key.",
+        protocol: WireProtocol::OpenAiChatCompletions,
+        models: nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS,
+        needs_url: false,
+        url_hint: "https://www.codebuddy.ai/v2/chat/completions",
+        needs_model: false,
+        default_url: Some("https://www.codebuddy.ai/v2/chat/completions"),
+        user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("codebuddy-intl"),
     },
     ConnectionTemplate {
         id: "xai",
@@ -367,7 +380,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         needs_model: false,
         default_url: Some("https://api.x.ai/v1/chat/completions"),
         user_agent: None,
-        auth: nuo_wire::ConnectionAuth::subscription_const("xai"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("xai"),
     },
 ];
 
@@ -391,7 +404,7 @@ pub const CUSTOM_TEMPLATE: ConnectionTemplate = ConnectionTemplate {
     needs_model: true,
     default_url: None,
     user_agent: None,
-    auth: nuo_wire::ConnectionAuth::ApiKey,
+    auth: nuo_wire::ConnectionAuth::Static,
 };
 
 /// Resolve either a curated template or the standalone `custom` template by
@@ -438,7 +451,7 @@ pub fn provider_type_label(provider: &str) -> Option<&'static str> {
 /// URL and Token are fixed by the auth flow and must not be hand-edited, so a
 /// rename is the only safe operation.
 pub fn edit_fields(curated: bool, auth: ConnectionAuth) -> Vec<CustomField> {
-    if auth.is_oauth() {
+    if auth.is_negotiated() {
         vec![CustomField::Name, CustomField::Budget]
     } else if curated {
         vec![CustomField::Name, CustomField::Token, CustomField::Budget]
@@ -561,6 +574,9 @@ pub struct RankedModel {
     /// Subsequence match against the provider connection label
     /// (`provider_label`).
     pub match_connection: Option<fuzzy::FuzzyMatch>,
+    /// Composite fuzzy relevance score across matched tokens and cross-field bonus ([`INV-MODEL-SEARCH-04`]).
+    /// Used to rank filtered results within each section (higher is better). 0 when query is empty.
+    pub relevance_score: i64,
 }
 
 impl RankedModel {
@@ -688,23 +704,52 @@ pub fn providers_filtered_from(
     rows
 }
 
+/// Canonical cross-field relevance bonus awarded when a candidate model row matches
+/// across both the connection label and the model identifier/name dimensions ([`INV-MODEL-SEARCH-04`]).
+const BONUS_CROSS_FIELD: i64 = 1000;
+
+/// Accumulates matched character positions across multiple query tokens
+/// for a single candidate field, producing a deduplicated, sorted [`fuzzy::FuzzyMatch`] ([`INV-MODEL-SEARCH-03`]).
+#[derive(Debug, Clone, Default)]
+struct TokenAccumulator {
+    positions: Vec<usize>,
+}
+
+impl TokenAccumulator {
+    #[inline]
+    fn add(&mut self, m: &fuzzy::FuzzyMatch) {
+        self.positions.extend_from_slice(&m.positions);
+    }
+
+    #[inline]
+    fn finish(mut self, score: i64) -> Option<fuzzy::FuzzyMatch> {
+        if self.positions.is_empty() {
+            None
+        } else {
+            self.positions.sort_unstable();
+            self.positions.dedup();
+            Some(fuzzy::FuzzyMatch {
+                score,
+                positions: self.positions,
+            })
+        }
+    }
+}
+
 /// Build the **flat Models** rows: [`RankedModel`] rows sectioned into three labeled groups:
 ///
-/// 1. **Favorites** — ★-marked models (ADR-0046), ASCII by model id;
-/// 2. **Recent** — models with usage history, most recently used first
-///    (recency-desc, ASCII id as the tiebreaker);
-/// 3. **All models** — ALL available models across ready providers (including favorites
-///    and recent models), ASCII by model id (provider label as the stable tiebreaker).
+/// 1. **Favorites** — ★-marked models (ADR-0046);
+/// 2. **Recent** — models with usage history (recency-descending);
+/// 3. **All models** — ALL available models across ready providers (including favorites and recent models).
 ///
-/// Fuzzy filtering matches `query` against the model's **rendered label** — the
-/// provider's own name for it when the catalog advertises one, else the wire id.
-/// When the label does not match but the wire id behind it does, the row is kept
-/// unhighlighted (`m = None`); likewise when the PROVIDER name fuzzy-matches, all
-/// of that provider's models are included unhighlighted, so "show me everything
-/// Anthropic serves" works from the same search box. Match positions always index
-/// onto the rendered label's characters only, because that is what is drawn. The
-/// sectioned ordering is applied in
-/// search mode too, so filtered results keep the same visual grouping.
+/// Supports order-independent multi-token cross-field hybrid search (ADR-0096):
+/// - The query is decomposed by whitespace and path/tag separators (`/`, `:`, `@`, `|`) into discrete tokens.
+/// - Every token must fuzzy-match at least one field (`connection_label`, `model_id`, or `model_name`)
+///   for the candidate to be kept ([`INV-MODEL-SEARCH-01`]).
+/// - Order is commutative: `azure gpt-4` and `gpt-4 azure` produce identical candidate sets ([`INV-MODEL-SEARCH-02`]).
+/// - Highlight positions are aggregated per column without cross-field bleeding ([`INV-MODEL-SEARCH-03`]).
+/// - Candidates spanning both connection and model receive a cross-field bonus ([`INV-MODEL-SEARCH-04`])
+///   and rank at the top of their respective section.
 pub fn models_flat_filtered_from(
     picker: &ProviderPickerSnapshot,
     current_provider: &str,
@@ -712,83 +757,136 @@ pub fn models_flat_filtered_from(
     query: &str,
 ) -> Vec<RankedModel> {
     let _ = (current_provider, current_model);
+    let tokens: Vec<&str> = query
+        .split(|c: char| c.is_whitespace() || c == '/' || c == ':' || c == '@' || c == '|')
+        .filter(|s| !s.is_empty())
+        .collect();
+    let has_query = !tokens.is_empty();
+
     let mut candidates: Vec<RankedModel> = Vec::new();
     for prow in &picker.rows {
         // Daily-driver model picker only shows models from ready/authenticated connections.
         if !prow.key_ready {
             continue;
         }
-        // Connection/provider match for this provider row
-        let conn_match = if query.is_empty() {
-            None
-        } else {
-            fuzzy::fuzzy_match(&prow.name, query)
-        };
-        for model in &prow.models {
-            let info = prow
-                .model_info
-                .iter()
-                .find(|info| info.model == *model)
-                .cloned()
-                .unwrap_or_else(|| ProviderModelInfo {
-                    model: model.clone(),
-                    ..ProviderModelInfo::default()
-                });
-            // Multi-field fuzzy matching: model id, model display name, and connection label.
-            let (match_id, match_name, match_connection) = if query.is_empty() {
-                (None, None, None)
-            } else {
-                let id_m = fuzzy::fuzzy_match(model, query);
-                let name_m = info
-                    .name
-                    .as_deref()
-                    .and_then(|name| fuzzy::fuzzy_match(name, query));
-                let conn_m = conn_match.clone();
 
-                if id_m.is_none() && name_m.is_none() && conn_m.is_none() {
+        // Hoist provider-name token evaluation across all served models ([`INV-MODEL-SEARCH-01`])
+        let prow_token_matches: Vec<Option<fuzzy::FuzzyMatch>> = if has_query {
+            tokens
+                .iter()
+                .map(|t| fuzzy::fuzzy_match(&prow.name, t))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        for model in &prow.models {
+            let info = prow.model_info.iter().find(|info| info.model == *model);
+
+            // Cross-field multi-token matching: connection label, model id, and model display name.
+            let (match_id, match_name, match_connection, relevance_score) = if !has_query {
+                (None, None, None, 0)
+            } else {
+                let mut conn_acc = TokenAccumulator::default();
+                let mut id_acc = TokenAccumulator::default();
+                let mut name_acc = TokenAccumulator::default();
+
+                let mut matched_conn = false;
+                let mut matched_model = false;
+                let mut all_tokens_matched = true;
+                let mut total_score: i64 = 0;
+                let mut conn_score: i64 = 0;
+                let mut id_score: i64 = 0;
+                let mut name_score: i64 = 0;
+
+                for (idx, token) in tokens.iter().enumerate() {
+                    let conn_m = &prow_token_matches[idx];
+                    let id_m = fuzzy::fuzzy_match(model, token);
+                    let name_m = info
+                        .and_then(|i| i.name.as_deref())
+                        .and_then(|name| fuzzy::fuzzy_match(name, token));
+
+                    if conn_m.is_none() && id_m.is_none() && name_m.is_none() {
+                        all_tokens_matched = false;
+                        break;
+                    }
+
+                    let token_conn_score = conn_m.as_ref().map(|m| m.score).unwrap_or(0);
+                    let token_id_score = id_m.as_ref().map(|m| m.score).unwrap_or(0);
+                    let token_name_score = name_m.as_ref().map(|m| m.score).unwrap_or(0);
+                    // Match quality against the model dimension takes the best representation
+                    // (wire id vs display name) rather than artificially doubling redundant names.
+                    let token_model_score = token_id_score.max(token_name_score);
+
+                    total_score += token_conn_score + token_model_score;
+                    conn_score += token_conn_score;
+                    id_score += token_id_score;
+                    name_score += token_name_score;
+
+                    if let Some(m) = conn_m {
+                        matched_conn = true;
+                        conn_acc.add(m);
+                    }
+                    if let Some(m) = &id_m {
+                        matched_model = true;
+                        id_acc.add(m);
+                    }
+                    if let Some(m) = &name_m {
+                        matched_model = true;
+                        name_acc.add(m);
+                    }
+                }
+
+                if !all_tokens_matched {
                     continue;
                 }
-                (id_m, name_m, conn_m)
+
+                let final_conn = conn_acc.finish(conn_score);
+                let final_id = id_acc.finish(id_score);
+                let final_name = name_acc.finish(name_score);
+
+                let cross_field_bonus = if matched_conn && matched_model {
+                    BONUS_CROSS_FIELD
+                } else {
+                    0
+                };
+
+                let score = total_score + cross_field_bonus;
+                (final_id, final_name, final_conn, score)
             };
 
             candidates.push(RankedModel {
                 section: ModelSection::All,
                 provider_id: prow.id.clone(),
                 model: model.clone(),
-                name: info.name.clone(),
+                name: info.and_then(|i| i.name.clone()),
                 provider_label: prow.name.clone(),
-                effort: info.effort,
-                thinking: info.thinking,
-                // The server already resolved this route's ladder (
-                // baseline ⊕ remote ⊕ user overrides) and shipped it on the
-                // snapshot. It must ride through to the editor: the client
-                // cannot re-resolve it, because `nuo-providers` (which owns
-                // the baseline tables) is not linked into this binary — the
-                // registries live in `nuo-wire`, whose baselines are
-                // populated by the server's provider crates.
-                effort_levels: info.effort_levels,
-                favorite: info.favorite,
-                last_used_ms: info.last_used_ms,
-                context_window: info.context_window,
+                effort: info.and_then(|i| i.effort.clone()),
+                thinking: info.and_then(|i| i.thinking),
+                effort_levels: info.map(|i| i.effort_levels.clone()).unwrap_or_default(),
+                favorite: info.map(|i| i.favorite).unwrap_or(false),
+                last_used_ms: info.and_then(|i| i.last_used_ms),
+                context_window: info.map(|i| i.context_window).unwrap_or(128_000),
                 usable: info
-                    .availability
-                    .as_ref()
-                    .is_none_or(|availability| availability.usable),
-                locked_reason: info
-                    .availability
-                    .as_ref()
-                    .filter(|availability| !availability.usable)
-                    .and_then(|availability| availability.reason.clone()),
-                availability_overridden: info.availability_overridden,
-                availability_stale: info.availability_stale,
+                    .map(|i| i.availability.as_ref().is_none_or(|a| a.usable))
+                    .unwrap_or(true),
+                locked_reason: info.and_then(|i| {
+                    i.availability
+                        .as_ref()
+                        .filter(|a| !a.usable)
+                        .and_then(|a| a.reason.clone())
+                }),
+                availability_overridden: info.map(|i| i.availability_overridden).unwrap_or(false),
+                availability_stale: info.map(|i| i.availability_stale).unwrap_or(false),
                 match_id,
                 match_name,
                 match_connection,
+                relevance_score,
             });
         }
     }
 
-    // 1. Favorites section: starred models, sorted by ASCII model id then provider label.
+    // 1. Favorites section: starred models, sorted by relevance score when searching, else ASCII model id.
     let mut favorites: Vec<RankedModel> = candidates
         .iter()
         .filter(|r| r.favorite)
@@ -799,12 +897,19 @@ pub fn models_flat_filtered_from(
         })
         .collect();
     favorites.sort_by(|a, b| {
-        a.model
-            .cmp(&b.model)
-            .then_with(|| a.provider_label.cmp(&b.provider_label))
+        if has_query {
+            b.relevance_score
+                .cmp(&a.relevance_score)
+                .then_with(|| a.model.cmp(&b.model))
+                .then_with(|| a.provider_label.cmp(&b.provider_label))
+        } else {
+            a.model
+                .cmp(&b.model)
+                .then_with(|| a.provider_label.cmp(&b.provider_label))
+        }
     });
 
-    // 2. Recent section: models with usage history, sorted by recency desc, then ASCII model id, then provider label.
+    // 2. Recent section: models with usage history, sorted by relevance then recency when searching, else recency desc.
     let mut recent: Vec<RankedModel> = candidates
         .iter()
         .filter(|r| r.last_used_ms.is_some())
@@ -817,10 +922,18 @@ pub fn models_flat_filtered_from(
     recent.sort_by(|a, b| {
         let a_used = a.last_used_ms.unwrap_or(0);
         let b_used = b.last_used_ms.unwrap_or(0);
-        b_used
-            .cmp(&a_used)
-            .then_with(|| a.model.cmp(&b.model))
-            .then_with(|| a.provider_label.cmp(&b.provider_label))
+        if has_query {
+            b.relevance_score
+                .cmp(&a.relevance_score)
+                .then_with(|| b_used.cmp(&a_used))
+                .then_with(|| a.model.cmp(&b.model))
+                .then_with(|| a.provider_label.cmp(&b.provider_label))
+        } else {
+            b_used
+                .cmp(&a_used)
+                .then_with(|| a.model.cmp(&b.model))
+                .then_with(|| a.provider_label.cmp(&b.provider_label))
+        }
     });
 
     // 3. All models section: contains EVERY candidate model across ready providers.
@@ -832,9 +945,16 @@ pub fn models_flat_filtered_from(
         })
         .collect();
     all.sort_by(|a, b| {
-        a.model
-            .cmp(&b.model)
-            .then_with(|| a.provider_label.cmp(&b.provider_label))
+        if has_query {
+            b.relevance_score
+                .cmp(&a.relevance_score)
+                .then_with(|| a.model.cmp(&b.model))
+                .then_with(|| a.provider_label.cmp(&b.provider_label))
+        } else {
+            a.model
+                .cmp(&b.model)
+                .then_with(|| a.provider_label.cmp(&b.provider_label))
+        }
     });
 
     let mut rows = Vec::with_capacity(favorites.len() + recent.len() + all.len());
@@ -893,7 +1013,7 @@ mod tests {
     // registration is present in this test binary (`[INV-PROV-09]` linkage).
     extern crate nuo_server;
     use super::*;
-    use nuo_wire::ProviderPickerRow;
+    use nuo_wire::{ProviderModelInfo, ProviderPickerRow};
 
     fn row(id: &str, name: &str, models: &[&str], builtin: bool) -> ProviderPickerRow {
         ProviderPickerRow {
@@ -1409,6 +1529,7 @@ mod tests {
             "QianwenAI Token Plan",
             "Qoder",
             "Tencent CodeBuddy",
+            "Tencent CodeBuddy Global",
         ];
         for t in PROVIDER_PRESETS {
             if builtin_labels.contains(&t.label) {
@@ -1436,7 +1557,7 @@ mod tests {
             tmpl.default_url,
             Some("https://opencode.ai/zen/v1/chat/completions")
         );
-        assert_eq!(tmpl.auth, ConnectionAuth::ApiKey);
+        assert_eq!(tmpl.auth, ConnectionAuth::Static);
         assert!(
             !tmpl.oauth_first(),
             "the Zen relay signs in with an API key"
@@ -1687,7 +1808,9 @@ mod tests {
                 }
                 "google-antigravity" => Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS),
                 "kimi-code" => Some(nuo_wire::model_providers::KIMI_CODE_MODELS),
-                "codebuddy" => Some(nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS),
+                "codebuddy" | "codebuddy-intl" => {
+                    Some(nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS)
+                }
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
                 "opencode-plan" | "opencode-go" => {
@@ -1810,7 +1933,7 @@ mod tests {
     fn edit_fields_api_key_shows_transport_and_identity_for_custom_only() {
         // A pure-custom API-key provider also exposes its transport and
         // request identity.
-        let custom_fields = edit_fields(false, ConnectionAuth::ApiKey);
+        let custom_fields = edit_fields(false, ConnectionAuth::Static);
         assert_eq!(
             custom_fields,
             vec![
@@ -1825,7 +1948,7 @@ mod tests {
 
         // A curated API-key provider derives its Base URL from the provider
         // spec, so it exposes Name, Token, and Budget.
-        let curated_fields = edit_fields(true, ConnectionAuth::ApiKey);
+        let curated_fields = edit_fields(true, ConnectionAuth::Static);
         assert_eq!(
             curated_fields,
             vec![CustomField::Name, CustomField::Token, CustomField::Budget]
@@ -1837,10 +1960,10 @@ mod tests {
         // An OAuth connection's endpoint and bearer are owned by the auth flow
         // (xAI `https://api.x.ai/...`, ChatGPT
         // `https://chatgpt.com/backend-api/codex/...`). The editor exposes Name and Budget.
-        let xai = edit_fields(true, ConnectionAuth::subscription("xai"));
+        let xai = edit_fields(true, ConnectionAuth::negotiated("xai"));
         assert_eq!(xai, vec![CustomField::Name, CustomField::Budget]);
 
-        let chatgpt = edit_fields(true, ConnectionAuth::subscription("chatgpt"));
+        let chatgpt = edit_fields(true, ConnectionAuth::negotiated("chatgpt"));
         assert_eq!(chatgpt, vec![CustomField::Name, CustomField::Budget]);
     }
 
@@ -1880,6 +2003,132 @@ mod tests {
             row.effort_levels,
             vec!["low".to_string(), "high".to_string(), "max".to_string()],
             "the row must forward the snapshot ladder, not drop it"
+        );
+    }
+
+    #[test]
+    fn flat_multi_token_hybrid_search_cross_field_coverage_and_order_independence() {
+        // [INV-MODEL-SEARCH-01, INV-MODEL-SEARCH-02, INV-MODEL-SEARCH-03, INV-MODEL-SEARCH-04]
+        let mut snapshot = sample();
+        // Setup distinct providers and overlapping models:
+        // Provider 1: "Azure Enterprise" serving "gpt-4o"
+        // Provider 2: "OpenAI Official" serving "gpt-4o" and "o1"
+        snapshot.rows[0].id = "azure-ent".to_string();
+        snapshot.rows[0].name = "Azure Enterprise".to_string();
+        snapshot.rows[0].models = vec!["gpt-4o".to_string()];
+        snapshot.rows[0].model_info = vec![info("gpt-4o")];
+
+        snapshot.rows[1].id = "openai-off".to_string();
+        snapshot.rows[1].name = "OpenAI Official".to_string();
+        snapshot.rows[1].models = vec!["gpt-4o".to_string(), "o1".to_string()];
+        snapshot.rows[1].model_info = vec![info("gpt-4o"), info("o1")];
+
+        // 1. Single model search returns gpt-4o from BOTH providers
+        let all_gpt = models_flat_filtered_from(&snapshot, "", "", "gpt-4o");
+        assert_eq!(all_gpt.len(), 2);
+
+        // 2. Cross-field hybrid search with whitespace: "azure gpt"
+        let azure_gpt = models_flat_filtered_from(&snapshot, "", "", "azure gpt");
+        assert_eq!(azure_gpt.len(), 1, "only Azure's gpt-4o should match");
+        assert_eq!(azure_gpt[0].provider_id, "azure-ent");
+        assert_eq!(azure_gpt[0].model, "gpt-4o");
+        // [INV-MODEL-SEARCH-03] Column-isolated highlights:
+        assert!(
+            azure_gpt[0].match_connection.is_some(),
+            "connection highlighted"
+        );
+        assert!(azure_gpt[0].match_id.is_some(), "model id highlighted");
+        // [INV-MODEL-SEARCH-04] Cross-field bonus awarded:
+        assert!(azure_gpt[0].relevance_score >= BONUS_CROSS_FIELD);
+
+        // 3. [INV-MODEL-SEARCH-02] Order-independence: "gpt azure" yields identical row
+        let gpt_azure = models_flat_filtered_from(&snapshot, "", "", "gpt azure");
+        assert_eq!(gpt_azure.len(), 1);
+        assert_eq!(gpt_azure[0].provider_id, "azure-ent");
+        assert_eq!(gpt_azure[0].model, "gpt-4o");
+        assert_eq!(gpt_azure[0].relevance_score, azure_gpt[0].relevance_score);
+
+        // 4. Path and tag delimiters: "azure/gpt", "azure:gpt", "gpt@azure", "azure|gpt"
+        for q in &["azure/gpt", "azure:gpt", "gpt@azure", "azure|gpt"] {
+            let res = models_flat_filtered_from(&snapshot, "", "", q);
+            assert_eq!(
+                res.len(),
+                1,
+                "query '{q}' must resolve exactly to Azure's gpt-4o"
+            );
+            assert_eq!(res[0].provider_id, "azure-ent");
+        }
+
+        // 5. Targeting the other provider: "openai gpt"
+        let openai_gpt = models_flat_filtered_from(&snapshot, "", "", "openai gpt");
+        assert_eq!(openai_gpt.len(), 1);
+        assert_eq!(openai_gpt[0].provider_id, "openai-off");
+        assert_eq!(openai_gpt[0].model, "gpt-4o");
+
+        // 6. [INV-MODEL-SEARCH-01] Conjunctive coverage: if any token is unmatched, candidate rejected
+        let rejected = models_flat_filtered_from(&snapshot, "", "", "azure nonexistent");
+        assert!(
+            rejected.is_empty(),
+            "unmatched token must disqualify candidate"
+        );
+
+        // 7. Normalized scoring: redundant marketing name matching wire id does not artificially double score
+        let mut row_a = row("prov-a", "Prov A", &["m-test"], true);
+        row_a.model_info = vec![info("m-test")]; // name: None
+        let mut row_b = row("prov-b", "Prov B", &["m-test"], true);
+        let mut info_b = info("m-test");
+        info_b.name = Some("m-test".to_string()); // redundant name
+        row_b.model_info = vec![info_b];
+
+        let snap_norm = ProviderPickerSnapshot {
+            default_id: "prov-a".to_string(),
+            rows: vec![row_a, row_b],
+        };
+        let res = models_flat_filtered_from(&snap_norm, "", "", "m-test");
+        assert_eq!(res.len(), 2);
+        assert_eq!(
+            res[0].relevance_score, res[1].relevance_score,
+            "redundant display name identical to wire id must not artificially inflate score"
+        );
+    }
+
+    #[test]
+    fn flat_multi_token_intra_model_and_relevance_ranking_bonus() {
+        // Verifies multi-word intra-model search and that dual-dimension match outranks single-dimension
+        let mut sonnet_info = info("claude-3-5-sonnet");
+        sonnet_info.name = Some("Claude 3.5 Sonnet".to_string());
+
+        let mut row = row(
+            "anthropic",
+            "Anthropic",
+            &["claude-3-5-sonnet", "claude-3-haiku"],
+            true,
+        );
+        row.model_info = vec![sonnet_info, info("claude-3-haiku")];
+
+        let snapshot = ProviderPickerSnapshot {
+            default_id: "anthropic".to_string(),
+            rows: vec![row],
+        };
+
+        // Multi-word intra-model query: "3.5 sonnet"
+        let sonnet_rows = models_flat_filtered_from(&snapshot, "", "", "3.5 sonnet");
+        assert_eq!(sonnet_rows.len(), 1);
+        assert_eq!(sonnet_rows[0].model, "claude-3-5-sonnet");
+        assert!(sonnet_rows[0].match_name.is_some());
+        // Highlight positions should cover characters from both tokens:
+        let positions = &sonnet_rows[0].match_name.as_ref().unwrap().positions;
+        assert!(positions.len() >= 5);
+
+        // Query "anthropic claude":
+        // "claude-3-5-sonnet" matches connection ("anthropic") AND model name ("claude") -> receives BONUS_CROSS_FIELD
+        // "claude-3-haiku" matches connection ("anthropic") AND model id ("claude") -> receives BONUS_CROSS_FIELD
+        let anthropic_claude = models_flat_filtered_from(&snapshot, "", "", "anthropic claude");
+        assert_eq!(anthropic_claude.len(), 2);
+        assert!(
+            anthropic_claude
+                .iter()
+                .all(|r| r.relevance_score >= BONUS_CROSS_FIELD)
         );
     }
 }

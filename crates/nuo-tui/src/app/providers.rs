@@ -144,14 +144,14 @@ impl App {
         self.custom_field = 0;
         self.custom_edit_id = None;
         let default_name = match &self.custom_auth {
-            nuo_wire::ConnectionAuth::Subscription { provider } => match provider.as_ref() {
+            nuo_wire::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
                 "chatgpt" => "ChatGPT Subscription",
                 "copilot" => "Copilot",
                 "google-antigravity" => "Google Antigravity",
                 "qoder" => "Qoder",
                 _ => "xAI",
             },
-            nuo_wire::ConnectionAuth::ApiKey => "Custom",
+            nuo_wire::ConnectionAuth::Static => "Custom",
         };
         self.custom_name = default_name.to_string();
         self.input = default_name.to_string();

@@ -242,8 +242,15 @@ impl CredentialSource for CodeBuddyCredentialSource {
                 // ride `X-API-Key`. `ResolvedAuth.token` feeds that decision
                 // downstream; `user_email` carries the display nickname.
                 let mut auth = ResolvedAuth::new(token);
-                if matches!(kind, CodeBuddyCredentialKind::Bearer) {
-                    auth = auth.with_extension(nuo_provider::BearerLoginMarker);
+                match kind {
+                    CodeBuddyCredentialKind::Bearer => {
+                        auth = auth.with_placement(nuo_provider::WirePlacement::Bearer);
+                    }
+                    CodeBuddyCredentialKind::ApiKey => {
+                        auth = auth.with_placement(nuo_provider::WirePlacement::CustomHeader {
+                            header: std::borrow::Cow::Borrowed("X-API-Key"),
+                        });
+                    }
                 }
                 if let Some(user) = nickname {
                     auth = auth.with_user_email(user);
@@ -289,14 +296,6 @@ impl CredentialSource for CodeBuddyCredentialSource {
         Self::read_stored_credentials().is_some()
     }
 }
-
-/// Typed marker: the credential that produced this auth was an OIDC **bearer**
-/// login (not a pasted platform key). The header layer consults it to choose
-/// `Authorization: Bearer` over `X-API-Key`.
-///
-/// Implemented as [`nuo_provider::BearerLoginMarker`] so the wire layer can
-/// consume it without knowing any vendor crate.
-pub type CodeBuddyBearerCredential = nuo_provider::BearerLoginMarker;
 
 #[cfg(test)]
 mod tests {

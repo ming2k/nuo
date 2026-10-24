@@ -281,9 +281,9 @@ pub(crate) async fn add(
     let is_open_universe =
         spec.baselines.is_empty() && spec.catalog_source == nuo_provider::RemoteCatalogSource::None;
     let trimmed_key = api_key.expose_secret().trim();
-    // Pasted API key on an OAuth provider → ordinary ApiKey auth.
+    // Pasted API key on a negotiated provider → ordinary Static auth.
     let auth = match (auth, !trimmed_key.is_empty()) {
-        (a, true) if a.is_oauth() => nuo_wire::ConnectionAuth::ApiKey,
+        (a, true) if a.is_negotiated() => nuo_wire::ConnectionAuth::Static,
         (other, _) => other,
     };
     // Sanitized declared model ids. A curated provider owns its model universe,
@@ -309,7 +309,7 @@ pub(crate) async fn add(
         .unwrap_or_default();
 
     let client_identity = client_identity.unwrap_or_else(|| {
-        if auth.subscription_provider() == Some("google-antigravity") {
+        if auth.negotiated_provider() == Some("google-antigravity") {
             ClientIdentity::Antigravity
         } else {
             spec.user_agent
@@ -321,7 +321,7 @@ pub(crate) async fn add(
 
     // Pre-connection authorization is a single-use, session-local value. It
     // never enters the global store under a generic provider namespace.
-    let pending_tokens = if auth.is_oauth() {
+    let pending_tokens = if auth.is_negotiated() {
         match pending_authorization {
             Some(pending) if pending.auth == auth && pending.tokens.is_valid() => {
                 Some(pending.tokens)
@@ -370,7 +370,7 @@ pub(crate) async fn add(
     }
 
     let mut stored_api_key = false;
-    if auth == nuo_wire::ConnectionAuth::ApiKey && !trimmed_key.is_empty() {
+    if auth == nuo_wire::ConnectionAuth::Static && !trimmed_key.is_empty() {
         let mut creds = Credentials::load();
         creds.set_api_key(&name, Some(SecretString::from(trimmed_key)));
         let save_err = creds.save().err().map(|e| e.to_string());
@@ -425,7 +425,7 @@ pub(crate) async fn add(
 
     // Step 2: Publish connection to Connections store (purified pipe).
     let entitlement = explicit_entitlement.unwrap_or_else(|| {
-        if auth.is_oauth() {
+        if auth.is_negotiated() {
             nuo_wire::Entitlement::FlatRate
         } else {
             nuo_wire::Entitlement::Metered
@@ -524,7 +524,7 @@ pub(crate) async fn add(
     // shows the account's real entitlements immediately rather than the seed
     // list. A failure keeps the seed; each failure is reported back as a
     // warning so the user knows the list may be incomplete.
-    if auth.is_subscription() && auth.subscription_provider() != Some("google-antigravity") {
+    if auth.is_negotiated() && auth.negotiated_provider() != Some("google-antigravity") {
         let outcome = nuo_catalog::sync_connection_catalog(&name).await;
         if outcome.changed {
             nuo_catalog::sync_fitted_model_registry();
@@ -614,7 +614,7 @@ pub(crate) async fn edit(
     if let Some(ent) = entitlement {
         instance.entitlement = ent;
     }
-    if !instance.auth.is_oauth() && !trimmed_key.is_empty() {
+    if !instance.auth.is_negotiated() && !trimmed_key.is_empty() {
         let mut creds = Credentials::load();
         creds.set_api_key(&name, Some(SecretString::from(trimmed_key)));
         if creds.save().is_err() {
@@ -1333,7 +1333,7 @@ pub async fn authorize(
     method: nuo_wire::LoginMethod,
     auth: nuo_wire::ConnectionAuth,
 ) -> Option<nuo_oauth::TokenSet> {
-    let Some(cfg) = auth.oauth_provider_id().and_then(nuo_oauth::oauth_config) else {
+    let Some(cfg) = auth.negotiated_provider().and_then(nuo_oauth::oauth_config) else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
             nuo_wire::ConnectStatus::Failed {
                 provider: "oauth".to_string(),
@@ -1387,7 +1387,7 @@ pub async fn run_oauth_for_connect(
         .map(|p| p.auth.clone())
         .unwrap_or_default();
     let Some(cfg) = auth_mode
-        .oauth_provider_id()
+        .negotiated_provider()
         .and_then(nuo_oauth::oauth_config)
     else {
         let _ = resp_tx.send(AgentResponse::ConnectStatus(
@@ -1547,7 +1547,7 @@ pub(crate) async fn refresh_oauth_if_needed(_config: &Config, provider_id: &str)
     let Some(instance) = connections.get(provider_id) else {
         return;
     };
-    if !instance.auth.is_oauth() {
+    if !instance.auth.is_negotiated() {
         return;
     }
     let source = nuo_oauth::OAuthCredentialSource::new(
@@ -1842,8 +1842,8 @@ pub(crate) async fn query_connection_detail(
     let raw_key = nuo_catalog::resolve_credential(connection, &stores.creds);
     let api_key_masked = mask_api_key(raw_key.expose_secret());
 
-    let api_key_source = if connection.auth.is_oauth() {
-        "OAuth".to_string()
+    let api_key_source = if connection.auth.is_negotiated() {
+        "Negotiated (Session)".to_string()
     } else if let Some(env) = connection.api_key_env.as_deref() {
         if std::env::var(env).is_ok() {
             format!("Environment (${env})")
@@ -1892,12 +1892,12 @@ pub(crate) async fn query_connection_detail(
     });
     let active_model_thinking = active_channel_info.as_ref().and_then(|info| info.thinking);
 
-    let auth_type = if connection.auth.is_oauth() {
-        format!("OAuth ({:?})", connection.auth)
+    let auth_type = if connection.auth.is_negotiated() {
+        format!("Negotiated ({:?})", connection.auth)
     } else if connection.api_key_env.is_some() {
-        "API Key (Environment)".to_string()
+        "Static (Environment)".to_string()
     } else {
-        "API Key".to_string()
+        "Static (API Key)".to_string()
     };
 
     let mut initial_detail = nuo_wire::ConnectionDetail {
@@ -1911,7 +1911,7 @@ pub(crate) async fn query_connection_detail(
         api_key_source,
         client_identity: if connection.client_identity != ClientIdentity::Native {
             connection.client_identity.clone()
-        } else if connection.auth.subscription_provider() == Some("google-antigravity")
+        } else if connection.auth.negotiated_provider() == Some("google-antigravity")
             || connection.provider == "google-antigravity"
         {
             ClientIdentity::Antigravity
@@ -1957,7 +1957,7 @@ pub(crate) async fn fetch_usage_for_connection(
     raw_key: &SecretString,
     base_url: &str,
 ) -> (nuo_wire::ConnectionUsageState, Option<String>) {
-    let (api_key, project, account_id, is_oauth) = if connection.auth.is_oauth() {
+    let (api_key, project, account_id, is_oauth) = if connection.auth.is_negotiated() {
         let source = nuo_oauth::OAuthCredentialSource::new(
             &crate::credentials_host::host(),
             &connection.name,
@@ -2102,8 +2102,7 @@ pub async fn query_provider_quotas(
         .iter()
         .filter(|c| {
             if let Some(ref filter) = provider_filter {
-                if c.provider != *filter && c.auth.subscription_provider() != Some(filter.as_str())
-                {
+                if c.provider != *filter && c.auth.negotiated_provider() != Some(filter.as_str()) {
                     return false;
                 }
             }
@@ -2371,7 +2370,7 @@ mod tests {
 
         // Pending auth is for Antigravity, but params requests ChatGPT
         let pending = PendingOAuthAuthorization {
-            auth: nuo_wire::ConnectionAuth::subscription("google-antigravity"),
+            auth: nuo_wire::ConnectionAuth::negotiated("google-antigravity"),
             tokens: nuo_oauth::TokenSet {
                 access: "tok".into(),
                 refresh: "ref".into(),
@@ -2389,7 +2388,7 @@ mod tests {
             provider: "openai-subscription".to_string(),
             api_key: "".into(),
             models: vec!["gpt-5.6".to_string()],
-            auth: nuo_wire::ConnectionAuth::subscription("chatgpt"),
+            auth: nuo_wire::ConnectionAuth::negotiated("chatgpt"),
             client_identity: None,
             budget: Default::default(),
             entitlement: None,
@@ -2651,7 +2650,7 @@ mod tests {
             provider: "openai".to_string(),
             api_key: SecretString::from("sk-test"),
             models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
-            auth: nuo_wire::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::Static,
             client_identity: None,
             budget: Default::default(),
             entitlement: None,
@@ -2757,7 +2756,7 @@ mod tests {
             provider: "openai".to_string(),
             api_key: SecretString::from("sk-test"),
             models: vec!["gpt-4o".to_string()],
-            auth: nuo_wire::ConnectionAuth::ApiKey,
+            auth: nuo_wire::ConnectionAuth::Static,
             client_identity: None,
             budget: Default::default(),
             entitlement: None,
@@ -2849,7 +2848,7 @@ mod tests {
             .push(nuo_persistence::connections::Connection {
                 name: "test-antigravity".into(),
                 provider: "google-antigravity".into(),
-                auth: nuo_wire::ConnectionAuth::ApiKey,
+                auth: nuo_wire::ConnectionAuth::Static,
                 ..Default::default()
             });
         conns.save().unwrap();

@@ -43,6 +43,8 @@ use nuo_provider::LoginMethod;
 
 /// The domestic (Tencent Cloud / copilot) auth origin.
 pub const CODEBUDDY_CN_ORIGIN: &str = "https://copilot.tencent.com";
+/// The international (CodeBuddy AI) auth origin (ADR-0097).
+pub const CODEBUDDY_INTL_ORIGIN: &str = "https://www.codebuddy.ai";
 
 /// Route base every auth surface path is prefixed with.
 pub const PLUGIN_PREFIX: &str = "/v2/plugin";
@@ -119,6 +121,14 @@ impl CodeBuddyOAuthProvider {
         Self {
             base: CODEBUDDY_CN_ORIGIN,
             ids: &["codebuddy"],
+        }
+    }
+
+    /// The international subscription surface (ADR-0097).
+    pub const fn international() -> Self {
+        Self {
+            base: CODEBUDDY_INTL_ORIGIN,
+            ids: &["codebuddy-intl"],
         }
     }
 
@@ -378,7 +388,10 @@ pub async fn refresh_at(
 
 /// The provider surfaces this crate registers.
 pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
-    vec![Arc::new(CodeBuddyOAuthProvider::domestic())]
+    vec![
+        Arc::new(CodeBuddyOAuthProvider::domestic()),
+        Arc::new(CodeBuddyOAuthProvider::international()),
+    ]
 }
 
 /// Test-only: drive the wrapped-envelope lift through an offline path.
@@ -396,6 +409,14 @@ mod tests {
             "https://copilot.tencent.com/v2/plugin"
         );
         assert_eq!(provider.origin(), "https://copilot.tencent.com");
+    }
+
+    #[test]
+    fn international_surface_routes_against_codebuddy_ai() {
+        let provider = CodeBuddyOAuthProvider::international();
+        assert_eq!(provider.ids(), &["codebuddy-intl"]);
+        assert_eq!(provider.route_base(), "https://www.codebuddy.ai/v2/plugin");
+        assert_eq!(provider.origin(), "https://www.codebuddy.ai");
     }
 
     #[test]

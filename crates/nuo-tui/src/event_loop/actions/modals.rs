@@ -306,7 +306,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                         String::new(),
                         String::new(),
                         String::new(),
-                        nuo_wire::ConnectionAuth::ApiKey,
+                        nuo_wire::ConnectionAuth::Static,
                         true,
                         nuo_wire::ClientIdentity::Native,
                     ));
@@ -695,7 +695,7 @@ pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, ke
             base_url: None,
         });
         app.dismiss_surface();
-    } else if app.provider_row_auth(&id).is_oauth() {
+    } else if app.provider_row_auth(&id).is_negotiated() {
         let auth = app.provider_row_auth(&id);
         let method = auth
             .default_login_method()

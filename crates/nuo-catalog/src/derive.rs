@@ -396,7 +396,7 @@ fn effective_client_profile(connection: &Connection) -> ClientProfile {
 /// access token here would hand callers the exact value that source exists to
 /// refresh, so this function returns nothing for one and the caller says so.
 pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> SecretString {
-    if connection.auth.is_oauth() {
+    if connection.auth.is_negotiated() {
         return SecretString::from("");
     }
     if let Some(env) = connection.api_key_env.as_deref()

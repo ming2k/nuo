@@ -107,7 +107,7 @@ impl CommandCodeUsageFetcher {
 fn plan_label(plan_id: &str) -> String {
     let trimmed = plan_id.trim();
     if trimmed.is_empty() {
-        return "Command Code".to_string();
+        return String::new();
     }
     trimmed
         .split(['-', '_'])
@@ -234,12 +234,7 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
     };
 
     ProviderUsage {
-        plan: Some(
-            plan_id
-                .as_deref()
-                .map(plan_label)
-                .unwrap_or_else(|| "Command Code".to_string()),
-        ),
+        plan: plan_id.as_deref().map(plan_label).filter(|s| !s.is_empty()),
         description: Some("Command Code API credits".to_string()),
         quota,
         primary_balance: remaining.map(|r| format!("{r:.2} credits")),

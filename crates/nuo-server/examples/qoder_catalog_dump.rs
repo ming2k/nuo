@@ -69,9 +69,7 @@ async fn main() {
     let source = OAuthCredentialSource::new(
         &host,
         connection.clone(),
-        ConnectionAuth::Subscription {
-            provider: std::borrow::Cow::Borrowed("qoder"),
-        },
+        ConnectionAuth::negotiated("qoder"),
     );
     let resolved = source
         .resolve_auth()
