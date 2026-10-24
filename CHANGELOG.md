@@ -6,6 +6,39 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [0.0.50] - 2026-10-24
+
+### Fixed
+
+- **`connections.toml` schema round-trip.** `Connections::load` parsed a separate
+  legacy struct while `save` wrote the current `Connection` shape; the two drifted
+  on `entitlement` (ADR-0095), so a freshly written file failed to parse and every
+  connection was silently dropped — the server then reported "No provider
+  configured" despite a valid connection on disk. `load` and `save` now share one
+  schema.
+- **User-declared provider registry split-brain.** The server kept a second
+  registry that was never seeded at boot, so after a restart `AddConnection` /
+  `EditConnection` rejected providers the catalog still resolved. There is now one
+  registry, replaced on each sync and seeded at boot.
+- **`ProviderDialect` parsing.** `FromStr` had drifted from the serde
+  representation (`codebuddy` deserialized but did not parse); it now delegates to
+  serde.
+- **Malformed `model_providers.toml` no longer wipes connections.** It is read
+  leniently at load.
+
+### Removed
+
+- The unreachable `QuotaPort::SiliconFlow` path and the `nuo-provider-siliconflow`
+  crate.
+- The unreachable `codebuddy-intl` OAuth surface and the never-wired CodeBuddy
+  origin enricher.
+- Unused ADR-0095 vocabulary (`RoutingPolicy`, `SpendGuardrail`,
+  `CredentialCapability`, `AuthProtocol`, `CredentialBinding`, `HeaderPlacement`,
+  `AuthKind`, `AuthCapability*`) and `Config.routing`.
+- The unused `QuotaTracker` trait and `ModelProviderSpec::credential_capabilities`.
+- The legacy connection-decode migration layer; no backward compatibility is
+  retained for pre-`0.0.49` connection files.
+
 ## [0.0.49] - 2026-10-23
 
 ### Added
