@@ -19,7 +19,7 @@ Nuo organizes its Cargo workspace into four concentric layers. Dependencies flow
 │  - Model Providers: `providers/*` (`anthropic`, `openai`...) │
 ├──────────────────────────────────────────────────────────────┤
 │  Layer 2: Core Runtime Substrate                             │
-│  - Execution Engine: `crates/nuo-agent`, `crates/nuo-harness`│
+│  - Execution Engine: `crates/nuo-harness`                    │
 │  - Catalog Pipeline: `crates/nuo-catalog`                    │
 │  - Headless Server Container: `crates/nuo-server`            │
 │  - Persistent Storage: `crates/nuo-persistence`              │

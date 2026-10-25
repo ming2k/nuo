@@ -49,7 +49,6 @@ Nuo organizes automated verification across four structured tiers:
 cargo test --workspace
 
 # Run tests for a specific crate
-cargo test -p nuo-agent
 cargo test -p nuo-tui
 cargo test -p nuo-server
 ```

@@ -42,7 +42,7 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 │  • nuo-server (headless server container runtime)      │
 │  • nuo-tui (terminal presentation view library)        │
 │  • nuo-host (host environment)                         │
-│  • nuo-agent (cognitive loop), nuo-protocol (IPC wire) │
+│  • nuo-protocol (IPC wire)                             │
 │  • nuo-tool, nuo-tool-derive (tool specifications)     │
 │  • nuo-inference-wire (dialect translation & streaming)   │
 │  • nuo-harness (orchestrator), nuo-persistence (store) │
@@ -62,7 +62,6 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuo`** | **Cluster C** | Unified public executable (server, CLI, TUI runner) | `version.workspace = true` | Binary distribution |
 | **`nuo-server`** | **Cluster C** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
 | **`nuo-tui`** | **Cluster C** | Semantic terminal interactive presentation view library | `version.workspace = true` | crates.io package |
-| **`nuo-agent`** | **Cluster C** | Cognitive loop, session turns & token compaction | `version.workspace = true` | crates.io package |
 | **`nuo-protocol`** | **Cluster C** | IPC envelopes, session entities, discovery & shared domain contracts | `version.workspace = true` | crates.io package (`nuo-wire` alias) |
 | **`nuo-host`** | **Cluster C** | Host environment, sandboxing & native tools | `version.workspace = true` | crates.io package |
 | **`nuo-tool`** | **Cluster C** | Zero-agent-runtime tool specification & schemas | `version.workspace = true` | crates.io package |

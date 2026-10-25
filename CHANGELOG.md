@@ -8,7 +8,31 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Removed
+
+- **Cognitive runtime consolidation — the orphaned `nuo-agent` twin is retired (ADR-0100).**
+  `nuo-agent` had zero production callers: the shipped daemon runs
+  `nuo-harness::Agent`, and its only inbound edge was a dead bridge
+  (`agent/cognitive_bridge.rs` / `Agent::to_cognitive_agent`) whose entry point
+  nothing called. Its ACP collaboration capability already lives in `nuo-acp` and
+  is wired in production via `nuo/src/registry.rs::assemble_hosted` (ADR-0009 §3),
+  so no capability is lost. The crate, the bridge, the now-unused
+  `HarnessApprovalHandler`, and the `nuo-harness → nuo-agent` dependency edge are
+  all deleted. `nuo-harness` is reaffirmed as the single cognitive runtime
+  ([INV-RUNTIME-01]).
+
 ### Changed
+
+- **The governance layer is now a strict inner module of `nuo-harness` (ADR-0100).**
+  `ScopedToolDisable` is relocated out of the agent module into
+  `nuo-harness::governance`, and retiring the bridge removed the last
+  cognition→governance reference, so `governance` now depends on nothing in
+  cognition. The boundary is enforced mechanically by the
+  `governance_module_has_no_cognition_dependency` regression test
+  ([INV-HARNESS-03]). A physical `nuo-cognition`/`nuo-governance` crate split was
+  evaluated and rejected: the module graph is cyclic in both directions, so a
+  crate cut would require a synthetic port layer (see ADR-0100 §Rejected
+  Alternatives).
 
 - **CodeBuddy Bifurcation into Per-Realm Channel Crates (ADR-0097 hardening).**
   The single `nuo-provider-codebuddy` crate — one crate hosting both the

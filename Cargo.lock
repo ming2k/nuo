@@ -1734,30 +1734,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-agent"
-version = "0.0.50"
-dependencies = [
- "async-trait",
- "chrono",
- "futures",
- "http",
- "nuo-acp",
- "nuo-egress",
- "nuo-inference-wire",
- "nuo-mcp",
- "nuo-protocol",
- "nuo-provider",
- "nuo-tool",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "nuo-catalog"
 version = "0.0.50"
 dependencies = [
@@ -1816,7 +1792,6 @@ dependencies = [
  "inventory",
  "mockito",
  "netune",
- "nuo-agent",
  "nuo-catalog",
  "nuo-host",
  "nuo-inference-wire",

@@ -164,6 +164,11 @@ channel-turn cognition is needed in the daemon — if so, port it to the harness
 first; (2) then delete `nuo-agent` (runtime + tests), since the protocol-level
 coverage already lives in `nuo-acp`.
 
+> **Resolved (ADR-0100).** The product decision this section deferred has been made:
+> Nuo does **not** ship a standalone embedding agent SDK. Channel-turn cognition was
+> already wired into the production assembly (ADR-0009 §3), so `nuo-agent` is retired —
+> see [ADR-0100](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md).
+
 ### 3. ACP collaboration tools wired into the production runtime (done)
 
 The ACP tools (`nuo-acp/src/tools.rs`, seven tools) were installed only by the

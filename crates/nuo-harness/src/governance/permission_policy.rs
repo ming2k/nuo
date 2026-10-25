@@ -52,7 +52,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nuo_wire::{RestorePoint, ScopeTarget, Tool, ToolOutput};
 
-use crate::agent::ScopedToolDisable;
+use super::scoped_tools::ScopedToolDisable;
 use crate::bash_policy::BashPolicyMatch;
 use crate::hooks::PreToolUseVerdict;
 use crate::permission_store::{PermissionRule, PermissionStore};

@@ -275,46 +275,6 @@ impl Agent {
             .collect()
     }
 
-    /// Builds a canonical [`nuo_agent::Agent`] cognitive core from this harness's
-    /// configured provider, identity, and resolved tools (ADR-0010).
-    pub async fn to_cognitive_agent(&self) -> Result<nuo_agent::Agent, nuo_agent::AgentError> {
-        let adapter = nuo_agent::ModelCodecAdapter::new(self.provider.clone());
-        let id = self
-            .identity
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
-        let name = if id.name.is_empty() {
-            "agent"
-        } else {
-            &id.name
-        };
-        let addr = format!("agent://local/{name}");
-        let mission = if id.mission.is_empty() {
-            "Autonomous Nuo Agent"
-        } else {
-            &id.mission
-        };
-        let mut builder = nuo_agent::Agent::builder(&addr)
-            .name(name)
-            .description(mission)
-            .provider_arc(Arc::new(adapter));
-        for tool in self.installed_tools() {
-            builder = builder.tool_arc(tool);
-        }
-        let approval = crate::governance::HarnessApprovalHandler::new(
-            Arc::clone(&self.permissions),
-            Arc::new(std::sync::RwLock::new(
-                self.bash_policy
-                    .read()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .clone(),
-            )),
-        );
-        builder = builder.with_approval_handler_arc(Arc::new(approval));
-        builder.build().await
-    }
-
     /// The unified tool manager (kimi-code port). Exposed so the dispatcher /
     /// model-request assembly can call its authoritative methods directly.
     pub(crate) fn tool_manager(&self) -> &crate::tool_manager::ToolManager {

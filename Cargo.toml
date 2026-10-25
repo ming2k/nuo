@@ -89,7 +89,6 @@ tempfile = "3"
 # ACP & Substrates
 nuo-acp = { version = "0.0.50", path = "crates/nuo-acp" }
 acp = { version = "0.0.50", package = "nuo-acp", path = "crates/nuo-acp" }
-nuo-agent = { version = "0.0.50", path = "crates/nuo-agent" }
 nuo-tool = { version = "0.0.50", path = "crates/nuo-tool" }
 nuo-tool-derive = { version = "0.0.50", path = "crates/nuo-tool-derive" }
 nuo-provider = { version = "0.0.50", path = "crates/nuo-provider" }

@@ -72,7 +72,7 @@ pub(crate) struct ToolManager {
     /// across all sources.
     disabled: Arc<Mutex<HashSet<String>>>,
     /// In-memory hook-scoped disable mask (per RestorePoint).
-    scoped_disabled: Arc<Mutex<crate::agent::ScopedToolDisable>>,
+    scoped_disabled: Arc<Mutex<crate::governance::ScopedToolDisable>>,
     /// Role-level admitted MCP patterns.
     admit_mcp: Arc<RwLock<Vec<String>>>,
 }
@@ -85,7 +85,7 @@ impl ToolManager {
         resolved: Arc<RwLock<Vec<Arc<dyn Tool>>>>,
         dynamic: Arc<DynamicToolRegistry>,
         disabled: Arc<Mutex<HashSet<String>>>,
-        scoped_disabled: Arc<Mutex<crate::agent::ScopedToolDisable>>,
+        scoped_disabled: Arc<Mutex<crate::governance::ScopedToolDisable>>,
         admit_mcp: Arc<RwLock<Vec<String>>>,
     ) -> Self {
         Self {
@@ -274,7 +274,7 @@ mod tests {
         // Publish dynamic tools under a synthetic MCP source.
         dynamic.replace("mcp:test", dynamic_tools);
         let disabled = Arc::new(Mutex::new(disabled.iter().map(|s| s.to_string()).collect()));
-        let scoped = Arc::new(Mutex::new(crate::agent::ScopedToolDisable::default()));
+        let scoped = Arc::new(Mutex::new(crate::governance::ScopedToolDisable::default()));
         let admit_mcp = Arc::new(RwLock::new(vec!["*".to_string()]));
         ToolManager::new(resolved, dynamic, disabled, scoped, admit_mcp)
     }

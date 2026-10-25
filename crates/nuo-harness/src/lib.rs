@@ -81,7 +81,7 @@ pub(crate) use nuo_wire::{
 // Same ambient std/tokio prelude the Agent struct used to inherit from
 // `nuo-wire`'s lib.rs (`use super::*`).
 use futures::StreamExt;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;

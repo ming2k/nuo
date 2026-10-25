@@ -1,16 +1,18 @@
 ---
 id: ADR-0010
 title: "Harness Decomposition, Capability Tool Decoupling, and Cognitive Runtime Unification"
-status: accepted
+status: superseded
 date: 2026-10-03
 scope: architecture/layering, runtime/agent, harness/governance, capability/tools
-superseded_by: null
+superseded_by: ADR-0100
 negative_knowledge: true
 ---
 
 # 0010. Harness Decomposition, Capability Tool Decoupling, and Cognitive Runtime Unification
 
-- Status: Accepted
+- Status: Superseded by [ADR-0100](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md)
+  (the §2–§3 mandate to unify the cognitive engine *into* `nuo-agent` was never executed and is
+  rescinded; the §1 tool-boundary intent remains binding as `[INV-HARNESS-01]`).
 - Date: 2026-10-03
 - Deciders: Nuo Architecture Working Group
 - Consulted: Runtime, Capability, and Interface Teams
