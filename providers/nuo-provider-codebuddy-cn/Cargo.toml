@@ -1,13 +1,14 @@
 [package]
-name = "nuo-provider-codebuddy"
+name = "nuo-provider-codebuddy-cn"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Tencent AI CodeBuddy provider channel for Nuo"
+description = "Tencent AI CodeBuddy domestic (CN) provider channel for Nuo — copilot.tencent.com ingress"
 
 [dependencies]
 nuo-provider = { workspace = true }
+nuo-provider-codebuddy-auth = { workspace = true }
 nuo-oauth = { workspace = true }
 nuo-egress = { workspace = true }
 nuo-inference-wire = { workspace = true }

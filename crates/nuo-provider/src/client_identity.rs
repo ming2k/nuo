@@ -265,9 +265,15 @@ pub const CODEBUDDY_VERSION: &str = "2.172.1";
 /// User-Agent header value sent for Tencent AI CodeBuddy client profile.
 pub const CODEBUDDY_USER_AGENT: &str = "CLI/2.172.1 CodeBuddy/2.172.1";
 
-/// Client identity headers used for Tencent AI CodeBuddy requests.
+/// The realm-agnostic share of the CodeBuddy client-identity block.
+///
+/// **Deliberately excludes `X-Domain`**: that header names the account realm
+/// the request must ride ([INV-PROV-REALM-01]), and is declared per channel
+/// (`X_DOMAIN` in `nuo-provider-codebuddy-cn` / `nuo-provider-codebuddy-intl`),
+/// composed onto requests alongside this shared block. A realm name in a
+/// shared constant is exactly the cross-realm leak the bifurcation exists to
+/// prevent (ADR-0097).
 pub const CODEBUDDY_CLIENT_HEADERS: &[(&str, &str)] = &[
-    ("X-Domain", "copilot.tencent.com"),
     ("X-Product", "SaaS"),
     ("X-IDE-Type", "CLI"),
     ("X-IDE-Name", "CodeBuddy"),

@@ -30,7 +30,9 @@ nuo-provider-openrouter = { workspace = true }
 nuo-provider-xai = { workspace = true }
 nuo-provider-qianwen = { workspace = true }
 nuo-provider-glm-cn = { workspace = true }
-nuo-provider-codebuddy = { workspace = true }
+nuo-provider-codebuddy-auth = { workspace = true }
+nuo-provider-codebuddy-cn = { workspace = true }
+nuo-provider-codebuddy-intl = { workspace = true }
 nuo-provider-qoder = { workspace = true }
 inventory = { workspace = true }
 nuo-harness = { workspace = true }

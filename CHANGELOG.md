@@ -6,6 +6,52 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## Unreleased
+
+### Changed
+
+- **CodeBuddy Bifurcation into Per-Realm Channel Crates (ADR-0097 hardening).**
+  The single `nuo-provider-codebuddy` crate — one crate hosting both the
+  domestic and international `ModelProviderSpec`s, one shared client-identity
+  constant — is split along the physical ingress boundary:
+  - **`nuo-provider-codebuddy-auth`** (new): the realm-agnostic auth kernel —
+    the vendor web-handoff OAuth engine (`CodeBuddyRealmSurface`, origin
+    supplied by the channel), the wrapped credential envelope codecs, the CLI
+    `Tencent-Cloud.coding-copilot.info` parser, and the typed
+    `CodeBuddyCredentialKind` → `WirePlacement` projection. Registers no spec,
+    no endpoint, no registry entry.
+  - **`nuo-provider-codebuddy-cn`** (new): the domestic channel — provider id
+    renamed `codebuddy` → **`codebuddy-cn`** per the CN-suffix naming rule
+    (`glm-cn` precedent), origin `copilot.tencent.com`, the internal-line model
+    catalog (Hunyuan 4/3, DeepSeek V4, Kimi K3.1, GLM 5.3 Flash, MiniMax M2.5),
+    and its own `X-Domain: copilot.tencent.com`.
+  - **`nuo-provider-codebuddy-intl`** (new): the international channel — id
+    `codebuddy-intl`, origin `www.codebuddy.ai`, its own
+    `X-Domain: www.codebuddy.ai`, and a disjoint model baseline.
+  - **Cross-realm leaks closed** ([INV-PROV-REALM-01]): the `X-Domain` header
+    left the shared `CODEBUDDY_CLIENT_HEADERS` constant (the international spec
+    previously attached the *domestic* host header to every request the
+    moment it shared the profile preset); each channel now composes its own.
+    The BYOK credential lane enforces a per-channel realm gate: a CLI-stored
+    token minted by the other account line is refused outright, keyed on the
+    vendor-declared `auth.domain`.
+  - **Disjoint model baselines** ([INV-PROV-CHANNEL-01]): the two specs no
+    longer share a `MODELS` const; the international baseline no longer
+    advertises a domestic-only `hy4-preview`.
+  - **`ProviderFactory::build_credential_source` gains the connection's
+    provider id**: both realms share the `CodeBuddy` dialect, so realm
+    selection required the provider identity, not the dialect alone.
+  - Zero backward compatibility: the legacy `codebuddy` provider id is retired
+    outright (0.0.49 discipline, `zai-code` precedent) — stale
+    `connections.toml` rows fail loudly rather than silently canonicalizing.
+
+### Removed
+
+- The monolithic `nuo-provider-codebuddy` crate is deleted; its workspace
+  entry, all imports (server registry, connection auth, TUI presets), and the
+  shared `CODEBUDDY_BUILTIN_MODELS` seed list are superseded by the three-crate
+  topology above.
+
 ## [0.0.50] - 2026-10-24
 
 ### Fixed
@@ -72,7 +118,7 @@ the project adheres to the federated SemVer model described in
   Thinking (`hy4-preview`), Hunyuan 3 (`hy3`), DeepSeek V4 Flash / Pro, Kimi K3.1,
   GLM 5.3 Flash, and MiniMax M2.5 models with streaming thinking deltas
   (`reasoning_content`) and multimodal vision. Authoritative OpenAPI specification
-  added to `docs/reference/openapi/codebuddy.yml`.
+  added to `docs/reference/openapi/` (realm-split as `codebuddy-{cn,intl,common}.yml` under ADR-0097; originally `codebuddy.yml`).
 
 ### Changed
 

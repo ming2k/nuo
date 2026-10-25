@@ -1,0 +1,991 @@
+# OpenAPI 3.1 SHARED payload reference for the Tencent AI CodeBuddy API —
+# the realm-agnostic wire contracts (auth web-handoff shapes, envelope schemas,
+# request/response bodies) used verbatim by BOTH realm documents:
+#   codebuddy-cn.yml   (domestic line, copilot.tencent.com)
+#   codebuddy-intl.yml (international line, www.codebuddy.ai)
+# reverse engineered from @tencent-ai/codebuddy-code v2.172.1
+# (dist/codebuddy.js account-scoped auth service, dist-server/types/**, and the embedded
+# dist/web-ui/docs/cn/cli/*.md onboard docs) and live-verified against Tencent Cloud
+# production endpoints on 2026-10-23. Confirmed against a live logged-in
+# `Tencent-Cloud.coding-copilot.info` credential file the same day.
+#
+# Consumers: implementers of `providers/nuo-provider-codebuddy-cn` /
+# `providers/nuo-provider-codebuddy-intl` in Nuo (ADR-0094; ADR-0097 realm bifurcation;
+# ADR-0027 provider-definition single source).
+#
+# Authentication & Storage:
+#   The CLI's interactive login is a browser **web-handoff + state polling** protocol —
+#   NOT an RFC device grant and NOT a loopback PKCE redirect:
+#     1. POST {origin}/v2/plugin/auth/state?platform=CLI   (no bearer; X-No-* suppression headers)
+#        → data.authUrl (browser sign-in page) + data.state (correlation key)
+#     2. Open authUrl in the user's browser; the CLI never receives a local callback.
+#     3. GET {origin}/v2/plugin/auth/token?state={state}   (polled ~1s until sign-in completes)
+#        → data.data.{accessToken, refreshToken, tokenType, expiresIn, refreshExpiresIn,
+#                      scope, sessionState, notBeforePolicy, domain}
+#     4. POST {origin}/v2/plugin/auth/token/refresh  (X-Refresh-Token + X-Auth-Refresh-Source: plugin)
+#   Order-of-precedence between credentials in the actual CLI (iam.md):
+#     CODEBUDDY_AUTH_TOKEN > apiKeyHelper > CODEBUDDY_API_KEY
+#   Nuo's mapping (ADR-0014 dual-lane): the OAuth subscription lane stores/rotates the
+#   OIDC pair in `nuo-oauth`; a pasted platform key rides the BYOK lane (`X-API-Key`).
+#   Credentials saved by the CodeBuddy CLI land in:
+#     - Linux:   ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+#     - macOS:   ~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+#     - Windows: %LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
+#   JSON payload carries `auth.accessToken` (JWT), `auth.refreshToken`, `auth.tokenType`
+#   ("Bearer" or "ApiKey"), `auth.scope` ("openid profile offline_access email"),
+#   `auth.expiresIn` (~60d), `auth.refreshExpiresIn` (~90d), `auth.sessionState`,
+#   `auth.notBeforePolicy`, `auth.domain` (e.g. "codebuddy.ai"),
+#   `account.{uid, nickname, uin, type, sso}`, plus `accounts[]` and `deployStatus`.
+#
+### Environments (product.json `authentication.attributes`):
+#   internalDomain      — copilot.tencent.com, staging-copilot.tencent.com, www.codebuddy.cn,
+#                         staging.codebuddy.cn, www.workbuddy.cn, staging.workbuddy.cn
+#   externalDomain      — www.codebuddy.ai, staging-codebuddy.tencent.com
+#   iOADomain           — tencent.sso.copilot.tencent.com, tencent.sso.codebuddy.cn, …
+#   cloudHostedDomain   — *.sso.copilot.tencent.com, *.copilot.qq.com, *.sso.codebuddy.cn, …
+#   Chosen via CODEBUDDY_INTERNET_ENVIRONMENT (unset=external, internal, ioa, cloudhosted, selfhosted).
+#   NOTE (ADR-0097): a payload schema never encodes a realm — the per-realm host
+#   bindings live exclusively in the two realm documents and the channel crates.
+#
+# Enterprise service-token OAuth (client_credentials) is a *provisioning* aid for
+# CI/CD only (`https://copilot.tencent.com/oauth2/token`, per iam.md) — it is not
+# the CLI's own login flow and Nuo does not implement it.
+#
+# Server-side constraints discovered:
+#   1. User-Agent format: Must match `<Product>/<Version>` (e.g. `CLI/2.172.1 CodeBuddy/2.172.1`).
+#      Failing this check returns HTTP 400 `{"code":12403,"msg":"check ua, get coding copilot version error"}`.
+#   2. Stream requirement: `/v2/chat/completions` requires `stream: true`. Non-streaming calls
+#      return HTTP 400 `{"code":11101,"msg":"Non-stream chat request is currently not supported"}`.
+#   3. Thinking / Reasoning: Served in SSE chunks via `choices[0].delta.reasoning_content`.
+#      Body supports `reasoning_effort` ∈ {minimal, low, medium, high, xhigh, max} (EXTENDED_THINKING_LEVELS)
+#      and `reasoning.summary` ("auto"); the decision endpoint's default model `jev-decision`
+#      cannot take images (`input_image` → 400).
+#   4. The CLI's model catalog is server-published: `product.json`/`product.internal.json`
+#      `models[]` (see ModelDescriptor) may be overridden/extended by the login site's
+#      /v3/config; `~/.codebuddy/models.json` and project `.codebuddy/models.json` are local
+#      overrides. `relatedModels.{lite,reasoning,…}` map alias slots to concrete ids.
+#   5. Model-call 401 retry: the CLI defaults `CODEBUDDY_MODEL_401_MAX_RETRIES=0` (off);
+#      when opted in, it retries at a *fixed* 2s interval (CODEBUDDY_MODEL_401_RETRY_DELAY_MS), not
+#      exponential backoff — 401 carries no Retry-After semantics in the upstream.
+#      Generic transient retries (502/503/408/409/429) use base-1s exponential backoff, max 32s, 4 tries.
+
+openapi: 3.1.0
+info:
+  title: Tencent AI CodeBuddy API — International realm
+  version: 2.172.1
+  summary: >-
+    Reverse-engineered inference, configuration, account, and authentication API
+    powering Tencent AI CodeBuddy (formerly Tencent Cloud Coding Copilot).
+  description: |
+    Environments and Base URLs:
+
+    | Environment | Base URL | Usage / Protocol |
+    | --- | --- | --- |
+    | Production (International, this realm) | `https://www.codebuddy.ai/v2` | Global inference (`/chat/completions`, `/responses`) |
+    | Configuration & Catalog Root | `https://www.codebuddy.ai` | Product config & model discovery (`/v3/config`) |
+    | Staging International | `https://staging-codebuddy.tencent.com/v2` | Global staging inference |
+
+    Authentication:
+    All inference and account endpoints accept a Bearer token in the `Authorization` header
+    or an `X-API-Key` header:
+    ```http
+    Authorization: Bearer <accessToken>
+    ```
+
+    Required Client Headers:
+    The Tencent backend enforces client identity. Calls should supply:
+    ```http
+    User-Agent: CLI/2.172.1 CodeBuddy/2.172.1
+    X-Domain: www.codebuddy.ai
+    X-Product: SaaS
+    X-IDE-Type: CLI
+    X-IDE-Name: CodeBuddy
+    X-IDE-Version: 2.172.1
+    X-Agent-Intent: craft
+    X-Agent-Runtime: local-agent
+    ```
+    On authenticated (post-login) model calls the CLI additionally sends an
+    **enterprise identity block** assembled by `runIdentityHeaders()` and the
+    downstream identity carrier. Canonical header names (from the compiled
+    client's header constants module):
+    ```http
+    X-User-Id: <uid>            # `account.uid`
+    X-Enterprise-Id: <src_tid>   # `account.enterpriseId` when tenanted
+    X-Id-Source: tencentcloud    # `RunIdentity.account.idSource`
+    X-Auth-Method: oneid         # `RunIdentity.auth.method` (also `X-Userinfo.token_source`)
+    X-Userinfo: <base64(JSON{uin, owner_uin, id_source, token_source})>
+    X-Conversation-ID: <uuid>
+    X-Conversation-Request-ID: <uuid>
+    X-Conversation-Message-ID: <uuid>   # per-turn unique; client MAY NOT override
+    X-Request-ID: <uuid>                 # per-request unique; client MAY NOT override
+    X-Agent-Type: local-agent
+    X-Agent-Purpose: person_agent        # conditional
+    X-Private-Data: <flag>               # private-mode boundary
+    X-Compaction: <flag>
+    X-Context-Compacted: <flag>
+    X-Data-Tag: <tag>                    # conditional
+    X-Model-ID: <model>                  # conditional
+    X-Product-Version: 2.172.1
+    X-Trace-ID: <traceparent>            # OpenTelemetry / B3 instrumentation
+    ```
+    `CODEBUDDY_SKIP_INTERNAL_HEADERS=1` strips the internal X-* block for
+    user-hosted third-party gateways. Authorization header priority:
+    `Authorization: Bearer <accessToken>` (OIDC lane) overrides `X-API-Key`
+    (BYOK lane); apiKeyHelper output is sent under BOTH.
+    Requests may also carry:
+    ```http
+    X-AICC-Model: <model>       # only on the confidential-chat (AICC) boundary
+    X-AICC-Endpoint: <endpoint> # only on the confidential-chat (AICC) boundary
+    ```
+    Machine encoding of the inference request body is gzip (`GzipRequestProcessor`,
+    weight 9999, runs last).
+
+servers:
+  - url: https://www.codebuddy.ai/v2
+    description: Production International inference endpoint — the sole ingress of nuo-provider-codebuddy-intl
+  - url: https://www.codebuddy.ai
+    description: Production International root endpoint for configuration, login web-handoff, and plugin auth
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  # ── Login (browser web-handoff) ──────────────────────────────────────────
+  # Reverse-engineered from dist/codebuddy.js `AccountScopedAuth`.
+  # Mounted under `{origin}/v2/plugin/...` — the `prefixPath` declared by
+  # `product.json authentication.attributes`.
+  /plugin/auth/state:
+    post:
+      summary: Mint an anonymous login session and return the browser sign-in URL
+      description: >-
+        Step 1 of the CLI's interactive login. No bearer is sent; the request
+        suppresses enterprise-identity headers with `X-No-*` markers. The
+        response carries `data.authUrl` (the page the user signs in on) and
+        `data.state` (the correlation key for the token poll in step 2).
+        `platform` is the `authentication.attributes.platform` value
+        (`CLI` for the CodeBuddy CLI; `workbuddy` for the WeChat-flavored variant).
+      operationId: beginLoginState
+      security: []
+      servers:
+        - url: https://www.codebuddy.ai
+      parameters:
+        - in: query
+          name: platform
+          required: false
+          schema:
+            type: string
+            default: CLI
+          description: Login platform identifier (`CLI`, `workbuddy`).
+        - in: header
+          name: X-No-Authorization
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+          description: Suppress auto-attaching a bearer credential.
+        - in: header
+          name: X-No-User-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Enterprise-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Department-Info
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+      responses:
+        '200':
+          description: Login session minted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    type: object
+                    properties:
+                      authUrl:
+                        type: string
+                        description: The full browser URL to open for sign-in (carries the state).
+                        example: https://www.codebuddy.cn/login?state=auth_abc123…
+                      state:
+                        type: string
+                        description: Correlation key for the token poll (prefixed `auth_` by the CLI if absent).
+                        example: auth_c7f8ab…
+        default:
+          description: Error (4xx/5xx)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /plugin/auth/token:
+    get:
+      summary: Poll the login session for the minted token pair
+      description: >-
+        Step 2 of the CLI's interactive login. The CLI polls this endpoint
+        (~1s interval, up to 300s deadline) until the user completes the
+        browser sign-in. A pending login returns `data.data = null`.
+      operationId: pollLoginToken
+      security: []
+      servers:
+        - url: https://www.codebuddy.ai
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+          description: The correlation key from `/plugin/auth/state`.
+        - in: header
+          name: X-No-Authorization
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-User-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Enterprise-Id
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+        - in: header
+          name: X-No-Department-Info
+          required: true
+          schema:
+            type: string
+            enum: ["true"]
+      responses:
+        '200':
+          description: Login state (pending when `data.data` is null)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  data:
+                    type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthCredentialPair'
+
+  /plugin/auth/token/refresh:
+    post:
+      summary: Refresh OAuth access token
+      description: Exchanges an active refresh token for a newly minted access token and refresh token. Both rotate together in one call.
+      operationId: refreshToken
+      servers:
+        - url: https://www.codebuddy.ai
+      parameters:
+        - in: header
+          name: X-Refresh-Token
+          required: true
+          schema:
+            type: string
+          description: The long-lived refresh token
+        - in: header
+          name: X-Auth-Refresh-Source
+          required: true
+          schema:
+            type: string
+            example: plugin
+          description: Caller surface identifier (`plugin` from the CLI's auth service).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              default: {}
+      responses:
+        '200':
+          description: Successfully refreshed token payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /chat/completions:
+    post:
+      summary: Create chat completion (OpenAI SSE streaming format)
+      description: >-
+        Primary streaming inference endpoint. Requires `stream: true`. Streams deltas
+        including normal content, thinking/reasoning (`reasoning_content`), and tool calls.
+      operationId: createChatCompletion
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      parameters:
+        - in: header
+          name: User-Agent
+          required: true
+          schema:
+            type: string
+            example: CLI/2.172.1 CodeBuddy/2.172.1
+          description: Client User-Agent. Must follow `<Name>/<Version>` format.
+        - in: header
+          name: X-Domain
+          required: false
+          schema:
+            type: string
+            example: www.codebuddy.ai
+        - in: header
+          name: X-Product
+          required: false
+          schema:
+            type: string
+            example: SaaS
+        - in: header
+          name: X-User-Id
+          required: false
+          schema:
+            type: string
+          description: Account UUID.
+        - in: header
+          name: X-Request-ID
+          required: false
+          schema:
+            type: string
+          description: Unique request correlation ID.
+        - in: header
+          name: X-Conversation-ID
+          required: false
+          schema:
+            type: string
+          description: Client session / conversation ID.
+        - in: header
+          name: X-Agent-Intent
+          required: false
+          schema:
+            type: string
+            default: craft
+        - in: header
+          name: X-Agent-Runtime
+          required: false
+          schema:
+            type: string
+            default: local-agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: Server-Sent Events stream of completion chunks
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionChunk'
+        '400':
+          description: Invalid request parameters (e.g. non-streaming or missing headers)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized or token expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /responses:
+    post:
+      summary: Create model response (OpenAI Responses API)
+      description: >-
+        Responses API endpoint mounted at `/v2/responses`. Supports input item histories,
+        structured tool invocation, and encrypted/streamed reasoning output.
+      operationId: createResponse
+      security:
+        - BearerAuth: []
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - model
+                - input
+              properties:
+                model:
+                  type: string
+                  example: hy4-preview
+                input:
+                  type: array
+                  items:
+                    type: object
+                stream:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Streaming Responses event sequence or completed response object
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /v3/config:
+    get:
+      summary: Fetch remote product configuration, available models, and feature flags
+      description: >-
+        Discovers runtime feature toggles, agent definitions, and model catalog.
+        Works without authentication for public models, and reflects user-specific entitlements
+        when passed an Authorization header.
+      operationId: getProductConfig
+      servers:
+        - url: https://www.codebuddy.ai
+      security:
+        - BearerAuth: []
+        - {}
+      parameters:
+        - in: header
+          name: User-Agent
+          required: true
+          schema:
+            type: string
+            example: CodeBuddy/2.172.1
+      responses:
+        '200':
+          description: Product configuration payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 0
+                  msg:
+                    type: string
+                    example: OK
+                  requestId:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      models:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ModelDescriptor'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        OIDC bearer access token from the CLI's login (`auth.tokenType = "Bearer"`,
+        scope `openid profile offline_access email`). Claim shape is issuer-controlled
+        and additionally carried by `X-User-Id`, `X-Enterprise-Id`, `X-Id-Source`,
+        and `X-Userinfo` (base64 `JSON{uin, owner_uin, id_source, token_source}`)
+        headers on every model call — the server does not trust the JWT alone.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >-
+        Pasted platform key from the BYOK lane (`auth.tokenType = "ApiKey"`).
+        The CLI's own apiKeyHelper variant withholds `X-API-Key` and instead
+        sends the script output as both `Authorization: Bearer` and `X-API-Key`.
+
+  schemas:
+    AuthCredentialPair:
+      type: object
+      description: >-
+        The credential payload returned by `/plugin/auth/token` on a completed
+        web-handoff login and by `/plugin/auth/token/refresh`. Matches the
+        persisted `Tencent-Cloud.coding-copilot.info` `auth` block verbatim.
+      properties:
+        accessToken:
+          type: string
+          description: OIDC bearer JWT (~60-day lifetime on live capture).
+        refreshToken:
+          type: string
+          description: Long-lived refresh token (~90-day lifetime on live capture).
+        tokenType:
+          type: string
+          enum: [Bearer, ApiKey]
+          description: Outbound header shape selector.
+        expiresIn:
+          type: integer
+          example: 5184000
+          description: Access-token TTL in seconds (~60 days).
+        refreshExpiresIn:
+          type: integer
+          example: 7776000
+          description: Refresh-token TTL in seconds (~90 days).
+        refreshExpiresAt:
+          type: integer
+          description: Absolute epoch-ms refresh expiry (the CLI's `calculateExpiresAt` post-fill).
+        expiresAt:
+          type: integer
+          description: Absolute epoch-ms access expiry (the CLI's `calculateExpiresAt` post-fill).
+        lastRefreshTime:
+          type: integer
+          description: Epoch-ms of the last successful refresh.
+        scope:
+          type: string
+          example: openid profile offline_access email
+        sessionState:
+          type: string
+          description: OIDC session UUID.
+        notBeforePolicy:
+          type: integer
+          description: Keycloak-style `nbf` policy epoch-seconds.
+        domain:
+          type: string
+          example: www.codebuddy.cn
+          description: Account line the credential belongs to.
+
+    TokenRefreshResponse:
+      type: object
+      description: The wrapped `/plugin/auth/token/refresh` envelope (same shape as `/plugin/auth/token` on success).
+      properties:
+        code:
+          type: integer
+          example: 0
+        data:
+          type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthCredentialPair'
+
+    ChatCompletionRequest:
+      type: object
+      required:
+        - model
+        - messages
+        - stream
+      properties:
+        model:
+          type: string
+          description: Target model wire identifier.
+          enum:
+            - hy4-preview
+            - hy3
+            - deepseek-v4-flash
+            - deepseek-v4-pro
+            - deepseek-v3-2-volc
+            - kimi-k3-1
+            - kimi-k2.7
+            - kimi-k2.6
+            - glm-5.3
+            - glm-5.3-flash
+            - glm-5.2
+            - glm-5.1
+            - glm-5v-turbo
+            - minimax-m2.5
+            - minimax-m2.7
+            - minimax-m3
+            - hy3
+            - hy3-x
+            - hy4-preview
+            - hy4-preview-x
+            # The upstream catalog is server-published: treat this enum as a
+            # superset snapshot, not a hard contract. Enterprise/custom models
+            # appear with a `custom:` / `custom-local:` id prefix, and the AICC
+            # confidential-chat variant with `enterprise:aicc` label.
+            - default
+          example: hy4-preview
+        messages:
+          type: array
+          description: Conversation turn history.
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        stream:
+          type: boolean
+          description: Must be set to true for CodeBuddy inference.
+          default: true
+        stream_options:
+          type: object
+          properties:
+            include_usage:
+              type: boolean
+              default: true
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          example: 0.9
+        top_p:
+          type: number
+          minimum: 0
+          maximum: 1
+          example: 1.0
+        reasoning_effort:
+          type: string
+          enum:
+            - off
+            - minimal
+            - low
+            - medium
+            - high
+            - xhigh
+            - max
+          description: >-
+            Extended-thinking level selector. Inferred from the agent's
+            `EXTENDED_THINKING_LEVELS = ["off","minimal","low","medium","high",
+            "xhigh","max"]`; the model's own `reasoning.effort` field provides
+            the account's default (e.g. `medium` for minimax-m3).
+          example: high
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolDefinition'
+        tool_choice:
+          type: [string, object]
+
+    ChatMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          type: [string, array]
+        reasoning_content:
+          type: string
+          description: Past turn thinking reasoning trace (preserved across tool loops).
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ToolCall'
+        tool_call_id:
+          type: string
+          description: Identifier of the tool call this message answers (for role=tool).
+
+    ToolDefinition:
+      type: object
+      required:
+        - type
+        - function
+      properties:
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          required:
+            - name
+          properties:
+            name:
+              type: string
+            description:
+              type: string
+            parameters:
+              type: object
+
+    ToolCall:
+      type: object
+      required:
+        - id
+        - type
+        - function
+      properties:
+        id:
+          type: string
+          example: call_01928374
+        type:
+          type: string
+          enum: [function]
+        function:
+          type: object
+          properties:
+            name:
+              type: string
+            arguments:
+              type: string
+
+    ChatCompletionChunk:
+      type: object
+      properties:
+        id:
+          type: string
+          example: cmb-18c9031fce9911f1a1919a1f2e87cfc7
+        object:
+          type: string
+          example: chat.completion.chunk
+        created:
+          type: integer
+          example: 1792729237
+        model:
+          type: string
+          example: hy4-preview
+        choices:
+          type: array
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+              delta:
+                type: object
+                properties:
+                  role:
+                    type: string
+                  content:
+                    type: string
+                  reasoning_content:
+                    type: string
+                    description: Incremental thinking / reasoning trace delta.
+                  tool_calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index:
+                          type: integer
+                        id:
+                          type: string
+                        function:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            arguments:
+                              type: string
+              finish_reason:
+                type: [string, 'null']
+                enum: [stop, tool_calls, length, content_filter, '']
+        usage:
+          type: [object, 'null']
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+
+    ModelDescriptor:
+      type: object
+      description: >-
+        One server-published catalog entry. This is the shape `/v3/config`
+        returns and `product.json models[]` ships statically; the CLI's own
+        picker additionally understands `relatedModels` alias slots,
+        `variantModels` overrides, and local `models.json` merges.
+      properties:
+        id:
+          type: string
+          example: hy4-preview
+        name:
+          type: string
+          example: Hy4 preview
+        vendor:
+          type: string
+          description: Single-letter vendor slot code (v/f/e/j/t/k, …) — server-internal routing hint.
+          example: j
+        api:
+          type: string
+          enum: ["openai-responses", openai-chat-completions]
+          description: >-
+            Present on models routed through the upstream's `/responses` wire
+            (the CLI's `isOpenAIResponsesApi` check); otherwise absent
+            (Chat-Completions is the fallback).
+        url:
+          type: string
+          description: >-
+            Enterprise-only. A user-supplied endpoint taking the wire base URL
+            at forward time (the CLI's `useCustomProtocol` chooses passthrough
+            vs normalized form).
+        maxInputTokens:
+          type: integer
+          example: 1000000
+        maxOutputTokens:
+          type: integer
+          example: 64000
+        maxAllowedSize:
+          type: integer
+          example: 1000000
+        maxImageCount:
+          type: integer
+        supportsToolCall:
+          type: boolean
+          example: true
+        supportsImages:
+          type: boolean
+          example: true
+        supportsReasoning:
+          type: boolean
+          example: true
+        onlyReasoning:
+          type: boolean
+          example: true
+          description: >-
+            True when the model's non-reasoning output is suppressed—the
+            model is usable as a *thinking-tier* variant only.
+        reasoning:
+          type: object
+          properties:
+            effort:
+              type: string
+              enum: [minimal, low, medium, high, xhigh, max]
+              description: The account's default thinking tier.
+              example: medium
+            summary:
+              type: string
+              example: auto
+            supportedEfforts:
+              type: array
+              items:
+                type: string
+            canDisableThinking:
+              type: boolean
+        temperature:
+          type: number
+          example: 1
+        relatedModels:
+          type: object
+          description: >-
+            Alias slots (`lite` / `reasoning` / `vision` / `longContext` /
+            `subagent`) mapping to concrete model ids for variant resolution.
+          properties:
+            lite:
+              type: string
+            reasoning:
+              type: string
+            vision:
+              type: string
+            longContext:
+              type: string
+            subagent:
+              type: string
+        trustLevel:
+          type: string
+          enum: [unverified, custom, certified]
+        modelType:
+          type: string
+          enum: [built-in, enterprise]
+        labels:
+          type: array
+          items:
+            type: string
+          description: >-
+            Server-side labels (e.g. `enterprise:aicc` marks the encrypted/
+            confidential chat boundary).
+        tags:
+          type: array
+          items:
+            type: string
+        disabled:
+          type: boolean
+        credits:
+          type: string
+          example: x0.00 credits
+        descriptionZh:
+          type: string
+          example: 混元思考模型，具有增强的推理能力
+        descriptionEn:
+          type: string
+          example: Hunyuan 4 thinking model with enhanced reasoning
+        iconUrl:
+          type: string
+
+    TokenRefreshResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        msg:
+          type: string
+          example: OK
+        data:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                accessToken:
+                  type: string
+                refreshToken:
+                  type: string
+                tokenType:
+                  type: string
+                  example: Bearer
+                expiresIn:
+                  type: integer
+                  example: 7200
+                refreshExpiresIn:
+                  type: integer
+
+    AccountResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 0
+        data:
+          type: object
+          properties:
+            data:
+              type: object
+              properties:
+                uid:
+                  type: string
+                  example: 00d689ae-7ddc-469f-a547-c7dee0a776e5
+                uin:
+                  type: string
+                  example: "330115376154"
+                nickname:
+                  type: string
+                type:
+                  type: string
+                  example: personal
+                enterpriseId:
+                  type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 11101
+        msg:
+          type: string
+          example: Non-stream chat request is currently not supported
+        requestId:
+          type: string
+        displayMsg:
+          type: object
+          properties:
+            zh:
+              type: string
+            en:
+              type: string

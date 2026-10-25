@@ -1,12 +1,17 @@
-# OpenAPI 3.1 reference for Tencent AI CodeBuddy API (copilot.tencent.com / codebuddy.ai / codebuddy.cn),
+# OpenAPI 3.1 SHARED payload reference for the Tencent AI CodeBuddy API —
+# the realm-agnostic wire contracts (auth web-handoff shapes, envelope schemas,
+# request/response bodies) used verbatim by BOTH realm documents:
+#   codebuddy-cn.yml   (domestic line, copilot.tencent.com)
+#   codebuddy-intl.yml (international line, www.codebuddy.ai)
 # reverse engineered from @tencent-ai/codebuddy-code v2.172.1
 # (dist/codebuddy.js account-scoped auth service, dist-server/types/**, and the embedded
 # dist/web-ui/docs/cn/cli/*.md onboard docs) and live-verified against Tencent Cloud
 # production endpoints on 2026-10-23. Confirmed against a live logged-in
 # `Tencent-Cloud.coding-copilot.info` credential file the same day.
 #
-# Consumers: the implementer maintaining `providers/nuo-provider-codebuddy` in Nuo
-# (ADR-0014 dual-lane; ADR-0027 provider-definition single source).
+# Consumers: implementers of `providers/nuo-provider-codebuddy-cn` /
+# `providers/nuo-provider-codebuddy-intl` in Nuo (ADR-0094; ADR-0097 realm bifurcation;
+# ADR-0027 provider-definition single source).
 #
 # Authentication & Storage:
 #   The CLI's interactive login is a browser **web-handoff + state polling** protocol —
@@ -32,13 +37,15 @@
 #   `auth.notBeforePolicy`, `auth.domain` (e.g. "www.codebuddy.cn"),
 #   `account.{uid, nickname, uin, type, sso}`, plus `accounts[]` and `deployStatus`.
 #
-# Environments (product.json `authentication.attributes`):
+### Environments (product.json `authentication.attributes`):
 #   internalDomain      — copilot.tencent.com, staging-copilot.tencent.com, www.codebuddy.cn,
 #                         staging.codebuddy.cn, www.workbuddy.cn, staging.workbuddy.cn
 #   externalDomain      — www.codebuddy.ai, staging-codebuddy.tencent.com
 #   iOADomain           — tencent.sso.copilot.tencent.com, tencent.sso.codebuddy.cn, …
 #   cloudHostedDomain   — *.sso.copilot.tencent.com, *.copilot.qq.com, *.sso.codebuddy.cn, …
 #   Chosen via CODEBUDDY_INTERNET_ENVIRONMENT (unset=external, internal, ioa, cloudhosted, selfhosted).
+#   NOTE (ADR-0097): a payload schema never encodes a realm — the per-realm host
+#   bindings live exclusively in the two realm documents and the channel crates.
 #
 # Enterprise service-token OAuth (client_credentials) is a *provisioning* aid for
 # CI/CD only (`https://copilot.tencent.com/oauth2/token`, per iam.md) — it is not
@@ -64,7 +71,7 @@
 
 openapi: 3.1.0
 info:
-  title: Tencent AI CodeBuddy API
+  title: Tencent AI CodeBuddy API — Domestic (CN) realm
   version: 2.172.1
   summary: >-
     Reverse-engineered inference, configuration, account, and authentication API
@@ -74,11 +81,10 @@ info:
 
     | Environment | Base URL | Usage / Protocol |
     | --- | --- | --- |
-    | Domestic Default (Tencent Cloud) | `https://copilot.tencent.com/v2` | Primary inference (`/chat/completions`, `/responses`) |
-    | International (CodeBuddy AI) | `https://www.codebuddy.ai/v2` | Global inference (`/chat/completions`, `/responses`) |
+    | Production (CN, this realm) | `https://copilot.tencent.com/v2` | Primary inference (`/chat/completions`, `/responses`) |
+    | Staging (CN) | `https://staging-copilot.tencent.com/v2` | Test & pre-release inference — NOT a Nuo provider channel |
+    | Login web origin (observer only) | `https://www.codebuddy.cn` | The browser page the web-handoff opens; auth API still rides the copilot origin |
     | Configuration & Catalog Root | `https://copilot.tencent.com` | Product config & model discovery (`/v3/config`) |
-    | Staging Domestic | `https://staging-copilot.tencent.com/v2` | Test & pre-release inference |
-    | Staging International | `https://staging-codebuddy.tencent.com/v2` | Global staging inference |
 
     Authentication:
     All inference and account endpoints accept a Bearer token in the `Authorization` header
@@ -137,13 +143,9 @@ info:
 
 servers:
   - url: https://copilot.tencent.com/v2
-    description: Production Tencent Cloud domestic inference endpoint (Chat Completions & Responses)
-  - url: https://www.codebuddy.ai/v2
-    description: Production International CodeBuddy inference endpoint
+    description: Production CN inference endpoint (Chat Completions & Responses) — the sole ingress of nuo-provider-codebuddy-cn
   - url: https://copilot.tencent.com
-    description: Production root endpoint for configuration, login web-handoff, and plugin auth
-  - url: https://www.codebuddy.cn
-    description: Production domestic web login origin (consumer-facing site; auth via plugin routes carries the copilot origin)
+    description: Production CN root endpoint for configuration, login web-handoff, and plugin auth
 
 security:
   - BearerAuth: []

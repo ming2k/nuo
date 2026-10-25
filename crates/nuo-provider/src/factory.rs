@@ -21,6 +21,7 @@ pub trait ProviderFactory: Send + Sync {
     fn build_credential_source(
         &self,
         host: &CredentialHost,
+        provider_id: &str,
         connection_name: &str,
         auth: &ConnectionAuth,
         api_key: SecretString,
@@ -61,13 +62,21 @@ pub fn build_provider_for_channel(
 /// must surface (it is an initialization-order bug, not a runtime event).
 pub fn build_credential_source(
     host: &CredentialHost,
+    provider_id: &str,
     connection_name: &str,
     auth: &ConnectionAuth,
     api_key: SecretString,
     dialect: ProviderDialect,
 ) -> Option<Arc<dyn CredentialSource>> {
     if let Some(factory) = PROVIDER_FACTORY.get() {
-        Some(factory.build_credential_source(host, connection_name, auth, api_key, dialect))
+        Some(factory.build_credential_source(
+            host,
+            provider_id,
+            connection_name,
+            auth,
+            api_key,
+            dialect,
+        ))
     } else if auth.is_negotiated() {
         None
     } else {

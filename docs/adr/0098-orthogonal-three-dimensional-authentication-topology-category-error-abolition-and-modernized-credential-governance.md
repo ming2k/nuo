@@ -167,4 +167,4 @@ The economic axis strictly answers: *"How is this turn billed and governed?"*
 ## Links
 
 - Amends: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), [ADR-0095](0095-canonical-dual-lane-routing-provider-capability-and-byos-byok-unification.md), [ADR-0097](0097-physical-ingress-channel-topology-multi-realm-bifurcation-and-sovereign-connection-auth.md)
-- Implementation Anchors: `crates/nuo-provider/src/connection_auth.rs`, `crates/nuo-provider/src/auth.rs`, `providers/nuo-provider-codebuddy/src/credential.rs`, `providers/nuo-provider-openai/src/chat_completions/mod.rs`
+- Implementation Anchors: `crates/nuo-provider/src/connection_auth.rs`, `crates/nuo-provider/src/auth.rs`, `providers/nuo-provider-codebuddy-auth/src/auth_file.rs`, `providers/nuo-provider-openai/src/chat_completions/mod.rs`

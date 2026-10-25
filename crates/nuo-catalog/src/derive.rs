@@ -253,6 +253,7 @@ pub fn derive_channel(
     let api_key = resolve_credential(connection, creds);
     let credentialed = nuo_provider::build_credential_source(
         credential_host,
+        &connection.provider,
         &connection.name,
         &connection.auth,
         api_key,

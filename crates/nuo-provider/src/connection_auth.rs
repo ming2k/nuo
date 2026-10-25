@@ -43,7 +43,7 @@ pub enum ConnectionAuth {
     Static,
     /// Protocol-managed negotiated session (active lease, background/intercepted token refresh).
     Negotiated {
-        /// Stable provider integration id (e.g. "chatgpt", "copilot", "qoder", "xai", "google-antigravity", "codebuddy").
+        /// Stable provider integration id (e.g. "chatgpt", "copilot", "qoder", "xai", "google-antigravity", "codebuddy-cn").
         provider: Cow<'static, str>,
     },
 }
@@ -169,7 +169,7 @@ impl ConnectionAuth {
                 // `DeviceFlowMode::Custom` branch (the only path that reaches
                 // the vendor surface's `begin_device_login` override). The
                 // method label is cosmetic; no RFC device code is polled.
-                "codebuddy" | "codebuddy-intl" => Some(LoginMethod::Device),
+                "codebuddy-cn" | "codebuddy-intl" => Some(LoginMethod::Device),
                 "xai" | "copilot" | "qoder" => Some(LoginMethod::Device),
                 _ => Some(LoginMethod::Browser),
             },
@@ -188,7 +188,7 @@ impl ConnectionAuth {
                 // branch (browser web-handoff, no RFC device code polled) —
                 // so both the default and this predicate say Device, keeping
                 // the TUI's pre-flight check and the engine's gate aligned.
-                "codebuddy" | "codebuddy-intl" => method == LoginMethod::Device,
+                "codebuddy-cn" | "codebuddy-intl" => method == LoginMethod::Device,
                 "copilot" | "qoder" => method == LoginMethod::Device,
                 _ => true,
             },
@@ -274,7 +274,7 @@ mod tests {
     /// Custom device flow, so both layers must say `Device`.
     #[test]
     fn codebuddy_preflight_and_engine_gate_both_route_device() {
-        for provider in ["codebuddy", "codebuddy-intl"] {
+        for provider in ["codebuddy-cn", "codebuddy-intl"] {
             let auth = ConnectionAuth::negotiated(provider);
             assert_eq!(
                 auth.default_login_method(),

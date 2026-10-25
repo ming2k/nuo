@@ -44,8 +44,8 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_glm_cn::MODEL_PROVIDER_SPEC,
     nuo_provider_qianwen::MODEL_PROVIDER_SPEC,
     nuo_provider_qoder::MODEL_PROVIDER_SPEC,
-    nuo_provider_codebuddy::MODEL_PROVIDER_SPEC,
-    nuo_provider_codebuddy::INTL_MODEL_PROVIDER_SPEC,
+    nuo_provider_codebuddy_cn::MODEL_PROVIDER_SPEC,
+    nuo_provider_codebuddy_intl::INTL_MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_plan::MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_zen::MODEL_PROVIDER_SPEC,
     nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
@@ -278,12 +278,13 @@ impl nuo_provider::ProviderFactory for NuoProviderFactory {
     fn build_credential_source(
         &self,
         host: &nuo_provider::CredentialHost,
+        provider_id: &str,
         connection_name: &str,
         auth: &nuo_provider::ConnectionAuth,
         api_key: nuo_host::SecretString,
         dialect: nuo_provider::ProviderDialect,
     ) -> Arc<dyn nuo_provider::CredentialSource> {
-        build_credential_source(host, connection_name, auth, api_key, dialect)
+        build_credential_source(host, provider_id, connection_name, auth, api_key, dialect)
     }
 }
 
@@ -303,6 +304,7 @@ impl nuo_provider::CatalogDiscovery for NuoCatalogDiscovery {
 /// Build a dynamic or static credential source for one connection.
 pub fn build_credential_source(
     host: &nuo_provider::CredentialHost,
+    provider_id: &str,
     connection_name: &str,
     auth: &nuo_provider::ConnectionAuth,
     api_key: nuo_host::SecretString,
@@ -322,11 +324,19 @@ pub fn build_credential_source(
         ))
     } else if dialect == nuo_provider::ProviderDialect::CodeBuddy {
         // BYOK lane: a pasted CodeBuddy CLI token or API key; the header shape
-        // is decided by the credential source itself. Subscriptions never reach
-        // here — they are claimed by the `auth.is_oauth()` arm above.
-        std::sync::Arc::new(nuo_provider_codebuddy::CodeBuddyCredentialSource::new(
+        // is decided by the credential source itself, and the realm gate
+        // ([INV-PROV-REALM-01]) refuses CLI-file tokens minted outside this
+        // channel's account line. The channel is selected by the connection's
+        // provider id — both realms share the `CodeBuddy` dialect, so the
+        // dialect alone cannot discriminate (ADR-0097).
+        let allowed = match provider_id {
+            "codebuddy-intl" => nuo_provider_codebuddy_intl::ALLOWED_CREDENTIAL_DOMAINS,
+            _ => nuo_provider_codebuddy_cn::ALLOWED_CREDENTIAL_DOMAINS,
+        };
+        std::sync::Arc::new(nuo_provider_codebuddy_auth::CodeBuddyByokSource::new(
             connection_name,
             api_key,
+            allowed,
         ))
     } else {
         nuo_provider::static_credential(api_key)
@@ -364,7 +374,8 @@ fn register_oauth_providers() {
         nuo_provider_chatgpt_plan::oauth::providers(),
         nuo_provider_copilot::oauth::providers(),
         nuo_provider_qoder::oauth_provider::providers(),
-        nuo_provider_codebuddy::oauth::providers(),
+        nuo_provider_codebuddy_cn::oauth::providers(),
+        nuo_provider_codebuddy_intl::oauth::providers(),
     ];
     for providers in surfaces {
         for provider in providers {

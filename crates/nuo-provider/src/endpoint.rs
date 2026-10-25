@@ -44,6 +44,9 @@ pub struct Endpoint {
     /// a dialect whose surface declares a `DisplayName` carrier stamps it into
     /// the request envelope's `model_config.display_name`.
     pub display_name: String,
+    /// Lazily derived ingress host (`base_url`'s authority, ports stripped).
+    /// Feeds the CodeBuddy `X-Domain` realm header.
+    ingress_host: std::sync::OnceLock<String>,
 }
 
 impl Endpoint {
@@ -64,6 +67,7 @@ impl Endpoint {
             fallback_session_id: Arc::new(std::sync::OnceLock::new()),
             catalog_source: String::new(),
             display_name: String::new(),
+            ingress_host: std::sync::OnceLock::new(),
         }
     }
 
@@ -270,8 +274,48 @@ impl Endpoint {
     }
 
     /// Return the client-identity headers to attach to every request.
-    pub fn headers(&self) -> Vec<(&str, &str)> {
-        self.client_profile.headers()
+    ///
+    /// For the CodeBuddy dialect this additionally stamps `X-Domain` from
+    /// **this endpoint's own ingress host** ([INV-PROV-REALM-01] by
+    /// construction): the header names the account realm the request rides,
+    /// and it cannot disagree with the host the connection was built for,
+    /// because it *is* that host. A channel crate that pinned a different
+    /// origin would produce a different `X-Domain` with zero coordination.
+    pub fn headers(&self) -> Vec<(&str, String)> {
+        let mut headers: Vec<(&str, String)> = self
+            .client_profile
+            .headers()
+            .into_iter()
+            .map(|(name, value)| (name, value.to_string()))
+            .collect();
+        if self.client_profile.id() == "codebuddy" {
+            // The realm header is derived from *this endpoint's own ingress
+            // host* — structurally incapable of disagreeing with the host the
+            // request is sent to ([INV-PROV-REALM-01]).
+            headers.retain(|(name, _)| *name != "X-Domain");
+            headers.push(("X-Domain", self.ingress_host().to_string()));
+        }
+        headers
+    }
+
+    /// The host component of this endpoint's ingress URL (scheme stripped).
+    fn ingress_host(&self) -> &str {
+        // Base URLs are API roots (`https://host[:port]/prefix`); the domain
+        // header carries the bare host.
+        self.ingress_host.get_or_init(|| {
+            let rest = self
+                .base_url
+                .strip_prefix("https://")
+                .or_else(|| self.base_url.strip_prefix("http://"))
+                .unwrap_or(&self.base_url);
+            let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+            let host = authority
+                .rsplit_once(':')
+                .filter(|(_, port)| port.parse::<u16>().is_ok())
+                .map(|(host, _)| host)
+                .unwrap_or(authority);
+            host.to_ascii_lowercase()
+        })
     }
 
     pub fn id(&self) -> &str {
@@ -302,7 +346,84 @@ mod tests {
                     preset.user_agent()
                 );
             }
+
+            // The shared CodeBuddy preset must stay realm-free: its header
+            // block must never carry an `X-Domain` (each endpoint derives the
+            // realm from its own ingress host, INV-PROV-REALM-01).
+            if *preset == ClientProfile::CodeBuddy {
+                assert!(
+                    !preset.headers().iter().any(|(k, _)| *k == "X-Domain"),
+                    "shared CodeBuddy preset must not pin a realm host header"
+                );
+            }
         }
+    }
+
+    /// `X-Domain` is derived from the endpoint's own ingress host: a
+    /// domestic-built endpoint rides `copilot.tencent.com`, an
+    /// international-built one rides `www.codebuddy.ai` — the header cannot
+    /// disagree with the host it is attached to ([INV-PROV-REALM-01]).
+    #[test]
+    fn codebuddy_endpoints_stamp_their_own_realm_as_x_domain() {
+        let domestic = Endpoint::from_static_key(
+            "k",
+            "hy4-preview",
+            "https://copilot.tencent.com/v2/chat/completions",
+            "codebuddy-cn",
+        )
+        .with_client_profile(ClientProfile::CodeBuddy);
+        assert_eq!(
+            domestic
+                .headers()
+                .iter()
+                .find(|(k, _)| *k == "X-Domain")
+                .map(|(_, v)| v.as_str()),
+            Some("copilot.tencent.com")
+        );
+
+        let international = Endpoint::from_static_key(
+            "k",
+            "gpt-5.6-sol",
+            "https://www.codebuddy.ai/v2/chat/completions",
+            "codebuddy-intl",
+        )
+        .with_client_profile(ClientProfile::CodeBuddy);
+        assert_eq!(
+            international
+                .headers()
+                .iter()
+                .find(|(k, _)| *k == "X-Domain")
+                .map(|(_, v)| v.as_str()),
+            Some("www.codebuddy.ai")
+        );
+    }
+
+    /// Non-RFC-3986 shapes are still parsed deterministically: ports are
+    /// stripped, case is normalized, and non-CodeBuddy profiles are untouched.
+    #[test]
+    fn ingress_host_parsing_is_deterministic_and_scoped() {
+        let ep = Endpoint::from_static_key(
+            "k",
+            "m",
+            "https://COPilot.Tencent.com:443/v2/chat/completions",
+            "codebuddy-cn",
+        )
+        .with_client_profile(ClientProfile::CodeBuddy);
+        assert_eq!(
+            ep.headers()
+                .iter()
+                .find(|(k, _)| *k == "X-Domain")
+                .map(|(_, v)| v.as_str()),
+            Some("copilot.tencent.com")
+        );
+
+        // A non-CodeBuddy profile must not gain the header.
+        let openai = Endpoint::from_static_key("k", "m", "https://api.openai.com/v1", "openai")
+            .with_client_profile(ClientProfile::Native);
+        assert!(
+            !openai.headers().iter().any(|(k, _)| *k == "X-Domain"),
+            "X-Domain is a CodeBuddy-only contract"
+        );
     }
 
     #[test]

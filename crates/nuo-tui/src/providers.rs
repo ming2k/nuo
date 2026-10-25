@@ -344,24 +344,24 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::negotiated_const("qoder"),
     },
     ConnectionTemplate {
-        id: "codebuddy",
-        label: "Tencent CodeBuddy",
-        description: "Tencent AI CodeBuddy coding assistant with Hunyuan, DeepSeek, Kimi, and GLM models; sign in with your CodeBuddy account in the browser, or paste a CLI bearer token / API key.",
+        id: "codebuddy-cn",
+        label: "Tencent CodeBuddy CN",
+        description: "Tencent AI CodeBuddy domestic service with Hunyuan, DeepSeek, Kimi, and GLM models; sign in with your Tencent account in the browser, or paste a CLI bearer token / API key.",
         protocol: WireProtocol::OpenAiChatCompletions,
-        models: nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::CODEBUDDY_CN_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://copilot.tencent.com/v2/chat/completions",
         needs_model: false,
         default_url: Some("https://copilot.tencent.com/v2/chat/completions"),
         user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
-        auth: nuo_wire::ConnectionAuth::negotiated_const("codebuddy"),
+        auth: nuo_wire::ConnectionAuth::negotiated_const("codebuddy-cn"),
     },
     ConnectionTemplate {
         id: "codebuddy-intl",
         label: "Tencent CodeBuddy Global",
         description: "Tencent CodeBuddy AI international service for global users; sign in with your CodeBuddy AI account in the browser, or paste an API key.",
         protocol: WireProtocol::OpenAiChatCompletions,
-        models: nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS,
+        models: nuo_wire::model_providers::CODEBUDDY_INTL_BUILTIN_MODELS,
         needs_url: false,
         url_hint: "https://www.codebuddy.ai/v2/chat/completions",
         needs_model: false,
@@ -1528,7 +1528,7 @@ mod tests {
             "OpenRouter",
             "QianwenAI Token Plan",
             "Qoder",
-            "Tencent CodeBuddy",
+            "Tencent CodeBuddy CN",
             "Tencent CodeBuddy Global",
         ];
         for t in PROVIDER_PRESETS {
@@ -1808,9 +1808,8 @@ mod tests {
                 }
                 "google-antigravity" => Some(nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS),
                 "kimi-code" => Some(nuo_wire::model_providers::KIMI_CODE_MODELS),
-                "codebuddy" | "codebuddy-intl" => {
-                    Some(nuo_wire::model_providers::CODEBUDDY_BUILTIN_MODELS)
-                }
+                "codebuddy-cn" => Some(nuo_wire::model_providers::CODEBUDDY_CN_BUILTIN_MODELS),
+                "codebuddy-intl" => Some(nuo_wire::model_providers::CODEBUDDY_INTL_BUILTIN_MODELS),
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
                 "opencode-plan" | "opencode-go" => {

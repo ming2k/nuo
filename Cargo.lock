@@ -2062,7 +2062,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-provider-codebuddy"
+name = "nuo-provider-codebuddy-auth"
+version = "0.0.50"
+dependencies = [
+ "async-trait",
+ "futures",
+ "netune",
+ "nuo-egress",
+ "nuo-host",
+ "nuo-oauth",
+ "nuo-provider",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "nuo-provider-codebuddy-cn"
 version = "0.0.50"
 dependencies = [
  "async-trait",
@@ -2074,6 +2090,27 @@ dependencies = [
  "nuo-inference-wire",
  "nuo-oauth",
  "nuo-provider",
+ "nuo-provider-codebuddy-auth",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nuo-provider-codebuddy-intl"
+version = "0.0.50"
+dependencies = [
+ "async-trait",
+ "futures",
+ "inventory",
+ "netune",
+ "nuo-egress",
+ "nuo-host",
+ "nuo-inference-wire",
+ "nuo-oauth",
+ "nuo-provider",
+ "nuo-provider-codebuddy-auth",
  "serde",
  "serde_json",
  "tokio",
@@ -2330,7 +2367,9 @@ dependencies = [
  "nuo-provider-anthropic",
  "nuo-provider-catalog",
  "nuo-provider-chatgpt-plan",
- "nuo-provider-codebuddy",
+ "nuo-provider-codebuddy-auth",
+ "nuo-provider-codebuddy-cn",
+ "nuo-provider-codebuddy-intl",
  "nuo-provider-commandcode-plan",
  "nuo-provider-copilot",
  "nuo-provider-deepseek",

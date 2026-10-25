@@ -120,8 +120,10 @@ pub const QIANWEN_BUILTIN_MODELS: &[&str] = &["qwen3.8-max", "qwen3.8-flash", "q
 
 pub const XAI_BUILTIN_MODELS: &[&str] = &["grok-4.5", "grok-4.20", "grok-4.3", "grok-build-0.1"];
 
-/// Seed models for Tencent AI CodeBuddy, in activation order.
-pub const CODEBUDDY_BUILTIN_MODELS: &[&str] = &[
+/// Seed models for the Tencent CodeBuddy domestic line (CN: Hunyuan / DeepSeek /
+/// Kimi / GLM / MiniMix), in activation order. The international line seeds a
+/// disjoint catalog — see `CODEBUDDY_INTL_BUILTIN_MODELS`.
+pub const CODEBUDDY_CN_BUILTIN_MODELS: &[&str] = &[
     "hy4-preview",
     "deepseek-v4-flash",
     "deepseek-v4-pro",
@@ -130,6 +132,10 @@ pub const CODEBUDDY_BUILTIN_MODELS: &[&str] = &[
     "minimax-m2.5",
     "default",
 ];
+
+/// Seed models for the Tencent CodeBuddy AI international line — disjoint from
+/// the domestic catalog (ADR-0097 physical channel bifurcation).
+pub const CODEBUDDY_INTL_BUILTIN_MODELS: &[&str] = &["gpt-5.6-sol", "default"];
 
 use serde::{Deserialize, Serialize};
 
@@ -243,7 +249,7 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "qoder",
     "qianwen",
     "commandcode-plan",
-    "codebuddy",
+    "codebuddy-cn",
     "codebuddy-intl",
 ];
 
@@ -281,7 +287,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
     match id {
         "anthropic" => "Anthropic",
         "chatgpt-plan" => "ChatGPT Plan",
-        "codebuddy" => "Tencent CodeBuddy",
+        "codebuddy-cn" => "Tencent CodeBuddy CN",
         "codebuddy-intl" => "Tencent CodeBuddy Global",
         "commandcode-plan" => "CommandCode Plan",
         "deepseek" => "DeepSeek",

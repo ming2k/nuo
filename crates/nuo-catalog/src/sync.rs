@@ -140,6 +140,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             let auth = if job.connection.auth.is_negotiated() {
                 let Some(source) = nuo_provider::build_credential_source(
                     &job.credentials,
+                    &job.connection.provider,
                     &job.connection.name,
                     &job.connection.auth,
                     nuo_wire::SecretString::from(""),

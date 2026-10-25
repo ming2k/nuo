@@ -1,0 +1,22 @@
+[package]
+name = "nuo-provider-codebuddy-auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared Tencent CodeBuddy authentication kernel: vendor web-handoff OAuth engine, wrapped envelope codecs, and CLI credential-file parsing"
+
+[dependencies]
+nuo-provider = { workspace = true }
+nuo-oauth = { workspace = true }
+nuo-egress = { workspace = true }
+nuo-host = { workspace = true }
+netune = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+async-trait = { workspace = true }
+futures = { workspace = true }
+
+[lints]
+workspace = true

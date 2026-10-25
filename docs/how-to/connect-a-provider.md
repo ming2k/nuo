@@ -48,7 +48,7 @@ Each curated OAuth lane surfaces the vendor's *own* login protocol, not a generi
 | `github-copilot` | Device code (RFC 8628) | A URL plus a short code; enter it on any device signed into GitHub. |
 | `xai` | Browser PKCE | Loopback callback binds `127.0.0.1:56121`. |
 | `qoder` | Vendor device flow | A browser URL; approval on the web side unblocks the poll. |
-| `codebuddy` | Browser web-handoff | A URL opens on `${codebuddy account line}`; Nuo polls the login session until sign-in completes (no local callback binds). |
+| `codebuddy` | Browser web-handoff | A URL opens on the vendor's account line origin; Nuo polls the login session until sign-in completes (no local callback binds). Two channel presets: `codebuddy-cn` (domestic, Tencent Cloud account) and `codebuddy-intl` (international, CodeBuddy AI account). |
 
 Pasting an API key on any of these downgrades the connection to the static-key (BYOK) lane (`[INV-LANE-01]`, `[INV-CB-01]`).
 
@@ -72,5 +72,5 @@ The provider should appear with a live connection. You can also switch the activ
 
 - [Manage Threads and Sessions](manage-threads.md)
 - [Inspect Token Usage](inspect-usage.md)
-- [CodeBuddy wire reference (OAuth + inference)](../reference/openapi/codebuddy.yml)
+- [CodeBuddy wire reference (per-realm)](../reference/openapi/codebuddy-cn.yml) · [international](../reference/openapi/codebuddy-intl.yml) · [shared payloads](../reference/openapi/codebuddy-common.yml)
 - [ADR-0094: CodeBuddy Subscription Lane](../adr/0094-codebuddy-browser-web-handoff-oauth-subscription-lane.md)

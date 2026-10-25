@@ -67,7 +67,7 @@ $$\text{Model Provider} = \text{Target Host Endpoint} + \text{Wire Codec Dialect
 
 ### 2. Multi-Realm Channel Bifurcation Rule
 Whenever a commercial service operates geographically or operationally disjoint gateways with separate authentication realms:
-- They **MUST** be modeled as distinct, first-class Provider Channels (e.g. `codebuddy` for `copilot.tencent.com` vs. `codebuddy-intl` for `www.codebuddy.ai`; `openai` for `api.openai.com` vs. `chatgpt-plan` for `chatgpt.com`).
+- They **MUST** be modeled as distinct, first-class Provider Channels (e.g. `codebuddy-cn` for `copilot.tencent.com` vs. `codebuddy-intl` for `www.codebuddy.ai`; `openai` for `api.openai.com` vs. `chatgpt-plan` for `chatgpt.com`).
 - They **MUST NOT** be consolidated into a single polymorphic provider with internal endpoint switching.
 
 ### 3. Sovereign Connection 1:1 Authentication Binding
