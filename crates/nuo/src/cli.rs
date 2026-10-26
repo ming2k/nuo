@@ -48,6 +48,15 @@ pub enum Mode {
 pub enum DevAction {
     Storybook,
     Export(PathBuf),
+    Check(CheckTarget),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckTarget {
+    All,
+    Firewall,
+    Docs,
+    Adr,
 }
 
 /// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061)
@@ -475,8 +484,21 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("target/storybook-snapshots"));
             return ok(Mode::Dev(DevAction::Export(out_dir)));
+        } else if extra[0] == "check" {
+            let target = match extra.get(1).map(|s| s.as_str()) {
+                Some("firewall") | Some("arch") => CheckTarget::Firewall,
+                Some("docs") | Some("links") => CheckTarget::Docs,
+                Some("adr") | Some("lineage") => CheckTarget::Adr,
+                None | Some("all") => CheckTarget::All,
+                Some(other) => {
+                    return Err(format!(
+                        "unknown check target '{other}'. Available: `all`, `firewall`, `docs`, `adr`"
+                    ));
+                }
+            };
+            return ok(Mode::Dev(DevAction::Check(target)));
         } else {
-            return Err("unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, or `nuo dev export [dir]`".into());
+            return Err("unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, `nuo dev export [dir]`, or `nuo dev check [all|firewall|docs|adr]`".into());
         }
     }
 

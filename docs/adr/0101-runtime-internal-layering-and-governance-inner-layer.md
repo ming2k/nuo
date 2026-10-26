@@ -166,4 +166,4 @@ point inward along the enforced order: `dispatch`/`orchestration` → `cognition
 
 - [ADR-0010: Harness Decomposition, Capability Tool Decoupling, and Cognitive Runtime Unification](0010-harness-decomposition-and-agent-unification.md) (superseded)
 - [ADR-0100: Cognitive Runtime Consolidation, Orphaned Twin Retirement, and Governance-Layer Inversion](0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md)
-- [System Architecture Governance](../dev/standards/architecture.md) §3.2
+- [Subsystem Architecture Blueprint](../dev/subsystems.md) §1

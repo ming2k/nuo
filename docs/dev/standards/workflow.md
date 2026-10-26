@@ -59,8 +59,8 @@ Prior to creating a release tag:
    `cargo clippy --workspace --all-targets -- -D warnings` both silent. The
    workspace denies `unwrap_used`/`expect_used`/`panic`/`todo`/`dbg_macro` for
    shipped code; test targets exempt themselves at the test boundary.
-6. **ADR Lineage**: `python3 scripts/check_adr_lineage.py` clean — every
-   `ADR-NNNN` citation resolves inside `docs/adr/` (`docs/dev/standards/adr.md` §4).
+6. **ADR Lineage**: `cargo test -p nuo --test doc_governance -- test_adr_lineage`
+   clean — every `ADR-NNNN` citation resolves inside `docs/adr/` (`docs/dev/standards/adr.md` §4).
 7. **Documentation Integrity**: citations are checked on both surfaces, because
    prose and code drift for different reasons.
    - `cargo doc --workspace --no-deps` clean — every Rust intra-doc link
@@ -68,10 +68,10 @@ Prior to creating a release tag:
      workspace denies these three lints
      (`Cargo.toml` `[workspace.lints.rustdoc]`); rustdoc is the only compiler
      pass that evaluates them.
-   - `python3 scripts/check_doc_links.py` clean — every relative link across
-     `docs/**` and the root `*.md` resolves to a file, every `#anchor` matches a
-     heading, no absolute or `file://` locator, and no public doc crosses into
-     `docs/dev/**` (`docs/dev/standards/style.md` §1, `taxonomy.md` §2).
+   - `cargo test -p nuo --test doc_governance -- test_doc_links` clean — every
+     relative link across `docs/**` and the root `*.md` resolves to a file, every
+     `#anchor` matches a heading, no absolute or `file://` locator, and no public
+     doc crosses into `docs/dev/**` (`docs/dev/standards/style.md` §1, `taxonomy.md` §2).
 
    ADR-0027 and ADR-0102 relocated whole modules; roughly forty Rust citations
    and one Markdown link rotted silently until these gates existed.

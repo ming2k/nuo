@@ -91,7 +91,7 @@ of `nuo` (working name `interactive`, `default = ["interactive"]`). A build with
 
 `[INV-ARCH-FIREWALL-01] Presentation Dependency Firewall`: the workspace
 dependency graph MUST satisfy, and CI MUST verify via
-`scripts/check_presentation_firewall.py`:
+the architecture test `test_inv_arch_firewall_and_topology` (ADR-0111):
 
 - **R1 — Server purity.** `nuo-server` MUST NOT depend on the terminal/presentation
   substrate (`nuotc`, `crossterm`, `nuo-ui`, `nuo-shell`, `nuo-tui`).

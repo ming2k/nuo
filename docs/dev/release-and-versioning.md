@@ -85,16 +85,16 @@ All internal inter-crate dependencies declared in the root `Cargo.toml` under `[
 # Autonomous protocol and substrate crates
 # (versions below are illustrative — `[workspace.package].version` is the
 # single source of truth for the Cluster C lockstep suite)
-acp = { version = "0.0.50", package = "nuo-acp", path = "crates/nuo-acp" }
+acp = { version = "0.0.51", package = "nuo-acp", path = "crates/nuo-acp" }
 nuotc = { version = "0.0.3" }
 
 # Component libraries
-nuo-host = { version = "0.0.50", path = "crates/nuo-host" }
-nuo-tool = { version = "0.0.50", path = "crates/nuo-tool" }
-nuo-inference-wire = { version = "0.0.50", path = "crates/nuo-inference-wire" }
-nuo-persistence = { version = "0.0.50", path = "crates/nuo-persistence" }
-nuo-harness = { version = "0.0.50", path = "crates/nuo-harness" }
-nuo-model-routing = { version = "0.0.50", path = "crates/nuo-model-routing" }
+nuo-host = { version = "0.0.51", path = "crates/nuo-host" }
+nuo-tool = { version = "0.0.51", path = "crates/nuo-tool" }
+nuo-inference-wire = { version = "0.0.51", path = "crates/nuo-inference-wire" }
+nuo-persistence = { version = "0.0.51", path = "crates/nuo-persistence" }
+nuo-harness = { version = "0.0.51", path = "crates/nuo-harness" }
+nuo-model-routing = { version = "0.0.51", path = "crates/nuo-model-routing" }
 ```
 
 ### Why Both Fields Are Non-Negotiable:

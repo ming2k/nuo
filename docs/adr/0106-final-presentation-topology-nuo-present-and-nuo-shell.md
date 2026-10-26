@@ -131,7 +131,7 @@ no raw-mode driver — `[INV-ARCH-CLI-LEAN-LINK]` is a build-time fact.
 
 ### 5. R3 is enforced unconditionally; retirement is itself a gate
 
-`scripts/check_presentation_firewall.py` now:
+The dependency firewall (`test_inv_arch_firewall_and_topology`, ADR-0105, ADR-0111) now:
 
 - **R1** — `nuo-server` must not depend on the terminal substrate or any presentation
   substrate.
@@ -219,4 +219,4 @@ CI runs the checker with `--strict-ui` and verifies the lean-link exclusion
   [ADR-0089](0089-nuo-client-retirement-and-four-way-responsibility-realignment.md),
   [ADR-0072](0072-pure-declarative-component-paradigm-and-tea-single-direction-dataflow-topology.md),
   [ADR-0073](0073-offline-component-storybook-and-hermetic-visual-regression-pipeline.md)
-- Gate: `scripts/check_presentation_firewall.py --strict-ui`
+- Gate: `cargo test -p nuo --test architecture_firewall` (ADR-0111)

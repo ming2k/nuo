@@ -1,6 +1,6 @@
 # Incident Postmortem Standards
 
-This document establishes the blameless postmortem standard, timeline reconstruction methodology, and systemic defense analysis for incidents in Nuo.
+This document establishes the blameless postmortem standard, timeline reconstruction methodology, and systemic defense analysis for incidents.
 
 ---
 

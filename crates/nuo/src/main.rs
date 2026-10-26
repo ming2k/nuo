@@ -67,6 +67,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         Mode::Dev(cli::DevAction::Storybook) => run_storybook().await,
         Mode::Dev(cli::DevAction::Export(dir)) => export_storybook(&dir),
+        Mode::Dev(cli::DevAction::Check(target)) => run_dev_check(target),
         Mode::Thread(action) => commands::thread::run(action, project_override).await,
         Mode::Server(action) => run_server_action(action, project_override).await,
     }
@@ -110,6 +111,51 @@ fn export_storybook(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Err
 fn export_storybook(_dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     Err("storybook export is unavailable: this build was compiled without the `interactive` feature"
         .into())
+}
+
+fn run_dev_check(target: cli::CheckTarget) -> Result<(), Box<dyn std::error::Error>> {
+    let root = nuo::dev::find_workspace_root();
+    let mut ok = true;
+
+    if target == cli::CheckTarget::All || target == cli::CheckTarget::Firewall {
+        println!("Checking presentation firewall and workspace topology...");
+        if let Err(e) = nuo::dev::firewall::check_presentation_firewall(&root) {
+            eprintln!("{e}");
+            ok = false;
+        } else {
+            println!("presentation firewall: clean");
+        }
+
+        println!("Checking lean CLI link (INV-ARCH-CLI-LEAN-LINK)...");
+        if let Err(e) = nuo::dev::firewall::check_lean_cli_link(&root) {
+            eprintln!("{e}");
+            ok = false;
+        } else {
+            println!("lean CLI link: clean");
+        }
+    }
+
+    if target == cli::CheckTarget::All || target == cli::CheckTarget::Docs {
+        println!("Checking documentation hyperlinks and anchors...");
+        if let Err(e) = nuo::dev::doc_links::check_doc_links(&root) {
+            eprintln!("{e}");
+            ok = false;
+        }
+    }
+
+    if target == cli::CheckTarget::All || target == cli::CheckTarget::Adr {
+        println!("Checking ADR reference lineage...");
+        if let Err(e) = nuo::dev::adr_lineage::check_adr_lineage(&root) {
+            eprintln!("{e}");
+            ok = false;
+        }
+    }
+
+    if ok {
+        Ok(())
+    } else {
+        std::process::exit(1);
+    }
 }
 
 /// server verb dispatch (the server verbs own start/stop/restart/status/token).

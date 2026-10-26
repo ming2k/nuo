@@ -36,11 +36,11 @@ Nuo organizes its Cargo workspace into four concentric layers. Dependencies flow
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Physical layout (`[INV-ARCH-TIER-01]`, ADR-0109)**: All crates uniformly reside within one of
+**Physical layout (`[INV-ARCH-TIER-01]`, ADR-0109, ADR-0111)**: All crates uniformly reside within one of
 three flat tiers: `crates/*` (Layers 1–4, with `crates/nuo` as the sole public application
 executable), `providers/nuo-provider-*` (Layer-3 providers), and `tools/nuo-tool-*` (Layer-3
 tools). Zero crates reside directly at the workspace root. Gated mechanically by
-`scripts/check_presentation_firewall.py` R5.
+the architecture test `test_inv_arch_firewall_and_topology` (R5).
 
 ---
 

@@ -13,6 +13,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub use nuo_server::*;
+pub mod dev;
 pub mod transport;
 
 #[cfg(feature = "interactive")]

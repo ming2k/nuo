@@ -8,7 +8,35 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.51] - 2026-10-26
+
 ### Added
+
+- **Unified dual-tier presentation topology, canonical presenter bridges, and elimination of the Storybook schism (ADR-0112).**
+  - **Two-Tier Presentation Topology (`[INV-TUI-TIER-01]`)**: Codified the strict separation of Tier A Stateless Presenters (zero-state functional projections) from Tier B Sovereign TEA Containers (`Component` trait). Eradicated boilerplate taxes on atomic primitives.
+  - **Canonical Presenter Bridges (`[INV-TUI-TIER-02]`)**: Eliminated dual-track code drift between live session transcripts and offline Storybook workbenches. Added domain extraction (`from_transcript_message`) and connected layout map rendering (`render_with_layout`) to `ToolCard` and `NoticeCard`.
+  - **Dual-Mode Rendering Adaptation (`[INV-TUI-TIER-03]`)**: Guaranteed 1:1 visual parity between sub-millisecond offline Storybook snapshots and production runtime frames with spatial hit testing.
+  - **Zero Backward-Compatibility Cruft**: Purged legacy string-vector action wrappers (`with_labels`) in favor of canonical `NoticeAction` and expanded `ToolPayload` to full 6-variant fidelity (`Diff`, `Command`, `Code`, `Listing`, `Matches`, `Generic`).
+
+- **Elimination of `scripts/` directory and consolidation of workspace governance into native Rust (ADR-0111).**
+  - **Complete `scripts/` Retirement**: Permanently deleted legacy Python scripts (`check_presentation_firewall.py`,
+    `check_doc_links.py`, `check_adr_lineage.py`). Eradicated Python 3 dependency and polyglot build overhead from the repository.
+  - **Native Rust Governance Engine (`nuo::dev`)**: Reimplemented presentation firewall (R1–R5), lean CLI link gate
+    (`[INV-ARCH-CLI-LEAN-LINK]`), Markdown hyperlink integrity, and ADR lineage in `crates/nuo/src/dev/`.
+  - **Integration Test Gateways**: Added `crates/nuo/tests/architecture_firewall.rs` and `crates/nuo/tests/doc_governance.rs`,
+    unifying repository invariants into standard `cargo test` execution.
+  - **Developer CLI Experience**: Added `nuo dev check [all|firewall|docs|adr]` for rapid local verification.
+
+- **Running-state interaction topology, action permissibility discipline, and visual demarcation purity (ADR-0110).**
+  - **Action Permissibility Tri-Partition (`[INV-TUI-RUNNING-01..02]`)**: Disentangles Mutate (guarded),
+    Inspect (open), and Abort (promoted). Replaces ad-hoc boolean flags (`busy`, `disabled`, `running`)
+    with domain-agnostic `ActionStatus` (`Idle`, `Running`, `Disabled`) in `nuo-ui-primitives`.
+  - **Dimmed Token Ban (`[INV-TUI-RUNNING-03]`)**: Strictly prohibits applying `theme.dim()` or
+    `modal_dim_factor` to in-flight or executing components, reserving dimmed palette tokens exclusively
+    for dead, cancelled, or inert entities.
+  - **Demarcation Purity (`[INV-TUI-RUNNING-04]`)**: Preserves orthogonal visual channels (Hue for
+    lifecycle status, Luminance for disclosure weight, Tint for pointer/keyboard affordances) and
+    guarantees readability floor for live stream diffs and logs.
 
 - **Host binary relocation to `crates/nuo` and complete workspace homogenization (ADR-0109).**
   The single application host binary is relocated from the repository root `nuo/` to `crates/nuo/`:

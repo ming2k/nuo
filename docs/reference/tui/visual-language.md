@@ -62,6 +62,14 @@ A persistent state is written as a **closed-vocabulary, lowercase, unbracketed t
 
 Caps and brackets are already spoken for elsewhere in the chrome: `[ROLE]` is the badge slot, and `[N queued]` means a *count* in the footer stack. A state token that borrows either form is misread as one of them. A well-chosen token needs no gloss at all — if it would require a tooltip to be understood, the token is wrong, not under-explained; the authoritative long-form wording belongs to the slash-command catalog, never to chrome that is always on screen (`[INV-TUI-12]`, ADR-0063). Worked example: the `ThreadContextBar`'s `auto` / `open` posture pair (ADR-0062 `[INV-HEAD-07]`).
 
+### In-Flight Running State Demarcation (ADR-0110 `[INV-TUI-RUNNING-01..04]`)
+
+Running and in-flight operations must strictly demarcate active vitality from inert cancellation:
+- **Active Accent Hue**: Running states are styled in `theme.info()` (or `theme.warning`) with bold modifier, never `theme.dim()`.
+- **Dimmed Tone Restriction**: `theme.dim()` is reserved exclusively for cancelled, aborted, or inert locked items (`[INV-TUI-RUNNING-01]`). An active task must never appear dead or faded.
+- **Progress Grammar**: Running headers adhere to the canonical grammar `{Lead} {Target} · running ({elapsed})`, freezing into immutable duration badges upon completion (`[INV-TUI-RUNNING-03]`).
+- **Single Breathing Anchor**: Only the global `ActivityBar` carries animated breathing sweeps; individual leaf components limit liveness indication to at most a single-character discrete spinner frame (`⠋`) and elapsed duration counts (`[INV-TUI-RUNNING-04]`).
+
 ---
 
 ## 4. Glyph Vocabulary

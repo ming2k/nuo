@@ -41,6 +41,16 @@ It is organized as an uncompromising, modern Cargo workspace ([ADR-0055](../adr/
 └────────────────────────────────┘      └────────────────────────────────┘
 ```
 
+**Physical layout (`[INV-ARCH-TIER-01]`, ADR-0109)**: All crates uniformly reside within one of three flat tiers:
+- `crates/*`: Layers 1–4, with `crates/nuo` as the sole public application executable.
+- `providers/nuo-provider-*`: Layer-3 model provider adapters (leaves; no vendor-to-vendor edges).
+- `tools/nuo-tool-*`: Layer-3 tool plugins (leaves).
+
+Zero crates reside directly at the workspace root. Gated mechanically by native integration tests (`crates/nuo/tests/architecture_firewall.rs`).
+
+### Crate Inclusion Threshold
+New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their responsibilities cannot be cleanly modeled as internal modules of existing domain crates and their position in the hierarchy is unambiguously ratified via an ADR.
+
 ---
 
 ## 2. Core Subsystems and Domain Responsibilities

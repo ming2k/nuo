@@ -1,12 +1,12 @@
-# Documentation Taxonomy & Layout
+# Documentation Taxonomy & Information Architecture
 
-This document defines the organization, scope boundaries, and classification of all documentation assets in the Nuo repository.
+This document defines the organization, scope boundaries, and classification of all documentation assets in the repository.
 
 ---
 
 ## 1. The Four-Quadrant System (Diátaxis)
 
-Public user-facing documentation in `docs/` strictly follows the Diátaxis architecture:
+Public documentation in `docs/` follows the Diátaxis information architecture:
 
 ```text
                PRACTICAL                   THEORETICAL
@@ -21,35 +21,35 @@ WORKING   │  (Information-Oriented) │  (Understanding-Orient) │
           └─────────────────────────┴─────────────────────────┘
 ```
 
-- **`docs/tutorials/`**: Guided walk-throughs taking a new user or developer through their first successful run (e.g., getting started).
-- **`docs/how-to/`**: Step-by-step problem-solving recipes for specific user goals (e.g., configuring an OAuth provider, recovering session state).
-- **`docs/reference/`**: Technical descriptions of APIs, schemas, commands, and interfaces without tutorial prose (e.g., CLI commands, configuration options).
-- **`docs/explanation/`**: Architectural deep dives, design rationale, and background discussions (e.g., interrupt semantics, session model overview).
+- **`docs/tutorials/`**: Guided, hands-on lessons taking a new reader through their first successful experience. Focuses on learning and building confidence.
+- **`docs/how-to/`**: Step-by-step problem-solving recipes for specific user goals. Focuses on accomplishing a practical task.
+- **`docs/reference/`**: Technical descriptions of APIs, schemas, commands, configuration options, and interfaces without tutorial prose. Focuses on precision and completeness.
+- **`docs/explanation/`**: Conceptual deep dives, design rationale, and background discussions. Focuses on understanding the system and its architecture.
 
 ---
 
-## 2. Scope Boundaries (Public vs. Internal)
+## 2. Documentation Spaces & Audiences
 
-To maintain clarity for external users while preserving complete internal documentation for core contributors, Nuo enforces a strict audience firewall:
+Documentation is structured into two complementary surfaces:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ Public Surface (Users, Integrators, End Developers)         │
+│ Public Surface (Users, Integrators, Application Developers) │
 │ `docs/tutorials/`, `how-to/`, `reference/`, `explanation/`  │
 └──────────────────────────────┬──────────────────────────────┘
                                │
-                               │ Scope Boundary: Public docs must
-                               │ NEVER link to internal docs.
+                               │ Cross-references welcome
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Internal Surface (Maintainers, Core Contributors, Agents)   │
-│ `docs/dev/` (internals, migrations, runbooks, standards)    │
-│ `docs/adr/` (binding architectural decision records)        │
+│ Engineering Surface (Contributors, Maintainers, Agents)     │
+│ `docs/dev/` (internals, standards, testing runbooks)        │
+│ `docs/adr/` (canonical architectural decision records)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-1. **Firewall Rule**: Public documentation surfaces (`docs/{tutorials,how-to,reference,explanation}/`) must NEVER contain relative links pointing into internal maintainer spaces (`docs/dev/**`).
-2. **Reverse Linking Permitted**: Internal documents may freely link to public reference and how-to guides.
+1. **User Surface**: Addressed to end users and external developers. Emphasizes user workflows, stable API contracts, and usage scenarios.
+2. **Engineering Surface**: Addressed to contributors, maintainers, and development agents. Emphasizes internal subsystem blueprints, architecture decisions, and development standards.
+3. **Transparent Interlinking**: Public explanatory documentation may freely link to engineering specifications and ADRs when deeper architectural context benefits the reader.
 
 ---
 
@@ -63,4 +63,4 @@ To keep the repository root clean, professional, and clutter-free, only canonica
 - `LICENSE.md`
 - `SECURITY.md`
 
-All other documentation must reside within `docs/`.
+All other documentation must reside within organized directories under `docs/`.

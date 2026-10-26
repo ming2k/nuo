@@ -66,3 +66,14 @@ Applied changes are described as typed mutations (`AppMutation`, with `Buffer`, 
 ## 5. Per-Frame Reconciliation
 
 After applying mutations, each frame reconciles derived state before drawing: request surfaces, toast timers, transcripts and session sync, navigation signals, and completion signals. The engine then diffs the retained cell grid, so only dirty lines are repainted.
+
+---
+
+## 6. Action Permissibility in Running State (ADR-0110 `[INV-TUI-RUNNING-02]`)
+
+When a component, task, or agent turn is actively executing, user actions are strictly partitioned into three orthogonal categories rather than subjected to a blanket lock:
+
+1. **Mutating Actions (Guarded)**: Trigger messages that would re-submit commands, mutate parameters, or spawn concurrent duplicates are intercepted at the TEA `update(msg)` layer and safely consumed as no-ops (`ActionStatus::is_actionable() == false`).
+2. **Observational Actions (Unconditionally Open)**: Read-only inspection—toggling disclosure expansion, scrolling log viewports, selecting text ranges, copying stdout diagnostics, and navigating step cards—remains 100% operational with full foreground text contrast.
+3. **Control Actions (Promoted Salience)**: Cancellation and steering affordances (e.g. <kbd>Esc</kbd> interrupts, `Alt+S` steer now) are maintained with high visual and keyboard priority.
+

@@ -195,4 +195,4 @@ layer that cognition may depend on, never the reverse.
 - [ADR-0008: Single Tool Contract](0008-single-tool-contract.md)
 - [ADR-0009: Single Agent Runtime and Contract-Layer Ownership of Agent Identity](0009-single-agent-runtime.md)
 - [ADR-0010: Harness Decomposition, Capability Tool Decoupling, and Cognitive Runtime Unification](0010-harness-decomposition-and-agent-unification.md)
-- [System Architecture Governance](../dev/standards/architecture.md) §3.2
+- [Subsystem Architecture Blueprint](../dev/subsystems.md) §1

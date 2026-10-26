@@ -1,4 +1,12 @@
 //! Tool step renderer (tool invocation summaries, expanded bodies, diffs, results).
+//!
+//! Enforces:
+//! - `[INV-TUI-RUNNING-01]` (Strict Lifecycle-Tone Separation): In-flight tools
+//!   render with active info hue (`theme.info()`), bold, never `theme.dim()`.
+//! - `[INV-TUI-RUNNING-02]` (Action Permissibility Tri-Partition): Read inspection
+//!   remains unconditionally operational during execution.
+//! - `[INV-TUI-TIER-02]` (Canonical Presenter Bridge Invariant): Connected with
+//!   `ToolCard` to guarantee zero drift between production transcript and Storybook.
 
 use nuotc::{
     Color, Modifier, Rect, Style, {Line, Span},

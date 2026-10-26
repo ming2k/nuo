@@ -67,7 +67,7 @@ We establish **`[INV-ARCH-TIER-01]` Pure Tiered Workspace Topology** (amending a
 3. **Flat Tier Guarantee**:
    No tier may nest deeper than `<tier>/<crate>/`.
 4. **Mechanical Gate (R5)**:
-   Enforced mechanically by `scripts/check_presentation_firewall.py` rule R5 on every CI run.
+   Enforced mechanically by `test_inv_arch_firewall_and_topology` rule R5 (ADR-0111) on every CI run.
 
 ---
 
@@ -75,7 +75,7 @@ We establish **`[INV-ARCH-TIER-01]` Pure Tiered Workspace Topology** (amending a
 
 ### Positive
 - **100% Homogeneous Topology**: Root directory contains strictly the three plural category containers (`crates/`, `providers/`, `tools/`).
-- **Zero Special-Case Tooling**: Path discovery across scripts and CI is simplified to `[f"{tier}/*/Cargo.toml" for tier in TIERS]`.
+- **Zero Special-Case Tooling**: Path discovery across CI and tools is simplified to `<tier>/*/Cargo.toml`.
 - **Aligns with Modern Rust Standards**: Matches the monorepo architecture of major Rust systems projects.
 
 ### Negative / Neutral

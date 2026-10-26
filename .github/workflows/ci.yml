@@ -47,30 +47,25 @@ jobs:
       - name: docs
         run: cargo doc --workspace --no-deps
 
-      # `docs/dev/standards/style.md` §1 and `taxonomy.md` §2: relative links
-      # resolve, anchors match headings, and public docs stay out of `docs/dev/`.
+      # `docs/dev/standards/style.md` §1: relative links resolve and anchors match headings.
       - name: doc links
-        run: python3 scripts/check_doc_links.py
+        run: cargo test -p nuo --test doc_governance -- test_doc_links --nocapture
 
       # docs/dev/standards/adr.md §4: every citation must resolve in-repo.
       - name: ADR lineage
-        run: python3 scripts/check_adr_lineage.py
+        run: cargo test -p nuo --test doc_governance -- test_adr_lineage --nocapture
 
-      # ADR-0105/ADR-0106: the concentric dependency direction is a mechanical
-      # gate (server purity, client-server anti-inversion, zero-IO presentation
-      # substrate, retired-crate prohibition). R3 is unconditional.
+      # ADR-0105/ADR-0106/ADR-0109/ADR-0111: the concentric dependency direction is a
+      # mechanical gate (server purity, client-server anti-inversion, zero-IO presentation
+      # substrate, retired-crate prohibition, 3-tier topology).
       - name: presentation firewall
-        run: python3 scripts/check_presentation_firewall.py --strict-ui
+        run: cargo test -p nuo --test architecture_firewall -- test_inv_arch_firewall_and_topology --nocapture
 
       # ADR-0105 / [INV-ARCH-CLI-LEAN-LINK]: a lean `nuo` (without the
       # `interactive` feature) must not link a terminal raw-mode driver, the
       # pure presentation substrate, or a retired presentation crate.
       - name: lean CLI link
-        run: |
-          if cargo tree -p nuo --no-default-features -e normal \
-              | grep -qE 'nuotc|crossterm|nuo-ui-primitives|nuo-view|nuo-present|nuo-ui|nuo-shell'; then
-            echo "lean build links a terminal presentation stack (INV-ARCH-CLI-LEAN-LINK)"; exit 1
-          fi
+        run: cargo test -p nuo --test architecture_firewall -- test_inv_arch_cli_lean_link --nocapture
 
   release:
     name: release binary (${{ matrix.target }})

@@ -80,7 +80,7 @@ We permanently replace `crates/nuo-present` with two strictly layered, zero-IO l
 ### 3. Permanent Retirement of `crates/nuo-present`
 
 - `crates/nuo-present` is permanently deleted.
-- `nuo-present` is added to `RETIRED_CRATES` in `scripts/check_presentation_firewall.py`.
+- `nuo-present` is added to `RETIRED_CRATES` in the architecture firewall (ADR-0111).
 - Any workspace crate depending on `nuo-present` fails CI build-time checks.
 
 ---
