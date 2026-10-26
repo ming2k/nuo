@@ -31,14 +31,9 @@ pub mod response;
 pub mod spec;
 pub mod state;
 pub mod surface;
+pub mod transport;
 pub mod vision;
 pub mod wire_surface;
-
-pub mod transport {
-    pub use crate::response::{
-        decode_response_json, ensure_success, extract_error_message, extract_error_summary,
-    };
-}
 
 pub use endpoint::*;
 pub use pipeline::{
@@ -52,10 +47,6 @@ pub use response::{
     classify_http_error, decode_response_json, ensure_success, is_context_overflow_payload,
 };
 pub use vision::project_images_for_route;
-
-pub mod oauth {
-    pub use crate::credentials::*;
-}
 
 // Capability & Core Traits — the contract crate owns the `Provider` cognitive contract
 pub use auth::{CredentialSource, ResolvedAuth, static_credential};
@@ -103,9 +94,9 @@ pub use state::*;
 pub use surface::*;
 pub use wire_surface::*;
 
-pub use nuo_egress::{
-    EgressObservation as TransportObservation, EgressTelemetry as TransportTelemetry,
-    EgressTimings as TransportTimings,
-};
 pub use nuo_inference_wire::WireProtocol;
 pub use nuo_tool::usage::TokenUsage;
+pub use transport::{
+    Client, Http, HttpResponse, NetTransport, Reply, Request, RequestBuilder, RequestParts,
+    Transport, TransportError, TransportObservation, TransportTelemetry, TransportTimings,
+};

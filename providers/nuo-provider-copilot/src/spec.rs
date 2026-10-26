@@ -9,8 +9,8 @@ use nuo_provider::*;
 
 /// The minimal model seed for a fresh GitHub Copilot instance, before its
 /// first live catalog sync completes. A Copilot instance uses a remote-catalog
-/// source pointing at `api.githubcopilot.com/models` (see [`COPILOT`](crate::oauth::COPILOT)
-/// / the `copilot-oauth` preset), so its real channel set is populated from
+/// source pointing at `api.githubcopilot.com/models` (see the [`copilot-oauth`
+/// preset](crate::oauth::preset)), so its real channel set is populated from
 /// that endpoint at runtime — this seed only needs one universally available
 /// id so a brand-new instance activates without a 400. `gpt-4o-mini` is
 /// unlocked on every Copilot plan (incl. Free/Student).

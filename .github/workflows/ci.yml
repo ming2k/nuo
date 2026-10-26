@@ -15,7 +15,7 @@ env:
 
 jobs:
   verify:
-    name: fmt · clippy · test · lineage
+    name: fmt · clippy · test · docs · lineage
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -40,9 +40,37 @@ jobs:
       - name: test
         run: cargo test --workspace
 
+      # `Cargo.toml` denies broken/private intra-doc links and invalid HTML
+      # (`[workspace.lints.rustdoc]`); rustdoc evaluates those lints, so this is
+      # where the documentation contract is enforced. `--no-deps` scopes it to
+      # this workspace.
+      - name: docs
+        run: cargo doc --workspace --no-deps
+
+      # `docs/dev/standards/style.md` §1 and `taxonomy.md` §2: relative links
+      # resolve, anchors match headings, and public docs stay out of `docs/dev/`.
+      - name: doc links
+        run: python3 scripts/check_doc_links.py
+
       # docs/dev/standards/adr.md §4: every citation must resolve in-repo.
       - name: ADR lineage
         run: python3 scripts/check_adr_lineage.py
+
+      # ADR-0105/ADR-0106: the concentric dependency direction is a mechanical
+      # gate (server purity, client-server anti-inversion, zero-IO presentation
+      # substrate, retired-crate prohibition). R3 is unconditional.
+      - name: presentation firewall
+        run: python3 scripts/check_presentation_firewall.py --strict-ui
+
+      # ADR-0105 / [INV-ARCH-CLI-LEAN-LINK]: a lean `nuo` (without the
+      # `interactive` feature) must not link a terminal raw-mode driver, the
+      # pure presentation substrate, or a retired presentation crate.
+      - name: lean CLI link
+        run: |
+          if cargo tree -p nuo --no-default-features -e normal \
+              | grep -qE 'nuotc|crossterm|nuo-ui-primitives|nuo-view|nuo-present|nuo-ui|nuo-shell'; then
+            echo "lean build links a terminal presentation stack (INV-ARCH-CLI-LEAN-LINK)"; exit 1
+          fi
 
   release:
     name: release binary (${{ matrix.target }})
@@ -76,7 +104,7 @@ jobs:
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: nuo
-          manifest-path: nuo/Cargo.toml
+          manifest-path: crates/nuo/Cargo.toml
           target: ${{ matrix.target }}
           archive: nuo-$tag-$target
           token: ${{ secrets.GITHUB_TOKEN }}

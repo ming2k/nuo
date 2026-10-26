@@ -232,7 +232,7 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
 ///
 /// The pairing is **signature-aware**: an assistant turn whose thought
 /// signatures were lost (truncated stream, cross-provider resume) degrades its
-/// `functionCall` parts to plain text in [`assistant_parts`], so its tool
+/// `functionCall` parts to plain text in `assistant_parts`, so its tool
 /// results would arrive as `functionResponse` parts with no preceding
 /// `functionCall` — the exact shape Google's Anthropic bridge rejects with
 /// `unexpected tool_use_id found in tool_result blocks` (reproduced live

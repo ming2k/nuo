@@ -350,7 +350,7 @@ mod trust_domain_tests {
             Default::default(),
             agent.dynamic_tool_sink(),
         ));
-        let skills = nuo_harness::skills::SkillRegistry::empty();
+        let skills = nuo_harness::cognition::skills::SkillRegistry::empty();
         let shared_roots = nuo_wire::SharedAdditionalRoots::empty();
 
         // Initially untrusted: roots should remain quarantined and empty
@@ -434,5 +434,87 @@ mod role_command_tests {
         assert_eq!(MainAgentRole::ALL[0].as_str(), "developer");
         assert_eq!(MainAgentRole::ALL[1].as_str(), "philosophist");
         assert_eq!(MainAgentRole::ALL[2].as_str(), "ops");
+    }
+}
+
+#[cfg(test)]
+mod retired_aside_redirect_tests {
+    use std::sync::Arc;
+
+    use nuo_persistence::session::SessionStore;
+    use nuo_wire::{AgentResponse, CommandResult, Message, Role, RoundEvent};
+    use tokio::sync::mpsc;
+
+    use super::super::session_ops::fork_retired_aside;
+
+    /// `[INV-DEPR-01]`: a submitted `/btw <prompt>` forks at head and carries
+    /// the message into the new branch, leaving the parent untouched.
+    #[tokio::test]
+    async fn btw_forks_at_head_and_carries_the_prompt_into_the_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+        store
+            .replace_messages(vec![
+                Message::new(Role::User, "hello"),
+                Message::new(Role::Assistant, "hi"),
+            ])
+            .await
+            .unwrap();
+        let parent_id = store.id().await;
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        fork_retired_aside(&store, &tx, "/btw", "why is the sky blue").await;
+
+        let mut forked = None;
+        let mut texts: Vec<String> = Vec::new();
+        while let Ok(resp) = rx.try_recv() {
+            match resp {
+                AgentResponse::SessionForked {
+                    child_id, prompt, ..
+                } => forked = Some((child_id, prompt)),
+                AgentResponse::Round {
+                    event:
+                        RoundEvent::CommandResult {
+                            result: CommandResult::Text(text),
+                            ..
+                        },
+                    ..
+                } => texts.push(text),
+                _ => {}
+            }
+        }
+
+        let (child_id, prompt) = forked.expect("a retired /btw must fork");
+        assert_eq!(prompt.as_deref(), Some("why is the sky blue"));
+        assert_ne!(child_id, parent_id, "the child is a new sovereign thread");
+        // Sovereign fork [INV-FORK-04]: the parent pointer is never repointed.
+        assert_eq!(store.id().await, parent_id);
+
+        assert!(
+            texts.iter().any(|t| t.contains("retired")),
+            "guidance must explain the retirement: {texts:?}"
+        );
+    }
+
+    /// A bare `/btw` still forks, but carries no opening message.
+    #[tokio::test]
+    async fn bare_btw_forks_without_a_prompt() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+        store
+            .replace_messages(vec![Message::new(Role::User, "hello")])
+            .await
+            .unwrap();
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        fork_retired_aside(&store, &tx, "/btw", "   ").await;
+
+        let mut prompt_seen = None;
+        while let Ok(resp) = rx.try_recv() {
+            if let AgentResponse::SessionForked { prompt, .. } = resp {
+                prompt_seen = Some(prompt);
+            }
+        }
+        assert_eq!(prompt_seen, Some(None), "a bare /btw carries no prompt");
     }
 }

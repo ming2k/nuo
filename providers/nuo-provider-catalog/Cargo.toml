@@ -12,7 +12,6 @@ description = "Live remote model-catalog discovery (CatalogDiscovery / CatalogPa
 # The CatalogDiscovery port, RemoteCatalog* envelopes, CatalogShape, DiscoveredModel.
 nuo-provider = { workspace = true }
 # Http transport, NUO_USER_AGENT, Request builder, netune Method.
-nuo-egress = { workspace = true }
 nuo-inference-wire = { workspace = true }
 
 # list_models.rs:330 — `crate::protocol::anthropic::request::ANTHROPIC_VERSION`.
@@ -24,6 +23,7 @@ nuo-provider-qoder = { workspace = true }
 nuo-provider-google-antigravity = { workspace = true }
 
 async-trait = { workspace = true }
+http = "1.4"
 serde = { workspace = true }
 serde_json = { workspace = true }
 netune = { workspace = true }

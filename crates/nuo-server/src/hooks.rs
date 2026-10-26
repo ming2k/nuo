@@ -402,11 +402,12 @@ pub fn build_hook_registry(
         })
         .collect();
     let weak_agent = std::sync::Arc::downgrade(agent);
-    let authorizer: nuo_harness::hooks::HookAuthorizer = std::sync::Arc::new(move |submission| {
-        weak_agent
-            .upgrade()
-            .is_some_and(|agent| agent.is_permission_allowed("hook", &submission.scope))
-    });
+    let authorizer: nuo_harness::runtime::hooks::HookAuthorizer =
+        std::sync::Arc::new(move |submission| {
+            weak_agent
+                .upgrade()
+                .is_some_and(|agent| agent.is_permission_allowed("hook", &submission.scope))
+        });
     nuo_harness::HookRegistry::with_authorizer(hooks, authorizer)
 }
 

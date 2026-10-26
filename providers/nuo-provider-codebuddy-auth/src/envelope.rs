@@ -4,8 +4,8 @@
 //! serde renames align them with the RFC-facing names `TokenResponse` uses.
 
 use nuo_host::SecretString;
-use nuo_oauth::oauth::AuthError;
-use nuo_oauth::oauth::token::TokenResponse;
+use nuo_provider::auth::AuthError;
+use nuo_provider::auth::TokenResponse;
 
 /// The wrapped credential payload CodeBuddy returns from state-login and
 /// refresh.

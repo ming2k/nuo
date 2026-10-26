@@ -1449,8 +1449,9 @@ async fn handle_wire_stream(
         Some(sel) => (sel.connection.clone(), sel.model.unwrap_or_default()),
         None => {
             let config = nuo_persistence::config::Config::load();
-            let provider = nuo_catalog::default_provider_id(&config).to_string();
-            let model = nuo_catalog::resolved_model_name(&config, &provider).unwrap_or_default();
+            let provider = nuo_model_routing::default_provider_id(&config).to_string();
+            let model =
+                nuo_model_routing::resolved_model_name(&config, &provider).unwrap_or_default();
             (provider, model)
         }
     };

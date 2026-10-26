@@ -275,7 +275,7 @@ pub(super) fn project(
         }
     }
 
-    Ok(items
+    let surviving: Vec<InputItem> = items
         .into_iter()
         .enumerate()
         .filter_map(|(index, item)| match &item.kind {
@@ -288,7 +288,42 @@ pub(super) fn project(
             }
             _ => Some(item),
         })
-        .collect())
+        .collect();
+
+    // Reconcile tool sequence adjacency:
+    // When a turn contains tool calls, providers (notably DeepSeek) require all
+    // function_call_output items to immediately succeed their corresponding function_call items
+    // without interleaved non-tool messages (such as user companion images from tool results).
+    // Interleaved non-tool items are deferred until the tool output block concludes.
+    let mut reordered = Vec::with_capacity(surviving.len());
+    let mut pending_outputs: usize = 0;
+    let mut deferred_plain = Vec::new();
+
+    for item in surviving {
+        match &item.kind {
+            InputItemKind::FunctionCall { .. } => {
+                pending_outputs += 1;
+                reordered.push(item);
+            }
+            InputItemKind::FunctionCallOutput { .. } => {
+                pending_outputs = pending_outputs.saturating_sub(1);
+                reordered.push(item);
+                if pending_outputs == 0 {
+                    reordered.append(&mut deferred_plain);
+                }
+            }
+            InputItemKind::Plain(_) => {
+                if pending_outputs > 0 {
+                    deferred_plain.push(item);
+                } else {
+                    reordered.push(item);
+                }
+            }
+        }
+    }
+    reordered.append(&mut deferred_plain);
+
+    Ok(reordered)
 }
 
 #[cfg(test)]
@@ -429,5 +464,34 @@ mod tests {
         assert_eq!(items[2]["status"], "completed");
         assert_eq!(items[2]["call_id"], "call_nuo_1");
         assert_eq!(items[3]["call_id"], "call_nuo_1");
+    }
+
+    #[test]
+    fn interleaved_plain_items_are_deferred_past_tool_output_block() {
+        let items = wire(
+            vec![
+                call("call_1", "tool_one"),
+                call("call_2", "tool_two"),
+                output("call_1", "result_one"),
+                InputItem::plain(json!({
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "Image companion"}]
+                })),
+                output("call_2", "result_two"),
+            ],
+            &[],
+        );
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0]["type"], "function_call");
+        assert_eq!(items[0]["call_id"], "call_1");
+        assert_eq!(items[1]["type"], "function_call");
+        assert_eq!(items[1]["call_id"], "call_2");
+        assert_eq!(items[2]["type"], "function_call_output");
+        assert_eq!(items[2]["call_id"], "call_1");
+        assert_eq!(items[3]["type"], "function_call_output");
+        assert_eq!(items[3]["call_id"], "call_2");
+        assert_eq!(items[4]["type"], "message");
+        assert_eq!(items[4]["content"][0]["text"], "Image companion");
     }
 }

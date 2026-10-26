@@ -855,13 +855,13 @@ impl Drop for TestDirsGuard {
 /// Access the process-wide [`Dirs`].
 ///
 /// Resolution order:
-/// 1. an explicit test override ([`set_test_default`]), then
+/// 1. an explicit test override (`set_test_default`), then
 /// 2. the production install ([`set_default`]), then
 /// 3. an explicit instance root: with `NUO_HOME` set the platform
 ///    resolution is honoured, because that root *is* a deliberate sandbox — a
 ///    spawned CLI or an end-to-end harness must keep observing it, then
 /// 4. in test builds, an isolated per-process temp root (see
-///    [`isolated_test_root`]); otherwise [`Dirs::system`].
+///    `isolated_test_root`); otherwise [`Dirs::system`].
 ///
 /// Step 4 is the safety net that stops a test which forgot to sandbox from
 /// resolving the developer's real XDG roots and rewriting their state. It only

@@ -12,7 +12,7 @@ use super::super::surface::{AGENT_CHAT, COSY_VERSION, MODEL_BINDINGS};
 ///
 /// Reasoning effort is deliberately **not** here: the canonical body already
 /// carries it (clamped against the channel's ladder by the chat-completions
-/// request builder), and [`parameters_block`] projects it from there. A second
+/// request builder), and `parameters_block` projects it from there. A second
 /// copy on this struct would be a fork that could disagree with the body.
 pub struct EnvelopeInput<'a> {
     pub model: &'a str,

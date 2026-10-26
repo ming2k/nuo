@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use nuo_wire::Tool;
 use serde_json::json;
 
-use crate::host::{NoRoleMemory, RoleMemory};
+use crate::runtime::host::{NoRoleMemory, RoleMemory};
 
 /// The port-injected tool. Constructed with the host's memory at assembly.
 pub struct RecallMemoryTool {
@@ -180,7 +180,7 @@ mod tests {
 
     /// A host memory that answers deterministically, so the tool's rendering is
     /// exercised without a database.
-    struct StubMemory(Vec<crate::host::RecalledMemory>);
+    struct StubMemory(Vec<crate::runtime::host::RecalledMemory>);
 
     impl RoleMemory for StubMemory {
         fn record(
@@ -198,7 +198,7 @@ mod tests {
             _role: &str,
             _query: &str,
             _limit: usize,
-        ) -> Result<Vec<crate::host::RecalledMemory>, String> {
+        ) -> Result<Vec<crate::runtime::host::RecalledMemory>, String> {
             Ok(self.0.clone())
         }
     }
@@ -235,13 +235,15 @@ mod tests {
 
     #[tokio::test]
     async fn recalled_entries_render_with_their_age_and_text() {
-        let tool = RecallMemoryTool::new(Arc::new(StubMemory(vec![crate::host::RecalledMemory {
-            role: "philosophist".into(),
-            user_prompt: "What of eternal recurrence?".into(),
-            role_response: "It is the ultimate existential test.".into(),
-            age_s: 7_200,
-            score: 0.87,
-        }])));
+        let tool = RecallMemoryTool::new(Arc::new(StubMemory(vec![
+            crate::runtime::host::RecalledMemory {
+                role: "philosophist".into(),
+                user_prompt: "What of eternal recurrence?".into(),
+                role_response: "It is the ultimate existential test.".into(),
+                age_s: 7_200,
+                score: 0.87,
+            },
+        ])));
         let text = tool.call(r#"{"query": "recurrence"}"#).await.unwrap();
         assert!(text.contains("2h old"), "age comes from the host: {text}");
         assert!(text.contains("eternal recurrence"), "{text}");

@@ -9,8 +9,6 @@ description = "Tencent CodeBuddy AI international provider channel for Nuo — w
 [dependencies]
 nuo-provider = { workspace = true }
 nuo-provider-codebuddy-auth = { workspace = true }
-nuo-oauth = { workspace = true }
-nuo-egress = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-host = { workspace = true }
 netune = { workspace = true }

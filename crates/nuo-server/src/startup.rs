@@ -308,7 +308,7 @@ define_builtin_commands! {
             ("/fork 2", "Branch from conclusion of Round 2 into a new tab"),
             ("/fork 2.1", "Branch after Turn 1 of Round 2 into a new tab"),
         ],
-        intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side"],
+        intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side", "btw"],
         category: Session,
     },
     Tree = "/tree" : {
@@ -513,6 +513,23 @@ pub const TRIGGER_WORD_SUGGESTIONS: &[(&str, &str, &str)] = &[
         "continue",
         "/threads",
         "/threads picks the thread up where it left off",
+    ),
+    // `/btw` (aside) was retired in favour of causal session forks
+    // (ADR-0058 §4). Steer the habit onto `/fork`, which now subsumes it.
+    (
+        "btw",
+        "/fork",
+        "Side inquiries are now first-class session forks: /fork branches at head",
+    ),
+    (
+        "aside",
+        "/fork",
+        "/fork opens the old aside as a real, switchable session branch",
+    ),
+    (
+        "side",
+        "/fork",
+        "/fork opens the old side view as a real, switchable session branch",
     ),
 ];
 
@@ -786,6 +803,19 @@ mod tests {
         assert!(crate::startup::suggest_for_trigger("cle").is_none());
         assert!(crate::startup::suggest_for_trigger("new").is_none());
         assert!(crate::startup::suggest_for_trigger("").is_none());
+    }
+
+    #[test]
+    fn retired_aside_words_steer_to_fork() {
+        // The `/btw` aside substrate is gone (ADR-0058 §4); its vocabulary must
+        // steer onto `/fork` rather than dead-end as an unknown command.
+        for word in ["btw", "aside", "side"] {
+            assert_eq!(
+                crate::startup::suggest_for_trigger(word).map(|(target, _)| target),
+                Some("/fork"),
+                "/{word} must steer to /fork"
+            );
+        }
     }
 
     #[test]

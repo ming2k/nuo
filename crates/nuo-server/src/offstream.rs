@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_harness::offstream::{
+use nuo_harness::runtime::offstream::{
     OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent,
 };
 use nuo_persistence::blobs::BlobStore;

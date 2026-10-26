@@ -1,11 +1,10 @@
 [workspace]
 members = [
-    "nuo",
     "crates/*",
     "tools/*",
     "providers/*",
 ]
-default-members = ["nuo"]
+default-members = ["crates/nuo"]
 resolver = "2"
 
 [workspace.package]
@@ -92,8 +91,6 @@ acp = { version = "0.0.50", package = "nuo-acp", path = "crates/nuo-acp" }
 nuo-tool = { version = "0.0.50", path = "crates/nuo-tool" }
 nuo-tool-derive = { version = "0.0.50", path = "crates/nuo-tool-derive" }
 nuo-provider = { version = "0.0.50", path = "crates/nuo-provider" }
-nuo-oauth = { version = "0.0.50", path = "crates/nuo-oauth" }
-nuo-egress = { version = "0.0.50", path = "crates/nuo-egress" }
 nuo-provider-qoder = { version = "0.0.50", path = "providers/nuo-provider-qoder" }
 nuo-provider-catalog = { version = "0.0.50", path = "providers/nuo-provider-catalog" }
 nuo-provider-anthropic = { version = "0.0.50", path = "providers/nuo-provider-anthropic" }
@@ -117,19 +114,19 @@ nuo-mcp = { version = "0.0.50", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.50", path = "crates/nuo-inference-wire", default-features = false }
 
 # Terminal Substrate (Nuotc)
-nuotc = "0.0.3"
+nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.4" }
 
 # In-house Nuo crates
 nuo-protocol = { version = "0.0.50", path = "crates/nuo-protocol" }
 nuo-wire = { version = "0.0.50", package = "nuo-protocol", path = "crates/nuo-protocol" }
 nuo = { version = "0.0.50", path = "nuo" }
 nuo-server = { version = "0.0.50", path = "crates/nuo-server" }
-nuo-tui = { version = "0.0.50", path = "crates/nuo-tui" }
-nuox = { package = "nuo-tui", version = "0.0.50", path = "crates/nuo-tui" }
 nuo-persistence = { version = "0.0.50", path = "crates/nuo-persistence" }
+nuo-ui-primitives = { version = "0.0.50", path = "crates/nuo-ui-primitives" }
+nuo-view = { version = "0.0.50", path = "crates/nuo-view" }
 nuo-host = { version = "0.0.50", path = "crates/nuo-host" }
 nuo-harness = { version = "0.0.50", path = "crates/nuo-harness" }
-nuo-catalog = { version = "0.0.50", path = "crates/nuo-catalog" }
+nuo-model-routing = { version = "0.0.50", path = "crates/nuo-model-routing" }
 nuo-tool-fs = { version = "0.0.50", path = "tools/nuo-tool-fs" }
 nuo-tool-exec = { version = "0.0.50", path = "tools/nuo-tool-exec" }
 nuo-tool-web = { version = "0.0.50", path = "tools/nuo-tool-web" }
@@ -151,3 +148,12 @@ todo = "deny"
 dbg_macro = "deny"
 print_stdout = "allow"
 print_stderr = "allow"
+
+# rustdoc is a hard gate alongside clippy: a citation that does not resolve, a
+# public doc that reaches a private item, or a stray HTML tag fails `cargo doc`
+# (CI `docs` step). The workspace cites hundreds of items and ~100 ADRs, so this
+# drift has to be caught mechanically rather than by review.
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+invalid_html_tags = "deny"

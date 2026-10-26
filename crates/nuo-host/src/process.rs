@@ -363,7 +363,8 @@ pub fn image_digest_len(path: &std::path::Path) -> Option<(u64, String)> {
 /// would exec), but a **server** must fingerprint the very image the kernel
 /// loaded into it. On Linux `/proc/self/exe` is a magic link that resolves to
 /// the *held inode* (and to `… (deleted)` once the on-disk file has been
-/// replaced), which is exactly that image. Re-opening [`current_exe`]'s *path*
+/// replaced), which is exactly that image. Re-opening
+/// [`current_exe`](std::env::current_exe)'s *path*
 /// would instead follow the path to any newly dropped file — the precise
 /// dev-rebuild race this feature exists to catch — so we never do that here.
 /// (Confirmed: on Linux `current_exe()` readlinks `/proc/self/exe` and returns

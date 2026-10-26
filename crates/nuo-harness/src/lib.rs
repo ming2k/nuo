@@ -4,53 +4,46 @@
 //!
 //! # What lives here
 //!
-//! - **The `Agent` struct** (`agent.rs`) — holds the provider, tool set, mode,
-//!   and skill registry; runs the streaming ReAct loop
-//!   (`run_streaming_with_events`).
-//! - **Model-request assembly** (`model_request/`) — immutable request
-//!   projection and system-prompt policy. Durable harness-authored messages
-//!   live separately under `conversation_context/`.
-//! - **Extension integration** — consumes an optional `nuo-skills`
-//!   registry for model-context injection and accepts connector tools through
-//!   a protocol-neutral dynamic-tool port. Discovery and transport stay in
-//!   their dedicated capability crates.
-//! - **Turn orchestration** (`orchestration.rs`) — the policy that wraps every
-//!   agent turn: compaction, mid-turn pruning, retries with backoff, and the
-//!   `/repeat` cron scheduler. Frontends drive the harness
-//!   through [`orchestration::execute_round`] and friends; they own only the
-//!   UI-specific input path (slash commands for the CLI, menus/dialogs for a
-//!   future GUI).
+//! The crate is organized into subsystem groups (ADR-0101). The intended
+//! dependency direction — `runtime ⊳ governance ⊳ cognition ⊳ {dispatch,
+//! orchestration}` — is a strict inner-layer rule enforced by `tests/layering.rs`.
+//!
+//! - **`cognition/`** — the single agent's mind: the `Agent` struct and the
+//!   streaming ReAct loop (`cognition::agent`), model-request assembly
+//!   (`cognition::model_request`), durable harness-authored context
+//!   (`cognition::conversation_context`), causal compaction, the out-of-band task
+//!   pipeline and aspect engine, skills, and agent interoperability (subagents,
+//!   the human broker).
+//! - **`governance/`** — the restraints: permission brokering, bash policy,
+//!   execution containment, trajectory/stream guards, and interactive gating.
+//!   A strict inner layer (`[INV-HARNESS-03]`).
+//! - **`orchestration/`** — the per-turn policy wrapping cognition: compaction
+//!   gating, retries with backoff, round lifecycle, session titles, and the
+//!   `/schedule` scheduler. Frontends drive the harness through
+//!   [`orchestration::execute_round`] and friends.
+//! - **`dispatch/`** — the tool execution pipeline and scheduler.
+//! - **`runtime/`** — the innermost substrate: host ports, execution
+//!   environment, durability sinks, hooks, the message/time/retry leaves, and
+//!   extensions (`[INV-HARNESS-04]`).
+//! - **`tools/`** — orchestration-native model tools (ask_user, recall, todo).
 //!
 //! # Dependency posture
 //!
-//! `nuo-harness` is the wiring layer: it depends on `nuo-wire`
-//! (domain vocabulary), `nuo-persistence` (durable state: `SessionStore`,
-//! `Config`, `EmbeddingStore`), and `nuo-providers` (the
-//! `build_provider_for_channel` factory plus the user-agent / spec
-//! constants the catalog uses when constructing concrete impls). The
-//! concrete coding-tool implementations live in this crate's [`tools`]
-//! module; skill capability comes from `nuo-skills`, and tools are
-//! dispatched through the
-//! core [`Tool`] and [`ToolSet`] contracts. These dependencies point downward
-//! (`agent -> skills`); orchestration-native tools that
-//! construct or control agents remain in this crate.
+//! `nuo-harness` is the runtime wiring layer: it depends on `nuo-wire` (domain
+//! vocabulary), `nuo-persistence` (durable state: `SessionStore`, `Config`,
+//! `EmbeddingStore`), `nuo-model-routing`, and the capability tool crates. Concrete
+//! filesystem / process / web / AST tools live in `nuo-host` and `tools/nuo-tool-*`;
+//! this crate's [`tools`] module holds only orchestration-native model tools
+//! (ask_user, recall, todo). Capabilities arrive through the core [`Tool`] and
+//! [`ToolSet`] contracts.
 //!
-//! ## Why catalog and SubagentTool live here (not in store / tools)
+//! ## Why SubagentTool lives here (not in a tool crate)
 //!
-//! Both got relocated here from their intuitive homes to keep the
-//! dependency graph strictly layered (see ADR-0005):
-//!
-//! - **`catalog`** builds concrete `Provider` impls from a `Config`. It
-//!   used to live in `nuo-persistence`, which forced store to depend on
-//!   `nuo-providers` — an inversion, since store is otherwise a peer
-//!   of providers. The catalog is fundamentally a factory consumed by
-//!   orchestration, so it lives where orchestration lives.
-//! - **`SubagentTool`** spawns subagents via `Agent::new`. It used to live
-//!   in the former `nuo-tools` crate, which forced tools to depend on
-//!   this crate —
-//!   another inversion, since tools are below the agent layer. The
-//!   subagent tool is fundamentally an orchestration primitive that
-//!   happens to satisfy the `Tool` trait, so it lives here too.
+//! **`SubagentTool`** spawns subagents via the `Agent`. It used to live in the
+//! former `nuo-tools` crate, which forced tools to depend on this crate — an
+//! inversion, since tools sit below the runtime. The subagent tool is
+//! fundamentally a runtime primitive that happens to satisfy the `Tool` trait,
+//! so it lives here, under `cognition::interop`.
 //!
 //! Everything `nuo-wire` exports is re-exported here so consumers can
 //! `use nuo_harness::*` and get the full domain vocabulary alongside the
@@ -125,9 +118,27 @@ pub(crate) const FINISH_DRAIN_GRACE: std::time::Duration = std::time::Duration::
 /// Bounded so an interrupt never hangs the UI.
 const SUBAGENT_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
-pub mod agent;
-pub use agent::TitleEstablishedFn;
-pub use agent::{Agent, AgentBuilder, RequestTokenEstimate, RoundOutcome, SwitchedRole};
+// -----------------------------------------------------------------------------
+// Subsystem: Cognition — the single agent's mind
+// -----------------------------------------------------------------------------
+pub mod cognition;
+pub use cognition::agent::TitleEstablishedFn;
+pub use cognition::agent::{Agent, AgentBuilder, RequestTokenEstimate, RoundOutcome, SwitchedRole};
+pub use cognition::context_projection::ContextProjectionGate;
+pub use cognition::interop::agent_slot::AgentSlot;
+pub use cognition::interop::human_broker::*;
+pub use cognition::interop::subagent_tool::{SubagentRegistry, SubagentTool};
+pub use cognition::interop::{agent_slot, human_broker, subagent_tool};
+pub use cognition::model_request::system_prompt::{
+    InstructionOrder, SystemPromptContext, SystemPromptRegistry, SystemPromptRegistryError,
+    SystemPromptSection,
+};
+pub use cognition::skills::{
+    DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost, SkillPolicy,
+    SkillRegistry, SkillRoots, SkillScope, SkillTrust, UseSkillTool, discover_all,
+    discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
+    format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
+};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Governance & Policy Enforcement
@@ -141,6 +152,20 @@ pub(crate) use governance::{bash_policy, permission_policy, permission_store, sh
 pub use governance::{guard, interaction, stream_loop_detector, trajectory_guard};
 
 // -----------------------------------------------------------------------------
+// Subsystem: Orchestration — per-round policy, lifecycle, titles & aspects
+// -----------------------------------------------------------------------------
+pub mod orchestration;
+pub use cognition::aspects::AspectEngine;
+pub use cognition::pipeline::{
+    CognitiveError, CognitivePipeline, HarnessTaskError, HarnessTaskPipeline,
+};
+pub use orchestration::round_lifecycle::{ParkedInterrupt, RoundBegin, RoundLifecycle};
+pub use orchestration::{
+    ContextProjectionSettings, compact_round_history, compact_round_history_with_mode,
+    round_response, send_compaction,
+};
+
+// -----------------------------------------------------------------------------
 // Subsystem: Dispatch, Execution Pipeline & Tool Scheduling
 // -----------------------------------------------------------------------------
 pub mod dispatch;
@@ -151,82 +176,26 @@ pub use dispatch::{dynamic, tool_call};
 pub(crate) use dispatch::{dynamic_tools, tool_integration, tool_manager, tool_scheduler};
 
 // -----------------------------------------------------------------------------
-// Subsystem: Interoperability, Human Gateways & Subagents
+// Subsystem: Runtime substrate — env, durability, hooks, ports
 // -----------------------------------------------------------------------------
-pub mod interop;
-pub use interop::agent_slot::AgentSlot;
-pub use interop::human_broker::*;
-pub use interop::subagent_tool::{SubagentRegistry, SubagentTool};
-pub use interop::{agent_slot, human_broker, subagent_tool};
-
-// -----------------------------------------------------------------------------
-// Subsystem: Durability, Audit & Conformance
-// -----------------------------------------------------------------------------
-pub mod durability;
-pub use durability::record::*;
-pub use durability::{
+pub mod runtime;
+pub use runtime::durability::record::*;
+pub use runtime::durability::{
     Ack, ConformanceReport, FactSink, Hydrate, MemorySink, NullSink, SinkError, SinkHealth,
     conformance as durability_conformance, record as execution_record, run_conformance,
 };
-
-// -----------------------------------------------------------------------------
-// Context, Compaction & Prompts
-// -----------------------------------------------------------------------------
-pub mod budget;
-pub mod compaction;
-pub mod context_lifecycle;
-pub mod context_projection;
-pub use context_projection::ContextProjectionGate;
-mod conversation_context;
-mod model_request;
-pub use model_request::system_prompt::{
-    InstructionOrder, SystemPromptContext, SystemPromptRegistry, SystemPromptRegistryError,
-    SystemPromptSection,
-};
-pub mod offstream;
-pub use offstream::{
+pub use runtime::extension::CodeIntelligenceExtension;
+pub use runtime::hooks::{HookRegistry, PreToolUseVerdict, UserPromptVerdict, matcher_matches};
+pub use runtime::host::*;
+pub use runtime::inflight::Inflight;
+pub use runtime::no_provider::{NO_PROVIDER_ID, NoProvider};
+pub use runtime::offstream::{
     OffstreamEntry, OffstreamRegistry, OffstreamSource, OffstreamStatus, PagedOffstreamContent,
 };
-pub mod session_title;
 
 // -----------------------------------------------------------------------------
-// Orchestration & Runtime Lifecycle
+// Tools (orchestration-native model tools)
 // -----------------------------------------------------------------------------
-pub mod aspects;
-pub use aspects::AspectEngine;
-pub mod cognitive;
-pub use cognitive::{CognitiveError, CognitivePipeline, HarnessTaskError, HarnessTaskPipeline};
-pub mod hooks;
-pub use hooks::{HookRegistry, PreToolUseVerdict, UserPromptVerdict, matcher_matches};
-mod hook_runner;
-pub mod host;
-pub use host::*;
-pub mod inflight;
-pub use inflight::Inflight;
-pub mod no_provider;
-pub use no_provider::{NO_PROVIDER_ID, NoProvider};
-pub mod orchestration;
-pub use orchestration::{
-    ContextProjectionSettings, compact_round_history, compact_round_history_with_mode,
-    round_response, send_compaction,
-};
-pub mod round_lifecycle;
-pub use round_lifecycle::{ParkedInterrupt, RoundBegin, RoundLifecycle};
-
-// -----------------------------------------------------------------------------
-// Capabilities, Skills & Extensions
-// -----------------------------------------------------------------------------
-pub mod extension;
-pub use extension::CodeIntelligenceExtension;
-pub mod skills;
-pub use skills::{
-    DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost, SkillPolicy,
-    SkillRegistry, SkillRoots, SkillScope, SkillTrust, UseSkillTool, discover_all,
-    discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
-    format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
-};
-pub mod execution;
-pub(crate) mod sync;
 pub mod tools;
 
 #[cfg(test)]

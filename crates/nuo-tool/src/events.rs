@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 /// A user-visible notice emitted by the agent or harness.
 ///
-/// This is distinct from state-sync events such as [`RoundEvent::TodosUpdated`]
-/// and blocking interaction events such as [`RoundEvent::PermissionRequest`]:
+/// This is distinct from state-sync events such as `RoundEvent::TodosUpdated`
+/// and blocking interaction events such as `RoundEvent::PermissionRequest`:
 /// those events update UI state or require a reply, while a notice means
 /// "surface this fact to the user".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,7 +108,7 @@ pub enum SubagentEvent {
     /// The subagent started a new response stream. `round`/`turn` carry the
     /// subagent's own ReAct position (1-indexed user round, 0-indexed
     /// model-request position within it, mirroring
-    /// [`AgentEvent::ModelRequestStarted`]) so the TUI can stamp the child
+    /// `AgentEvent::ModelRequestStarted`) so the TUI can stamp the child
     /// message and group the zoomed subagent view into turn bands exactly like
     /// the main session view.
     StreamStart { round: u64, turn: usize },
@@ -134,7 +134,7 @@ pub enum SubagentEvent {
     StreamReasoningStart { round: u64, turn: usize },
     /// New reasoning token from the subagent (a disclosed chain only — the
     /// sender gates hidden-chain models out at the source; see
-    /// [`crate::ReasoningSupport::chain_disclosed`]).
+    /// `ReasoningSupport::chain_disclosed`).
     StreamReasoningDelta(String),
     /// The subagent's reasoning stream finished with the final accumulated
     /// reasoning text.
@@ -256,7 +256,7 @@ pub struct UserQuestionRequest {
 
 /// Request sent from the agent to the TUI when a `bash` command is classified
 /// interactive and needs a line of stdin the agent cannot supply itself.
-/// The TUI shows an inline input panel; the operator's reply is sent back as a [`StdinReply`].
+/// The TUI shows an inline input panel; the operator's reply is sent back as a `StdinReply`.
 /// If the operator dismisses it (Esc), an empty reply cancels the command.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StdinRequest {
@@ -312,7 +312,7 @@ impl AgentNotice {
     /// on `kind == CommandAck` (e.g. to suppress re-surfacing on reconnect).
     ///
     /// A command acknowledgment is a *session-scoped* notice: emit it wrapped
-    /// in [`crate::RoundEvent::Notice`] (via `round_response`), not as a
+    /// in `RoundEvent::Notice` (via `round_response`), not as a
     /// top-level `AgentResponse::Notice`. Wrapping it routes the toast to the
     /// frontend over the session's broadcast tap so every attached client (the
     /// in-process TUI, `nuo attach`, `/serve`) sees the same confirmation,

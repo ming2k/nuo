@@ -685,6 +685,12 @@ pub enum AgentResponse {
         parent_id: String,
         target_round: Option<u64>,
         title: Option<String>,
+        /// A user message to dispatch into the new branch once the client has
+        /// attached to it. Set by the retired `/btw <prompt>` steer (ADR-0058
+        /// §4) so an aside habit lands as a fork *with* its question, not a
+        /// bare branch; `None` for an explicit `/fork`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     /// Reply to [`AgentRequest::QuerySessionDetail`]: full detail for one
     /// session (complete last prompt, title, timestamps). Consumed by the
@@ -1278,7 +1284,7 @@ pub enum RoundEvent {
 
 /// Coarse, display-level status of a session's round lifecycle, mirrored to
 /// the TUI activity bar. This is a badge, not the protocol state: the round
-/// lifecycle itself (`RoundLifecycle` in nuo-agent) is binary — no active
+/// lifecycle itself (`RoundLifecycle` in `nuo-harness`) is binary — no active
 /// round, or an active round identified by a generation.
 /// Awaiting-permission / awaiting-input are overlays derived from the
 /// parked-request tables, not values here: they carry

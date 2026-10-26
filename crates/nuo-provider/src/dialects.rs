@@ -83,6 +83,26 @@ impl OpenAiResponsesDialect {
     pub const fn encrypted_reasoning(self) -> bool {
         !matches!(self, OpenAiResponsesDialect::DeepSeek)
     }
+
+    pub const fn supports_developer_role(self) -> bool {
+        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
+
+    pub const fn supports_store(self) -> bool {
+        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
+
+    pub const fn nested_tool_definitions(self) -> bool {
+        matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
+
+    pub const fn supports_tool_choice(self) -> bool {
+        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
+
+    pub const fn supports_parallel_tool_calls(self) -> bool {
+        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
 }
 
 /// Provider-specific behavior layered on the Anthropic Messages protocol.
@@ -239,8 +259,8 @@ pub const SERVICE_TIERS: &[&str] = &["free", "nitro", "floor", "online", "beta",
 
 /// Brand tokens that lead a model id (ADR-0081 [INV-CATALOG-05]).
 ///
-/// Shared by the casing pass ([`capitalize_token`]) and the namespace-redundancy
-/// test in [`format_structural_tokens`], so "does the tail already name the
+/// Shared by the casing pass (`capitalize_token`) and the namespace-redundancy
+/// test in `format_structural_tokens`, so "does the tail already name the
 /// vendor?" and "how is that vendor spelled?" cannot answer differently.
 pub const BRAND_LEXICON: &[(&str, &str)] = &[
     ("deepseek", "DeepSeek"),

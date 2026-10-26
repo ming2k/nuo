@@ -5,7 +5,7 @@
 //! JSON-RPC client, server handles, MCP-to-`Tool` adapters, [`McpRuntime`],
 //! and [`McpCatalog`]. A session (in `nuo-server`) owns each runtime because
 //! it controls connection lifetime, user enable/disable/reconnect actions,
-//! and background refresh. The agent (`nuo-agent`) has no MCP protocol
+//! and background refresh. The runtime (`nuo-harness`) has no MCP protocol
 //! dependency: discovered tools reach it through the
 //! [`DynamicToolSink`](nuo_wire::DynamicToolSink) port defined in
 //! `nuo-wire`, and the agent is both that port's implementor

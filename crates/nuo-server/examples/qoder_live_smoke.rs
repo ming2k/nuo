@@ -29,7 +29,7 @@ impl nuo_provider::CredentialSource for StoreSource {
     fn force_refresh(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         Box::pin(async move { Err("no refresh in smoke".to_string()) })
     }
-    fn is_oauth(&self) -> bool {
+    fn is_negotiated(&self) -> bool {
         true
     }
 }

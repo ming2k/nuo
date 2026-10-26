@@ -718,7 +718,7 @@ impl RemoteCatalogCache {
     /// Re-key every cached entry from `from` to `to` (connection rename).
     ///
     /// A rename changes the connection's *name*, not what it fetches:
-    /// [`crate::RemoteCatalogCache`]'s `model_lists` validator fingerprint is
+    /// [`crate::config::RemoteCatalogCache`]'s `model_lists` validator fingerprint is
     /// derived from the fetch attributes (shape, base URL, client profile,
     /// dimensions), never from the name, so the cached ETag stays valid for the
     /// renamed connection and the next sync revalidates instead of refetching.

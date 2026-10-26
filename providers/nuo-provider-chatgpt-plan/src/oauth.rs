@@ -1,7 +1,7 @@
 //! ChatGPT Plan (Codex subscription) OAuth surface (ADR-0027).
 //!
 //! Owns the ChatGPT `OAuthConfig` preset, its custom device grant, and the
-//! Codex account-id enrichment; the generic engine in `nuo-oauth` never names
+//! Codex account-id enrichment; the generic engine in `nuo_provider::auth` never names
 //! ChatGPT.
 
 use std::borrow::Cow;
@@ -9,19 +9,21 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use nuo_egress::http::Http;
-use nuo_oauth::oauth::AuthError;
-use nuo_oauth::oauth::token::TokenResponse;
-use nuo_oauth::{
-    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
-};
-use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
 use nuo_provider::LoginMethod;
 use nuo_provider::ResolvedAuth;
+use nuo_provider::auth::AuthError;
+use nuo_provider::auth::TokenResponse;
+use nuo_provider::auth::{
+    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
+};
+use nuo_provider::auth::{
+    DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet,
+};
+use nuo_provider::transport::Http;
 
 /// Extract the ChatGPT account id from a JWT (id_token or access_token).
 pub fn chatgpt_account_id(token: &str) -> Option<String> {
-    let claims = nuo_oauth::oauth::token::jwt_claims(token)?;
+    let claims = nuo_provider::auth::token::jwt_claims(token)?;
     if let Some(id) = claims.get("chatgpt_account_id").and_then(|v| v.as_str()) {
         return Some(id.to_string());
     }
@@ -201,8 +203,8 @@ pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
 mod tests {
     use super::*;
     use base64::Engine;
-    use nuo_oauth::oauth::pkce::PkceCodes;
-    use nuo_oauth::oauth::token::build_authorize_url;
+    use nuo_provider::auth::pkce::PkceCodes;
+    use nuo_provider::auth::token::build_authorize_url;
 
     #[test]
     fn chatgpt_authorize_url_carries_codex_flow_param() {

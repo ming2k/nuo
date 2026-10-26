@@ -1,4 +1,4 @@
-//! Qoder's OAuth subscription surface for the generic `nuo-oauth` engine (ADR-0027).
+//! Qoder's OAuth subscription surface for the generic `nuo_provider::auth` engine (ADR-0027, ADR-0108).
 //!
 //! Keeps Qoder's proprietary pieces — device session, `drt-` token rotation,
 //! uid/endpoint repair, and identity projection — inside the Qoder crate so the
@@ -9,17 +9,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::BoxFuture;
-use nuo_egress::http::Http;
 use nuo_host::SecretString;
-use nuo_oauth::oauth::AuthError;
-use nuo_oauth::oauth::token::TokenResponse;
-use nuo_oauth::{
-    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
-};
-use nuo_oauth::{DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet};
 use nuo_provider::LoginMethod;
 use nuo_provider::ResolvedAuth;
+use nuo_provider::auth::AuthError;
+use nuo_provider::auth::TokenResponse;
+use nuo_provider::auth::{
+    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
+};
+use nuo_provider::auth::{
+    DeviceLogin, OAuthLoginPrompt, OAuthProvider, OAuthTokenEnricher, TokenSet,
+};
 use nuo_provider::credentials::CredentialSession;
+use nuo_provider::transport::Http;
 
 use crate::identity::QoderStoredIdentity;
 

@@ -220,15 +220,15 @@ pub enum PatchOp {
 ///
 /// The three variants are mutually exclusive and cover the whole space:
 ///
-/// - [`Sealed`](Self::Sealed) — the immediate-EOF floor. A child that reads
+/// - [`Sealed`](crate::stream::InputContract::Sealed) — the immediate-EOF floor. A child that reads
 ///   stdin gets EOF at once, so a `read`-style block is structurally
 ///   impossible; interactive binaries the pre-spawn classifier recognizes are
 ///   refused before spawn. This is the only contract an unattended session
 ///   needs, and it never gives the child a terminal (so it cannot *induce*
 ///   interactive behaviour in tools that branch on `isatty`).
-/// - [`Prefilled`](Self::Prefilled) — a harness-held pipe preloaded with bytes
+/// - [`Prefilled`](crate::stream::InputContract::Prefilled) — a harness-held pipe preloaded with bytes
 ///   from a declared source (human or opt-in model), closed after the write.
-/// - [`Supervised`](Self::Supervised) — a real controlling terminal for the
+/// - [`Supervised`](crate::stream::InputContract::Supervised) — a real controlling terminal for the
 ///   child **plus** a held-open stdin pipe **plus** runtime examination: the
 ///   examiner detects the input wait from kernel evidence and parks for the
 ///   operator's answer, then writes it to the channel the child is actually
@@ -836,7 +836,7 @@ pub fn termination_model_note(termination: ShellTermination) -> Option<&'static 
 /// character. Returns a `&str` slice of `text`.
 ///
 /// Shared by the structured-output formatter (in this crate) and the tool
-/// implementations (`nuo-agent::tools`) that produce the outputs being formatted.
+/// implementations (`nuo-harness`'s `tools`) that produce the outputs being formatted.
 pub fn truncate_utf8(text: &str, max_bytes: usize) -> &str {
     if text.len() <= max_bytes {
         return text;

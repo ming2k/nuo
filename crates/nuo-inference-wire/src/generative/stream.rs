@@ -12,7 +12,7 @@ use crate::types::{WireChunk, WireToolCallChunk, WireUsage};
 /// - Handles `[DONE]` stream termination flags.
 ///
 /// **Byte-level reassembly discipline** (the same rule
-/// `nuo-egress::sse` enforces): network chunks arrive with TLS/TCP
+/// `nuo_provider::transport::sse` enforces): network chunks arrive with TLS/TCP
 /// boundaries, not UTF-8 or SSE frame boundaries. A CJK character (3 bytes) or
 /// an emoji (4 bytes) whose bytes straddle a chunk boundary would be
 /// permanently corrupted by a per-chunk lossy decode (`U+FFFD` artefacts in
@@ -123,7 +123,7 @@ impl SseDecoder {
 /// partial multi-byte sequence or SSE frame is completed on the next read.
 ///
 /// Decoding here is *strict* (same discipline as
-/// `nuo-egress::sse::drain_complete_lines`): a complete line that
+/// `nuo_provider::transport::sse::drain_complete_lines`): a complete line that
 /// is not valid UTF-8 cannot be a chunk-boundary artefact (reassembly covers
 /// those), so it is genuine corruption. On the model stream such a line is
 /// skipped (the SSE grammar treats the payload as opaque data the parser

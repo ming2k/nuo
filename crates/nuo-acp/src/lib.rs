@@ -11,7 +11,7 @@
 //!   for LLM-side peer selection.
 //! - [`intent`] + [`envelope`] — typed communicative intents and the envelope
 //!   that carries them, including correlation and delegation budgets.
-//! - [`routing`] — mailboxes, the router, and collaborative [`routing::Room`]s.
+//! - [`routing`] — mailboxes, the router, and collaborative [`channel::Channel`]s.
 //! - [`transport`] — the seam for moving envelopes between hosts.
 //!
 //! # Correlation model

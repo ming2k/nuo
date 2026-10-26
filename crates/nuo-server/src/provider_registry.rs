@@ -311,7 +311,7 @@ pub fn build_credential_source(
     dialect: nuo_provider::ProviderDialect,
 ) -> std::sync::Arc<dyn nuo_provider::CredentialSource> {
     if auth.is_negotiated() {
-        std::sync::Arc::new(nuo_oauth::OAuthCredentialSource::new(
+        std::sync::Arc::new(nuo_provider::auth::OAuthCredentialSource::new(
             host,
             connection_name,
             auth.clone(),
@@ -379,7 +379,7 @@ fn register_oauth_providers() {
     ];
     for providers in surfaces {
         for provider in providers {
-            nuo_oauth::register_oauth_provider(provider);
+            nuo_provider::auth::register_oauth_provider(provider);
         }
     }
 }
@@ -411,7 +411,7 @@ pub async fn fetch_provider_usage_ext(
     if key.is_empty() {
         return nuo_wire::ConnectionUsageState::Error("API key is not configured".to_string());
     }
-    let Ok(client) = nuo_egress::http::Http::shared_control_plane() else {
+    let Ok(client) = nuo_provider::transport::Http::control_plane() else {
         return nuo_wire::ConnectionUsageState::Error(
             "could not build the HTTP client".to_string(),
         );
@@ -421,7 +421,7 @@ pub async fn fetch_provider_usage_ext(
 
 /// Query provider usage with an explicit HTTP client.
 pub async fn fetch_provider_usage_with_client(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     port: QuotaPort,
     base_url: &str,
     api_key: &str,
@@ -431,7 +431,7 @@ pub async fn fetch_provider_usage_with_client(
 
 /// Query provider usage with an explicit HTTP client and optional project context.
 pub async fn fetch_provider_usage_with_client_ext(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     port: QuotaPort,
     base_url: &str,
     api_key: &str,

@@ -8,6 +8,285 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Host binary relocation to `crates/nuo` and complete workspace homogenization (ADR-0109).**
+  The single application host binary is relocated from the repository root `nuo/` to `crates/nuo/`:
+  - **Zero Root Crates (`[INV-ARCH-TIER-01]`)**: The workspace root contains strictly the three
+    plural tier containers (`crates/`, `providers/`, `tools/`). Category mismatch at root is
+    eliminated.
+  - **Pure Wildcard Members**: Root `Cargo.toml` declares `members = ["crates/*", "tools/*", "providers/*"]`
+    and `default-members = ["crates/nuo"]`. Special-case host paths are eradicated.
+  - **Firewall Gate R5**: `scripts/check_presentation_firewall.py` mechanically enforces the pure
+    three-tier layout and single binary census workspace-wide.
+
+- **Provider substrate consolidation & satellite crate retirement (ADR-0108).**
+  The artificial separation of outbound transport (`nuo-egress`) and dynamic credential
+  negotiation (`nuo-oauth`) is permanently resolved:
+  - **`nuo-provider::transport`**: Directly builds on `netune` (owned network stack).
+    Unifies singleton socket pooling (`shared_client()`), request construction,
+    HTTP 2xx response validation, SSE byte-level stream reassembly, and physical
+    network telemetry (`TransportTimings`, `TransportObservation`). The redundant
+    dual-client bifurcation (`client::Client` vs `http::Http`) and duplicated
+    URL/form encoding logic are eliminated.
+  - **`nuo-provider::auth`**: Consolidates all dynamic/negotiated credential lifecycle
+    mechanics (OAuth2/PKCE RFC 7636, Device Flow RFC 8628, Loopback server RFC 8252,
+    token lease refresh loops, and vendor extensions) directly with `nuo-provider`'s
+    `TokenSet`, `CredentialStore`, and `CredentialSource` ([INV-PROV-13]).
+  - **Satellite crates retired**: `crates/nuo-egress` and `crates/nuo-oauth` are
+    permanently deleted. All 16 provider crates in `providers/*` and `nuo-server`
+    now depend exclusively on the single Layer 1 provider authority: `nuo-provider`.
+
+- **Two-tier presentation purification: `nuo-ui-primitives` + `nuo-view`; `nuo-present` retired (ADR-0107).**
+  The monolithic presentation substrate `crates/nuo-present` is permanently bifurcated into
+  two zero-IO, strictly layered presentation libraries:
+  - **`crates/nuo-ui-primitives` (Layer 3a)**: Pure, domain-agnostic UI primitives, design tokens
+    (`theme`, `design`, `elevation`), driver-free key chords (`chord`, `key`, `keyvocab`),
+    generic terminal components (`modal`, `dropdown`, `footer`, `keycap`, `popover`, `toast`,
+    `options`, `list`, `detail`, etc.), layout helpers (`primitives`), and text wrapping (`text_layout`).
+    Carries zero AI agent domain logic (`[INV-ARCH-UI-PRIMITIVES-PURITY]`).
+  - **`crates/nuo-view` (Layer 3b)**: Domain presentation and AI agent interaction views
+    (`model/*`, `tools/*`, `layout/*`, `message_body`, `notice`, `selectable_body`, `trust_gate`,
+    `phase`, `composer_mode`, `providers`, `disclosure*`). Single-directionally consumes
+    `nuo-ui-primitives` with strictly zero I/O (`[INV-ARCH-VIEW-ZERO-IO]`).
+  - **`nuo-present` permanently retired**: Retired from workspace, added to firewall forbidden list.
+  - **Firewall Rule R4 added**: Enforces strict purity of `nuo-ui-primitives` against domain leakage.
+
+- **Final presentation topology: `nuo-present` + `nuo::shell`; `nuo-ui` retired (ADR-0106).**
+  The ADR-0103/ADR-0105 extraction program is complete. The mutually-recursive
+  presentation cluster (`model`, `text_layout`, `markdown_table`, `notice`,
+  `message_body`, `tools`, `components`, `layout`, `disclosure*`) now lives wholly in
+  the hard-gated zero-IO substrate `crates/nuo-present`, and the interactive runtime is
+  an internal module of the host binary (`nuo::shell`, behind the default-on
+  `interactive` feature). The transitional `nuo-ui` crate — a name that lied about its
+  purity contract — is deleted, along with the intermediate `nuo-shell` crate. The
+  firewall now enforces R3 (`[INV-ARCH-UI-ZERO-IO]`) on `nuo-present` unconditionally and
+  fails if a retired presentation crate reappears.
+
+### Changed
+
+- **Workspace topology is now a gated invariant, not a description (ADR-0055 `[INV-TOPO-01..05]`).**
+  `scripts/check_presentation_firewall.py` gained **R5**, which checks the physical layout
+  itself: exactly one application crate at the root (`nuo/`) holding the workspace's only
+  `[[bin]]`; every other crate in exactly one flat tier with that tier's namespace prefix
+  (`crates/nuo-*`, `providers/nuo-provider-*`, `tools/nuo-tool-*`); no library crate at the
+  root; no nesting past `<tier>/<crate>/`; and a literal check that the root manifest's
+  `members` is the sanctioned wildcard set. Without it any crate dropped outside a tier was
+  invisible to R1–R4, because those rules enumerate the workspace by glob.
+  The root `nuo/` placement is therefore **kept deliberately** — it is `[INV-TOPO-01]`, the
+  mechanism that makes "`nuo` is the single public binary" ([INV-CLI-01]) legible in the tree.
+- **`[INV-ARCH-FLAT-01]` retired; its two stale copies deleted.** ADR-0055 superseded the
+  flat-topology rule in 2026-10, but the rule survived in `docs/dev/subsystems.md` and
+  `docs/dev/release-and-versioning.md` §5.2 — where it was still cited as a *rejection
+  rationale* while the tree it forbade (`crates/`, `providers/`, `tools/`) was in production.
+  Both copies are replaced by the ADR-0055 topology, with the retirement recorded inline. Its
+  original rationale (avoiding `../../` path indirection) no longer has a failure mode: every
+  inter-crate path is declared once in the root `[workspace.dependencies]`, so no member
+  manifest contains a relative path at all.
+- **Living docs re-aligned with the shipped presentation split (ADR-0107).**
+  `docs/dev/subsystems.md` and `docs/dev/standards/architecture.md` still described the retired
+  `nuo-present` as "the pure presentation substrate"; they now describe `nuo-ui-primitives`
+  (domain-agnostic UI) and `nuo-view` (agent views) separately, and the Layer-3/Layer-4 diagrams
+  carry real tier paths.
+
+- **`nuotc` v0.0.4 (clean-break) adopted from its pinned GitHub tag.** The terminal canvas
+  engine's compatibility surface is gone upstream (`docs/adr/0008-no-compatibility-shims`), so
+  every presentation call site was re-pointed at the real paths rather than shimmed:
+  - `Grid` is two types — `CellGrid` (content) and `Damage` (per-row dirty state) — so every
+    render entry point constructs `Frame::new(&mut grid, &mut damage)` and reads cells through
+    `get`/`get_or_empty`/`cells()` instead of the removed public `content` field.
+  - `Widget` is object safe and takes `&mut self` through a clip-carrying `Paint`; every
+    `render_widget` call passes `&mut`, `Clear` is a styled struct (`Clear::default()`,
+    `Clear::styled`), and `StyledClear` is gone.
+  - `Cell::width` is the four-state `CellWidth` enum, so wide-glyph assertions compare
+    `CellWidth::Wide`/`Continuation` instead of `2`/`0`.
+  - Style and symbol live only on the cell (`cell.style.fg`/`cell.style.bg`/`cell.symbol`);
+    the mirrored `fg`/`bg` fields, the `Cell::symbol()`/`style()` accessors and
+    `Modifier::UNDERLINED` (now `UNDERLINE`) are gone.
+  - The module aliases died with the shims: `nuotc::text` → `nuotc` root re-exports
+    (`grapheme_width`, `str_len`, `floor_grapheme_boundary`, `prohibited_line_*`),
+    `nuotc::anchor`/`nuotc::flex` → the `nuotc` root, `nuotc::Backend::with_bce` →
+    `Backend::new(..).with_bce(..)`.
+  - **`ElevationArchetype` is now owned by the presentation substrate**
+    (`nuo_ui_primitives::elevation`), because upstream deleted the type along with
+    `SpatialCost`: the archetype is a visual-design decision, not a canvas primitive. It keeps
+    `for_profile` plus the new `inner_bounds`/`is_structured`/`is_chromatic`/`is_hybrid`
+    predicates, and the `Structured` border glyphs are derived from the theme's `GlyphSet`
+    (`border_type_for_glyphs`) instead of a canvas-side border-type hook.
+  - **`nuo::shell` paint honours the scene clip explicitly.** `nuotc::Paint` exposes cell
+    writes but not the `Widget` contract, while the shell's renderers are widget-based. The
+    facade therefore renders through a scratch grid the size of the frame and blits only the
+    node's clip region, skipping the copy entirely when the clip covers the whole frame. The
+    one read-modify-write painter (the modal backdrop recess, which dims cells already on the
+    grid) paints straight into the frame by construction.
+
+- **`nuo` gates the whole interactive stack behind `interactive`.** `nuo::shell` is
+  `cfg`-gated, and `crossterm`/`nuotc`/`arboard`/`bitflags`/`similar`/`unicode-*` are
+  optional dependencies pulled only by that feature, so `cargo build -p nuo
+  --no-default-features` links no raw-mode driver (`[INV-ARCH-CLI-LEAN-LINK]`). The
+  storybook example declares `required-features = ["interactive"]`.
+
+### Fixed
+
+- **Storybook snapshot legacy naming (ADR-0103).** The 29 insta snapshots kept the
+  pre-rename `nuo_tui__` filename prefix after the presentation crate was renamed to
+  `nuo-ui`, so insta could not match them and 28 tests failed. The snapshots are renamed
+  to the `nuo_ui__` prefix; the `nuo-ui` suite is green again (1506 passed).
+
+- **Causal session forking completeness & `'aside'` legacy purge (ADR-0058, ADR-0059).**
+  - **Turn-granular forks are exact.** `/fork <round>.<turn>` previously clamped an
+    out-of-range turn to the round boundary *silently*; it now fails with a precise
+    error naming the round's real turn count, and intra-round slicing gained a unit
+    test asserting both the slice and `[INV-FORK-04]` (parent untouched).
+  - **Retired `/btw` steers into a fork instead of dead-ending (`[INV-DEPR-01]`).**
+    A submitted `/btw <prompt>` (with its `/aside` / `/side` synonyms), which used to
+    return `Unknown command`, is intercepted: the server forks at head and carries
+    the message into the new branch through a new `AgentResponse::SessionForked.prompt`
+    field, dispatched by the client once it re-attaches. Completion now steers
+    `btw`/`aside`/`side` onto `/fork`.
+  - **Fork mounts its tab through the checkpointing path.** The applier uses
+    `App::open_tab`, so the departing parent tab's context is preserved exactly as
+    every other session switch preserves it.
+  - **Legacy `'aside'` residue removed.** The dead `"aside"` fork-kind match arms
+    (persistence), the `TimelineKind::Aside` variant, the aside-era
+    `routes_to_side` translation scaffold with its dead `ChromeEdit::TransportSetback`
+    mutation, the vestigial single-variant `Buffer` enum, and the dead
+    `App::view_transitioned` / `App::side_transcript_changed_pending` fields are all
+    deleted, and the stale `aside`/`btw` prose across server and presentation is
+    corrected (a broken rustdoc intra-doc link included).
+  - **The in-place `SessionStore::fork()` is retired.** Its repoint-the-store
+    behavior is precisely the "in-place timeline switch" ADR-0058 rejected; the
+    sovereign `fork_at(...)` is now the sole fork primitive (ADR-0104).
+
+### Changed
+
+- **Presentation purity, first module (ADR-0103 §1 / ADR-0105 M3).** `theme.rs` is now a
+  pure projection: its workspace-aware IO family (`available_color_schemes_with_workspace`,
+  `normalize_color_scheme_with_workspace`, `color_scheme_index_with_workspace`,
+  `color_scheme_label_with_workspace`, `from_color_scheme_with_workspace`, and
+  `resolve_with_profile(.., workspace, ..)`) is replaced by file-aware pure functions
+  (`*_from(files: &[ThemeFile])`) over caller-supplied `nuo_wire::ThemeFile`s, and the
+  filesystem loaders move to `config.rs` (`available_color_schemes`,
+  `normalize_color_scheme`, `color_scheme_index`, `color_scheme_label`,
+  `theme_from_color_scheme`, `resolve_theme_with_profile`). The theme module no longer
+  links filesystem IO — the reference pattern the remaining presentation modules follow
+  so `crates/nuo-ui` can shed its IO dependencies ([INV-ARCH-UI-ZERO-IO]).
+
+- **Presentation purity, disclosure seam (ADR-0103 §1 / ADR-0105 M3).** A new pure
+  `disclosure_config` port (`DisclosureSource` + `tool_expanded` / `reasoning_expanded`)
+  replaces the `transcript.rs` / `step_interaction.rs` dependency on the shell's
+  `TuiConfig`: those modules now resolve default-expand state through the port, and the
+  shell implements it for `TuiConfig` (dependency inversion). No `TuiConfig` reference
+  remains in their production paths.
+
+- **Presentation purity, pure key for declarative components (ADR-0103 §1 / ADR-0105 M3).**
+  The declarative component tree (`ask_user`, `notice_card`, `tool_card`, and the
+  `StorybookComponent` protocol) no longer depends on the terminal driver: it consumes a
+  pure `declarative::key::Key`, and the storybook runner translates
+  `crossterm::event::KeyEvent` into `Key` at the boundary. The only remaining terminal
+  dependency in `declarative/` is the interactive workbench runner itself.
+
+- **Presentation purity, components off the render re-export (ADR-0103 §1 / ADR-0105 M3).**
+  The `components/` modules (`detail`, `dropdown`, `meta_strip`, `popover`, `row`,
+  `tooltip`) import `Theme` from the pure `crate::theme` module rather than the shell
+  `crate::render` re-export, removing the last `render` coupling from the component
+  library. Only `components/composer_hints.rs` (composer-panel shell chrome) still
+  reaches into shell state; it is slated to move with the shell in M4.
+
+- **Pure substrate extraction — `crates/nuo-present` (ADR-0103 §1 / ADR-0105 M3).**
+  The leak-free pure modules `syntax`, `time`, `phase`, and `fuzzy` move out of the
+  shell crate into a new zero-IO crate, `nuo-present`, which `nuo-ui` consumes. The
+  presentation firewall hard-gates `nuo-present` under R3
+  (`[INV-ARCH-UI-ZERO-IO]`): it may never declare a network, process, terminal,
+  clipboard, or filesystem-layout dependency. This is the first physical step of the
+  ADR-0103 split: a real pure substrate that the shell depends on, rather than a
+  monolith that pretends to be pure.
+
+- **Pure substrate extraction, tranche 2 (ADR-0103 §1 / ADR-0105 M3).** Six more
+  leak-free modules move into `crates/nuo-present`: `design` (spacing/geometry tokens),
+  `footer_stack`, `trust_gate`, `composer_mode`, `composer_attachments`, and `providers`
+  (model-search primitives). `nuo-ui` re-exports each with unchanged visibility, so no
+  consumer changed. The firewall now judges **shipped** dependencies only
+  (`[dev-dependencies]` excluded — a test-time composition root is not part of the linked
+  surface), which dropped `nuo-ui`'s gated debt from 7 to 6 IO deps.
+
+- **Presentation purity, theme/elevation (ADR-0103 §1 / ADR-0105 M3).** `elevation` imports
+  `Theme` from the pure `crate::theme` module rather than the shell `crate::render`
+  re-export, and the external-theme test in `theme` is now hermetic: it parses a
+  `ThemeFile` from TOML instead of writing and reading files through the shell's config
+  loader (ADR-0073). The further extraction of `theme`/`primitives` into `nuo-present` is
+  deferred: `primitives` is a re-export facade over `components` and `keymap`, and `theme`
+  depends on `primitives`, so neither can move until `components` (itself blocked on
+  `model`) moves first.
+
+- **Model layer is terminal-driver-free (ADR-0103 §1 / ADR-0105 M3).** Key dispatch for
+  focused transcript entries moves out of the pure model into the shell
+  (`input::interactive_key::handle_focused_entry_key`); `InteractiveEntry` keeps only its
+  content contract (`is_focusable`, `target_kind`, `extract_copy_text`, expansion state).
+  `crates/nuo-ui/src/model/` therefore has **no `crossterm` dependency** any more — the
+  last terminal-driver coupling in the model layer is gone.
+
+- **`components/` is now a pure, driver-free component library (ADR-0072 / ADR-0103 §1).**
+  The two remaining coupled files were resolved: `dropdown` consumes a pure
+  `KeyStroke` (semantic key + Shift) instead of a `crossterm::KeyEvent`, and
+  `composer_hints` — composer-panel chrome that reads shell state — moved out of
+  `components/` to `crate::composer_hints`. The pure `Key`/`KeyStroke` types live in
+  `nuo-present`, and the driver is folded into them at a single shell boundary
+  (`input::keystroke`). `components/` now has **zero** `crossterm` and **zero** shell-state
+  references.
+
+- **Component keycaps take display strings, not key types (ADR-0072).** `KeyAffordance`
+  and `FooterHint` no longer accept a `keymap::Key` and call `display()` internally; they
+  take the already-rendered `&'static str` token, and the ~68 call sites pass
+  `Key::X.display()` explicitly. `components/` therefore no longer depends on the
+  crossterm-backed key type: its only remaining `keymap` reference is `which_key`'s
+  `scene_namespace::SceneVerb`, which must stay coupled until `keymap::Key` is unified
+  (deriving its chord display elsewhere would duplicate the advertised⇔dispatchable
+  chord table).
+
+- **The key model is unified on the pure substrate (ADR-0103 §1 / ADR-0105 M3).** The
+  semantic key layer now lives in `nuo-present::chord`: pure `KeyCode`, `KeyModifiers`
+  (consts, `contains`/`intersects`/`union`/`remove`/`insert`, `BitOr`/`BitOrAssign`) and
+  the `Key { code, modifiers }` binding type with its 49 canonical constants, `chord()`,
+  `display()` and the token tables. `keymap` re-exports it, so every `Key::CTRL_X` and
+  `KeyCode::Esc` call site is unchanged, and the terminal driver survives in exactly one
+  place — `keymap::key_from_event` — which folds a `crossterm` event into the pure shape.
+  Tests that must drive the real event pipeline invert it through
+  `input::keystroke::event_from_chord`.
+
+- **`render`/`config` edges lifted out of the substrate cluster (ADR-0103 §1).** Two
+  shell references were removed so the remaining substrate no longer reaches up:
+  `tools`' disclosure tests now assert through the pure `disclosure_config` port instead
+  of the shell's `TuiConfig`, and the `BlockWrapCache` transparency test moved from
+  `model` to `render/tests` (where the cache lives). `model` now names no `render` path
+  and `tools` names no `config` path.
+
+- **The `theme` ⇄ `primitives` ⇄ `elevation` cycle is extracted (ADR-0103 §1 / ADR-0105 M3).**
+  All three move into `crates/nuo-present`. `primitives` was a re-export facade over
+  `components::{footer, inline_layout, path}`; those three re-exports now live in a thin
+  shell-side `crate::primitives` shim (which also glob-re-exports the pure module), so the
+  substrate no longer names `components` and every `crate::primitives::…` path still
+  resolves. The `modal_footer_degrades_by_width_and_priority` test moved with its subject
+  to `components/footer.rs`. `nuo-present` now owns the theme system, the geometry/modal
+  primitives, and the elevation scale.
+
+- **`empty_state` extracted (ADR-0103 §1 / ADR-0105 M3).** The empty-state carousel is
+  now in `nuo-present`; its one shell reference — `keymap::Key::CTRL_R` — became the pure
+  `chord::Key::CTRL_R`, since the chord model is already substrate.
+
+- **`keyvocab` moves to the pure substrate (ADR-0103 §1 / ADR-0105 M3).** The chord glyph
+  tokens (`"↑↓"`, `"Space"`, `"⇧Tab"`, …) now live in `nuo-present::keyvocab`; `keymap`
+  re-exports them and `primitives` imports from the substrate directly, so `primitives` no
+  longer names `keymap`.
+
+- **Lean CLI linkage (`[INV-ARCH-CLI-LEAN-LINK]`, ADR-0105).** The interactive shell and
+  pure UI substrate are now an optional, default-on `interactive` feature of the `nuo`
+  binary: `Mode::Interactive` carries the raw interactive arguments (parsed at dispatch),
+  and the interactive/dev entry points are `cfg`-gated. A
+  `nuo --no-default-features` build links no terminal presentation stack
+  (`nuotc`/`crossterm`/`nuo-ui`), verified in CI. The physical relocation of the shell
+  into `nuo::shell` remains the rest of M4.
+
 ### Removed
 
 - **Cognitive runtime consolidation — the orphaned `nuo-agent` twin is retired (ADR-0100).**
@@ -22,6 +301,29 @@ the project adheres to the federated SemVer model described in
   ([INV-RUNTIME-01]).
 
 ### Changed
+
+- **Model routing aperture — `nuo-catalog` renamed to `nuo-model-routing` (ADR-0102).**
+  The Layer-2 pipeline crate `nuo-catalog` is renamed to `nuo-model-routing`, cleansing the
+  misleading "static dictionary" framing and eliminating namespace collision with the leaf
+  ingress discovery crate `providers/nuo-provider-catalog`. The crate's role as the dynamic
+  route materialization engine and the cognitive firewall protecting `nuo-harness` from
+  connection and credential mechanics is explicitly codified in `[INV-ROUTING-01]` (superseding
+  `[INV-CATALOG-07]`). Public interfaces are cleansed of legacy catalog naming: `build_routes()`
+  supersedes `build_catalog()`, `RoutingSyncOutcome` supersedes `CatalogSyncOutcome`, and
+  `sync_remote_routes` / `sync_connection_routes` supersede their catalog counterparts.
+  Consumer crates import directly with zero compatibility shims.
+
+- **`nuo-harness` internal structure reorganized into subsystem groups, with enforced inner layers (ADR-0101).**
+  The crate's ~30 flat sibling modules are grouped into five navigational subsystems —
+  `cognition/` (the agent's mind), `governance/` (its restraints), `orchestration/`
+  (per-round policy), `dispatch/` (tool pipeline), and `runtime/` (substrate) — plus
+  `tools/`. This is a pure, behavior-preserving move (`orchestration.rs` becomes
+  `orchestration/mod.rs` so its path is preserved). The former `cognition ↔ orchestration`
+  and `runtime ↔ cognition` cycles were broken by sinking the shared leaf helpers
+  (`runtime::time`, `runtime::retry`, `runtime::message`) and moving the `pipeline`/`aspects`
+  engines into `cognition`. Three boundaries are now enforced by the source-scan test
+  `tests/layering.rs`: `governance` and `runtime` are strict inner layers, and `cognition`
+  is wrapped by `orchestration`/`dispatch` ([INV-HARNESS-03, INV-HARNESS-04]).
 
 - **The governance layer is now a strict inner module of `nuo-harness` (ADR-0100).**
   `ScopedToolDisable` is relocated out of the agent module into
@@ -69,8 +371,54 @@ the project adheres to the federated SemVer model described in
     outright (0.0.49 discipline, `zai-code` precedent) — stale
     `connections.toml` rows fail loudly rather than silently canonicalizing.
 
+- **Documentation citations are a hard CI gate, and the drift it would have
+  caught is fixed.** The workspace now denies `rustdoc::broken_intra_doc_links`,
+  `rustdoc::private_intra_doc_links`, and `rustdoc::invalid_html_tags`
+  (`Cargo.toml` `[workspace.lints.rustdoc]`), enforced by a new `docs` CI step
+  (`cargo doc --workspace --no-deps`). Enabling the gate surfaced ~40 dangling
+  citations left behind by the recent relocations (ADR-0027, ADR-0085, ADR-0102,
+  ADR-0103) — links to names that had moved, been renamed, or never existed
+  (`nuo_provider::auth::DeviceFlowMode`, `crate::capability::Tool`,
+  `super::super::wire::codec`, `crate::RemoteCatalogCache`,
+  `crate::MainAgentProfile`, `CosyIdentity`'s retired `nuo-llm-client`, …) plus
+  public docs reaching into private items. Each is now either pointed at its
+  current home or de-linked to a plain code span.
+- **The orphaned `nuo_provider::oauth` re-export module is removed.** It was a
+  legacy alias (`pub use crate::credentials::*`) with zero production
+  consumers — reachable only from a test — that misrepresented OAuth as living
+  in `nuo-provider`. OAuth lives solely in `nuo-oauth` (`[INV-PROV-07]` spirit:
+  a contract-shaped surface with no production consumer is deleted, not kept).
+- **ADR-0027's mangled `Related:` citation lists are cleaned.** Both copies
+  carried a run of empty backtick citations (``, ``, ``) left by the repo-wide
+  legacy-citation retirement; the surviving `ADR-0065` reference is retained.
+- **The documentation-integrity gate is codified in the standards, not only in
+  the config.** `docs/dev/standards/workflow.md` gains it as PR review gate 5
+  and pre-release check 7 (the registry that the CI steps mirror), and
+  `docs/dev/standards/adr.md` §4 stops pinning a hardcoded canonical ADR range —
+  the lineage checker derives the set from `docs/adr/`, so the standard can no
+  longer drift behind the registry it describes.
+- **Markdown link integrity is now mechanized, not merely declared.**
+  `docs/dev/standards/style.md` §1.3 has always said "dead links or broken
+  anchors block publication" and `taxonomy.md` §2 has always forbidden public
+  docs from reaching into `docs/dev/` — neither had a mechanism. The new
+  `scripts/check_doc_links.py` (stdlib only, CI `doc links` step) checks all 798
+  relative targets across `docs/**` and the root `*.md` for existence, anchor
+  match, absolute/`file://` locators, and the audience firewall; fenced blocks
+  and inline code are excluded so example link syntax is never mistaken for a
+  citation. It found one real defect, now fixed: ADR-0014 cited
+  `crates/nuo-model-codec/src/connection_auth.rs`, a path retired with the crate.
+
 ### Removed
 
+- **The finished one-shot migration helper `scripts/retire_legacy_adr_refs.py` is
+  deleted.** It existed to retire citations drawn from the pre-ingestion ADR log
+  (the `0085`..`0304` range, never imported into this repository); that pass is
+  complete — a dry run today reports only
+  the fourteen frozen `migrations.rs` SQL comments, which are exempt by design
+  and permanent. Keeping it bought nothing git history does not already record,
+  and its own docstring had already gone stale (it still asserted the canonical
+  series was `0001`..`0083`). `scripts/check_adr_lineage.py` remains the live
+  gate, and `docs/dev/standards/adr.md` §4 no longer advertises the helper.
 - The monolithic `nuo-provider-codebuddy` crate is deleted; its workspace
   entry, all imports (server registry, connection auth, TUI presets), and the
   shared `CODEBUDDY_BUILTIN_MODELS` seed list are superseded by the three-crate
@@ -537,13 +885,13 @@ the project adheres to the federated SemVer model described in
   `response.failed` are handled as terminal events (truncated turns keep their
   output, replay artifact and usage); Chat Completions replays an assistant
   turn's `reasoning_content` on the DeepSeek dialect, where the vendor requires it.
-- **Single Layer-2 Catalog Crate (`nuo-catalog`) ([ADR-0082](docs/adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md))**:
+- **Single Layer-2 Catalog Crate (`nuo-model-routing`) ([ADR-0082](docs/adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md))**:
   the catalog pipeline (`derive` / `picker` / `sync` plus its test suite) left the
   duplicated `nuo-harness` and `nuo-server` module trees and now lives in exactly
   one Layer-2 crate that both consumers import directly — no re-export shim and no
   local `catalog` module (`[INV-CATALOG-07]`). The composition-root edge
-  (`nuo-catalog` -> `nuo-server`) is a declared test-only dev-dependency, so the
-  shipped build graph stays acyclic and `nuo-catalog` links no `providers/*` crate
+  (`nuo-model-routing` -> `nuo-server`) is a declared test-only dev-dependency, so the
+  shipped build graph stays acyclic and `nuo-model-routing` links no `providers/*` crate
   and no presentation crate.
 - **Unidirectional Catalog Pipeline ([ADR-0081](docs/adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md))**:
   ingestion is now three strictly decoupled stages — Source -> Normalization ->

@@ -124,9 +124,9 @@ impl Endpoint {
             .await
     }
 
-    /// Whether this endpoint uses dynamic OAuth credentials.
-    pub fn is_oauth(&self) -> bool {
-        self.credentials.is_oauth()
+    /// Whether this endpoint uses dynamic negotiated credentials (ADR-0098).
+    pub fn is_negotiated(&self) -> bool {
+        self.credentials.is_negotiated()
     }
 
     /// Stamp the user-agent header value, updating the client profile.
@@ -225,9 +225,9 @@ impl Endpoint {
     /// Attach session-affinity and request-tracking headers to an outbound HTTP request builder.
     pub fn attach_session_affinity_headers(
         &self,
-        mut req: nuo_egress::request::RequestBuilder,
+        mut req: crate::transport::RequestBuilder,
         session_override: Option<&str>,
-    ) -> nuo_egress::request::RequestBuilder {
+    ) -> crate::transport::RequestBuilder {
         for (name, val) in self.session_affinity_headers(session_override) {
             req = req.header(name, val);
         }
@@ -242,9 +242,9 @@ impl Endpoint {
     /// Attach the credential-scoping headers to an outbound request builder.
     pub fn attach_auth_scoped_headers(
         &self,
-        mut req: nuo_egress::request::RequestBuilder,
+        mut req: crate::transport::RequestBuilder,
         auth: &ResolvedAuth,
-    ) -> nuo_egress::request::RequestBuilder {
+    ) -> crate::transport::RequestBuilder {
         for (name, val) in self.auth_scoped_headers(auth) {
             req = req.header(name, val);
         }

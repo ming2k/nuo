@@ -13,8 +13,6 @@ nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-inference-wire = { workspace = true }
-nuo-egress = { workspace = true }
-nuo-oauth = { workspace = true }
 nuo-provider-catalog = { workspace = true }
 nuo-provider-anthropic = { workspace = true }
 nuo-provider-google-antigravity = { workspace = true }
@@ -36,7 +34,7 @@ nuo-provider-codebuddy-intl = { workspace = true }
 nuo-provider-qoder = { workspace = true }
 inventory = { workspace = true }
 nuo-harness = { workspace = true }
-nuo-catalog = { workspace = true }
+nuo-model-routing = { workspace = true }
 nuo-mcp = { workspace = true }
 nuo-tool = { workspace = true }
 nuo-tool-fs = { workspace = true }

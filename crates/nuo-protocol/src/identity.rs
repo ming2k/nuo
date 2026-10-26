@@ -2,7 +2,7 @@
 //!
 //! Pure domain vocabulary — three strings and a formatter — with no agent-layer
 //! dependencies. Owned by the contract layer (`[INV-WIRE-04]`); relocated here
-//! from `nuo-agent` per ADR-0009 to remove the `nuo-wire → nuo-agent`
+//! here per ADR-0009 (from the since-retired `nuo-agent` crate) to remove the `nuo-wire → nuo-agent`
 //! inversion.
 //!
 //! Kept identity-agnostic: nothing here hardcodes "nuo" or "coding". The

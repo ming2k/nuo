@@ -9,7 +9,7 @@
 //! envelopes exchanged across local IPC and network boundaries, and the domain
 //! values (`TokenUsage`, `TodoList`, the `Provider`/`Tool` capability traits,
 //! …) shared by independent layers. Pure logic owned only by the agent belongs
-//! in `nuo-agent` (ADR-0057).
+//! in `nuo-harness` (ADR-0057).
 //!
 //! Consolidated from the former `nuo-contracts` crate: ADR-0001 mandated that
 //! crate's dismantling (`[INV-ARCH-01]` bans catch-all `contracts`/`common`/

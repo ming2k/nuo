@@ -19,7 +19,7 @@ use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, Prov
 use nuo_provider::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
 use std::sync::{Arc, Mutex};
 
-use nuo_egress::{Client, HttpResponse, RequestBuilder};
+use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
 use nuo_provider::{COPILOT_CLIENT_HEADERS, ClientProfile, Endpoint, PromptCacheConfig};
 
@@ -348,7 +348,7 @@ impl OpenAiResponsesProvider {
         }
         let mut response = self.client.send_raw(req, self.label()).await?;
 
-        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_oauth() {
+        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_negotiated() {
             tracing::warn!(
                 provider = %self.endpoint.id,
                 model = %self.endpoint.model,
@@ -616,7 +616,7 @@ impl Provider for OpenAiResponsesProvider {
         let resp = self
             .send_request(&body, true, &turn_context, &transport_telemetry)
             .await?;
-        let stream = nuo_egress::sse::data_payloads(resp, label).map(|item| {
+        let stream = nuo_provider::transport::sse::data_payloads(resp, label).map(|item| {
             let data = item.map_err(ProviderError::from)?;
             let value = decode_stream_payload(&data, label)?;
             // Accumulate only output_text deltas on the text-only path.
@@ -654,7 +654,7 @@ impl Provider for OpenAiResponsesProvider {
         // into the turn is needed.
         let parser = Arc::new(Mutex::new(response::ResponsesStream::new()));
         let route = self.route_fingerprint();
-        let stream = nuo_egress::sse::data_payloads(resp, label).map(move |item| {
+        let stream = nuo_provider::transport::sse::data_payloads(resp, label).map(move |item| {
             let data = item.map_err(ProviderError::from)?;
             let value = decode_stream_payload(&data, label)?;
             let mut p = parser.lock().unwrap_or_else(|e| e.into_inner());
@@ -827,7 +827,7 @@ mod stream_protocol_tests {
                     )
                 })
             }
-            fn is_oauth(&self) -> bool {
+            fn is_negotiated(&self) -> bool {
                 true
             }
         }

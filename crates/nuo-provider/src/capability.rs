@@ -10,7 +10,7 @@ use crate::effort::Effort;
 use crate::instructions::InstructionBundle;
 use crate::model::ModelCapabilities;
 use crate::state::*;
-use nuo_egress::EgressTelemetry as TransportTelemetry;
+use crate::transport::TransportTelemetry;
 pub use nuo_tool::Tool;
 use nuo_tool::message::Message;
 use nuo_tool::usage::TokenUsage;

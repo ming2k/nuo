@@ -16,7 +16,7 @@ negative_knowledge: true
 - Consulted: Runtime, Capability, Interface Teams, and Model Infrastructure Engineers
 - Informed: System Architects
 - Amends: [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md) (executes its unfinished relocation and closes its `[INV-PROV-01..05]` enforcement gap)
-- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`, ``, ``, ``, ``, ``, ``
+- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`
 - Verification: Complete read-only forensic diff of `nuo-provider-adapters` against `providers/*` performed 2026-10-08; results recorded in §Evidence below, including one live production defect.
 
 ---
@@ -207,7 +207,7 @@ per-step verification gates — is in [`docs/dev/provider-consolidation-migratio
 
 ### Rejected — A `trust: TrustLevel` provider field
 - **Why considered**: Source comments repeatedly say "trusted provider", suggesting an unmodeled concept.
-- **Why rejected**: The actual gate is structural and non-configurable — the fitted-model overlay only accepts ids absent from the compiled baseline (`nuo-catalog/src/sync.rs:501`, `filter(|model| model_by_id(&model.id).is_none())`), which is why a relay cannot inflate a known model. A configurable trust flag would be either redundant with that precedence rule or a **weaker** second gate that can contradict it — and the dangerous case is a maintainer setting it to `Full` and reopening a door the precedence rule closes. Trust is a property of the resolution rule, not of the provider. Making an unconfigurable invariant configurable is a net loss.
+- **Why rejected**: The actual gate is structural and non-configurable — the fitted-model overlay only accepts ids absent from the compiled baseline (`nuo-model-routing/src/sync.rs:501`, `filter(|model| model_by_id(&model.id).is_none())`), which is why a relay cannot inflate a known model. A configurable trust flag would be either redundant with that precedence rule or a **weaker** second gate that can contradict it — and the dangerous case is a maintainer setting it to `Full` and reopening a door the precedence rule closes. Trust is a property of the resolution rule, not of the provider. Making an unconfigurable invariant configurable is a net loss.
 
 ### Rejected — `local_only_safe` and `account_dimensions` provider fields
 - **Why considered**: `[INV-LANE-06]` references a local-only mode; opencode/Google/Qoder need workspace/project/region selection.
@@ -223,6 +223,6 @@ per-step verification gates — is in [`docs/dev/provider-consolidation-migratio
 
 - Amends: [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md)
 - Execution runbook: [`docs/dev/provider-consolidation-migration.md`](../dev/provider-consolidation-migration.md)
-- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`, ``, ``, ``, ``, ``, ``
+- Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`
 - Implementation anchors: `nuo-provider-adapters/src/{lib,list_models,client,endpoint}.rs`, `nuo-provider-adapters/src/{protocol,registry,usage,oauth}/`, `providers/nuo-provider-*`, `nuo-provider/src/{capability,registry,descriptor,spec}.rs`, `nuo-server/src/{bootstrap,handlers_provider}.rs`, `nuo-model-codec/src/model_providers.rs`
 - Deferred (tracked, not rejected): model-level pricing, extended capability matrix, provider account/tenant dimension declarations. Extension design recorded in [`docs/dev/provider-extension-design.md`](../dev/provider-extension-design.md) — includes the audit finding that provider **health/recovery semantics already exist** (`ProviderErrorKind` + `RetryDisposition`) and need no new fields.

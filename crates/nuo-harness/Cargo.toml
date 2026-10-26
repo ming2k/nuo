@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 nuo-tool = { workspace = true }
 nuo-provider = { workspace = true }
-nuo-catalog = { workspace = true }
+nuo-model-routing = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
@@ -55,6 +55,10 @@ tempfile = { workspace = true }
 # writes `test-instance` rows into the developer's real
 # `$XDG_STATE_HOME/nuo/models_discovery.json`.
 nuo-host = { workspace = true, features = ["test-path-override"] }
+# AST parsing for the layering-enforcement test (`tests/layering.rs`): resolves
+# real `crate::<group>` paths instead of text-matching.
+syn = { workspace = true, features = ["visit"] }
+proc-macro2 = { workspace = true }
 
 [lints]
 workspace = true

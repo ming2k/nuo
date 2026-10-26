@@ -3,7 +3,7 @@ id: ADR-0082
 title: "Single Catalog Pipeline Definition in a Dedicated Layer-2 Crate"
 status: accepted
 date: 2026-10-19
-scope: workspace/topology, catalog/nuo-catalog, server/nuo-server, harness/nuo-harness
+scope: workspace/topology, catalog/nuo-model-routing, server/nuo-server, harness/nuo-harness
 superseded_by: null
 negative_knowledge: true
 ---
@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Agent Runtime, Provider Integration, Model Infrastructure, Presentation/TUI
 - Informed: Core Engineering
 - Amends: [ADR-0005](0005-unified-binary-and-concentric-runtime-architecture.md), [ADR-0010](0010-harness-decomposition-and-agent-unification.md)
+- Amended by: [ADR-0102](0102-model-routing-aperture-rename-nuo-catalog-to-nuo-model-routing-and-cleanse-route-derivation-semantics.md)
 - Implements: [ADR-0081](0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md)
 
 ---
@@ -62,7 +63,7 @@ precisely what ADR-0081 §2 forbids for *labels* and what `[INV-PROV-06]` forbid
 
 ### 1. `[INV-CATALOG-07]` The Catalog Pipeline Has Exactly One Definition
 
-The pipeline lives in exactly one crate, `crates/nuo-catalog` (package `nuo-catalog`):
+The pipeline lives in exactly one crate, `crates/nuo-model-routing` (package `nuo-model-routing`):
 `derive` (Source → per-model route), `picker` (the presentation snapshot), `sync`
 (remote-catalog fetch + fitted overlay), and their tests. Consumers link it; they never
 host a second copy.
@@ -76,19 +77,19 @@ Its position is **Layer 2 (Core Runtime Substrate)**, beside `nuo-persistence`:
 ```text
 Layer 1  nuo-wire (protocol) · nuo-provider · nuo-model-codec
              ▲
-Layer 2  nuo-catalog · nuo-persistence · nuo-agent · nuo-harness
+Layer 2  nuo-model-routing · nuo-persistence · nuo-agent · nuo-harness
              ▲
 Layer 3  nuo-server
 ```
 
-`nuo-catalog` depends only on Layer-1 contracts (`nuo-wire`, `nuo-provider`,
+`nuo-model-routing` depends only on Layer-1 contracts (`nuo-wire`, `nuo-provider`,
 `nuo-model-codec`) and on `nuo-persistence` for the stores it reads. It never names a
 concrete provider: remote catalog fetching is dispatched through
 `nuo_provider::fetch_remote_catalog`, whose implementation the composition root supplies.
 
 ### 2. Consumers Import It Directly, Never Through a Shim
 
-`nuo-harness` and `nuo-server` call `nuo_catalog::…` at every site. Neither re-exports
+`nuo-harness` and `nuo-server` call `nuo_model_routing::…` at every site. Neither re-exports
 the crate as `crate::catalog`. A crate-level re-export would restore the illusion of a
 local module and re-open the question of which crate owns the pipeline — the exact
 ambiguity this ADR removes.
@@ -96,9 +97,9 @@ ambiguity this ADR removes.
 ### 3. The Composition Root Edge Is Test-Only, Declared and Commented
 
 The catalog tests exercise the real spec table and the real credential-source builders,
-which only the composition root owns (`[INV-PROV-04]`). `nuo-catalog` therefore
+which only the composition root owns (`[INV-PROV-04]`). `nuo-model-routing` therefore
 **dev-depends** on `nuo-server`. Cargo admits a cycle only when it passes through a
-dev-dependency, so the shipped graph (`nuo-server` → `nuo-catalog`) stays acyclic; the
+dev-dependency, so the shipped graph (`nuo-server` → `nuo-model-routing`) stays acyclic; the
 manifest states this, and `nuo-harness` declares the same edge for the same reason. This
 is the only backward-looking edge in the workspace, and it is impossible to ship: no
 `[dependencies]` entry exists in either direction it would need.
@@ -123,9 +124,9 @@ is the only backward-looking edge in the workspace, and it is impossible to ship
   different behaviour, it composes the crate's API; it does not fork it. The historical
   justification ("the harness needs it at runtime, the server needs it at runtime, and
   they cannot see each other") is exactly what the Layer-2 crate resolves.
-- **Prohibition on Path Shims**: `pub use nuo_catalog as catalog;` (or any equivalent
+- **Prohibition on Path Shims**: `pub use nuo_model_routing as catalog;` (or any equivalent
   alias) in a consumer crate root is a red-line violation of `architecture.md` §2.3.
-- **Prohibition on Provider Linkage**: `nuo-catalog` must not gain a dependency on any
+- **Prohibition on Provider Linkage**: `nuo-model-routing` must not gain a dependency on any
   `providers/*` crate, `nuo-tui`, or `nuotc`. Fetching stays behind the `nuo-provider`
   port; presentation stays in `nuo-tui`.
 - **Prohibition on a Sync-Enforcement Test in Place of the Merger**: a test that diffs

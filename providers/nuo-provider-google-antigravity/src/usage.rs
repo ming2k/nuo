@@ -64,7 +64,7 @@ impl AntigravityUsageFetcher {
 
     pub async fn fetch_usage(
         &self,
-        client: &nuo_egress::http::Http,
+        client: &nuo_provider::transport::Http,
         base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {
@@ -74,7 +74,7 @@ impl AntigravityUsageFetcher {
 
     pub async fn fetch_usage_with_project(
         &self,
-        client: &nuo_egress::http::Http,
+        client: &nuo_provider::transport::Http,
         base_url: &str,
         api_key: &str,
         project: Option<&str>,
@@ -95,7 +95,7 @@ impl AntigravityUsageFetcher {
             "project": effective_project
         });
 
-        let request = nuo_egress::http::Request::new(netune::Method::POST, &endpoint)
+        let request = nuo_provider::transport::Request::new(netune::Method::POST, &endpoint)
             .header("authorization", format!("Bearer {api_key}"))
             .header("user-agent", ANTIGRAVITY_USER_AGENT)
             .json(&req_body);
@@ -120,10 +120,10 @@ impl AntigravityUsageFetcher {
 /// Relocated verbatim (ADR-0027 §4) from `nuo-provider-adapters`' OAuth token
 /// module, where it was an orphan with no counterpart in the `providers/` tree.
 pub async fn retrieve_antigravity_quota_summary(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     access_token: &str,
     project: Option<&str>,
-) -> Result<AntigravityQuotaSummaryResponse, nuo_oauth::oauth::AuthError> {
+) -> Result<AntigravityQuotaSummaryResponse, nuo_provider::auth::AuthError> {
     let effective_project = project
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -132,7 +132,7 @@ pub async fn retrieve_antigravity_quota_summary(
         "project": effective_project
     });
 
-    let request = nuo_egress::http::Request::new(
+    let request = nuo_provider::transport::Request::new(
         netune::Method::POST,
         ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL,
     )
@@ -140,17 +140,17 @@ pub async fn retrieve_antigravity_quota_summary(
     .header("user-agent", ANTIGRAVITY_USER_AGENT)
     .json(&req_body);
     let resp = client.send(request).await.map_err(|e| {
-        nuo_oauth::oauth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}"))
+        nuo_provider::auth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}"))
     })?;
 
     if resp.is_success() {
         serde_json::from_str::<AntigravityQuotaSummaryResponse>(&resp.body).map_err(|e| {
-            nuo_oauth::oauth::AuthError::Decode(format!(
+            nuo_provider::auth::AuthError::Decode(format!(
                 "retrieveUserQuotaSummary parse failed: {e}"
             ))
         })
     } else {
-        Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
+        Err(nuo_provider::auth::AuthError::TokenEndpoint {
             status: resp.status.as_u16(),
             body: resp.body,
         })

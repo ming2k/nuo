@@ -26,7 +26,7 @@ use nuo_provider::{ProviderError, ProviderErrorKind};
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
-use nuo_egress::{Client, HttpResponse, RequestBuilder};
+use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
 use nuo_provider::{ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
@@ -273,7 +273,7 @@ impl GoogleProvider {
         }
         let response = self.client.send_raw(req_builder, "Google").await?;
 
-        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_oauth() {
+        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_negotiated() {
             tracing::warn!(
                 model = %self.endpoint.model,
                 "OAuth token rejected by Google (401 Unauthorized); attempting force-refresh and retry"
@@ -311,7 +311,7 @@ impl GoogleProvider {
         let text_thought_signature = Arc::new(Mutex::new(None::<String>));
         let terminal_signatures = thought_signatures.clone();
         let terminal_text_signature = text_thought_signature.clone();
-        let stream = nuo_egress::sse::data_payloads(response, "Google").flat_map({
+        let stream = nuo_provider::transport::sse::data_payloads(response, "Google").flat_map({
             let next_tool_index = next_tool_index.clone();
             move |item| {
                 let events: Vec<Result<ProviderStreamEvent, ProviderError>> = match item {
@@ -782,7 +782,7 @@ impl Provider for GoogleProvider {
         // SSE byte reassembly (incl. multi-byte UTF-8 split across chunks) is
         // handled by `sse::data_payloads`; here we only map each payload to the
         // Google `streamGenerateContent` text shape.
-        let stream = nuo_egress::sse::data_payloads(response, "Google").map(|item| {
+        let stream = nuo_provider::transport::sse::data_payloads(response, "Google").map(|item| {
             item.map_err(ProviderError::from)
                 .map(|payload| response::stream_text(&payload))
         });

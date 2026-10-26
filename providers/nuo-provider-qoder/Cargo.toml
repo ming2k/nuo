@@ -8,8 +8,6 @@ description = "Qoder provider dialect, COSY signature pipeline, and RSA/AES cryp
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-oauth = { workspace = true }
-nuo-egress = { workspace = true }
 nuo-wire = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-tool = { workspace = true }

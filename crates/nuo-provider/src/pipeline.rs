@@ -12,7 +12,7 @@ use std::fmt;
 use crate::auth::{PreflightValidator, ResolvedAuth};
 use crate::dialects::OpenAiChatDialect;
 use crate::error::{ProviderError, ProviderErrorKind};
-use nuo_egress::request::RequestBuilder;
+use crate::transport::RequestBuilder;
 
 /// Phase 1: Structural JSON body transformation (e.g. AgentChat envelope).
 pub trait EnvelopePhase: Send + Sync {
@@ -249,7 +249,7 @@ impl ProviderPipeline {
     pub fn preflight_assert(&self, auth: &ResolvedAuth) -> Result<(), ProviderError> {
         for validator in &self.validators {
             validator
-                .validate_auth(auth)
+                .validate(auth)
                 .map_err(|msg| ProviderError::authentication("pipeline", msg))?;
         }
         Ok(())

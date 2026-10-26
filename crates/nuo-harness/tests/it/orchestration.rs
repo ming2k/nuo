@@ -14,8 +14,9 @@ use nuo_harness::RoundLifecycle;
 use nuo_harness::SkillRegistry;
 use nuo_harness::orchestration::{
     ContextProjectionSettings, InteractiveRoundContext, ProxyProvider, RoundContext, RoundInput,
-    apply_jitter_ms, execute_round, retry_delay_ms, start_interactive_round,
+    execute_round, start_interactive_round,
 };
+use nuo_harness::runtime::retry::{apply_jitter_ms, retry_delay_ms};
 use nuo_persistence::session::SessionStore;
 use nuo_wire::{
     AgentResponse, Message, Provider, ProviderStreamEvent, Role, RoundEvent, ToolContextBuilder,

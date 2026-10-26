@@ -1,22 +1,22 @@
 //! Google Antigravity (Cloud Code) OAuth surface (ADR-0027).
 //!
 //! Owns the Antigravity and Antigravity-CLI `OAuthConfig` presets and the
-//! Cloud-Code project/user enrichment; the generic engine in `nuo-oauth` never
+//! Cloud-Code project/user enrichment; the generic engine in `nuo_provider::auth` never
 //! names Google.
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_egress::http::{Http, Reply, Request};
-use nuo_oauth::oauth::AuthError;
-use nuo_oauth::oauth::token::TokenResponse;
-use nuo_oauth::{
-    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
-};
-use nuo_oauth::{OAuthProvider, OAuthTokenEnricher};
 use nuo_provider::LoginMethod;
 use nuo_provider::ResolvedAuth;
+use nuo_provider::auth::AuthError;
+use nuo_provider::auth::TokenResponse;
+use nuo_provider::auth::{
+    ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
+};
+use nuo_provider::auth::{OAuthProvider, OAuthTokenEnricher};
 use nuo_provider::credentials::TokenSet;
+use nuo_provider::transport::{Http, Reply, Request};
 
 pub const ANTIGRAVITY_LOAD_CODE_ASSIST_URL: &str =
     "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";

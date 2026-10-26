@@ -103,7 +103,7 @@ pub struct ProcessKillSpec {
     pub command: String,
     /// Whether the spawned process runs in its own process group and can be reaped via killpg / -$PGID.
     pub process_group_killable: bool,
-    /// Standard pkill pattern (e.g. "pkill -P $PID" or "pkill -f <command>").
+    /// Standard pkill pattern (e.g. `pkill -P $PID` or `pkill -f <command>`).
     pub pkill_target: String,
     /// Working directory where the command will execute.
     pub cwd: Option<String>,

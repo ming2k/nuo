@@ -393,7 +393,7 @@ impl ModelCapabilities {
 /// `broadcast = true` marks an **in-band-depth** family — the default
 /// entity is the wire id for *every* effort (depth rides `thinkingConfig`,
 /// gemini-3.8-flash); `broadcast = false` marks a **suffix-depth** family —
-/// effort ranks across the per-level entities by [`Effort::rank`]
+/// effort ranks across the per-level entities by `Effort::rank`
 /// (gemini-4-argon, claude-{opus,sonnet}-5-5). The live catalog's observed
 /// `wire_entities` override this table per channel; the table only serves
 /// sessions whose live snapshot never ran.
@@ -427,7 +427,7 @@ pub enum WireEntityResolution<'a> {
     Verbatim,
     /// The upstream registered concrete per-level entities and the bare
     /// canonical id is not one of them. `effort` ranks into `entities`
-    /// shallow→deep via [`Effort::rank`] (the same total order the clapmping
+    /// shallow→deep via `Effort::rank` (the same total order the clapmping
     /// uses — one rank table, never per-site duplicates); `None` resolves to
     /// the list's **default-position entity** (the caller's surface declares
     /// which index carries the account default). The result is always a
@@ -446,7 +446,7 @@ impl WireEntityResolution<'_> {
     ///
     /// Broadcast families return the default entity for every effort (depth
     /// rides in-band); suffix-depth families rank the request by
-    /// [`Effort::rank`]. The best entity is the one whose rung is closest to
+    /// `Effort::rank`. The best entity is the one whose rung is closest to
     /// the request: an exact rung hit wins immediately; otherwise a
     /// shallower entity ≤ the request wins (rank-maximizing), and when *no*
     /// entity is ≤ the request (a rung shallower than the surface's floor),

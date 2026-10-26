@@ -1,12 +1,12 @@
-//! Session-management, tool-toggle, and `/btw` aside handlers, extracted
-//! verbatim from the agent background task's `match req { … }` dispatch.
+//! Session-management and tool-toggle handlers, extracted verbatim from the
+//! agent background task's `match req { … }` dispatch.
 //!
 //! Each handler is one match arm, lifted unchanged. Parameters are named to
-//! match the original loop locals (`session`, `agent`, `resp_tx`, `side`, …)
-//! so the body reads exactly as it did inline.
+//! match the original loop locals (`session`, `agent`, `resp_tx`, …) so the
+//! body reads exactly as it did inline.
 use crate::mcp::McpRuntime;
 use nuo_harness::Agent;
-use nuo_harness::skills::SkillRegistry;
+use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_persistence::{config::Config, session::SessionStore};
 use nuo_wire::AgentResponse;
 use std::sync::Arc;

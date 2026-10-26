@@ -1,6 +1,5 @@
-//! The session runtime layer between the orchestration crate
-//! (`nuo-harness`/`nuo-agent`) and the peer frontends (`nuo-tui` and the web
-//! client).
+//! The session runtime layer between the runtime crate (`nuo-harness`) and
+//! the peer frontends (`nuo-tui` and the web client).
 //!
 //! # Why this crate exists
 //!
@@ -41,14 +40,14 @@
 //!
 //! # Dependency posture
 //!
-//! `nuo-server` depends on `nuo-agent` (orchestration and the built-in tools),
+//! `nuo-server` depends on `nuo-harness` (the cognitive runtime and the built-in tools),
 //! `nuo-persistence` (persistence), the `providers/nuo-provider-*` crates (providers),
 //! `nuo-mcp` (the MCP connector protocol; this crate owns each live
 //! `McpRuntime` because it controls connection lifetime), and `nuo-wire`
 //! (vocabulary — the former `nuo-contracts`, absorbed by ADR-0006).
 //! Slash-command discovery and project scaffolding live here as the
 //! `startup`/`project` modules. Agent-owned stateful tools are assembled
-//! inside `nuo-agent`. This crate does **not** depend on the `nuo` binary
+//! inside `nuo-harness`. This crate does **not** depend on the `nuo` binary
 //! crate — frontends depend on this crate, never the reverse.
 //!
 //! # Identity posture
@@ -57,7 +56,7 @@
 //! preset profile. The embedding binary supplies an
 //! [`nuo_wire::AgentIdentity`] to `Agent::new` / `from_toolset` and binds
 //! an [`nuo_wire::AgentRoleProfile`] via `apply_preset`.
-//! The `nuo` binary keeps the coding identity. The `/btw` side-session reuses
+//! The `nuo` binary keeps the coding identity; a forked child reuses
 //! the primary agent's identity (`Agent::identity()`) rather than naming a product here.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
@@ -130,5 +129,5 @@ pub type SharedConnectionUsage =
 
 // NOTE: identity (`agent_code`/`ServerUiBridge`) lives in the application
 // layer (the `nuo` binary's own `identity` module), not here, so this crate
-// stays application-neutral. The `/btw` side session reuses the primary
-// agent's identity via `Agent::identity()`.
+// stays application-neutral. A forked child reuses the primary agent's
+// identity via `Agent::identity()`.

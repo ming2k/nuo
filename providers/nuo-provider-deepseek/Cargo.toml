@@ -8,7 +8,6 @@ description = "DeepSeek AI provider (V4 Flash, Pro, Responses, Balance API) for 
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-egress = { workspace = true }
 nuo-provider-openai = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-wire = { workspace = true }

@@ -69,7 +69,7 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuo-inference-wire`**| **Cluster C** | LLM dialect translation & SSE streaming codec | `version.workspace = true` | crates.io package |
 | **`nuo-persistence`**| **Cluster C** | SQLite session store, migrations & memory | `version.workspace = true` | crates.io package |
 | **`nuo-harness`** | **Cluster C** | Host execution harness, approvals & policy | `version.workspace = true` | crates.io package |
-| **`nuo-catalog`** | **Cluster C** | Single model-catalog pipeline (derive, picker, sync) shared by server & harness ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
+| **`nuo-model-routing`** | **Cluster C** | Single model-catalog pipeline (derive, picker, sync) shared by server & harness ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
 | **`nuo-providers`** | **Cluster C** | Multi-vendor model catalog & OAuth engine | `version.workspace = true` | crates.io package |
 | **`nuo-mcp`** | **Cluster C** | Model Context Protocol client & server transport | `version.workspace = true` | crates.io package |
 | **`nuo-tool-*`** | **Cluster C** | Decoupled tool capability crates (`fs`, `exec`, `web`, `ast`)| `version.workspace = true` | crates.io package |
@@ -94,7 +94,7 @@ nuo-tool = { version = "0.0.50", path = "crates/nuo-tool" }
 nuo-inference-wire = { version = "0.0.50", path = "crates/nuo-inference-wire" }
 nuo-persistence = { version = "0.0.50", path = "crates/nuo-persistence" }
 nuo-harness = { version = "0.0.50", path = "crates/nuo-harness" }
-nuo-catalog = { version = "0.0.50", path = "crates/nuo-catalog" }
+nuo-model-routing = { version = "0.0.50", path = "crates/nuo-model-routing" }
 ```
 
 ### Why Both Fields Are Non-Negotiable:
@@ -191,7 +191,7 @@ When releasing a new version of the Nuo product and server/terminal suite:
    ```
 4. **CI Distribution**:
    - The CI runner matching `v*` builds pre-compiled release binary for `nuo` across Linux, macOS, and Windows.
-   - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-inference-wire`, `nuo-persistence`, `nuo-catalog`, etc.).
+   - Publishes library crates in dependency order (`nuo-tool`, `nuo-host`, `nuo-inference-wire`, `nuo-persistence`, `nuo-model-routing`, etc.).
 
 ---
 
@@ -202,9 +202,28 @@ When releasing a new version of the Nuo product and server/terminal suite:
 - **Reasoning**: Directly violates `[INV-WS-01]` (*Self-Contained Workspace*). A clean `git clone` by a new developer, a container build, or a CI runner would immediately fail. Multi-repo setups break atomic commits and prevent running unified `cargo test --workspace` sweeps.
 - **The Rust Reality**: Compilation and module firewalls in Rust are enforced at the **crate** boundary, not the Git repository boundary. An in-tree crate with zero external dependencies is 100% physically decoupled.
 
-### 2. Never Introduce Arbitrary Grouping Directories (`substrates/`, `crates/`)
-- **Prohibited**: Nesting crates inside `crates/acp` or `substrates/nuotc`.
-- **Reasoning**: Violates `[INV-ARCH-FLAT-01]` (*Flat Workspace Structure*). ADR-0005 proved that nested directories introduce artificial path indirection (`../../`) and taxonomy paralysis without delivering any engineering isolation.
+### 2. Pure Tiered Workspace Topology (`[INV-ARCH-TIER-01]`, ADR-0109)
+- **Prohibited**: Any crate manifest at the repository root, a fourth grouping directory
+  (`substrates/`, `apps/`), nesting deeper than `<tier>/<crate>/`, or a crate directory that
+  does not carry its tier's namespace prefix.
+- **Sanctioned layout**:
+  - `crates/*` — Layers 1–4 core platform crates, including the single application host binary
+    `crates/nuo` (`[[bin]]`). Layer 4 is an *architectural* layer, not a root-level filesystem
+    exception. Application identity is declared via `default-members = ["crates/nuo"]`.
+  - `providers/nuo-provider-*` — provider channel adapters.
+  - `tools/nuo-tool-*` — tool plugins.
+- **Reasoning**: Each tier answers exactly one question ("which layer?", "which vendor channel?",
+  "which tool?"), so no directory needs a tie-breaker. The repository root contains strictly
+  the three plural category directories (`crates/`, `providers/`, `tools/`), eliminating category
+  mismatch and special-case tooling logic.
+- **Why the older root-host and flat-topology rules are gone**: ADR-0055 historically left `nuo/`
+  at the root as a half-step. ADR-0109 completes the homogenization: an executable's identity in
+  Cargo is defined by `[[bin]]` and `default-members`, not root-level directory privilege.
+- **Enforcement**: `scripts/check_presentation_firewall.py` rule R5 checks the layout itself —
+  zero root manifests, per-tier namespace prefixes, nesting depth, and the literal wildcard
+  `members` set — and the binary-target census. Mechanisms over exhortations: a layout that is
+  only described drifts, and a crate that escapes the topology escapes every other firewall
+  rule, because they all enumerate the workspace by glob.
 
 ### 3. Never Bypass Cluster Boundaries (`[INV-VER-01]`)
 - Autonomous crates (`acp`, `nuotc`) must **never** inherit `version.workspace = true`.

@@ -524,7 +524,6 @@ async fn title_is_terminal_once_set() {
 #[tokio::test]
 async fn fork_shares_entries_and_diverges() {
     let dir = temp_dir("fork");
-    let db = dir.join("nuo.db");
     let path = dir.join("session.json");
     std::fs::create_dir_all(&dir).unwrap();
 
@@ -533,15 +532,20 @@ async fn fork_shares_entries_and_diverges() {
         .replace_messages(vec![user("parent"), assistant("history")])
         .await
         .unwrap();
-    let (child_id, parent_id) = store.fork().await.unwrap();
-    assert_eq!(store.id().await, child_id);
+
+    let parent_id = store.id().await;
+    let (child_id, fork_parent, _round, _title) = store.fork_at(ForkTarget::Head).await.unwrap();
+
+    // Sovereign fork [INV-FORK-04]: the parent pointer is never repointed.
+    assert_eq!(store.id().await, parent_id);
+    assert_eq!(fork_parent, parent_id);
+    assert_ne!(child_id, parent_id);
 
     // The child's own persisted state carries the shared transcript.
     let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
     let window = child.model_window().await;
     assert_eq!(window.len(), 2);
     assert_eq!(window[0].content, "parent");
-    let _ = (parent_id, db);
 }
 
 #[tokio::test]
@@ -581,6 +585,56 @@ async fn fork_at_round_slices_transcript_and_preserves_parent() {
     assert_eq!(child_window[0].content, "round 1 user");
     assert_eq!(child_window[1].content, "round 1 assistant");
     assert_eq!(child.round_counter().await, 1);
+}
+
+#[tokio::test]
+async fn fork_at_turn_slices_intra_round_and_rejects_out_of_range() {
+    let dir = temp_dir("fork_at_turn");
+    let path = dir.join("session.json");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let store = SessionStore::for_path(path.clone());
+    store
+        .replace_messages(vec![
+            user("round 1 user"),
+            assistant("round 1 turn 0"),
+            assistant("round 1 turn 1"),
+            user("round 2 user"),
+            assistant("round 2 assistant"),
+        ])
+        .await
+        .unwrap();
+
+    // `/fork 1.0` keeps only the first entry of round 1.
+    let (child_id, _parent, target_round, _title) = store
+        .fork_at(ForkTarget::Turn { round: 1, turn: 0 })
+        .await
+        .unwrap();
+    assert_eq!(target_round, Some(1));
+    let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
+    let window = child.model_window().await;
+    assert_eq!(window.len(), 1);
+    assert_eq!(window[0].content, "round 1 user");
+
+    // `/fork 1.1` keeps the user message plus the next intra-round entry.
+    let (child_id, _parent, _round, _title) = store
+        .fork_at(ForkTarget::Turn { round: 1, turn: 1 })
+        .await
+        .unwrap();
+    let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
+    let window = child.model_window().await;
+    assert_eq!(window.len(), 2);
+    assert_eq!(window[1].content, "round 1 turn 0");
+
+    // An out-of-range turn is refused, never silently clamped to the round end.
+    let err = store
+        .fork_at(ForkTarget::Turn { round: 1, turn: 9 })
+        .await
+        .unwrap_err();
+    assert!(err.contains("turn 9"), "unexpected error: {err}");
+
+    // The parent session is untouched throughout [INV-FORK-04].
+    assert_eq!(store.model_window().await.len(), 5);
 }
 
 // ---------------------------------------------------------------

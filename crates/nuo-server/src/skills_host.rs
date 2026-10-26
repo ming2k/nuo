@@ -4,7 +4,7 @@
 //! `nuo-skills` is a kernel crate: it discovers and serves skills, but it does
 //! not know where the product stores anything and it does not own the trust
 //! decision. Both enter through
-//! [`nuo_harness::skills::SkillHost`], and this module is the shipped product's
+//! [`nuo_harness::cognition::skills::SkillHost`], and this module is the shipped product's
 //! implementation of that seam.
 //!
 //! Keeping the resolution here — rather than inside the kernel — is what lets a
@@ -14,7 +14,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use nuo_harness::skills::{SkillHost, SkillRoots, SkillTrust};
+use nuo_harness::cognition::skills::{SkillHost, SkillRoots, SkillTrust};
 use nuo_persistence::paths;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
 use nuo_wire::WorkspaceTrustState;

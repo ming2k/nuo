@@ -394,7 +394,7 @@ pub(crate) async fn restore_session_runtime(
         role.admit_mcp = manifest.admit_mcp.clone();
         if session.workspace_root().is_some() {
             role.extensions.push(Arc::new(
-                nuo_harness::extension::CodeIntelligenceExtension::new(),
+                nuo_harness::runtime::extension::CodeIntelligenceExtension::new(),
             ));
         }
         agent.apply_profile(&role);
@@ -529,7 +529,54 @@ pub(crate) async fn fork_current_session(
             return;
         }
     };
+    emit_fork(session, resp_tx, name, args, target, None).await;
+}
 
+/// Retired-command steering (ADR-0058 §4, `[INV-DEPR-01]`): `/btw` (and its
+/// `/aside` / `/side` synonyms) was the old side-inquiry substrate, now gone —
+/// a side inquiry is nothing more than a fork at head. Rather than dead-end the
+/// habit, fork the current session and carry the aside's question into the new
+/// branch, so the operator lands exactly where they intended.
+pub(crate) async fn fork_retired_aside(
+    session: &Arc<SessionStore>,
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    name: &str,
+    args: &str,
+) {
+    let prompt = args.trim();
+    let guidance = if prompt.is_empty() {
+        "`/btw` was retired: side inquiries are now first-class session forks. \
+         Forking at head — switch tabs to compare the branches."
+            .to_string()
+    } else {
+        "`/btw` was retired: side inquiries are now first-class session forks. \
+         Forking at head and carrying your message into the new branch."
+            .to_string()
+    };
+    record_command(session, resp_tx, name, args, CommandResult::Text(guidance)).await;
+    let prompt = (!prompt.is_empty()).then(|| prompt.to_string());
+    emit_fork(
+        session,
+        resp_tx,
+        name,
+        args,
+        nuo_persistence::ForkTarget::Head,
+        prompt,
+    )
+    .await;
+}
+
+/// Perform the fork and announce it to the client. `prompt`, when set, rides
+/// with the event so the client dispatches it into the freshly attached branch
+/// (the retired `/btw <prompt>` steer). Returns the child id on success.
+async fn emit_fork(
+    session: &Arc<SessionStore>,
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    name: &str,
+    args: &str,
+    target: nuo_persistence::ForkTarget,
+    prompt: Option<String>,
+) -> Option<String> {
     match session.fork_at(target).await {
         Ok((id, parent_id, target_round, title)) => {
             let round_desc = match target_round {
@@ -548,14 +595,17 @@ pub(crate) async fn fork_current_session(
             )
             .await;
             let _ = resp_tx.send(AgentResponse::SessionForked {
-                child_id: id,
+                child_id: id.clone(),
                 parent_id,
                 target_round,
                 title,
+                prompt,
             });
+            Some(id)
         }
         Err(error) => {
             record_error(session, resp_tx, name, args, error).await;
+            None
         }
     }
 }

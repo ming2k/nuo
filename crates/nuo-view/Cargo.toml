@@ -1,0 +1,27 @@
+[package]
+name = "nuo-view"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Pure, zero-IO domain presentation and agent views for Nuo"
+
+[dependencies]
+chrono = { workspace = true }
+nuo-ui-primitives = { workspace = true }
+nuo-wire = { workspace = true }
+nuotc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+similar = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+nuo-provider-openai = { workspace = true }
+nuo-provider-anthropic = { workspace = true }
+nuo-provider-google-antigravity = { workspace = true }
+toml = { workspace = true }
+
+[lints]
+workspace = true

@@ -35,7 +35,7 @@ impl nuo_provider::CredentialSource for StaticOAuthSource {
     fn force_refresh(&self) -> futures::future::BoxFuture<'_, Result<ResolvedAuth, String>> {
         unimplemented!("golden-wire tests never trigger a refresh")
     }
-    fn is_oauth(&self) -> bool {
+    fn is_negotiated(&self) -> bool {
         true
     }
 }
@@ -76,7 +76,7 @@ fn qoder_body() -> serde_json::Value {
 fn planned_request(
     provider: &OpenAiChatCompletionsProvider,
     auth: &ResolvedAuth,
-) -> nuo_egress::RequestBuilder {
+) -> nuo_provider::transport::RequestBuilder {
     provider
         .execute_plan(&qoder_body(), auth, &TransportTelemetry::default())
         .expect("plan")

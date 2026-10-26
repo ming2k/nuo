@@ -8,8 +8,6 @@ description = "Shared Tencent CodeBuddy authentication kernel: vendor web-handof
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-oauth = { workspace = true }
-nuo-egress = { workspace = true }
 nuo-host = { workspace = true }
 netune = { workspace = true }
 serde = { workspace = true }

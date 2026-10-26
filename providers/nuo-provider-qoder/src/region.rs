@@ -8,7 +8,7 @@
 //! 1. `GET https://center.qoder.sh/algo/api/v5/service/region/endpoints`
 //!    with a **plain Bearer** (no COSY signature).
 //! 2. The response body is QoderEncoding-encoded (same codec as the request
-//!    body, [`super::super::wire::codec`]).
+//!    body, [`crate::wire::codec`]).
 //! 3. Decoded, it is `{"inferNodes":[{"url":"https://api3.qoder.sh",…}], …}`.
 //!
 //! nuo adopts `inferNodes[0].url` — and only after it passes the strict
@@ -16,7 +16,7 @@
 //! nuo's traffic. Anything that fails syncs degrades to the pinned
 //! `MODEL_PROVIDER_SPEC.root_url` (failure never diminishes a
 //! connection).
-use nuo_egress::http::{Http, Request};
+use nuo_provider::transport::{Http, Request};
 use serde::Deserialize;
 
 /// The center surface's election endpoint (international line; v5 is the

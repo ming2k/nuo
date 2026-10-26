@@ -546,7 +546,7 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
 
 #[test]
 fn init_registers_every_vendor_oauth_surface() {
-    // The engine (`nuo-oauth`) links no vendor; the composition root must
+    // The auth engine (`nuo_provider::auth`) links no vendor; the composition root must
     // register every surface exactly once so `oauth_provider(id)` resolves.
     init();
     for id in [
@@ -567,12 +567,12 @@ fn init_registers_every_vendor_oauth_surface() {
         // them here.
     ] {
         assert!(
-            nuo_oauth::oauth_provider(id).is_some(),
+            nuo_provider::auth::oauth_provider(id).is_some(),
             "OAuth surface `{id}` must be registered by init()"
         );
     }
     assert_eq!(
-        nuo_oauth::oauth_config("chatgpt-plan")
+        nuo_provider::auth::oauth_config("chatgpt-plan")
             .expect("chatgpt-plan alias resolves")
             .provider_id,
         "chatgpt"

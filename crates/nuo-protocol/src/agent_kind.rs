@@ -3,7 +3,7 @@
 //! Two agent archetypes ([`AgentKind`]) — `Root` (the driving brain) and
 //! `Subagent` (the mission worker). Pure domain vocabulary, owned by the
 //! contract layer (`[INV-WIRE-04]` single source of truth); relocated here from
-//! `nuo-agent` per ADR-0009 to remove the `nuo-wire → nuo-agent` inversion.
+//! here per ADR-0009 (from the since-retired `nuo-agent` crate) to remove the `nuo-wire → nuo-agent` inversion.
 use serde::{Deserialize, Serialize};
 
 /// Archetype / classification of an agent entity.

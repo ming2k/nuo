@@ -1,7 +1,7 @@
 //! The application plane's credential host: where the product keeps OAuth
 //! credentials and this installation's device identity.
 //!
-//! `nuo-oauth` implements the flows; it does not know where their durable
+//! `nuo_provider::auth` implements the flows; it does not know where their durable
 //! material lives. This module is the shipped
 //! product's answer, resolved from the path topology ([ADR-0013](0013-decoupled-tool-namespace-and-infrastructure-purity.md)) once per process
 //! and shared.

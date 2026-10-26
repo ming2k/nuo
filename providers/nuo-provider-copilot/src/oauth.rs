@@ -1,17 +1,17 @@
 //! GitHub Copilot subscription OAuth surface (ADR-0027).
 //!
-//! Owns Copilot's `OAuthConfig` preset; the generic engine in `nuo-oauth` never
+//! Owns Copilot's `OAuthConfig` preset; the generic engine in `nuo_provider::auth` never
 //! names Copilot.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_oauth::OAuthProvider;
-use nuo_oauth::{
+use nuo_provider::LoginMethod;
+use nuo_provider::auth::OAuthProvider;
+use nuo_provider::auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
-use nuo_provider::LoginMethod;
 
 pub const COPILOT_CLIENT_ID: &str = "Ov23li8tweQw6odWQebz";
 

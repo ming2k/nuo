@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 
 use nuo_host::SecretString;
 
-use nuo_oauth::OAuthConfig;
-use nuo_oauth::oauth::TokenResponse;
+use nuo_provider::auth::OAuthConfig;
+use nuo_provider::auth::TokenResponse;
 
 /// Response from the `deviceauth/usercode` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,36 +50,38 @@ impl ChatGptDeviceCode {
 
 /// Request a device code from OpenAI's `deviceauth/usercode` endpoint.
 pub async fn request_device_code(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     cfg: &OAuthConfig,
-) -> Result<ChatGptDeviceCode, nuo_oauth::oauth::AuthError> {
-    let request =
-        nuo_egress::http::Request::new(netune::Method::POST, cfg.device_authorization_url.as_ref())
-            .header("content-type", "application/json")
-            .header("accept", "application/json")
-            .header(
-                "user-agent",
-                cfg.user_agent
-                    .as_deref()
-                    .unwrap_or(nuo_provider::NUO_USER_AGENT),
-            )
-            .json(&serde_json::json!({ "client_id": cfg.client_id }));
+) -> Result<ChatGptDeviceCode, nuo_provider::auth::AuthError> {
+    let request = nuo_provider::transport::Request::new(
+        netune::Method::POST,
+        cfg.device_authorization_url.as_ref(),
+    )
+    .header("content-type", "application/json")
+    .header("accept", "application/json")
+    .header(
+        "user-agent",
+        cfg.user_agent
+            .as_deref()
+            .unwrap_or(nuo_provider::NUO_USER_AGENT),
+    )
+    .json(&serde_json::json!({ "client_id": cfg.client_id }));
     let response = client.send(request).await.map_err(|e| {
-        nuo_oauth::oauth::AuthError::Transport(format!("device code request failed: {e}"))
+        nuo_provider::auth::AuthError::Transport(format!("device code request failed: {e}"))
     })?;
     let status = response.status;
     let text = response.body;
     if !status.is_success() {
-        return Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
+        return Err(nuo_provider::auth::AuthError::TokenEndpoint {
             status: status.as_u16(),
             body: text,
         });
     }
     let json: ChatGptDeviceCode = serde_json::from_str(&text).map_err(|e| {
-        nuo_oauth::oauth::AuthError::Decode(format!("device code response parse failed: {e}"))
+        nuo_provider::auth::AuthError::Decode(format!("device code response parse failed: {e}"))
     })?;
     if json.device_auth_id.is_empty() || json.user_code.is_empty() {
-        return Err(nuo_oauth::oauth::AuthError::Decode(
+        return Err(nuo_provider::auth::AuthError::Decode(
             "device code response missing device_auth_id / user_code".to_string(),
         ));
     }
@@ -98,59 +100,61 @@ pub struct ChatGptDeviceToken {
 /// `code_verifier` to exchange at the token endpoint. While pending, OpenAI
 /// answers `403`/`404`; any other non-2xx is a terminal failure.
 pub async fn poll_device_code(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     cfg: &OAuthConfig,
     device: &ChatGptDeviceCode,
-) -> Result<ChatGptDeviceToken, nuo_oauth::oauth::AuthError> {
+) -> Result<ChatGptDeviceToken, nuo_provider::auth::AuthError> {
     tokio::time::timeout(
         std::time::Duration::from_secs(15 * 60),
         poll_device_code_with(client, cfg, device, sleep_ms),
     )
     .await
-    .map_err(|_| nuo_oauth::oauth::AuthError::Timeout)?
+    .map_err(|_| nuo_provider::auth::AuthError::Timeout)?
 }
 
 /// Test-injectable variant of [`poll_device_code`].
 pub async fn poll_device_code_with<S, Fut>(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     cfg: &OAuthConfig,
     device: &ChatGptDeviceCode,
     sleep: S,
-) -> Result<ChatGptDeviceToken, nuo_oauth::oauth::AuthError>
+) -> Result<ChatGptDeviceToken, nuo_provider::auth::AuthError>
 where
     S: Fn(u64) -> Fut + Send + Sync,
     Fut: std::future::Future<Output = ()> + Send,
 {
     let interval_ms = device.interval_ms();
     loop {
-        let request =
-            nuo_egress::http::Request::new(netune::Method::POST, cfg.device_token_url.as_ref())
-                .header("content-type", "application/json")
-                .header("accept", "application/json")
-                .header(
-                    "user-agent",
-                    cfg.user_agent
-                        .as_deref()
-                        .unwrap_or(nuo_provider::NUO_USER_AGENT),
-                )
-                .json(&serde_json::json!({
-                    "device_auth_id": device.device_auth_id.expose_secret(),
-                    "user_code": device.user_code,
-                }));
+        let request = nuo_provider::transport::Request::new(
+            netune::Method::POST,
+            cfg.device_token_url.as_ref(),
+        )
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .header(
+            "user-agent",
+            cfg.user_agent
+                .as_deref()
+                .unwrap_or(nuo_provider::NUO_USER_AGENT),
+        )
+        .json(&serde_json::json!({
+            "device_auth_id": device.device_auth_id.expose_secret(),
+            "user_code": device.user_code,
+        }));
         let response = client.send(request).await.map_err(|e| {
-            nuo_oauth::oauth::AuthError::Transport(format!("device token poll failed: {e}"))
+            nuo_provider::auth::AuthError::Transport(format!("device token poll failed: {e}"))
         })?;
         let status = response.status;
         let text = response.body;
         if status.is_success() {
             return serde_json::from_str::<ChatGptDeviceToken>(&text).map_err(|e| {
-                nuo_oauth::oauth::AuthError::Decode(format!(
+                nuo_provider::auth::AuthError::Decode(format!(
                     "device token response parse failed: {e}"
                 ))
             });
         }
         if status.as_u16() != 403 && status.as_u16() != 404 {
-            return Err(nuo_oauth::oauth::AuthError::TokenEndpoint {
+            return Err(nuo_provider::auth::AuthError::TokenEndpoint {
                 status: status.as_u16(),
                 body: text,
             });
@@ -161,18 +165,18 @@ where
 
 /// Exchange a device `authorization_code` for a token set.
 pub async fn exchange_device_code(
-    client: &nuo_egress::http::Http,
+    client: &nuo_provider::transport::Http,
     cfg: &OAuthConfig,
     token: &ChatGptDeviceToken,
-) -> Result<TokenResponse, nuo_oauth::oauth::AuthError> {
-    let body = nuo_oauth::oauth::token::percent_encode_form_pairs(&[
+) -> Result<TokenResponse, nuo_provider::auth::AuthError> {
+    let body = nuo_provider::auth::token::percent_encode_form_pairs(&[
         ("grant_type", "authorization_code"),
         ("code", token.authorization_code.expose_secret()),
         ("redirect_uri", cfg.device_redirect_uri.as_ref()),
         ("client_id", cfg.client_id.as_ref()),
         ("code_verifier", token.code_verifier.expose_secret()),
     ]);
-    nuo_oauth::oauth::token::post_form(client, cfg.token_url.as_ref(), &body).await
+    nuo_provider::auth::token::post_form(client, cfg.token_url.as_ref(), &body).await
 }
 
 const OAUTH_POLLING_SAFETY_MARGIN_MS: u64 = 3_000;

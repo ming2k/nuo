@@ -1,0 +1,78 @@
+//! Reusable modal page components and helpers.
+
+use nuotc::{Frame, Rect};
+
+use super::super::Theme;
+use super::super::design::MODAL_INNER_H_PADDING;
+use super::super::primitives::{
+    ContentModalSpec, HeaderPart, content_modal_area, content_modal_probe, modal_chrome_rows,
+    modal_frame, modal_header, modal_header_parts, render_modal_footer_with_extra,
+};
+use super::footer::{FooterHint, FooterHintWithBand};
+use super::scroll::ScrollBody;
+
+pub enum ModalPageSize {
+    Content(ContentModalSpec),
+}
+
+pub enum ModalHeader<'a> {
+    Title(&'a str),
+    Parts(&'a [HeaderPart<'a>]),
+}
+
+impl<'a> ModalHeader<'a> {
+    pub fn title(title: &'a str) -> Self {
+        Self::Title(title)
+    }
+
+    pub fn parts(parts: &'a [HeaderPart<'a>]) -> Self {
+        Self::Parts(parts)
+    }
+}
+
+pub struct ModalPage<'a> {
+    pub size: ModalPageSize,
+    pub header: ModalHeader<'a>,
+    pub body: ScrollBody<'a>,
+    pub footer_hints: &'a [FooterHint],
+    pub extra_footer_hints: &'a [FooterHintWithBand],
+}
+
+pub fn modal_body_width(frame: &Frame, geometry: ContentModalSpec) -> usize {
+    let probe = content_modal_probe(frame, geometry);
+    (probe.width as usize)
+        .saturating_sub(2 * MODAL_INNER_H_PADDING as usize)
+        .max(1)
+}
+
+/// Draw a complete centered modal page from declarative parts.
+pub fn draw_modal_page(frame: &mut Frame, page: ModalPage<'_>, theme: &Theme) -> Rect {
+    let area = match page.size {
+        ModalPageSize::Content(geometry) => {
+            let spec = geometry.modal_spec();
+            let desired = page.body.lines.len() as u16 + modal_chrome_rows(spec);
+            content_modal_area(frame, geometry, desired)
+        }
+    };
+    let f = modal_frame(frame, area, theme, true, true);
+
+    match page.header {
+        ModalHeader::Title(title) => {
+            modal_header(frame, f.header, title, theme);
+        }
+        ModalHeader::Parts(parts) => {
+            modal_header_parts(frame, f.header, parts, theme);
+        }
+    }
+    page.body.render(frame, f.body, theme);
+    if let Some(footer) = f.footer {
+        render_modal_footer_with_extra(
+            frame,
+            footer,
+            page.footer_hints,
+            page.extra_footer_hints,
+            theme,
+        );
+    }
+    area
+}

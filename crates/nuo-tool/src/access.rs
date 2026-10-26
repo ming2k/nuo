@@ -26,7 +26,7 @@
 //!    parent directory.
 //!
 //! This module is pure domain logic (ADR-0005): no I/O, no async, no
-//! `Tool`-trait dependency. The [`Tool::accesses`](crate::capability::Tool)
+//! `Tool`-trait dependency. The [`Tool::accesses`](crate::Tool)
 //! default returns [`ToolAccesses::none`].
 
 use serde::{Deserialize, Serialize};

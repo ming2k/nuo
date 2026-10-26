@@ -54,8 +54,8 @@ use nuo_wire::{RestorePoint, ScopeTarget, Tool, ToolOutput};
 
 use super::scoped_tools::ScopedToolDisable;
 use crate::bash_policy::BashPolicyMatch;
-use crate::hooks::PreToolUseVerdict;
 use crate::permission_store::{PermissionRule, PermissionStore};
+use crate::runtime::hooks::PreToolUseVerdict;
 
 /// The non-interactive verdict the bash policy returns for one command.
 ///

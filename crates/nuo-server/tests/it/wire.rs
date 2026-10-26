@@ -112,7 +112,7 @@ impl nuo_provider::CredentialSource for MockOAuthSource {
         Box::pin(futures::future::ready(Ok(self.auth.clone())))
     }
 
-    fn is_oauth(&self) -> bool {
+    fn is_negotiated(&self) -> bool {
         true
     }
 }
@@ -675,7 +675,6 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
             "content": [{ "type": "input_text", "text": "hi" }],
         }],
         "stream": false,
-        "store": false,
         "reasoning": { "effort": "none" },
     });
     let _mock = server
@@ -1206,14 +1205,14 @@ async fn oauth_token_endpoint_with_empty_access_token_fails() {
         .create_async()
         .await;
 
-    let cfg = nuo_oauth::OAuthConfig::builder("test_empty")
+    let cfg = nuo_provider::auth::OAuthConfig::builder("test_empty")
         .token_url(format!("{}/token", server.url()))
         .build();
 
     // The owned transport, matching what the OAuth flows now use.
-    let client = nuo_egress::http::Http::control_plane().expect("http client");
-    let pkce = nuo_oauth::PkceCodes::generate();
-    let res = nuo_oauth::exchange_code(
+    let client = nuo_provider::transport::Http::control_plane().expect("http client");
+    let pkce = nuo_provider::auth::PkceCodes::generate();
+    let res = nuo_provider::auth::exchange_code(
         &client,
         &cfg,
         "test_code",
@@ -1223,7 +1222,7 @@ async fn oauth_token_endpoint_with_empty_access_token_fails() {
     .await;
 
     assert!(
-        matches!(res, Err(nuo_oauth::AuthError::Decode(msg)) if msg.contains("empty access_token")),
+        matches!(res, Err(nuo_provider::auth::AuthError::Decode(msg)) if msg.contains("empty access_token")),
         "empty access token must fail decode validation"
     );
 }
@@ -1233,14 +1232,14 @@ async fn oauth_browser_login_validates_oidc_nonce() {
     use base64::Engine;
     let mut server = Server::new_async().await;
     // The owned transport, matching what the OAuth flows now use.
-    let client = nuo_egress::http::Http::control_plane().expect("http client");
+    let client = nuo_provider::transport::Http::control_plane().expect("http client");
 
     // 1. Correct nonce succeeds
-    let cfg_good = nuo_oauth::OAuthConfig::builder("test_oidc_good")
+    let cfg_good = nuo_provider::auth::OAuthConfig::builder("test_oidc_good")
         .token_url(format!("{}/token_good", server.url()))
         .send_nonce(true)
         .build();
-    let login_good = nuo_oauth::OAuth::new(cfg_good, nuo_provider::CredentialHost::none())
+    let login_good = nuo_provider::auth::OAuth::new(cfg_good, nuo_provider::CredentialHost::none())
         .begin_browser_login()
         .await
         .unwrap();
@@ -1272,11 +1271,11 @@ async fn oauth_browser_login_validates_oidc_nonce() {
     assert!(tok_good.is_ok());
 
     // 2. Mismatched nonce fails
-    let cfg_bad = nuo_oauth::OAuthConfig::builder("test_oidc_bad")
+    let cfg_bad = nuo_provider::auth::OAuthConfig::builder("test_oidc_bad")
         .token_url(format!("{}/token_bad", server.url()))
         .send_nonce(true)
         .build();
-    let login_bad = nuo_oauth::OAuth::new(cfg_bad, nuo_provider::CredentialHost::none())
+    let login_bad = nuo_provider::auth::OAuth::new(cfg_bad, nuo_provider::CredentialHost::none())
         .begin_browser_login()
         .await
         .unwrap();
@@ -1306,7 +1305,7 @@ async fn oauth_browser_login_validates_oidc_nonce() {
         .unwrap();
     let tok_bad = login_bad.complete(&client).await;
     assert!(
-        matches!(tok_bad, Err(nuo_oauth::AuthError::Authorization(msg)) if msg.contains("OIDC nonce mismatch"))
+        matches!(tok_bad, Err(nuo_provider::auth::AuthError::Authorization(msg)) if msg.contains("OIDC nonce mismatch"))
     );
 }
 

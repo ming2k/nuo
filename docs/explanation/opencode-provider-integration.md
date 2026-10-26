@@ -45,7 +45,7 @@ OpenCode's legacy Console OAuth device grant (which targeted internal enterprise
 
 The **Go relay's `/models` payload carries ids only** — no capabilities and no human
 labels. That single fact determines three separate answers, all of which live inside the
-catalog boundary (`nuo-catalog`, ADR-0082):
+catalog boundary (`nuo-model-routing`, ADR-0082):
 
 **Capabilities come from the compiled baseline.** Because the catalog publishes no
 capability fields, the **compiled baseline in `nuo-provider-opencode-plan` is the only
@@ -76,7 +76,7 @@ field-for-field: the capability registry is keyed by model id, not by route (ADR
 `opencode-zen` declare `DisplayPolicy::Structural`, so a bare id becomes polished
 typography by rule — `deepseek-v4.1-flash` → `DeepSeek V4.1 Flash`. A model added upstream
 therefore needs no Nuo release. The mapping runs once in
-`nuo_catalog::derive_channel`; projections and clients consume the resolved label and never
+`nuo_model_routing::derive_channel`; projections and clients consume the resolved label and never
 re-derive it, and a label that would read identical to the wire id is dropped so the
 surfaces fall back to the id rather than echoing it.
 
@@ -97,5 +97,5 @@ that is the brittle blacklist ADR-0068 abolished.
 - [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md): the provider contract crate and channel namespace.
 - [ADR-0079](../adr/0079-opencode-provider-channel-bifurcation-and-legacy-container-retirement.md): provider channel bifurcation and legacy container retirement.
 - [ADR-0081](../adr/0081-unidirectional-catalog-pipeline-structural-normalization-and-relay-noise-hygiene.md): the catalog pipeline, structural labels, and relay noise hygiene.
-- [ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md): the single `nuo-catalog` crate that owns the pipeline for both the harness and the server.
+- [ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md): the single `nuo-model-routing` crate that owns the pipeline for both the harness and the server.
 - [Reasoning Effort Reference](../reference/effort.md): the effort ladder model that these baselines populate.

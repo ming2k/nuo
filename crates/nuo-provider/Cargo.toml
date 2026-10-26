@@ -8,25 +8,30 @@ description = "Canonical model provider contracts, orthogonal capabilities, and 
 
 [dependencies]
 nuo-host = { workspace = true }
-nuo-egress = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-tool = { workspace = true }
+netune = { workspace = true }
+netune-trace = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+httpdate = { workspace = true }
 inventory = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
-url = "2" 
+url = "2"
 http = "1.4"
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
-tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+mockito = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]

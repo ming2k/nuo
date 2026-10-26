@@ -124,15 +124,19 @@ layer that cognition may depend on, never the reverse.
 
 ### Normative Invariants Established
 
-- **`[INV-RUNTIME-01] Single Cognitive Runtime Crate`**: exactly one crate implements the
-  ReAct cognitive loop. No second cognitive-runtime crate may exist in the workspace.
-  Enforcement: crate graph (the only implementations are in `nuo-harness`); this supersedes
-  `[INV-AGENT-05]` and voids `[INV-AGENT-07]`.
+- **`[INV-RUNTIME-01] No Second Cognitive-Runtime Crate`**: the retired `nuo-agent`
+  cognitive-runtime crate MUST NOT be re-created; `nuo-harness` is the sole cognitive
+  runtime. Enforcement: the `nuo-harness` test
+  `tests/layering.rs::single_cognitive_runtime_crate`. Supersedes `[INV-AGENT-05]`; voids
+  `[INV-AGENT-07]`.
 - **`[INV-HARNESS-03] Governance Is the Inner Layer`**: the `governance` module MUST NOT
-  reference `crate::agent` (or any cognition-side module). Governance is depended *upon* by
-  cognition, never the reverse.
-  Enforcement: `nuo-harness` unit test `governance_module_has_no_cognition_dependency`,
-  which scans `src/governance/**/*.rs` for cognition-side module paths and fails on any hit.
+  reference any module above it (`cognition`, `orchestration`, `dispatch`, `tools`).
+  Governance is depended *upon* by cognition, never the reverse.
+  Enforcement: the `nuo-harness` integration test `tests/layering.rs`
+  (`governance_is_a_strict_inner_layer`), which parses `src/governance/**` with `syn` and
+  fails on any `crate::<upper-group>` path. (Superseded in scope by
+  [ADR-0101](0101-runtime-internal-layering-and-governance-inner-layer.md), which extends the
+  same mechanism to the `runtime` and `cognition` layers.)
 
 ## Consequences
 

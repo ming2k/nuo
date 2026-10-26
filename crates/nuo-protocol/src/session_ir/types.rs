@@ -58,7 +58,7 @@ impl SessionIR {
         }
     }
 
-    /// Fork the session IR into a child branch or aside session.
+    /// Fork the session IR into a child branch session.
     pub fn fork(&self, new_session_id: impl Into<String>) -> Self {
         let sid = new_session_id.into();
         let now = std::time::SystemTime::now()
@@ -752,7 +752,6 @@ pub struct TimelineCursor {
 #[serde(rename_all = "lowercase")]
 pub enum TimelineKind {
     Main,
-    Aside,
     Speculation,
 }
 
@@ -919,25 +918,26 @@ mod tests {
             Message::new(Role::Assistant, "Main response 1"),
         );
 
-        // Create an aside timeline branching off n2
-        let aside_id = ir.create_timeline("aside-1", "Explain this detail", TimelineKind::Aside);
-        assert_eq!(ir.state.active_timeline, aside_id);
+        // Create a speculative timeline branching off n2
+        let branch_id =
+            ir.create_timeline("branch-1", "Explain this detail", TimelineKind::Speculation);
+        assert_eq!(ir.state.active_timeline, branch_id);
         assert_eq!(ir.state.active_leaf, Some(n2.clone()));
 
-        // Append to aside timeline
-        let a1 = ir.append_message("a1", 1_002_000, Message::new(Role::User, "Aside question"));
+        // Append to the speculative timeline
+        let a1 = ir.append_message("a1", 1_002_000, Message::new(Role::User, "Branch question"));
         let a2 = ir.append_message(
             "a2",
             1_003_000,
-            Message::new(Role::Assistant, "Aside answer"),
+            Message::new(Role::Assistant, "Branch answer"),
         );
 
-        let aside_path = ir.resolve_timeline_branch(&aside_id);
-        assert_eq!(aside_path.len(), 4);
-        assert_eq!(aside_path[0].id, n1);
-        assert_eq!(aside_path[1].id, n2);
-        assert_eq!(aside_path[2].id, a1);
-        assert_eq!(aside_path[3].id, a2);
+        let branch_path = ir.resolve_timeline_branch(&branch_id);
+        assert_eq!(branch_path.len(), 4);
+        assert_eq!(branch_path[0].id, n1);
+        assert_eq!(branch_path[1].id, n2);
+        assert_eq!(branch_path[2].id, a1);
+        assert_eq!(branch_path[3].id, a2);
 
         // Switch back to main timeline
         assert!(ir.switch_timeline("main"));

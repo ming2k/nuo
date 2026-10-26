@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 use std::sync::Mutex;
 
-use crate::sync::poison_lock;
+use crate::runtime::sync::poison_lock;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PermissionRule {

@@ -37,7 +37,7 @@ impl KimiUsageFetcher {
 
     pub async fn fetch_usage(
         &self,
-        client: &nuo_egress::http::Http,
+        client: &nuo_provider::transport::Http,
         base_url: &str,
         api_key: &str,
     ) -> Result<ProviderUsage, String> {

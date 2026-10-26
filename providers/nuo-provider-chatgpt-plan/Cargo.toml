@@ -8,8 +8,6 @@ description = "ChatGPT Plan (Plus/Pro) Codex subscription channel for Nuo"
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-oauth = { workspace = true }
-nuo-egress = { workspace = true }
 nuo-provider-openai = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-host = { workspace = true }

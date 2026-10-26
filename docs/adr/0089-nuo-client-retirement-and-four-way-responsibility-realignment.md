@@ -106,7 +106,7 @@ The crate `crates/nuo-client` is permanently removed from the workspace:
 - **Cognitive Simplicity**: The Cargo workspace topology aligns exactly with the concentric 4-layer architecture:
   - Layer 4: `nuo`
   - Layer 3: `nuo-tui`, `tools/*`, `providers/*`
-  - Layer 2: `nuo-server`, `nuo-agent`, `nuo-harness`, `nuo-catalog`, `nuo-persistence`
+  - Layer 2: `nuo-server`, `nuo-agent`, `nuo-harness`, `nuo-model-routing`, `nuo-persistence`
   - Layer 1: `nuo-protocol`, `nuo-inference-wire`, `nuo-provider`, `nuo-tool`
 - **Faster Compile Times**: Eliminates an intermediate crate and redundant link boundaries.
 

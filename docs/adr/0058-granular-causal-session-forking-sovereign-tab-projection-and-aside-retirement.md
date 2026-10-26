@@ -17,6 +17,7 @@ negative_knowledge: true
 - Informed: System Architects, Release Engineering
 - Supersedes: [ADR-0017](0017-concurrent-aside-execution-substrate-and-isolated-round-routing.md)
 - Complements: [ADR-0039](0039-client-tab-workspace-scene-unification-and-reactive-surface-sync.md), [ADR-0041](0041-thread-command-purity-viewport-workspace-separation-and-tab-management-topology.md), [ADR-0042](0042-client-viewport-routing-ownership-tab-history-and-scene-self-projection.md), [ADR-0050](0050-authentic-thread-title-lifecycle-clean-scene-head-and-semantic-tab-projection.md)
+- Amended by: [ADR-0104](0104-fork-client-projection-reconciliation-and-aside-retirement-completion.md) — client projection reconciled to the single-attach client; `/btw` redirect completed
 
 ---
 

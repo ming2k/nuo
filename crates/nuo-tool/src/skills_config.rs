@@ -1,9 +1,9 @@
 //! Shared configuration schema for skills.
 //!
-//! Lives in `nuo-wire` for the same reason [`crate::WebSearchConfig`] and
-//! [`crate::McpServerConfig`] do: the app-layer `Config` owns the `[skills]`
-//! table and the loader in `nuo-skills` needs to read it, while the store
-//! does not depend on that implementation crate.
+//! Declared in the tool leaf, as `WebSearchConfig` and `McpServerConfig` are
+//! declared beside their own contracts: the app-layer `Config` owns the
+//! `[skills]` table and the loader needs to read it, while the store does not
+//! depend on that implementation crate.
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

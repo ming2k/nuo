@@ -365,11 +365,14 @@ pub fn message_obj(m: Message, dialect: OpenAiChatDialect) -> Value {
         // DeepSeek concatenates a replayed CoT into the context whenever the
         // request carries `tools`, so an assistant turn that thought must carry
         // it back under the documented field name — not OpenRouter's unified
-        // `reasoning` object (ADR-0083).
-        if dialect.replays_reasoning_content()
-            && let Some(reasoning) = &reasoning_content
-        {
-            map["reasoning_content"] = json!(reasoning);
+        // `reasoning` object (ADR-0083). If tools were called, reasoning_content
+        // is strictly mandatory on the wire; supply an empty string if pruned.
+        if dialect.replays_reasoning_content() {
+            if let Some(reasoning) = &reasoning_content {
+                map["reasoning_content"] = json!(reasoning);
+            } else if map.get("tool_calls").is_some() {
+                map["reasoning_content"] = json!("");
+            }
         }
     }
     map
@@ -577,6 +580,30 @@ mod tests {
         assert!(
             body["messages"][1].get("reasoning").is_none(),
             "the documented field is `reasoning_content`, not OpenRouter's `reasoning`"
+        );
+    }
+
+    #[test]
+    fn deepseek_replays_empty_reasoning_content_when_tool_calls_present_without_reasoning() {
+        let (mut assistant, tool_result) = assistant_that_thought();
+        assistant.reasoning_content = None;
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "inspect"), assistant, tool_result],
+            BodyInput {
+                model: "deepseek-flash",
+                stream: true,
+                instructions: None,
+                tool_specs: None,
+                reasoning_effort: None,
+                dialect: OpenAiChatDialect::DeepSeek,
+                cache_plan: &DEFAULT_CACHE_PLAN,
+            },
+            &deepseek_capabilities(),
+        );
+
+        assert_eq!(
+            body["messages"][1]["reasoning_content"], "",
+            "DeepSeek requires reasoning_content field on all tool calls even if reasoning was pruned"
         );
     }
 

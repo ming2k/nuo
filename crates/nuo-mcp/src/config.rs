@@ -1,7 +1,8 @@
 //! Shared configuration schema for MCP servers.
 //!
 //! Lives in `nuo-wire` for the same reason `WebSearchConfig` does: both the
-//! app-layer `Config` (which owns the `[mcp]` table), `nuo-agent` (which owns the MCP connector), and the
+//! app-layer `Config` (which owns the `[mcp]` table), the runtime layers
+//! (`nuo-harness`/`nuo-server`), and the
 //! session/frontend layers exchange these values without depending on one
 //! another's implementation details.
 use serde::{Deserialize, Serialize};
@@ -70,7 +71,7 @@ impl McpServerConfig {
     }
 }
 
-/// Runtime status reported by `nuo-agent` (MCP connector) for each configured server.
+/// Runtime status reported by the MCP connector (owned by `nuo-server`) for each configured server.
 ///
 /// Lives in `nuo-wire` (alongside [`McpServerConfig`]) so the TUI can
 /// consume it without depending on the connector implementation.

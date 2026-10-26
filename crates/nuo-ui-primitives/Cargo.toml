@@ -1,0 +1,22 @@
+[package]
+name = "nuo-ui-primitives"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Domain-agnostic terminal UI primitives, design tokens, and components for Nuo"
+
+[dependencies]
+chrono = { workspace = true }
+nuo-wire = { workspace = true }
+nuotc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+unicode-segmentation = { workspace = true }
+unicode-width = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }
+
+[lints]
+workspace = true

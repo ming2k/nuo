@@ -1,17 +1,17 @@
 //! xAI SuperGrok OAuth surface (ADR-0027).
 //!
 //! Owns xAI's `OAuthConfig` preset and protocol-standard behaviour; the generic
-//! engine in `nuo-oauth` never names xAI.
+//! engine in `nuo_provider::auth` never names xAI.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_oauth::OAuthProvider;
-use nuo_oauth::{
+use nuo_provider::LoginMethod;
+use nuo_provider::auth::OAuthProvider;
+use nuo_provider::auth::{
     ClientAuthMethod, DeviceFlowMode, OAuthConfig, PkceMode, PortMode, TokenRequestFormat,
 };
-use nuo_provider::LoginMethod;
 
 pub const XAI_CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
 
@@ -74,8 +74,8 @@ pub fn providers() -> Vec<Arc<dyn OAuthProvider>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_oauth::oauth::pkce::PkceCodes;
-    use nuo_oauth::oauth::token::build_authorize_url;
+    use nuo_provider::auth::pkce::PkceCodes;
+    use nuo_provider::auth::token::build_authorize_url;
 
     #[test]
     fn xai_authorize_url_carries_plan_generic_and_pkce() {

@@ -26,7 +26,7 @@ use futures::stream::BoxStream;
 use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
 use nuo_provider::{CredentialSource, ProviderError, ResolvedAuth};
 
-use nuo_egress::{Client, HttpResponse, RequestBuilder};
+use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
 use nuo_provider::{
     COPILOT_CLIENT_HEADERS, ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig,
@@ -236,7 +236,7 @@ impl AnthropicMessagesProvider {
         }
         let response = self.client.send_raw(req, "Anthropic").await?;
 
-        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_oauth() {
+        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_negotiated() {
             tracing::warn!(
                 provider = %self.endpoint.id,
                 model = %self.endpoint.model,
@@ -393,10 +393,11 @@ impl Provider for AnthropicMessagesProvider {
 
         // Reuse the shared SSE byte reassembly; each payload is one Anthropic
         // event JSON. Map to text deltas only (this is the simple stream path).
-        let stream = nuo_egress::sse::data_payloads(response, "Anthropic").map(|item| {
-            item.map_err(ProviderError::from)
-                .map(|payload| response::stream_text(&payload))
-        });
+        let stream =
+            nuo_provider::transport::sse::data_payloads(response, "Anthropic").map(|item| {
+                item.map_err(ProviderError::from)
+                    .map(|payload| response::stream_text(&payload))
+            });
         Ok(stream.boxed())
     }
 
@@ -439,31 +440,34 @@ impl Provider for AnthropicMessagesProvider {
         // and `message_delta` (output); the accumulator merges them so the
         // emitted Usage events carry the full counts.
         let mut usage_state = response::StreamUsage::default();
-        let stream = nuo_egress::sse::data_payloads(response, "Anthropic").flat_map(move |item| {
-            let events: Vec<Result<ProviderStreamEvent, nuo_provider::ProviderError>> = match item {
-                Ok(payload) => {
-                    // Parse-once discipline: each payload is
-                    // deserialized here and the resulting `Value` is handed
-                    // to every consumer — the signature stash and the stream
-                    // parser alike. Non-JSON payloads (relay keep-alives,
-                    // stray comment lines) are skipped, not errors.
-                    match serde_json::from_str::<serde_json::Value>(&payload) {
-                        Ok(event) => {
-                            sig_stash.on_event(&event);
-                            match response::stream_events(&event, &mut usage_state) {
-                                Ok(parsed) => parsed.into_iter().map(Ok).collect(),
-                                Err(e) => {
-                                    vec![Err(ProviderError::protocol("Anthropic", e))]
+        let stream = nuo_provider::transport::sse::data_payloads(response, "Anthropic").flat_map(
+            move |item| {
+                let events: Vec<Result<ProviderStreamEvent, nuo_provider::ProviderError>> =
+                    match item {
+                        Ok(payload) => {
+                            // Parse-once discipline: each payload is
+                            // deserialized here and the resulting `Value` is handed
+                            // to every consumer — the signature stash and the stream
+                            // parser alike. Non-JSON payloads (relay keep-alives,
+                            // stray comment lines) are skipped, not errors.
+                            match serde_json::from_str::<serde_json::Value>(&payload) {
+                                Ok(event) => {
+                                    sig_stash.on_event(&event);
+                                    match response::stream_events(&event, &mut usage_state) {
+                                        Ok(parsed) => parsed.into_iter().map(Ok).collect(),
+                                        Err(e) => {
+                                            vec![Err(ProviderError::protocol("Anthropic", e))]
+                                        }
+                                    }
                                 }
+                                Err(_) => Vec::new(),
                             }
                         }
-                        Err(_) => Vec::new(),
-                    }
-                }
-                Err(e) => vec![Err(ProviderError::from(e))],
-            };
-            futures::stream::iter(events)
-        });
+                        Err(e) => vec![Err(ProviderError::from(e))],
+                    };
+                futures::stream::iter(events)
+            },
+        );
         let terminal = futures::stream::once(async move {
             let artifacts = terminal_stash.take().map(|signature| {
                 let mut map = serde_json::Map::new();

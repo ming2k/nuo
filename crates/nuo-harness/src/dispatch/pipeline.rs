@@ -19,7 +19,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::agent::{Agent, ConcurrentOutcome, RoundState};
+use crate::cognition::agent::{Agent, ConcurrentOutcome, RoundState};
 use crate::tool_scheduler::{ToolCallTask, ToolScheduler};
 use crate::{
     AgentEvent, AgentNotice, HarnessError, InjectionKind, Message, NoticeKind, NoticeSeverity,
@@ -547,7 +547,7 @@ impl Agent {
                 for (&idx, recovered) in prepared.exec_indices.iter().zip(recovered) {
                     if let Some((result, duration_ms)) = recovered {
                         self.record_tool_result(
-                            crate::agent::ToolResultRecord {
+                            crate::cognition::agent::ToolResultRecord {
                                 call: &tool_calls[idx],
                                 call_id: &prepared.call_ids[idx],
                                 result: &result,
@@ -584,7 +584,7 @@ impl Agent {
             .enumerate()
         {
             self.record_tool_result(
-                crate::agent::ToolResultRecord {
+                crate::cognition::agent::ToolResultRecord {
                     call,
                     call_id: id,
                     result: &result,
@@ -610,7 +610,7 @@ impl Agent {
         // what to do instead. Non-terminating: the turn continues with the
         // (now masked) signatures hard-blocked for subsequent turns in this round.
         if let Some(message) = prepared.signals.trajectory_nudge {
-            messages.push(crate::conversation_context::hidden_user(
+            messages.push(crate::runtime::message::hidden_user(
                 InjectionKind::LoopReviewNudge,
                 message,
             ));

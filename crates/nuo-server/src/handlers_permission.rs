@@ -73,7 +73,7 @@ pub async fn interrupt(
 /// safe boundary and returns its partial transcript, which the parent records
 /// as an interrupted (resumable) result.
 ///
-/// Unlike the primary / aside paths this emits **no** session-level activity
+/// Unlike the primary chat path this emits **no** session-level activity
 /// flip or `PermissionsCleared`: the primary chrome is untouched, and the
 /// child's own `SubagentEvent`s (its interrupted tool result) repaint the
 /// nested view. An unknown or already-finished `call_id` degrades to a no-op —

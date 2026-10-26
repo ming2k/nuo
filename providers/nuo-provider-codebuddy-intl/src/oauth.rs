@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use nuo_oauth::OAuthProvider;
+use nuo_provider::auth::OAuthProvider;
 use nuo_provider_codebuddy_auth::handoff::CodeBuddyRealmSurface;
 
 use crate::{ALLOWED_CREDENTIAL_DOMAINS, CODEBUDDY_INTL_ORIGIN, PROVIDER_ID};

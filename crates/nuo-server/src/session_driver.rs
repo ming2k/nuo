@@ -2,7 +2,7 @@
 //!
 //! [`SessionDriver`] owns the request receiver and every long-lived dependency
 //! needed to serve that session: the `Agent`, session store, configuration,
-//! provider telemetry, `/btw` side session, cancellation state, and frontend
+//! provider telemetry, cancellation state, and frontend
 //! bridge. [`SessionDriver::run`] consumes the driver, dispatches each
 //! [`AgentRequest`] to its handler, and exits when all request senders are
 //! dropped.
@@ -13,8 +13,8 @@
 use crate::handlers_chat::ChatEnv;
 use crate::handlers_slash::SlashEnv;
 use crate::mcp::McpRuntime;
+use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_harness::orchestration::round_response;
-use nuo_harness::skills::SkillRegistry;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
 use nuo_persistence::{session::SessionStore, workspace_security::WorkspaceSecurityStore};
 use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider};
@@ -61,9 +61,10 @@ pub async fn compact_round_history(
 ) -> Result<Option<nuo_wire::ContextProjectionCheckpoint>, String> {
     let mut ir = session.session_ir().await;
     let preserve_rounds = settings.preserve_rounds.max(1);
-    let mode = nuo_harness::compaction::CompactionCutMode::PreserveTailRounds(preserve_rounds);
+    let mode =
+        nuo_harness::cognition::compaction::CompactionCutMode::PreserveTailRounds(preserve_rounds);
     let provider = if settings.summarize { provider } else { None };
-    if let Some(outcome) = nuo_harness::compaction::CausalCompactor::compact_session_ir(
+    if let Some(outcome) = nuo_harness::cognition::compaction::CausalCompactor::compact_session_ir(
         &mut ir,
         provider,
         mode,
@@ -108,10 +109,10 @@ use crate::startup::SessionStart;
 /// The driver-owned follow-up queue authority (M4).
 ///
 /// One queue per hosted session driver, keyed by target session (the
-/// primary *and* live asides — each item carries its target's id, and the
-/// busy check is against the *target's* own round lifecycle). The frontend
-/// sends `AgentRequest::FollowUp` and renders the `QueueUpdated` snapshots;
-/// it never decides when an item ships.
+/// primary and any other hosted session — each item carries its target's id,
+/// and the busy check is against the *target's* own round lifecycle). The
+/// frontend sends `AgentRequest::FollowUp` and renders the `QueueUpdated`
+/// snapshots; it never decides when an item ships.
 pub(crate) struct FollowUpQueue {
     items: Vec<QueuedFollowUp>,
     paused: std::collections::HashSet<String>,
@@ -450,7 +451,7 @@ impl SessionDriver {
             // model rather than the one it actually ran with. Best-effort: usage
             // tracking is rebuildable state and must never block startup.
             {
-                let initial_id = nuo_catalog::default_provider_id(&config).to_string();
+                let initial_id = nuo_model_routing::default_provider_id(&config).to_string();
                 // Resolve the model the way `build_provider_for` did when main.rs
                 // constructed the startup provider: `config.default_model` when the
                 // entry serves it, otherwise the entry's default-channel model. The
@@ -459,7 +460,7 @@ impl SessionDriver {
                 // so it never pins a model the live provider was not actually built
                 // with. Pinning the exact live model (rather than a usage-derived one)
                 // is what lets the next launch re-open this provider on the same model.
-                let initial_model = nuo_catalog::resolved_model_name(&config, &initial_id);
+                let initial_model = nuo_model_routing::resolved_model_name(&config, &initial_id);
                 provider_usage.record(&initial_id);
                 // Skip the model pin when the startup provider is unbuildable
                 // (`resolved_model_name` returns `None`): there is no real channel,
@@ -473,12 +474,12 @@ impl SessionDriver {
                     tracing::warn!(?error, "could not persist provider/model usage telemetry");
                 }
             }
-            nuo_catalog::prune_stale_models(&mut config, &mut provider_usage);
+            nuo_model_routing::prune_stale_models(&mut config, &mut provider_usage);
             // Push the initial model-picker snapshot (default id + per-model
             // favorite / key-ready / last-used) so the picker is ready the moment
             // the user opens it.
             let _ = resp_tx.send(AgentResponse::ProviderPicker(
-                nuo_catalog::build_picker_state(&config, &provider_usage),
+                nuo_model_routing::build_picker_state(&config, &provider_usage),
             ));
             // Announce the active provider/model as a synthetic `ProviderSwitched`
             // so an attach client (which subscribes to the broadcast only after the
@@ -492,9 +493,9 @@ impl SessionDriver {
             // not the usage variant) to mirror exactly the model the live provider
             // was built with.
             {
-                let provider = nuo_catalog::default_provider_id(&config).to_string();
+                let provider = nuo_model_routing::default_provider_id(&config).to_string();
                 let model =
-                    nuo_catalog::resolved_model_name(&config, &provider).unwrap_or_default();
+                    nuo_model_routing::resolved_model_name(&config, &provider).unwrap_or_default();
                 let _ = resp_tx.send(AgentResponse::ProviderSwitched { provider, model });
             }
         }
@@ -507,7 +508,7 @@ impl SessionDriver {
             Authorize {
                 auth: nuo_wire::ConnectionAuth,
                 provider: String,
-                tokens: Option<nuo_oauth::TokenSet>,
+                tokens: Option<nuo_provider::TokenSet>,
             },
             Connect {
                 provider_id: String,
@@ -515,7 +516,7 @@ impl SessionDriver {
             },
         }
         struct CatalogSyncTaskResult {
-            outcome: nuo_catalog::CatalogSyncOutcome,
+            outcome: nuo_model_routing::RoutingSyncOutcome,
             session_id: Option<String>,
         }
         let mut active_oauth_task: Option<tokio::task::JoinHandle<OAuthResult>> = None;
@@ -525,7 +526,7 @@ impl SessionDriver {
         // This sender stays alive for the driver's lifetime, so `recv()` yields
         // updates without ever observing a closed channel.
         let (catalog_sync_tx, mut catalog_sync_rx) =
-            mpsc::unbounded_channel::<nuo_catalog::ConnectionUpdate>();
+            mpsc::unbounded_channel::<nuo_model_routing::ConnectionUpdate>();
         let mut pending_oauth_authorization: Option<
             crate::handlers_provider::PendingOAuthAuthorization,
         > = None;
@@ -1084,7 +1085,7 @@ impl SessionDriver {
                     let session_id = Some(session.id().await);
                     let sink = catalog_sync_tx.clone();
                     active_catalog_sync_task = Some(tokio::spawn(async move {
-                        let outcome = nuo_catalog::sync_remote_catalog_streaming(sink).await;
+                        let outcome = nuo_model_routing::sync_remote_routes_streaming(sink).await;
                         CatalogSyncTaskResult {
                             outcome,
                             session_id,
@@ -2196,7 +2197,7 @@ mod followup_queue_tests {
         let mut queue = FollowUpQueue::new();
         queue.enqueue("primary", message("a", "first"));
         queue.enqueue("primary", message("b", "second"));
-        queue.enqueue("aside-1", message("c", "aside"));
+        queue.enqueue("thread-2", message("c", "queued"));
 
         let (primary_items, paused) = queue.snapshot("primary");
         assert_eq!(primary_items.len(), 2);
@@ -2204,9 +2205,9 @@ mod followup_queue_tests {
         assert_eq!(primary_items[1].id, "b");
         assert!(!paused);
 
-        let (aside_items, _) = queue.snapshot("aside-1");
-        assert_eq!(aside_items.len(), 1);
-        assert_eq!(aside_items[0].id, "c");
+        let (other_items, _) = queue.snapshot("thread-2");
+        assert_eq!(other_items.len(), 1);
+        assert_eq!(other_items[0].id, "c");
     }
 
     #[test]
@@ -2214,7 +2215,7 @@ mod followup_queue_tests {
         let mut queue = FollowUpQueue::new();
         queue.enqueue("primary", message("a", "1"));
         queue.enqueue("primary", message("b", "2"));
-        queue.enqueue("aside-1", message("c", "aside"));
+        queue.enqueue("thread-2", message("c", "queued"));
 
         let first = queue.dequeue_front("primary").expect("must dequeue");
         assert_eq!(first.id, "a");
@@ -2223,8 +2224,8 @@ mod followup_queue_tests {
         let second = queue.dequeue_front("primary").expect("must dequeue");
         assert_eq!(second.id, "b");
         assert!(!queue.has_items_for("primary"));
-        // The aside's item is untouched.
-        assert!(queue.has_items_for("aside-1"));
+        // The other thread's item is untouched.
+        assert!(queue.has_items_for("thread-2"));
     }
 
     #[test]
@@ -2233,7 +2234,7 @@ mod followup_queue_tests {
         queue.enqueue("primary", message("a", "1"));
         queue.enqueue("primary", message("b", "2"));
         queue.enqueue("primary", message("c", "3"));
-        queue.enqueue("aside-1", message("z", "aside"));
+        queue.enqueue("thread-2", message("z", "queued"));
 
         // Move `c` two toward the front: clamped to the slice head.
         queue.reorder("primary", "c", -5);
@@ -2241,9 +2242,9 @@ mod followup_queue_tests {
         assert_eq!(items[0].id, "c");
         assert_eq!(items[1].id, "a");
         assert_eq!(items[2].id, "b");
-        // The aside slice is untouched.
-        let (aside, _) = queue.snapshot("aside-1");
-        assert_eq!(aside[0].id, "z");
+        // The other thread's slice is untouched.
+        let (other, _) = queue.snapshot("thread-2");
+        assert_eq!(other[0].id, "z");
 
         // Move `c` back one.
         queue.reorder("primary", "c", 1);
@@ -2265,26 +2266,26 @@ mod followup_queue_tests {
     fn remove_and_clear_are_target_scoped_and_idempotent() {
         let mut queue = FollowUpQueue::new();
         queue.enqueue("primary", message("a", "1"));
-        queue.enqueue("aside-1", message("z", "aside"));
+        queue.enqueue("thread-2", message("z", "queued"));
 
         queue.remove("primary", "a");
         assert!(!queue.has_items_for("primary"));
         queue.remove("primary", "a"); // idempotent
-        assert!(queue.has_items_for("aside-1"));
+        assert!(queue.has_items_for("thread-2"));
 
-        queue.clear("aside-1");
-        assert!(!queue.has_items_for("aside-1"));
+        queue.clear("thread-2");
+        assert!(!queue.has_items_for("thread-2"));
     }
 
     #[test]
     fn pause_gates_only_the_target() {
         let mut queue = FollowUpQueue::new();
         queue.enqueue("primary", message("a", "1"));
-        queue.enqueue("aside-1", message("z", "aside"));
+        queue.enqueue("thread-2", message("z", "queued"));
 
         queue.set_paused("primary", true);
         assert!(queue.is_paused("primary"));
-        assert!(!queue.is_paused("aside-1"));
+        assert!(!queue.is_paused("thread-2"));
         queue.set_paused("primary", false);
         assert!(!queue.is_paused("primary"));
     }

@@ -15,7 +15,7 @@ pub struct InputCompletionEngine {
     catalog: CommandCatalog,
     project_root: PathBuf,
     project_entries: OnceCell<Vec<String>>,
-    skills_registry: Option<nuo_harness::skills::SkillRegistry>,
+    skills_registry: Option<nuo_harness::cognition::skills::SkillRegistry>,
 }
 
 impl InputCompletionEngine {
@@ -28,7 +28,7 @@ impl InputCompletionEngine {
         }
     }
 
-    pub fn with_skills(mut self, registry: nuo_harness::skills::SkillRegistry) -> Self {
+    pub fn with_skills(mut self, registry: nuo_harness::cognition::skills::SkillRegistry) -> Self {
         self.skills_registry = Some(registry);
         self
     }
@@ -417,7 +417,7 @@ fn skill_completion_items(
     query: &str,
     at_start: usize,
     cursor_end: usize,
-    skills: &[nuo_harness::skills::Skill],
+    skills: &[nuo_harness::cognition::skills::Skill],
 ) -> Vec<InputCompletion> {
     // The namespace vocabulary is owned by the grammar kernel; derive the
     // filter and the re-emitted prefix from it rather than re-typing the
@@ -550,7 +550,7 @@ fn skill_namespace_item(
 
 fn skill_item(
     input: &str,
-    skill: &nuo_harness::skills::Skill,
+    skill: &nuo_harness::cognition::skills::Skill,
     explicit_prefix: &str,
     at_start_byte: usize,
     replace_end_byte: usize,
@@ -1118,18 +1118,19 @@ mod tests {
     #[tokio::test]
     async fn skill_completions_trigger_inline_anywhere() {
         let temp = tempfile::tempdir().unwrap();
-        let registry = nuo_harness::skills::SkillRegistry::empty();
-        let skill: nuo_harness::skills::Skill = serde_json::from_value(serde_json::json!({
-            "name": "skill-creator",
-            "description": "Create and optimize nuo skills",
-            "scope": "User",
-            "source": "/skills/skill-creator/SKILL.md",
-            "root": ".",
-            "content": "",
-            "version": null,
-            "policy": { "allow_implicit_invocation": true }
-        }))
-        .unwrap();
+        let registry = nuo_harness::cognition::skills::SkillRegistry::empty();
+        let skill: nuo_harness::cognition::skills::Skill =
+            serde_json::from_value(serde_json::json!({
+                "name": "skill-creator",
+                "description": "Create and optimize nuo skills",
+                "scope": "User",
+                "source": "/skills/skill-creator/SKILL.md",
+                "root": ".",
+                "content": "",
+                "version": null,
+                "policy": { "allow_implicit_invocation": true }
+            }))
+            .unwrap();
         registry.replace(vec![skill]);
 
         let engine =

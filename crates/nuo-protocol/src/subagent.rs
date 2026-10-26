@@ -106,7 +106,7 @@ impl ToolPolicy {
 /// A declarative subagent role profile: a name, the system-prompt fragment that
 /// frames the role, and the [`ToolPolicy`] that scopes what it may touch.
 ///
-/// Symmetric with [`crate::MainAgentProfile`].
+/// Symmetric with [`crate::AgentRoleProfile`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SubAgentProfile {
     pub name: &'static str,

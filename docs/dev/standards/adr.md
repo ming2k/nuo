@@ -116,7 +116,9 @@ Detail why alternative options were discarded:
 A citation is a promise that the reader can open the decision. Two rules follow:
 
 1. **Every `ADR-NNNN` must resolve to `docs/adr/NNNN-*.md`.** The canonical series
-   in this repository is `0001`..`0083`. Numbers from the pre-ingestion log
+   is exactly what `docs/adr/` contains: `scripts/check_adr_lineage.py` derives
+   the set from the directory rather than from a pinned range, so this document
+   cannot drift behind the registry. Numbers from the pre-ingestion log
    (`ADR-0085`..`ADR-0304`) were never imported and are **not** citable: a
    reader cannot verify them, and they cannot be amended in place.
 2. **Cite an in-repo ADR, or carry the rationale itself.** If a decision has no
@@ -128,9 +130,6 @@ The rule is mechanical, not advisory:
 - `scripts/check_adr_lineage.py` walks every `.rs` comment and `.md` prose line
   and fails on an unresolvable citation (`python3 scripts/check_adr_lineage.py`).
 - CI (`.github/workflows/ci.yml`) runs it on every push and pull request.
-- `scripts/retire_legacy_adr_refs.py` is the one-shot migration helper that
-  produced the current state; it is kept so the transformation is auditable and
-  re-runnable.
 
 Two classes are exempt by construction, and the checker encodes both:
 

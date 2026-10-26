@@ -110,9 +110,9 @@ Four-way split, executed in staging:
 
   *S1 verification record:* `cargo check` green across the closed set
   {`nuo-model-codec`, `nuo-provider`, `nuo-protocol`, `nuo-provider-transport`,
-  `nuo-harness`, `nuo-agent`, `nuo-persistence`, `nuo-catalog`}; `cargo test`
+  `nuo-harness`, `nuo-agent`, `nuo-persistence`, `nuo-model-routing`}; `cargo test`
   for `nuo-model-codec`/`nuo-provider`/`nuo-protocol`/**/`nuo-harness`/
-  `nuo-agent`/`nuo-persistence`/`nuo-provider-transport`/`nuo-catalog` all
+  `nuo-agent`/`nuo-persistence`/`nuo-provider-transport`/`nuo-model-routing` all
   pass (0 failed); `cargo clippy` clean on all S1-touched files; single
   `pub trait Provider` authority confirmed in `nuo-provider::capability`
   (codec duplicate removed via the S1 shroud, `INV-AP-02` direction held).

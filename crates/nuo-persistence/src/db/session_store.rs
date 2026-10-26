@@ -897,7 +897,7 @@ pub(crate) fn load_session_full(
         id,
         parent_id,
         fork_kind: match fork_kind.as_str() {
-            "fork" | "aside" => nuo_wire::SessionForkKind::Fork,
+            "fork" => nuo_wire::SessionForkKind::Fork,
             "subagent" => nuo_wire::SessionForkKind::Subagent,
             _ => nuo_wire::SessionForkKind::Trunk,
         },

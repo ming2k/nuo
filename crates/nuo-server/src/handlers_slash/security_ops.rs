@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::mcp::McpRuntime;
 use nuo_harness::Agent;
-use nuo_harness::skills::SkillRegistry;
+use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_persistence::config::Config;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
 use nuo_wire::TrustDomain;

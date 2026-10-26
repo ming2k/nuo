@@ -19,7 +19,7 @@ use nuo_provider::{CredentialSource, Effort, ProviderError, ProviderErrorKind, R
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use nuo_egress::{Client, HttpResponse, RequestBuilder};
+use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
 use nuo_provider::{
     COPILOT_CLIENT_HEADERS, ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig,
@@ -261,7 +261,7 @@ impl OpenAiChatCompletionsProvider {
         }
         let response = self.client.send_raw(req, self.label()).await?;
 
-        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_oauth() {
+        if response.status == http::StatusCode::UNAUTHORIZED && self.endpoint.is_negotiated() {
             tracing::warn!(
                 provider = %self.endpoint.id,
                 model = %self.endpoint.model,
@@ -463,11 +463,12 @@ impl Provider for OpenAiChatCompletionsProvider {
 
         let pipeline = self.pipeline.clone();
         let label = self.label();
-        let stream = nuo_egress::sse::data_payloads(response, label).map(move |item| {
-            let data = item.map_err(ProviderError::from)?;
-            let data = pipeline.unwrap_payload(&data, label)?;
-            Ok(response::stream_text(&data))
-        });
+        let stream =
+            nuo_provider::transport::sse::data_payloads(response, label).map(move |item| {
+                let data = item.map_err(ProviderError::from)?;
+                let data = pipeline.unwrap_payload(&data, label)?;
+                Ok(response::stream_text(&data))
+            });
 
         Ok(stream.boxed())
     }
@@ -522,7 +523,7 @@ impl Provider for OpenAiChatCompletionsProvider {
         let collect_reasoning_details = self.dialect == nuo_provider::OpenAiChatDialect::OpenRouter;
         let pipeline = self.pipeline.clone();
         let label = self.label();
-        let body = nuo_egress::sse::data_payloads(response, label).map(move |item| {
+        let body = nuo_provider::transport::sse::data_payloads(response, label).map(move |item| {
             let data = item.map_err(ProviderError::from)?;
             let data = pipeline.unwrap_payload(&data, label)?;
             if data.is_empty() {

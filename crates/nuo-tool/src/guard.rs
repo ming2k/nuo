@@ -1,7 +1,7 @@
 //! Trajectory-guard configuration.
 //!
 //! [`TrajectoryGuardConfig`] is the serializable DTO that governs the
-//! pre-dispatch trajectory loop guard (`nuo_agent::trajectory_guard`).
+//! pre-dispatch trajectory loop guard (`nuo-harness`'s `governance::trajectory_guard`).
 //! Canonical TOML sub-table is `[agent.trajectory_guard]`.
 use serde::{Deserialize, Serialize};
 

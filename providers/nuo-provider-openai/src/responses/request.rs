@@ -140,12 +140,20 @@ pub fn body_with_capabilities(
     let mut input_items: Vec<InputItem> = Vec::new();
     // Ephemeral instruction slice is emitted as a developer item rather than polluting
     // the top-level instructions, preserving prefix cache reuse on OpenAI (ADR-0052, [INV-INST-03]).
+    // Dialects that reject the developer role (DeepSeek) fold it directly into instructions.
     if !ephemeral_instructions.is_empty() {
-        input_items.push(InputItem::plain(json!({
-            "type": "message",
-            "role": "developer",
-            "content": [{ "type": "input_text", "text": ephemeral_instructions }]
-        })));
+        if dialect.supports_developer_role() {
+            input_items.push(InputItem::plain(json!({
+                "type": "message",
+                "role": "developer",
+                "content": [{ "type": "input_text", "text": ephemeral_instructions }]
+            })));
+        } else {
+            if !instructions.is_empty() {
+                instructions.push_str("\n\n");
+            }
+            instructions.push_str(&ephemeral_instructions);
+        }
     }
     for m in working {
         match m.role {
@@ -171,6 +179,28 @@ pub fn body_with_capabilities(
                                     return Err(RequestBuildError::MalformedReplayArtifact);
                                 }
                             }
+                            // DeepSeek requirement: if an assistant message performed tool calls,
+                            // a reasoning item must precede it. Ensure one is present if the artifact
+                            // was missing it (e.g. cross-model handoff or upstream omission).
+                            if m.tool_calls.is_some()
+                                && !dialect.encrypted_reasoning()
+                                && !items.iter().any(|item| {
+                                    item.get("type").and_then(Value::as_str) == Some("reasoning")
+                                })
+                            {
+                                let reasoning_text = m
+                                    .reasoning_content
+                                    .as_deref()
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or("");
+                                input_items.push(InputItem::plain(json!({
+                                    "type": "reasoning",
+                                    "content": [{
+                                        "type": "reasoning_text",
+                                        "text": reasoning_text
+                                    }]
+                                })));
+                            }
                             input_items
                                 .extend(items.iter().cloned().map(InputItem::provider_owned));
                             continue;
@@ -181,7 +211,28 @@ pub fn body_with_capabilities(
                         None => {}
                     }
                 }
-                // Emit an assistant message item for any text content...
+                // When opaque artifact is not available (e.g. session reload, FullReplay,
+                // or message originated from a different provider), reconstruct the items.
+                // 1. Emit reasoning item if reasoning_content is present, or if tools were called
+                // on a thinking-enabled dialect requiring unencrypted reasoning:
+                if let Some(reasoning) = m.reasoning_content.as_deref().filter(|s| !s.is_empty()) {
+                    input_items.push(InputItem::plain(json!({
+                        "type": "reasoning",
+                        "content": [{
+                            "type": "reasoning_text",
+                            "text": reasoning
+                        }]
+                    })));
+                } else if m.tool_calls.is_some() && !dialect.encrypted_reasoning() {
+                    input_items.push(InputItem::plain(json!({
+                        "type": "reasoning",
+                        "content": [{
+                            "type": "reasoning_text",
+                            "text": ""
+                        }]
+                    })));
+                }
+                // 2. Emit an assistant message item for any text content...
                 if !m.content.is_empty() {
                     input_items.push(InputItem::plain(message_item(
                         "assistant",
@@ -189,7 +240,7 @@ pub fn body_with_capabilities(
                         "output_text",
                     )));
                 }
-                // ...then one typed function-call item per call, in order.
+                // 3. ...then one typed function-call item per call, in order.
                 // The Responses API requires a function_call item to precede its
                 // function_call_output, and interleaves them with the message
                 // flow, so emitting them right after the assistant text matches.
@@ -216,14 +267,17 @@ pub fn body_with_capabilities(
         "model": model_id,
         "input": input_items,
         "stream": stream,
-        // Responses persistence mode:
-        // - On ChatGPT Subscription backend (`chatgpt.com/backend-api/codex/responses`),
-        //   the backend requires `store: false`.
-        // - On the OpenAI platform Responses API (`api.openai.com`), `store: false`
-        //   disables response retention on the server, while `store: true` retains
-        //   response objects and enables `previous_response_id` continuation chains.
-        "store": store,
     });
+    // Responses persistence mode:
+    // - On ChatGPT Subscription backend (`chatgpt.com/backend-api/codex/responses`),
+    //   the backend requires `store: false`.
+    // - On the OpenAI platform Responses API (`api.openai.com`), `store: false`
+    //   disables response retention on the server, while `store: true` retains
+    //   response objects and enables `previous_response_id` continuation chains.
+    // - DeepSeek's Responses API is purely stateless and does not define `store` (ADR-0083).
+    if dialect.supports_store() {
+        body["store"] = json!(store);
+    }
     if !store && dialect.encrypted_reasoning() {
         // Stateless Responses continuation on OpenAI's own backend requires the
         // opaque encrypted reasoning items in the returned output; the next
@@ -240,10 +294,14 @@ pub fn body_with_capabilities(
     if !instructions.is_empty() {
         body["instructions"] = json!(instructions);
     }
-    if let Some(specs) = flatten_tools(tool_specs) {
+    if let Some(specs) = format_tools(tool_specs, dialect.nested_tool_definitions()) {
         body["tools"] = specs;
-        body["tool_choice"] = json!("auto");
-        body["parallel_tool_calls"] = json!(true);
+        if dialect.supports_tool_choice() {
+            body["tool_choice"] = json!("auto");
+        }
+        if dialect.supports_parallel_tool_calls() {
+            body["parallel_tool_calls"] = json!(true);
+        }
     }
     // Reasoning: GPT-5 models always reason. Request the most verbose summaries
     // the backend offers (`detailed`) so the reasoning trace carries real
@@ -335,21 +393,35 @@ fn message_item(role: &str, m: &Message, text_part: &str) -> Value {
     json!({ "type": "message", "role": role, "content": parts })
 }
 
-/// Flatten the OpenAI function-spec tool shape (`{type:"function",
-/// Translate provider-neutral [`ToolSpec`]s into the OpenAI Responses tool
-/// shape (`{type:"function", name, description, parameters, strict:false}`).
-fn flatten_tools(tool_specs: Option<&[nuo_provider::capability::ToolSpec]>) -> Option<Value> {
+/// Translate provider-neutral [`ToolSpec`]s into the wire tool shape:
+/// - Nested shape for DeepSeek Responses (`{type:"function", function:{name, description, parameters}}`)
+/// - Flattened shape for OpenAI Responses (`{type:"function", name, description, parameters, strict:false}`).
+fn format_tools(
+    tool_specs: Option<&[nuo_provider::capability::ToolSpec]>,
+    nested: bool,
+) -> Option<Value> {
     let specs = tool_specs?;
     let out: Vec<Value> = specs
         .iter()
         .map(|spec| {
-            json!({
-                "type": "function",
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.parameters.clone(),
-                "strict": false,
-            })
+            if nested {
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": spec.name,
+                        "description": spec.description,
+                        "parameters": spec.parameters.clone(),
+                    }
+                })
+            } else {
+                json!({
+                    "type": "function",
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.parameters.clone(),
+                    "strict": false,
+                })
+            }
         })
         .collect();
     if out.is_empty() {
@@ -516,7 +588,121 @@ mod tests {
             body.get("include").is_none(),
             "`reasoning.encrypted_content` is an OpenAI-only grant on a stateless surface"
         );
-        assert_eq!(body["store"], false);
+        assert!(
+            body.get("store").is_none(),
+            "DeepSeek is purely stateless; `store` is not defined in its schema (ADR-0083)"
+        );
+        assert!(body.get("tool_choice").is_none());
+        assert!(body.get("parallel_tool_calls").is_none());
+    }
+
+    #[test]
+    fn deepseek_dialect_with_tools_omits_parallel_tool_calls_and_tool_choice() {
+        let tool = nuo_provider::capability::ToolSpec {
+            name: "test_tool".into(),
+            description: "test".into(),
+            parameters: json!({"type": "object"}),
+        };
+        let mut input = deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN);
+        let specs = [tool];
+        input.tool_specs = Some(&specs);
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "run tool")],
+            input,
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        assert!(body.get("tools").is_some());
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(
+            body["tools"][0]["function"]["name"], "test_tool",
+            "DeepSeek Responses requires nested {{type: 'function', function: {{...}}}} format"
+        );
+        assert!(
+            body["tools"][0].get("strict").is_none(),
+            "DeepSeek does not define strict field on tool"
+        );
+        assert!(
+            body.get("tool_choice").is_none(),
+            "DeepSeek does not define tool_choice"
+        );
+        assert!(
+            body.get("parallel_tool_calls").is_none(),
+            "DeepSeek does not define parallel_tool_calls"
+        );
+        assert!(
+            body.get("store").is_none(),
+            "DeepSeek does not define store"
+        );
+    }
+
+    #[test]
+    fn deepseek_dialect_reconstructs_reasoning_item_for_assistant_tool_calls() {
+        let mut assistant = Message::new(Role::Assistant, "");
+        assistant.reasoning_content = Some("thinking about tool".into());
+        assistant.tool_calls = Some(vec![ToolCall {
+            id: "call_1".into(),
+            name: "test_tool".into(),
+            arguments: "{}".into(),
+        }]);
+        let mut tool = Message::new(Role::Tool, "tool output");
+        tool.tool_call_id = Some("call_1".into());
+
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "run tool"), assistant, tool],
+            deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let input = body["input"].as_array().unwrap();
+        // Index 0: user message
+        // Index 1: reasoning item
+        // Index 2: function_call
+        // Index 3: function_call_output
+        assert_eq!(input[1]["type"], "reasoning");
+        assert_eq!(input[1]["content"][0]["type"], "reasoning_text");
+        assert_eq!(input[1]["content"][0]["text"], "thinking about tool");
+        assert_eq!(input[2]["type"], "function_call");
+        assert_eq!(input[3]["type"], "function_call_output");
+    }
+
+    #[test]
+    fn deepseek_dialect_folds_ephemeral_instructions_into_instructions() {
+        let bundle = nuo_provider::InstructionBundle::new(vec![
+            nuo_provider::InstructionSlice::new(
+                "base",
+                nuo_provider::InstructionTier::Base,
+                "system prompt",
+            ),
+            nuo_provider::InstructionSlice::new(
+                "ephem",
+                nuo_provider::InstructionTier::Ephemeral,
+                "ephemeral instruction",
+            ),
+        ]);
+        let mut input = deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN);
+        input.instructions = Some(&bundle);
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi")],
+            input,
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let instructions = body["instructions"].as_str().unwrap();
+        assert!(instructions.contains("system prompt"));
+        assert!(instructions.contains("ephemeral instruction"));
+
+        // Must NOT emit a developer role message in input items
+        let input_items = body["input"].as_array().unwrap();
+        assert!(
+            !input_items
+                .iter()
+                .any(|item| item.get("role").and_then(Value::as_str) == Some("developer")),
+            "DeepSeek rejects the developer role"
+        );
     }
 
     #[test]

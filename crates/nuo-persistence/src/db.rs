@@ -158,7 +158,7 @@ fn push_summary(
         digest_json,
     ) = item;
     let fork_kind = match fork_str.as_str() {
-        "fork" | "aside" => nuo_wire::SessionForkKind::Fork,
+        "fork" => nuo_wire::SessionForkKind::Fork,
         _ => nuo_wire::SessionForkKind::Trunk,
     };
     let final_msg_count = msg_count.max(0) as usize;

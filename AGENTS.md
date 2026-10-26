@@ -6,8 +6,10 @@
 
 ## 2. Core Mental Model & Subsystem Boundaries
 - **Concentric Architecture**: Nuo is a concentric workspace with a single public binary (`nuo`).
-- **Server Purity**: `nuo-server` is strictly headless and must never link terminal presentation libraries (`nuotc`, `crossterm`, `nuo-tui`).
-- **Client-Server Anti-Inversion**: `nuo-server` never depends on presentation crates (`nuo-tui`) or retired client crates (`nuo-client`). Communication flows exclusively through typed `nuo-protocol` IPC.
+- **Tiered Layout (gated)**: Exactly three flat tiers exist: `crates/*` (Layers 1-4, including the host binary `crates/nuo`), `providers/nuo-provider-*`, and `tools/nuo-tool-*` ([INV-ARCH-TIER-01], ADR-0109). Zero crates reside at the root; `scripts/check_presentation_firewall.py` R5 fails the build.
+- **Server Purity**: `nuo-server` is strictly headless and must never link terminal presentation libraries (`nuotc`, `crossterm`, `nuo-ui-primitives`, `nuo-view`, `nuo-present`).
+- **Client-Server Anti-Inversion**: `nuo-server` never depends on presentation crates (`nuo-ui-primitives`, `nuo-view`, `nuo-present`) or retired client crates (`nuo-client`). Communication flows exclusively through typed `nuo-protocol` IPC.
+- **Pure Presentation Substrates**: `crates/nuo-ui-primitives` (generic UI) and `crates/nuo-view` (agent views) are the presentation libraries and are hard-gated zero-IO. The interactive shell is `nuo::shell`, an internal module of the host binary behind the `interactive` feature — never a library crate.
 - **Protocol Separation**: Local East-West IPC (`nuo-protocol`) is strictly decoupled from external North-South LLM streaming (`nuo-model-codec`).
 
 ## 3. Engineering Discipline

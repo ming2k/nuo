@@ -70,9 +70,9 @@ fn append_query(url: &str, params: &[(&str, &str)]) -> String {
         if index > 0 {
             out.push('&');
         }
-        out.push_str(&nuo_egress::http::encode_component(name));
+        out.push_str(&nuo_provider::transport::encode_component(name));
         out.push('=');
-        out.push_str(&nuo_egress::http::encode_component(value));
+        out.push_str(&nuo_provider::transport::encode_component(value));
     }
     out
 }
@@ -121,7 +121,7 @@ pub async fn fetch_remote_catalog(
     let endpoint = models_endpoint_for(req.protocol, req.base_url)?;
     let user_agent = req.user_agent.unwrap_or(nuo_provider::NUO_USER_AGENT);
 
-    let client = nuo_egress::http::Http::control_plane().map_err(ModelListError::Http)?;
+    let client = nuo_provider::transport::Http::control_plane().map_err(ModelListError::Http)?;
 
     let response = match req.protocol {
         CatalogShape::SceneMap => {
@@ -138,7 +138,7 @@ pub async fn fetch_remote_catalog(
             })?;
             let url = append_query(&endpoint, req.protocol.query());
             let signed = signing.sign(signed_path).map_err(ModelListError::Parse)?;
-            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &url)
+            let mut request = nuo_provider::transport::Request::new(netune::Method::GET, &url)
                 .header("user-agent", user_agent)
                 .header("authorization", signed.authorization)
                 .header("cosy-date", signed.date)
@@ -152,7 +152,7 @@ pub async fn fetch_remote_catalog(
             for (name, value) in req.extra_headers {
                 request = request.header(name, *value);
             }
-            nuo_egress::http::Http::control_plane()
+            nuo_provider::transport::Http::control_plane()
                 .map_err(ModelListError::Http)?
                 .send(request)
                 .await
@@ -161,7 +161,7 @@ pub async fn fetch_remote_catalog(
         CatalogShape::OpenAi => {
             // OpenAI auth: a bearer when a key is set, NO header when keyless
             // (some relays reject a malformed bearer). Mirrors the chat path.
-            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+            let mut request = nuo_provider::transport::Request::new(netune::Method::GET, &endpoint)
                 .header("user-agent", user_agent);
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
@@ -187,7 +187,7 @@ pub async fn fetch_remote_catalog(
                     nuo_provider::client_identity::CODEX_VERSION,
                 )],
             );
-            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+            let mut request = nuo_provider::transport::Request::new(netune::Method::GET, &endpoint)
                 .header("user-agent", user_agent)
                 .header("originator", "codex_cli_rs");
             if !req.api_key.expose_secret().trim().is_empty() {
@@ -211,7 +211,7 @@ pub async fn fetch_remote_catalog(
             // Anthropic auth: x-api-key + the pinned API version. The version
             // header is mandatory on every Anthropic request including the
             // models list endpoint.
-            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+            let mut request = nuo_provider::transport::Request::new(netune::Method::GET, &endpoint)
                 .header("user-agent", user_agent)
                 .header("x-api-key", req.api_key.expose_secret())
                 .header("anthropic-version", anthropic_version());
@@ -236,9 +236,10 @@ pub async fn fetch_remote_catalog(
                 .account_id
                 .filter(|id| !id.trim().is_empty())
                 .unwrap_or("aicode-consumers");
-            let mut request = nuo_egress::http::Request::new(netune::Method::POST, &endpoint)
-                .header("user-agent", user_agent)
-                .json(&serde_json::json!({ "project": project }));
+            let mut request =
+                nuo_provider::transport::Request::new(netune::Method::POST, &endpoint)
+                    .header("user-agent", user_agent)
+                    .json(&serde_json::json!({ "project": project }));
             if !req.api_key.expose_secret().trim().is_empty() {
                 request = request.header(
                     "authorization",
@@ -254,7 +255,7 @@ pub async fn fetch_remote_catalog(
             // Google AI Studio auth: x-goog-api-key header is the official standard.
             // OAuth/IAM bearer tokens use Authorization: Bearer.
             // Avoid leaking credentials in URL query parameters.
-            let mut request = nuo_egress::http::Request::new(netune::Method::GET, &endpoint)
+            let mut request = nuo_provider::transport::Request::new(netune::Method::GET, &endpoint)
                 .header("user-agent", user_agent);
             let secret = req.api_key.expose_secret().trim();
             if !secret.is_empty() {
@@ -282,7 +283,7 @@ pub async fn fetch_remote_catalog(
         .get("etag")
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    if status == nuo_egress::StatusCode::NOT_MODIFIED {
+    if status == http::StatusCode::NOT_MODIFIED {
         return Ok(RemoteCatalogUpdate::NotModified {
             etag: response_etag.or_else(|| options.etag.map(str::to_string)),
         });

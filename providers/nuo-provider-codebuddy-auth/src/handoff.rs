@@ -11,12 +11,12 @@
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use nuo_egress::http::Http;
-use nuo_oauth::{
+use nuo_provider::LoginMethod;
+use nuo_provider::auth::{
     ClientAuthMethod, DeviceFlowMode, DeviceLogin, OAuthConfig, OAuthProvider, PkceMode, PortMode,
     TokenRequestFormat,
 };
-use nuo_provider::LoginMethod;
+use nuo_provider::transport::Http;
 
 use crate::envelope::{CodeBuddyAuthEnvelope, CodeBuddyEnvelope};
 
@@ -143,44 +143,44 @@ impl OAuthProvider for CodeBuddyRealmSurface {
         client: Http,
         _config: OAuthConfig,
         _machine_id: String,
-    ) -> Option<BoxFuture<'static, Result<DeviceLogin, nuo_oauth::oauth::AuthError>>> {
+    ) -> Option<BoxFuture<'static, Result<DeviceLogin, nuo_provider::auth::AuthError>>> {
         let base = self.base.to_string();
         let login_message = self.login_message;
         Some(Box::pin(async move {
             // 1. Mint the login session (no bearer — identity headers suppressed).
             let state_url = format!("{base}{PLUGIN_PREFIX}/auth/state?platform=CLI");
-            let request = nuo_egress::http::Request::new(netune::Method::POST, &state_url)
+            let request = nuo_provider::transport::Request::new(netune::Method::POST, &state_url)
                 .header("accept", "application/json")
                 .header("X-No-Authorization", "true")
                 .header("X-No-User-Id", "true")
                 .header("X-No-Enterprise-Id", "true")
                 .header("X-No-Department-Info", "true");
             let response = client.send(request).await.map_err(|e| {
-                nuo_oauth::oauth::AuthError::Transport(format!("auth/state failed: {e}"))
+                nuo_provider::auth::AuthError::Transport(format!("auth/state failed: {e}"))
             })?;
             let status = response.status.as_u16();
             let text = response.body;
             if !(200..300).contains(&status) {
-                return Err(nuo_oauth::oauth::AuthError::TokenEndpoint { status, body: text });
+                return Err(nuo_provider::auth::AuthError::TokenEndpoint { status, body: text });
             }
             let wrapped: CodeBuddyEnvelope<serde_json::Value> = serde_json::from_str(&text)
                 .map_err(|e| {
-                    nuo_oauth::oauth::AuthError::Decode(format!(
+                    nuo_provider::auth::AuthError::Decode(format!(
                         "auth/state parse failed: {e} (body: {text})"
                     ))
                 })?;
             let data = wrapped.data.ok_or_else(|| {
-                nuo_oauth::oauth::AuthError::Decode("auth/state returned no data".into())
+                nuo_provider::auth::AuthError::Decode("auth/state returned no data".into())
             })?;
             let state = data.state.ok_or_else(|| {
-                nuo_oauth::oauth::AuthError::Decode("auth/state returned no session state".into())
+                nuo_provider::auth::AuthError::Decode("auth/state returned no session state".into())
             })?;
             let auth_url = data.auth_url.ok_or_else(|| {
-                nuo_oauth::oauth::AuthError::Decode("auth/state returned no authUrl".into())
+                nuo_provider::auth::AuthError::Decode("auth/state returned no authUrl".into())
             })?;
 
             // 2. Surface the URL so the harness can open the browser.
-            let prompt = nuo_oauth::OAuthLoginPrompt {
+            let prompt = nuo_provider::auth::OAuthLoginPrompt {
                 // Surface as `Device` because the engine dispatches vendor
                 // flows through the `DeviceFlowMode::Custom` branch; the user
                 // action is still "open this URL in the browser".
@@ -207,7 +207,7 @@ impl OAuthProvider for CodeBuddyRealmSurface {
         _config: &'a OAuthConfig,
         refresh_token: &'a str,
     ) -> Option<
-        BoxFuture<'a, Result<nuo_oauth::oauth::token::TokenResponse, nuo_oauth::oauth::AuthError>>,
+        BoxFuture<'a, Result<nuo_provider::auth::TokenResponse, nuo_provider::auth::AuthError>>,
     > {
         Some(Box::pin(async move {
             let envelope = refresh_at(client, self.base, refresh_token).await?;
@@ -223,8 +223,8 @@ impl OAuthProvider for CodeBuddyRealmSurface {
 /// the CLI's own semantic while the user has not finished the web sign-in.
 async fn complete_web_handoff(
     handoff: CodeBuddyWebHandoff,
-) -> Result<nuo_oauth::oauth::token::TokenResponse, nuo_oauth::oauth::AuthError> {
-    use nuo_oauth::oauth::AuthError;
+) -> Result<nuo_provider::auth::TokenResponse, nuo_provider::auth::AuthError> {
+    use nuo_provider::auth::AuthError;
     let CodeBuddyWebHandoff {
         state,
         client,
@@ -236,7 +236,7 @@ async fn complete_web_handoff(
             return Err(AuthError::Timeout);
         }
         let url = format!("{base}{PLUGIN_PREFIX}/auth/token?state={state}");
-        let request = nuo_egress::http::Request::new(netune::Method::GET, &url)
+        let request = nuo_provider::transport::Request::new(netune::Method::GET, &url)
             .header("accept", "application/json")
             .header("X-No-Authorization", "true")
             .header("X-No-User-Id", "true")
@@ -269,10 +269,10 @@ pub async fn refresh_at(
     client: &Http,
     base: &str,
     refresh_token: &str,
-) -> Result<CodeBuddyAuthEnvelope, nuo_oauth::oauth::AuthError> {
-    use nuo_oauth::oauth::AuthError;
+) -> Result<CodeBuddyAuthEnvelope, nuo_provider::auth::AuthError> {
+    use nuo_provider::auth::AuthError;
     let url = format!("{base}{PLUGIN_PREFIX}/auth/token/refresh");
-    let request = nuo_egress::http::Request::new(netune::Method::POST, &url)
+    let request = nuo_provider::transport::Request::new(netune::Method::POST, &url)
         .header("accept", "application/json")
         .header("X-Refresh-Token", refresh_token)
         .header("X-Auth-Refresh-Source", "plugin");

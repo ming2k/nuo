@@ -308,10 +308,10 @@ impl From<ProviderError> for HarnessError {
     }
 }
 
-impl From<nuo_egress::EgressError> for ProviderError {
-    fn from(err: nuo_egress::EgressError) -> Self {
+impl From<crate::transport::TransportError> for ProviderError {
+    fn from(err: crate::transport::TransportError) -> Self {
         match err {
-            nuo_egress::EgressError::Http {
+            crate::transport::TransportError::Http {
                 status,
                 message,
                 retry_after,
@@ -334,7 +334,7 @@ impl From<nuo_egress::EgressError> for ProviderError {
                     pe
                 }
             }
-            nuo_egress::EgressError::Transport {
+            crate::transport::TransportError::Transport {
                 label,
                 message,
                 retryable,
@@ -342,16 +342,16 @@ impl From<nuo_egress::EgressError> for ProviderError {
                 let pe = ProviderError::new(label, ProviderErrorKind::Transport, message);
                 if retryable { pe.retryable(None) } else { pe }
             }
-            nuo_egress::EgressError::Timeout { label } => ProviderError::new(
+            crate::transport::TransportError::Timeout { label } => ProviderError::new(
                 label,
                 ProviderErrorKind::Timeout,
                 "transport error: request timed out",
             )
             .retryable(None),
-            nuo_egress::EgressError::InvalidRequest { label, message } => {
+            crate::transport::TransportError::InvalidRequest { label, message } => {
                 ProviderError::new(label, ProviderErrorKind::InvalidRequest, message)
             }
-            nuo_egress::EgressError::Stream {
+            crate::transport::TransportError::Stream {
                 label,
                 message,
                 retryable,
@@ -359,7 +359,7 @@ impl From<nuo_egress::EgressError> for ProviderError {
                 let pe = ProviderError::new(label, ProviderErrorKind::Transport, message);
                 if retryable { pe.retryable(None) } else { pe }
             }
-            nuo_egress::EgressError::Decode { label, message } => {
+            crate::transport::TransportError::Decode { label, message } => {
                 ProviderError::new(label, ProviderErrorKind::Decode, message)
             }
         }

@@ -115,7 +115,7 @@ async fn main() {
     }
 
     println!("\n=== 4. Provider Usage / Credits ===");
-    let http = nuo_egress::http::Http::control_plane().unwrap();
+    let http = nuo_provider::transport::Http::control_plane().unwrap();
     match CommandCodeUsageFetcher
         .fetch_usage(&http, "https://api.commandcode.ai/provider/v1", &key)
         .await

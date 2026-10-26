@@ -650,7 +650,13 @@ impl SessionStore {
                         }
                     };
                     let max_end = next_round_start.unwrap_or(entries.len());
-                    let cutoff = (start + (t as usize) + 1).min(max_end);
+                    let round_len = max_end - start;
+                    if (t as usize) >= round_len {
+                        return Err(format!(
+                            "Cannot fork at round {r} turn {t}: round {r} has only {round_len} turn(s)."
+                        ));
+                    }
+                    let cutoff = start + (t as usize) + 1;
                     (cutoff, r)
                 }
             };
@@ -694,19 +700,23 @@ impl SessionStore {
         // Blocking I/O stays outside the session lock.
         persist_to(&self.writer, &child, &self.blob_store)?;
 
-        // Fork canonical SessionIR into SQLite
+        // Fork the canonical SessionIR into SQLite so the child keeps the causal
+        // path up to the target. The transcript is the message SSOT; the
+        // canonical IR is materialized mainly by compaction, so when it already
+        // holds the exact transcript-cutoff node we fork there (precise), and
+        // otherwise we fall back to the round-level leaf (the IR's native
+        // resolution). The **parent** IR is never rewritten: a fork must leave
+        // the parent session untouched ([INV-FORK-04]).
         let parent_ir = self.session_ir().await;
-        let parent_delta = parent_ir.drain_delta(0);
-        let _ = self.writer.save_session_delta(parent_delta).await;
 
-        let child_ir = if let Some(round) = target_round
-            && let Some(leaf_id) = parent_ir.find_round_leaf(round)
-        {
-            parent_ir.fork_at_leaf(&fork_child_id, leaf_id, round)
-        } else if let Some(ref entry_id) = cutoff_entry_id
+        let child_ir = if let Some(ref entry_id) = cutoff_entry_id
             && parent_ir.history.nodes.contains_key(entry_id)
         {
             parent_ir.fork_at_leaf(&fork_child_id, entry_id, target_round.unwrap_or(0))
+        } else if let Some(leaf_id) =
+            target_round.and_then(|round| parent_ir.find_round_leaf(round))
+        {
+            parent_ir.fork_at_leaf(&fork_child_id, leaf_id, target_round.unwrap_or(0))
         } else {
             let mut ir = parent_ir.fork(&fork_child_id);
             ir.state.round_counter = target_round.unwrap_or(0);
@@ -719,29 +729,6 @@ impl SessionStore {
             .map_err(|e| e.to_string())?;
 
         Ok((fork_child_id, parent_id, target_round, child_title))
-    }
-
-    /// Fork the current session: write its state to a new child and
-    /// repoint this store at the child in SQLite. Returns `(child_id, parent_id)`.
-    pub async fn fork(&self) -> Result<(String, String), String> {
-        let (fork_child_id, parent_id, _, _) = self.fork_at(ForkTarget::Head).await?;
-        let child_path = self.sessions_dir.join(format!("{fork_child_id}.json"));
-
-        let mut state = self.state.lock().await;
-        if let Ok(reader) = self.writer.reader()
-            && let Ok(Some(child_data)) = reader.load_session_full(&fork_child_id)
-        {
-            state.path = child_path;
-            state.data = child_data;
-            *self.workspace.write().unwrap_or_else(|e| e.into_inner()) =
-                state.data.workspace.clone();
-            *self.role.write().unwrap_or_else(|e| e.into_inner()) = state.data.role.clone();
-            state.invalidate_projection_cache();
-            state.defer_persist = false;
-        }
-        drop(state);
-
-        Ok((fork_child_id, parent_id))
     }
 
     /// Read the full DAG session tree.

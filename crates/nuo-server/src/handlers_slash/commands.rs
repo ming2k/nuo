@@ -10,7 +10,7 @@ use super::record::{
 };
 use super::security_ops::{TrustRoute, reload_trusted_assets, trust_route};
 use super::session_ops::{
-    fork_current_session, restore_session_runtime, start_fresh_session,
+    fork_current_session, fork_retired_aside, restore_session_runtime, start_fresh_session,
     supersede_for_session_switch, switch_or_start_session_with_role,
 };
 use super::session_route::{
@@ -24,10 +24,10 @@ use crate::slash_handler::SlashContext;
 use crate::startup::BuiltinCmd;
 
 use crate::session_driver::{compact_round_history, send_harness_state_for_session};
+use nuo_harness::cognition::skills::ListSkillsTool;
 use nuo_harness::orchestration::{
     ContextProjectionSettings, RoundInput, round_response, send_compaction,
 };
-use nuo_harness::skills::ListSkillsTool;
 use nuo_wire::{AgentResponse, CommandResult, LoopStatus, RoundEvent, Tool, TrustDomain};
 
 pub(crate) async fn permissions(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
@@ -1249,19 +1249,19 @@ pub(crate) async fn skills(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&
                 let enabled = list.iter().filter(|s| s.enabled && !s.quarantined).count();
                 let user_count = list
                     .iter()
-                    .filter(|s| s.scope == nuo_harness::skills::SkillScope::User)
+                    .filter(|s| s.scope == nuo_harness::cognition::skills::SkillScope::User)
                     .count();
                 let repo_count = list
                     .iter()
-                    .filter(|s| s.scope == nuo_harness::skills::SkillScope::Repo)
+                    .filter(|s| s.scope == nuo_harness::cognition::skills::SkillScope::Repo)
                     .count();
                 let extra_count = list
                     .iter()
-                    .filter(|s| s.scope == nuo_harness::skills::SkillScope::Extra)
+                    .filter(|s| s.scope == nuo_harness::cognition::skills::SkillScope::Extra)
                     .count();
                 let remote_count = list
                     .iter()
-                    .filter(|s| s.scope == nuo_harness::skills::SkillScope::Remote)
+                    .filter(|s| s.scope == nuo_harness::cognition::skills::SkillScope::Remote)
                     .count();
 
                 let mut lines = vec![
@@ -1560,6 +1560,13 @@ pub(crate) async fn user_command(
         if handler.handle(ctx).await {
             return;
         }
+    }
+    // Retired-command steering (ADR-0058 §4, `[INV-DEPR-01]`): the `/btw` aside
+    // substrate is gone. Non-destructively redirect a submission to a fork at
+    // head instead of dead-ending it as an unknown command.
+    if matches!(name_no_slash, "btw" | "aside" | "side") {
+        fork_retired_aside(session, resp_tx, name, args).await;
+        return;
     }
     record_error(
         session,

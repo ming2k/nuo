@@ -24,7 +24,7 @@ mod windows;
 /// What this platform can do for supervised command input.
 ///
 /// A single atomic value, consulted **once** by the dispatch layer before it
-/// chooses an [`InputContract`](nuo_tool::InputContract). "Platform
+/// chooses an `InputContract`. "Platform
 /// independence" is thereby a structural property: there is one value to check,
 /// and a platform can only reach [`Supervised`](Self::Supervised) if it
 /// implements *both* a controlling terminal and reliable wait detection.

@@ -1,0 +1,98 @@
+[package]
+name = "nuo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nuo"
+path = "src/main.rs"
+
+[lib]
+name = "nuo"
+path = "src/lib.rs"
+
+# The storybook is an interactive-shell artifact, so it needs the same optional
+# feature the shell itself is gated behind (`[INV-ARCH-CLI-LEAN-LINK]`).
+[[example]]
+name = "storybook"
+required-features = ["interactive"]
+
+[dependencies]
+acp = { workspace = true }
+nuo-wire = { workspace = true }
+nuo-persistence = { workspace = true }
+nuo-host = { workspace = true }
+nuo-provider = { workspace = true }
+nuo-harness = { workspace = true }
+nuo-server = { workspace = true }
+nuo-ui-primitives = { workspace = true, optional = true }
+nuo-view = { workspace = true, optional = true }
+crossterm = { workspace = true, optional = true }
+arboard = { workspace = true, optional = true }
+nuotc = { workspace = true, optional = true }
+bitflags = { workspace = true, optional = true }
+similar = { workspace = true, optional = true }
+unicode-width = { workspace = true, optional = true }
+unicode-segmentation = { workspace = true, optional = true }
+netune = { workspace = true }
+ignore = { workspace = true }
+nuo-mcp = { workspace = true }
+nuo-tool = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true }
+bytes = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+semver = { workspace = true }
+libc = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+glob = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+mockito = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+nuo-host = { workspace = true, features = ["test-path-override"] }
+
+[features]
+# The interactive terminal shell + pure UI substrate. Non-interactive subcommands
+# (`nuo thread`, `nuo status`, `nuo server ...`) build without it, so a lean
+# `nuo --no-default-features` links no terminal raw-mode driver
+# ([INV-ARCH-CLI-LEAN-LINK], ADR-0105). On by default.
+default = ["interactive"]
+interactive = [
+    "dep:nuo-ui-primitives",
+    "dep:nuo-view",
+    "dep:crossterm",
+    "dep:arboard",
+    "dep:nuotc",
+    "dep:bitflags",
+    "dep:similar",
+    "dep:unicode-width",
+    "dep:unicode-segmentation",
+]
+
+# Expose ACP collaboration tools (delegate_to_peer, channels) to the model
+# (ADR-0005 §5, ADR-0008 step 8, ADR-0009 §3). The daemon always links the ACP
+# fabric for its own mesh/Hypervisor/Archivist infrastructure; this feature
+# gates only the *model-facing tool surface*, so lean single-agent builds omit
+# the multi-agent tools without dropping the internal fabric.
+collaboration = []
+
+[lints]
+workspace = true

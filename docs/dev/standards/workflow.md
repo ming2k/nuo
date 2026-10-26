@@ -21,6 +21,9 @@ Before any pull request is merged into `main`, it must clear the following verif
 ├─────────────────────────────────────────────────────────────┤
 │ 4. Code-to-Doc Synchronization Gate                         │
 │    API/CLI changes matched with documentation updates       │
+├─────────────────────────────────────────────────────────────┤
+│ 5. Documentation Integrity Gate: `cargo doc`                │
+│    Broken/private intra-doc links and invalid HTML fail     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -58,13 +61,27 @@ Prior to creating a release tag:
    shipped code; test targets exempt themselves at the test boundary.
 6. **ADR Lineage**: `python3 scripts/check_adr_lineage.py` clean — every
    `ADR-NNNN` citation resolves inside `docs/adr/` (`docs/dev/standards/adr.md` §4).
-7. **Version Coherence**: `[workspace.package].version`, the Cluster C entries in
+7. **Documentation Integrity**: citations are checked on both surfaces, because
+   prose and code drift for different reasons.
+   - `cargo doc --workspace --no-deps` clean — every Rust intra-doc link
+     resolves, no public doc reaches a private item, and no invalid HTML. The
+     workspace denies these three lints
+     (`Cargo.toml` `[workspace.lints.rustdoc]`); rustdoc is the only compiler
+     pass that evaluates them.
+   - `python3 scripts/check_doc_links.py` clean — every relative link across
+     `docs/**` and the root `*.md` resolves to a file, every `#anchor` matches a
+     heading, no absolute or `file://` locator, and no public doc crosses into
+     `docs/dev/**` (`docs/dev/standards/style.md` §1, `taxonomy.md` §2).
+
+   ADR-0027 and ADR-0102 relocated whole modules; roughly forty Rust citations
+   and one Markdown link rotted silently until these gates existed.
+8. **Version Coherence**: `[workspace.package].version`, the Cluster C entries in
    `[workspace.dependencies]`, and the top `CHANGELOG.md` section agree, and the
    changelog section for the version being tagged describes *that* code — not the
    previous tag's. `nuo --version` after a release build must print the version
    being released.
-8. **Release Build**: `cargo build --release -p nuo` succeeds locally, since the
+9. **Release Build**: `cargo build --release -p nuo` succeeds locally, since the
    binary is the primary artifact.
 
-All eight run in CI (`.github/workflows/ci.yml`) on every push and pull request;
+All nine run in CI (`.github/workflows/ci.yml`) on every push and pull request;
 the release job additionally builds the tagged binary for each platform.

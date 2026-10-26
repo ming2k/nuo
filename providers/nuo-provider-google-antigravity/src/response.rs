@@ -332,7 +332,7 @@ pub fn rejects_thinking_config(error: &str) -> bool {
 /// quota / rate limits. Other errors pass through unchanged.
 ///
 /// The input may be a `[NUO_RETRYABLE]`-enveloped error (429/5xx from
-/// [`ensure_success`](crate::transport::ensure_success)); appending to the
+/// [`ensure_success`](nuo_provider::transport::ensure_success)); appending to the
 /// envelope verbatim would corrupt its JSON and strip the error of its
 /// retryable classification downstream, so the guidance is folded **into**
 /// the envelope's message and any `RetryInfo` delay Google embedded in the
