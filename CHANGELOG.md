@@ -189,6 +189,15 @@ the project adheres to the federated SemVer model described in
     behavior is precisely the "in-place timeline switch" ADR-0058 rejected; the
     sovereign `fork_at(...)` is now the sole fork primitive (ADR-0104).
 
+- **Governance & documentation coherence (ADR-0111, ADR-0084, ADR-0108).** The
+  `scripts/` → `nuo::dev` port had silently dropped the public→internal *audience
+  firewall*; `nuo::dev::doc_links` now re-enforces it (public surfaces must never link
+  into `docs/dev/**`), matching ADR-0111 and `taxonomy.md` §2. Dead `scripts/*.py`
+  references and stale crate names were purged from living docs and comments: the
+  retired `nuo-model-codec` (now `nuo-inference-wire`; its `effort`/`client_identity`/
+  `model` modules live in `nuo-provider`), `nuo-oauth` (now `nuo-provider::auth`), and
+  the phantom `nuo-llm-client`.
+
 ### Changed
 
 - **Presentation purity, first module (ADR-0103 §1 / ADR-0105 M3).** `theme.rs` is now a
