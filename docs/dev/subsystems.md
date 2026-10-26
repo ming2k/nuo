@@ -137,7 +137,7 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
   public application executable), `providers/nuo-provider-*` (Layer-3 providers), and
   `tools/nuo-tool-*` (Layer-3 tools). Zero crates reside directly at the workspace root, and
   workspace admission is strictly the wildcard set `["crates/*", "tools/*", "providers/*"]`.
-  Gated mechanically by `scripts/check_presentation_firewall.py` rule R5.
+  Gated mechanically by `nuo::dev::firewall` rule R5 (`cargo test -p nuo --test architecture_firewall`).
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
 - **`[INV-VER-01]` Federated Cluster SemVer**: Autonomous substrates (`nuotc`, `acp`) maintain independent versions; the host suite (`nuo`, `nuo-*`) evolves in unified lockstep.

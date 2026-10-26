@@ -23,6 +23,9 @@ the project adheres to the federated SemVer model described in
     `check_doc_links.py`, `check_adr_lineage.py`). Eradicated Python 3 dependency and polyglot build overhead from the repository.
   - **Native Rust Governance Engine (`nuo::dev`)**: Reimplemented presentation firewall (R1–R5), lean CLI link gate
     (`[INV-ARCH-CLI-LEAN-LINK]`), Markdown hyperlink integrity, and ADR lineage in `crates/nuo/src/dev/`.
+  - **Audience Firewall Restored (`taxonomy.md` §2)**: The public→internal documentation firewall — public surfaces
+    (`docs/{tutorials,how-to,reference,explanation}/`) must never link into `docs/dev/**` — is re-established as a
+    native gate in `nuo::dev::doc_links`, closing the parity gap left when `scripts/check_doc_links.py` was retired.
   - **Integration Test Gateways**: Added `crates/nuo/tests/architecture_firewall.rs` and `crates/nuo/tests/doc_governance.rs`,
     unifying repository invariants into standard `cargo test` execution.
   - **Developer CLI Experience**: Added `nuo dev check [all|firewall|docs|adr]` for rapid local verification.

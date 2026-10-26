@@ -219,7 +219,8 @@ When releasing a new version of the Nuo product and server/terminal suite:
 - **Why the older root-host and flat-topology rules are gone**: ADR-0055 historically left `nuo/`
   at the root as a half-step. ADR-0109 completes the homogenization: an executable's identity in
   Cargo is defined by `[[bin]]` and `default-members`, not root-level directory privilege.
-- **Enforcement**: `scripts/check_presentation_firewall.py` rule R5 checks the layout itself —
+- **Enforcement**: `nuo::dev::firewall` rule R5 (`cargo test -p nuo --test architecture_firewall`)
+  checks the layout itself —
   zero root manifests, per-tier namespace prefixes, nesting depth, and the literal wildcard
   `members` set — and the binary-target census. Mechanisms over exhortations: a layout that is
   only described drifts, and a crate that escapes the topology escapes every other firewall

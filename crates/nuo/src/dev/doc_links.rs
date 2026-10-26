@@ -6,6 +6,7 @@
 //!   1. Target existence (style.md §1.3)
 //!   2. No absolute locators (style.md §1.2)
 //!   3. Anchor existence (style.md §1.4)
+//!   4. Audience firewall (taxonomy.md §2)
 
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -14,6 +15,18 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 const EXTERNAL: &[&str] = &["http://", "https://", "mailto:", "tel:", "data:"];
+
+/// Public documentation surfaces (taxonomy.md §2). A relative link originating
+/// in one of these must never resolve into the internal maintainer space.
+const PUBLIC_SURFACES: &[&str] = &[
+    "docs/tutorials/",
+    "docs/how-to/",
+    "docs/reference/",
+    "docs/explanation/",
+];
+
+/// Internal maintainer space (taxonomy.md §2).
+const INTERNAL_SPACE: &str = "docs/dev/";
 
 fn is_external(target: &str) -> bool {
     EXTERNAL.iter().any(|prefix| target.starts_with(prefix))
@@ -196,6 +209,25 @@ pub fn check_doc_links(root: &Path) -> Result<(), String> {
                     continue;
                 }
 
+                // Audience firewall (taxonomy.md §2): a relative link from a
+                // public surface must never resolve into the internal space.
+                if PUBLIC_SURFACES
+                    .iter()
+                    .any(|surface| rel_posix.starts_with(surface))
+                {
+                    if let Ok(resolved_rel) = resolved.strip_prefix(root) {
+                        if resolved_rel
+                            .to_string_lossy()
+                            .replace('\\', "/")
+                            .starts_with(INTERNAL_SPACE)
+                        {
+                            problems.push(format!(
+                                "{location}: `{target}` crosses the audience firewall (taxonomy.md §2 — public docs must not link into {INTERNAL_SPACE})"
+                            ));
+                        }
+                    }
+                }
+
                 if let Some(frag) = fragment {
                     let frag_lower = frag.to_lowercase();
                     let anchors = cached_anchors.entry(resolved.clone()).or_insert_with(|| {
@@ -231,5 +263,54 @@ pub fn check_doc_links(root: &Path) -> Result<(), String> {
             files.len(),
             problems.join("\n")
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(root: &Path, rel: &str, content: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn audience_firewall_flags_public_link_into_dev() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "docs/dev/target.md", "# Target\n\nBody.\n");
+        write(
+            root,
+            "docs/reference/leak.md",
+            "# Leak\n\nSee [internals](../dev/target.md).\n",
+        );
+
+        let err = check_doc_links(root).unwrap_err();
+        assert!(err.contains("audience firewall"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn audience_firewall_allows_adr_and_outward_references() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "docs/adr/0001-x.md", "# X\n\nBody.\n");
+        write(root, "docs/how-to/guide.md", "# Guide\n\nBody.\n");
+        // Public surface linking to an ADR (permitted) and to another public doc.
+        write(
+            root,
+            "docs/reference/ok.md",
+            "# Ok\n\nSee [decision](../adr/0001-x.md) and [guide](../how-to/guide.md).\n",
+        );
+        // Internal surface linking into `docs/dev/**` (permitted: internal to internal).
+        write(
+            root,
+            "docs/dev/note.md",
+            "# Note\n\nSee [peer](other.md).\n",
+        );
+        write(root, "docs/dev/other.md", "# Other\n\nBody.\n");
+
+        check_doc_links(root).unwrap();
     }
 }
