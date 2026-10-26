@@ -851,9 +851,9 @@ mod tests {
         // under `$HOME`) must be made workspace-relative, not left as `~/...`.
         if let Some(home) = home_dir() {
             let base = home.join("projects/nuo");
-            let view = PathView::from_str("~/projects/nuo/crates/nuo-llm-client/src/lib.rs")
+            let view = PathView::from_str("~/projects/nuo/crates/nuo-inference-wire/src/lib.rs")
                 .base_dir(&base);
-            assert_eq!(view.format_text(), "crates/nuo-llm-client/src/lib.rs");
+            assert_eq!(view.format_text(), "crates/nuo-inference-wire/src/lib.rs");
         }
     }
 

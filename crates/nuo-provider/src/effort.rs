@@ -7,8 +7,8 @@
 //!
 //! # Layer A — the abstraction (this module): `Effort` → public API specs
 //!
-//! [`Effort`] is the **only** depth concept in the codebase. The protocol layer
-//! in `nuo-llm-client` translates a chosen [`Effort`] onto each **public API
+//! [`Effort`] is the **only** depth concept in the codebase. The provider
+//! protocol layer translates a chosen [`Effort`] onto each **public API
 //! specification** a provider speaks — not onto "a brand", but onto the wire
 //! shape the spec defines:
 //!

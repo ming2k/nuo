@@ -15,7 +15,7 @@
 # surface is the entity suffix itself.
 #
 # Consumers: the implementer maintaining the `antigravity` client-identity profile in
-# Nuo (nuo-model-codec::client_identity) and the
+# Nuo (nuo-provider::client_identity) and the
 # providers/nuo-provider-google-antigravity crate. This file never encodes code
 # decisions — it states the contract exactly as the endpoint enforces it.
 #

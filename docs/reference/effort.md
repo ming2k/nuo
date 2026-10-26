@@ -1,6 +1,6 @@
 # Reasoning Effort Reference
 
-Reference for how Nuo models reasoning **depth** ("how hard should the model think before answering?"). The implementation lives in `crates/nuo-model-codec/src/effort.rs`; this page is its prose companion for users and contributors.
+Reference for how Nuo models reasoning **depth** ("how hard should the model think before answering?"). The implementation lives in `crates/nuo-provider/src/effort.rs`; this page is its prose companion for users and contributors.
 
 ---
 
@@ -8,7 +8,7 @@ Reference for how Nuo models reasoning **depth** ("how hard should the model thi
 
 Reasoning depth is split across two layers that are easy to conflate:
 
-- **Layer A — the abstraction** (`nuo-model-codec::effort`): the universal [`Effort`] vocabulary and the translation onto each public API specification. This is the only depth concept in the codebase; no caller outside the module ever sees a provider-specific depth shape.
+- **Layer A — the abstraction** (`nuo-provider::effort`): the universal [`Effort`] vocabulary and the translation onto each public API specification. This is the only depth concept in the codebase; no caller outside the module ever sees a provider-specific depth shape.
 - **Layer B — model capability ladders** (`nuo_provider::effort_ladders`): which rungs a given model actually accepts.
 
 ---

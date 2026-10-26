@@ -26,7 +26,7 @@
 #   Order-of-precedence between credentials in the actual CLI (iam.md):
 #     CODEBUDDY_AUTH_TOKEN > apiKeyHelper > CODEBUDDY_API_KEY
 #   Nuo's mapping (ADR-0014 dual-lane): the OAuth subscription lane stores/rotates the
-#   OIDC pair in `nuo-oauth`; a pasted platform key rides the BYOK lane (`X-API-Key`).
+#   OIDC pair in `nuo-provider::auth`; a pasted platform key rides the BYOK lane (`X-API-Key`).
 #   Credentials saved by the CodeBuddy CLI land in:
 #     - Linux:   ~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info
 #     - macOS:   ~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info

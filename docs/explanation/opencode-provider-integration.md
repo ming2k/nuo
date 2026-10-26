@@ -27,7 +27,7 @@ The two **Zen** surfaces expose a public catalog (`/zen/go/v1/models` for the pl
 
 ## 3. Where Capability Metadata Comes From
 
-Intrinsic capability metadata (context window, reasoning support, tool calling, vision, effort ladder) is never duplicated per provider. It resolves through the shared model registry (`nuo-model-codec::model`), with a compiled baseline as the fallback when upstream advertises nothing.
+Intrinsic capability metadata (context window, reasoning support, tool calling, vision, effort ladder) is never duplicated per provider. It resolves through the shared model registry (`nuo-provider::model`), with a compiled baseline as the fallback when upstream advertises nothing.
 
 ---
 

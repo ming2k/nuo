@@ -5,7 +5,7 @@
 //! 0.50.5→0.50.7 pipeline refactor left the phases unwired and every
 //! phase-level test stayed green while production 404'd. This crate hosts the
 //! tests because it is the only one that can reference both the executor
-//! (`nuo-llm-client`) and the Qoder wire implementation without inverting the
+//! (`nuo-provider-openai`) and the Qoder wire implementation without inverting the
 //! dependency graph.
 
 // Integration test target: assertions fail by panicking, so the production

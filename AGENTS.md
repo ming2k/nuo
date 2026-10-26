@@ -10,7 +10,7 @@
 - **Server Purity**: `nuo-server` is strictly headless and must never link terminal presentation libraries (`nuotc`, `crossterm`, `nuo-ui-primitives`, `nuo-view`, `nuo-present`).
 - **Client-Server Anti-Inversion**: `nuo-server` never depends on presentation crates (`nuo-ui-primitives`, `nuo-view`, `nuo-present`) or retired client crates (`nuo-client`). Communication flows exclusively through typed `nuo-protocol` IPC.
 - **Pure Presentation Substrates**: `crates/nuo-ui-primitives` (generic UI) and `crates/nuo-view` (agent views) are the presentation libraries and are hard-gated zero-IO. The interactive shell is `nuo::shell`, an internal module of the host binary behind the `interactive` feature — never a library crate.
-- **Protocol Separation**: Local East-West IPC (`nuo-protocol`) is strictly decoupled from external North-South LLM streaming (`nuo-model-codec`).
+- **Protocol Separation**: Local East-West IPC (`nuo-protocol`) is strictly decoupled from external North-South LLM streaming (`nuo-inference-wire`).
 
 ## 3. Engineering Discipline
 - **Mechanisms Over Exhortations**: Rely on Rust compiler typestates, private visibility, and automated tests to guarantee invariants. Never rely on natural-language comments alone.
