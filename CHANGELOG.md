@@ -8,6 +8,15 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.53] - 2026-10-27
+
+### Fixed
+
+- **Provider-owned response statefulness (ADR-0114).**
+  - **Stateless relay continuation**: `commandcode-plan` accepts `store: true` and returns a response id, but keeps no state. A tool-call turn continued with `previous_response_id` plus only its `function_call_output` therefore reached DeepSeek as a lone `tool` message and failed with `OpenAI Responses HTTP 400 Bad Request: Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`.
+  - **Declared surface property**: response statefulness is now `ResponsesState { Stored, Stateless }` on the provider spec (`Stateless` by default; `openai` is the only stored surface), carried by the route and intersected with the dialect's `store` support in the composition root. Anything less than both replays the full local context and never anchors a turn on a remote response id.
+  - **User-declared surfaces** (BYOK) default to `Stateless`: an operator declares an endpoint, not its storage guarantees.
+
 ## [0.0.52] - 2026-10-27
 
 ### Fixed
