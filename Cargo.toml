@@ -115,7 +115,7 @@ nuo-mcp = { version = "0.0.52", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.52", path = "crates/nuo-inference-wire", default-features = false }
 
 # Terminal Substrate (Nuotc)
-nuotc = { version = "0.0.5", path = "../nuotc" }
+nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.5" }
 
 # In-house Nuo crates
 nuo-protocol = { version = "0.0.52", path = "crates/nuo-protocol" }
