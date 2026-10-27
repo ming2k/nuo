@@ -659,6 +659,7 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
             client_profile: nuo_provider::ClientProfile::from("ua"),
             effort: Some(Effort::None),
             dialect: nuo_provider::OpenAiResponsesDialect::DeepSeek,
+            state: nuo_provider::ResponsesState::Stateless,
         },
         credentials: nuo_provider::static_credential("k"),
         model: "deepseek-flash".into(),

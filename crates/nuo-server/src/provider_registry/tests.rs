@@ -47,6 +47,7 @@ fn user_declared_provider_can_be_registered_and_resolved() {
         client_profile_sensitive: false,
         quota: None,
         display_policy: nuo_provider::DisplayPolicy::Native,
+        responses_state: nuo_provider::ResponsesState::Stateless,
     };
     register_user_declared_provider(custom_spec).unwrap();
     let resolved = model_provider_spec(test_id).expect("dynamic spec resolves");
@@ -81,6 +82,7 @@ fn user_declared_provider_uses_the_shared_registry() {
         client_profile_sensitive: false,
         quota: None,
         display_policy: nuo_provider::DisplayPolicy::Native,
+        responses_state: nuo_provider::ResponsesState::Stateless,
     })
     .unwrap();
 
@@ -608,4 +610,76 @@ fn every_registered_surface_renders_its_seeds_without_routing_syntax() {
             );
         }
     }
+}
+
+/// Response statefulness survives the last hop: a surface that declares no
+/// storage is built into a provider that replays in full and never anchors a
+/// turn on `previous_response_id` (ADR-0114).
+///
+/// CommandCode's `/provider/v1` accepts `store: true` and answers with a
+/// response id, so "the endpoint took `store`" is not evidence of storage. A
+/// delta-only follow-up turn then arrived upstream as a lone `tool` message and
+/// was rejected with `400 Messages with role 'tool' must be a response to a
+/// preceding message with 'tool_calls'`.
+#[test]
+fn unstated_responses_storage_replays_the_full_context() {
+    let channel = |state: nuo_provider::ResponsesState,
+                   dialect: nuo_provider::OpenAiResponsesDialect| Channel {
+        id: "default".into(),
+        transport: Transport::OpenAiResponses {
+            base_url: "https://relay.example.com/v1/responses".into(),
+            client_profile: nuo_provider::ClientProfile::from("ua"),
+            effort: None,
+            dialect,
+            state,
+        },
+        credentials: nuo_provider::static_credential("k"),
+        model: "deepseek/deepseek-v4.1-flash".into(),
+        remote: None,
+        user_overrides: None,
+        prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
+    };
+
+    let stateless = build_provider_for_channel(
+        &channel(
+            nuo_provider::ResponsesState::Stateless,
+            nuo_provider::OpenAiResponsesDialect::Standard,
+        ),
+        "commandcode-plan",
+        None,
+    );
+    assert_eq!(
+        stateless.continuation_mode(),
+        nuo_provider::ContinuationMode::OpaqueReplay,
+        "an OpenAI-shaped surface that declares no storage must not take a remote cursor"
+    );
+
+    let stored = build_provider_for_channel(
+        &channel(
+            nuo_provider::ResponsesState::Stored,
+            nuo_provider::OpenAiResponsesDialect::Standard,
+        ),
+        "openai",
+        None,
+    );
+    assert_eq!(
+        stored.continuation_mode(),
+        nuo_provider::ContinuationMode::RemoteStored,
+        "a surface that declares storage may anchor turns on a response id"
+    );
+
+    let dialect_without_store = build_provider_for_channel(
+        &channel(
+            nuo_provider::ResponsesState::Stored,
+            nuo_provider::OpenAiResponsesDialect::DeepSeek,
+        ),
+        "deepseek",
+        None,
+    );
+    assert_eq!(
+        dialect_without_store.continuation_mode(),
+        nuo_provider::ContinuationMode::OpaqueReplay,
+        "a dialect whose schema has no `store` keeps replay even when the surface declares storage"
+    );
 }

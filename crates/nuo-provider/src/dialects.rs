@@ -641,6 +641,31 @@ pub enum GoogleInteractionsDialect {
     Standard,
 }
 
+/// Whether a Responses endpoint persists turn state on the server, i.e. whether
+/// a turn may anchor on `previous_response_id` (ADR-0114).
+///
+/// This is a declared property of the *endpoint*, independent of the wire
+/// dialect: a relay can speak Standard (flattened OpenAI) tool definitions and
+/// still keep no state of its own. `Stateless` makes every request
+/// self-contained — the client replays the full local context and never asks
+/// the endpoint to recall a prior response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResponsesState {
+    /// The endpoint stores responses and accepts `previous_response_id`.
+    Stored,
+    /// The endpoint keeps no state. `store` is sent as `false` and
+    /// `previous_response_id` is never emitted.
+    #[default]
+    Stateless,
+}
+
+impl ResponsesState {
+    /// Whether turns may be anchored on a server-side response id.
+    pub const fn is_stored(self) -> bool {
+        matches!(self, Self::Stored)
+    }
+}
+
 /// How a [`Channel`] speaks to its model. Determines which `Provider`
 /// implementation is constructed for it (in the composition root).
 ///
@@ -684,6 +709,8 @@ pub enum Transport {
         client_profile: crate::ClientProfile,
         effort: Option<crate::Effort>,
         dialect: OpenAiResponsesDialect,
+        /// Whether this endpoint persists response state (ADR-0114).
+        state: ResponsesState,
     },
 }
 

@@ -566,6 +566,50 @@ fn responses_dialect_is_provider_owned_not_model_derived() {
     );
 }
 
+/// Response statefulness is declared by the surface, never assumed from the
+/// wire dialect (ADR-0114).
+///
+/// CommandCode's gateway accepts `store: true` and returns a response id, but
+/// keeps no state: a turn anchored on `previous_response_id` reached DeepSeek as
+/// a lone `tool` message with no preceding `tool_calls` and was rejected with
+/// `400 Messages with role 'tool' must be a response to a preceding message
+/// with 'tool_calls'`. Both relay and native DeepSeek surfaces therefore declare
+/// `Stateless`, which makes every request self-contained.
+#[test]
+fn responses_state_is_provider_declared_not_assumed() {
+    let inputs = inputs_of(
+        &RemoteCatalogCache::default(),
+        &RouteSettingsStore::default(),
+        &Credentials::default(),
+    );
+
+    let relay = instance("cmd", Some("commandcode"));
+    let channel = derive_channel(&relay, "deepseek/deepseek-v4.1-flash", &inputs).unwrap();
+    assert!(
+        matches!(
+            channel.transport,
+            Transport::OpenAiResponses {
+                state: nuo_provider::ResponsesState::Stateless,
+                ..
+            }
+        ),
+        "the CommandCode relay keeps no response state"
+    );
+
+    let native = instance("deepseek", Some("deepseek"));
+    let channel = derive_channel(&native, "deepseek-flash", &inputs).unwrap();
+    assert!(
+        matches!(
+            channel.transport,
+            Transport::OpenAiResponses {
+                state: nuo_provider::ResponsesState::Stateless,
+                ..
+            }
+        ),
+        "the native DeepSeek platform keeps no response state"
+    );
+}
+
 #[test]
 fn discovered_model_list_prefers_the_cache() {
     let mut cache = RemoteCatalogCache::default();

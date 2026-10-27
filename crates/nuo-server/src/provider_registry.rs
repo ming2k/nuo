@@ -227,9 +227,14 @@ pub fn build_provider_for_channel(
             client_profile,
             effort,
             dialect,
+            state,
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = effective_channel_effort(*effort, &capabilities);
+            // Persistence needs both a surface that declares it and a dialect
+            // whose schema defines `store` (ADR-0114). Anything less replays the
+            // full local context and never anchors on `previous_response_id`.
+            let store = state.is_stored() && dialect.supports_store();
             let mut provider = OpenAiResponsesProvider::with_credentials(
                 credentials,
                 channel.model.clone(),
@@ -240,6 +245,7 @@ pub fn build_provider_for_channel(
             .with_model_capabilities(capabilities)
             .with_prompt_cache(prompt_cache)
             .with_dialect(*dialect)
+            .with_store(store)
             .with_id(entry_id.to_string());
             if let Some(sid) = session_id {
                 provider = provider.with_session_id(sid);

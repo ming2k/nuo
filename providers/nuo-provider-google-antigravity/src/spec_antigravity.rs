@@ -171,5 +171,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     client_profile_sensitive: true,
     quota: Some(nuo_provider::QuotaPort::Antigravity),
     display_policy: nuo_provider::DisplayPolicy::Native,
+    responses_state: nuo_provider::ResponsesState::Stateless,
     models: ANTIGRAVITY_OAUTH_MODELS,
 };

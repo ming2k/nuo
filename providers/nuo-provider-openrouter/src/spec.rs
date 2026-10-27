@@ -45,6 +45,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::OpenRouterKey),
     display_policy: nuo_provider::DisplayPolicy::Structural,
+    responses_state: nuo_provider::ResponsesState::Stateless,
 };
 
 #[cfg(test)]

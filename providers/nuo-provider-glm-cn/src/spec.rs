@@ -160,6 +160,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
+    responses_state: nuo_provider::ResponsesState::Stateless,
     models: GLM_CN_MODELS,
 };
 

@@ -247,7 +247,7 @@ pub fn derive_channel(
         _ => ReasoningMode::Adaptive,
     });
 
-    let (protocol, base_url, client_profile, dialect) =
+    let (protocol, base_url, client_profile, dialect, responses_state) =
         base_route(connection, model, remote.as_ref())?;
 
     let api_key = resolve_credential(connection, creds);
@@ -295,11 +295,18 @@ pub fn derive_channel(
             // dialect from the id emitted DeepSeek's nested tool definitions to
             // a gateway whose schema expects the flattened OpenAI shape, which
             // the server rejected with HTTP 400 (ADR-0113).
+            //
+            // Statefulness is likewise declared by the surface, not assumed
+            // from `store` support: CommandCode accepts `store: true` and
+            // returns a response id, but keeps no state, so a turn anchored on
+            // `previous_response_id` reached DeepSeek as a lone `tool` message
+            // and was rejected (ADR-0114).
             Transport::OpenAiResponses {
                 base_url,
                 client_profile,
                 effort,
                 dialect: dialect.openai_responses(),
+                state: responses_state,
             }
         }
         WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
@@ -329,7 +336,16 @@ fn base_route(
     connection: &Connection,
     model: &str,
     remote: Option<&nuo_wire::RemoteModelMetadata>,
-) -> Result<(WireProtocol, String, ClientProfile, ProviderDialect), nuo_wire::ProviderError> {
+) -> Result<
+    (
+        WireProtocol,
+        String,
+        ClientProfile,
+        ProviderDialect,
+        nuo_provider::ResponsesState,
+    ),
+    nuo_wire::ProviderError,
+> {
     let spec = model_provider_spec(&connection.provider).ok_or_else(|| {
         nuo_wire::ProviderError::invalid_request(&connection.provider, "unknown model provider")
     })?;
@@ -373,7 +389,13 @@ fn base_route(
         })?,
     };
 
-    Ok((protocol, base_url, client_profile, spec.dialect))
+    Ok((
+        protocol,
+        base_url,
+        client_profile,
+        spec.dialect,
+        spec.responses_state,
+    ))
 }
 
 /// Resolve the sparse connection override over the provider's recommended

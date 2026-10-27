@@ -2,7 +2,9 @@
 
 use crate::cache::{PromptCacheCapabilities, PromptCacheSpec};
 use crate::client_identity::ClientPreset;
-use crate::dialects::{ProviderDialect, clean_model_display_name, format_model_display_name};
+use crate::dialects::{
+    ProviderDialect, ResponsesState, clean_model_display_name, format_model_display_name,
+};
 use crate::model::Model;
 use crate::model_providers::{UserDeclaredProvider, canonical_provider_id};
 use crate::surface::CatalogShape;
@@ -49,6 +51,15 @@ pub struct ModelProviderSpec {
     /// relay publishes bare ids and needs structural typography. This is a
     /// declared property of the *surface*, never inferred from the id string.
     pub display_policy: DisplayPolicy,
+    /// Whether this surface's `/responses` endpoint persists turn state and
+    /// honours `previous_response_id` (ADR-0114).
+    ///
+    /// A relay that mounts `/responses` for compatibility but keeps no state
+    /// must declare [`ResponsesState::Stateless`]: the client then replays the
+    /// full local context instead of anchoring a turn on a response id the
+    /// endpoint will not honour. Defaults to `Stateless` when omitted, so a new
+    /// surface can never assume storage it does not have.
+    pub responses_state: ResponsesState,
 }
 
 /// How a provider's model labels are produced from the catalog (ADR-0081).
@@ -308,6 +319,11 @@ pub fn sync_user_declared_providers(
             // A user-declared surface is never structurally relabelled: its
             // operator publishes the names it wants shown (ADR-0081).
             display_policy: DisplayPolicy::Native,
+            // The operator declares an endpoint, not its storage guarantees.
+            // Assuming storage turned a relay's delta-only turn into a bare
+            // `tool` message with no preceding `tool_calls` (ADR-0114), so an
+            // undeclared surface replays in full.
+            responses_state: ResponsesState::Stateless,
         };
         spec.validate()?;
         next.insert(id.clone(), Arc::new(spec));

@@ -125,5 +125,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::KimiBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,
+    responses_state: nuo_provider::ResponsesState::Stateless,
     models: KIMI_CODE_MODELS,
 };
