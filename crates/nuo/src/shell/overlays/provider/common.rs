@@ -102,10 +102,12 @@ pub(crate) fn place_picker_search_cursor(
     }
     let (offset, _) = field_viewport(query, cursor_position, field_width as usize);
     let caret = caret_column(query, cursor_position);
-    let local = caret
-        .saturating_sub(offset.min(u16::MAX as usize) as u16)
-        .min(field_width.saturating_sub(1));
-    let x = rect.x.saturating_add(prefix_width).saturating_add(local);
+    let local = (caret as usize).saturating_sub(offset);
+    let x = rect
+        .x
+        .saturating_add(prefix_width)
+        .saturating_add(local.min(field_width as usize) as u16)
+        .min(rect.right().saturating_sub(1));
     frame.set_cursor_position((x, rect.y));
 }
 

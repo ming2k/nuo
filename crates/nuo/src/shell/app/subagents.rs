@@ -40,7 +40,7 @@ impl App {
         let cursor_byte = replace_start + insert_text.len();
         new_input.push_str(&self.input[replace_end..]);
         self.input = new_input;
-        self.set_cursor(self.input[..cursor_byte].chars().count());
+        self.set_cursor(cursor_byte);
         // A terminal accept is a commit: exit completion so the popup does
         // not re-open on the just-spliced label (which would collapse to a
         // single exact match and, for slash commands, with a trailing space

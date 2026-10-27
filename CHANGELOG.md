@@ -8,6 +8,17 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.52] - 2026-10-27
+
+### Fixed
+
+- **Terminal substrate draw/caret sequencing and nuotc 0.0.5 integration.**
+  - **Caret Diff-Draw Precedence**: Updated `nuotc` to `0.0.5`, ensuring diff cell draw commands are emitted before installing the final hardware caret coordinate, eliminating cursor dragging across terminal writes.
+  - **Unified Native Byte-Offset Caret Model**: Eradicated legacy char-index conversions (`char_index_at_byte`, `normalize_cursor_char_index`) across `nuo::shell`. Cursor positions consistently operate on UTF-8 byte offsets floored to extended grapheme cluster boundaries.
+  - **Multilingual & CJK Visual Caret Navigation**: Fixed multiline `cursor_line_up` and `cursor_line_down` to preserve visual display columns across lines with wide and CJK characters.
+  - **Mouse Click & Selection Snapping**: Replaced legacy `chars().count()` in mouse click, drag release, and selection navigation with native grapheme boundary byte offsets.
+  - **Overlay Viewports & Caret Placement**: Corrected picker search row cursor clamping and connected command palette and dashboard prompts to horizontal field viewport tracking.
+
 ## [0.0.51] - 2026-10-26
 
 ### Added

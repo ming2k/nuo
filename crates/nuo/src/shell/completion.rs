@@ -238,7 +238,7 @@ impl App {
 
         // Tier 1: Synchronous zero-latency matching for slash and harness commands
         if self.input.starts_with('/') {
-            let cursor_byte = char_to_byte(&self.input, cursor).unwrap_or(self.input.len());
+            let cursor_byte = cursor.min(self.input.len());
             let items = complete_slash_items(&self.command_catalog, &self.input, cursor_byte);
             return items
                 .iter()

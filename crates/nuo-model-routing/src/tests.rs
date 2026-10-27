@@ -510,14 +510,60 @@ fn commandcode_connection_derives_routes() {
         ),
     )
     .unwrap();
+    // The CommandCode gateway declares `ProviderDialect::Standard`; its
+    // DeepSeek models speak that OpenAI-shaped surface, not DeepSeek's native
+    // Responses dialect (ADR-0113).
     assert!(matches!(
         channel_responses.transport,
         Transport::OpenAiResponses {
             ref base_url,
-            dialect: nuo_wire::OpenAiResponsesDialect::DeepSeek,
+            dialect: nuo_wire::OpenAiResponsesDialect::Standard,
             ..
         } if base_url == "https://api.commandcode.ai/provider/v1/responses"
     ));
+}
+
+/// The Responses dialect belongs to the *endpoint*, never to the model id.
+///
+/// A DeepSeek model on an OpenAI-compatible relay speaks the relay's Standard
+/// surface; only the native DeepSeek platform (`ProviderDialect::DeepSeek`)
+/// gets the DeepSeek dialect. Guessing from the id sent DeepSeek's nested tool
+/// definitions to CommandCode's gateway, whose Zod schema expects the
+/// flattened OpenAI shape and answered `400 expected string, received
+/// undefined` (ADR-0113).
+#[test]
+fn responses_dialect_is_provider_owned_not_model_derived() {
+    let inputs = inputs_of(
+        &RemoteCatalogCache::default(),
+        &RouteSettingsStore::default(),
+        &Credentials::default(),
+    );
+
+    let relay = instance("cmd", Some("commandcode"));
+    let channel = derive_channel(&relay, "deepseek/deepseek-v4.1-flash", &inputs).unwrap();
+    assert!(
+        matches!(
+            channel.transport,
+            Transport::OpenAiResponses {
+                dialect: OpenAiResponsesDialect::Standard,
+                ..
+            }
+        ),
+        "a namespaced DeepSeek id on an OpenAI-compatible relay must keep the relay's dialect"
+    );
+
+    let native = instance("deepseek", Some("deepseek"));
+    let channel = derive_channel(&native, "deepseek-flash", &inputs).unwrap();
+    assert!(
+        matches!(
+            channel.transport,
+            Transport::OpenAiResponses {
+                dialect: OpenAiResponsesDialect::DeepSeek,
+                ..
+            }
+        ),
+        "the native DeepSeek platform declares the DeepSeek dialect"
+    );
 }
 
 #[test]

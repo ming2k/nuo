@@ -808,7 +808,7 @@ fn shift_selection_cjk() {
         crossterm::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, 1);
+    assert_eq!(app.cursor_position, "你".len());
     assert_eq!(
         extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
         Some("你".to_string())
@@ -820,7 +820,7 @@ fn shift_selection_cjk() {
         crossterm::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, 2);
+    assert_eq!(app.cursor_position, "你好".len());
     assert_eq!(
         extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
         Some("你好".to_string())

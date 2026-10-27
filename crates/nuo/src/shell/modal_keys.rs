@@ -15,8 +15,8 @@
 use crate::shell::keymap::{KeyCode, KeyModifiers};
 
 use crate::shell::input::readline::{
-    char_index_at_byte, delete_next_grapheme, delete_previous_grapheme, next_grapheme_char_index,
-    normalized_cursor_byte, previous_grapheme_char_index,
+    delete_next_grapheme, delete_previous_grapheme, next_grapheme_boundary,
+    normalized_cursor_byte, previous_grapheme_boundary,
 };
 use crate::shell::input::{InputAction, OauthCopyTarget};
 use crate::shell::keymap::LiveHint;
@@ -678,9 +678,8 @@ fn resolve_host_prompt_key(
     match key.code {
         KeyCode::Char(c) => {
             let byte_pos = normalized_cursor_byte(input, *cursor_position);
-            *cursor_position = char_index_at_byte(input, byte_pos);
             input.insert(byte_pos, c);
-            *cursor_position += 1;
+            *cursor_position = byte_pos + c.len_utf8();
             InputAction::InsertChar(c)
         }
         KeyCode::Backspace => {
@@ -692,11 +691,11 @@ fn resolve_host_prompt_key(
             InputAction::None
         }
         KeyCode::Left => {
-            *cursor_position = previous_grapheme_char_index(input, *cursor_position);
+            *cursor_position = previous_grapheme_boundary(input, *cursor_position);
             InputAction::None
         }
         KeyCode::Right => {
-            *cursor_position = next_grapheme_char_index(input, *cursor_position);
+            *cursor_position = next_grapheme_boundary(input, *cursor_position);
             InputAction::None
         }
         KeyCode::Enter => InputAction::HostPromptSubmit,

@@ -116,11 +116,7 @@ impl App {
     }
 
     pub fn byte_cursor(&self) -> usize {
-        self.input
-            .char_indices()
-            .map(|(i, _)| i)
-            .nth(self.cursor_position)
-            .unwrap_or(self.input.len())
+        self.cursor_position.min(self.input.len())
     }
 
     /// Highest scroll offset the input viewport supports at the last drawn
@@ -280,7 +276,7 @@ impl App {
     /// paste). Equivalent to `set_cursor(self.input.chars().count())` but
     /// reads as intent at the call site.
     pub fn set_cursor_end(&mut self) {
-        let end = self.input.chars().count();
+        let end = self.input.len();
         self.set_cursor(end);
     }
 
@@ -324,7 +320,7 @@ impl App {
         let pos = match &self.selection {
             SelectionState::Block { .. } => match edge {
                 SelectionEdge::Tail => 0,
-                SelectionEdge::Head => self.input.chars().count(),
+                SelectionEdge::Head => self.input.len(),
             },
             SelectionState::InputRange {
                 anchor_byte,
@@ -334,21 +330,19 @@ impl App {
                     SelectionEdge::Tail => *anchor_byte,
                     SelectionEdge::Head => *head_byte,
                 };
-                let byte = nuo_view::model::selection::floor_grapheme_boundary(&self.input, byte)
-                    .min(self.input.len());
-                self.input[..byte].chars().count()
+                nuo_view::model::selection::floor_grapheme_boundary(&self.input, byte)
+                    .min(self.input.len())
             }
             SelectionState::Range { anchor, head } => {
                 let cursor = match edge {
                     SelectionEdge::Tail => *anchor,
                     SelectionEdge::Head => *head,
                 };
-                let byte = nuo_view::model::selection::floor_grapheme_boundary(
+                nuo_view::model::selection::floor_grapheme_boundary(
                     &self.input,
                     cursor.byte_offset,
                 )
-                .min(self.input.len());
-                self.input[..byte].chars().count()
+                .min(self.input.len())
             }
             _ => match edge {
                 SelectionEdge::Tail => 0,
@@ -357,7 +351,7 @@ impl App {
         };
         self.selection = SelectionState::None;
         self.drag.cancel();
-        self.set_cursor(pos.min(self.input.chars().count()));
+        self.set_cursor(pos.min(self.input.len()));
         true
     }
 
@@ -398,7 +392,7 @@ impl App {
                 if start < end {
                     self.input.replace_range(start..end, "");
                 }
-                let new_cursor = self.input[..start].chars().count();
+                let new_cursor = start;
                 self.selection = SelectionState::None;
                 self.drag.cancel();
                 self.set_cursor(new_cursor);
@@ -419,7 +413,7 @@ impl App {
                     if start_byte < end_byte {
                         self.input.replace_range(start_byte..end_byte, "");
                     }
-                    let new_cursor = self.input[..start_byte].chars().count();
+                    let new_cursor = start_byte;
                     self.selection = SelectionState::None;
                     self.drag.cancel();
                     self.set_cursor(new_cursor);

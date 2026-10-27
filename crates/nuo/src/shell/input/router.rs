@@ -7,10 +7,9 @@ use nuo_view::model::selection::SelectionDrag;
 
 use super::InputAction;
 use super::readline::{
-    char_index_at_byte, cursor_line_end, cursor_line_start, delete_next_grapheme,
-    delete_previous_grapheme, insert_newline, next_grapheme_char_index, next_word_end,
-    normalize_cursor_char_index, normalized_cursor_byte, prev_word_start,
-    previous_grapheme_char_index,
+    cursor_line_end, cursor_line_start, delete_next_grapheme, delete_previous_grapheme,
+    insert_newline, next_grapheme_boundary, next_word_end, normalized_cursor_byte, prev_word_start,
+    previous_grapheme_boundary,
 };
 
 /// What the committed scene says owns the keyboard (modality
@@ -622,7 +621,7 @@ pub fn route_event(
                 // 'b' or scrolls.
                 KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     if edits_input_field(&dispatch, modal_keys) && *cursor_position > 0 {
-                        *cursor_position = previous_grapheme_char_index(input, *cursor_position);
+                        *cursor_position = previous_grapheme_boundary(input, *cursor_position);
                     }
                     InputAction::None
                 }
@@ -654,17 +653,7 @@ pub fn route_event(
                     if edits_input_field(&dispatch, modal_keys) {
                         let start = prev_word_start(input, *cursor_position);
                         if start < *cursor_position {
-                            let start_byte = input
-                                .char_indices()
-                                .nth(start)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            let end_byte = input
-                                .char_indices()
-                                .nth(*cursor_position)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            input.replace_range(start_byte..end_byte, "");
+                            input.replace_range(start..*cursor_position, "");
                             *cursor_position = start;
                             return InputAction::Backspace;
                         }
@@ -680,17 +669,7 @@ pub fn route_event(
                         let mut start = *cursor_position;
                         cursor_line_start(input, &mut start);
                         if start < *cursor_position {
-                            let start_byte = input
-                                .char_indices()
-                                .nth(start)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            let end_byte = input
-                                .char_indices()
-                                .nth(*cursor_position)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            input.replace_range(start_byte..end_byte, "");
+                            input.replace_range(start..*cursor_position, "");
                             *cursor_position = start;
                             return InputAction::Backspace;
                         }
@@ -702,47 +681,28 @@ pub fn route_event(
                 // of the line (before a newline), deletes the newline to join
                 // the next line.
                 KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    if edits_input_field(&dispatch, modal_keys) {
-                        let char_count = input.chars().count();
-                        if *cursor_position < char_count {
-                            let mut end = *cursor_position;
-                            cursor_line_end(input, &mut end);
-                            if end == *cursor_position {
-                                end = *cursor_position + 1;
-                            }
-                            let start_byte = input
-                                .char_indices()
-                                .nth(*cursor_position)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            let end_byte = input
-                                .char_indices()
-                                .nth(end)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            input.replace_range(start_byte..end_byte, "");
-                            return InputAction::Backspace;
+                    if edits_input_field(&dispatch, modal_keys) && *cursor_position < input.len() {
+                        let mut end = *cursor_position;
+                        cursor_line_end(input, &mut end);
+                        if end == *cursor_position {
+                            end = (*cursor_position + 1).min(input.len());
                         }
+                        input.replace_range(*cursor_position..end, "");
+                        return InputAction::Backspace;
                     }
                     InputAction::None
                 }
                 // Alt+B: jump back one word (readline `backward-word`).
                 KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::ALT) => {
                     if edits_input_field(&dispatch, modal_keys) {
-                        *cursor_position = normalize_cursor_char_index(
-                            input,
-                            prev_word_start(input, *cursor_position),
-                        );
+                        *cursor_position = prev_word_start(input, *cursor_position);
                     }
                     InputAction::None
                 }
                 // Alt+F: jump forward one word (readline `forward-word`).
                 KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::ALT) => {
                     if edits_input_field(&dispatch, modal_keys) {
-                        *cursor_position = normalize_cursor_char_index(
-                            input,
-                            next_word_end(input, *cursor_position),
-                        );
+                        *cursor_position = next_word_end(input, *cursor_position);
                     }
                     InputAction::None
                 }
@@ -752,17 +712,7 @@ pub fn route_event(
                     if edits_input_field(&dispatch, modal_keys) {
                         let end = next_word_end(input, *cursor_position);
                         if end > *cursor_position {
-                            let start_byte = input
-                                .char_indices()
-                                .nth(*cursor_position)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            let end_byte = input
-                                .char_indices()
-                                .nth(end)
-                                .map(|(i, _)| i)
-                                .unwrap_or(input.len());
-                            input.replace_range(start_byte..end_byte, "");
+                            input.replace_range(*cursor_position..end, "");
                             return InputAction::Backspace;
                         }
                     }
@@ -793,9 +743,8 @@ pub fn route_event(
                         // a text field — don't let printable chars mutate the
                         // borrowed input line while it's focused.
                         let byte_pos = normalized_cursor_byte(input, *cursor_position);
-                        *cursor_position = char_index_at_byte(input, byte_pos);
                         input.insert(byte_pos, c);
-                        *cursor_position += 1;
+                        *cursor_position = byte_pos + c.len_utf8();
                         // Return InsertChar so the event loop can reset the
                         // completion-dismissal latch and suggestion highlight.
                         // The input mutation already happened above; the event
@@ -823,17 +772,7 @@ pub fn route_event(
                         {
                             let start = prev_word_start(input, *cursor_position);
                             if start < *cursor_position {
-                                let start_byte = input
-                                    .char_indices()
-                                    .nth(start)
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(input.len());
-                                let end_byte = input
-                                    .char_indices()
-                                    .nth(*cursor_position)
-                                    .map(|(i, _)| i)
-                                    .unwrap_or(input.len());
-                                input.replace_range(start_byte..end_byte, "");
+                                input.replace_range(start..*cursor_position, "");
                                 *cursor_position = start;
                                 return InputAction::Backspace;
                             }
@@ -847,20 +786,14 @@ pub fn route_event(
                         // on the returned `Backspace` action, which drops
                         // the orphaned entry from `pending_images` /
                         // `pending_text_pastes` and relabels survivors.
-                        let byte_cursor = input
-                            .char_indices()
-                            .map(|(i, _)| i)
-                            .nth(*cursor_position)
-                            .unwrap_or(input.len());
                         if let Some((start, end)) =
                             nuo_view::composer_attachments::chip_range_for_backspace(
                                 input,
-                                byte_cursor,
+                                *cursor_position,
                             )
                         {
-                            let removed_chars = input[start..end].chars().count();
                             input.replace_range(start..end, "");
-                            *cursor_position -= removed_chars;
+                            *cursor_position = start;
                             return InputAction::Backspace;
                         }
                         delete_previous_grapheme(input, cursor_position);
@@ -883,17 +816,12 @@ pub fn route_event(
                     // The palette's delete-selected is owned by its scheme
                     // (modal_keys).
                     if edits_input_field(&dispatch, modal_keys)
-                        && *cursor_position < input.chars().count()
+                        && *cursor_position < input.len()
                     {
-                        let byte_cursor = input
-                            .char_indices()
-                            .map(|(i, _)| i)
-                            .nth(*cursor_position)
-                            .unwrap_or(input.len());
                         if let Some((start, end)) =
                             nuo_view::composer_attachments::chip_range_for_delete(
                                 input,
-                                byte_cursor,
+                                *cursor_position,
                             )
                         {
                             input.replace_range(start..end, "");
@@ -920,13 +848,10 @@ pub fn route_event(
                             .modifiers
                             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                         {
-                            *cursor_position = normalize_cursor_char_index(
-                                input,
-                                prev_word_start(input, *cursor_position),
-                            );
+                            *cursor_position = prev_word_start(input, *cursor_position);
                         } else {
                             *cursor_position =
-                                previous_grapheme_char_index(input, *cursor_position);
+                                previous_grapheme_boundary(input, *cursor_position);
                         }
                     }
                     InputAction::None
@@ -935,19 +860,16 @@ pub fn route_event(
                     // Modal segment/cycle verbs are owned by the modal
                     // scheme (modal_keys), resolved above.
                     if edits_input_field(&dispatch, modal_keys)
-                        && *cursor_position < input.chars().count()
+                        && *cursor_position < input.len()
                     {
                         // Ctrl+Right (and Alt+Right) jump forward one word.
                         if key
                             .modifiers
                             .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                         {
-                            *cursor_position = normalize_cursor_char_index(
-                                input,
-                                next_word_end(input, *cursor_position),
-                            );
+                            *cursor_position = next_word_end(input, *cursor_position);
                         } else {
-                            *cursor_position = next_grapheme_char_index(input, *cursor_position);
+                            *cursor_position = next_grapheme_boundary(input, *cursor_position);
                         }
                     }
                     InputAction::None

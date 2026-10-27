@@ -182,6 +182,7 @@ pub(crate) fn filter_palette_commands(
 /// Properties for rendering the Command Palette modal.
 pub(crate) struct CommandPaletteProps<'a> {
     pub query: &'a str,
+    pub cursor_position: usize,
     pub entries: &'a [PaletteEntry],
     pub selected_index: usize,
     pub scroll: &'a mut usize,
@@ -198,6 +199,7 @@ pub(crate) fn draw_command_palette(
 ) -> Rect {
     let CommandPaletteProps {
         query,
+        cursor_position,
         entries,
         selected_index,
         scroll,
@@ -221,6 +223,12 @@ pub(crate) fn draw_command_palette(
         height: 1,
     };
 
+    let prefix_width = INPUT_PROMPT_PREFIX.width();
+    let field_width = (query_line_rect.width as usize).saturating_sub(prefix_width);
+    let (offset, visible_query) = super::common::field_viewport(query, cursor_position, field_width);
+    let caret = super::common::caret_column(query, cursor_position);
+    let local = (caret as usize).saturating_sub(offset);
+
     let query_spans = vec![
         Span::styled(
             INPUT_PROMPT_PREFIX,
@@ -235,7 +243,7 @@ pub(crate) fn draw_command_palette(
             )
         } else {
             Span::styled(
-                query,
+                visible_query,
                 Style::default()
                     .fg(Color::White)
                     .add_modifier(Modifier::BOLD),
@@ -248,7 +256,7 @@ pub(crate) fn draw_command_palette(
     );
 
     if show_caret {
-        let cursor_x = (query_line_rect.x + 2 + query.width() as u16)
+        let cursor_x = (query_line_rect.x + prefix_width as u16 + local.min(field_width) as u16)
             .min(query_line_rect.right().saturating_sub(1));
         let cursor_y = query_line_rect.y;
         frame.set_cursor_position((cursor_x, cursor_y));
@@ -530,6 +538,7 @@ mod tests {
                 f,
                 CommandPaletteProps {
                     query: "",
+                    cursor_position: 0,
                     entries: &entries,
                     selected_index: 0,
                     scroll: &mut scroll,
@@ -614,6 +623,7 @@ mod tests {
                 f,
                 CommandPaletteProps {
                     query: "@",
+                    cursor_position: 1,
                     entries: &entries,
                     selected_index: 0,
                     scroll: &mut scroll,

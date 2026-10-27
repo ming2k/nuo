@@ -194,11 +194,11 @@ fn compose_frame(
             // Mask the API key everywhere it could be rendered (the editor
             // field itself, and any layout pass that inspects the input).
             let mask = "•".repeat(app.input.chars().count());
-            // Byte offset of the caret inside the masked string: each char
-            // maps to exactly one `•`, so the caret's char index maps to
-            // `index * mask_char_len`.
             const MASK_CHAR: &str = "•";
-            let caret_byte = MASK_CHAR.len() * app.cursor_position.min(mask.chars().count());
+            let caret_chars = app.input[..app.cursor_position.min(app.input.len())]
+                .chars()
+                .count();
+            let caret_byte = MASK_CHAR.len() * caret_chars.min(mask.chars().count());
             (mask, caret_byte)
         } else {
             (app.input.clone(), app.byte_cursor())
@@ -1116,6 +1116,7 @@ fn compose_frame(
                         prompting: app.host_prompting,
                         prompt_create_new: app.host_prompt_new,
                         prompt_text: &app.input,
+                        cursor_position: app.cursor_position,
                         current_session_id: viewed_session_id,
                         show_caret: scene_prompt_owns_caret,
                         tab_bar: Some(render::TabBarProps {

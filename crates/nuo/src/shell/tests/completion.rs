@@ -1478,7 +1478,7 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
             3,
         ),
     };
-    app.cursor_position = 1;
+    app.cursor_position = 3;
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
     assert!(matches!(

@@ -1,5 +1,8 @@
 //! The shared readline engine: caret motion, word boundaries, grapheme
 //! deletion, and line walking used by the composer and the inline prompts.
+//! Operates natively on byte offsets and grapheme boundaries (aligned with `nuotc`).
+
+use unicode_segmentation::UnicodeSegmentation;
 
 /// accept free-text input. Used by the Alt+Enter and Ctrl+J multi-line
 /// entry bindings (plain Enter sends the message).
@@ -10,46 +13,29 @@ pub(crate) fn insert_newline(
 ) {
     if allow_multiline {
         let byte_pos = normalized_cursor_byte(input, *cursor_position);
-        *cursor_position = input[..byte_pos].chars().count();
         input.insert(byte_pos, '\n');
-        *cursor_position += 1;
+        *cursor_position = byte_pos + 1;
     }
 }
 
-/// Convert the application's char-index cursor to a grapheme boundary. The
-/// logical model remains a char index for compatibility with selection and
-/// word-navigation code, but every visible edit/motion lands only between
-/// grapheme clusters.
+/// Normalize cursor byte offset to a valid grapheme boundary within `input`.
 pub(crate) fn normalized_cursor_byte(input: &str, cursor_position: usize) -> usize {
-    let raw = input
-        .char_indices()
-        .nth(cursor_position.min(input.chars().count()))
-        .map(|(byte, _)| byte)
-        .unwrap_or(input.len());
-    nuotc::floor_grapheme_boundary(input, raw)
+    nuotc::floor_grapheme_boundary(input, cursor_position)
 }
 
-pub(crate) fn char_index_at_byte(input: &str, byte: usize) -> usize {
-    input[..byte.min(input.len())].chars().count()
-}
-
-pub(crate) fn normalize_cursor_char_index(input: &str, cursor_position: usize) -> usize {
-    char_index_at_byte(input, normalized_cursor_byte(input, cursor_position))
-}
-
-pub(crate) fn previous_grapheme_char_index(input: &str, cursor_position: usize) -> usize {
+/// Move backward one extended grapheme cluster boundary (byte offset).
+pub(crate) fn previous_grapheme_boundary(input: &str, cursor_position: usize) -> usize {
     let cursor_byte = normalized_cursor_byte(input, cursor_position);
     if cursor_byte == 0 {
         return 0;
     }
-    let previous = nuotc::floor_grapheme_boundary(input, cursor_byte - 1);
-    char_index_at_byte(input, previous)
+    nuotc::floor_grapheme_boundary(input, cursor_byte - 1)
 }
 
-pub(crate) fn next_grapheme_char_index(input: &str, cursor_position: usize) -> usize {
+/// Move forward one extended grapheme cluster boundary (byte offset).
+pub(crate) fn next_grapheme_boundary(input: &str, cursor_position: usize) -> usize {
     let cursor_byte = normalized_cursor_byte(input, cursor_position);
-    let next = nuotc::inclusive_grapheme_end(input, cursor_byte);
-    char_index_at_byte(input, next)
+    nuotc::inclusive_grapheme_end(input, cursor_byte)
 }
 
 pub(crate) fn delete_previous_grapheme(input: &mut String, cursor_position: &mut usize) -> bool {
@@ -60,7 +46,7 @@ pub(crate) fn delete_previous_grapheme(input: &mut String, cursor_position: &mut
     }
     let start = nuotc::floor_grapheme_boundary(input, end - 1);
     input.replace_range(start..end, "");
-    *cursor_position = char_index_at_byte(input, start);
+    *cursor_position = start;
     true
 }
 
@@ -68,177 +54,113 @@ pub(crate) fn delete_next_grapheme(input: &mut String, cursor_position: &mut usi
     let start = normalized_cursor_byte(input, *cursor_position);
     let end = nuotc::inclusive_grapheme_end(input, start);
     if end <= start {
-        *cursor_position = char_index_at_byte(input, start);
+        *cursor_position = start;
         return false;
     }
     input.replace_range(start..end, "");
-    *cursor_position = char_index_at_byte(input, start);
+    *cursor_position = start;
     true
 }
 
 /// Move the caret to the start of the current logical line.
-///
-/// Used by the `Home` key and `Ctrl+A` (readline convention). For a
-/// single-line buffer this is the very start; for a multi-line buffer it
-/// stops just past the nearest preceding newline. `cursor_position` is a
-/// char index, so the newline search is translated back to chars.
 pub(crate) fn cursor_line_start(input: &str, cursor_position: &mut usize) {
-    let char_count = input.chars().count();
-    let char_pos = (*cursor_position).min(char_count);
-    let byte_offset = input
-        .char_indices()
-        .nth(char_pos)
-        .map(|(i, _)| i)
-        .unwrap_or(input.len());
-    let before = &input[..byte_offset];
+    let byte_pos = normalized_cursor_byte(input, *cursor_position);
+    let before = &input[..byte_pos];
     if let Some(rel) = before.rfind('\n') {
-        let after_newline = rel + '\n'.len_utf8();
-        *cursor_position = before[..after_newline].chars().count();
+        *cursor_position = rel + 1;
     } else {
         *cursor_position = 0;
     }
 }
 
 /// Move the caret to the end of the current logical line.
-///
-/// Used by the `End` key and `Ctrl+E`. For a multi-line buffer the caret
-/// stops just before the next newline rather than at the end of the whole
-/// buffer, matching the readline/standard-editor behaviour users expect.
 pub(crate) fn cursor_line_end(input: &str, cursor_position: &mut usize) {
-    let char_count = input.chars().count();
-    let char_pos = (*cursor_position).min(char_count);
-    let byte_offset = input
-        .char_indices()
-        .nth(char_pos)
-        .map(|(i, _)| i)
-        .unwrap_or(input.len());
-    let after = &input[byte_offset..];
+    let byte_pos = normalized_cursor_byte(input, *cursor_position);
+    let after = &input[byte_pos..];
     if let Some(rel) = after.find('\n') {
-        let end_byte = byte_offset + rel;
-        *cursor_position = input[..end_byte].chars().count();
+        *cursor_position = byte_pos + rel;
     } else {
-        *cursor_position = char_count;
+        *cursor_position = input.len();
     }
 }
 
-/// Find the start char index of the previous whitespace-delimited word.
-/// Skips trailing whitespace (including newlines), then removes the
-/// contiguous run of non-whitespace before the caret.  Returns 0 when
-/// the caret is at the very start of the buffer; otherwise the returned
-/// position can cross newline boundaries.
-///
-/// Matches readline's `unix-word-rubout` (Ctrl+W) and the
-/// `backward-word` / `backward-kill-word` motions users expect from
-/// shells and editors.
+/// Find the start byte offset of the previous whitespace-delimited word.
 pub(crate) fn prev_word_start(input: &str, cursor_position: usize) -> usize {
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = cursor_position.min(chars.len());
-    // Skip whitespace between caret and the previous word (includes \n).
-    while i > 0 && chars[i - 1].is_whitespace() {
-        i -= 1;
+    let pos = normalized_cursor_byte(input, cursor_position);
+    let before = &input[..pos];
+    let trimmed = before.trim_end();
+    if trimmed.is_empty() {
+        return 0;
     }
-    // Skip the contiguous run of non-whitespace that forms the word.
-    while i > 0 && !chars[i - 1].is_whitespace() {
-        i -= 1;
-    }
-    i
+    trimmed.rfind(char::is_whitespace).map_or(0, |idx| {
+        let after_ws = &trimmed[idx..];
+        after_ws.chars().next().map_or(0, |c| idx + c.len_utf8())
+    })
 }
 
-/// Find the end char index of the next whitespace-delimited word.
-/// Skips leading whitespace (including newlines), then skips the
-/// contiguous run of non-whitespace.  Returns `input.len()` when the
-/// caret is at the very end; otherwise the returned position can cross
-/// newline boundaries.
-///
-/// Matches readline's `kill-word` (Alt+D) and `forward-word` motions.
+/// Find the end byte offset of the next whitespace-delimited word.
 pub(crate) fn next_word_end(input: &str, cursor_position: usize) -> usize {
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = cursor_position.min(chars.len());
-    // Skip whitespace between caret and the next word (includes \n).
-    while i < chars.len() && chars[i].is_whitespace() {
-        i += 1;
+    let pos = normalized_cursor_byte(input, cursor_position);
+    let after = &input[pos..];
+    let leading_ws = after.len() - after.trim_start().len();
+    let word = &after[leading_ws..];
+    if word.is_empty() {
+        return input.len();
     }
-    // Skip the contiguous run of non-whitespace that forms the word.
-    while i < chars.len() && !chars[i].is_whitespace() {
-        i += 1;
-    }
-    i
-}
-
-/// Char index of the start of the current logical line, mirroring
-/// [`cursor_line_start`] but operating on a borrowed char slice so the
-/// word-boundary helpers can call it without re-allocating.
-pub(crate) fn cursor_line_start_char(chars: &[char], cursor_position: usize) -> usize {
-    let char_pos = cursor_position.min(chars.len());
-    if let Some(rel) = chars[..char_pos].iter().rposition(|&c| c == '\n') {
-        rel + 1
-    } else {
-        0
-    }
-}
-
-/// Char index of the end of the current logical line, mirroring
-/// [`cursor_line_end`] on a borrowed char slice.
-pub(crate) fn cursor_line_end_char(chars: &[char], cursor_position: usize) -> usize {
-    let char_pos = cursor_position.min(chars.len());
-    if let Some(rel) = chars[char_pos..].iter().position(|&c| c == '\n') {
-        char_pos + rel
-    } else {
-        chars.len()
-    }
+    let word_len = word.find(char::is_whitespace).unwrap_or(word.len());
+    pos + leading_ws + word_len
 }
 
 /// Try to move the caret up one logical line in a multi-line buffer,
-/// preserving the column (char offset within the line) clamped to the
-/// previous line's length. Returns `true` and updates `cursor_position`
-/// when there is a line above; returns `false` (without moving) when the
-/// caret is already on the first line, so the caller can fall through to
-/// history navigation.
-///
-/// This is what lets `↑` walk lines inside a multi-line draft instead of
-/// always jumping to the previous history entry — only at the top line
-/// does it hand off to input history.
+/// preserving the visual column clamped to the previous line's width.
 pub(crate) fn cursor_line_up(input: &str, cursor_position: &mut usize) -> bool {
-    let chars: Vec<char> = input.chars().collect();
-    let pos = (*cursor_position).min(chars.len());
-    let line_start = cursor_line_start_char(&chars, pos);
+    let pos = normalized_cursor_byte(input, *cursor_position);
+    let before = &input[..pos];
+    let line_start = before.rfind('\n').map_or(0, |idx| idx + 1);
     if line_start == 0 {
         return false;
     }
-    let col = pos - line_start;
-    // The char just before `line_start` is the newline that ends the
-    // previous line; the previous line's text lives in [prev_start, prev_end).
+    let col = nuotc::cursor_column(&input[line_start..pos], pos - line_start);
+
     let prev_end = line_start - 1;
-    let prev_start = if let Some(rel) = chars[..prev_end].iter().rposition(|&c| c == '\n') {
-        rel + 1
-    } else {
-        0
-    };
-    let target = prev_start + col.min(prev_end - prev_start);
-    *cursor_position = normalize_cursor_char_index(input, target);
+    let prev_start = input[..prev_end].rfind('\n').map_or(0, |idx| idx + 1);
+    let prev_line = &input[prev_start..prev_end];
+
+    let mut target_byte = 0;
+    for (idx, g) in prev_line.grapheme_indices(true) {
+        let g_end = idx + g.len();
+        if nuotc::cursor_column(prev_line, g_end) > col {
+            break;
+        }
+        target_byte = g_end;
+    }
+    *cursor_position = prev_start + target_byte;
     true
 }
 
-/// Try to move the caret down one logical line, mirroring
-/// [`cursor_line_up`]. Returns `false` (without moving) when the caret is
-/// already on the last line, so `↓` hands off to history navigation there.
+/// Try to move the caret down one logical line, mirroring `cursor_line_up`.
 pub(crate) fn cursor_line_down(input: &str, cursor_position: &mut usize) -> bool {
-    let chars: Vec<char> = input.chars().collect();
-    let pos = (*cursor_position).min(chars.len());
-    let line_end = cursor_line_end_char(&chars, pos);
-    if line_end >= chars.len() {
+    let pos = normalized_cursor_byte(input, *cursor_position);
+    let after = &input[pos..];
+    let Some(rel_end) = after.find('\n') else {
         return false;
-    }
-    let line_start = cursor_line_start_char(&chars, pos);
-    let col = pos - line_start;
-    // `line_end` is the index of the newline; the next line starts after it.
-    let next_start = line_end + 1;
-    let next_end = if let Some(rel) = chars[next_start..].iter().position(|&c| c == '\n') {
-        next_start + rel
-    } else {
-        chars.len()
     };
-    let target = next_start + col.min(next_end - next_start);
-    *cursor_position = normalize_cursor_char_index(input, target);
+    let line_end = pos + rel_end;
+    let line_start = input[..pos].rfind('\n').map_or(0, |idx| idx + 1);
+    let col = nuotc::cursor_column(&input[line_start..pos], pos - line_start);
+
+    let next_start = line_end + 1;
+    let next_end = input[next_start..].find('\n').map_or(input.len(), |idx| next_start + idx);
+    let next_line = &input[next_start..next_end];
+
+    let mut target_byte = 0;
+    for (idx, g) in next_line.grapheme_indices(true) {
+        let g_end = idx + g.len();
+        if nuotc::cursor_column(next_line, g_end) > col {
+            break;
+        }
+        target_byte = g_end;
+    }
+    *cursor_position = next_start + target_byte;
     true
 }

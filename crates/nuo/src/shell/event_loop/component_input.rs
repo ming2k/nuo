@@ -7,9 +7,8 @@
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::shell::input::readline::{
-    cursor_line_down, cursor_line_end, cursor_line_start, cursor_line_up, next_grapheme_char_index,
-    next_word_end, normalize_cursor_char_index, normalized_cursor_byte, prev_word_start,
-    previous_grapheme_char_index,
+    cursor_line_down, cursor_line_end, cursor_line_start, cursor_line_up, next_grapheme_boundary,
+    next_word_end, normalized_cursor_byte, prev_word_start, previous_grapheme_boundary,
 };
 use crate::shell::input::{self};
 use crate::shell::ui;
@@ -79,22 +78,16 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             let new_pos = match key.code {
                 KeyCode::Left => {
                     if word_chord {
-                        normalize_cursor_char_index(
-                            &app.input,
-                            prev_word_start(&app.input, app.cursor_position),
-                        )
+                        prev_word_start(&app.input, app.cursor_position)
                     } else {
-                        previous_grapheme_char_index(&app.input, app.cursor_position)
+                        previous_grapheme_boundary(&app.input, app.cursor_position)
                     }
                 }
                 KeyCode::Right => {
                     if word_chord {
-                        normalize_cursor_char_index(
-                            &app.input,
-                            next_word_end(&app.input, app.cursor_position),
-                        )
+                        next_word_end(&app.input, app.cursor_position)
                     } else {
-                        next_grapheme_char_index(&app.input, app.cursor_position)
+                        next_grapheme_boundary(&app.input, app.cursor_position)
                     }
                 }
                 KeyCode::Up => {
@@ -110,7 +103,7 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
                     if cursor_line_down(&app.input, &mut target) {
                         target
                     } else {
-                        app.input.chars().count()
+                        app.input.len()
                     }
                 }
                 KeyCode::Home => {
@@ -146,31 +139,16 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
 
     let step_from_head = |app: &mut App, forward: bool, word: bool| {
         app.adopt_caret_from_input_selection(SelectionEdge::Head);
-        let count = app.input.chars().count();
-        let at = app.cursor_position.min(count);
         let target = if word {
-            let chars: Vec<char> = app.input.chars().collect();
-            let mut i = at;
             if forward {
-                while i < chars.len() && chars[i].is_whitespace() {
-                    i += 1;
-                }
-                while i < chars.len() && !chars[i].is_whitespace() {
-                    i += 1;
-                }
+                next_word_end(&app.input, app.cursor_position)
             } else {
-                while i > 0 && chars[i - 1].is_whitespace() {
-                    i -= 1;
-                }
-                while i > 0 && !chars[i - 1].is_whitespace() {
-                    i -= 1;
-                }
+                prev_word_start(&app.input, app.cursor_position)
             }
-            i
         } else if forward {
-            (at + 1).min(count)
+            next_grapheme_boundary(&app.input, app.cursor_position)
         } else {
-            at.saturating_sub(1)
+            previous_grapheme_boundary(&app.input, app.cursor_position)
         };
         app.set_cursor(target);
     };
@@ -203,17 +181,15 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             } = app.selection
             {
                 let lo = anchor_byte.min(head_byte).min(app.input.len());
-                let pos = app.input[..lo].chars().count();
                 app.selection = SelectionState::None;
                 app.drag.cancel();
-                app.set_cursor(pos);
+                app.set_cursor(lo);
             } else if let Some((start, _)) = app.selection.active_normalized_range() {
                 let byte =
                     floor_grapheme_boundary(&app.input, start.byte_offset).min(app.input.len());
-                let pos = app.input[..byte].chars().count();
                 app.selection = SelectionState::None;
                 app.drag.cancel();
-                app.set_cursor(pos);
+                app.set_cursor(byte);
             } else {
                 app.adopt_caret_from_input_selection(SelectionEdge::Tail);
             }
@@ -226,16 +202,14 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             } = app.selection
             {
                 let hi = anchor_byte.max(head_byte).min(app.input.len());
-                let pos = app.input[..hi].chars().count();
                 app.selection = SelectionState::None;
                 app.drag.cancel();
-                app.set_cursor(pos);
+                app.set_cursor(hi);
             } else if let Some((_, end)) = app.selection.active_normalized_range() {
                 let byte = inclusive_grapheme_end(&app.input, end.byte_offset).min(app.input.len());
-                let pos = app.input[..byte].chars().count();
                 app.selection = SelectionState::None;
                 app.drag.cancel();
-                app.set_cursor(pos);
+                app.set_cursor(byte);
             } else {
                 app.adopt_caret_from_input_selection(SelectionEdge::Head);
             }

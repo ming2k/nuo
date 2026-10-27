@@ -638,6 +638,48 @@ mod tests {
     }
 
     #[test]
+    fn standard_dialect_emits_the_flattened_openai_tool_shape() {
+        // OpenAI-compatible gateways (e.g. CommandCode's `/provider/v1`) validate
+        // the flattened Responses tool shape and require a top-level `name`.
+        // The DeepSeek dialect's nested `{function:{name}}` form leaves that
+        // field undefined, which such a gateway rejects with
+        // `400 expected string, received undefined` (ADR-0113).
+        let specs = [nuo_provider::capability::ToolSpec {
+            name: "test_tool".into(),
+            description: "test".into(),
+            parameters: json!({"type": "object"}),
+        }];
+        let body = body(
+            vec![Message::new(Role::User, "run tool")],
+            test_body_input(
+                "deepseek/deepseek-v4.1-flash",
+                true,
+                Some(&specs),
+                None,
+                &DEFAULT_DELIVERY,
+                true,
+                &DEFAULT_CACHE_PLAN,
+            ),
+        )
+        .unwrap();
+
+        let tool = &body["tools"][0];
+        assert_eq!(tool["type"], "function");
+        assert_eq!(
+            tool["name"], "test_tool",
+            "the gateway's schema requires a top-level tool `name`"
+        );
+        assert!(
+            tool.get("function").is_none(),
+            "the flat OpenAI shape carries no nested `function` object"
+        );
+        assert_eq!(tool["strict"], false);
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["parallel_tool_calls"], true);
+        assert_eq!(body["store"], true);
+    }
+
+    #[test]
     fn deepseek_dialect_reconstructs_reasoning_item_for_assistant_tool_calls() {
         let mut assistant = Message::new(Role::Assistant, "");
         assistant.reasoning_content = Some("thinking about tool".into());

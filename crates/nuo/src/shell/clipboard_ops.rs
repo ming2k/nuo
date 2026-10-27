@@ -203,14 +203,9 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
                 );
             } else {
                 let chars_to_insert = text.chars().count();
-                let byte_pos = app
-                    .input
-                    .char_indices()
-                    .map(|(i, _)| i)
-                    .nth(app.cursor_position)
-                    .unwrap_or(app.input.len());
+                let byte_pos = app.cursor_position.min(app.input.len());
                 app.input.insert_str(byte_pos, &text);
-                app.set_cursor(app.cursor_position + chars_to_insert);
+                app.set_cursor(byte_pos + text.len());
                 app.copy_toast_message = format!(
                     "pasted {chars_to_insert} char{}",
                     if chars_to_insert == 1 { "" } else { "s" }
@@ -380,14 +375,9 @@ fn apply_modal_field_paste(app: &mut App, read: ClipboardRead) {
             if chars_to_insert == 0 {
                 return;
             }
-            let byte_pos = app
-                .input
-                .char_indices()
-                .map(|(i, _)| i)
-                .nth(app.cursor_position)
-                .unwrap_or(app.input.len());
+            let byte_pos = app.cursor_position.min(app.input.len());
             app.input.insert_str(byte_pos, &stripped);
-            app.set_cursor(app.cursor_position + chars_to_insert);
+            app.set_cursor(byte_pos + stripped.len());
             app.copy_toast_message = format!(
                 "pasted {chars_to_insert} char{}",
                 if chars_to_insert == 1 { "" } else { "s" }
@@ -421,18 +411,13 @@ fn apply_modal_field_paste(app: &mut App, read: ClipboardRead) {
 /// the trailing space is what lets the chip-aware Backspace erase the whole
 /// paste in one keystroke.
 fn insert_chip_at_cursor(app: &mut App, chip: &str) {
-    let byte_pos = app
-        .input
-        .char_indices()
-        .map(|(i, _)| i)
-        .nth(app.cursor_position)
-        .unwrap_or(app.input.len());
+    let byte_pos = app.cursor_position.min(app.input.len());
     let mut spliced = String::with_capacity(chip.len() + 1);
     spliced.push_str(chip);
     spliced.push(' ');
-    let extra_chars = spliced.chars().count();
+    let extra_len = spliced.len();
     app.input.insert_str(byte_pos, &spliced);
-    app.set_cursor(app.cursor_position + extra_chars);
+    app.set_cursor(byte_pos + extra_len);
 }
 
 pub(super) fn set_copy_feedback(app: &mut App, result: Result<CopyOutcome, String>) {

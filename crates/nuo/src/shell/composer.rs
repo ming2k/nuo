@@ -289,7 +289,8 @@ pub fn cursor_screen_pos(
     let mut cursor_line = wrapped.len().saturating_sub(1);
     let mut cursor_col = 0usize;
     for (i, wl) in wrapped.iter().enumerate() {
-        if byte_cursor <= wl.end_byte {
+        let is_last = i + 1 == wrapped.len();
+        if byte_cursor >= wl.start_byte && (byte_cursor < wl.end_byte || (is_last && byte_cursor <= wl.end_byte)) {
             cursor_line = i;
             let local_byte = byte_cursor.saturating_sub(wl.start_byte).min(wl.text.len());
             cursor_col = cursor_column(&wl.text, local_byte);

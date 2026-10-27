@@ -345,7 +345,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 app.adopt_caret_from_input_selection(SelectionEdge::Tail);
                 app.selection = SelectionState::None;
                 let byte = floor_grapheme_boundary(&app.input, cursor.byte_offset);
-                app.set_cursor(app.input[..byte].chars().count());
+                app.set_cursor(byte);
                 // Arm a fresh drag from the click point; a plain click (no
                 // drag) collapses to a zero-length range that paints nothing,
                 // exactly like the previous behaviour.
@@ -540,14 +540,14 @@ pub(super) fn handle_selection_end(app: &mut App) {
         && app.caret_owner() == CaretOwner::Composer
     {
         let byte = floor_grapheme_boundary(&app.input, head_byte);
-        app.set_cursor(app.input[..byte].chars().count());
+        app.set_cursor(byte);
     }
     if let SelectionState::Range { head, .. } = app.selection
         && head.message_idx == crate::shell::render::INPUT_MSG_IDX
         && app.caret_owner() == CaretOwner::Composer
     {
         let byte = floor_grapheme_boundary(&app.input, head.byte_offset);
-        app.set_cursor(app.input[..byte].chars().count());
+        app.set_cursor(byte);
     }
     // Middle-click-style whole-block select on the input selects the entire
     // buffer; the caret's hidden position is defined as the end (head).
@@ -556,7 +556,7 @@ pub(super) fn handle_selection_end(app: &mut App) {
         ..
     } = app.selection
     {
-        app.set_cursor(app.input.chars().count());
+        app.set_cursor(app.input.len());
     }
 }
 
@@ -571,7 +571,7 @@ pub(super) fn handle_select_block(app: &mut App, x: u16, y: u16) {
         // caret's position is defined as the buffer's end, so a following
         // ←/Backspace relays from there once the selection breaks.
         if mi == crate::shell::render::INPUT_MSG_IDX {
-            app.set_cursor(app.input.chars().count());
+            app.set_cursor(app.input.len());
         }
     }
 }

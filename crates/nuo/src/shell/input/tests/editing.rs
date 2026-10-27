@@ -1576,7 +1576,7 @@ fn delete_key_removes_full_grapheme_cluster() {
 fn horizontal_motion_skips_entire_zwj_grapheme() {
     let family = "👨‍👩‍👧‍👦";
     let mut input = format!("a{family}b");
-    let mut cursor = 1 + family.chars().count();
+    let mut cursor = 1 + family.len();
 
     assert_eq!(
         compose_key(KeyCode::Left, KeyModifiers::NONE, &mut input, &mut cursor),
@@ -1587,7 +1587,7 @@ fn horizontal_motion_skips_entire_zwj_grapheme() {
     compose_key(KeyCode::Right, KeyModifiers::NONE, &mut input, &mut cursor);
     assert_eq!(
         cursor,
-        1 + family.chars().count(),
+        1 + family.len(),
         "Right lands after the whole family emoji"
     );
 }
@@ -1596,7 +1596,7 @@ fn horizontal_motion_skips_entire_zwj_grapheme() {
 fn backspace_removes_entire_zwj_grapheme() {
     let family = "👨‍👩‍👧‍👦";
     let mut input = format!("a{family}b");
-    let mut cursor = 1 + family.chars().count();
+    let mut cursor = 1 + family.len();
 
     assert_eq!(
         compose_key(

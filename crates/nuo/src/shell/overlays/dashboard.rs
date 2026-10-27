@@ -170,6 +170,7 @@ pub struct DashboardProps<'a> {
     pub prompting: bool,
     pub prompt_create_new: bool,
     pub prompt_text: &'a str,
+    pub cursor_position: usize,
     pub current_session_id: &'a str,
     // The frame-level caret verdict: the inline prompt borrows the
     // composer buffer but owns the cursor through this scene's own footer band.
@@ -196,6 +197,7 @@ pub fn draw_dashboard(
         prompting,
         prompt_create_new,
         prompt_text,
+        cursor_position,
         current_session_id,
         show_caret,
         tab_bar,
@@ -342,6 +344,7 @@ pub fn draw_dashboard(
         prompting,
         prompt_create_new,
         prompt_text,
+        cursor_position,
         theme,
         show_caret,
     );
@@ -732,6 +735,7 @@ fn render_footer(
     prompting: bool,
     prompt_create_new: bool,
     prompt_text: &str,
+    cursor_position: usize,
     theme: &Theme,
     // The frame-level caret verdict: the Dashboard's inline prompt
     // borrows the composer buffer but owns the cursor through its own footer
@@ -793,10 +797,11 @@ fn render_footer(
         // and clamped to the band so a long task line never spills past the
         // right edge.
         if show_caret {
-            let lead = "   ".width() + label.width() + prompt_text.width();
+            let prefix_cols = "   ".width() + label.width();
+            let caret_col = super::common::caret_column(prompt_text, cursor_position) as usize;
             let cursor_x = rect
                 .x
-                .saturating_add(lead.min(u16::MAX as usize) as u16)
+                .saturating_add((prefix_cols + caret_col).min(u16::MAX as usize) as u16)
                 .min(rect.right().saturating_sub(1));
             frame.set_cursor_position((cursor_x, mid));
         }
@@ -1432,6 +1437,7 @@ mod tests {
                     prompting: false,
                     prompt_create_new: false,
                     prompt_text: "",
+                    cursor_position: 0,
                     current_session_id: "a-1",
                     show_caret: false,
                     tab_bar: Some(TabBarProps::default()),

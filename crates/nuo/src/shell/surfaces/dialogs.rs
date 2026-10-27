@@ -598,6 +598,7 @@ fn render_dialog(
                 frame,
                 crate::shell::overlays::command_palette::CommandPaletteProps {
                     query: &d.query.text,
+                    cursor_position: d.query.cursor,
                     entries: &entries,
                     selected_index: d.selected,
                     scroll: &mut d.scroll,

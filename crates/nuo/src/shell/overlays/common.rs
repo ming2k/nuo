@@ -78,7 +78,7 @@ pub fn truncate_ellipsis(s: &str, max: usize) -> String {
 /// primitive the composer uses, so both caret sites can never disagree with the
 /// grid's paint width.
 pub fn caret_column(display: &str, cursor_position: usize) -> u16 {
-    let byte = char_index_to_byte(display, cursor_position);
+    let byte = cursor_position.min(display.len());
     nuotc::cursor_column(display, byte).min(u16::MAX as usize) as u16
 }
 
@@ -98,7 +98,7 @@ pub fn field_viewport(display: &str, cursor_position: usize, width: usize) -> (u
     if total <= width {
         return (0, display.to_string());
     }
-    let caret_byte = char_index_to_byte(display, cursor_position);
+    let caret_byte = cursor_position.min(display.len());
     let caret_col = nuotc::cursor_column(display, caret_byte);
 
     let desired_offset = caret_col.saturating_sub(width * 3 / 4);
@@ -142,13 +142,6 @@ pub fn field_viewport(display: &str, cursor_position: usize, width: usize) -> (u
         used += grapheme_width;
     }
     (offset, text)
-}
-
-fn char_index_to_byte(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index.min(text.chars().count()))
-        .map(|(byte, _)| byte)
-        .unwrap_or(text.len())
 }
 
 /// Draw the unified provider editor Two fields — API key
@@ -310,18 +303,18 @@ mod tests {
     fn caret_column_floors_char_positions_inside_graphemes() {
         let combining = "e\u{301}x";
         assert_eq!(caret_column(combining, 1), 0);
-        assert_eq!(caret_column(combining, 2), 1);
+        assert_eq!(caret_column(combining, 3), 1);
 
         let family = "👨‍👩‍👧‍👦";
         assert_eq!(caret_column(family, 1), 0);
-        assert_eq!(caret_column(family, family.chars().count()), 2);
+        assert_eq!(caret_column(family, family.len()), 2);
     }
 
     #[test]
     fn field_viewport_never_splits_a_zwj_grapheme() {
         let family = "👨‍👩‍👧‍👦";
         let display = format!("abcd{family}xyz");
-        let cursor = format!("abcd{family}").chars().count();
+        let cursor = format!("abcd{family}").len();
         let (offset, visible) = field_viewport(&display, cursor, 4);
 
         assert_eq!(offset, 3);
@@ -332,8 +325,8 @@ mod tests {
     #[test]
     fn field_viewport_keeps_end_caret_inside_narrow_cjk_field() {
         let display = "abcd中文";
-        let (offset, visible) = field_viewport(display, display.chars().count(), 3);
-        let local_caret = caret_column(display, display.chars().count()) as usize - offset;
+        let (offset, visible) = field_viewport(display, display.len(), 3);
+        let local_caret = caret_column(display, display.len()) as usize - offset;
 
         assert_eq!(offset, 6);
         assert_eq!(visible, "文");
@@ -343,7 +336,7 @@ mod tests {
     #[test]
     fn field_viewport_preserves_combining_cluster_at_left_edge() {
         let display = "abcde\u{301}xyz";
-        let cursor = display.chars().count();
+        let cursor = display.len();
         let (_, visible) = field_viewport(display, cursor, 4);
         assert!(
             !visible.starts_with('\u{301}'),

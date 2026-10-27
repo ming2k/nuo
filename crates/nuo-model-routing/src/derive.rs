@@ -287,20 +287,19 @@ pub fn derive_channel(
             dialect: dialect.anthropic(),
         },
         WireProtocol::OpenAiResponses => {
-            // When a model from the DeepSeek family runs over Responses API on a
-            // multi-vendor relay (e.g. CommandCode), its wire envelope must speak
-            // the DeepSeek Responses dialect (no OpenAI-specific reasoning summary,
-            // no foreign encrypted reasoning content, plaintext CoT replay per ADR-0083).
-            let responses_dialect = if model.contains("deepseek") {
-                nuo_wire::OpenAiResponsesDialect::DeepSeek
-            } else {
-                dialect.openai_responses()
-            };
+            // The Responses dialect is a property of the *endpoint*, declared by
+            // the provider spec (`ProviderDialect`), and never inferred from the
+            // model id. A DeepSeek model served by an OpenAI-compatible relay
+            // (e.g. CommandCode's `/provider/v1`) speaks that relay's
+            // OpenAI-shaped surface, not DeepSeek's native one: deriving the
+            // dialect from the id emitted DeepSeek's nested tool definitions to
+            // a gateway whose schema expects the flattened OpenAI shape, which
+            // the server rejected with HTTP 400 (ADR-0113).
             Transport::OpenAiResponses {
                 base_url,
                 client_profile,
                 effort,
-                dialect: responses_dialect,
+                dialect: dialect.openai_responses(),
             }
         }
         WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
