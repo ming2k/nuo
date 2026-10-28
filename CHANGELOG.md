@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.54] - 2026-10-28
+
 ### Fixed
 
 - **Composer caret motion is a projection onto the painted row grid (Ctrl-J empty lines are caret-reachable).**
@@ -56,6 +58,52 @@ the project adheres to the federated SemVer model described in
     what rows exist by construction, and the three duplicated helpers
     (`parse_unstructured_shell_content`, `command_structured_lines`, `emit_command_lines_folded`) are
     deleted.
+
+### Changed
+
+- **Content residency and surface layer topology (ADR-0116).**
+  - **A seventh z tier for receipts**: the model is now `L0` transcript, `L1` chrome, `L2` per-surface
+    receipt log, `L3` dialog, `L4` toast, `L5` banner, `L6` sheet. `L2` is the tier that did not exist —
+    the correct home for diagnostics, connection/asset failures and retrieval receipts that the toast
+    contract forbids and dialogue cannot host.
+  - **The layer belongs to the surface, not the message**: `AgentNotice::surface`/`NoticeSurface` is
+    deleted from `nuo-tool`, `nuo-protocol` and `nuo-harness`. `nuo_view::model::layer` derives the layer
+    from the surface's declared capabilities by one exhaustive policy function, so a producer can no
+    longer select a destination at all.
+  - **The transcript is not a destination**: `ContentLayer` has no transcript variant, so the routing
+    function cannot route a notice into the conversation even by omission — the prohibition is the return
+    type, not a comment. This is the bug that put dialogs, configuration replies, connection failures and
+    receipts into scrollback: the retired field defaulted to `Inline`.
+  - **Degradation is a ladder, never a fallback to `L0`**: `log → banner → toast → absorbed`, so a client
+    without a log viewer shows a toast instead of scribbling in the conversation.
+- **Transcript admission purity (ADR-0117).**
+  - **One writer**: `ThreadDoc::append(ThreadFact)` is the only way content enters the thread document,
+    and it admits dialogue facts and turn anchors exclusively. There is no ambient `push` on the
+    transcript.
+  - **Exhaustive event classification**: `RoundEvent::class() -> EventClass`
+    (`Dialogue`/`TurnOutcome`/`Operation`/`Telemetry`/`Ephemera`) matches every variant with no wildcard
+    arm, so a new wire event fails the build until its class is chosen. The stream stays one ordered enum
+    because the interleaving is what positions an operation row among dialogue.
+  - **Operation rows come from the ledger**: slash-command results and configuration mutations are joined
+    into the rendering by timestamp, and the live path and the resume path share that one join.
+- **Dialog conversation sovereignty (ADR-0118).**
+  - **Ephemeral scratch by default**: a dialog conversation carries no `SessionStore` and no `FactSink`
+    and does not carry a thread's session id — the capability is absent from the type rather than
+    withheld by policy. Scratch is bounded by message count, because its lifetime is the dialog's.
+  - **Separate scope, or no persistence**: a dialog that needs durable recall gets its own
+    `dialog:<surface-id>` membership scope over `TranscriptEntry`, never a thread's, so it can never
+    appear in that thread's projection, search, export or model window.
+  - **No implicit promotion**: the only path from a dialog into a conversation is a user operation
+    recorded in the command ledger, appended through the thread's single writer with
+    `InjectionOrigin::Dialog` provenance.
+
+### Removed
+
+- `NoticeSurface` and `AgentNotice::with_surface`, superseded by surface-owned layer routing (ADR-0116).
+- The caret-taking composer layout contract: `calculate_composer_height` no longer takes a byte cursor and
+  `TranscriptProps` no longer carries one, so layout cannot depend on caret history.
+- The legacy `\n`-based caret walkers `cursor_line_up`/`cursor_line_down`, replaced by the row-grid
+  `CaretMotion` so no second caret model can reappear.
 
 ## [0.0.53] - 2026-10-27
 
