@@ -50,6 +50,10 @@ pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args
     let provider_usage = &mut *env.provider_usage;
     supersede_for_session_switch(lifecycle, agent, resp_tx).await;
     agent.clear_todos();
+    // `[INV-TAB-13]`: the rebase target is the session being *left*, captured
+    // before the reset repoints the store. Reading it afterwards would name the
+    // brand-new id and make the frame unaddressable.
+    let previous_id = session.id().await;
     match session.reset().await {
         Ok(id) => {
             agent.set_thread_id(&id);
@@ -80,6 +84,7 @@ pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args
                 RoundEvent::TodosUpdated(nuo_wire::TodoList::default()),
             ));
             let _ = resp_tx.send(AgentResponse::ConversationCleared {
+                previous_id,
                 session_id: session.id().await,
             });
             let _ = resp_tx.send(round_response(
@@ -179,6 +184,8 @@ pub(crate) async fn switch_or_start_session_with_role(
                     .await;
                     let transcript = session.full_transcript().await;
                     let _ = resp_tx.send(AgentResponse::ConversationReplaced {
+                        // `[INV-TAB-13]`: `active_id` was captured before the open.
+                        previous_id: active_id.clone(),
                         session_id: session.id().await,
                         messages: transcript,
                         commands: session.commands().await,
@@ -294,6 +301,9 @@ pub(crate) async fn start_fresh_session_with_role(
         agent.set_workspace_security(nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"));
     }
 
+    // `[INV-TAB-13]`: captured before the reset repoints the store (see
+    // `start_fresh_session`).
+    let previous_id = session.id().await;
     match session
         .reset_with(target_workspace.clone(), Some(role_id.to_string()))
         .await
@@ -335,6 +345,7 @@ pub(crate) async fn start_fresh_session_with_role(
                 RoundEvent::TodosUpdated(nuo_wire::TodoList::default()),
             ));
             let _ = resp_tx.send(AgentResponse::ConversationCleared {
+                previous_id,
                 session_id: session.id().await,
             });
             let _ = resp_tx.send(round_response(

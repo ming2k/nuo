@@ -536,6 +536,8 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                         .await;
                         let transcript = session.full_transcript().await;
                         let _ = resp_tx.send(AgentResponse::ConversationReplaced {
+                            // `[INV-TAB-13]`: the id being left addresses the tab.
+                            previous_id: current_id.clone(),
                             session_id: session.id().await,
                             messages: transcript,
                             commands: session.commands().await,

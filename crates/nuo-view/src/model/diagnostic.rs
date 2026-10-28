@@ -4,13 +4,13 @@
 //!
 //! A user who copies an error has exactly one follow-up: paste it somewhere
 //! else to have it read (a colleague, an issue tracker, a search box). The body
-//! text alone answers "what went wrong" but not "where, with which route, on
-//! which attempt, in which thread" — the facts a reader needs first, and the
+//! text alone answers "what went wrong" but not "where, with which route, in
+//! which thread" — the facts a reader needs first, and the
 //! facts that are on screen in *chrome* (the entry head, the model bar) rather
 //! than in the body. So a diagnostic copy is `header + "\n\n" + body`:
 //!
 //! ```text
-//! [nuo diagnostic] kind=notice severity=error topic=provider provider=openai model=gpt-5 at=2026-10-28T02:12:33Z thread=01HXYZ attempt=2/6
+//! [nuo diagnostic] kind=notice severity=error topic=error provider=openai model=gpt-5 at=2026-10-28T02:12:33Z thread=01HXYZ
 //!
 //! OpenAI HTTP 429 Too Many Requests: rate limit reached
 //! {
@@ -46,7 +46,6 @@ pub const HEADER: &str = "[nuo diagnostic]";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     Notice,
-    ProviderRetry,
     ToolStep,
     Reasoning,
     CommandResult,
@@ -58,7 +57,6 @@ impl EntryKind {
     pub fn as_str(self) -> &'static str {
         match self {
             EntryKind::Notice => "notice",
-            EntryKind::ProviderRetry => "provider-retry",
             EntryKind::ToolStep => "tool-step",
             EntryKind::Reasoning => "reasoning",
             EntryKind::CommandResult => "command",
@@ -87,8 +85,6 @@ pub struct DiagnosticRecord {
     pub topic: Option<String>,
     pub provider: Option<String>,
     pub model: Option<String>,
-    /// `(attempt, max_attempts)` for provider-retry entries.
-    pub attempt: Option<(usize, usize)>,
     /// When the entry was stamped, in Unix-epoch milliseconds.
     pub sent_at_ms: Option<u64>,
     /// Kind-specific facts, in header order (e.g. `tool=read_text exit=1`).
@@ -111,23 +107,7 @@ impl DiagnosticRecord {
         let mut extra: Vec<(&'static str, String)> = Vec::new();
         let severity = match &message.kind {
             MessageKind::Notice { severity, .. } => Some(*severity),
-            MessageKind::ProviderRetry { .. } => Some(NoticeSeverity::Warning),
             _ => None,
-        };
-        let attempt = match &message.kind {
-            MessageKind::ProviderRetry {
-                attempt,
-                max_attempts,
-                ..
-            } => Some((*attempt, *max_attempts)),
-            _ => message
-                .notice_parts()
-                .and_then(|parts| match parts.origin.as_ref() {
-                    Some(crate::model::document::NoticeOrigin::Provider { attempt, .. }) => {
-                        *attempt
-                    }
-                    _ => None,
-                }),
         };
         match &message.kind {
             MessageKind::ToolStep {
@@ -174,16 +154,9 @@ impl DiagnosticRecord {
         Some(Self {
             kind: entry_kind(&message.kind),
             severity,
-            topic: message
-                .notice_parts()
-                .and_then(|parts| parts.topic.clone())
-                .or_else(|| match &message.kind {
-                    MessageKind::ProviderRetry { .. } => Some("retry".to_string()),
-                    _ => None,
-                }),
+            topic: message.notice_parts().and_then(|parts| parts.topic.clone()),
             provider: message.provider.clone(),
             model: message.model.clone(),
-            attempt,
             sent_at_ms: message.sent_at_ms,
             extra,
             body,
@@ -205,9 +178,6 @@ impl DiagnosticRecord {
         }
         if let Some(model) = self.model.as_deref().filter(|m| !m.is_empty()) {
             parts.push(format!("model={}", quote(model)));
-        }
-        if let Some((attempt, max)) = self.attempt {
-            parts.push(format!("attempt={attempt}/{max}"));
         }
         if let Some(ms) = self.sent_at_ms {
             parts.push(format!("at={}", utc_timestamp(ms)));
@@ -233,7 +203,6 @@ impl DiagnosticRecord {
 fn entry_kind(kind: &MessageKind) -> EntryKind {
     match kind {
         MessageKind::Notice { .. } => EntryKind::Notice,
-        MessageKind::ProviderRetry { .. } => EntryKind::ProviderRetry,
         MessageKind::ToolStep { .. } => EntryKind::ToolStep,
         MessageKind::Reasoning { .. } => EntryKind::Reasoning,
         MessageKind::CommandResult { .. } => EntryKind::CommandResult,
@@ -308,27 +277,28 @@ mod tests {
     use crate::model::document::TranscriptMessage;
 
     #[test]
-    fn notice_header_carries_route_and_attempt_in_a_stable_order() {
-        let mut msg = TranscriptMessage::provider_retry(
-            2,
-            6,
-            std::time::Instant::now(),
-            "OpenAI HTTP 429 Too Many Requests: {\"error\":{\"code\":\"1305\"}}",
+    fn notice_header_carries_route_and_position_in_a_stable_order() {
+        let mut msg = TranscriptMessage::notice(
+            NoticeSeverity::Error,
+            "Google HTTP 503 Service Unavailable: No capacity available for model",
         );
-        msg.provider = Some("openai".into());
-        msg.model = Some("gpt-5".into());
+        msg.provider = Some("google".into());
+        msg.model = Some("gemini-3.8-flash-high".into());
         msg.sent_at_ms = Some(1_790_000_000_000);
 
-        let record = DiagnosticRecord::from_message(&msg).expect("retry entry has a body");
+        let record = DiagnosticRecord::from_message(&msg).expect("notice has a body");
         let header = record.header(&DiagnosticContext::default());
         assert!(
-            header.starts_with("[nuo diagnostic] kind=provider-retry severity=warning"),
+            header.starts_with("[nuo diagnostic] kind=notice severity=error"),
             "unexpected header: {header}"
         );
-        assert!(header.contains("provider=openai"));
-        assert!(header.contains("model=gpt-5"));
-        assert!(header.contains("attempt=2/6"));
+        assert!(header.contains("provider=google"));
+        assert!(header.contains("model=gemini-3.8-flash-high"));
         assert!(header.contains("at=2026-09-21T14:13:20Z"));
+        assert!(
+            !header.contains("attempt="),
+            "a transcript entry owns no live attempt count: {header}"
+        );
         assert_eq!(header.lines().count(), 1, "header must be one line");
     }
 

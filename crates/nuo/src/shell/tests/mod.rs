@@ -250,11 +250,12 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         surface_overrides: crate::shell::keymap::SurfaceOverrides::default(),
         focused_target: None,
         copy_toast_until: None,
-        receipts: crate::shell::app::receipts::ReceiptLog::default(),
         copy_toast_message: String::new(),
         copy_toast_failed: false,
         notice_toast_until: None,
         notice_toast_message: String::new(),
+        notice_toast_topic: String::new(),
+        notice_viewer: None,
         notice_toast_severity: NoticeSeverity::Info,
         dev_toast_pinned: false,
         ctrl_c_armed_until: None,
@@ -450,6 +451,7 @@ mod gesture_input;
 mod history_recall;
 mod input;
 mod modal;
+mod notices;
 mod pre_attach_gate;
 mod provider_routes;
 mod runtime_views;

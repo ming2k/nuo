@@ -73,7 +73,7 @@ pub fn copy_text(message: &TranscriptMessage) -> Option<String> {
         // Notices and retries carry their display text verbatim: `raw` *is* the
         // normalized body (`notice_text::display_text`), and the per-line
         // blocks are that same text split at its own newlines.
-        MessageKind::Notice { .. } | MessageKind::ProviderRetry { .. } => message.raw.clone(),
+        MessageKind::Notice { .. } => message.raw.clone(),
         MessageKind::CompactedCard { summary, .. } => {
             summary.clone().unwrap_or_else(|| message.raw.clone())
         }
@@ -88,7 +88,6 @@ impl InteractiveEntry for TranscriptMessage {
             MessageKind::ToolStep { .. }
             | MessageKind::Reasoning { .. }
             | MessageKind::CommandResult { .. }
-            | MessageKind::ProviderRetry { .. }
             | MessageKind::Notice { .. }
             | MessageKind::CompactedCard { .. } => true,
             MessageKind::Text => false,
@@ -100,12 +99,7 @@ impl InteractiveEntry for TranscriptMessage {
             MessageKind::ToolStep { .. } => Some(InteractiveTargetKind::ToolStep),
             MessageKind::Reasoning { .. } => Some(InteractiveTargetKind::Reasoning),
             MessageKind::CommandResult { .. } => Some(InteractiveTargetKind::CommandResult),
-            // A live provider retry renders as a notice entry (its own renderer
-            // is the notice renderer with a countdown), so it shares the notice
-            // target rather than inventing a peer kind.
-            MessageKind::ProviderRetry { .. } | MessageKind::Notice { .. } => {
-                Some(InteractiveTargetKind::Notice)
-            }
+            MessageKind::Notice { .. } => Some(InteractiveTargetKind::Notice),
             MessageKind::CompactedCard { .. } => Some(InteractiveTargetKind::CompactedCard),
             MessageKind::Text => None,
         }
@@ -120,7 +114,6 @@ impl InteractiveEntry for TranscriptMessage {
             MessageKind::ToolStep { expanded, .. }
             | MessageKind::Reasoning { expanded, .. }
             | MessageKind::CommandResult { expanded, .. }
-            | MessageKind::ProviderRetry { expanded, .. }
             | MessageKind::Notice { expanded, .. }
             | MessageKind::CompactedCard { expanded, .. } => Some(*expanded),
             MessageKind::Text => None,
@@ -172,11 +165,6 @@ impl InteractiveEntry for TranscriptMessage {
                 user_pinned,
                 ..
             }
-            | MessageKind::ProviderRetry {
-                expanded,
-                user_pinned,
-                ..
-            }
             | MessageKind::Notice {
                 expanded,
                 user_pinned,
@@ -223,11 +211,6 @@ impl InteractiveEntry for TranscriptMessage {
                 ..
             }
             | MessageKind::CommandResult {
-                expanded: cur,
-                user_pinned,
-                ..
-            }
-            | MessageKind::ProviderRetry {
                 expanded: cur,
                 user_pinned,
                 ..

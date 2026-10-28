@@ -1,9 +1,14 @@
-//! Transient chrome around the input box: the activity bar with an animated
-//! breathing-dot indicator, the completion menu anchored above the input, and
-//! the persistent model bar pinned below the input (context usage, stream
-//! rate, model identity).
+//! Transient chrome around the input box: the consolidated activity strip with
+//! an animated breathing-dot indicator, the completion menu anchored above the
+//! input, and the persistent model bar pinned below the input (context usage,
+//! stream rate, model identity).
+//!
+//! There is exactly one activity renderer. `activity_bar` was a second one that
+//! no live code path called — only its own tests — and it carried a *divergent*
+//! copy of the retry clause formatting (it re-derived `(N/M)` by splitting the
+//! rendered sentence on `"retry "`). Two renderers for one bar is how the
+//! clause grew a second vocabulary; it is deleted, not deprecated.
 
-pub mod activity_bar;
 pub mod activity_strip;
 pub mod common;
 pub mod completion_menu;
@@ -16,7 +21,6 @@ pub mod tasks_bar;
 mod tests;
 
 #[allow(unused_imports)]
-pub use activity_bar::{ActivityBarProps, draw_activity_bar};
 pub use activity_strip::{ActivityStripProps, draw_activity_strip};
 #[allow(unused_imports)]
 pub use common::{

@@ -113,13 +113,21 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.switching_session = None;
             true
         }
-        AppMutation::LiveSession(session_id) => {
-            app.live_session_id = session_id.clone();
-            if let Some(active_tab) = app.surfaces.active_tab_mut() {
-                if let crate::shell::surfaces::TabKind::Thread(ref mut id) = active_tab.kind {
-                    *id = session_id;
-                    active_tab.title = None;
-                }
+        AppMutation::LiveSession {
+            previous_id,
+            next_id,
+        } => {
+            app.live_session_id = next_id.clone();
+            // `[INV-TAB-13]`: address the tab by the session it is *leaving*.
+            // Rebasing "the active tab" is the ghost-tab generator — the active
+            // tab may already be a replacement that has nothing to do with this
+            // switch. No matching tab means this receipt is for a session the
+            // client no longer shows, so there is nothing to rebase.
+            if app.surfaces.rebase_thread_tab(&previous_id, &next_id) {
+                // Only the rebased tab loses its title: the new session has no
+                // authentic title yet (ADR-0050). Titles of untouched tabs are
+                // never collateral damage.
+                app.surfaces.clear_tab_title(&next_id);
             }
             true
         }
@@ -464,16 +472,19 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.backend_completion_signal = Some(signal);
             true
         }
-        AppMutation::NoticeToast { severity, text } => {
-            app.copy_toast_until = None;
-            // Retain the fault before showing it: the toast is transient by
-            // design, but a user who looked away must still be able to copy
-            // what it said (`app::receipts`).
-            app.receipts.record(severity, text.clone());
-            app.notice_toast_severity = severity;
-            app.notice_toast_message = text;
-            app.notice_toast_until =
-                Some(std::time::Instant::now() + std::time::Duration::from_millis(2600));
+        AppMutation::NoticeDisclosure {
+            severity,
+            topic,
+            text,
+            detail,
+            at_ms,
+        } => {
+            // Residency is decided here, once, for every producer: the notice
+            // is retained first (the log is the home), and only a fault
+            // additionally raises a bubble. A producer therefore cannot show a
+            // bubble without leaving a record — the defect that made a missed
+            // two-second toast unrecoverable.
+            app.record_notice_with_detail(severity, topic, text, detail, at_ms);
             true
         }
         AppMutation::Oauth(signal) => {
@@ -566,10 +577,6 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::HostConsole(line) => {
             app.host_console_log.push(line);
-            true
-        }
-        AppMutation::SurfaceLog { surface, line } => {
-            app.logs.push(surface, line);
             true
         }
     }
@@ -946,11 +953,15 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 }
             }
             TranscriptEdit::Interrupted { record } => {
+                // The interrupt used to *rewrite* the trailing provider-retry
+                // entry into a permanent notice here — a second responsibility
+                // hidden inside a variant named `Interrupted`, bypassing the
+                // `Append` admission gate and turning a transport payload into
+                // a conversation message. The retry owns no transcript row any
+                // more, so there is nothing to rewrite: the round-interrupt
+                // anchor below is the single record of the stop, and the last
+                // fault rides its one-line detail (the producer puts it there).
                 let at_ms = record.at_ms;
-                for m in messages.iter_mut().filter(|m| m.is_provider_retry()) {
-                    m.settle_interrupted_provider_retry();
-                    post = PostEdit::Invalidate(m.id);
-                }
                 if let Some(user_msg) = messages.iter_mut().rev().find(|m| {
                     m.role == Role::User
                         && (m.is_sending()
@@ -969,23 +980,16 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     user_msg.cancel_prompt();
                 }
             }
-            TranscriptEdit::RetainNotRetry => {
-                messages.retain(|m| !m.is_provider_retry());
-            }
-            TranscriptEdit::UpsertRetry {
-                attempt,
-                max_attempts,
-                retry_at,
-                failure,
-                fallback,
-            } => match messages.last_mut().filter(|m| m.is_provider_retry()) {
-                Some(last) => {
-                    last.update_provider_retry(attempt, max_attempts, retry_at, failure.clone());
-                    let id = last.id;
-                    post = PostEdit::Invalidate(id);
+            TranscriptEdit::RetrySettled { recovered } => {
+                // The round's retry episode is over. If it recovered, admit the
+                // anchor through the same gate as any other turn outcome; if
+                // not, there is nothing to say — the interrupt or error anchor
+                // already owns the record. Either way the live countdown is
+                // chrome and is retired by the phase write, not here.
+                if let Some(message) = recovered {
+                    messages.push(message);
                 }
-                None => messages.push(fallback),
-            },
+            }
             TranscriptEdit::Append { class, message } => {
                 // The single admission gate. A row whose class is not dialogue
                 // or turn structure is refused here rather than silently

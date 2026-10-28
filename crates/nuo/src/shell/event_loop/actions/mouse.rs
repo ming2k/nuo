@@ -288,6 +288,11 @@ pub(super) async fn handle_selection_start(
         Some(UiKey::Connection) => {
             super::open_active_connection_detail(app, runtime, viewed_session_id);
         }
+        Some(UiKey::NoticesBadge) => {
+            // The badge is the notice log's persistent entry point: clicking it
+            // opens the viewer, exactly as the chord it advertises does.
+            app.open_notice_viewer();
+        }
         Some(UiKey::Sticky) => {
             if let Some(mi) = app.sticky_step {
                 app.focused_target = app.focused_messages().get(mi).and_then(|message| {
@@ -431,9 +436,12 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                         // A failed launch is an operation receipt, not
                         // dialogue: it must not enter the conversation.
                         mutations.blocking_send(
-                            crate::shell::event_loop::AppMutation::NoticeToast {
+                            crate::shell::event_loop::AppMutation::NoticeDisclosure {
                                 severity: NoticeSeverity::Warning,
+                                topic: "link".to_string(),
                                 text: format!("Failed to open link {url_for_open}: {err}"),
+                                detail: None,
+                                at_ms: crate::shell::event_loop::now_epoch_ms(),
                             },
                         );
                     }

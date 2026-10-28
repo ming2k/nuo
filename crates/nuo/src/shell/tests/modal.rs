@@ -2353,10 +2353,11 @@ async fn thread_stats_slash_open_and_unbound_ctrl_o() {
         "OpenThreadStats (/stats) opens ThreadStats dialog"
     );
 
-    // Ctrl+O is no longer bound canonically to OpenThreadStats
+    // Ctrl+O is no longer bound canonically to OpenThreadStats — it now opens
+    // the notice viewer (ADR-0121), which is a different verb entirely.
     assert_eq!(
         crate::shell::keymap::resolve_global_key(crate::shell::keymap::Key::CTRL_O),
-        None
+        Some(crate::shell::keymap::CommandId::OpenNotices)
     );
 }
 
@@ -3798,4 +3799,154 @@ async fn models_dialog_query_edit_reanchors_cursor_to_top_match() {
     );
     assert_eq!(dlg.scroll, 0, "query edit must reset scroll to top");
     assert!(dlg.follow, "query edit must arm follow mode");
+}
+
+// ---------------------------------------------------------------------------
+// ADR-0123 — attach refusal typing, stale-tab retirement, identity-addressed
+// session rebasing.
+// ---------------------------------------------------------------------------
+
+/// `[INV-TAB-13]` — a session rebase must be addressed by the session being
+/// **left**, never by "the active tab".
+///
+/// This is the root-cause lock for the ghost-tab class. The reproduction is the
+/// real race: an empty thread is discarded (fire-and-forget `DeleteSession`)
+/// while the tab has *already* been replaced by the session the user picked. The
+/// server's reply names the discarded session; the replacement tab must be left
+/// alone.
+///
+/// Under the previous positional design this test fails: the replacement tab's
+/// id is overwritten with the reaper-bound replacement id, which leaves a tab
+/// whose session does not exist — the click that produced a fatal attach.
+#[test]
+fn conversation_cleared_does_not_rebase_a_replacement_tab() {
+    let mut app = crate::shell::tests::new_app_for_relay_tests();
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    let discarded = "discarded-empty-session";
+    let picked = "picked-session";
+    let minted = "minted-replacement";
+
+    // Step 1: the empty thread the user was on.
+    app.surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            discarded,
+            None::<String>,
+        ));
+    // Step 2: the picker swapped it synchronously (before the delete reply).
+    app.surfaces.replace_tab(
+        0,
+        crate::shell::surfaces::ClientTab::thread(picked, Some("Picked")),
+    );
+    app.surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            "other",
+            Some("Other"),
+        ));
+    app.surfaces.select_tab(1); // "other" is active: positional rebase would hit this
+
+    // Step 3: the delete reply lands, naming the session being left.
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::LiveSession {
+            previous_id: discarded.to_string(),
+            next_id: minted.to_string(),
+        },
+    );
+
+    // No tab represented `discarded` any more, so nothing may be rebased.
+    assert_eq!(
+        app.surfaces.tabs()[0].thread_id(),
+        Some(picked),
+        "the replacement tab must keep its identity"
+    );
+    assert_eq!(
+        app.surfaces.tabs()[1].thread_id(),
+        Some("other"),
+        "an unrelated active tab must not be rebased by position"
+    );
+    assert!(
+        !app.surfaces
+            .tabs()
+            .iter()
+            .any(|t| t.thread_id() == Some(minted)),
+        "no tab may be manufactured for a session that was never attached"
+    );
+    // The lookup fact still follows the server: the live session *did* move.
+    assert_eq!(app.live_session_id, minted);
+}
+
+/// `[INV-TAB-13]` — when the tab *does* represent the session being left, the
+/// rebase lands on exactly that tab and clears only its title.
+#[test]
+fn conversation_cleared_rebases_the_named_tab_only() {
+    let mut app = crate::shell::tests::new_app_for_relay_tests();
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    app.surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            "left-behind",
+            Some("Old Title"),
+        ));
+    app.surfaces
+        .open_tab(crate::shell::surfaces::ClientTab::thread(
+            "bystander",
+            Some("Keep Me"),
+        ));
+
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::LiveSession {
+            previous_id: "left-behind".to_string(),
+            next_id: "fresh".to_string(),
+        },
+    );
+
+    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some("fresh"));
+    assert_eq!(
+        app.surfaces.tabs()[0].title,
+        None,
+        "the rebased tab has no authentic title yet"
+    );
+    assert_eq!(app.surfaces.tabs()[1].thread_id(), Some("bystander"));
+    assert_eq!(
+        app.surfaces.tabs()[1].title.as_deref(),
+        Some("Keep Me"),
+        "an untouched tab's title must never be collateral damage"
+    );
+}
+
+/// `[INV-TAB-14]` — a tab is retired only on server-attested `session_gone`.
+///
+/// Suspension and idle teardown publish `SessionRemoved` while leaving the
+/// transcript durable, so liveness must never be inferred from a broadcast.
+/// This test pins the *absence* of that inference at the only place that may
+/// retire: the attach loop's retirement helper, which is keyed on the refusal
+/// code.
+#[test]
+fn stale_tab_retirement_is_keyed_on_the_gone_id_only() {
+    let mut tabs = Some(vec![
+        crate::shell::surfaces::ClientTab::thread("keep-a", Some("A")),
+        crate::shell::surfaces::ClientTab::thread("gone", Some("Gone")),
+        crate::shell::surfaces::ClientTab::thread("keep-b", Some("B")),
+    ]);
+
+    let retired = super::runner::retire_preserved_tab(&mut tabs, "gone");
+    assert!(retired);
+    let remaining: Vec<_> = tabs
+        .unwrap()
+        .iter()
+        .filter_map(|t| t.thread_id().map(str::to_string))
+        .collect();
+    assert_eq!(remaining, vec!["keep-a".to_string(), "keep-b".to_string()]);
+
+    // Idempotent: a second refusal for the same id is not an error.
+    let mut again = Some(vec![crate::shell::surfaces::ClientTab::thread(
+        "keep-a",
+        None::<String>,
+    )]);
+    assert!(!super::runner::retire_preserved_tab(&mut again, "gone"));
+    assert_eq!(again.unwrap().len(), 1);
 }

@@ -8,7 +8,7 @@
 //! selection could silently overwrite the clipboard with `""`, and a new
 //! entry kind had no copy behaviour until someone remembered to add an arm.
 //!
-//! [`CopyRequest`] is now the single vocabulary:
+//! `CopyRequest` is now the single vocabulary:
 //!
 //! - **`Selection`** — the drag/whole-block selection the user made, resolved
 //!   from the semantic document model (never from terminal-wrapped text).
@@ -17,9 +17,9 @@
 //!   one-line header naming route/attempt/timestamp/thread/log, a blank line,
 //!   then the same verbatim body.
 //!
-//! Everything resolves through [`CopyRequest::resolve`], which returns
-//! [`CopyPayload`] — owned text **plus the feedback sentence** — or
-//! [`CopyError`] when there is nothing to copy. Callers therefore cannot write
+//! Everything resolves through `CopyRequest::resolve`, which returns
+//! `CopyPayload` — owned text **plus the feedback sentence** — or
+//! `CopyError` when there is nothing to copy. Callers therefore cannot write
 //! an empty string to the clipboard, and the toast a user sees is derived from
 //! the same decision that produced the bytes.
 //!
@@ -27,7 +27,7 @@
 //!
 //! Resolution is pure: it reads `App` and returns a value. The write is an
 //! async, timeout-bounded, out-of-loop task
-//! ([`super::clipboard_ops::spawn_clipboard_copy`]). Keeping them separate is
+//! (`super::clipboard_ops::spawn_clipboard_copy`). Keeping them separate is
 //! what lets every rule above be unit-tested without a clipboard or a terminal.
 
 use nuo_view::model::diagnostic::{DiagnosticContext, DiagnosticRecord};
@@ -211,7 +211,6 @@ pub(crate) fn client_log_path_for_report() -> Option<String> {
 fn entry_noun(message: &TranscriptMessage) -> &'static str {
     match message.diagnostic().map(|record| record.kind) {
         Some(nuo_view::model::diagnostic::EntryKind::Notice) => "notice",
-        Some(nuo_view::model::diagnostic::EntryKind::ProviderRetry) => "retry notice",
         Some(nuo_view::model::diagnostic::EntryKind::ToolStep) => "step output",
         Some(nuo_view::model::diagnostic::EntryKind::Reasoning) => "thinking",
         Some(nuo_view::model::diagnostic::EntryKind::CommandResult) => "command result",
@@ -287,10 +286,8 @@ mod tests {
 
     #[test]
     fn a_diagnostic_payload_is_a_header_blank_line_then_the_same_body() {
-        let mut message = TranscriptMessage::provider_retry(
-            2,
-            6,
-            std::time::Instant::now(),
+        let mut message = TranscriptMessage::notice(
+            NoticeSeverity::Error,
             "OpenAI HTTP 429 Too Many Requests: {\"error\":{\"code\":\"1305\"}}",
         );
         message.provider = Some("openai".into());
@@ -301,10 +298,13 @@ mod tests {
             .resolve(&app, "01HXYZ")
             .expect("diagnostic copies");
         let (header, body) = payload.text.split_once("\n\n").expect("header/body");
-        assert!(header.starts_with("[nuo diagnostic] kind=provider-retry"));
-        assert!(header.contains("severity=warning"));
-        assert!(header.contains("attempt=2/6"));
+        assert!(header.starts_with("[nuo diagnostic] kind=notice"));
+        assert!(header.contains("severity=error"));
         assert!(header.contains("thread=01HXYZ"));
+        assert!(
+            !header.contains("attempt="),
+            "a transcript entry owns no live attempt count: {header}"
+        );
         assert_eq!(body, message.raw, "the body stays verbatim");
     }
 

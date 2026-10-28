@@ -218,7 +218,7 @@ fn paint_transcript(
                 scroll: 0,
                 selection,
                 cell_selection: None,
-                backoff_clause: None,
+                backoff: None,
                 activity: "",
                 awaiting_permission: false,
                 spinner_phase: 0,

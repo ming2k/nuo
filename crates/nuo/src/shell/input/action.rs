@@ -165,6 +165,25 @@ pub enum InputAction {
     /// or by clicking the persistent queue bar. Mirrors clicking the queue bar
     /// — the request is never forwarded, it only opens the overlay.
     OpenQueue,
+    /// Open the notice log viewer (`Ctrl-o`): every disclosure this client
+    /// surfaced, retained after its bubble faded. Reachable from every scene,
+    /// because a fault is a fact about the client rather than about the
+    /// conversation on screen.
+    OpenNotices,
+    /// Move the notice viewer's cursor by one retained notice.
+    NoticesSelect {
+        forward: bool,
+    },
+    /// Scroll the notice viewer's body by one page.
+    NoticesPage {
+        forward: bool,
+    },
+    /// Expand or collapse the notice viewer's selected row.
+    NoticesToggleDetail,
+    /// Forget every retained notice.
+    NoticesClear,
+    /// Copy the retained notices as one diagnostic block.
+    NoticesCopy,
     /// Open the permissions manager modal: a centered list of cached "always
     /// allow" rules with per-row revoke and clear-all. Reached via the
     /// `/permissions` slash command (intercepted locally, never sent to the

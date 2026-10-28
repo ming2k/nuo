@@ -765,6 +765,59 @@ impl SurfaceRouter {
         updated
     }
 
+    /// Rebase the thread tab representing `previous_id` onto `next_id`
+    /// (ADR-0123 `[INV-TAB-13]`).
+    ///
+    /// Returns whether a tab was rebased. Addressing by session identity is the
+    /// point: the caller cannot accidentally retarget a tab it did not name, and
+    /// a receipt for a session no longer on screen is a no-op instead of a
+    /// corruption. The MRU history is rebased alongside so "most recently used"
+    /// keeps naming a tab that still exists.
+    pub fn rebase_thread_tab(&mut self, previous_id: &str, next_id: &str) -> bool {
+        let Some(pos) = self
+            .tabs
+            .iter()
+            .position(|t| t.thread_id() == Some(previous_id))
+        else {
+            return false;
+        };
+        let old_kind = self.tabs[pos].kind.clone();
+        self.tabs[pos].kind = TabKind::Thread(next_id.to_string());
+        for entry in &mut self.tab_mru_history {
+            if entry == &old_kind {
+                *entry = TabKind::Thread(next_id.to_string());
+            }
+        }
+        true
+    }
+
+    /// Clear the authentic title of the thread tab representing `thread_id`.
+    ///
+    /// Separate from [`Self::rebase_thread_tab`] on purpose: the two are
+    /// independent facts, and folding them together is what let the old
+    /// positional rebase clear an unrelated tab's title.
+    pub fn clear_tab_title(&mut self, thread_id: &str) {
+        for tab in &mut self.tabs {
+            if tab.thread_id() == Some(thread_id) {
+                tab.title = None;
+            }
+        }
+    }
+
+    /// Remove the thread tab representing `thread_id`, for a session the server
+    /// proved no longer exists (ADR-0123 `[INV-ATTACH-02]`).
+    ///
+    /// Returns the removed tab. The MRU history entry is dropped with it so a
+    /// later close cannot resolve to a stale kind, and the active index is
+    /// repaired by the ordinary [`Self::close_tab`] selection rule.
+    pub fn retire_thread_tab(&mut self, thread_id: &str) -> Option<ClientTab> {
+        let pos = self
+            .tabs
+            .iter()
+            .position(|t| t.thread_id() == Some(thread_id))?;
+        self.close_tab(pos)
+    }
+
     /// Select tab by ordinal index.
     pub fn select_tab(&mut self, index: usize) -> bool {
         if index < self.tabs.len() {

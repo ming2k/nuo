@@ -172,11 +172,9 @@ fn compose_frame(
     // rate-limited upstream cannot paint a countdown onto the primary's bar.
     // Its lifetime is already over if the phase moved on — `set_phase` retires
     // it — so this needs no staleness check of its own.
-    let now = std::time::Instant::now();
-    let backoff_clause = viewed_chrome
-        .transport_setback
-        .as_ref()
-        .map(|setback| setback.summary(now));
+    // Passed as the typed state: the renderer owns the choice between the full
+    // and compact forms, and both come from this value.
+    let backoff = viewed_chrome.transport_setback.as_ref();
 
     // Compute the displayed input text first so the transcript layout can
     // reserve the right height for a wrapping, growing input box. Only the text
@@ -358,7 +356,7 @@ fn compose_frame(
                 selection: &app.selection,
                 cell_selection: app.drag.cell_info.as_ref(),
                 activity: &status,
-                backoff_clause: backoff_clause.as_deref(),
+                backoff,
                 // A pending permission request forces the activity bar on (and
                 // tints it warning) so it stays the visible anchor above the
                 // permission sheet even if the loop has gone idle.
@@ -515,6 +513,15 @@ fn compose_frame(
                     reasoning_effort: hint_reasoning,
                     context_tokens: app.context_tokens.map(|snapshot| snapshot.tokens),
                     context_window: app.active_model_context_window(),
+                    // Only *unread faults* light the badge: a retained
+                    // acknowledgement is readable but not news, and a badge
+                    // that fired for "copied to clipboard" would train the
+                    // user to ignore the one that matters.
+                    unread_faults: if app.has_unread_notice_fault() {
+                        app.unread_notices()
+                    } else {
+                        0
+                    },
                 },
                 &app.theme,
                 &app.key_overrides,
@@ -523,6 +530,7 @@ fn compose_frame(
         for (key, rect) in [
             (UiKey::Context, model_bar_rects.context),
             (UiKey::Connection, model_bar_rects.connection),
+            (UiKey::NoticesBadge, model_bar_rects.notices),
         ] {
             if let Some(rect) = rect {
                 ui.mount(key, rect);
@@ -892,7 +900,7 @@ fn compose_frame(
                         nuo_view::model::selection::SelectionState::None
                     ),
                     has_running_task: viewed_running,
-                    has_receipts: !app.receipts.is_empty(),
+                    has_notices: !!app.has_notices(),
                     has_focused_entry: app.focused_target.is_some(),
                     queue_count: app.pending_dispatch.len(),
                     has_session: app.has_session(),
@@ -1227,6 +1235,21 @@ fn compose_frame(
         ui.mount(UiKey::ProviderDelete, rect);
     }
 
+    // The notice viewer. Painted above every overlay so a fault raised while a
+    // dialog is up is still readable, and below the armed-confirmation bubbles
+    // so a safety prompt is never covered.
+    if app.notice_viewer.is_some() {
+        // Snapshot the lines so the viewer can be borrowed mutably for its
+        // scroll write-back while the log stays borrowed immutably.
+        let lines: Vec<nuo_view::model::log::SurfaceLine> =
+            app.notice_lines().iter().cloned().collect();
+        let theme = app.theme.clone();
+        if let Some(viewer) = app.notice_viewer.as_mut() {
+            let rect = render::draw_notice_viewer(f, &lines, viewer, &theme);
+            ui.mount(UiKey::Notices, rect);
+        }
+    }
+
     // Urgent confirmation toasts (Esc interrupt confirmation or Ctrl+C quit confirmation)
     // take precedence over informational toasts (copy, command acknowledgment)
     // so active safety prompts are never obscured.
@@ -1242,14 +1265,17 @@ fn compose_frame(
             &app.theme,
         );
     } else if app.notice_toast_until.is_some() {
-        // A toast-surfaced command acknowledgment (e.g.
-        // `/delegate on`). Rendered only when no higher-priority toast is
-        // showing, since they share the same top-right slot.
+        // A fault bubble, or a command acknowledgment. Rendered only when no
+        // higher-priority toast is showing, since they share the same top-right
+        // slot. The hint row names the viewer: a bubble is a pointer to the
+        // record, never the record itself.
+        let hint = app.notice_bubble_hint();
         render::draw_notice_toast(
             f,
             &app.notice_toast_message,
             app.notice_toast_severity,
             &app.theme,
+            hint.as_deref(),
         );
     }
 

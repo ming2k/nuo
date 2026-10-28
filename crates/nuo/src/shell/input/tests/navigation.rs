@@ -649,6 +649,7 @@ fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
 
     let armed = Dispatch {
         scene_namespace_armed: true,
+        notice_viewer_open: false,
         ..Default::default()
     };
     use crate::shell::keymap::{KeyCode as ChordCode, KeyModifiers as ChordMods};
@@ -750,6 +751,7 @@ fn scene_namespace_excised_strokes_cancel_safely() {
             &mut cursor,
             Dispatch {
                 scene_namespace_armed: true,
+                notice_viewer_open: false,
                 ..Default::default()
             },
             &ModalKeys::default(),
@@ -772,6 +774,7 @@ fn scene_namespace_s_opens_sessions() {
         &mut cursor,
         Dispatch {
             scene_namespace_armed: true,
+            notice_viewer_open: false,
             ..Default::default()
         },
         &ModalKeys::default(),
@@ -793,6 +796,7 @@ fn scene_namespace_d_navigates_to_dashboard() {
         &mut cursor,
         Dispatch {
             scene_namespace_armed: true,
+            notice_viewer_open: false,
             ..Default::default()
         },
         &ModalKeys::default(),
@@ -814,6 +818,7 @@ fn scene_namespace_comma_navigates_to_settings() {
         &mut cursor,
         Dispatch {
             scene_namespace_armed: true,
+            notice_viewer_open: false,
             ..Default::default()
         },
         &ModalKeys::default(),

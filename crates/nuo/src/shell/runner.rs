@@ -326,6 +326,31 @@ pub async fn run_dashboard(
     .await
 }
 
+/// Retire the preserved tab that represents `gone_id` (ADR-0123
+/// `[INV-ATTACH-02]`).
+///
+/// The server proved the session no longer exists, so a tab naming it can only
+/// ever produce a failing attach. Removing it *here* — before the tab list is
+/// carried into the next attachment — is what converts "click an old tab and the
+/// client dies" into "the stale tab is gone and the picker opens".
+///
+/// Liveness changes only on this server-attested refusal; it is never inferred
+/// from a broadcast (`[INV-TAB-14]`), because suspension and idle teardown
+/// publish the same removals while leaving the transcript durable.
+///
+/// Returns whether a tab was retired.
+pub(crate) fn retire_preserved_tab(
+    tabs: &mut Option<Vec<crate::shell::surfaces::ClientTab>>,
+    gone_id: &str,
+) -> bool {
+    let Some(tabs) = tabs.as_mut() else {
+        return false;
+    };
+    let before = tabs.len();
+    tabs.retain(|tab| tab.thread_id() != Some(gone_id));
+    tabs.len() != before
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_attached(
     session_id: Option<String>,
@@ -364,6 +389,10 @@ pub async fn run_attached(
     let mut startup_overlay_pending = initial_overlay;
     let mut preserved_tabs: Option<Vec<crate::shell::surfaces::ClientTab>> = None;
     let mut preserved_tab_history: Option<Vec<crate::shell::surfaces::TabKind>> = None;
+    // Disclosures produced *between* TUI runs — a retired stale tab, a session
+    // that could not be reopened (ADR-0123 `[INV-ATTACH-02]`). Handed to the next
+    // run so the notice log owns them instead of a lost stderr line.
+    let mut retire_notice: Option<(nuo_view::model::document::NoticeSeverity, String)> = None;
     let init_options = client::SessionInitOptions::new(unattended_at_start, confined_at_start)
         .with_role(role.clone())
         .with_resume(resume);
@@ -407,7 +436,56 @@ pub async fn run_attached(
         };
         fresh_pending = false;
         pick_pending = false;
-        let handshake = target_server.connect(action).await?;
+        // `[INV-ATTACH-02]`: a *recoverable* attach refusal must never terminate
+        // the client. Before this edge, every refusal — including the provably
+        // expected "this tab's session is gone" — propagated with `?` to `main`
+        // and the process exited, so clicking a stale tab killed the session the
+        // operator was actually working in.
+        let handshake = match target_server.connect(action).await {
+            Ok(handshake) => handshake,
+            // The server proved the session does not exist: retire the tab that
+            // names it and fall back to the picker. Liveness is settled by server
+            // attestation only (`[INV-TAB-14]`), never by a broadcast.
+            Err(error) if error.is_session_gone() => {
+                tracing::info!(
+                    code = ?error.code(),
+                    target = ?target,
+                    "attach refused: session no longer exists; retiring tab"
+                );
+                if let Some(gone) = target.take() {
+                    retire_preserved_tab(&mut preserved_tabs, &gone);
+                }
+                retire_notice = Some((
+                    nuo_view::model::document::NoticeSeverity::Warning,
+                    format!(
+                        "That tab's session no longer exists; it has been removed. ({})",
+                        error.message
+                    ),
+                ));
+                pick_pending = true;
+                continue;
+            }
+            // The session exists durably but could not be assembled: keep the tab
+            // — its history is real and a retry may work — and report the fault.
+            Err(error) if error.is_session_unresumable() => {
+                tracing::warn!(
+                    code = ?error.code(),
+                    target = ?target,
+                    "attach refused: session could not be assembled; tab retained"
+                );
+                target = None;
+                retire_notice = Some((
+                    nuo_view::model::document::NoticeSeverity::Error,
+                    format!("Could not reopen that tab's session: {}", error.message),
+                ));
+                pick_pending = true;
+                continue;
+            }
+            // No taxonomy: the server never authorized a recovery, so inventing
+            // one would be worse than failing. A genuine transport fault stays
+            // fatal.
+            Err(error) => return Err(error.into()),
+        };
         let (
             tx,
             rx,
@@ -517,6 +595,7 @@ pub async fn run_attached(
                 startup_overlay,
                 initial_tabs: preserved_tabs.take(),
                 initial_tab_history: preserved_tab_history.take(),
+                startup_notices: retire_notice.take().into_iter().collect(),
             },
             &mut input,
         )

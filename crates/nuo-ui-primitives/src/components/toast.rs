@@ -91,6 +91,13 @@ impl ToastKind {
 pub struct ToastBubble<'a> {
     pub message: &'a str,
     pub kind: ToastKind,
+    /// An optional trailing row that names the affordance this bubble is a
+    /// pointer to ("Ctrl-o · all notices").
+    ///
+    /// A bubble is an interruption, and an interruption that leads nowhere is
+    /// just a lost message. The hint is what turns "you had to be watching"
+    /// into "you can go and look".
+    pub hint: Option<&'a str>,
 }
 
 impl<'a> ToastBubble<'a> {
@@ -100,7 +107,7 @@ impl<'a> ToastBubble<'a> {
     }
 
     pub fn render_at_width(self, frame: &mut Frame, theme: &Theme, width: u16) {
-        draw_toast_bubble(frame, theme, self.message, self.kind, width);
+        draw_toast_bubble(frame, theme, self.message, self.kind, self.hint, width);
     }
 }
 
@@ -109,6 +116,7 @@ pub fn draw_toast_bubble(
     theme: &Theme,
     message: &str,
     kind: ToastKind,
+    hint: Option<&str>,
     width: u16,
 ) {
     let clean = message.trim();
@@ -130,6 +138,15 @@ pub fn draw_toast_bubble(
         .max(MIN_TOAST_WIDTH as usize);
 
     let text_budget = max_toast_w.saturating_sub(chrome_w).max(1);
+
+    // The hint row is reserved *before* the message is wrapped: an interruption
+    // whose escape hatch got truncated away is a dead end, so the message
+    // yields rows to the hint rather than the other way round.
+    let hint_rows = hint
+        .filter(|h| !h.trim().is_empty())
+        .map(|h| wrap_text(h.trim(), text_budget).len().max(1))
+        .unwrap_or(0);
+    let message_row_budget = MAX_TOAST_ROWS.saturating_sub(hint_rows).max(1);
 
     let logical_lines: Vec<&str> = clean.lines().collect();
     let is_multiline = logical_lines
@@ -157,7 +174,7 @@ pub fn draw_toast_bubble(
 
         let wrapped = wrap_text(trimmed, text_budget);
         for wl in wrapped {
-            if rendered_lines.len() >= MAX_TOAST_ROWS {
+            if rendered_lines.len() >= message_row_budget {
                 truncated = true;
                 break;
             }
@@ -181,9 +198,20 @@ pub fn draw_toast_bubble(
         last_text.push_str(ell);
     }
 
+    let hint_lines: Vec<String> = hint
+        .filter(|h| !h.trim().is_empty())
+        .map(|h| {
+            wrap_text(h.trim(), text_budget)
+                .into_iter()
+                .map(|w| w.text)
+                .collect()
+        })
+        .unwrap_or_default();
+
     let max_content_w = rendered_lines
         .iter()
         .map(|(text, _)| text.width())
+        .chain(hint_lines.iter().map(|text| text.width()))
         .max()
         .unwrap_or(0);
 
@@ -193,7 +221,7 @@ pub fn draw_toast_bubble(
     let x = width.saturating_sub(toast_width).saturating_sub(2).max(1);
 
     // Borderless pill height matches the content line count directly (compact zero border chrome)
-    let toast_height = (rendered_lines.len() as u16).min(frame.area().height);
+    let toast_height = ((rendered_lines.len() + hint_lines.len()) as u16).min(frame.area().height);
     let area = Rect::new(x, 1, toast_width, toast_height);
 
     // 1. Clear underlying cells to prevent background transcript bleed-through
@@ -220,7 +248,7 @@ pub fn draw_toast_bubble(
     };
 
     let indent_spaces = " ".repeat(icon_w + 4);
-    let lines: Vec<Line> = rendered_lines
+    let mut lines: Vec<Line> = rendered_lines
         .into_iter()
         .enumerate()
         .map(|(idx, (text, style))| {
@@ -241,6 +269,16 @@ pub fn draw_toast_bubble(
             }
         })
         .collect();
+
+    // The hint sits last, in the muted tone and past the icon gutter, so it
+    // reads as chrome (where to go) rather than as part of the message.
+    for text in hint_lines {
+        lines.push(Line::from(vec![
+            Span::styled(indent_spaces.clone(), apply_base(Style::default())),
+            Span::styled(text, apply_base(Style::default().fg(theme.muted()))),
+            Span::styled("  ", apply_base(Style::default())),
+        ]));
+    }
 
     let mut para = Paragraph::new(lines).block(block);
     frame.render_widget(&mut para, area);
@@ -264,7 +302,14 @@ mod tests {
         let theme = Theme::default();
         let mut terminal = TestTerminal::new(80, 10);
         terminal.draw(|f| {
-            draw_toast_bubble(f, &theme, "copied to clipboard", ToastKind::CopyOk, 80);
+            draw_toast_bubble(
+                f,
+                &theme,
+                "copied to clipboard",
+                ToastKind::CopyOk,
+                None,
+                80,
+            );
         });
 
         // y=0: outside toast
@@ -300,7 +345,7 @@ mod tests {
         let msg =
             "Some additional workspace roots could not be loaded\nSkipped roots: `../opencode`";
         terminal.draw(|f| {
-            draw_toast_bubble(f, &theme, msg, ToastKind::Armed, 80);
+            draw_toast_bubble(f, &theme, msg, ToastKind::Armed, None, 80);
         });
 
         // y=0: empty
@@ -343,7 +388,7 @@ mod tests {
         let mut terminal = TestTerminal::new(80, 10);
         let long_msg = "This is a very long notification message that definitely exceeds the text budget and must wrap cleanly across multiple lines without overflowing or getting cut off abruptly.";
         terminal.draw(|f| {
-            draw_toast_bubble(f, &theme, long_msg, ToastKind::Info, 80);
+            draw_toast_bubble(f, &theme, long_msg, ToastKind::Info, None, 80);
         });
 
         let row_1 = grid_row(&terminal, 1);
@@ -360,6 +405,37 @@ mod tests {
     }
 
     #[test]
+    fn a_hint_row_survives_even_when_the_message_must_be_truncated() {
+        // The failure mode this guards: a bubble long enough to fill the row
+        // budget used to consume it all, so an escape-hatch hint added at the
+        // end would be silently clipped — leaving the user an interruption with
+        // nowhere to go. The hint is reserved *first*, so the message yields.
+        let theme = Theme::default();
+        let mut terminal = TestTerminal::new(80, 12);
+        let long_msg = "Failed to open link https://example.test: permission denied by the operating system and several more clauses of detail that cannot possibly fit";
+        terminal.draw(|f| {
+            draw_toast_bubble(
+                f,
+                &theme,
+                long_msg,
+                ToastKind::Error,
+                Some("Ctrl-o · all notices"),
+                80,
+            );
+        });
+        let text: String = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect();
+        assert!(
+            text.contains("Ctrl-o · all notices"),
+            "the pointer to the record must never be the thing that is cut: {text}"
+        );
+    }
+
+    #[test]
     fn ascii_toast_renders_ascii_glyphs() {
         let theme = Theme {
             glyphs: nuotc::ASCII_GLYPHS,
@@ -367,7 +443,14 @@ mod tests {
         };
         let mut terminal = TestTerminal::new(80, 10);
         terminal.draw(|f| {
-            draw_toast_bubble(f, &theme, "copied to clipboard", ToastKind::CopyOk, 80);
+            draw_toast_bubble(
+                f,
+                &theme,
+                "copied to clipboard",
+                ToastKind::CopyOk,
+                None,
+                80,
+            );
         });
 
         let row_1 = grid_row(&terminal, 1);
@@ -420,7 +503,7 @@ mod tests {
         for (label, msg, kind) in cases {
             let mut term = TestTerminal::new(70, 5);
             term.draw(|f| {
-                draw_toast_bubble(f, &theme, msg, kind, 70);
+                draw_toast_bubble(f, &theme, msg, kind, None, 70);
             });
             println!("\n--- {label} ---");
             for y in 1..=3 {

@@ -8,6 +8,156 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Attach refusals are typed, stale tabs are retired, and session rebasing is
+  identity-addressed (ADR-0123).**
+  - **A tab can outlive its session; the client no longer dies for it.** The
+    expected outcome — "you clicked a tab whose session is gone" — used to
+    propagate a `?` from the attach handshake to `main`, so the whole client
+    (including the session you were actually working in) exited. The attach loop
+    now branches on the server's refusal code: `session_gone` retires the tab and
+    falls back to the picker, `session_unresumable` keeps the tab (its history is
+    real) and reports the fault, and only a refusal with *no* taxonomy — a
+    genuine transport fault the server never authorized a recovery for — stays
+    fatal `[INV-ATTACH-02]`.
+  - **The taxonomy survives every hop.** `ResolveOutcome` grew a `Refused { code }`
+    variant, `serve.rs` sends it through `send_error_with_code`, and the client
+    carries `AttachError { code, message }`. Previously `Wire::Error { message, .. }`
+    discarded the code with a `..` and the registry flattened three different
+    failures into one `String`, so the decision site had nothing to branch on but
+    prose `[INV-ATTACH-01]`.
+  - **`ERR_SESSION_GONE` / `ERR_SESSION_UNRESUMABLE` are implemented, not just
+    declared.** Both constants had documented the correct behaviour and had been
+    referenced by nothing; they are now re-exported from `nuo_wire` and load-bearing.
+  - **Ghost tabs are no longer manufactured.** `AppMutation::LiveSession` is now
+    `{ previous_id, next_id }` and rebases *the tab that represents the session
+    being left* — never "the active tab". The old positional rebase turned a
+    freshly-replaced tab into a pointer at a never-persisted session that the
+    idle reaper then reclaimed after five minutes, which is why the crash looked
+    intermittent and time-dependent `[INV-TAB-13]`. `ConversationCleared` and
+    `ConversationReplaced` both carry `previous_id` to make the address available.
+  - **Liveness is attested, never inferred.** A tab is retired only on a
+    server-proved `session_gone`; `MonitorEvent::SessionRemoved` is *not* an
+    oracle, because suspension and idle teardown publish it while leaving the
+    transcript durable `[INV-TAB-14]`.
+  - **The disposal is retained.** Retirement and un-resumable disclosures ride
+    `TuiLaunchConfig::startup_notices` into the next run's notice log
+    (`App::record_notice`), so "why did my tab disappear?" is answerable minutes
+    later instead of being a stderr line the alternate screen paints over.
+  - **Protocol break, no shim**: `ConversationCleared`/`ConversationReplaced` gain
+    a required `previous_id`, `PROTOCOL_VERSION` moves to 15 and
+    `MIN_PROTOCOL_VERSION` moves with it. A `#[serde(default)]` fallback would have
+    restored exactly the positional guess being deleted, converting a compile-time
+    incompatibility into a runtime corruption that only surfaces after the reap.
+
+- **A retained notice log, so a bubble can no longer take its message with it
+  (ADR-0121).**
+  - **The log is the home; the bubble is a pointer to it.** Every disclosure the
+    client surfaces — a routed `AgentNotice`, a failed clipboard write, a link
+    that could not be opened — is appended to the `L2` notice log
+    (`SurfaceId::NOTICES`) *before* any bubble is painted, and the applier owns
+    that decision in one place (`App::record_notice`). A producer can no longer
+    express "bubble without record", which is what made a message that vanished
+    before it was read unrecoverable `[INV-NOTICE-01]`.
+  - **Retention is unconditional; interruption is not.** A fault (`Warning` /
+    `Error`) raises a bubble that names the viewer in a hint row
+    (`Ctrl-o · all notices`); an acknowledgement (`Info`) is retained and bubbles
+    with no hint. `NoticeSeverity::is_fault` is the single predicate behind the
+    shape, the duration and the hint, so the three cannot drift.
+  - **The bubble's escape hatch cannot be truncated away.** The hint row is
+    reserved *before* the message wraps (`message_row_budget`), so a long backend
+    error yields rows to the pointer instead of clipping it `[INV-NOTICE-03]`.
+  - **Dwell time is derived from reading load, inside published bounds.** A
+    fault lives `clamp(6s + 400ms·words, 6s, 10s)` — above WCAG 2.2.1's 5s
+    perception threshold, below Material's 10s snackbar maximum — so a one-line
+    fault gets ~8s and a wrapped backend error gets the 10s ceiling. An
+    acknowledgement stays at Material's 4s default, below the threshold, because
+    it reports something the user just did `[INV-NOTICE-04]`.
+  - **A keystroke no longer defeats the dwell.** Typing dismisses an
+    acknowledgement but *not* a fault: the key that would clear it is usually the
+    key that means "I am moving on", and the fault has not been read yet. A fault
+    yields to `Esc` only when `Esc` has no other job (not with the viewer, an
+    overlay or a sheet open), so one press never destroys both the interruption
+    and the place it points at.
+  - **`Ctrl-o` / `/notices` / palette / badge-click opens the viewer**: newest at
+    the bottom, one row per notice with severity glyph, `HH:MM` stamp and topic
+    tag; `Enter` expands the full wrapped message; `y` copies the whole log as
+    one `[nuo diagnostic] kind=notices` block; `x` clears it.
+  - **The log is client-global, not a dialog.** `NoticeViewer` state lives on
+    `App` and the panel paints above every overlay, so a fault raised while a
+    dialog is up is still readable — and the log survives a scene or session
+    switch, because `DialogKind`'s session-scoped unwinder would discard it
+    exactly when the user switched tabs to go looking `[INV-NOTICE-02]`.
+  - **An unread-fault badge on the model bar.** `SurfaceLog` now carries its own
+    `unread` watermark (incremented on push, cleared by `mark_read`), so the
+    count survives re-layouts and a viewer that was never constructed. The badge
+    (`!N notices` + the chord) is a click target and counts *faults only* — a
+    badge that fired for "copied to clipboard" trains the user to ignore it.
+  - **Diagnostics stop degrading onto the time axis.** `layer_for` drops its
+    `ambient` parameter and the thread scene declares
+    `SurfaceCapabilities::SHELL { log: Some(NOTICES) }`, closing the last open
+    item of ADR-0116: a client can no longer be routed into a log its
+    capabilities never declared.
+
+### Changed
+
+- **`ReceiptLog` is retired, not deprecated.** Its eight-entry,
+  severity-filtered, timestamp-less window and its two duplicate `render`
+  paths are replaced by the shared `SurfaceLog` tier (`app::receipts` now holds
+  the typed vocabulary, not a second store), so "where does this content live?"
+  still has exactly one answer. `AppMutation::NoticeToast` and
+  `AppMutation::SurfaceLog` collapse into `AppMutation::NoticeDisclosure`.
+- **`Copy Recent Warnings and Errors` is now `Copy Recent Notices`** and copies
+  the retained log verbatim, including `Info` disclosures the old path dropped.
+
+- **A provider retry is chrome, not conversation (ADR-0122).**
+  - **One attempt vocabulary.** The count is `attempt/max_attempts`, composed in
+    exactly one function (`nuo_view::retry::RetryProgress`), and every consumer
+    reads it: the bar's clause, its compact form, the receipt-log line, the
+    recovered anchor and the exhausted-error phrasing. Before this, the bar
+    rendered `attempt-1/max_attempts-1` and a transcript row rendered
+    `attempt/max_attempts` from the *same* `RetryScheduled` event, so one
+    struggling request read as `retry 5/29` on the bar beside `retry 6/30` in the
+    scrollback. The constructor clamps, so `retry 0/0` is unrepresentable.
+  - **No transcript row while a retry is in flight.** `MessageKind::ProviderRetry`
+    is deleted. A live setback is chrome (`SessionChrome::transport_setback`,
+    retired by the next phase write) plus one notice-log receipt per scheduled
+    attempt carrying the route and the fault. A transcript entry that
+    re-rendered every second defeated the height cache and was not a record.
+  - **A transport payload no longer becomes a conversation message.** Interrupting
+    a backing-off round used to rewrite the retry entry in place into a permanent
+    notice whose detail was the pretty-printed HTTP envelope — the whole Google
+    `503 / MODEL_CAPACITY_EXHAUSTED` body, multi-line, in the scrollback, the
+    export and search. The interrupt anchor now carries the last fault as one
+    line; the full payload lives in the notice log and the client log file.
+  - **The hidden write is gone.** That rewrite was a second responsibility inside
+    `TranscriptEdit::Interrupted` — a variant whose name promised only a stop —
+    and it bypassed the `Append` admission gate because `UpsertRetry` carried no
+    `EventClass`. Both are replaced by `TranscriptEdit::RetrySettled`, and the
+    recovered round is admitted as a `TurnOutcome` anchor like every other
+    outcome (`[INV-RETRY-03]`).
+  - **Recovery is now reported.** The success side was previously retired outright
+    ("transient retries that recovered are implementation details") while the
+    failure side persisted a full body. A round that survived N faults now leaves
+    `Recovered after N provider retries (round R)` with the fault list as its
+    detail — the symmetric twin of a round interrupt.
+  - **`NoticeKind::ProviderRetry` is retired, not absorbed.** The harness
+    published `RetryScheduled` *and* a `Notice(ProviderRetry)` with the same facts
+    in prose; the router then discarded the notice. It is deleted, and its one
+    legitimate user — the "Completed tool call not repeated" receipt for a
+    replayed checkpointed call — becomes `NoticeKind::CheckpointReplay`, which
+    routes to the log where "why didn't that tool run?" is answerable later.
+    `NoticeOrigin::Provider` collapses to `System` (both its fields were dead),
+    and the diagnostic header stops emitting a live `attempt=` it can no longer
+    know.
+  - **Subagent setbacks get the same treatment.** `SubagentEvent::RetryScheduled`
+    / `RetryResolved` replace the child's `Notice` + `Activity("waiting to retry
+    (3s)")` pair, and the parent step holds one boxed `SubagentRetry` (live
+    progress *and* recovered faults in one type). The peek row's rank order is
+    explicit — parked human decision, then live setback, then derived activity —
+    and no renderer parses a count back out of a rendered sentence.
+
 ## [0.0.55] - 2026-10-28
 
 ### Added

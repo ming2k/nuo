@@ -425,6 +425,7 @@ fn resolve_enter(
             "/trace" => InputAction::OpenSessionTrace,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
+            "/notices" => InputAction::OpenNotices,
             "/port" | "/ports" | "/share" => InputAction::OpenPortPalette,
             "/exit" => InputAction::Quit,
             _ => InputAction::SendSlash(text),

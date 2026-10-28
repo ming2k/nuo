@@ -818,21 +818,21 @@ fn notice_from_core_preserves_the_topic_and_detail_split() {
     // model instead of being flattened to `raw` and re-parsed at render
     // time. `raw` still carries the flattened form for copy fidelity.
     let core = nuo_wire::AgentNotice::new(
-        nuo_wire::NoticeKind::ProviderRetry,
-        nuo_wire::NoticeSeverity::Error,
-        "Retrying provider request (2/3)",
+        nuo_wire::NoticeKind::CheckpointReplay,
+        nuo_wire::NoticeSeverity::Warning,
+        "Completed tool call not repeated",
         nuo_wire::NoticeSource::Harness,
     )
-    .with_body("Google HTTP 429 Too Many Requests: {\"error\":{\"code\":429}}");
+    .with_body("The retried model request repeated a tool call that already completed.");
 
     let msg = TranscriptMessage::notice_from_core(&core);
 
     let parts = msg.notice_parts().expect("core notices carry parts");
-    assert_eq!(parts.topic.as_deref(), Some("provider"));
-    assert_eq!(parts.title, "Retrying provider request (2/3)");
+    assert_eq!(parts.topic.as_deref(), Some("replay"));
+    assert_eq!(parts.title, "Completed tool call not repeated");
     assert_eq!(
         parts.detail.as_deref(),
-        Some("Google HTTP 429 Too Many Requests: {\"error\":{\"code\":429}}")
+        Some("The retried model request repeated a tool call that already completed.")
     );
     // Flattened fallback stays byte-identical to `render_text()`.
     assert_eq!(msg.raw, core.render_text());
@@ -848,7 +848,7 @@ fn notice_topic_labels_cover_the_contract_vocabulary() {
     // Every wire `NoticeKind` maps to a predictable user-facing topic label;
     // the match must not grow stale as the contract evolves.
     for (kind, label) in [
-        (nuo_wire::NoticeKind::ProviderRetry, "provider"),
+        (nuo_wire::NoticeKind::CheckpointReplay, "replay"),
         (nuo_wire::NoticeKind::NudgeInjected, "turn guard"),
         (nuo_wire::NoticeKind::ReviewAlert, "review"),
         (nuo_wire::NoticeKind::TrustChanged, "trust"),
@@ -880,18 +880,24 @@ fn user_message_origin_defaults_to_chat_and_can_be_overridden() {
 }
 
 #[test]
-fn provider_retry_settles_on_interruption() {
-    let retry_at = std::time::Instant::now() + std::time::Duration::from_secs(4);
-    let mut msg =
-        TranscriptMessage::provider_retry(2, 5, retry_at, "Anthropic HTTP 529: Overloaded");
-    assert!(msg.is_provider_retry());
-    let initial_rev = msg.rev;
+fn a_recovered_round_is_one_anchor_carrying_every_fault() {
+    // The only transcript row a provider retry ever produces, built from the
+    // **durable** record (`RetryResolution`) so the live and resumed paths
+    // render the same bytes. The live retry itself owns no row: it is chrome
+    // (`crate::retry`) plus a receipt-log line.
+    let record = nuo_wire::RetryResolution {
+        attempts: 2,
+        faults: vec![
+            "Google HTTP 503 Service Unavailable".to_string(),
+            "Google HTTP 429 Too Many Requests".to_string(),
+        ],
+        at_ms: 1_700_000_000_000,
+        round: Some(4),
+    };
+    let msg = TranscriptMessage::retry_recovered(&record);
 
-    msg.settle_interrupted_provider_retry();
-
-    assert!(!msg.is_provider_retry());
     assert!(msg.is_notice());
-    assert!(msg.rev > initial_rev);
+    assert_eq!(msg.sent_at_ms, Some(1_700_000_000_000));
 
     let MessageKind::Notice {
         severity,
@@ -901,51 +907,71 @@ fn provider_retry_settles_on_interruption() {
     else {
         panic!("expected Notice");
     };
-    assert_eq!(severity, NoticeSeverity::Warning);
+    assert_eq!(severity, NoticeSeverity::Info);
     let parts = parts.as_ref().expect("expected parts");
-    assert_eq!(parts.topic.as_deref(), Some("retry"));
-    assert_eq!(parts.title, "Provider request failed (attempt 2/5)");
+    assert_eq!(parts.topic.as_deref(), Some("recovered"));
+    assert_eq!(parts.title, "Recovered after 2 provider retries (round 4)");
     assert_eq!(
         parts.detail.as_deref(),
-        Some("Anthropic HTTP 529: Overloaded")
+        Some("Google HTTP 503 Service Unavailable\nGoogle HTTP 429 Too Many Requests"),
+        "every fault the round survived, oldest first"
     );
     assert_eq!(
         parts.origin,
-        Some(crate::model::document::NoticeOrigin::Provider {
-            provider_name: None,
-            attempt: Some((2, 5)),
+        Some(crate::model::document::NoticeOrigin::System {
+            topic: crate::model::document::SystemNoticeTopic::Recovered,
         })
     );
-    // The display text is the structured split rendered as text: the lead on
-    // its own line, then the normalized detail. One text for painting and
-    // copying — never a `title: detail` string splice that the renderer would
-    // have to split back apart.
+    // One text for painting and copying: the lead, then the detail.
     assert_eq!(
         msg.raw,
-        "Provider request failed (attempt 2/5)\nAnthropic HTTP 529: Overloaded"
+        "Recovered after 2 provider retries (round 4)\n\
+         Google HTTP 503 Service Unavailable\nGoogle HTTP 429 Too Many Requests"
     );
+}
+
+#[test]
+fn a_single_retry_reads_as_one_retry_not_one_retries() {
+    let record = nuo_wire::RetryResolution {
+        attempts: 1,
+        faults: vec!["HTTP 529".to_string()],
+        at_ms: 0,
+        round: None,
+    };
+    let msg = TranscriptMessage::retry_recovered(&record);
+    let parts = msg.notice_parts().expect("parts");
+    assert_eq!(parts.title, "Recovered after 1 provider retry");
+    assert_eq!(parts.detail.as_deref(), Some("HTTP 529"));
 }
 
 #[test]
 fn round_interrupt_creates_structured_notice() {
     use nuo_wire::{RoundInterrupt, RoundInterruptReason};
+    // The producer puts the last transport fault in `detail` — one line, never
+    // a pretty-printed payload (see the `RoundInterrupted` arm of the shell
+    // translator). The constructor renders whatever it is given, and splits it
+    // from the reason so the two halves stay addressable.
     let marker = TranscriptMessage::round_interrupted(RoundInterrupt {
         reason: RoundInterruptReason::User,
         round: Some(3),
         at_ms: 1_000,
-        detail: Some("draft text that must not be repeated".to_string()),
+        detail: Some("Google HTTP 503 Service Unavailable".to_string()),
     });
     assert!(marker.is_notice());
     assert!(marker.is_round_interrupt());
-    assert_eq!(marker.raw, "Round 3 — cancelled via [Esc Esc]");
+    assert_eq!(
+        marker.raw, "Round 3 — cancelled via [Esc Esc]\nGoogle HTTP 503 Service Unavailable",
+        "the reason names what happened, the detail names why"
+    );
     let MessageKind::Notice { ref parts, .. } = marker.kind else {
         panic!("must be notice");
     };
     let parts = parts.as_ref().expect("must have parts");
     assert_eq!(parts.topic.as_deref(), Some("interrupted"));
     assert_eq!(
-        parts.detail, None,
-        "interrupted draft must not duplicate into notice detail"
+        parts.detail.as_deref(),
+        Some("Google HTTP 503 Service Unavailable"),
+        "the fault is the detail, not a second title"
     );
     assert_eq!(
         parts.origin,

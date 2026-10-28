@@ -632,12 +632,19 @@ pub enum AgentResponse {
     /// Blank the visible transcript and zero the round counter: the harness
     /// switched to a brand-new empty session (`/new`, `/session new`). The
     /// previous session is untouched on disk — nothing was deleted.
-    /// `session_id` is the freshly minted id, mirroring
-    /// [`AgentResponse::ConversationReplaced`]'s post-switch id: attached
-    /// frontends track it so session-scoped state (the inline ↑/↓ prompt
-    /// recall, on-demand queries) follows the switch instead of lingering on
-    /// the retired session.
+    ///
+    /// **Both ids are required** (ADR-0123 `[INV-TAB-13]`). `previous_id` is the
+    /// session the store held *before* the reset; `session_id` is the freshly
+    /// minted one. A frontend rebases the tab that represents `previous_id` —
+    /// never "the active tab". Without `previous_id` a client cannot tell which
+    /// tab the switch belongs to, and a positional guess rewrites the wrong one
+    /// (the ghost-tab race this ADR closes). `session_id` is the post-switch id,
+    /// mirroring [`AgentResponse::ConversationReplaced`], so session-scoped state
+    /// (inline ↑/↓ prompt recall, on-demand queries) follows the switch.
     ConversationCleared {
+        /// The session being left. A tab carrying this id is the one to rebase.
+        previous_id: String,
+        /// The freshly minted session id.
         session_id: String,
     },
     /// Replace the visible transcript (dialogue messages) AND the command
@@ -649,6 +656,11 @@ pub enum AgentResponse {
     /// the post-switch id); attached frontends track it to keep on-demand
     /// queries (e.g. [`AgentRequest::QueryTokenUsage`]) session-correct.
     ConversationReplaced {
+        /// The session being left (ADR-0123 `[INV-TAB-13]`). Same contract as
+        /// [`AgentResponse::ConversationCleared::previous_id`]: a frontend rebases
+        /// the tab that represents the session it is *leaving*, never "the active
+        /// tab" — the two differ whenever a session switch raced the frame.
+        previous_id: String,
         session_id: String,
         messages: Vec<Message>,
         #[serde(default)]

@@ -24,6 +24,7 @@ pub mod model;
 pub mod notice;
 pub mod phase;
 pub mod providers;
+pub mod retry;
 pub mod text_layout;
 pub mod tools;
 pub mod trust_gate;

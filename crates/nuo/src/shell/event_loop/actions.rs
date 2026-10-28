@@ -1702,6 +1702,61 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::CtrlC => {
             return commands::handle_ctrl_c(app, viewed_session_id, copy_tx, copy_pending);
         }
+        input::InputAction::OpenNotices => {
+            // Ctrl-o / `/notices`: the notice log viewer. Opening marks the
+            // log read, so the badge stops claiming there is something unseen
+            // the moment the user is actually looking at it.
+            app.toggle_notice_viewer();
+        }
+        input::InputAction::NoticesSelect { forward } => {
+            let count = app.notice_count();
+            if let Some(viewer) = app.notice_viewer.as_mut() {
+                viewer.step(forward, count);
+            }
+        }
+        input::InputAction::NoticesPage { forward } => {
+            // One page is the panel's own body height, which its renderer wrote
+            // back this frame; the fallback keeps the verb usable on the very
+            // first keypress, before any paint has happened.
+            let page = app
+                .notice_viewer
+                .as_ref()
+                .map_or(1, |v| v.body_height.max(1)) as usize;
+            if let Some(viewer) = app.notice_viewer.as_mut() {
+                viewer.scroll = if forward {
+                    viewer.scroll.saturating_add(page)
+                } else {
+                    viewer.scroll.saturating_sub(page)
+                };
+                viewer.follow = false;
+            }
+        }
+        input::InputAction::NoticesToggleDetail => {
+            let count = app.notice_count();
+            if let Some(viewer) = app.notice_viewer.as_mut() {
+                viewer.toggle_detail(count);
+            }
+        }
+        input::InputAction::NoticesClear => {
+            app.clear_notices();
+        }
+        input::InputAction::NoticesCopy => match app.render_notices(Some(viewed_session_id)) {
+            Some(text) => {
+                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+                show_local_toast(
+                    app,
+                    "notices copied",
+                    false,
+                    std::time::Duration::from_millis(1500),
+                );
+            }
+            None => show_local_toast(
+                app,
+                "no notices retained yet",
+                true,
+                std::time::Duration::from_millis(1500),
+            ),
+        },
         input::InputAction::OpenQueue => {
             // F2 opens the queue overview — the full outbox list that
             // the persistent queue bar previews. The selection starts
@@ -1906,7 +1961,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     nuo_view::model::selection::SelectionState::None
                 ),
                 has_running_task: is_busy,
-                has_receipts: !app.receipts.is_empty(),
+                has_notices: !!app.has_notices(),
                 has_focused_entry: app.focused_target.is_some(),
                 queue_count: app.pending_dispatch.len(),
                 has_session: app.has_session(),
@@ -3048,7 +3103,8 @@ pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16, viewed_sessi
             | UiKey::ModelBar
             | UiKey::Context
             | UiKey::Performance
-            | UiKey::Connection,
+            | UiKey::Connection
+            | UiKey::NoticesBadge,
         ) => {
             scroll_tick(app, !up);
         }
@@ -3996,22 +4052,18 @@ async fn execute_command_by_id(
         }
         CommandId::CopyRecentDiagnostics => {
             // The escape hatch for everything that never had (or no longer has)
-            // a transcript row: transient toasts, failed local actions, the
+            // a transcript row: transient bubbles, failed local actions, the
             // "could not reach the backend" family. Rendered through the same
             // diagnostic shape so one paste carries the whole sequence.
-            let log_path = crate::shell::copy::client_log_path_for_report();
-            match app
-                .receipts
-                .render(Some(viewed_session_id), log_path.as_deref())
-            {
+            match app.render_notices(Some(viewed_session_id)) {
                 Some(text) => {
                     clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                    app.copy_toast_message = "recent warnings and errors copied".to_string();
+                    app.copy_toast_message = "notices copied".to_string();
                     app.copy_toast_failed = false;
                     app.copy_toast_until =
                         Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 }
-                None => clipboard_ops::show_copy_failure(app, "no recent warnings or errors"),
+                None => clipboard_ops::show_copy_failure(app, "no notices retained yet"),
             }
         }
         CommandId::CopyDiagnostic => {
@@ -4082,6 +4134,9 @@ async fn execute_command_by_id(
         }
         CommandId::NavigateSettings => {
             enter_scene(app, crate::shell::surfaces::SceneKind::Settings, runtime);
+        }
+        CommandId::OpenNotices => {
+            app.toggle_notice_viewer();
         }
         CommandId::OpenQueue => {
             enter_panel(

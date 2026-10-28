@@ -24,7 +24,18 @@ pub struct AgentNotice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NoticeKind {
-    ProviderRetry,
+    /// A retried model request replayed a tool call whose result is already
+    /// checkpointed, so the harness did not run it again. A **receipt**: it
+    /// explains a missing tool execution and belongs in a surface log, never in
+    /// the conversation.
+    ///
+    /// This value used to be `ProviderRetry`, which carried the live retry
+    /// countdown. That countdown is not a notice: it is chrome with its own wire
+    /// event (`nuo_wire::RoundEvent::RetryScheduled`) and its own typed state
+    /// machine (`nuo_view::retry`). Keeping a notice kind for it meant every
+    /// retry was published twice — once as a receipt the router absorbed and
+    /// once as a transcript row — and the two counted attempts differently.
+    CheckpointReplay,
     NudgeInjected,
     /// Generic "needs human attention" alert. Historically also carried
     /// workspace-trust notices; those moved to the first-class
@@ -48,8 +59,8 @@ pub enum NoticeKind {
     /// provider rejected an image-bearing request and the harness learned the
     /// route's limit.
     ///
-    /// Deliberately first-class rather than folded into
-    /// [`NoticeKind::ProviderRetry`]: this is not a transient fault to wait out
+    /// Deliberately first-class rather than folded into a transient-fault
+    /// channel: this is not a fault to wait out
     /// but a durable fact about the route, and the user's remedy differs
     /// (switch model, or set the `Vision` override in the model editor). The
     /// transcript keeps its images either way — only the request projection
@@ -143,6 +154,27 @@ pub enum SubagentEvent {
     },
     /// A status update from the subagent.
     Activity(String),
+    /// The subagent scheduled a retry after a transient provider fault.
+    ///
+    /// The child's retry is the parent's business for one reason: the parent
+    /// step is what the user is watching, so it must be able to say *why* the
+    /// subagent went quiet. It carries the same typed triple as
+    /// `nuo_wire::RoundEvent::RetryScheduled` (attempt pair, backoff, fault) so
+    /// the parent renders the child's setback from data instead of parsing the
+    /// `waiting to retry (3s)` string back out of [`Self::Activity`].
+    RetryScheduled {
+        attempt: usize,
+        max_attempts: usize,
+        delay_ms: u64,
+        message: String,
+    },
+    /// The subagent's retry loop recovered: the fault list rides here so the
+    /// parent can report what the child survived, exactly as the principal
+    /// round reports its own recovery.
+    RetryResolved {
+        attempts: usize,
+        faults: Vec<String>,
+    },
     /// The subagent's permission broker surfaced a write/execute tool call
     /// that needs a human decision. Full-duplex (ADR-0029): this carries the
     /// request *up* to the parent harness so the user can answer it; the
@@ -313,7 +345,7 @@ impl AgentNotice {
     /// source uniformly so frontends can branch on `kind == TrustChanged`
     /// (topic labels, filtering, re-surfacing on reconnect) without
     /// string-matching titles. Callers supply the detail body; the layer is
-    /// derived by [`nuo-view`](nuo_view::model::layer) from the surface
+    /// derived by `nuo-view`'s `model::layer` from the surface
     /// context, never chosen here.
     ///
     /// Makes this a first-class kind, revising stance that

@@ -176,17 +176,20 @@ pub(crate) enum TranscriptEdit {
     Interrupted { record: nuo_wire::RoundInterrupt },
     /// The newest user prompt is marked cancelled (transport-level retraction).
     CancelLastUserPrompt,
-    /// Evict every provider-retry disclosure row (`RetryResolved`,
-    /// round-completed housekeeping).
-    RetainNotRetry,
-    /// Update-in-place the trailing retry disclosure row, or append the
-    /// fallback disclosure message (RetryScheduled).
-    UpsertRetry {
-        attempt: usize,
-        max_attempts: usize,
-        retry_at: std::time::Instant,
-        failure: String,
-        fallback: TranscriptMessage,
+    /// Record the round's recovered-retry outcome as a turn anchor, then evict
+    /// any transient retry state.
+    ///
+    /// A provider retry owns **no transcript row while it runs** (see
+    /// `nuo_view::retry`): the live countdown is chrome and a receipt-log line.
+    /// What reaches the transcript is the settled *turn outcome*, and it arrives
+    /// through [`TranscriptEdit::Append`] with `EventClass::TurnOutcome` like
+    /// every other anchor. This variant therefore carries nothing but the
+    /// disposition: whether a recovery anchor should be minted at all.
+    RetrySettled {
+        /// `Some` when the round recovered after at least one retry: the
+        /// anchor to admit. `None` for a plain success (nothing to report) or a
+        /// round that never retried.
+        recovered: Option<TranscriptMessage>,
     },
     /// Append a fully-built message (assistant text, notices, projections).
     Append {
@@ -257,7 +260,21 @@ pub(crate) enum AppMutation {
     HarnessUnattended(bool),
     HarnessConfined(bool),
     ClearSwitchingSession,
-    LiveSession(String),
+    /// The live session moved (ADR-0123 `[INV-TAB-13]`).
+    ///
+    /// Identity-addressed: `previous_id` names the session being left, and only
+    /// a tab carrying that id is rebased. `next_id` is the freshly minted one.
+    ///
+    /// Addressing this by "the active tab" — the previous design — rewrote
+    /// whichever tab happened to be focused. When the discard of an empty thread
+    /// raced a synchronous tab replacement, the receipt landed on the *new*
+    /// tab and turned it into a ghost: a tab naming a never-persisted session
+    /// that the idle reaper then reclaimed, leaving a click that had no target.
+    /// With no tab holding `previous_id` the rebase is correctly a no-op.
+    LiveSession {
+        previous_id: String,
+        next_id: String,
+    },
     /// A fork landed (ADR-0058, ADR-0120). Carries the persisted fork point so
     /// the new tab is labelled with the address the branch actually diverged
     /// at, instead of a title the fork invented.
@@ -361,9 +378,25 @@ pub(crate) enum AppMutation {
     SessionTree(nuo_wire::SessionTree),
     SessionContext(nuo_wire::SessionContextSnapshot),
     CompletionSignal(CompletionSignal),
-    NoticeToast {
+    /// One disclosure the client surfaced: a routed notice, or a local fault
+    /// (a clipboard write that failed, a link that could not be opened).
+    ///
+    /// The applier owns the residency decision: **every** disclosure is
+    /// appended to the notice log, and only a fault additionally raises a
+    /// bubble (`app::receipts`). Producers therefore cannot forget the log —
+    /// there is no mutation that shows a bubble without recording it.
+    NoticeDisclosure {
         severity: NoticeSeverity,
+        /// The subsystem tag the viewer paints (`backend`, `copy`, `link`, …).
+        topic: String,
         text: String,
+        /// Optional structured detail the viewer's expanded row renders under
+        /// the summary (a retry receipt's full provider body, a diagnostic's
+        /// context). Without it a one-line summary is all that is retained, and
+        /// the payload a user actually needs to paste would be lost when the
+        /// transcript stopped carrying it.
+        detail: Option<String>,
+        at_ms: u64,
     },
     Oauth(OauthAddSignal),
     WebSearchConfig(Option<nuo_wire::WebSearchConfigView>),
@@ -389,13 +422,6 @@ pub(crate) enum AppMutation {
     /// A dashboard console receipt: appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::shell::overlays::ConsoleLine),
-    /// One line for a surface's receipt log (ADR-0116). The log tier is
-    /// addressable by surface id, so a receipt never needs the transcript as a
-    /// destination.
-    SurfaceLog {
-        surface: nuo_view::model::log::SurfaceId,
-        line: nuo_view::model::log::SurfaceLine,
-    },
 }
 
 /// The translator's end of the mutation channel.

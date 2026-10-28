@@ -47,9 +47,9 @@ pub use discovery::{
 };
 pub mod version;
 pub use version::{
-    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, VersionRelation, compare_versions,
-    incompatibility_error, protocol_accepts, protocol_mismatch, server_image_is_current,
-    version_mismatch, versions_compatible,
+    ERR_PROTOCOL_MISMATCH, ERR_SESSION_GONE, ERR_SESSION_UNRESUMABLE, ERR_VERSION_MISMATCH,
+    VersionRelation, compare_versions, incompatibility_error, protocol_accepts, protocol_mismatch,
+    server_image_is_current, version_mismatch, versions_compatible,
 };
 pub mod cache;
 pub use cache::{
@@ -307,9 +307,14 @@ pub mod policy_schema;
 pub use policy_schema::*;
 
 /// Current protocol version.
-pub const PROTOCOL_VERSION: u32 = 14;
+///
+/// 15: `ConversationCleared` carries `previous_id` (ADR-0123 `[INV-TAB-13]`).
+/// Session rebasing is identity-addressed, so a server that cannot state which
+/// session is being left cannot be served correctly — the frame change is not
+/// additive and the window floor moves with it.
+pub const PROTOCOL_VERSION: u32 = 15;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 12;
+pub const MIN_PROTOCOL_VERSION: u32 = 15;
 
 /// Initial options and postures when creating a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

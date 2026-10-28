@@ -8,23 +8,33 @@ fn activity_row_text(width: u16, status: &str, phase: usize) -> String {
     activity_row_text_with_clause(width, status, None, false, phase)
 }
 
+/// Paint the **live** activity renderer and return the row's text.
+///
+/// `draw_activity_strip` is the only activity renderer the shell calls; a
+/// second one (`draw_activity_bar`) existed with its own divergent copy of the
+/// retry-clause formatting and is deleted. These helpers therefore target the
+/// strip, so the assertions describe what a user actually sees.
 fn activity_row_text_with_clause(
     width: u16,
     status: &str,
-    backoff_clause: Option<&str>,
+    backoff: Option<&nuo_view::retry::RetryProgress>,
     awaiting: bool,
     phase: usize,
 ) -> String {
     let mut terminal = nuotc::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
-        draw_activity_bar(
+        draw_activity_strip(
             frame,
             Rect::new(0, 0, width, 1),
             None,
-            crate::shell::chrome::ActivityBarProps {
+            ActivityStripProps {
                 status,
-                backoff_clause,
+                backoff,
                 awaiting_permission: awaiting,
+                queued_count: 0,
+                queued_preview: None,
+                tasks_count: 0,
+                tasks_preview: None,
             },
             phase,
             &Theme::default(),
@@ -38,30 +48,24 @@ fn activity_row_text_with_clause(
         .collect::<String>()
 }
 
-/// Render the activity bar and collect the foreground color of each cell,
+/// Render the activity row and collect the foreground color of each cell,
 /// so a test can assert e.g. the permission state paints in the warning
 /// hue rather than the shimmer palette.
 fn activity_row_colors(width: u16, status: &str, awaiting: bool, phase: usize) -> Vec<Color> {
-    activity_row_colors_with_clause(width, status, None, awaiting, phase)
-}
-
-fn activity_row_colors_with_clause(
-    width: u16,
-    status: &str,
-    backoff_clause: Option<&str>,
-    awaiting: bool,
-    phase: usize,
-) -> Vec<Color> {
     let mut terminal = nuotc::TestTerminal::new(width, 1);
     terminal.draw(|frame| {
-        draw_activity_bar(
+        draw_activity_strip(
             frame,
             Rect::new(0, 0, width, 1),
             None,
-            crate::shell::chrome::ActivityBarProps {
+            ActivityStripProps {
                 status,
-                backoff_clause,
+                backoff: None,
                 awaiting_permission: awaiting,
+                queued_count: 0,
+                queued_preview: None,
+                tasks_count: 0,
+                tasks_preview: None,
             },
             phase,
             &Theme::default(),
@@ -76,14 +80,32 @@ fn activity_row_colors_with_clause(
 }
 
 #[test]
-fn activity_bar_preserves_interrupt_hint_at_minimum_width() {
-    let row = activity_row_text(
+fn activity_strip_keeps_the_interrupt_affordance_and_truncates_a_long_status() {
+    // At a narrow width the strip degrades the affordance from
+    // `Esc Esc interrupt` to the key pair alone — the hint must never vanish,
+    // because it is the only thing on the row that tells a stuck user how to
+    // stop the round. The status verb, being the least urgent fact, is what
+    // truncates.
+    let narrow = activity_row_text(
         36,
         "retrying a provider request after a very detailed transient failure",
         8,
     );
-    assert!(row.contains("Esc Esc interrupt"), "row was {row:?}");
-    assert!(row.contains('…'), "long status was not truncated: {row:?}");
+    assert!(
+        narrow.contains("Esc Esc"),
+        "the interrupt keys survive width pressure: {narrow:?}"
+    );
+    assert!(
+        narrow.contains('…'),
+        "a long status is truncated, not allowed to push the keys off: {narrow:?}"
+    );
+
+    // Given room, the affordance spells out what the keys do.
+    let wide = activity_row_text(100, "waiting for model", 0);
+    assert!(
+        wide.contains("Esc Esc interrupt"),
+        "the full affordance returns when it fits: {wide:?}"
+    );
 }
 
 #[test]
@@ -109,104 +131,40 @@ fn tilde_home_shortens_a_home_rooted_path() {
 #[test]
 fn backoff_clause_renders_beside_status_and_degrades_narrow() {
     // Root status label keeps the workflow story; the transport countdown is a
-    // separate, muted clause — never replacing the label.
-    let wide = activity_row_text_with_clause(
-        100,
-        "waiting for model",
-        Some("retry 2/8 (next in 4s)"),
-        false,
-        0,
+    // separate, warning-toned clause — never replacing the label. Both forms
+    // come from the same `RetryProgress`, so the count can never disagree
+    // between the wide and the narrow rendering.
+    let progress = nuo_view::retry::RetryProgress::scheduled(
+        2,
+        8,
+        std::time::Instant::now() + std::time::Duration::from_secs(4),
+        "HTTP 429",
     );
+
+    let wide = activity_row_text_with_clause(100, "waiting for model", Some(&progress), false, 0);
     assert!(wide.contains("waiting for model"), "{wide:?}");
-    assert!(wide.contains("retry 2/8 (next in 4s)"), "{wide:?}");
+    assert!(wide.contains("retry 2/8 (next in"), "{wide:?}");
 
     // Under width pressure the compact attempt counter survives and the
     // status label is still intact.
-    let narrow = activity_row_text_with_clause(
-        48,
-        "waiting for model",
-        Some("retry 2/8 (next in 4s)"),
-        false,
-        0,
-    );
+    let narrow = activity_row_text_with_clause(48, "waiting for model", Some(&progress), false, 0);
     assert!(narrow.contains("waiting for model"), "{narrow:?}");
     assert!(
         narrow.contains("(2/8)"),
         "compact form should drop the countdown tail and keep (2/8): {narrow:?}"
     );
+    assert!(
+        !narrow.contains("retry 2/8"),
+        "the wide form must not survive where it does not fit: {narrow:?}"
+    );
 
-    // No clause configured → no stray separators.
+    // No clause configured -> no stray separators.
     let plain = activity_row_text_with_clause(80, "answering", None, false, 0);
     assert!(plain.contains("answering"), "{plain:?}");
 }
 
 #[test]
-fn activity_bar_carries_no_todos_badge() {
-    // Decoupled: the activity bar is a pure liveness surface now and never
-    // embeds a `todos d/t` summary.
-    let mut terminal = nuotc::TestTerminal::new(80, 1);
-    terminal.draw(|frame| {
-        draw_activity_bar(
-            frame,
-            Rect::new(0, 0, 80, 1),
-            None,
-            ActivityBarProps {
-                status: "Working",
-                backoff_clause: None,
-                awaiting_permission: false,
-            },
-            0,
-            &Theme::default(),
-        );
-    });
-    let text = terminal
-        .buffer()
-        .cells()
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect::<String>();
-    assert!(!text.contains("todos"), "badge leaked onto bar: {text:?}");
-    assert!(!text.contains("Ctrl-t"), "hint leaked onto bar: {text:?}");
-}
-
-#[test]
-fn narrow_runtime_row_keeps_interrupt_keys_without_todos_badge() {
-    let mut terminal = nuotc::TestTerminal::new(36, 1);
-    terminal.draw(|frame| {
-        draw_activity_bar(
-            frame,
-            Rect::new(0, 0, 36, 1),
-            None,
-            ActivityBarProps {
-                status: "retrying a provider request after a detailed transient failure",
-                backoff_clause: None,
-                awaiting_permission: false,
-            },
-            8,
-            &Theme::default(),
-        );
-    });
-    let text = terminal
-        .buffer()
-        .cells()
-        .iter()
-        .map(|cell| cell.symbol.as_str())
-        .collect::<String>();
-    assert!(text.contains("Esc Esc"), "row was {text:?}");
-    // The activity row does not carry a todos summary.
-    assert!(!text.contains("todos"), "badge leaked: {text:?}");
-    // Session-state flags live on the hint bar; the activity row never
-    // carries them, even when they would fit.
-    assert!(!text.contains("autopilot"), "row was {text:?}");
-}
-
-/// A pending permission request paints the status label in a steady warning
-/// hue rather than the ordinary shimmer palette, so the bar reads as a
-/// distinct attention state ("the round is paused on your decision") above
-/// the permission sheet. The warning hue must actually appear on the label
-/// cells, distinguishing it from the brand-colored shimmer.
-#[test]
-fn activity_bar_paints_awaiting_permission_in_warning_hue() {
+fn activity_strip_paints_awaiting_permission_in_warning_hue() {
     let theme = Theme::default();
     let awaiting = activity_row_colors(80, "awaiting permission", true, 4);
     let normal = activity_row_colors(80, "working", false, 4);
@@ -254,7 +212,7 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
             None,
             ActivityStripProps {
                 status: "responding",
-                backoff_clause: None,
+                backoff: None,
                 awaiting_permission: false,
                 queued_count: 2,
                 queued_preview: Some("Check edge cases"),
@@ -287,6 +245,68 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
 }
 
 #[test]
+fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
+    // The clause is fully phrased by its single owner
+    // (`nuo_view::retry::RetryProgress::label`), so the strip paints it as-is.
+    // The regression this pins: the strip used to wrap the clause in `(...)`,
+    // which was correct when the clause was a bare `2/8 (next in 4s)` fragment
+    // and became `((retry 6/30 (next in 8s)))` once the vocabulary moved to one
+    // owner. A renderer must never re-author a phrase it does not own.
+    let theme = Theme::default();
+    let now = std::time::Instant::now();
+    let progress = nuo_view::retry::RetryProgress::scheduled(
+        6,
+        30,
+        now + std::time::Duration::from_secs(8),
+        "Google HTTP 503 Service Unavailable",
+    );
+
+    let mut terminal = nuotc::TestTerminal::new(120, 1);
+    terminal.draw(|f| {
+        draw_activity_strip(
+            f,
+            f.area(),
+            None,
+            ActivityStripProps {
+                status: "waiting for model",
+                backoff: Some(&progress),
+                awaiting_permission: false,
+                queued_count: 0,
+                queued_preview: None,
+                tasks_count: 0,
+                tasks_preview: None,
+            },
+            0,
+            &theme,
+        );
+    });
+    let text: String = terminal
+        .buffer()
+        .cells()
+        .iter()
+        .map(|c| c.symbol.as_str())
+        .collect();
+
+    assert!(
+        text.contains("waiting for model"),
+        "the workflow label keeps its own slot: {text:?}"
+    );
+    assert!(
+        text.contains("retry 6/30 (next in"),
+        "the clause is the typed vocabulary verbatim: {text:?}"
+    );
+    assert!(
+        !text.contains("(("),
+        "the clause must not be re-wrapped by the renderer: {text:?}"
+    );
+    assert_eq!(
+        text.matches("retry ").count(),
+        1,
+        "one clause, one rendering: {text:?}"
+    );
+}
+
+#[test]
 fn activity_strip_renders_idle_queued_preview() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 1);
@@ -297,7 +317,7 @@ fn activity_strip_renders_idle_queued_preview() {
             None,
             ActivityStripProps {
                 status: "",
-                backoff_clause: None,
+                backoff: None,
                 awaiting_permission: false,
                 queued_count: 1,
                 queued_preview: Some("Check edge cases"),
@@ -334,7 +354,7 @@ fn activity_strip_returns_none_when_all_idle() {
             None,
             ActivityStripProps {
                 status: "",
-                backoff_clause: None,
+                backoff: None,
                 awaiting_permission: false,
                 queued_count: 0,
                 queued_preview: None,

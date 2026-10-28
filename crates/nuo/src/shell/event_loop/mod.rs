@@ -587,6 +587,22 @@ pub(crate) async fn run_app_loop(
     }
 }
 
+/// Whether `event` is an explicit "I have seen this" for a fault bubble.
+///
+/// `Esc` and its aliases only. The check is deliberately *narrow* and does not
+/// consume the gesture: the same `Esc` still reaches the router, so the first
+/// press of a two-press interrupt chord dismisses the bubble **and** arms the
+/// chord, which is what the user meant by pressing it.
+fn dismisses_notice_bubble(event: &Event) -> bool {
+    let Event::Key(key) = event else {
+        return false;
+    };
+    if key.kind == crossterm::event::KeyEventKind::Release {
+        return false;
+    }
+    matches!(key.code, crossterm::event::KeyCode::Esc)
+}
+
 #[allow(clippy::too_many_arguments)] // Keeps event-loop resources borrowed without a second state bundle.
 async fn process_one_event<W: io::Write>(
     event: &Event,
@@ -608,13 +624,35 @@ async fn process_one_event<W: io::Write>(
         }
     }
 
+    // A keystroke dismisses an *acknowledgement* bubble and nothing else.
+    //
+    // Typing is how a user resumes work, so an ack — which only reports the
+    // outcome of the action they just took — must not linger over the composer.
+    // A *fault* bubble is different: the keystroke that would dismiss it is
+    // often the very keystroke that says "I am moving on", and the fault has not
+    // been read yet. Killing it on any key would silently defeat the whole dwell
+    // budget (`fault_dwell_ms`): a fault would then live only as long as the
+    // user happened to sit still, which is precisely the "it vanished before I
+    // looked up" complaint.
+    //
+    // A fault therefore yields to `Esc` **only when `Esc` has no other job**.
+    // With the notice viewer open, `Esc` closes the panel — and dismissing the
+    // bubble on the same press would make one keystroke destroy both the
+    // interruption and the place it points at. The same reasoning covers an open
+    // overlay or sheet, where `Esc` means "back out of this".
     if let Event::Key(_) | Event::Paste(_) = event
         && !app.dev_toast_pinned
     {
-        if app.copy_toast_until.is_some() {
-            app.copy_toast_until = None;
-        }
-        if app.notice_toast_until.is_some() {
+        app.copy_toast_until = None;
+        if app.notice_toast_severity.is_fault() {
+            if dismisses_notice_bubble(event)
+                && app.notice_viewer.is_none()
+                && app.surfaces.active_overlay().is_none()
+                && app.surfaces.active_sheet().is_none()
+            {
+                app.notice_toast_until = None;
+            }
+        } else if app.notice_toast_until.is_some() {
             app.notice_toast_until = None;
         }
     }
@@ -828,6 +866,7 @@ async fn process_one_event<W: io::Write>(
                 )
             ),
             scene_namespace_armed: app.scene_namespace_armed,
+            notice_viewer_open: app.notice_viewer.is_some(),
         };
         let modal_keys = crate::shell::modal_keys::ModalKeys {
             model_searching,

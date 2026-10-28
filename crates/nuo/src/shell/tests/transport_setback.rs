@@ -22,12 +22,12 @@ use super::*;
 use crate::shell::event_loop::UiRuntime;
 
 fn setback(attempt: usize, max_attempts: usize) -> crate::shell::app::ProviderRetryState {
-    crate::shell::app::ProviderRetryState {
+    crate::shell::app::ProviderRetryState::scheduled(
         attempt,
         max_attempts,
-        retry_at: std::time::Instant::now() + std::time::Duration::from_secs(4),
-        failure: "Anthropic HTTP 529: Overloaded".to_string(),
-    }
+        std::time::Instant::now() + std::time::Duration::from_secs(4),
+        "Anthropic HTTP 529: Overloaded",
+    )
 }
 
 /// The producer half of `RoundEvent::RetryScheduled` in the response
@@ -102,8 +102,8 @@ fn the_transport_wait_phase_hosts_the_clause() {
         .as_ref()
         .expect("the clause is live while the phase waits on the model");
     assert_eq!(
-        clause.summary(std::time::Instant::now()),
-        "retry 1/15 (next in 4.0s)"
+        clause.label(std::time::Instant::now()),
+        "retry 2/16 (next in 4.0s)"
     );
     assert!(app.has_live_transport_setback());
 }
@@ -118,7 +118,7 @@ fn a_second_retry_replaces_the_clause_and_keeps_it_alive() {
 
     let viewed = app.viewed_chrome();
     let clause = viewed.transport_setback.expect("still backing off");
-    assert_eq!(clause.attempt, 3, "the newest setback wins");
+    assert_eq!(clause.attempt(), 3, "the newest setback wins");
     assert_eq!(viewed.phase, Some(nuo_view::phase::Phase::AwaitingModel));
 }
 
@@ -288,5 +288,120 @@ fn a_background_thread_phase_progress_retires_its_own_clause() {
     assert!(
         !app.has_live_transport_setback(),
         "the thread's stream started, so its setback is over"
+    );
+}
+
+/// The full lifecycle, driven through the exact mutation sequence the response
+/// translator emits for `RetryScheduled` → … → `RoundCompleted`.
+///
+/// This is the test the old design could not have: the same retry state is read
+/// by three surfaces (bar clause, receipt line, recovered anchor), and the point
+/// is that they agree. Under the old design the bar and the transcript entry
+/// counted the same event differently (`attempt-1` vs `attempt`), so an
+/// assertion like this one had no single expected value.
+#[test]
+fn one_retry_episode_feeds_the_clause_and_the_recovered_anchor_from_one_state() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    let now = std::time::Instant::now();
+
+    // Attempt 1 fails, attempt 2 is scheduled: one typed state, advanced twice.
+    let first = crate::shell::app::ProviderRetryState::scheduled(
+        2,
+        5,
+        now + std::time::Duration::from_secs(1),
+        "Google HTTP 503 Service Unavailable",
+    );
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SetProviderRetry(first),
+    );
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SetPhase(Some(
+            nuo_view::phase::Phase::AwaitingModel,
+        )),
+    );
+
+    let clause = app
+        .viewed_chrome()
+        .transport_setback
+        .expect("backing off")
+        .label(now);
+    assert!(
+        clause.starts_with("retry 2/5 "),
+        "the bar states the attempt pair: {clause}"
+    );
+
+    // Attempt 2 fails too; attempt 3 is scheduled. The fault list accumulates.
+    let progress = app
+        .viewed_chrome()
+        .transport_setback
+        .clone()
+        .expect("backing off")
+        .with_next_attempt(
+            3,
+            5,
+            now + std::time::Duration::from_secs(2),
+            "Google HTTP 429 Too Many Requests",
+        );
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SetProviderRetry(progress.clone()),
+    );
+    assert_eq!(
+        app.viewed_chrome()
+            .transport_setback
+            .as_ref()
+            .map(|p| p.attempt()),
+        Some(3)
+    );
+
+    // Attempt 3 succeeds: `RoundCompleted` mints the anchor from *that same*
+    // state, so the count and the fault list cannot differ between the surfaces.
+    let record = nuo_wire::RetryResolution {
+        attempts: progress.retries() as u32,
+        faults: progress.faults().to_vec(),
+        at_ms: 1_000,
+        round: Some(2),
+    };
+    let anchor = nuo_view::model::document::TranscriptMessage::retry_recovered(&record);
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::Transcript {
+            edit: crate::shell::event_loop::TranscriptEdit::RetrySettled {
+                recovered: Some(anchor),
+            },
+        },
+    );
+
+    // The round is over, so the clause is retired by the phase write.
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SetPhase(None),
+    );
+    assert!(
+        !app.has_live_transport_setback(),
+        "a completed round leaves no countdown on the bar"
+    );
+
+    // And the transcript holds exactly one anchor, whose title agrees with the
+    // clause the user was watching.
+    assert_eq!(app.messages.len(), 1);
+    let parts = app.messages[0].notice_parts().expect("anchor has parts");
+    assert_eq!(parts.topic.as_deref(), Some("recovered"));
+    assert_eq!(parts.title, "Recovered after 2 provider retries (round 2)");
+    assert_eq!(
+        parts.detail.as_deref(),
+        Some("Google HTTP 503 Service Unavailable\nGoogle HTTP 429 Too Many Requests")
+    );
+    assert!(
+        !app.messages[0].raw.contains('{'),
+        "no transport payload reaches the conversation"
     );
 }

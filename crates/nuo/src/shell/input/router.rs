@@ -49,6 +49,11 @@ pub struct Dispatch {
     /// Whether the `Ctrl+X` scene namespace is armed, awaiting its second
     /// stroke.
     pub scene_namespace_armed: bool,
+    /// Whether the notice log viewer is open. The viewer is not an
+    /// `OverlaySurface` (its content is client-global, so it is not a
+    /// session-scoped dialog), which means the router has to be told about it
+    /// explicitly or its keys would fall through to the transcript.
+    pub notice_viewer_open: bool,
 }
 
 /// Classify one terminal event into the keyboard family resolved by the
@@ -305,6 +310,42 @@ pub fn route_event_motion(
                 return InputAction::SetSceneNamespaceArmed(true);
             }
 
+            // The notice viewer owns its keys while it is open. It is painted
+            // above every overlay and is not an `OverlaySurface`, so without
+            // this arm its arrow keys would scroll the transcript behind it.
+            if dispatch.notice_viewer_open {
+                return match physical_key {
+                    crate::shell::keymap::Key::ESC => InputAction::CloseModal,
+                    crate::shell::keymap::Key::CTRL_O => InputAction::OpenNotices,
+                    crate::shell::keymap::Key::UP => InputAction::NoticesSelect { forward: false },
+                    crate::shell::keymap::Key::DOWN => InputAction::NoticesSelect { forward: true },
+                    crate::shell::keymap::Key::ENTER => InputAction::NoticesToggleDetail,
+                    crate::shell::keymap::Key::PAGE_UP => {
+                        InputAction::NoticesPage { forward: false }
+                    }
+                    crate::shell::keymap::Key::PAGE_DOWN => {
+                        InputAction::NoticesPage { forward: true }
+                    }
+                    key => {
+                        // `x` clears the log; `y` copies it. Plain letters, so
+                        // they are matched by character rather than chord.
+                        match key.code {
+                            crate::shell::keymap::KeyCode::Char('x')
+                                if key.modifiers.is_empty() =>
+                            {
+                                InputAction::NoticesClear
+                            }
+                            crate::shell::keymap::KeyCode::Char('y')
+                                if key.modifiers.is_empty() =>
+                            {
+                                InputAction::NoticesCopy
+                            }
+                            _ => InputAction::None,
+                        }
+                    }
+                };
+            }
+
             // Stage 5: Global Hard-Bound Shortcuts
             // Alt+1..9 tab jump (ADR-0040 [INV-KEY-01])
             // Alt+[ / Alt+] symmetric tab navigation history (ADR-0092 [INV-NAV-03])
@@ -359,6 +400,15 @@ pub fn route_event_motion(
                         // visible behind a modal, so behind one the chord falls
                         // through to whatever the modal claims.
                         return InputAction::OpenQueue;
+                    }
+                    crate::shell::keymap::CommandId::OpenNotices => {
+                        // Ctrl+o works from every context, including behind a
+                        // modal: a fault recorded while a dialog is up is
+                        // exactly the case the user needs to review, and the
+                        // viewer paints above the dialog rather than replacing
+                        // it. A text field that claims printable keys is not
+                        // affected — this is a Ctrl chord, not a character.
+                        return InputAction::OpenNotices;
                     }
                     crate::shell::keymap::CommandId::InterruptTask => {
                         return InputAction::Interrupt;
@@ -1049,7 +1099,7 @@ pub fn resolve_block(layout_map: &LayoutMap, x: u16, y: u16) -> Option<(usize, u
 /// Route one event with a caller-owned caret-motion memory.
 ///
 /// The routed key resolution reaches the scene resolvers through
-/// [`crate::shell::session::resolve_scene_key`], which owns the caret's vertical
+/// `crate::shell::session::resolve_scene_key`, which owns the caret's vertical
 /// memory today; this entry point exists so the thread surface can pass its
 /// persistent [`crate::shell::composer_grid::CaretMotion`] without threading a
 /// second resolution path, and so modal fields (which have no memory) share one

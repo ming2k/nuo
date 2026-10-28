@@ -862,6 +862,15 @@ impl App {
 
     /// Pop the deepest sub-layer of a view or dialog.
     pub(crate) fn pop_sublayer(&mut self) -> bool {
+        // The notice viewer paints above every overlay, so it is the deepest
+        // layer from the user's point of view: `Esc` must close it before it
+        // reaches a dialog that happens to be open beneath. Without this arm the
+        // gesture would dismiss the dialog *behind* the panel, which looks like
+        // the key did nothing (ADR-0121 `[INV-NOTICE-02]`).
+        if self.notice_viewer.is_some() {
+            self.close_notice_viewer();
+            return true;
+        }
         if self.surfaces.active_sheet().is_some() {
             return false;
         }

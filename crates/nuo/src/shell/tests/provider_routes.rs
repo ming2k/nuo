@@ -7,25 +7,30 @@
 use super::*;
 
 #[test]
-fn provider_retry_state_formats_summary_and_timing() {
+fn provider_retry_state_formats_the_attempt_pair_and_timing() {
+    // The clause the bar paints. The count is `attempt/max_attempts` — the pair
+    // the harness announced and the recovered anchor reports. It used to be
+    // `attempt-1/max_attempts-1` here and `attempt/max_attempts` in the
+    // transcript, so one scheduled retry read as `5/29` beside `6/30`.
     let now = std::time::Instant::now();
-    let state = crate::shell::app::ProviderRetryState {
-        attempt: 2,
-        max_attempts: 16,
-        retry_at: now + std::time::Duration::from_millis(6_600),
-        failure: "HTTP 429: rate limited".to_string(),
-    };
-    let summary = state.summary(now);
-    assert_eq!(summary, "retry 1/15 (next in 6.6s)");
+    let state = crate::shell::app::ProviderRetryState::scheduled(
+        2,
+        16,
+        now + std::time::Duration::from_millis(6_600),
+        "HTTP 429: rate limited",
+    );
+    assert_eq!(state.label(now), "retry 2/16 (next in 6.6s)");
+    assert_eq!(state.retries(), 1, "one retry consumed so far");
+    assert_eq!(state.faults(), ["HTTP 429: rate limited"]);
 
-    let running_state = crate::shell::app::ProviderRetryState {
-        attempt: 4,
-        max_attempts: 16,
-        retry_at: now - std::time::Duration::from_millis(1_200),
-        failure: "HTTP 503: overloaded".to_string(),
-    };
-    let running_summary = running_state.summary(now);
-    assert_eq!(running_summary, "retry 3/15 (running for 1.2s)");
+    let running = crate::shell::app::ProviderRetryState::scheduled(
+        4,
+        16,
+        now - std::time::Duration::from_millis(1_200),
+        "HTTP 503: overloaded",
+    );
+    assert_eq!(running.label(now), "retry 4/16 (running for 1.2s)");
+    assert_eq!(running.retries(), 3);
 }
 
 #[test]
@@ -1115,20 +1120,35 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
             .refreshing
     );
 
-    // When NoticeToast arrives, local copy toast is cleared so server notice is visible
+    // When a disclosure arrives, the local copy toast yields the single bubble
+    // slot so the server's notice is visible.
+    let notices_before = app.notice_count();
     app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::NoticeToast {
+        crate::shell::event_loop::AppMutation::NoticeDisclosure {
             severity: nuo_view::model::document::NoticeSeverity::Info,
+            topic: "models".to_string(),
             text: "Model list refreshed (up to date)".to_string(),
+            detail: None,
+            at_ms: 1_700_000_000_000,
         },
     );
     assert!(app.copy_toast_until.is_none());
     assert_eq!(
         app.notice_toast_message,
         "Model list refreshed (up to date)"
+    );
+    assert_eq!(
+        app.notice_count(),
+        notices_before + 1,
+        "the acknowledgement is retained even though it is only a bubble"
+    );
+    assert_eq!(
+        app.notice_lines().back().map(|l| l.label.as_deref()),
+        Some(Some("models")),
+        "and it keeps the topic the viewer paints"
     );
 }
 
@@ -1279,6 +1299,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
             transcript_focused: app.transcript_focused,
             scene_blocked: false,
             scene_namespace_armed: false,
+            notice_viewer_open: false,
         },
         &crate::shell::modal_keys::ModalKeys {
             custom_provider_field: Some(app.custom_field),

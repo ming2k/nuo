@@ -1426,8 +1426,10 @@ async fn handle_wire_stream(
                 .map_err(|e| format!("send pick: {e}"))?;
             return Ok(());
         }
-        crate::registry::ResolveOutcome::Error(message) => {
-            send_error(&mut wire_sink, &message).await?;
+        crate::registry::ResolveOutcome::Refused { message, code } => {
+            // `[INV-ATTACH-01]`: the taxonomy must survive the wire. A code-less
+            // send here is what forced clients to sniff prose (ADR-0123).
+            send_error_with_code(&mut wire_sink, &message, code).await?;
             return Ok(());
         }
     };

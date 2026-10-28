@@ -14,11 +14,16 @@
 //!
 //! # Chrome is not document
 //!
-//! The entry head (severity glyph, topic label, timestamp, and a live retry's
-//! countdown) is registered as the entry's **sentinel** region: a click there
-//! focuses/activates the entry, and none of its volatile metadata can leak into
-//! a paste. That split is what lets a retry entry show a countdown without its
-//! copy payload changing every second.
+//! The entry head (severity glyph, topic label, timestamp) is registered as the
+//! entry's **sentinel** region: a click there focuses/activates the entry, and
+//! none of its metadata can leak into a paste.
+//!
+//! A notice carries no live state at all. A provider retry's countdown used to
+//! be painted here as a status label, which made a transcript row re-render
+//! every second — a record that ticks is not a record. That countdown is now
+//! chrome on the activity bar (`nuo_view::retry`), and what reaches this
+//! component is either a settled diagnostic or a turn-outcome anchor.
+
 use nuotc::{Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
@@ -40,7 +45,6 @@ impl<'a> NoticeProps<'a> {
     pub fn severity(&self) -> Option<NoticeSeverity> {
         match &self.message.kind {
             MessageKind::Notice { severity, .. } => Some(*severity),
-            MessageKind::ProviderRetry { .. } => Some(NoticeSeverity::Warning),
             _ => None,
         }
     }
@@ -54,50 +58,24 @@ impl<'a> NoticeProps<'a> {
 
     /// The subsystem label painted in the entry head.
     fn topic(&self) -> &'a str {
-        if self.message.is_provider_retry() {
-            return "retry";
-        }
         self.parts()
             .and_then(|parts| parts.topic.as_deref())
             .unwrap_or("notification")
     }
 
-    /// The right-aligned chrome label: the wall-clock time, and for a live
-    /// retry the attempt counter plus the countdown.
+    /// The right-aligned chrome label: the wall-clock time the notice was
+    /// stamped.
     ///
-    /// Volatile state lives *here* rather than in the body precisely so the
-    /// copy payload cannot go stale.
+    /// A notice is a settled record, so this is the *only* volatile-adjacent
+    /// fact it carries and it is frozen at construction. It used to also render
+    /// a live retry countdown; that countdown is chrome with its own typed state
+    /// (`nuo_view::retry`) and lives on the activity bar, because a transcript
+    /// entry that re-renders every second is not a record.
     fn status_label(&self) -> Option<String> {
-        let time = self
-            .message
+        self.message
             .sent_at_ms
-            .map(nuo_ui_primitives::time::sent_time_label);
-        let retry = match &self.message.kind {
-            MessageKind::ProviderRetry {
-                attempt,
-                max_attempts,
-                retry_at,
-                ..
-            } => Some(retry_status(*attempt, *max_attempts, *retry_at)),
-            _ => None,
-        };
-        match (time, retry) {
-            (Some(time), Some(retry)) => Some(format!("{time} · {retry}")),
-            (Some(time), None) => Some(time),
-            (None, retry) => retry,
-        }
+            .map(nuo_ui_primitives::time::sent_time_label)
     }
-}
-
-/// `retry 2/6 in 5s` — the live half of a retry entry's chrome.
-fn retry_status(attempt: usize, max_attempts: usize, retry_at: std::time::Instant) -> String {
-    let now = std::time::Instant::now();
-    let mut label = format!("retry {attempt}/{max_attempts}");
-    if now < retry_at {
-        let secs = (retry_at - now).as_secs_f32().ceil() as u64;
-        label.push_str(&format!(" in {secs}s"));
-    }
-    label
 }
 
 #[allow(clippy::too_many_arguments)]

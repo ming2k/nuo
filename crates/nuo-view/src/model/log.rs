@@ -45,15 +45,34 @@ impl SurfaceId {
     pub const THREAD: Self = Self("thread");
     /// The dashboard cockpit console.
     pub const DASHBOARD: Self = Self("dashboard");
+    /// The client's own notice log: every disclosure the shell surfaced,
+    /// retained after its bubble fades.
+    ///
+    /// Client-global rather than thread-scoped on purpose. A fault ("could not
+    /// reach the backend", "clipboard write timed out") is a fact about *this
+    /// client process*, not about the conversation on screen, and it must stay
+    /// readable across a tab or session switch — the user who missed the bubble
+    /// is often no longer standing where it appeared. Nothing here is ever
+    /// persisted ([`SurfaceLog`]'s residency contract).
+    pub const NOTICES: Self = Self("notices");
 }
 
 /// How a line ended.
+///
+/// Four rungs, because "it came back" is not the whole story: a degraded reply
+/// (`Warn` — the workspace loaded but two roots were skipped, the image was
+/// withheld) is neither a success nor a failure, and collapsing it into either
+/// one lies to the reader who came to this log precisely because the bubble
+/// vanished. The mapping from a disclosure's severity is therefore total:
+/// `Info → Info`, `Ok → Ok`, `Warning → Warn`, `Error → Failed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineStatus {
     /// Neutral information.
     Info,
     /// The operation succeeded.
     Ok,
+    /// The operation completed with a degraded outcome.
+    Warn,
     /// The operation failed; the body carries the reason.
     Failed,
 }
@@ -62,6 +81,27 @@ impl LineStatus {
     /// Whether the line reports a failure.
     pub fn is_failure(self) -> bool {
         matches!(self, Self::Failed)
+    }
+
+    /// Whether the line is worth interrupting the user for: a failure or a
+    /// degraded outcome. This is the single predicate the presentation layer
+    /// consults to decide whether a retained line also raises a bubble, so
+    /// "which faults interrupt?" cannot drift between call sites.
+    pub fn is_fault(self) -> bool {
+        matches!(self, Self::Failed | Self::Warn)
+    }
+
+    /// The rung a disclosure's severity maps onto.
+    ///
+    /// Total on purpose: a new severity cannot compile until its residency is
+    /// chosen, exactly as a new `NoticeKind` cannot (`crate::model::layer`).
+    pub fn from_notice_severity(severity: crate::model::document::NoticeSeverity) -> Self {
+        use crate::model::document::NoticeSeverity;
+        match severity {
+            NoticeSeverity::Info => Self::Info,
+            NoticeSeverity::Warning => Self::Warn,
+            NoticeSeverity::Error => Self::Failed,
+        }
     }
 }
 
@@ -103,6 +143,21 @@ impl SurfaceLine {
             at_ms,
             head: SurfaceHead::Note,
             status: LineStatus::Info,
+            text: text.into(),
+            label: None,
+            detail: None,
+        }
+    }
+
+    /// A note that reports an outcome rather than plain information — the
+    /// shape a routed diagnostic takes when it lands in a log. The severity
+    /// vocabulary is the log's own ([`LineStatus`]) so a surface never has to
+    /// know which disclosure system produced the line.
+    pub fn disclosure(status: LineStatus, text: impl Into<String>, at_ms: u64) -> Self {
+        Self {
+            at_ms,
+            head: SurfaceHead::Note,
+            status,
             text: text.into(),
             label: None,
             detail: None,
@@ -155,10 +210,19 @@ impl SurfaceLine {
 /// The cap is a line count, not a byte or token budget: this is a working
 /// record whose lifetime is the surface's, so the only invariant is that it
 /// cannot grow without bound while the surface is open.
+///
+/// # Unread is a property of the log, not of the viewer
+///
+/// The log counts the lines that arrived since its viewer last looked. Keeping
+/// the watermark here rather than in the widget state means the count survives
+/// a scene switch, a re-layout and a viewer that has never been constructed —
+/// and it cannot be silently reset by an unrelated rebuild of the UI tree,
+/// which is exactly the bug class that makes "you missed 3 errors" unreliable.
 #[derive(Debug, Clone)]
 pub struct SurfaceLog {
     lines: VecDeque<SurfaceLine>,
     cap: usize,
+    unread: usize,
 }
 
 impl Default for SurfaceLog {
@@ -173,6 +237,7 @@ impl SurfaceLog {
         Self {
             lines: VecDeque::new(),
             cap: cap.max(1),
+            unread: 0,
         }
     }
 
@@ -182,6 +247,7 @@ impl SurfaceLog {
             self.lines.pop_front();
         }
         self.lines.push_back(line);
+        self.unread = self.unread.saturating_add(1);
     }
 
     /// The lines in append order (oldest first).
@@ -204,10 +270,38 @@ impl SurfaceLog {
         self.cap
     }
 
+    /// How many lines arrived since the viewer last acknowledged the log.
+    pub fn unread(&self) -> usize {
+        self.unread
+    }
+
+    /// Whether any unread line is a fault — the only unread state worth a
+    /// badge, since an unread acknowledgement ("copied") is not news.
+    pub fn has_unread_fault(&self) -> bool {
+        self.unread > 0
+            && self
+                .lines
+                .iter()
+                .rev()
+                .take(self.unread)
+                .any(|l| l.status.is_fault())
+    }
+
+    /// Whether the log currently holds any fault at all.
+    pub fn has_fault(&self) -> bool {
+        self.lines.iter().any(|l| l.status.is_fault())
+    }
+
+    /// Mark every line read: the viewer has been looked at.
+    pub fn mark_read(&mut self) {
+        self.unread = 0;
+    }
+
     /// Drop every line. Called when the owning surface opens or is dismissed,
     /// depending on its retention policy.
     pub fn clear(&mut self) {
         self.lines.clear();
+        self.unread = 0;
     }
 }
 
@@ -230,6 +324,18 @@ impl SurfaceLogs {
     /// The log for `id`, created on first use with the default cap.
     pub fn entry(&mut self, id: SurfaceId) -> &mut SurfaceLog {
         self.logs.entry(id).or_default()
+    }
+
+    /// The log for `id`, created on first use with `cap`.
+    ///
+    /// A surface whose retention bound differs from the default states it here
+    /// rather than rewriting the log after the fact: the cap is a property of
+    /// the log's *creation*, and building one to rebuild it would silently
+    /// disturb the unread watermark (`push` counts an arrival).
+    pub fn entry_with_cap(&mut self, id: SurfaceId, cap: usize) -> &mut SurfaceLog {
+        self.logs
+            .entry(id)
+            .or_insert_with(|| SurfaceLog::with_cap(cap))
     }
 
     /// The log for `id`, if the surface has ever been logged to.
@@ -291,6 +397,22 @@ mod tests {
     }
 
     #[test]
+    fn a_named_cap_is_applied_at_creation_and_kept_on_re_entry() {
+        // The notice log states its own bound; re-entering it (a scene switch
+        // never discards it) must not rebuild the log, because rebuilding would
+        // re-count every retained line as unread.
+        let mut logs = SurfaceLogs::new();
+        logs.entry_with_cap(SurfaceId::NOTICES, 3)
+            .push(SurfaceLine::note("a", 1));
+        logs.entry_with_cap(SurfaceId::NOTICES, 3)
+            .push(SurfaceLine::note("b", 2));
+        let log = logs.get(SurfaceId::NOTICES).expect("created");
+        assert_eq!(log.cap(), 3, "the declared cap is the one in force");
+        assert_eq!(log.len(), 2);
+        assert_eq!(log.unread(), 2, "exactly two arrivals, not four");
+    }
+
+    #[test]
     fn registry_owns_one_log_per_surface() {
         let mut logs = SurfaceLogs::new();
         logs.push(SurfaceId::DASHBOARD, SurfaceLine::note("a", 1));
@@ -311,5 +433,73 @@ mod tests {
         log.push(SurfaceLine::note("only", 0));
         assert_eq!(log.len(), 1);
         assert_eq!(log.cap(), 1);
+    }
+
+    #[test]
+    fn unread_counts_arrivals_and_only_faults_raise_a_badge() {
+        // The whole point of the log: a line the user never saw stays counted
+        // until a viewer acknowledges it. An unread acknowledgement ("copied")
+        // is not news, so it must not raise the badge — only a fault does.
+        let mut log = SurfaceLog::with_cap(8);
+        log.push(SurfaceLine::disclosure(LineStatus::Ok, "copied", 1));
+        assert_eq!(log.unread(), 1);
+        assert!(!log.has_unread_fault(), "an ack is not a fault");
+
+        log.push(SurfaceLine::disclosure(LineStatus::Failed, "boom", 2));
+        assert_eq!(log.unread(), 2);
+        assert!(log.has_unread_fault());
+
+        log.mark_read();
+        assert_eq!(log.unread(), 0);
+        assert!(!log.has_unread_fault());
+        assert!(log.has_fault(), "reading is not forgetting");
+        assert_eq!(log.len(), 2);
+    }
+
+    #[test]
+    fn eviction_does_not_leave_a_badge_for_a_line_that_is_gone() {
+        // Unread is clamped by what is actually retained: a badge can never
+        // count lines that were evicted before the viewer looked.
+        let mut log = SurfaceLog::with_cap(2);
+        for i in 0..5 {
+            log.push(SurfaceLine::disclosure(
+                LineStatus::Failed,
+                format!("f{i}"),
+                i,
+            ));
+        }
+        assert_eq!(log.unread(), 5, "every arrival was unread");
+        assert_eq!(log.len(), 2);
+        log.mark_read();
+        log.clear();
+        assert_eq!(log.unread(), 0);
+    }
+
+    #[test]
+    fn severity_maps_onto_the_log_vocabulary_totally() {
+        use crate::model::document::NoticeSeverity;
+        assert_eq!(
+            LineStatus::from_notice_severity(NoticeSeverity::Info),
+            LineStatus::Info
+        );
+        assert_eq!(
+            LineStatus::from_notice_severity(NoticeSeverity::Warning),
+            LineStatus::Warn
+        );
+        assert_eq!(
+            LineStatus::from_notice_severity(NoticeSeverity::Error),
+            LineStatus::Failed
+        );
+        assert!(LineStatus::Warn.is_fault());
+        assert!(!LineStatus::Ok.is_fault());
+        assert!(!LineStatus::Info.is_fault());
+    }
+
+    #[test]
+    fn the_notice_log_is_a_named_client_global_surface() {
+        // The routing table names this surface, so it must be distinct from the
+        // ambient thread surface — a disclosure is never thread dialogue.
+        assert_ne!(SurfaceId::NOTICES, SurfaceId::THREAD);
+        assert_eq!(SurfaceId::NOTICES.0, "notices");
     }
 }

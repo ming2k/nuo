@@ -159,8 +159,39 @@ impl SessionBinding {
 }
 pub enum ResolveOutcome {
     Welcome(BoundSession),
-    Pick { sessions: Vec<SessionOverview> },
-    Error(String),
+    Pick {
+        sessions: Vec<SessionOverview>,
+    },
+    /// A refusal the client is expected to branch on (ADR-0123
+    /// `[INV-ATTACH-01]`).
+    ///
+    /// The taxonomy travels with the message so the decision site never has to
+    /// sniff prose: `code` is `Some(...)` only when the server can prove which
+    /// recovery is legitimate. `None` means "no specific taxonomy" and a client
+    /// MUST treat it as unrecoverable rather than invent a recovery it cannot
+    /// justify.
+    Refused {
+        message: String,
+        code: Option<&'static str>,
+    },
+}
+
+impl ResolveOutcome {
+    /// A refusal with a machine-readable taxonomy.
+    pub fn refused(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Refused {
+            message: message.into(),
+            code: Some(code),
+        }
+    }
+
+    /// A refusal with no specific taxonomy (unrecoverable for the client).
+    pub fn refused_untaxed(message: impl Into<String>) -> Self {
+        Self::Refused {
+            message: message.into(),
+            code: None,
+        }
+    }
 }
 
 /// The host-level observability topic: one broadcast channel
@@ -663,20 +694,20 @@ impl SessionRegistry {
                 .map(ResolveOutcome::Welcome)
                 .unwrap_or_else(|e| match e {
                     AssembleErr::NoHost => {
-                        ResolveOutcome::Error("this host cannot create sessions".into())
+                        ResolveOutcome::refused_untaxed("this host cannot create sessions")
                     }
-                    AssembleErr::AssembleFailed(e) => {
-                        ResolveOutcome::Error(format!("could not open the session picker: {e}"))
-                    }
+                    AssembleErr::AssembleFailed(e) => ResolveOutcome::refused_untaxed(format!(
+                        "could not open the session picker: {e}"
+                    )),
                 })
             }
             // Monitor handshakes are intercepted by the WS layer
             // (`serve::handle_connection`) and never reach `resolve`.
             AttachAction::Monitor(_) => {
-                ResolveOutcome::Error("monitor connections are served directly".into())
+                ResolveOutcome::refused_untaxed("monitor connections are served directly")
             }
             AttachAction::Control(_) => {
-                ResolveOutcome::Error("control connections are served directly".into())
+                ResolveOutcome::refused_untaxed("control connections are served directly")
             }
         }
     }
@@ -723,10 +754,10 @@ impl SessionRegistry {
         {
             Ok(b) => ResolveOutcome::Welcome(b),
             Err(AssembleErr::NoHost) => {
-                ResolveOutcome::Error("this host cannot create sessions".into())
+                ResolveOutcome::refused_untaxed("this host cannot create sessions")
             }
             Err(AssembleErr::AssembleFailed(e)) => {
-                ResolveOutcome::Error(format!("could not start a new session: {e}"))
+                ResolveOutcome::refused_untaxed(format!("could not start a new session: {e}"))
             }
         }
     }
@@ -1336,13 +1367,24 @@ impl SessionRegistry {
             }
         }
         if self.params.is_none() {
-            return ResolveOutcome::Error(format!("session '{id}' is not hosted on this server"));
+            // No host: nothing can ever assemble this id on this server.
+            return ResolveOutcome::refused(
+                nuo_wire::ERR_SESSION_GONE,
+                format!("session '{id}' is not hosted on this server"),
+            );
         }
         // Lazy resume resolves the session's own durable binding (scope +
         // workspace) so an unbound session is reachable from any caller
         // (0220), not only the caller's workspace.
+        //
+        // `[INV-ATTACH-01]`: no hosted entry **and** no durable binding is the
+        // one case the server can prove is unrecoverable — the session is gone,
+        // so the client must retire the tab that names it (ADR-0123).
         let Some(binding) = lookup_session_workspace(id) else {
-            return ResolveOutcome::Error(format!("unknown session id '{id}'"));
+            return ResolveOutcome::refused(
+                nuo_wire::ERR_SESSION_GONE,
+                format!("session '{id}' no longer exists"),
+            );
         };
         match self
             .assemble_hosted(
@@ -1353,12 +1395,17 @@ impl SessionRegistry {
             .await
         {
             Ok(b) => ResolveOutcome::Welcome(b),
-            Err(AssembleErr::NoHost) => {
-                ResolveOutcome::Error(format!("session '{id}' is not hosted on this server"))
-            }
-            Err(AssembleErr::AssembleFailed(e)) => {
-                ResolveOutcome::Error(format!("could not resume session {id}: {e}"))
-            }
+            Err(AssembleErr::NoHost) => ResolveOutcome::refused(
+                nuo_wire::ERR_SESSION_GONE,
+                format!("session '{id}' is not hosted on this server"),
+            ),
+            // The session exists durably but could not be assembled: a retry may
+            // work, so the tab must be *kept* and the failure surfaced
+            // (`ERR_SESSION_UNRESUMABLE`).
+            Err(AssembleErr::AssembleFailed(e)) => ResolveOutcome::refused(
+                nuo_wire::ERR_SESSION_UNRESUMABLE,
+                format!("could not resume session {id}: {e}"),
+            ),
         }
     }
 
@@ -1916,6 +1963,82 @@ fn lookup_session_manifest(id: &str) -> Option<nuo_wire::SessionRoleManifest> {
         .lookup_session_manifest(id)
         .ok()
         .flatten()
+}
+
+#[cfg(test)]
+mod attach_refusal_tests {
+    //! ADR-0123 `[INV-ATTACH-01]`: the server must draw the taxonomy the client
+    //! branches on, and draw it from evidence rather than from prose.
+
+    use super::*;
+
+    /// An id with neither a hosted entry nor a durable binding is *gone*: the
+    /// client must retire the tab naming it.
+    #[tokio::test]
+    async fn unknown_session_is_refused_as_gone() {
+        let registry = SessionRegistry::prehost_only();
+        match registry
+            .resolve_with_declaration(
+                AttachAction::Attach(Some("no-such-session-anywhere".into())),
+                std::path::Path::new("/tmp"),
+                true,
+            )
+            .await
+        {
+            ResolveOutcome::Refused { code, message } => {
+                assert_eq!(
+                    code,
+                    Some(nuo_wire::ERR_SESSION_GONE),
+                    "a session with no durable binding is provably gone"
+                );
+                assert!(message.contains("no-such-session-anywhere"));
+            }
+            other => panic!("expected a typed refusal, got {}", describe(&other)),
+        }
+    }
+
+    /// A host that cannot create sessions refuses without inventing a recovery:
+    /// `None` is the contract for "no specific taxonomy".
+    #[tokio::test]
+    async fn missing_host_refuses_without_taxonomy() {
+        let registry = SessionRegistry::prehost_only();
+        match registry
+            .resolve_with_declaration(AttachAction::New(None), std::path::Path::new("/tmp"), true)
+            .await
+        {
+            ResolveOutcome::Refused { code, .. } => assert_eq!(
+                code, None,
+                "an unhostable server must not authorize a client-side recovery"
+            ),
+            other => panic!("expected a typed refusal, got {}", describe(&other)),
+        }
+    }
+
+    /// The two recoveries must never collapse into one another: a resumable
+    /// session that fails to assemble is not a reason to discard its tab.
+    #[test]
+    fn gone_and_unresumable_are_distinct_codes() {
+        assert_ne!(
+            nuo_wire::ERR_SESSION_GONE,
+            nuo_wire::ERR_SESSION_UNRESUMABLE
+        );
+        let gone = ResolveOutcome::refused(nuo_wire::ERR_SESSION_GONE, "gone");
+        let unresumable = ResolveOutcome::refused(nuo_wire::ERR_SESSION_UNRESUMABLE, "boom");
+        let code = |o: &ResolveOutcome| match o {
+            ResolveOutcome::Refused { code, .. } => *code,
+            _ => None,
+        };
+        assert_eq!(code(&gone), Some(nuo_wire::ERR_SESSION_GONE));
+        assert_eq!(code(&unresumable), Some(nuo_wire::ERR_SESSION_UNRESUMABLE));
+    }
+
+    fn describe(outcome: &ResolveOutcome) -> &'static str {
+        match outcome {
+            ResolveOutcome::Welcome(_) => "Welcome",
+            ResolveOutcome::Pick { .. } => "Pick",
+            ResolveOutcome::Refused { .. } => "Refused",
+        }
+    }
 }
 
 #[cfg(test)]

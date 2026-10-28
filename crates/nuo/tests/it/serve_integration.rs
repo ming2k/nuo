@@ -600,6 +600,52 @@ async fn unknown_id_is_an_error() {
     }
 }
 
+/// `[INV-ATTACH-01]` end to end: an unknown id is refused with the
+/// `session_gone` taxonomy on the actual wire frame, not merely in the message.
+///
+/// The client's entire recovery decision (retire the tab, keep running) hangs on
+/// this code arriving intact. A prose-only refusal would leave it indistinguishable
+/// from a transport fault — which is what made clicking a stale tab fatal.
+#[tokio::test]
+async fn unknown_id_is_refused_with_session_gone_code() {
+    let tmp = tempfile::tempdir().unwrap();
+    let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
+    let (registry, _req_rx, _bc_tx) = prehosted(session).await;
+    let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+    let _ = handle;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
+        .await
+        .unwrap();
+    let select = serde_json::to_string(&Wire::Select {
+        version: None,
+        action: AttachAction::Attach(Some("no-such-session-at-all".into())),
+        project: None,
+        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        protocol: Some(nuo_wire::PROTOCOL_VERSION),
+    })
+    .unwrap();
+    ws.send(WsMessage::Text(select.into())).await.unwrap();
+    let frame = tokio::time::timeout(Duration::from_secs(2), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let parsed: Wire = serde_json::from_str(frame.to_text().unwrap_or("")).unwrap();
+    match parsed {
+        Wire::Error { message, code } => {
+            assert!(message.contains("no-such-session-at-all"));
+            assert_eq!(
+                code.as_deref(),
+                Some(nuo_wire::ERR_SESSION_GONE),
+                "a session with no durable binding must be refused as gone so the \
+                 client can retire the tab that names it"
+            );
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
 /// Project scoping: the Select frame's optional `project` declares
 /// the caller's working directory, and auto-attach must resolve inside THAT
 /// project — not the server process's cwd, which is whatever the first client

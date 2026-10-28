@@ -72,6 +72,23 @@ impl SurfaceCapabilities {
     };
 }
 
+/// The capabilities of the interactive shell (`nuo::shell`).
+///
+/// A *declaration about the client*, kept beside the policy that reads it so the
+/// two cannot drift. The shell hosts the notice log ([`SurfaceId::NOTICES`]) and
+/// has a viewer for it, so the routing table now sends receipts and diagnostics
+/// to the log — where they are addressable and scrollable — instead of degrading
+/// them onto the time axis.
+///
+/// No banner row yet: a retained condition (`TrustChanged`) still degrades to a
+/// bubble, which is the ladder's next rung and why the log is the *preferred*
+/// layer rather than the only one.
+pub const SHELL: SurfaceCapabilities = SurfaceCapabilities {
+    toast: true,
+    banner: false,
+    log: Some(SurfaceId::NOTICES),
+};
+
 /// The layer a piece of content is displayed in.
 ///
 /// Deliberately exhaustive over *displayable* destinations: there is no
@@ -105,17 +122,21 @@ impl ContentLayer {
 ///
 /// | kind                 | preferred layer                                  |
 /// |----------------------|--------------------------------------------------|
-/// | `ProviderRetry`      | absorbed — the retry card is its own disclosure   |
+/// | `CheckpointReplay`   | log — a receipt for a tool call that did not run  |
 /// | `CommandAck`         | toast — ephemeral reply; the invocation stays durable |
 /// | `TrustChanged`       | banner — a retained condition                     |
 /// | `NudgeInjected`      | log — the injected fact is already a transcript entry |
 /// | `ReviewAlert`        | log                                               |
 /// | `ImageInputWithheld` | log                                               |
+///
+/// There is deliberately no `ProviderRetry` row: a live provider retry is not a
+/// notice at all. It is chrome with its own wire event (`RoundEvent::RetryScheduled`)
+/// and its own typed state machine ([`crate::retry`]), so it never enters this
+/// table and this function has nothing to absorb. The old row said
+/// `Absorbed` — "the retry card owns the disclosure" — but the "card" was a
+/// transcript row, i.e. the table was documenting a hole rather than a policy.
 fn preferred_layer(notice: &AgentNotice) -> ContentLayer {
     match notice.kind {
-        // The provider-retry disclosure is driven by `RetryScheduled` and
-        // refreshes itself per attempt; a notice would be a stale duplicate.
-        NoticeKind::ProviderRetry => ContentLayer::Absorbed,
         // An acknowledgement of a configuration/command mutation: a transient
         // bubble is the whole message.
         NoticeKind::CommandAck => ContentLayer::Toast,
@@ -123,22 +144,25 @@ fn preferred_layer(notice: &AgentNotice) -> ContentLayer {
         // until the trust state changes.
         NoticeKind::TrustChanged => ContentLayer::Banner,
         // Receipts and diagnostics: they need a viewport, not a time axis.
-        NoticeKind::NudgeInjected | NoticeKind::ReviewAlert | NoticeKind::ImageInputWithheld => {
-            ContentLayer::Absorbed
-        }
+        NoticeKind::CheckpointReplay
+        | NoticeKind::NudgeInjected
+        | NoticeKind::ReviewAlert
+        | NoticeKind::ImageInputWithheld => ContentLayer::Absorbed,
     }
 }
 
 /// Route a notice to the layer that displays it, degraded to what `caps` can
 /// host.
 ///
+/// The capability declaration alone decides the destination — there is no
+/// second "ambient surface" input, because a client that names a log in its
+/// capabilities is exactly the client that can open one. Splitting that fact
+/// across two parameters is how content used to end up in a log nobody could
+/// read.
+///
 /// `[INV-LAYER-04]`: the result is never the thread transcript, because no such
 /// value exists.
-pub fn layer_for(
-    notice: &AgentNotice,
-    caps: SurfaceCapabilities,
-    ambient: SurfaceId,
-) -> ContentLayer {
+pub fn layer_for(notice: &AgentNotice, caps: SurfaceCapabilities) -> ContentLayer {
     if notice.kind == NoticeKind::TrustChanged {
         return if caps.banner {
             ContentLayer::Banner
@@ -151,13 +175,9 @@ pub fn layer_for(
         };
     }
     match preferred_layer(notice) {
-        // The retry card owns its own disclosure in every client.
-        ContentLayer::Absorbed if notice.kind == NoticeKind::ProviderRetry => {
-            ContentLayer::Absorbed
-        }
         // Receipts and diagnostics prefer the log; degrade to banner, then toast.
         ContentLayer::Absorbed => match (caps.log, caps.banner, caps.toast) {
-            (Some(_), _, _) => ContentLayer::SurfaceLog(ambient),
+            (Some(log), _, _) => ContentLayer::SurfaceLog(log),
             (None, true, _) => ContentLayer::Banner,
             (None, false, true) => ContentLayer::Toast,
             (None, false, false) => ContentLayer::Absorbed,
@@ -195,7 +215,7 @@ mod tests {
     use nuo_wire::NoticeSeverity;
 
     const KINDS: [NoticeKind; 6] = [
-        NoticeKind::ProviderRetry,
+        NoticeKind::CheckpointReplay,
         NoticeKind::NudgeInjected,
         NoticeKind::ReviewAlert,
         NoticeKind::TrustChanged,
@@ -223,26 +243,24 @@ mod tests {
             },
         ] {
             for kind in KINDS {
-                let layer = layer_for(&notice(kind), caps, SurfaceId::DASHBOARD);
+                let layer = layer_for(&notice(kind), caps);
                 assert_ne!(layer, ContentLayer::SurfaceLog(SurfaceId::THREAD));
             }
         }
     }
 
     #[test]
-    fn acknowledgements_are_transient_and_retries_are_absorbed() {
+    fn acknowledgements_are_transient_and_receipts_are_logged() {
         let full = SurfaceCapabilities::FULL;
         assert_eq!(
-            layer_for(&notice(NoticeKind::CommandAck), full, SurfaceId::DASHBOARD),
+            layer_for(&notice(NoticeKind::CommandAck), full),
             ContentLayer::Toast
         );
+        // A checkpoint-replay receipt explains a tool call that deliberately
+        // did not run: it needs a viewport, not a bubble.
         assert_eq!(
-            layer_for(
-                &notice(NoticeKind::ProviderRetry),
-                full,
-                SurfaceId::DASHBOARD
-            ),
-            ContentLayer::Absorbed
+            layer_for(&notice(NoticeKind::CheckpointReplay), full),
+            ContentLayer::SurfaceLog(SurfaceId::DASHBOARD)
         );
     }
 
@@ -252,7 +270,6 @@ mod tests {
             layer_for(
                 &notice(NoticeKind::ReviewAlert),
                 SurfaceCapabilities::with_log(SurfaceId("dialog:tools")),
-                SurfaceId("dialog:tools"),
             ),
             ContentLayer::SurfaceLog(SurfaceId("dialog:tools"))
         );
@@ -264,7 +281,6 @@ mod tests {
                     banner: true,
                     log: None,
                 },
-                SurfaceId::THREAD,
             ),
             ContentLayer::Banner
         );
@@ -272,7 +288,6 @@ mod tests {
             layer_for(
                 &notice(NoticeKind::ReviewAlert),
                 SurfaceCapabilities::MINIMAL,
-                SurfaceId::THREAD,
             ),
             ContentLayer::Toast,
             "a client with no log viewer shows a bubble rather than writing to the conversation"
@@ -285,7 +300,6 @@ mod tests {
                     banner: false,
                     log: None,
                 },
-                SurfaceId::THREAD,
             ),
             ContentLayer::Absorbed
         );
@@ -294,18 +308,13 @@ mod tests {
     #[test]
     fn trust_is_retained_or_degraded_but_never_inline() {
         assert_eq!(
-            layer_for(
-                &notice(NoticeKind::TrustChanged),
-                SurfaceCapabilities::FULL,
-                SurfaceId::DASHBOARD
-            ),
+            layer_for(&notice(NoticeKind::TrustChanged), SurfaceCapabilities::FULL),
             ContentLayer::Banner
         );
         assert_eq!(
             layer_for(
                 &notice(NoticeKind::TrustChanged),
-                SurfaceCapabilities::MINIMAL,
-                SurfaceId::THREAD
+                SurfaceCapabilities::MINIMAL
             ),
             ContentLayer::Toast
         );
@@ -321,5 +330,40 @@ mod tests {
             NoticeSource::TurnGuard,
         );
         assert!(is_round_context(&nudge));
+    }
+
+    #[test]
+    fn the_shell_declaration_routes_diagnostics_into_its_notice_log() {
+        // The defect this locks down: with `MINIMAL`, every diagnostic degraded
+        // to a bubble — one slot, two seconds, then gone. The shell declares a
+        // viewer, so the routing table must send receipts to that log instead.
+        for kind in [
+            NoticeKind::ReviewAlert,
+            NoticeKind::ImageInputWithheld,
+            NoticeKind::NudgeInjected,
+        ] {
+            assert_eq!(
+                layer_for(&notice(kind), SHELL),
+                ContentLayer::SurfaceLog(SurfaceId::NOTICES),
+                "{kind:?} must be retained, not bubbled"
+            );
+        }
+        // A `CommandAck` is an acknowledgement of something the user just did,
+        // so it stays transient even though the log exists.
+        assert_eq!(
+            layer_for(&notice(NoticeKind::CommandAck), SHELL),
+            ContentLayer::Toast
+        );
+    }
+
+    #[test]
+    fn a_declared_log_wins_over_the_ambient_surface() {
+        // Content must never be written into a log the client cannot open. The
+        // capability declaration is the authority; there is no second input.
+        assert_eq!(
+            layer_for(&notice(NoticeKind::ReviewAlert), SHELL),
+            ContentLayer::SurfaceLog(SurfaceId::NOTICES),
+            "not the ambient thread surface, which owns the transcript instead"
+        );
     }
 }

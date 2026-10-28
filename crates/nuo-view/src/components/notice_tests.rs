@@ -196,28 +196,57 @@ fn content_lines_are_viewport_independent() {
 }
 
 #[test]
-fn a_live_retry_puts_its_countdown_in_chrome_not_in_the_body() {
-    let retry_at = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    let msg = TranscriptMessage::provider_retry(2, 5, retry_at, "Anthropic HTTP 529: Overloaded");
+fn a_notice_head_carries_only_settled_facts_never_a_ticking_counter() {
+    // A notice is a record. Its head shows the severity glyph, the topic and
+    // the wall-clock stamp — all frozen at construction. A live countdown used
+    // to live here, which made this row re-render every second; the retry now
+    // owns no transcript row at all (`crate::retry`), so nothing in this
+    // component can tick.
+    let mut msg = TranscriptMessage::notice(
+        NoticeSeverity::Warning,
+        "Google HTTP 503 Service Unavailable: No capacity available for model",
+    );
+    msg.sent_at_ms = Some(1_700_000_000_000);
     let painted = paint(&msg, 80, 20, SelectionState::None);
 
     let head = painted.row(0, 80);
-    assert!(head.starts_with("▲ retry"), "head: {head:?}");
+    assert!(head.starts_with("▲ notification"), "head: {head:?}");
     assert!(
-        head.contains("retry 2/5 in "),
-        "the countdown belongs to the entry head: {head:?}"
+        !head.contains("retry"),
+        "a settled notice carries no live retry counter: {head:?}"
     );
 
-    // The body carries only the diagnostic text — no volatile counter.
+    // The body is the diagnostic text, and nothing else.
     let body: Vec<String> = painted.rows()[2..].to_vec();
     assert!(
         body.iter()
-            .any(|r| r.contains("Anthropic HTTP 529: Overloaded")),
+            .any(|r| r.contains("Google HTTP 503 Service Unavailable")),
         "body must carry the failure: {body:?}"
     );
+}
+
+#[test]
+fn a_recovered_anchor_paints_its_fault_list_as_detail() {
+    let record = nuo_wire::RetryResolution {
+        attempts: 2,
+        faults: vec!["Google HTTP 503".to_string(), "Google HTTP 429".to_string()],
+        at_ms: 1_700_000_000_000,
+        round: Some(2),
+    };
+    let msg = TranscriptMessage::retry_recovered(&record);
+    let painted = paint(&msg, 80, 20, SelectionState::None);
+
+    let head = painted.row(0, 80);
+    assert!(head.starts_with("ℹ recovered"), "head: {head:?}");
+
+    let body = painted.rows()[2..].join("\n");
     assert!(
-        !body.iter().any(|r| r.contains("retry 2/5")),
-        "the countdown must not reach the copyable body: {body:?}"
+        body.contains("Recovered after 2 provider retries (round 2)"),
+        "the lead states the outcome: {body:?}"
+    );
+    assert!(
+        body.contains("Google HTTP 503") && body.contains("Google HTTP 429"),
+        "every survived fault is readable: {body:?}"
     );
 }
 

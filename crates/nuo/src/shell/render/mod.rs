@@ -164,10 +164,11 @@ pub struct TranscriptProps<'a> {
     /// Empty / "idle" means the status bar is hidden; every other value
     /// (including "responding") keeps the bar up for the full round lifecycle.
     pub activity: &'a str,
-    /// Transport-setback clause rendered beside (never inside) the status
-    /// label — e.g. `retry 2/8 (next in 4s)` while a provider retry backs
-    /// off. Muted styling; first casualty under width pressure.
-    pub backoff_clause: Option<&'a str>,
+    /// The live provider-retry setback rendered beside (never inside) the
+    /// status label — the typed state, so the renderer can choose the full
+    /// `retry 6/30 (next in 8s)` or the compact `(6/30)` form without
+    /// re-parsing a sentence. First casualty under width pressure.
+    pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
     /// Whether a tool permission request is awaiting the user's decision. When
     /// true the activity bar is forced visible even if the loop has gone idle,
     /// and its label reads as a permission state so the live status surface
@@ -458,7 +459,7 @@ pub fn draw_transcript(
         selection,
         cell_selection,
         activity,
-        backoff_clause,
+        backoff,
         awaiting_permission,
         spinner_phase,
         input,
@@ -862,7 +863,7 @@ pub fn draw_transcript(
                 round_started_at,
                 ActivityStripProps {
                     status: activity,
-                    backoff_clause,
+                    backoff,
                     awaiting_permission,
                     queued_count: if queue_row_needed {
                         queue_bar.items.len()

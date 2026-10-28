@@ -17,8 +17,15 @@ use nuo_ui_primitives::components::keycap::{keycap_span, keycap_warn_span};
 pub struct ActivityStripProps<'a> {
     /// Active agent status verb (e.g. "responding", "thinking", "editing"). Empty when idle.
     pub status: &'a str,
-    /// Optional backoff/retry clause.
-    pub backoff_clause: Option<&'a str>,
+    /// The live provider-retry setback, if this session is backing off.
+    ///
+    /// The **typed state**, not a rendered sentence: the strip picks between the
+    /// full and compact forms under width pressure, and both must come from the
+    /// one owner (`RetryProgress`). Passing a pre-rendered string forced this
+    /// renderer either to paint it at full width (squeezing the status out) or
+    /// to slice the sentence back apart — the anti-pattern that let the retry
+    /// vocabulary drift in the first place.
+    pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
     /// Gate state (e.g. permission or ask_user pending).
     pub awaiting_permission: bool,
     /// Number of queued follow-up messages staged in outbox.
@@ -41,7 +48,7 @@ pub fn draw_activity_strip(
 ) -> Option<Rect> {
     let ActivityStripProps {
         status,
-        backoff_clause,
+        backoff,
         awaiting_permission,
         queued_count,
         queued_preview,
@@ -130,15 +137,61 @@ pub fn draw_activity_strip(
         let elapsed_text = elapsed.unwrap_or_default();
         let elapsed_w = elapsed_text.width();
 
+        // The clause and the status label compete for one row, and the clause is
+        // the more urgent fact (it is why nothing is happening), so it is
+        // budgeted first on a fixed ladder rather than being painted at full
+        // width and squeezing the status out:
+        //
+        //   full (`retry 6/30 (next in 8s)`) → compact (`(6/30)`) → none
+        //
+        // The compact form is a *rendering* of the same pair, produced by the
+        // clause's owner (`RetryProgress::compact_label`) — never by this
+        // renderer slicing the sentence, which is how the two vocabularies
+        // drifted apart before.
+        const MIN_STATUS_WIDTH: usize = 4;
+        const CLAUSE_GAP: usize = 2;
         let prefix_w: usize = left_spans.iter().map(|s| s.content.width()).sum();
-        let budget = available_width.saturating_sub(prefix_w + right_w + elapsed_w + 2);
+        let status_natural_w = status.width();
+        let fixed = prefix_w + right_w + elapsed_w + CLAUSE_GAP;
+
+        // Full sentence, then the attempt pair alone, then nothing. Both forms
+        // come from the same owner (`RetryProgress`); this renderer only
+        // chooses which one fits.
+        let clause_choice = match backoff {
+            None => None,
+            Some(progress) => {
+                let now = std::time::Instant::now();
+                let full = progress.label(now);
+                let compact = progress.compact_label();
+                let full_w = CLAUSE_GAP + full.width();
+                let compact_w = CLAUSE_GAP + compact.width();
+                if fixed + status_natural_w + full_w <= available_width {
+                    Some(full)
+                } else if fixed + status_natural_w + compact_w <= available_width
+                    || fixed + MIN_STATUS_WIDTH + compact_w <= available_width
+                {
+                    // Under real pressure the clause outranks the status verb:
+                    // the countdown is *why* nothing is happening, and a
+                    // truncated `waiting for mo…` beside it still reads.
+                    Some(compact)
+                } else {
+                    None
+                }
+            }
+        };
+        let clause_w = clause_choice
+            .as_ref()
+            .map(|c| CLAUSE_GAP + c.width())
+            .unwrap_or(0);
+
+        let budget = available_width.saturating_sub(fixed + clause_w).max(1);
         let status_disp = truncate_for_bar(status, budget);
         left_spans.push(Span::styled(status_disp, lead_style));
 
-        if let Some(clause) = backoff_clause.filter(|c| !c.is_empty()) {
-            let clause_text = format!("  ({})", clause);
+        if let Some(clause) = clause_choice {
+            // Painted verbatim from its owner; never re-wrapped or re-derived.
             left_spans.push(Span::styled(
-                clause_text,
+                format!("  {clause}"),
                 Style::default().fg(theme.warning),
             ));
         }

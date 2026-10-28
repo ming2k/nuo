@@ -143,12 +143,21 @@ pub(super) fn transcript_interrupts_from_records(
 
 /// Build durable retry-resolution rows from the session store's records —
 /// the success-side twin of [`transcript_interrupts_from_records`].
+///
+/// This was retired on the theory that a recovered retry is an in-flight
+/// implementation detail. It is not: the live path shows
+/// `Recovered after N provider retries`, so a session that reloads must show it
+/// too, or the same round reads two different ways depending on whether the
+/// client was attached at the time (`[INV-TRANSCRIPT-04]`, live equals resume).
+/// Both paths now build the row from the same durable `RetryResolution`
+/// ([`TranscriptMessage::retry_recovered`]).
 pub(super) fn transcript_retry_resolutions_from_records(
-    _records: Vec<nuo_wire::RetryResolution>,
+    records: Vec<nuo_wire::RetryResolution>,
 ) -> Vec<TranscriptMessage> {
-    // Retired. Transient transport retries that recovered successfully
-    // are implementation details; they never project onto the transcript history.
-    Vec::new()
+    records
+        .iter()
+        .map(TranscriptMessage::retry_recovered)
+        .collect()
 }
 
 /// Merge rebuilt round-interrupt rows into a restored transcript (C11),

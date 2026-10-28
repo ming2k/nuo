@@ -123,7 +123,7 @@ impl App {
     /// `input`.
     ///
     /// `cursor_position` is a *byte* offset — the editor motions
-    /// ([`crate::shell::input::readline`]), the render grid
+    /// (`crate::shell::input::readline`), the render grid
     /// ([`crate::shell::composer_grid`]), and the `@`-mention scanner all index
     /// by bytes. The control-plane contract is different:
     /// [`nuo_wire::AgentRequest::CompleteComposer`] and

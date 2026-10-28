@@ -7,6 +7,16 @@ use std::path::{Path, PathBuf};
 /// Stable machine-readable error codes.
 pub const ERR_PROTOCOL_MISMATCH: &str = "protocol_mismatch";
 pub const ERR_VERSION_MISMATCH: &str = "version_mismatch";
+/// The attach target no longer exists: no hosted session holds the id and no
+/// durable binding records it. This is a *recoverable, expected* outcome — a
+/// client tab can outlive the session behind it (an empty never-persisted
+/// session is reclaimed by the idle reaper, ADR-0018), so the frontend must
+/// retire the stale tab instead of aborting.
+pub const ERR_SESSION_GONE: &str = "session_gone";
+/// The attach target exists durably but could not be assembled (bootstrap,
+/// manifest, or provider failure). The session is *not* gone — retrying may
+/// work, and the client should surface the failure without discarding the tab.
+pub const ERR_SESSION_UNRESUMABLE: &str = "session_unresumable";
 
 /// Check whether the server's declared wire protocol number is within this client's supported window.
 pub const fn protocol_accepts(client: u32) -> bool {

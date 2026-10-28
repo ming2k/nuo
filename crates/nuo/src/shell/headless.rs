@@ -303,6 +303,51 @@ pub async fn run_headless(
                         io::stderr().flush()?;
                     }
                 }
+                RoundEvent::RetryScheduled {
+                    attempt,
+                    max_attempts,
+                    delay_ms,
+                    message,
+                } => {
+                    // A headless consumer has no activity bar, so the single
+                    // retry announcement must reach it as a machine event —
+                    // otherwise a request that backs off four times before
+                    // answering is indistinguishable from one that answered
+                    // immediately, and the JSON stream cannot explain the gap.
+                    if json {
+                        let event_obj = serde_json::json!({
+                            "type": "retry_scheduled",
+                            "attempt": attempt,
+                            "max_attempts": max_attempts,
+                            "delay_ms": delay_ms,
+                            "error": message,
+                        });
+                        println!("{}", serde_json::to_string(&event_obj)?);
+                        io::stdout().flush()?;
+                    } else {
+                        eprintln!(
+                            "\n[retrying {attempt}/{max_attempts} in {}s — {}]",
+                            delay_ms.div_ceil(1_000),
+                            nuo_harness::runtime::retry::public_retry_reason(&message),
+                        );
+                        io::stderr().flush()?;
+                    }
+                }
+                RoundEvent::RetryResolved(resolution) => {
+                    // The success-side twin: a machine reader learns the round
+                    // recovered and what it survived.
+                    if json {
+                        let event_obj = serde_json::json!({
+                            "type": "retry_resolved",
+                            "attempts": resolution.attempts,
+                            "faults": resolution.faults,
+                            "at_ms": resolution.at_ms,
+                            "round": resolution.round,
+                        });
+                        println!("{}", serde_json::to_string(&event_obj)?);
+                        io::stdout().flush()?;
+                    }
+                }
                 RoundEvent::Error(err) => {
                     if json {
                         let event_obj = serde_json::json!({

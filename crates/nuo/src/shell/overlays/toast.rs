@@ -10,6 +10,7 @@ pub fn draw_armed_toast(frame: &mut Frame, message: &str, theme: &Theme) {
     ToastBubble {
         message,
         kind: ToastKind::Armed,
+        hint: None,
     }
     .render(frame, theme);
 }
@@ -22,25 +23,36 @@ pub fn draw_copy_toast(frame: &mut Frame, message: &str, failed: bool, theme: &T
         } else {
             ToastKind::CopyOk
         },
+        hint: None,
     }
     .render(frame, theme);
 }
 
-/// Draw a toast-surfaced notice (a command acknowledgment such as
-/// `/delegate on`). The bubble's accent color follows the notice severity,
-/// reusing the same severity→color map as the inline notice renderer so the
-/// two stay visually consistent. Unlike the copy/armed toasts this is driven
-/// by a `RoundEvent::Notice` forwarded across the listener→loop boundary.
+/// Draw a toast-surfaced notice: a command acknowledgment such as
+/// `/delegate on`, or the bubble that points at a fault just recorded in the
+/// notice log.
+///
+/// The accent color follows the notice severity, reusing the same
+/// severity→color map as the inline notice renderer so the two stay visually
+/// consistent. `hint` is the pointer row ("Ctrl-o · all notices"): a bubble
+/// that only says "something failed" and then disappears leaves the user with
+/// nothing to act on, which is the defect this whole tier exists to remove.
 pub fn draw_notice_toast(
     frame: &mut Frame,
     message: &str,
     severity: NoticeSeverity,
     theme: &Theme,
+    hint: Option<&str>,
 ) {
     let kind = match severity {
         NoticeSeverity::Error => ToastKind::Error,
         NoticeSeverity::Warning => ToastKind::Warning,
         NoticeSeverity::Info => ToastKind::Info,
     };
-    ToastBubble { message, kind }.render(frame, theme);
+    ToastBubble {
+        message,
+        kind,
+        hint,
+    }
+    .render(frame, theme);
 }

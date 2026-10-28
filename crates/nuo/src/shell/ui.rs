@@ -46,6 +46,12 @@ pub enum UiKey {
     OauthUrl,
     OauthCode,
     Toast,
+    /// The notice viewer's panel (ADR-0121). Its own component so a click in
+    /// it is not mistaken for a click on the transcript beneath.
+    Notices,
+    /// The unread-fault badge in the model bar: the log's persistent entry
+    /// point, and therefore a click target.
+    NoticesBadge,
     PreAttach,
     SettingsCategory(usize),
     SettingsOption(usize),
@@ -211,6 +217,13 @@ impl ComponentTree {
                 InputPolicy::None,
                 false,
             ),
+            UiKey::NoticesBadge => (
+                Some(UiKey::Footer),
+                4,
+                PointerPolicy::Target,
+                InputPolicy::None,
+                false,
+            ),
             UiKey::Sticky => (
                 Some(UiKey::Transcript),
                 5,
@@ -297,6 +310,13 @@ impl ComponentTree {
                     DialogKind::Connections,
                 ))),
                 40,
+                PointerPolicy::Barrier,
+                InputPolicy::Modal,
+                true,
+            ),
+            UiKey::Notices => (
+                Some(UiKey::Root),
+                48,
                 PointerPolicy::Barrier,
                 InputPolicy::Modal,
                 true,

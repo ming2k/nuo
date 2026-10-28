@@ -839,7 +839,7 @@ fn render_transcript_frame(
                 scroll,
                 selection: &selection,
                 cell_selection: None,
-                backoff_clause: None,
+                backoff: None,
                 activity: "",
                 awaiting_permission: false,
                 spinner_phase: 0,
@@ -2397,7 +2397,8 @@ mod context_bar {
             draw_thread_context_bar(f, f.area(), context, &Theme::default());
         });
         let row: String = terminal
-            .buffer().cells()
+            .buffer()
+            .cells()
             .iter()
             .map(|cell| cell.symbol.as_str())
             .collect();

@@ -176,42 +176,16 @@ pub enum ProviderDeleteChoice {
     Delete,
 }
 
-/// Transient state representing an ongoing provider retry countdown or execution.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderRetryState {
-    pub attempt: usize,
-    pub max_attempts: usize,
-    pub retry_at: std::time::Instant,
-    pub failure: String,
-}
-
-impl ProviderRetryState {
-    pub fn summary(&self, now: std::time::Instant) -> String {
-        let retry = self.attempt.saturating_sub(1);
-        let max_retries = self.max_attempts.saturating_sub(1).max(retry);
-        let timing = if now < self.retry_at {
-            format!(
-                "next in {}",
-                format_retry_duration(self.retry_at.saturating_duration_since(now))
-            )
-        } else {
-            format!(
-                "running for {}",
-                format_retry_duration(now.saturating_duration_since(self.retry_at))
-            )
-        };
-        format!("retry {retry}/{max_retries} ({timing})")
-    }
-}
-
-pub fn format_retry_duration(duration: std::time::Duration) -> String {
-    let millis = duration.as_millis() as u64;
-    if millis >= 10_000 {
-        format!("{}s", millis.div_ceil(1_000))
-    } else {
-        format!("{:.1}s", millis as f64 / 1_000.0)
-    }
-}
+/// The typed provider-retry state of one session: the countdown, the attempt
+/// pair and the fault history.
+///
+/// This is a re-export of [`nuo_view::retry::RetryProgress`] under the name the
+/// shell has always used, kept so the chrome code reads naturally. The type
+/// itself lives in the presentation crate because it owns the *label* as well as
+/// the state: the bar, the compact form and the receipt line are three
+/// renderings of one vocabulary, and splitting state from phrasing is exactly
+/// how the bar ended up counting `5/29` beside a transcript row counting `6/30`.
+pub use nuo_view::retry::RetryProgress as ProviderRetryState;
 
 /// The view-scoped chrome of one session: the typed activity phase, the
 /// responding flag, and the structural round/turn counters. Each hosted
@@ -891,12 +865,14 @@ pub struct App {
     /// regardless of the loop cadence. A newer toast replaces an in-flight one.
     pub notice_toast_until: Option<std::time::Instant>,
     pub notice_toast_message: String,
+    /// The subsystem tag painted on the fault bubble (`backend`, `copy`, …) so
+    /// the bubble names the same topic the viewer will show.
+    pub notice_toast_topic: String,
     pub notice_toast_severity: NoticeSeverity,
-    /// The last few warning/error disclosures, retained after their toast fades
-    /// (`app::receipts`). A toast is transient by design; the record is not,
-    /// because the message a user wants to copy is exactly the one that
-    /// vanished while they were looking elsewhere.
-    pub(crate) receipts: receipts::ReceiptLog,
+    /// The notice viewer's presentation state, when it is open (`app::notices`).
+    /// Not a dialog entity: a fault is a fact about this client, so the viewer
+    /// is reachable from every scene rather than being session-scoped.
+    pub(crate) notice_viewer: Option<notices::NoticeViewer>,
     /// When set (e.g. via `NUO_DEV_TOAST`), keeps the toast pinned during keypresses for visual dev inspection.
     pub dev_toast_pinned: bool,
     /// Deadline until which a second Ctrl+C quits. Wall-clock based (like
@@ -1090,6 +1066,7 @@ pub struct App {
 mod composer;
 mod history;
 mod link;
+pub mod notices;
 pub mod providers;
 mod queue;
 pub mod receipts;

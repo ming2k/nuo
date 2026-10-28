@@ -154,7 +154,7 @@ pub enum ClientTarget {
 }
 
 impl ClientTarget {
-    pub async fn connect(&self, action: AttachAction) -> Result<Handshake, String> {
+    pub async fn connect(&self, action: AttachAction) -> AttachResult {
         match self {
             Self::Local(info) => connect(info, action).await,
             Self::Remote(remote) => remote.connect(action).await,
@@ -258,7 +258,7 @@ impl RemoteServer {
         })
     }
 
-    pub async fn connect(&self, action: AttachAction) -> Result<Handshake, String> {
+    pub async fn connect(&self, action: AttachAction) -> AttachResult {
         self.connect_with_project(action, None).await
     }
 
@@ -266,18 +266,18 @@ impl RemoteServer {
         &self,
         action: AttachAction,
         project: Option<std::path::PathBuf>,
-    ) -> Result<Handshake, String> {
+    ) -> AttachResult {
         let url = self.url();
         let mut request = url
             .as_str()
             .into_client_request()
-            .map_err(|e| format!("bad ws url {url}: {e}"))?;
+            .map_err(|e| AttachError::transport(format!("bad ws url {url}: {e}")))?;
         let value = HeaderValue::from_str(&format!("Bearer {}", self.token))
-            .map_err(|e| format!("bad bearer token: {e}"))?;
+            .map_err(|e| AttachError::transport(format!("bad bearer token: {e}")))?;
         request.headers_mut().insert("Authorization", value);
         let (ws, _) = tokio_tungstenite::connect_async(request)
             .await
-            .map_err(|e| format!("ws connect to {url}: {e}"))?;
+            .map_err(|e| AttachError::transport(format!("ws connect to {url}: {e}")))?;
         let (sink, source) = websocket_split(ws);
         finish_handshake_with_project((sink, source), action, project).await
     }
@@ -795,6 +795,67 @@ pub fn diagnose_server() -> ServerDiagnostics {
     }
 }
 
+/// A failed attach.
+///
+/// `[INV-ATTACH-01]`: `code` is the server's machine-readable taxonomy, carried
+/// verbatim from `Wire::Error`. Downgrading a refusal to a bare `String` is what
+/// made an expected outcome (a tab whose session is gone) indistinguishable from
+/// a transport fault, so the client had no choice but to die on it (ADR-0123).
+///
+/// `code: None` covers both "transport failure" (the server never spoke) and
+/// "refusal with no declared taxonomy". Both are unrecoverable by contract: a
+/// client may not invent a recovery the server did not authorize.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttachError {
+    pub code: Option<String>,
+    pub message: String,
+}
+
+impl AttachError {
+    /// A transport-level failure: no server taxonomy exists.
+    fn transport(message: impl Into<String>) -> Self {
+        Self {
+            code: None,
+            message: message.into(),
+        }
+    }
+
+    /// The refusal code, without the `Option` ceremony at every call site.
+    pub fn code(&self) -> Option<&str> {
+        self.code.as_deref()
+    }
+
+    /// Whether the target session provably no longer exists
+    /// (`ERR_SESSION_GONE`). The tab naming it must be retired.
+    pub fn is_session_gone(&self) -> bool {
+        self.code() == Some(nuo_wire::ERR_SESSION_GONE)
+    }
+
+    /// Whether the target session exists durably but could not be assembled
+    /// (`ERR_SESSION_UNRESUMABLE`). The tab must be kept — its history is real.
+    pub fn is_session_unresumable(&self) -> bool {
+        self.code() == Some(nuo_wire::ERR_SESSION_UNRESUMABLE)
+    }
+}
+
+impl std::fmt::Display for AttachError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The message alone: diagnostics must not grow a code prefix into prose
+        // a human reads (and a caller must never parse it back out).
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for AttachError {}
+
+impl From<AttachError> for String {
+    fn from(error: AttachError) -> Self {
+        error.message
+    }
+}
+
+pub type AttachResult = Result<Handshake, AttachError>;
+
 #[allow(clippy::large_enum_variant)]
 pub enum Handshake {
     Attached {
@@ -812,7 +873,7 @@ pub enum Handshake {
     Pick(Vec<SessionOverview>),
 }
 
-pub async fn connect(info: &ServerInfo, action: AttachAction) -> Result<Handshake, String> {
+pub async fn connect(info: &ServerInfo, action: AttachAction) -> AttachResult {
     if let Some(endpoint) = info.effective_local_endpoint()
         && let Ok(stream) = nuo_host::ipc::connect(&endpoint).await
     {
@@ -820,24 +881,23 @@ pub async fn connect(info: &ServerInfo, action: AttachAction) -> Result<Handshak
         return finish_handshake((sink, source), action).await;
     }
     if info.port == 0 {
-        return Err(
-            "server runs in client-bound mode (UDS only) and local endpoint is not reachable"
-                .into(),
-        );
+        return Err(AttachError::transport(
+            "server runs in client-bound mode (UDS only) and local endpoint is not reachable",
+        ));
     }
     let url = format!("ws://127.0.0.1:{}/", info.port);
     let mut request = url
         .as_str()
         .into_client_request()
-        .map_err(|e| format!("bad ws url {url}: {e}"))?;
+        .map_err(|e| AttachError::transport(format!("bad ws url {url}: {e}")))?;
     if let Some(token) = &info.token {
         let value = HeaderValue::from_str(&format!("Bearer {token}"))
-            .map_err(|e| format!("bad bearer token: {e}"))?;
+            .map_err(|e| AttachError::transport(format!("bad bearer token: {e}")))?;
         request.headers_mut().insert("Authorization", value);
     }
     let (ws, _response) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(|e| format!("ws connect to {url}: {e}"))?;
+        .map_err(|e| AttachError::transport(format!("ws connect to {url}: {e}")))?;
     let (sink, source) = websocket_split(ws);
     finish_handshake((sink, source), action).await
 }
@@ -845,7 +905,7 @@ pub async fn connect(info: &ServerInfo, action: AttachAction) -> Result<Handshak
 async fn finish_handshake(
     parts: (BoxWireSink, BoxWireStream),
     action: AttachAction,
-) -> Result<Handshake, String> {
+) -> AttachResult {
     finish_handshake_with_project(parts, action, std::env::current_dir().ok()).await
 }
 
@@ -853,7 +913,7 @@ async fn finish_handshake_with_project(
     parts: (BoxWireSink, BoxWireStream),
     action: AttachAction,
     project: Option<std::path::PathBuf>,
-) -> Result<Handshake, String> {
+) -> AttachResult {
     let (mut wire_sink, mut wire_source) = parts;
 
     let select = Wire::Select {
@@ -866,7 +926,7 @@ async fn finish_handshake_with_project(
     wire_sink
         .send(select)
         .await
-        .map_err(|e| format!("wire send select: {e}"))?;
+        .map_err(|e| AttachError::transport(format!("wire send select: {e}")))?;
 
     let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         loop {
@@ -894,18 +954,30 @@ async fn finish_handshake_with_project(
                         }));
                     }
                     Wire::Pick { sessions } => return Ok(Reply::Pick(sessions)),
-                    Wire::Error { message, .. } => {
-                        return Err(format!("server rejected the attach: {message}"));
+                    Wire::Error { message, code } => {
+                        // `[INV-ATTACH-01]`: the code travels with the message.
+                        // This is the hop that used to discard the taxonomy
+                        // with a `..` and leave the client to sniff prose.
+                        return Err(AttachError {
+                            code,
+                            message: format!("server rejected the attach: {message}"),
+                        });
                     }
                     _ => tracing::warn!("attach: unexpected frame during handshake, ignored"),
                 },
-                Some(Err(error)) => return Err(format!("wire recv during handshake: {error}")),
-                None => return Err("server closed the connection".to_string()),
+                Some(Err(error)) => {
+                    return Err(AttachError::transport(format!(
+                        "wire recv during handshake: {error}"
+                    )));
+                }
+                None => {
+                    return Err(AttachError::transport("server closed the connection"));
+                }
             }
         }
     })
     .await
-    .map_err(|_| "timed out waiting for handshake from server".to_string())??;
+    .map_err(|_| AttachError::transport("timed out waiting for handshake from server"))??;
 
     let welcome = match reply {
         Reply::Welcome(w) => w,
@@ -1158,6 +1230,67 @@ pub fn upsert_task_row(rows: &mut Vec<MonitoredTask>, row: MonitoredTask) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `[INV-ATTACH-01]` — an attach refusal must preserve the server's
+    /// machine-readable taxonomy on its way to the decision site.
+    ///
+    /// The bug this locks: the handshake destructured `Wire::Error { message, .. }`
+    /// — the `..` discarding the code — so an expected outcome (`session_gone`)
+    /// was indistinguishable from a transport fault and the client had no branch
+    /// but "die".
+    #[test]
+    fn attach_refusal_preserves_code() {
+        let gone = AttachError {
+            code: Some(nuo_wire::ERR_SESSION_GONE.to_string()),
+            message: "server rejected the attach: session 'x' no longer exists".to_string(),
+        };
+        assert_eq!(gone.code(), Some(nuo_wire::ERR_SESSION_GONE));
+        assert!(gone.is_session_gone());
+        assert!(
+            !gone.is_session_unresumable(),
+            "the two recoveries are mutually exclusive"
+        );
+
+        let unresumable = AttachError {
+            code: Some(nuo_wire::ERR_SESSION_UNRESUMABLE.to_string()),
+            message: "server rejected the attach: could not resume session x: boom".to_string(),
+        };
+        assert!(unresumable.is_session_unresumable());
+        assert!(
+            !unresumable.is_session_gone(),
+            "a resumable session must never be retired"
+        );
+
+        // A transport fault carries no taxonomy: it must stay fatal rather than
+        // be mistaken for a retirement instruction.
+        let transport = AttachError::transport("ws connect failed");
+        assert_eq!(transport.code(), None);
+        assert!(!transport.is_session_gone());
+        assert!(!transport.is_session_unresumable());
+
+        // `Display` stays human prose — a caller must never parse the code back
+        // out of the rendered message.
+        assert_eq!(gone.to_string(), gone.message);
+        assert!(!gone.to_string().contains(nuo_wire::ERR_SESSION_GONE));
+    }
+
+    /// An attach refusal's wire code round-trips through the frame the client
+    /// actually parses.
+    #[test]
+    fn wire_error_frame_carries_the_refusal_code() {
+        let frame = Wire::Error {
+            message: "session 'abc' no longer exists".to_string(),
+            code: Some(nuo_wire::ERR_SESSION_GONE.to_string()),
+        };
+        let json = serde_json::to_string(&frame).unwrap();
+        let back: Wire = serde_json::from_str(&json).unwrap();
+        match back {
+            Wire::Error { code, .. } => {
+                assert_eq!(code.as_deref(), Some(nuo_wire::ERR_SESSION_GONE));
+            }
+            other => panic!("expected an Error frame, got {other:?}"),
+        }
+    }
 
     #[cfg(unix)]
     #[test]

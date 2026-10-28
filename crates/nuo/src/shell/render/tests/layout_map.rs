@@ -33,7 +33,7 @@ fn transcript_content_rect_spans_band_and_gap_rows() {
                 scroll: 0,
                 selection: &SelectionState::None,
                 cell_selection: None,
-                backoff_clause: None,
+                backoff: None,
                 activity: "",
                 awaiting_permission: false,
                 spinner_phase: 0,

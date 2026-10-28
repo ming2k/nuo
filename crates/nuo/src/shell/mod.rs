@@ -261,6 +261,17 @@ pub struct TuiLaunchConfig {
     pub startup_overlay: StartupOverlay,
     pub initial_tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,
     pub initial_tab_history: Option<Vec<crate::shell::surfaces::TabKind>>,
+    /// Disclosures the attach loop accumulated *before* this run existed — a
+    /// stale tab it had to retire, a session it could not reopen
+    /// (ADR-0123 `[INV-ATTACH-02]`).
+    ///
+    /// They ride the launch config because the client had no `App` yet when the
+    /// refusal arrived, and the disposal must be *retained* rather than printed
+    /// to a stderr the alternate screen is about to paint over. Each one is
+    /// replayed through the canonical notice funnel
+    /// ([ADR-0121](0121-notice-log-residency-retained-disclosure-record-and-bubble-as-pointer.md)),
+    /// so the reason a tab vanished is answerable minutes later.
+    pub startup_notices: Vec<(NoticeSeverity, String)>,
 }
 
 /// Install the panic hook so abnormal main-thread termination restores the terminal.
@@ -337,6 +348,7 @@ pub(crate) async fn run_tui_with_input(
         startup_overlay,
         initial_tabs,
         initial_tab_history,
+        startup_notices,
     } = config;
     let profile = nuotc::TerminalProfile::detect();
     let tui_config = Arc::new(tui_config);
@@ -493,19 +505,18 @@ pub(crate) async fn run_tui_with_input(
                 role: None,
                 workspace: None,
             };
-            // How many provider attempts the round currently in flight has
-            // spent. It exists for exactly one purpose: the terminal `Error`
-            // arm phrases "Exhausted {n} retry attempts — …" from it, because
-            // the wire error carries no retry count.
+            // The round's retry episode, as the *typed* state machine
+            // (`nuo_view::retry`). One value holds the attempt pair, the
+            // backoff instant and the fault history, so the three consumers
+            // that need it — the bar clause, the receipt-log line and the
+            // settled turn anchor — cannot disagree about any of them.
             //
-            // It is a **counter, not state**: it holds no setback, no timer and
-            // no failure text, so it is not a second copy of the clause the
-            // activity bar renders — that clause is owned by the session's
-            // phase and retired with it, and nothing here sends a
-            // clause write at all. The `retry_attempts = 0` writes below exist
-            // only so a later error cannot be blamed for an earlier round's
-            // attempts.
-            let mut retry_attempts: usize = 0;
+            // It is the only retry state in the translator: there is no
+            // parallel counter and no second copy of the count. `None` means
+            // the round in flight has not retried. The `= None` writes below
+            // are the round boundaries, and they exist so a later round's
+            // error can never be blamed for an earlier round's attempts.
+            let mut retry_progress: Option<nuo_view::retry::RetryProgress> = None;
             let mut reasoning_start: Option<std::time::Instant> = None;
             // The live primary session id: the translator updates it on
             // `/new` / `/session open` / `/resume` / `/fork` and scopes
@@ -680,12 +691,40 @@ pub(crate) async fn run_tui_with_input(
                                     .await;
                             }
                             RoundEvent::RoundCompleted(_summary) => {
-                                retry_attempts = 0;
-                                transcript!(E::RetainNotRetry);
+                                // The retry episode is over. The *anchor* is not
+                                // minted here: the harness emits
+                                // `RetryResolved` with the durable record it
+                                // just persisted, and that is the single
+                                // source for the row (so a resumed session and
+                                // a live one render the same bytes —
+                                // `[INV-TRANSCRIPT-04]`). This arm only retires
+                                // the transient state.
+                                retry_progress = None;
+                                transcript!(E::RetrySettled { recovered: None });
                             }
                             RoundEvent::RoundInterrupted(record) => {
                                 // C11: the durable twin of the live stop.
-                                retry_attempts = 0;
+                                //
+                                // If the round died while backing off, the last
+                                // fault is the *reason*, and the anchor's
+                                // one-line detail is where it belongs — one
+                                // line, not a pretty-printed HTTP body in the
+                                // timeline. The full payload is already in the
+                                // notice log (each scheduled attempt wrote its
+                                // receipt) and in the client log file.
+                                let last_fault = retry_progress
+                                    .as_ref()
+                                    .and_then(|progress| progress.faults().last().cloned());
+                                let record = match (record.detail, last_fault) {
+                                    (None, Some(fault)) => nuo_wire::RoundInterrupt {
+                                        detail: Some(nuo_view::model::notice_text::display_text(
+                                            &fault,
+                                        )),
+                                        ..record
+                                    },
+                                    (detail, _) => nuo_wire::RoundInterrupt { detail, ..record },
+                                };
+                                retry_progress = None;
                                 chrome!(event_loop::mutations::ChromeEdit::RoundEnded);
 
                                 mutations.send(M::SetPhase(None)).await;
@@ -711,46 +750,38 @@ pub(crate) async fn run_tui_with_input(
                                 // The layer is derived from the surface context,
                                 // never chosen by the producer and never the
                                 // thread transcript ([INV-LAYER-04]): a notice is
-                                // a receipt, not dialogue. This client has no
-                                // receipt-log viewer in the thread scene and no
-                                // banner row, so `MINIMAL` degrades diagnostics
-                                // to the toast surface — the conversation stays
-                                // pure either way.
-                                let caps = nuo_view::model::layer::SurfaceCapabilities::MINIMAL;
-                                match nuo_view::model::layer::layer_for(
+                                // a receipt, not dialogue.
+                                //
+                                // `SHELL` declares the notice log, so every
+                                // disclosure is *retained* there. A fault
+                                // additionally raises a bubble that names the log;
+                                // an acknowledgement does not. That inversion is
+                                // the point: the log is the home, the bubble is a
+                                // pointer to it.
+                                let layer = nuo_view::model::layer::layer_for(
                                     &notice,
-                                    caps,
-                                    nuo_view::model::log::SurfaceId::THREAD,
-                                ) {
+                                    nuo_view::model::layer::SHELL,
+                                );
+                                if layer != nuo_view::model::layer::ContentLayer::Absorbed {
                                     // `RetryScheduled` owns the retry disclosure;
-                                    // an unhostable receipt is dropped rather
-                                    // than written into the conversation.
-                                    nuo_view::model::layer::ContentLayer::Absorbed => {}
-                                    nuo_view::model::layer::ContentLayer::Toast
-                                    | nuo_view::model::layer::ContentLayer::Banner => {
-                                        mutations
-                                            .send(M::NoticeToast {
-                                                severity: notice_severity_from_core(
-                                                    notice.severity,
-                                                ),
-                                                text: notice.render_text(),
-                                            })
-                                            .await;
-                                    }
-                                    nuo_view::model::layer::ContentLayer::SurfaceLog(surface) => {
-                                        let line = nuo_view::model::log::SurfaceLine::note(
-                                            notice.render_text(),
-                                            now_ms!(),
-                                        )
-                                        .with_label(nuo_view::model::document::notice_topic_label(
-                                            notice.kind,
-                                        ));
-                                        mutations.send(M::SurfaceLog { surface, line }).await;
-                                    }
+                                    // an absorbed receipt is dropped rather than
+                                    // written into the conversation.
+                                    mutations
+                                        .send(M::NoticeDisclosure {
+                                            severity: notice_severity_from_core(notice.severity),
+                                            topic: nuo_view::model::document::notice_topic_label(
+                                                notice.kind,
+                                            )
+                                            .to_string(),
+                                            text: notice.render_text(),
+                                            detail: None,
+                                            at_ms: now_ms!(),
+                                        })
+                                        .await;
                                 }
                             }
                             RoundEvent::Text(t) => {
-                                retry_attempts = 0;
+                                retry_progress = None;
                                 let (provider, model) = attribution!();
                                 let effort = picker_effort!();
                                 let mut message = TranscriptMessage::new(Role::Assistant, t)
@@ -789,7 +820,7 @@ pub(crate) async fn run_tui_with_input(
                             }
                             RoundEvent::CommandResult { name, args, result } => {
                                 mutations.send(M::ClearSwitchingSession).await;
-                                retry_attempts = 0;
+                                retry_progress = None;
                                 let invocation = if args.is_empty() {
                                     format!("/{}", name)
                                 } else {
@@ -817,10 +848,20 @@ pub(crate) async fn run_tui_with_input(
                                     mutations.send(M::SetPhase(None)).await;
                                 }
                             }
-                            RoundEvent::RetryResolved(_resolution) => {
-                                // The retry loop recovered; ephemeral
-                                // state retires, no permanent notice row.
-                                transcript!(E::RetainNotRetry);
+                            RoundEvent::RetryResolved(resolution) => {
+                                // The round recovered after N transient faults.
+                                // This event carries the record the harness just
+                                // persisted, so the row is built from exactly the
+                                // bytes a resumed session will rebuild it from —
+                                // one constructor, one seam, no live/resume
+                                // split. The transient countdown is already
+                                // retired by the phase write that follows.
+                                retry_progress = None;
+                                transcript!(E::RetrySettled {
+                                    recovered: Some(TranscriptMessage::retry_recovered(
+                                        &resolution
+                                    )),
+                                });
                             }
                             RoundEvent::Activity(status) => {
                                 // View-scoped chrome: record this session's own
@@ -901,7 +942,7 @@ pub(crate) async fn run_tui_with_input(
                                 mutations.send(M::SetResponding(true)).await;
                                 mutations.send(M::SetPhase(Some(Phase::Finalizing))).await;
 
-                                retry_attempts = 0;
+                                retry_progress = None;
                                 let position = positions_by_session.get(&session_id).copied();
                                 let round = position.map(|(round, _)| round);
                                 let turn = position.map(|(_, turn)| turn);
@@ -934,7 +975,7 @@ pub(crate) async fn run_tui_with_input(
                                 });
                             }
                             RoundEvent::StreamDiscard => {
-                                retry_attempts = 0;
+                                retry_progress = None;
                                 let position = positions_by_session.get(&session_id).copied();
                                 transcript!(E::StreamDiscard {
                                     round: position.map(|(round, _)| round),
@@ -944,7 +985,7 @@ pub(crate) async fn run_tui_with_input(
                             RoundEvent::UnsentInput { .. } => {
                                 // Retraction is removed: entries only grow and
                                 // update in place; the prompt is marked Cancelled.
-                                retry_attempts = 0;
+                                retry_progress = None;
                                 transcript!(E::CancelLastUserPrompt);
 
                                 mutations.send(M::SetResponding(false)).await;
@@ -1078,7 +1119,7 @@ pub(crate) async fn run_tui_with_input(
 
                                 let (provider, model) = attribution!();
                                 let effort = picker_effort!();
-                                retry_attempts = 0;
+                                retry_progress = None;
                                 let position = positions_by_session.get(&session_id).copied();
                                 let sent_at_ms = now_ms!();
                                 // ADR-0026: collapse onto the announced step for
@@ -1347,7 +1388,7 @@ pub(crate) async fn run_tui_with_input(
                                     .take()
                                     .map(|started| started.elapsed().as_millis() as u64);
                                 if !running {
-                                    retry_attempts = 0;
+                                    retry_progress = None;
                                     // ADR-0026: no announced step survives its
                                     // round; the queue is drained so a later
                                     // call cannot claim a stale slot.
@@ -1376,24 +1417,43 @@ pub(crate) async fn run_tui_with_input(
                             } => {
                                 let delay = std::time::Duration::from_millis(delay_ms);
                                 let retry_at = std::time::Instant::now() + delay;
-                                let state = crate::shell::app::ProviderRetryState {
-                                    attempt,
-                                    max_attempts,
-                                    retry_at,
-                                    failure: message.clone(),
+                                // Advance the one typed state machine. Every
+                                // consumer below reads *this* value, so the
+                                // count on the bar, the count in the receipt and
+                                // the count in the settled anchor are the same
+                                // number by construction.
+                                let progress = match retry_progress.take() {
+                                    Some(progress) => progress.with_next_attempt(
+                                        attempt,
+                                        max_attempts,
+                                        retry_at,
+                                        message.clone(),
+                                    ),
+                                    None => nuo_view::retry::RetryProgress::scheduled(
+                                        attempt,
+                                        max_attempts,
+                                        retry_at,
+                                        message.clone(),
+                                    ),
                                 };
-                                retry_attempts = attempt;
-                                // Publish-only. The clause is
-                                // retired by the next phase write for *this*
-                                // session — each store owns its own phase —
-                                // never by this translator, which is why no
-                                // arm of this match carries a clause clear.
-                                // The primary's slot is the App mirror; a
-                                // background session's is its own chrome entry,
-                                // so a background retry cannot paint a countdown
-                                // onto the primary's bar.
+                                let clause = progress.label(std::time::Instant::now());
+                                let fault = nuo_view::model::notice_text::display_text(&message);
+                                // The bar's clause and the stored state are the
+                                // same value: clone once here so the published
+                                // setback cannot be a second, independently
+                                // constructed copy.
+                                let published = progress.clone();
+                                retry_progress = Some(progress);
 
-                                mutations.send(M::SetProviderRetry(state)).await;
+                                // Publish-only. The clause is retired by the
+                                // next phase write for *this* session — each
+                                // store owns its own phase — never by this
+                                // translator, which is why no arm of this match
+                                // carries a clause clear. The primary's slot is
+                                // the App mirror; a background session's is its
+                                // own chrome entry, so a background retry cannot
+                                // paint a countdown onto the primary's bar.
+                                mutations.send(M::SetProviderRetry(published)).await;
                                 // Transport setback, not a workflow phase: the
                                 // countdown rides the dedicated clause channel.
                                 mutations
@@ -1401,30 +1461,42 @@ pub(crate) async fn run_tui_with_input(
                                     .await;
                                 mutations.send(M::SetResponding(true)).await;
 
-                                let mut fallback = TranscriptMessage::provider_retry(
-                                    attempt,
-                                    max_attempts,
-                                    retry_at,
-                                    message,
-                                );
-                                if let Some((round, turn)) =
-                                    positions_by_session.get(&session_id).copied()
-                                {
-                                    fallback.round = Some(round);
-                                    fallback.turn = Some(turn);
-                                }
-                                let fallback = fallback.with_sent_at_ms(now_ms!());
-                                transcript!(E::UpsertRetry {
-                                    attempt,
-                                    max_attempts,
-                                    retry_at,
-                                    failure: fallback.raw.clone(),
-                                    fallback,
-                                });
+                                // The receipt: the setback is retained in the
+                                // notice log (a viewport the user can open,
+                                // scroll and copy from), never in the
+                                // conversation. One line per scheduled attempt,
+                                // tagged with the route that failed.
+                                let (provider, model) = attribution!();
+                                mutations
+                                    .send(M::NoticeDisclosure {
+                                        severity: NoticeSeverity::Warning,
+                                        topic: "retry".to_string(),
+                                        // The summary is the clause plus the
+                                        // fault's lead line; the detail is the
+                                        // fault verbatim, so the provider's
+                                        // full body stays readable and pasteable
+                                        // in the viewer now that the transcript
+                                        // no longer carries it.
+                                        text: if provider.is_empty() {
+                                            format!("{clause} — {fault}")
+                                        } else if model.is_empty() {
+                                            format!("{clause} — {provider}: {fault}")
+                                        } else {
+                                            format!("{clause} — {provider}/{model}: {fault}")
+                                        },
+                                        detail: Some(nuo_view::model::notice_text::display_text(
+                                            &message,
+                                        )),
+                                        at_ms: now_ms!(),
+                                    })
+                                    .await;
                             }
                             RoundEvent::Error(e) => {
-                                let attempts = std::mem::take(&mut retry_attempts);
-                                transcript!(E::RetainNotRetry);
+                                let attempts = retry_progress
+                                    .as_ref()
+                                    .map_or(0, nuo_view::retry::RetryProgress::retries);
+                                retry_progress = None;
+                                transcript!(E::RetrySettled { recovered: None });
                                 // A terminal round error may still carry the raw
                                 // retryable-envelope encoding: strip it so the
                                 // user sees the message, never the wire framing.
@@ -1605,7 +1677,10 @@ pub(crate) async fn run_tui_with_input(
                         picker = snapshot.clone();
                         mutations.send(M::ProviderPicker(snapshot)).await;
                     }
-                    AgentResponse::ConversationCleared { session_id } => {
+                    AgentResponse::ConversationCleared {
+                        previous_id,
+                        session_id,
+                    } => {
                         mutations
                             .send(M::Transcript {
                                 edit: event_loop::mutations::TranscriptEdit::Clear,
@@ -1614,9 +1689,18 @@ pub(crate) async fn run_tui_with_input(
                         mutations.send(M::SetRoundCount(0)).await;
                         needs_round_rebase = false;
                         mutations.send(M::ClearContextTokens).await;
-                        // `/new` minted a fresh session and switched to it: track
-                        // the post-switch id so session-scoped client state follows.
-                        mutations.send(M::LiveSession(session_id.clone())).await;
+                        // `/new` minted a fresh session and switched to it: rebase
+                        // **the tab that represented `previous_id`** — never "the
+                        // active tab" (ADR-0123 `[INV-TAB-13]`). The two can differ
+                        // whenever a session switch raced this frame, and rebasing
+                        // the wrong one manufactures a tab pointing at a session
+                        // that does not exist.
+                        mutations
+                            .send(M::LiveSession {
+                                previous_id,
+                                next_id: session_id.clone(),
+                            })
+                            .await;
                         live_session = session_id.clone();
                         mutations.send(M::TokenReport(None)).await;
                         mutations
@@ -1624,6 +1708,7 @@ pub(crate) async fn run_tui_with_input(
                             .await;
                     }
                     AgentResponse::ConversationReplaced {
+                        previous_id,
                         session_id,
                         messages,
                         commands,
@@ -1655,8 +1740,15 @@ pub(crate) async fn run_tui_with_input(
                         // anchor from the previous session/projection.
                         mutations.send(M::ClearContextTokens).await;
                         // Track the new id so session-scoped client state follows,
-                        // and drop the previous session's cached report.
-                        mutations.send(M::LiveSession(session_id.clone())).await;
+                        // and drop the previous session's cached report. Addressed
+                        // by `previous_id`, exactly as `ConversationCleared` is
+                        // (ADR-0123 `[INV-TAB-13]`).
+                        mutations
+                            .send(M::LiveSession {
+                                previous_id,
+                                next_id: session_id.clone(),
+                            })
+                            .await;
                         live_session = session_id;
                         mutations.send(M::TokenReport(None)).await;
                         mutations
@@ -1789,9 +1881,12 @@ pub(crate) async fn run_tui_with_input(
                                         )
                                     };
                                     mutations
-                                        .send(M::NoticeToast {
+                                        .send(M::NoticeDisclosure {
                                             severity: NoticeSeverity::Info,
+                                            topic: "oauth".to_string(),
                                             text: body,
+                                            detail: None,
+                                            at_ms: now_ms!(),
                                         })
                                         .await;
                                 }
@@ -1801,9 +1896,12 @@ pub(crate) async fn run_tui_with_input(
                                     .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
                                     .await;
                                 mutations
-                                    .send(M::NoticeToast {
+                                    .send(M::NoticeDisclosure {
                                         severity: NoticeSeverity::Info,
+                                        topic: "oauth".to_string(),
                                         text: format!("{provider} authorized."),
+                                        detail: None,
+                                        at_ms: now_ms!(),
                                     })
                                     .await;
                             }
@@ -1824,9 +1922,12 @@ pub(crate) async fn run_tui_with_input(
                                     ),
                                 };
                                 mutations
-                                    .send(M::NoticeToast {
+                                    .send(M::NoticeDisclosure {
                                         severity: NoticeSeverity::Warning,
+                                        topic: "models".to_string(),
                                         text,
+                                        detail: None,
+                                        at_ms: now_ms!(),
                                     })
                                     .await;
                             }
@@ -1837,9 +1938,12 @@ pub(crate) async fn run_tui_with_input(
                                     }))
                                     .await;
                                 mutations
-                                    .send(M::NoticeToast {
+                                    .send(M::NoticeDisclosure {
                                         severity: NoticeSeverity::Error,
+                                        topic: "oauth".to_string(),
                                         text: format!("{provider} connect failed: {message}"),
+                                        detail: None,
+                                        at_ms: now_ms!(),
                                     })
                                     .await;
                             }
@@ -1850,9 +1954,12 @@ pub(crate) async fn run_tui_with_input(
                         // A control-plane error is a receipt: the toast
                         // surface carries it, the conversation does not.
                         mutations
-                            .send(M::NoticeToast {
+                            .send(M::NoticeDisclosure {
                                 severity: NoticeSeverity::Error,
+                                topic: "backend".to_string(),
                                 text: msg,
+                                detail: None,
+                                at_ms: now_ms!(),
                             })
                             .await;
                     }
@@ -2120,11 +2227,12 @@ pub(crate) async fn run_tui_with_input(
         surface_overrides: tui_config.surface_key_overrides(),
         focused_target: None,
         copy_toast_until: None,
-        receipts: crate::shell::app::receipts::ReceiptLog::default(),
         copy_toast_message: String::new(),
         copy_toast_failed: false,
         notice_toast_until: None,
         notice_toast_message: String::new(),
+        notice_toast_topic: String::new(),
+        notice_viewer: None,
         notice_toast_severity: nuo_view::model::document::NoticeSeverity::Info,
         ctrl_c_armed_until: None,
         esc_armed_until: None,
@@ -2225,6 +2333,15 @@ pub(crate) async fn run_tui_with_input(
         app.surface_store
             .open(crate::shell::surfaces::DialogKind::Sessions);
     }
+    // Replay the attach loop's pre-mount disclosures (ADR-0123
+    // `[INV-ATTACH-02]`). They went through `App::record_notice`, so the reason a
+    // tab was retired is in the notice log — not merely flashed and lost.
+    if !startup_notices.is_empty() {
+        let at_ms = event_loop::now_epoch_ms();
+        for (severity, text) in startup_notices {
+            app.record_notice(severity, "attach", text, at_ms);
+        }
+    }
     if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
         app.send_intent(AgentRequest::QueryWebSearchConfig);
     }
@@ -2295,11 +2412,14 @@ pub async fn start_tui(
     run_tui(tx, rx, config).await
 }
 
-/// Apply the visible transcript effect of a stream-start signal. Retires any
-/// transient provider-retry notice entry when streaming commences, and settles
-/// any in-flight sending prompt to delivered.
-pub(crate) fn begin_stream(messages: &mut Vec<TranscriptMessage>) {
-    messages.retain(|m| !m.is_provider_retry());
+/// Apply the visible transcript effect of a stream-start signal: settle any
+/// in-flight sending prompt to delivered.
+///
+/// A stream start used to also evict the trailing provider-retry entry here.
+/// That entry no longer exists — the live countdown is chrome, retired by the
+/// phase write that streaming produces — so this function has exactly one job
+/// and cannot leave a stale retry row behind.
+pub(crate) fn begin_stream(messages: &mut [TranscriptMessage]) {
     if let Some(m) = messages
         .iter_mut()
         .rev()

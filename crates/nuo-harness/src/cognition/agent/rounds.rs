@@ -1345,7 +1345,7 @@ impl Agent {
             if checkpoint_replay {
                 on_event(AgentEvent::Notice(
                     AgentNotice::new(
-                        NoticeKind::ProviderRetry,
+                        NoticeKind::CheckpointReplay,
                         NoticeSeverity::Warning,
                         "Completed tool call not repeated",
                         NoticeSource::Harness,

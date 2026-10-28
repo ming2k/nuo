@@ -255,6 +255,11 @@ impl ContentModalSpec {
     pub const CUSTOM_PROVIDER: Self = Self::new(72, 8, 80);
     pub const PERMISSIONS: Self = Self::new(72, 7, 80);
     pub const SKILLS: Self = Self::new(72, 7, 80);
+    /// The notice viewer (`Ctrl-o`): the client's retained disclosures. Wide
+    /// enough that a real error message ("Failed to open link …: permission
+    /// denied") fits on one row instead of wrapping into a wall, and tall
+    /// enough to read a run of faults without scrolling.
+    pub const NOTICES: Self = Self::new(80, 10, 86);
 
     pub const fn modal_spec(self) -> ModalSpec {
         self.spec

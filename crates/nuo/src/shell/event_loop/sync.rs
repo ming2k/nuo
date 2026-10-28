@@ -151,6 +151,13 @@ pub(crate) fn tick_toast_timers(app: &mut App) -> bool {
     changed
 }
 
+/// Show a local toast.
+///
+/// A **failed** local toast is diagnostic content: it goes through the notice
+/// funnel first (`App::record_local_fault`), which retains it in the log and
+/// paints the fault bubble. A successful one is an acknowledgement of an action
+/// the user can repeat, so it is only a bubble — but it is still recorded in the
+/// log at `Info`, because "what did that say?" is asked a minute later.
 pub(crate) fn show_local_toast(
     app: &mut App,
     message: impl Into<String>,
@@ -158,17 +165,20 @@ pub(crate) fn show_local_toast(
     duration: std::time::Duration,
 ) {
     let message = message.into();
-    // A failed local toast is real diagnostic content, so it joins the
-    // retained receipt log before it fades; a successful one is an
-    // acknowledgement of an action the user can repeat and is not retained.
     if failed {
-        app.receipts.record(
-            nuo_view::model::document::NoticeSeverity::Error,
-            message.clone(),
-        );
+        app.record_local_fault("client", message);
+        return;
     }
+    // Retained as an acknowledgement (no bubble from the funnel — the caller is
+    // painting one), then the caller's own duration wins.
+    app.record_notice(
+        nuo_view::model::document::NoticeSeverity::Info,
+        "client",
+        message.clone(),
+        crate::shell::event_loop::now_epoch_ms(),
+    );
     app.copy_toast_message = message;
-    app.copy_toast_failed = failed;
+    app.copy_toast_failed = false;
     app.copy_toast_until = Some(std::time::Instant::now() + duration);
 }
 

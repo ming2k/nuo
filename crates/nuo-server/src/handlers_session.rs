@@ -25,8 +25,15 @@ pub async fn delete(
     match session.delete(&id).await {
         Ok(deleted_id) => {
             if deleted_id == active_id_before {
+                // `[INV-TAB-13]`: `active_id_before` is the id the tab is
+                // leaving — the only address that can identify it. The store has
+                // already repointed itself at a fresh session, so this is the
+                // last moment the previous identity is recoverable.
                 let new_id = session.id().await;
-                let _ = resp_tx.send(AgentResponse::ConversationCleared { session_id: new_id });
+                let _ = resp_tx.send(AgentResponse::ConversationCleared {
+                    previous_id: active_id_before,
+                    session_id: new_id,
+                });
             }
             let _ = resp_tx.send(AgentResponse::SessionsOverview(
                 build_sessions_overview(session).await,
@@ -378,11 +385,18 @@ mod tests {
 
         delete(&store, &resp_tx, initial_id.clone()).await;
 
-        let Some(AgentResponse::ConversationCleared { session_id: new_id }) = resp_rx.recv().await
+        let Some(AgentResponse::ConversationCleared {
+            previous_id,
+            session_id: new_id,
+        }) = resp_rx.recv().await
         else {
             panic!("expected ConversationCleared response when deleting active session");
         };
         assert_ne!(new_id, initial_id);
+        // `[INV-TAB-13]`: `previous_id` is the identity the tab must be addressed
+        // by. It is the *deleted* session — the one the client is leaving — not
+        // the freshly minted replacement, or no tab could ever match it.
+        assert_eq!(previous_id, initial_id);
 
         let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
             panic!("expected SessionsOverview response after delete");
@@ -404,11 +418,18 @@ mod tests {
 
         delete(&store, &resp_tx, initial_id.clone()).await;
 
-        let Some(AgentResponse::ConversationCleared { session_id: new_id }) = resp_rx.recv().await
+        let Some(AgentResponse::ConversationCleared {
+            previous_id,
+            session_id: new_id,
+        }) = resp_rx.recv().await
         else {
             panic!("expected ConversationCleared response when deleting active session");
         };
         assert_ne!(new_id, initial_id);
+        // `[INV-TAB-13]`: `previous_id` is the identity the tab must be addressed
+        // by. It is the *deleted* session — the one the client is leaving — not
+        // the freshly minted replacement, or no tab could ever match it.
+        assert_eq!(previous_id, initial_id);
 
         let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
             panic!("expected SessionsOverview response after delete");

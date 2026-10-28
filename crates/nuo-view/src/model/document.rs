@@ -81,6 +81,34 @@ pub struct ToolInvocation {
     pub children: Vec<TranscriptMessage>,
 }
 
+/// A subagent's provider-retry episode: the live setback *and* the faults it
+/// recovered from.
+///
+/// Both facts belong to one episode, so they live in one type rather than as
+/// two parallel fields on [`MessageKind::ToolStep`] that a future caller could
+/// update independently (and thereby report a recovered fault list beside a
+/// live countdown). The step holds `Option<Box<Self>>`: `None` is the normal
+/// state of a subagent that never retried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubagentRetry {
+    /// The live setback, or `None` once the loop recovered.
+    pub progress: Option<crate::retry::RetryProgress>,
+    /// The faults the loop recovered from, oldest first. Non-empty only after a
+    /// recovery, so the step's outcome row can report what the subagent
+    /// survived.
+    pub recovered: Vec<String>,
+}
+
+impl SubagentRetry {
+    /// A fresh episode carrying its first scheduled setback.
+    pub fn scheduled(progress: crate::retry::RetryProgress) -> Self {
+        Self {
+            progress: Some(progress),
+            recovered: Vec::new(),
+        }
+    }
+}
+
 /// Detailed execution phase of an autonomous tool slot (ADR-0046).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolExecutionPhase {
@@ -162,18 +190,25 @@ pub enum SystemNoticeTopic {
     /// Image attachments were withheld from a request because the route cannot
     /// take them.
     Images,
+    /// The round survived transient provider faults and completed. The
+    /// success-side twin of [`Self::Interrupted`]: one anchor per recovered
+    /// round, carrying the fault list as its detail.
+    Recovered,
     Custom(String),
 }
 
+/// Who produced a notice.
+///
+/// There used to be a `Provider { provider_name, attempt }` variant carrying the
+/// retry attempt pair. Both fields became dead ends once the live retry stopped
+/// being a notice: the attempt count lives in `nuo_view::retry::RetryProgress`,
+/// and a provider fault that reaches the transcript is a *round outcome*
+/// (`round_interrupted` / `retry_recovered`), which is a system topic. Keeping
+/// the variant would have left a field that is always `None` — the exact shape
+/// that invites a future producer to fill it with a second, disagreeing count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NoticeOrigin {
-    System {
-        topic: SystemNoticeTopic,
-    },
-    Provider {
-        provider_name: Option<String>,
-        attempt: Option<(usize, usize)>,
-    },
+    System { topic: SystemNoticeTopic },
 }
 
 #[derive(Debug, Clone)]
@@ -241,6 +276,16 @@ pub enum MessageKind {
         /// `starting`. Not serialized — restored sessions render terminal
         /// steps, which never show a peek.
         activity: Option<String>,
+        /// The subagent's provider-retry episode, from
+        /// [`nuo_wire::SubagentEvent::RetryScheduled`] / `RetryResolved`.
+        ///
+        /// A subagent's setback is real state with a real countdown, so it gets
+        /// the same typed treatment as the principal round's
+        /// (`nuo_view::retry`) instead of being flattened into an `activity`
+        /// string the renderer would have to parse. Boxed because almost every
+        /// step in a transcript has never retried, and `ToolStep` is already the
+        /// largest `MessageKind` variant.
+        retry: Option<Box<SubagentRetry>>,
         /// ADR-0026: argument bytes received so far while this call's
         /// arguments are still streaming (count-only, `[INV-STREAM-TOOL-03]`).
         /// `None` once the call dispatches (the count stops being meaningful)
@@ -285,20 +330,6 @@ pub enum MessageKind {
     Notice {
         severity: NoticeSeverity,
         parts: Option<Box<NoticeParts>>,
-        expanded: bool,
-        user_pinned: bool,
-    },
-    /// Transient provider-retry state rendered live in the transcript as a notification entry.
-    ///
-    /// Unlike a static notice, this message is updated in place for every failed
-    /// attempt and removed when the request succeeds or terminates. Keeping
-    /// the timing data structured lets the renderer derive a live countdown
-    /// on every frame without appending duplicate lines per retry.
-    ProviderRetry {
-        attempt: usize,
-        max_attempts: usize,
-        failure: String,
-        retry_at: std::time::Instant,
         expanded: bool,
         user_pinned: bool,
     },
@@ -437,6 +468,18 @@ pub enum NoticeSeverity {
     Error,
 }
 
+impl NoticeSeverity {
+    /// Whether this severity is a fault: something the user must know about
+    /// even if they were not looking. An `Info` disclosure confirms an action
+    /// the user just took and can repeat, so it is retained but not escalated.
+    ///
+    /// One predicate, read by the bubble shape, its duration and its hint, so
+    /// "what counts as a fault" cannot drift between them.
+    pub fn is_fault(self) -> bool {
+        matches!(self, Self::Warning | Self::Error)
+    }
+}
+
 pub fn notice_severity_from_core(severity: nuo_wire::NoticeSeverity) -> NoticeSeverity {
     match severity {
         nuo_wire::NoticeSeverity::Info => NoticeSeverity::Info,
@@ -474,7 +517,7 @@ pub struct NoticeParts {
 /// *kind* stays stable on the wire.
 pub fn notice_topic_label(kind: nuo_wire::NoticeKind) -> &'static str {
     match kind {
-        nuo_wire::NoticeKind::ProviderRetry => "provider",
+        nuo_wire::NoticeKind::CheckpointReplay => "replay",
         nuo_wire::NoticeKind::NudgeInjected => "turn guard",
         nuo_wire::NoticeKind::ReviewAlert => "review",
         nuo_wire::NoticeKind::TrustChanged => "trust",
@@ -1165,6 +1208,7 @@ impl TranscriptMessage {
                 execution_started_at,
                 awaiting: false,
                 activity: None,
+                retry: None,
                 input_bytes: None,
                 input_slot: None,
                 children: Vec::new(),
@@ -1601,6 +1645,7 @@ impl TranscriptMessage {
             profile,
             awaiting,
             activity,
+            retry,
             ..
         } = &mut self.kind
         else {
@@ -1621,6 +1666,9 @@ impl TranscriptMessage {
             | SubagentEvent::StreamReasoningStart { .. }
             | SubagentEvent::StreamReasoningDelta(_)
             | SubagentEvent::StreamReasoningEnd(_) => *awaiting = false,
+            // A scheduled retry is a pause, not progress: it clears nothing.
+            // A resolved retry means the child is running again.
+            SubagentEvent::RetryResolved { .. } => *awaiting = false,
             _ => {}
         }
         match event {
@@ -1769,6 +1817,56 @@ impl TranscriptMessage {
             // stretch with no child events still reads as alive. No child
             // message is produced.
             SubagentEvent::Activity(text) => *activity = Some(text.clone()),
+            // The child's setback, in the same typed vocabulary the principal
+            // round uses. Rendering it from data (rather than from the
+            // `waiting to retry (3s)` activity string) is what lets the peek
+            // row show the same `retry N/M` count the child is actually on.
+            SubagentEvent::RetryScheduled {
+                attempt,
+                max_attempts,
+                delay_ms,
+                message,
+            } => {
+                let retry_at =
+                    std::time::Instant::now() + std::time::Duration::from_millis(*delay_ms);
+                let next = match retry.take() {
+                    Some(episode) => match episode.progress {
+                        Some(progress) => progress.with_next_attempt(
+                            *attempt,
+                            *max_attempts,
+                            retry_at,
+                            message.clone(),
+                        ),
+                        None => crate::retry::RetryProgress::scheduled(
+                            *attempt,
+                            *max_attempts,
+                            retry_at,
+                            message.clone(),
+                        ),
+                    },
+                    None => crate::retry::RetryProgress::scheduled(
+                        *attempt,
+                        *max_attempts,
+                        retry_at,
+                        message.clone(),
+                    ),
+                };
+                *retry = Some(Box::new(SubagentRetry::scheduled(next)));
+            }
+            // The child recovered: the setback retires and the fault list
+            // becomes part of the step's outcome, so a user who scrolled away
+            // still learns the subagent had to fight for its answer.
+            SubagentEvent::RetryResolved { attempts, faults } => {
+                let _ = attempts;
+                *activity = None;
+                // The setback retires and the fault list becomes the episode's
+                // record: one type, so a recovered list can never sit beside a
+                // live countdown.
+                *retry = Some(Box::new(SubagentRetry {
+                    progress: None,
+                    recovered: faults.clone(),
+                }));
+            }
             // Full-duplex (ADR-0029): a subagent surfaced a permission /
             // ask_user request up through the subagent tool. The down-direction
             // reply (registry → handle → reply_permission / reply_user_question)
@@ -1823,9 +1921,6 @@ impl TranscriptMessage {
                     Facets::NOTICE
                 }
             }
-            // A live retry renders through the notice renderer, so it is a
-            // notice for selection purposes too.
-            MessageKind::ProviderRetry { .. } => Facets::NOTICE,
             MessageKind::CommandResult { .. } => Facets::COMMAND,
             // A compaction checkpoint is harness-emitted status about the
             // thread, not dialogue from either party.
@@ -1917,11 +2012,6 @@ impl TranscriptMessage {
                     }
                 }
                 if !self.raw.is_empty() && visit(search::Field::Notice, &self.raw) {
-                    return true;
-                }
-            }
-            MessageKind::ProviderRetry { failure, .. } => {
-                if visit(search::Field::Notice, failure) {
                     return true;
                 }
             }
@@ -2099,7 +2189,7 @@ impl TranscriptMessage {
     /// away, or `None` when the body renders verbatim. Asked by the activation
     /// ladder so a key press never promises a reveal that reveals nothing.
     ///
-    /// The row derivation is [`nuo_view::tools::shell_output`]'s — the same one
+    /// The row derivation is `crate::tools::shell_output`'s — the same one
     /// the renderer paints — so the ladder and the drawing cannot disagree.
     pub fn tool_step_folded_rows(&self) -> Option<usize> {
         let MessageKind::ToolStep {
@@ -2266,6 +2356,7 @@ impl TranscriptMessage {
             started_at,
             awaiting,
             activity,
+            retry,
             children,
             ..
         } = &self.kind
@@ -2285,48 +2376,60 @@ impl TranscriptMessage {
                 duration_text(Some(ms))
             }
         });
-        // A parked human-decision wait outranks replaying the last tool
-        // activity: the subagent is blocked on the user, not making progress.
-        // It keeps the bare phrase — no `running` prefix — because nothing
-        // is moving while the subagent waits.
-        let activity = if *awaiting {
-            "awaiting approval".to_string()
-        } else {
-            let current = match children.last() {
-                Some(child)
-                    if child.is_tool_step()
-                        && child.tool_step_status().is_some_and(|s| s.is_running()) =>
-                {
-                    // A tool step still in flight — name the tool so the
-                    // row says *what* is being done, not just that the
-                    // parent is busy.
-                    Some(
-                        child
-                            .tool_step_summary()
-                            .unwrap_or_else(|| "tool".to_string()),
-                    )
-                }
-                // Assistant text has streamed but no tool call followed it:
-                // the subagent is composing between tools. A bare `starting`
-                // here read as "possibly stuck" during long model calls,
-                // which is exactly what the `running` prefix disambiguates.
-                Some(child) if child.role == Role::Assistant && !child.raw.is_empty() => {
-                    Some("thinking".to_string())
-                }
-                // Nothing observable has landed yet. Prefer the subagent's own
-                // reported activity (`waiting for model`, …) over the
-                // generic `starting`: it proves the subagent is alive during
-                // the model call that precedes the first child event.
-                _ => activity.clone(),
-            };
-            // A transport wait (provider backoff) is a pause, not progress:
-            // bare phrase, same rule as `awaiting approval` above — `running`
-            // would falsely claim forward motion.
-            match current {
-                Some(current) if current.starts_with("waiting to retry") => current,
-                Some(current) => format!("running {current}"),
-                None => "running".to_string(),
+        // Rank order for the peek row, highest first:
+        //
+        // 1. a parked human-decision wait — the subagent is blocked on the
+        //    user, and nothing it says about its own progress is actionable;
+        // 2. a live setback — the child is not running, it is backing off, and
+        //    the countdown is the fact the user needs. Read from the typed
+        //    [`crate::retry::RetryProgress`], never parsed back out of the
+        //    `waiting to retry (3s)` activity string, so the child's count is
+        //    the child's actual attempt;
+        // 3. the derived activity (`running <tool>` / `thinking` / the child's
+        //    own reported line).
+        if *awaiting {
+            return Some(match elapsed {
+                Some(elapsed) => format!("awaiting approval  {elapsed}"),
+                None => "awaiting approval".to_string(),
+            });
+        }
+        if let Some(progress) = retry.as_ref().and_then(|episode| episode.progress.as_ref()) {
+            return Some(progress.label(std::time::Instant::now()));
+        }
+        let current = match children.last() {
+            Some(child)
+                if child.is_tool_step()
+                    && child.tool_step_status().is_some_and(|s| s.is_running()) =>
+            {
+                // A tool step still in flight — name the tool so the row says
+                // *what* is being done, not just that the parent is busy.
+                Some(
+                    child
+                        .tool_step_summary()
+                        .unwrap_or_else(|| "tool".to_string()),
+                )
             }
+            // Assistant text has streamed but no tool call followed it: the
+            // subagent is composing between tools. A bare `starting` here read
+            // as "possibly stuck" during long model calls, which is exactly
+            // what the `running` prefix disambiguates.
+            Some(child) if child.role == Role::Assistant && !child.raw.is_empty() => {
+                Some("thinking".to_string())
+            }
+            // Nothing observable has landed yet. Prefer the subagent's own
+            // reported activity (`waiting for model`, …) over the generic
+            // `starting`: it proves the subagent is alive during the model call
+            // that precedes the first child event.
+            _ => activity.clone(),
+        };
+        // A transport wait that is not a live setback (a restored step, or one
+        // whose RetryResolved never landed) is still a pause, not progress:
+        // bare phrase, same rule as `awaiting approval` above — `running` would
+        // falsely claim forward motion.
+        let activity = match current {
+            Some(current) if current.starts_with("waiting to retry") => current,
+            Some(current) => format!("running {current}"),
+            None => "running".to_string(),
         };
         // The activity and its elapsed time are same-rank metadata — plain
         // whitespace (R2 on the join ladder), never a `·` glyph.
@@ -2349,6 +2452,7 @@ impl TranscriptMessage {
             status,
             output,
             structured,
+            retry,
             ..
         } = &self.kind
         else {
@@ -2361,11 +2465,23 @@ impl TranscriptMessage {
             Some(nuo_wire::ToolOutput::Subagent { summary, .. }) => summary,
             _ => output.as_deref()?,
         };
-        source
+        let conclusion = source
             .lines()
             .map(str::trim)
             .find(|line| !line.is_empty())
-            .map(str::to_string)
+            .map(str::to_string)?;
+        // A subagent that had to fight for its answer says so. Without this the
+        // recovered fault list the episode records would be write-only state
+        // nobody could ever read — and the user would have no way to know a
+        // child task survived four backoffs before concluding.
+        let recovered = retry.as_ref().map_or(0, |episode| episode.recovered.len());
+        if recovered == 0 {
+            return Some(conclusion);
+        }
+        Some(format!(
+            "{conclusion}  (recovered after {recovered} provider {})",
+            if recovered == 1 { "retry" } else { "retries" }
+        ))
     }
 
     pub fn reasoning(content: impl Into<String>) -> Self {
@@ -2435,23 +2551,17 @@ impl TranscriptMessage {
         matches!(self.kind, MessageKind::Reasoning { .. })
     }
 
-    /// Whether this is the live provider-retry entry.
-    pub fn is_provider_retry(&self) -> bool {
-        matches!(self.kind, MessageKind::ProviderRetry { .. })
-    }
-
-    /// Whether this message is a harness notice (error / turn-pause / status / retry).
+    /// Whether this message is a harness notice (error / turn-pause / status).
+    ///
+    /// A live provider retry is **not** a notice: it owns no transcript row at
+    /// all (see [`crate::retry`]), so this predicate has exactly one arm.
     pub fn is_notice(&self) -> bool {
-        matches!(
-            self.kind,
-            MessageKind::Notice { .. } | MessageKind::ProviderRetry { .. }
-        )
+        matches!(self.kind, MessageKind::Notice { .. })
     }
 
     pub fn notice_expanded(&self) -> Option<bool> {
         match &self.kind {
             MessageKind::Notice { expanded, .. } => Some(*expanded),
-            MessageKind::ProviderRetry { expanded, .. } => Some(*expanded),
             _ => None,
         }
     }
@@ -2467,6 +2577,20 @@ impl TranscriptMessage {
             nuo_wire::RoundInterruptReason::Error => NoticeSeverity::Error,
             _ => NoticeSeverity::Warning,
         };
+        // The reason line names *what happened*; `record.detail` names *why*
+        // (the last transport fault, already flattened to one line by the
+        // producer). Both belong in the anchor: a stopped round that says only
+        // "cancelled" leaves the user without the fault that caused it, and the
+        // full payload is in the notice log rather than in this row.
+        let fault = record
+            .detail
+            .as_deref()
+            .map(str::trim)
+            .filter(|detail| !detail.is_empty());
+        let with_fault = |reason: String| match fault {
+            Some(detail) => format!("{reason}\n{detail}"),
+            None => reason,
+        };
         let raw = match record.reason {
             nuo_wire::RoundInterruptReason::Error => {
                 record.detail.clone().unwrap_or_else(|| match record.round {
@@ -2477,22 +2601,26 @@ impl TranscriptMessage {
             _ => match record.round {
                 Some(round) => match record.reason {
                     nuo_wire::RoundInterruptReason::User => {
-                        format!("Round {round} — cancelled via [Esc Esc]")
+                        with_fault(format!("Round {round} — cancelled via [Esc Esc]"))
                     }
                     nuo_wire::RoundInterruptReason::Superseded => {
-                        format!("Round {round} — superseded by new message")
+                        with_fault(format!("Round {round} — superseded by new message"))
                     }
                     nuo_wire::RoundInterruptReason::Terminated => {
-                        format!("Round {round} — process exited")
+                        with_fault(format!("Round {round} — process exited"))
                     }
                     nuo_wire::RoundInterruptReason::Error => unreachable!(),
                 },
                 None => match record.reason {
-                    nuo_wire::RoundInterruptReason::User => "Cancelled via [Esc Esc]".to_string(),
-                    nuo_wire::RoundInterruptReason::Superseded => {
-                        "Superseded by new message".to_string()
+                    nuo_wire::RoundInterruptReason::User => {
+                        with_fault("Cancelled via [Esc Esc]".to_string())
                     }
-                    nuo_wire::RoundInterruptReason::Terminated => "Process exited".to_string(),
+                    nuo_wire::RoundInterruptReason::Superseded => {
+                        with_fault("Superseded by new message".to_string())
+                    }
+                    nuo_wire::RoundInterruptReason::Terminated => {
+                        with_fault("Process exited".to_string())
+                    }
                     nuo_wire::RoundInterruptReason::Error => unreachable!(),
                 },
             },
@@ -2501,46 +2629,34 @@ impl TranscriptMessage {
             nuo_wire::RoundInterruptReason::Error => {
                 let parsed = crate::model::notice_text::normalize(&raw);
                 NoticeParts {
-                    origin: Some(NoticeOrigin::Provider {
-                        provider_name: None,
-                        attempt: None,
+                    // A provider fault that stopped the round is a *system*
+                    // outcome about the round, not a provider receipt: the
+                    // provider's own words are the detail, and the attempt
+                    // count belongs to the retry state machine.
+                    origin: Some(NoticeOrigin::System {
+                        topic: SystemNoticeTopic::Interrupted,
                     }),
                     topic: Some("error".to_string()),
                     title: parsed.title,
                     detail: parsed.detail,
                 }
             }
-            _ => NoticeParts {
-                origin: Some(NoticeOrigin::System {
-                    topic: SystemNoticeTopic::Interrupted,
-                }),
-                topic: Some("interrupted".to_string()),
-                title: raw.clone(),
-                detail: None,
-            },
+            _ => {
+                // The reason is the title and the fault is the detail: the two
+                // halves are already separated in `raw`, so split rather than
+                // duplicating the fault into a single flattened title.
+                let parsed = crate::model::notice_text::normalize(&raw);
+                NoticeParts {
+                    origin: Some(NoticeOrigin::System {
+                        topic: SystemNoticeTopic::Interrupted,
+                    }),
+                    topic: Some("interrupted".to_string()),
+                    title: parsed.title,
+                    detail: parsed.detail,
+                }
+            }
         };
         Self::notice(severity, raw).with_notice_parts(parts)
-    }
-
-    /// Construct a retry-resolution marker row: the success-side twin of
-    /// [`Self::round_interrupted`]. One compact system notice per round that
-    /// recovered from transient provider faults; the per-attempt fault lines
-    /// ride as the expandable detail.
-    pub fn retry_resolved(record: nuo_wire::RetryResolution) -> Self {
-        Self::notice(NoticeSeverity::Info, record.summary_line())
-            .with_notice_parts(NoticeParts {
-                origin: Some(NoticeOrigin::System {
-                    topic: SystemNoticeTopic::Interrupted,
-                }),
-                topic: Some("recovered".to_string()),
-                title: record.summary_line(),
-                detail: if record.faults.is_empty() {
-                    None
-                } else {
-                    Some(record.faults.join("\n"))
-                },
-            })
-            .with_sent_at_ms(record.at_ms)
     }
 
     /// Construct a notice message. Replaces the ad-hoc
@@ -2601,9 +2717,8 @@ impl TranscriptMessage {
         // carry CRLF, and a raw `\r` reaching the grid moves the physical
         // cursor while the retained grid believes it advanced.
         let origin = match notice.kind {
-            nuo_wire::NoticeKind::ProviderRetry => Some(NoticeOrigin::Provider {
-                provider_name: None,
-                attempt: None,
+            nuo_wire::NoticeKind::CheckpointReplay => Some(NoticeOrigin::System {
+                topic: SystemNoticeTopic::TurnGuard,
             }),
             nuo_wire::NoticeKind::NudgeInjected => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::TurnGuard,
@@ -2685,138 +2800,46 @@ impl TranscriptMessage {
         crate::model::diagnostic::DiagnosticRecord::from_message(self)
     }
 
-    /// Construct a transient provider-retry notice message.
-    pub fn provider_retry(
-        attempt: usize,
-        max_attempts: usize,
-        retry_at: std::time::Instant,
-        failure: impl Into<String>,
-    ) -> Self {
-        let failure = sanitize_text(&failure.into()).into_owned();
-        // `failure` stays the raw transport text (the settle path and the
-        // diagnostic header derive their facts from it); `raw`/`blocks` carry
-        // the *display* text, so a live entry paints and copies the same
-        // normalized body a settled one does.
-        let text = crate::model::notice_text::display_text(&failure);
-        let blocks = parse_blocks_verbatim(&text);
-        Self {
-            id: next_message_id(),
-            role: Role::System,
-            blocks,
-            raw: text,
-            kind: MessageKind::ProviderRetry {
-                attempt,
-                max_attempts,
-                failure,
-                retry_at,
-                expanded: false,
-                user_pinned: false,
-            },
-            origin: UserMessageOrigin::Chat,
-            delivery: DeliveryStatus::Delivered,
-            insert_id: None,
-            provider: None,
-            model: None,
-            effort: None,
-            round: None,
-            turn: None,
-            sent_at_ms: None,
-            injection_origin: None,
-            rev: 0,
-            resume_byte: 0,
-            live_blocks: 0,
-        }
-    }
-
-    /// In-place update for an ongoing provider retry.
-    pub fn update_provider_retry(
-        &mut self,
-        attempt: usize,
-        max_attempts: usize,
-        retry_at: std::time::Instant,
-        failure: impl Into<String>,
-    ) {
-        let failure = sanitize_text(&failure.into()).into_owned();
-        let text = crate::model::notice_text::display_text(&failure);
-        self.blocks = parse_blocks_verbatim(&text);
-        self.raw = text;
-        // Retry notices never stream; freeze the body (safe default for any
-        // stray suffix parse).
-        self.resume_byte = self.raw.len();
-        self.live_blocks = 0;
-        if let MessageKind::ProviderRetry {
-            attempt: a,
-            max_attempts: m,
-            retry_at: r,
-            failure: f,
-            ..
-        } = &mut self.kind
-        {
-            *a = attempt;
-            *m = max_attempts;
-            *r = retry_at;
-            *f = failure;
-            self.rev = self.rev.wrapping_add(1);
-        }
-    }
-
-    /// Settle a transient provider-retry entry into a static failure notice when
-    /// the round is interrupted.
+    /// Construct the **recovered-round anchor**: the success-side twin of
+    /// [`Self::round_interrupted`], and the only transcript row a provider
+    /// retry ever produces.
     ///
-    /// Freezes the dynamic countdown and preserves the retry failure diagnostics
-    /// so the user knows why the round was interrupted.
-    pub fn settle_interrupted_provider_retry(&mut self) {
-        if let MessageKind::ProviderRetry {
-            attempt,
-            max_attempts,
-            failure,
-            expanded,
-            user_pinned,
-            ..
-        } = &self.kind
-        {
-            let attempt = *attempt;
-            let max_attempts = *max_attempts;
-            let failure = failure.clone();
-            let expanded = *expanded;
-            let user_pinned = *user_pinned;
-
-            let title = format!("Provider request failed (attempt {attempt}/{max_attempts})");
-            // The settled entry's detail is the *normalized* failure (pretty
-            // JSON, one-line summary lead) — the live entry showed the same
-            // text, so settling does not change what a user would copy.
-            let detail = if failure.trim().is_empty() {
-                None
-            } else {
-                Some(crate::model::notice_text::display_text(&failure))
-            };
-            let text = crate::model::notice_text::NoticeText {
-                title: title.clone(),
-                detail: detail.clone(),
-            }
-            .display_text();
-            self.blocks = parse_blocks_verbatim(&text);
-            self.raw = text;
-            self.resume_byte = self.raw.len();
-            self.live_blocks = 0;
-
-            let parts = NoticeParts {
-                origin: Some(NoticeOrigin::Provider {
-                    provider_name: None,
-                    attempt: Some((attempt, max_attempts)),
-                }),
-                topic: Some("retry".to_string()),
-                title,
-                detail,
-            };
-            self.kind = MessageKind::Notice {
-                severity: NoticeSeverity::Warning,
-                parts: Some(Box::new(parts)),
-                expanded,
-                user_pinned,
-            };
-            self.rev = self.rev.wrapping_add(1);
+    /// The live retry itself owns no row — it is chrome (`crate::retry`) and a
+    /// receipt-log line. What survives into the conversation is the *turn
+    /// outcome*: this round hit N transient faults and then completed. Per
+    /// ADR-0117 a turn outcome is an anchor — a short label plus a pointer to
+    /// its durable record — so the label is one line and the fault list is the
+    /// expandable detail, never a transport payload dumped into the timeline.
+    ///
+    /// Built from [`nuo_wire::RetryResolution`] — the **durable** record — on
+    /// both paths: the live one (the harness emits `RetryResolved` after
+    /// persisting it) and the resumed one (`transcript_retry_resolutions_from_records`).
+    /// That is what makes a reloaded session show the same row
+    /// ([INV-TRANSCRIPT-04]).
+    pub fn retry_recovered(record: &nuo_wire::RetryResolution) -> Self {
+        let retries = record.attempts as usize;
+        let mut title = format!(
+            "Recovered after {} provider {}",
+            retries,
+            if retries == 1 { "retry" } else { "retries" }
+        );
+        if let Some(round) = record.round {
+            title.push_str(&format!(" (round {round})"));
         }
+        Self::notice(NoticeSeverity::Info, title.clone())
+            .with_notice_parts(NoticeParts {
+                origin: Some(NoticeOrigin::System {
+                    topic: SystemNoticeTopic::Recovered,
+                }),
+                topic: Some("recovered".to_string()),
+                title,
+                detail: if record.faults.is_empty() {
+                    None
+                } else {
+                    Some(record.faults.join("\n"))
+                },
+            })
+            .with_sent_at_ms(record.at_ms)
     }
 
     /// A reasoning trace that has not yet been stamped with a duration — i.e.
@@ -3138,6 +3161,7 @@ impl TranscriptMessage {
             execution_started_at,
             awaiting,
             activity,
+            retry: _,
             input_bytes,
             input_slot,
             children,
@@ -3183,6 +3207,7 @@ impl TranscriptMessage {
             execution_started_at: _,
             awaiting: _,
             activity: _,
+            retry: _,
             input_bytes,
             input_slot,
             children: _,

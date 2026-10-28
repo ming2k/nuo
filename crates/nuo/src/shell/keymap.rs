@@ -102,6 +102,9 @@ pub enum CommandId {
     CopyFocusedEntry,
     CopyDiagnostic,
     CopyRecentDiagnostics,
+    /// Open the notice log viewer: every disclosure this client surfaced,
+    /// retained after its bubble faded.
+    OpenNotices,
 
     // Session & Composer
     SendPrompt,
@@ -264,9 +267,9 @@ pub struct AppContext {
     /// diagnostic-copy act on the focused entry, so both must be able to say
     /// why they are unavailable instead of silently doing nothing.
     pub has_focused_entry: bool,
-    /// Whether any warning/error disclosure is still retained in the receipt
-    /// log (`app::receipts`).
-    pub has_receipts: bool,
+    /// Whether the notice log holds anything at all (`app::receipts`). The
+    /// viewer and the copy verb both need a non-empty log to act on.
+    pub has_notices: bool,
     pub has_running_task: bool,
     pub queue_count: usize,
     /// Whether an ambient session exists (ADR-0035 precondition gating).
@@ -354,11 +357,11 @@ fn avail_copyable(ctx: &AppContext) -> Availability {
 /// Recent-fault copy needs at least one retained receipt: with none, the
 /// command has nothing to hand over and says so rather than copying an empty
 /// block.
-fn avail_has_receipts(ctx: &AppContext) -> Availability {
-    if ctx.has_receipts {
+fn avail_has_notices(ctx: &AppContext) -> Availability {
+    if ctx.has_notices {
         Availability::Available
     } else {
-        Availability::Unavailable("no recent warnings or errors")
+        Availability::Unavailable("no notices retained yet")
     }
 }
 
@@ -514,19 +517,36 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     },
     CommandSpec {
         id: CommandId::CopyRecentDiagnostics,
-        label: "Copy Recent Warnings and Errors",
+        label: "Copy Recent Notices",
         // No chord: this is a recovery verb you reach for *after* missing a
         // toast, so it belongs in the palette rather than on a key you would
-        // have to memorise in advance.
+        // have to memorise in advance. (`Ctrl-o` opens the same record to read.)
         hint: "",
         category: CommandCategory::Session,
         scope: Scope::Session,
         bindings: &[],
         slash: None,
-        availability: avail_has_receipts,
+        availability: avail_has_notices,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Copy the warnings and errors the client surfaced recently, including ones whose toast has already faded",
+        description: "Copy every notice the client surfaced, including ones whose bubble has already faded",
+    },
+    CommandSpec {
+        id: CommandId::OpenNotices,
+        label: "Notices",
+        // The chord exists because the *bubble* advertises it: a fault bubble
+        // says "Ctrl-o · all notices", so the chord must be one the user can
+        // press without having memorised anything. Ctrl-o is otherwise unused
+        // (it was the open-file chord in editors; nothing here claims it).
+        hint: "Ctrl-o",
+        category: CommandCategory::Session,
+        scope: Scope::Session,
+        bindings: &[Key::CTRL_O],
+        slash: Some("/notices"),
+        availability: avail_always,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Review every notice, warning and error the client has surfaced",
     },
     // Session & Composer Controls
     CommandSpec {
@@ -1596,6 +1616,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         // clears `IXON` on both the direct and the multiplexer path, so the
         // chord reaches the app (scopes the same reasoning).
         CommandId::OpenQueue => Some(Key::CTRL_Q),
+        CommandId::OpenNotices => Some(Key::CTRL_O),
         _ => None,
     }
 }
@@ -1609,6 +1630,8 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 fn canonical_global_key(key: Key) -> Option<CommandId> {
     if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
+    } else if key == Key::CTRL_O {
+        Some(CommandId::OpenNotices)
     } else if key == Key::ESC {
         Some(CommandId::CancelOrBack)
     } else if key == Key::CTRL_C {
@@ -1963,7 +1986,12 @@ mod tests {
         // The Command Palette has no canonical single-stroke chord: it is
         // opened by the `C-x` scene namespace's `p` verb (ADR-0023).
         assert_eq!(resolve_global_key(Key::CTRL_L), None);
-        assert_eq!(resolve_global_key(Key::CTRL_O), None);
+        // Ctrl-o is the notice viewer's chord: the fault bubble advertises it,
+        // so it must resolve to the verb the bubble names.
+        assert_eq!(
+            resolve_global_key(Key::CTRL_O),
+            Some(CommandId::OpenNotices)
+        );
         assert_eq!(resolve_global_key(Key::ESC), Some(CommandId::CancelOrBack));
         assert_eq!(resolve_global_key(Key::CTRL_C), Some(CommandId::Quit));
         assert_eq!(resolve_global_key(Key::CTRL_Q), Some(CommandId::OpenQueue));
@@ -2137,8 +2165,14 @@ mod tests {
             resolve_global_key_with(Key::CTRL_Q, &o),
             Some(CommandId::OpenQueue)
         );
-        // Commands without canonical chords resolve to None.
-        assert_eq!(resolve_global_key_with(Key::CTRL_O, &o), None);
+        // Commands without canonical chords resolve to None. Ctrl-o *has* a
+        // canonical chord (the notice viewer) and is untouched by this override
+        // set, so it still fires.
+        assert_eq!(
+            resolve_global_key_with(Key::CTRL_O, &o),
+            Some(CommandId::OpenNotices)
+        );
+        assert_eq!(resolve_global_key_with(Key::CTRL_L, &o), None);
         // Effective binding follows the override for remapped commands.
         assert_eq!(o.effective_binding(CommandId::Quit), Some(ctrl_shift_q));
         // A command with no canonical chord reports none — chrome renders no

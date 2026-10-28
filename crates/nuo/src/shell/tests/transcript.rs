@@ -547,34 +547,48 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 }
 
 #[tokio::test]
-async fn interrupted_round_preserves_retry_history_and_appends_interrupt_entry() {
+async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
+    // The retry owns no transcript row while it runs, so an interrupt has
+    // nothing to rewrite. Before this, `TranscriptEdit::Interrupted` reached
+    // into the trailing retry entry and *settled* it into a permanent notice
+    // whose detail was the pretty-printed HTTP body — a transport payload
+    // dumped into the conversation, produced by a variant named `Interrupted`
+    // that bypassed the admission gate.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    // 1. User prompt is delivered
     let prompt =
         nuo_view::model::document::TranscriptMessage::new(nuo_wire::Role::User, "calculate pi")
             .sending();
     app.messages.push(prompt);
 
-    // 2. Provider retry occurs
-    let retry_at = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    let retry_msg = nuo_view::model::document::TranscriptMessage::provider_retry(
+    // The producer parks the round in the transport-wait phase and publishes
+    // the setback clause — chrome only, no transcript row.
+    let state = crate::shell::app::ProviderRetryState::scheduled(
         2,
         5,
-        retry_at,
-        "Anthropic HTTP 529: Overloaded",
+        std::time::Instant::now() + std::time::Duration::from_secs(5),
+        "Google HTTP 503 Service Unavailable: No capacity available for model",
     );
-    app.messages.push(retry_msg);
-    assert_eq!(app.messages.len(), 2);
-    assert!(app.messages[1].is_provider_retry());
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SetProviderRetry(state),
+    );
+    assert_eq!(
+        app.messages.len(),
+        1,
+        "a scheduled retry must not append a transcript row"
+    );
 
-    // 3. User interrupts via Esc Esc -> RoundInterrupted event applied
+    // The interrupt's detail carries the last fault, one line — the producer
+    // puts it there (see the `RoundInterrupted` arm of the translator), so the
+    // anchor is self-explanatory without a second row.
     let record = nuo_wire::RoundInterrupt {
         reason: nuo_wire::RoundInterruptReason::User,
         round: Some(1),
         at_ms: 1_234_567,
-        detail: None,
+        detail: Some("Google HTTP 503 Service Unavailable: No capacity available for model".into()),
     };
     crate::shell::event_loop::apply::apply(
         &mut app,
@@ -584,66 +598,78 @@ async fn interrupted_round_preserves_retry_history_and_appends_interrupt_entry()
         },
     );
 
-    // 4. Verify messages:
-    //    [0] User prompt (cancelled)
-    //    [1] Settled provider retry failure notice (NOT deleted!)
-    //    [2] Interrupt entry ("Round 1 — cancelled via [Esc Esc]")
-    assert_eq!(
-        app.messages.len(),
-        3,
-        "retry entry must be preserved alongside interrupt entry"
-    );
-
+    // [0] the cancelled prompt, [1] the one interrupt anchor. No retry row.
+    assert_eq!(app.messages.len(), 2, "one anchor per stopped round");
     assert_eq!(
         app.messages[0].delivery,
         nuo_view::model::document::DeliveryStatus::Cancelled
     );
 
-    // Settled retry entry checks
-    let retry_entry = &app.messages[1];
-    assert!(
-        !retry_entry.is_provider_retry(),
-        "settled retry is no longer an active ticking retry"
-    );
-    assert!(
-        retry_entry.is_notice(),
-        "settled retry becomes a static notice"
-    );
-    let nuo_view::model::document::MessageKind::Notice {
-        severity,
-        ref parts,
-        ..
-    } = retry_entry.kind
-    else {
-        panic!("expected Notice kind");
-    };
-    assert_eq!(severity, nuo_view::model::document::NoticeSeverity::Warning);
-    let parts = parts.as_ref().expect("expected parts");
-    assert_eq!(parts.topic.as_deref(), Some("retry"));
-    assert_eq!(parts.title, "Provider request failed (attempt 2/5)");
+    let anchor = &app.messages[1];
+    assert!(anchor.is_round_interrupt());
     assert_eq!(
-        parts.detail.as_deref(),
-        Some("Anthropic HTTP 529: Overloaded")
+        anchor.raw,
+        "Round 1 — cancelled via [Esc Esc]\nGoogle HTTP 503 Service Unavailable: No capacity available for model",
+        "the reason is one line, not a pretty-printed JSON body: {:?}",
+        anchor.raw
     );
+    assert!(
+        !anchor.raw.contains('{'),
+        "no transport payload may reach the timeline: {:?}",
+        anchor.raw
+    );
+}
 
-    // Interrupt entry checks
-    let interrupt_entry = &app.messages[2];
-    assert!(interrupt_entry.is_round_interrupt());
-    assert_eq!(interrupt_entry.raw, "Round 1 — cancelled via [Esc Esc]");
+#[tokio::test]
+async fn a_recovered_round_admits_one_anchor_through_the_settle_edit() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    // 5. Subsequent RetainNotRetry (e.g. from a future round completion) must NOT drop the settled retry
+    let record = nuo_wire::RetryResolution {
+        attempts: 2,
+        faults: vec!["Google HTTP 503".to_string(), "Google HTTP 429".to_string()],
+        at_ms: 42,
+        round: Some(2),
+    };
+    let anchor = nuo_view::model::document::TranscriptMessage::retry_recovered(&record);
+
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
         crate::shell::event_loop::AppMutation::Transcript {
-            edit: crate::shell::event_loop::TranscriptEdit::RetainNotRetry,
+            edit: crate::shell::event_loop::TranscriptEdit::RetrySettled {
+                recovered: Some(anchor),
+            },
         },
     );
+
+    assert_eq!(app.messages.len(), 1, "one anchor for one recovery");
+    let entry = &app.messages[0];
+    assert!(entry.is_notice());
+    let parts = entry.notice_parts().expect("parts");
+    assert_eq!(parts.topic.as_deref(), Some("recovered"));
+    assert_eq!(parts.title, "Recovered after 2 provider retries (round 2)");
     assert_eq!(
-        app.messages.len(),
-        3,
-        "settled retry must survive RetainNotRetry"
+        parts.detail.as_deref(),
+        Some("Google HTTP 503\nGoogle HTTP 429")
     );
+}
+
+#[tokio::test]
+async fn a_plain_success_admits_no_retry_row_at_all() {
+    // A round that never retried says nothing about retries: the settle edit
+    // with no recovery must be a no-op, not an empty notice.
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::Transcript {
+            edit: crate::shell::event_loop::TranscriptEdit::RetrySettled { recovered: None },
+        },
+    );
+    assert!(app.messages.is_empty());
 }
 
 #[tokio::test]

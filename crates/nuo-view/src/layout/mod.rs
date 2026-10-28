@@ -631,13 +631,18 @@ impl<'a, 'f> Stream<'a, 'f> {
         // so a cached height is only ever read while the trace is unchanged —
         // the old hard `skippable == false` rule existed only because the
         // rev was never bumped on reasoning deltas.
-        let skippable = (msg.is_notice() && !msg.is_provider_retry())
+        //
+        // There is no longer a live ticking entry kind to exclude here: a
+        // notice is a settled record and a provider retry owns no row at all
+        // (`nuo_view::retry`), so the cache key (id + rev) is the only thing
+        // that decides staleness.
+        let skippable = msg.is_notice()
             || (!msg.is_subagent_task()
                 && if msg.is_tool_step() {
                     !msg.tool_step_status()
                         .is_some_and(|status| status.is_running())
                 } else {
-                    !msg.is_provider_retry()
+                    true
                 });
         let cached_height = if skippable {
             self.height_cache.get_with_rev(msg.id, msg.rev)

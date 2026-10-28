@@ -1497,28 +1497,17 @@ pub async fn execute_round(
             resumed_after_tools = tool_activity.load(Ordering::SeqCst),
             "retrying after transient provider error"
         );
-        let checkpoint_note = if tool_activity.load(Ordering::SeqCst) {
-            " Completed tool results are preserved; this retries only the pending model request."
-        } else {
-            ""
-        };
-        let _ = tx.send(round_response(
-            &session_id,
-            RoundEvent::Notice(
-                nuo_wire::AgentNotice::new(
-                    NoticeKind::ProviderRetry,
-                    NoticeSeverity::Warning,
-                    format!("Retrying provider request ({}/{retry_limit})", attempt + 1),
-                    NoticeSource::Harness,
-                )
-                .with_body(format!(
-                    "Waiting {}s before retrying: {}{}",
-                    delay_ms.div_ceil(1_000),
-                    crate::runtime::retry::public_retry_reason(&message),
-                    checkpoint_note,
-                )),
-            ),
-        ));
+        // One event, one fact. The retry is announced by `RetryScheduled`
+        // alone: it carries the attempt pair, the backoff and the fault, so
+        // every consumer (bar clause, receipt log, recovered anchor) reads the
+        // same numbers. A second `Notice(ProviderRetry)` used to be published
+        // here with the same content formatted independently, and the two
+        // drifted — the bar counted retries, the transcript counted attempts.
+        //
+        // "Completed tool results are preserved" has no home in
+        // `RetryScheduled` because it is not retry state: it is a receipt
+        // explaining why a replayed tool call did not run, and the dispatch
+        // layer publishes it as `NoticeKind::CheckpointReplay`.
         let _ = tx.send(round_response(
             &session_id,
             RoundEvent::RetryScheduled {
@@ -1710,11 +1699,34 @@ pub async fn execute_round(
         tracing::warn!(error = %err, "could not persist round counter");
     }
 
-    // The round recovered from transient provider faults.
-    // Retired: emitting `RetryResolved` and writing to `session.record_retry_resolution`.
-    // Transient transport retries are purely in-flight execution details, not post-round
-    // dialogue notices. The settled tail was already committed cleanly above.
+    // The round recovered from transient provider faults. This is a durable
+    // turn outcome, not an in-flight detail: the transcript shows
+    // `Recovered after N provider retries` for it, and a resumed session must
+    // show the same row ([INV-TRANSCRIPT-04], live equals resume). So the
+    // record is written here — the one place that knows the round completed
+    // after retrying — and the *live* anchor the frontend mints is rebuilt on
+    // attach from this record, never from client-side state.
+    //
+    // The write is idempotent per round (`record_retry_resolution` refuses a
+    // duplicate round), so a replayed tail cannot mint a second row.
     if !retry_faults.is_empty() {
+        let at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let record = nuo_wire::RetryResolution {
+            attempts: retry_faults.len() as u32,
+            faults: retry_faults.clone(),
+            at_ms,
+            round: Some(agent_round),
+        };
+        if let Err(err) = session.record_retry_resolution(record.clone()).await {
+            tracing::warn!(error = %err, "could not persist retry resolution");
+        }
+        let _ = tx.send(round_response(
+            &session_id,
+            RoundEvent::RetryResolved(record),
+        ));
         tracing::info!(
             session = %session_id,
             round = agent_round,

@@ -117,7 +117,6 @@ impl NoticeCardProps {
                 };
                 (s, msg.raw.clone())
             }
-            MessageKind::ProviderRetry { failure, .. } => (Severity::Warning, failure.clone()),
             _ => return None,
         };
 
