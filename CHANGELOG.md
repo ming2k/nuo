@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.55] - 2026-10-28
+
 ### Added
 
 - **Thread history is a lineage graph, not a list (ADR-0120).**
