@@ -839,13 +839,14 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     // Esc from the dashboard itself (no preview/prompt sub-layer open) is a
     // spent gesture: scene-local, so nothing happens and nothing quits.
     // Routed through the real pipeline — the Dashboard scene's Esc arm.
-    let action = crate::shell::input::route_event(
+    let action = crate::shell::input::route_event_motion(
         crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Esc,
             crossterm::event::KeyModifiers::NONE,
         )),
         &mut String::new(),
         &mut 0,
+        &mut crate::shell::composer_grid::CaretMotion::default(),
         crate::shell::input::Dispatch {
             scene: crate::shell::surfaces::SceneKind::Dashboard,
             ..Default::default()

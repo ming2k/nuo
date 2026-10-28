@@ -23,7 +23,7 @@ use crate::cognition::agent::{Agent, ConcurrentOutcome, RoundState};
 use crate::tool_scheduler::{ToolCallTask, ToolScheduler};
 use crate::{
     AgentEvent, AgentNotice, HarnessError, InjectionKind, Message, NoticeKind, NoticeSeverity,
-    NoticeSource, NoticeSurface, SUBAGENT_DRAIN_GRACE, ToolCall, ToolOutput,
+    NoticeSource, SUBAGENT_DRAIN_GRACE, ToolCall, ToolOutput,
 };
 
 /// The product of [`Agent::dispatch_preflight`]: everything `schedule` and
@@ -135,8 +135,7 @@ impl Agent {
                 .with_body(
                     "The retried model request repeated a tool call that already completed. \
                      The checkpointed result remains authoritative; the tool was not run again.",
-                )
-                .with_surface(NoticeSurface::Toast),
+                ),
             ));
         }
 
@@ -209,8 +208,7 @@ impl Agent {
                          The call was blocked before it ran — the result it already has is \
                          unchanged, so re-running it cannot help. The agent must change \
                          approach (or call `abort`).",
-                    )
-                    .with_surface(NoticeSurface::Toast),
+                    ),
                 ));
                 Some(message.clone())
             }
@@ -300,8 +298,7 @@ impl Agent {
                              repeat of a call already issued this round. Use the result \
                              already in context, or try a different call.",
                             c.name,
-                        ))
-                        .with_surface(NoticeSurface::Toast),
+                        )),
                     ));
                     on_event(AgentEvent::ToolResult {
                         id: id.clone(),

@@ -21,8 +21,7 @@ use nuo_harness::orchestration::{ProxyProvider, round_response};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
 use nuo_wire::{
     AgentNotice, AgentRequest, AgentResponse, Message, NoticeKind, NoticeSeverity, NoticeSource,
-    NoticeSurface, Provider, RoundEvent, SubAgentProfile, ToolContextBuilder, ToolSet,
-    collect_toolset,
+    Provider, RoundEvent, SubAgentProfile, ToolContextBuilder, ToolSet, collect_toolset,
 };
 
 use crate::mcp::{McpCatalog, McpRuntime};
@@ -618,7 +617,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
                     "Some additional workspace roots could not be loaded",
                     NoticeSource::Harness,
                 )
-                .with_surface(NoticeSurface::Inline)
                 .with_body(format!("Skipped roots: {details}")),
             ),
         ));
@@ -685,7 +683,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
                     "Unattended mode ON",
                     nuo_wire::NoticeSource::Harness,
                 )
-                .with_surface(nuo_wire::NoticeSurface::Toast)
                 .with_body(
                     "All tool permissions are auto-approved this session.\n\
                      Use `/unattended off` to return to interactive mode.",
@@ -708,7 +705,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
                     "Workspace Confinement OFF",
                     nuo_wire::NoticeSource::Harness,
                 )
-                .with_surface(nuo_wire::NoticeSurface::Toast)
                 .with_body(
                     "Tools may access and edit any file on the host system.\n\
                      Use `/confinement on` to restore workspace confinement.",
@@ -1069,7 +1065,6 @@ fn spawn_mcp_config_watcher(
                             "Workspace MCP configuration changed",
                             nuo_wire::NoticeSource::Harness,
                         )
-                        .with_surface(nuo_wire::NoticeSurface::Toast)
                         .with_body(
                             "Untrusted workspace MCP configuration detected. Run `/trust mcp` to review and enable.",
                         ),
@@ -1098,7 +1093,6 @@ fn spawn_mcp_config_watcher(
                             "MCP configuration reloaded",
                             nuo_wire::NoticeSource::Harness,
                         )
-                        .with_surface(nuo_wire::NoticeSurface::Toast)
                         .with_body(format!(
                             "Hot-reload complete: {connected_count} connected, {removed_count} removed."
                         )),

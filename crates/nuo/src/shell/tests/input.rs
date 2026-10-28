@@ -440,11 +440,12 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     let SelectionState::Range { head, .. } = &app.selection else {
         panic!("selection survives the edge step");
     };
-    let wrapped = crate::shell::composer::composer_wrapped(
+    let wrapped = crate::shell::composer_grid::TextGrid::new(
         &app.input,
         crate::shell::composer::composer_text_width(60),
-        app.input.len(),
-    );
+    )
+    .rows()
+    .to_vec();
     assert_eq!(
         head.byte_offset, wrapped[5].start_byte,
         "head pins to the exposed viewport edge"

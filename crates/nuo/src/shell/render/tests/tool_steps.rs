@@ -60,7 +60,6 @@ fn subagent_view_groups_children_into_turn_bands() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -170,7 +169,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -215,7 +213,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -351,7 +348,6 @@ fn height_cache_skip_path_matches_full_layout() {
                     awaiting_permission: false,
                     spinner_phase: 0,
                     input: "",
-                    byte_cursor: 0,
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
@@ -462,7 +458,6 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     awaiting_permission: false,
                     spinner_phase: 0,
                     input: "",
-                    byte_cursor: 0,
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
@@ -561,7 +556,6 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: crate::shell::chrome::QueueBarProps {
                     items: &queue_items,
@@ -904,7 +898,6 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     awaiting_permission: false,
                     spinner_phase: 0,
                     input: "",
-                    byte_cursor: 0,
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],

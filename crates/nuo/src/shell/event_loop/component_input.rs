@@ -6,9 +6,10 @@
 //! action vocabulary.
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
+use crate::shell::composer_grid::Vertical;
 use crate::shell::input::readline::{
-    cursor_line_down, cursor_line_end, cursor_line_start, cursor_line_up, next_grapheme_boundary,
-    next_word_end, normalized_cursor_byte, prev_word_start, previous_grapheme_boundary,
+    cursor_line_end, cursor_line_start, next_grapheme_boundary, next_word_end,
+    normalized_cursor_byte, prev_word_start, previous_grapheme_boundary,
 };
 use crate::shell::input::{self};
 use crate::shell::ui;
@@ -17,11 +18,26 @@ use nuo_ui_primitives::components::dropdown::DropdownEventOutcome;
 use nuo_view::model::selection::{SelectionState, floor_grapheme_boundary, inclusive_grapheme_end};
 
 /// Offer an event to the handlers on the scene-resolved keyboard path.
+///
+/// # Pointer input never travels this path
+///
+/// This cascade is a *keyboard* route (`UiRuntime::keyboard_path_for`). A
+/// pointer event's authority is the presented scene's geometry, not the
+/// keyboard foreground — so a mounted `InputPolicy::Modal` component must not
+/// be offered a mouse event at all. Routing clicks through it made every click
+/// in the frame inert while a settings dropdown or the provider-delete confirm
+/// was mounted (`handle_config_dropdown` / `handle_delete_overlay` answer
+/// `None`-actions for any non-key event), which silently ate the click meant to
+/// dismiss the popup *and* any click aimed at the tab bar underneath it — the
+/// "click twice and nothing happens" defect.
 pub(crate) fn route(
     app: &mut App,
     event: &Event,
     keyboard_path: &[ui::UiKey],
 ) -> Option<input::InputAction> {
+    if matches!(event, Event::Mouse(_)) {
+        return None;
+    }
     for key in keyboard_path {
         match key {
             ui::UiKey::ConfigDropdown => return handle_config_dropdown(app, event),
@@ -90,21 +106,20 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
                         next_grapheme_boundary(&app.input, app.cursor_position)
                     }
                 }
+                // Shift+↑/↓ extend the selection one *visual row*, the same
+                // motion plain ↑/↓ performs (shared grid, shared sticky
+                // column), so extending and then releasing the shift never
+                // lands the caret in a different column than the plain arrows
+                // would have.
                 KeyCode::Up => {
-                    let mut target = app.cursor_position;
-                    if cursor_line_up(&app.input, &mut target) {
-                        target
-                    } else {
-                        0
-                    }
+                    let grid = app.composer_grid();
+                    grid.shift_row(app.cursor_position, Vertical::Up, &mut app.caret_motion)
+                        .unwrap_or(0)
                 }
                 KeyCode::Down => {
-                    let mut target = app.cursor_position;
-                    if cursor_line_down(&app.input, &mut target) {
-                        target
-                    } else {
-                        app.input.len()
-                    }
+                    let grid = app.composer_grid();
+                    grid.shift_row(app.cursor_position, Vertical::Down, &mut app.caret_motion)
+                        .unwrap_or(app.input.len())
                 }
                 KeyCode::Home => {
                     let mut target = app.cursor_position;

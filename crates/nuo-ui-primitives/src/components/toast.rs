@@ -1,16 +1,23 @@
 //! Transient overlay toast bubbles.
 //!
 //! # Architecture & Scope Contract
-//! Toast bubbles are ephemeral top-right overlays rendered at layer 3 above other chrome.
+//!
+//! Toast bubbles are ephemeral top-right overlays: **layer 4** of the content-residency model
+//! (ADR-0116). The layer of any given fact is *derived*, never chosen by the producer
+//! (`nuo_view::model::layer`), so this component states what it is reserved *for*.
 //!
 //! ### Strictly Reserved For:
 //! 1. Immediate action acknowledgments ("copied to clipboard", "input cleared").
 //! 2. Two-step confirmation gates ("Esc again interrupts", "press Ctrl+C again to exit").
-//! 3. Slash command acknowledgments (`CommandAck`, e.g. `/delegate on`) that must not pollute the transcript.
+//! 3. Slash command acknowledgments (`AgentNotice::command_ack`, e.g. `/delegate on`).
+//! 4. Degraded delivery: a receipt or diagnostic whose preferred layer (the surface's receipt log, or
+//!    a retained banner) is not hostable by this client. A bubble is transient, which is still strictly
+//!    better than writing the fact into the conversation.
 //!
-//! ### Prohibited For Toasts:
-//! Diagnostic errors, missing workspace assets, and initialization failures MUST route to
-//! `NoticeSurface::Inline` (in the transcript timeline) rather than `Toast`.
+//! ### Never the destination for:
+//! Dialogue, tool steps and turn structure — those are the transcript's (layer 0). Diagnostics and
+//! receipts belong to the surface's receipt log (layer 2) whenever the client can show one; they must
+//! **not** fall back to the transcript when it cannot.
 //!
 //! ### Modern Functional Minimalist Layout (Borderless Elevated Pill):
 //! - **Clear Underlay**: Wipes underlying terminal cells (`frame.render_widget(Clear, area)`)

@@ -15,9 +15,6 @@ pub struct AgentNotice {
     pub id: String,
     pub kind: NoticeKind,
     pub severity: NoticeSeverity,
-    /// Preferred UI surface. Frontends may degrade this when a surface is not
-    /// available, e.g. render a toast as an inline notice.
-    pub surface: NoticeSurface,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
@@ -66,18 +63,6 @@ pub enum NoticeSeverity {
     Info,
     Warning,
     Error,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum NoticeSurface {
-    /// Render inline in the current conversation or event feed.
-    Inline,
-    /// Show as a transient bubble/toast.
-    Toast,
-    /// Show in a retained alert area until the related condition clears or is
-    /// superseded.
-    Banner,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,7 +265,6 @@ impl AgentNotice {
             id: uuid::Uuid::new_v4().to_string(),
             kind,
             severity,
-            surface: NoticeSurface::Inline,
             title: title.into(),
             body: None,
             source,
@@ -292,24 +276,19 @@ impl AgentNotice {
         self
     }
 
-    pub fn with_surface(mut self, surface: NoticeSurface) -> Self {
-        self.surface = surface;
-        self
-    }
-
-    /// Build an ephemeral, toast-surfaced acknowledgment of a slash command or
-    /// configuration change (the *reply* to a command, not its invocation).
+    /// Build an ephemeral acknowledgment of a slash command or configuration
+    /// change (the *reply* to a command, not its invocation).
     ///
     /// `title` is the one-line confirmation (e.g. `"Delegated mode ON: …"`). The
-    /// notice is `Info` severity and routed to the [`NoticeSurface::Toast`]
-    /// surface so frontends show it as a transient bubble and do **not** append
-    /// it to the transcript — it carries no conversational content. ADR-0050
-    /// keeps the command *invocation* durable; this reply is deliberately
-    /// ephemeral.
+    /// notice is `Info` severity and carries the `CommandAck` kind, which the
+    /// presentation substrate's routing policy maps to the toast layer: it
+    /// carries no conversational content and never reaches the transcript.
+    /// ADR-0050 keeps the command *invocation* durable; this reply is
+    /// deliberately ephemeral.
     ///
-    /// Prefer this constructor over `AgentNotice::new(...).with_surface(Toast)`
-    /// so the `CommandAck` kind is stamped uniformly and frontends can branch
-    /// on `kind == CommandAck` (e.g. to suppress re-surfacing on reconnect).
+    /// Prefer this constructor over `AgentNotice::new(NoticeKind::CommandAck, …)`
+    /// so the kind is stamped uniformly and frontends can branch on
+    /// `kind == CommandAck` (e.g. to suppress re-surfacing on reconnect).
     ///
     /// A command acknowledgment is a *session-scoped* notice: emit it wrapped
     /// in `RoundEvent::Notice` (via `round_response`), not as a
@@ -324,7 +303,6 @@ impl AgentNotice {
             title,
             NoticeSource::Harness,
         )
-        .with_surface(NoticeSurface::Toast)
     }
 
     /// Build a workspace-trust notice: previously trusted (or shadowing)
@@ -334,8 +312,9 @@ impl AgentNotice {
     /// Stamps the `TrustChanged` kind, `Warning` severity, and `Harness`
     /// source uniformly so frontends can branch on `kind == TrustChanged`
     /// (topic labels, filtering, re-surfacing on reconnect) without
-    /// string-matching titles. Callers add the surface (the attach-time
-    /// quarantine banner vs. inline shadow warnings) and the detail body.
+    /// string-matching titles. Callers supply the detail body; the layer is
+    /// derived by [`nuo-view`](nuo_view::model::layer) from the surface
+    /// context, never chosen here.
     ///
     /// Makes this a first-class kind, revising stance that
     /// `ReviewAlert` (the closed enum's generic "needs attention" value) was

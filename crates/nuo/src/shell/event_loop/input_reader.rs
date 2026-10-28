@@ -9,6 +9,40 @@ use tokio::sync::mpsc;
 
 use crate::shell::input::{self, Feed};
 
+/// A caller-owned terminal input stream.
+///
+/// The attach loop (`runner::run_attached`) keeps one of these alive across
+/// re-attaches so events that arrive while the next session handshakes are
+/// delivered to the next loop instead of being dropped with the previous one.
+/// The reader thread is owned here: dropping the source stops it.
+pub(crate) struct InputSource {
+    rx: mpsc::UnboundedReceiver<Event>,
+    /// Kept only for its `Drop` (which stops the reader thread).
+    _reader: InputReader,
+}
+
+impl InputSource {
+    /// Start the reader thread that feeds this source.
+    pub(crate) fn spawn() -> io::Result<Self> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let reader = InputReader::spawn(tx)?;
+        Ok(Self {
+            rx,
+            _reader: reader,
+        })
+    }
+
+    /// The next terminal event, or `None` once the reader thread is gone.
+    pub(crate) async fn recv(&mut self) -> Option<Event> {
+        self.rx.recv().await
+    }
+
+    /// Drain whatever is already buffered without waiting.
+    pub(crate) fn try_recv(&mut self) -> Result<Event, mpsc::error::TryRecvError> {
+        self.rx.try_recv()
+    }
+}
+
 pub(crate) struct InputReader {
     shutdown: Arc<AtomicBool>,
 }

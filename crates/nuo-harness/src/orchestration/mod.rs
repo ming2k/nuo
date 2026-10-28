@@ -40,8 +40,8 @@ use nuo_persistence::{
 };
 use nuo_wire::{
     AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
-    Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, Provider,
-    ProviderStreamEvent, Role, RoundEvent,
+    Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, Provider, ProviderStreamEvent,
+    Role, RoundEvent,
 };
 
 /// Wrap a session-scoped [`RoundEvent`] in the [`AgentResponse::Round`]
@@ -76,7 +76,6 @@ fn image_withheld_notice(model: &str) -> nuo_wire::AgentNotice {
          back to a model that accepts them. To force images onto this route anyway, set Vision to \
          \"force on\" for it in the model editor."
     ))
-    .with_surface(NoticeSurface::Toast)
 }
 
 pub struct ProxyProvider {
@@ -1517,8 +1516,7 @@ pub async fn execute_round(
                     delay_ms.div_ceil(1_000),
                     crate::runtime::retry::public_retry_reason(&message),
                     checkpoint_note,
-                ))
-                .with_surface(NoticeSurface::Toast),
+                )),
             ),
         ));
         let _ = tx.send(round_response(

@@ -1517,6 +1517,7 @@ fn esc_preserves_recalled_history_and_interrupts_when_running() {
         suggestion_index: None,
         has_exact_suggestion: false,
         in_history_recall: true,
+        composer_text_width: 0,
         surface_overrides: Default::default(),
         focused_target: false,
         transcript_focused: false,
@@ -1646,22 +1647,35 @@ async fn oldest_history_entry_up_arrow_does_not_cycle_cursor() {
         "multiline\nentry\nbottom".chars().count()
     );
 
-    // Move cursor up line-by-line
-    assert!(crate::shell::input::cursor_line_up(
-        &app.input,
-        &mut app.cursor_position
-    ));
-    assert!(crate::shell::input::cursor_line_up(
-        &app.input,
-        &mut app.cursor_position
-    ));
-    // Cursor is now on the top line
+    // Walk the caret up row-by-row over the composer's visual grid.
+    let grid = crate::shell::composer_grid::TextGrid::unwrapped(&app.input);
+    let mut motion = crate::shell::composer_grid::CaretMotion::default();
+    for _ in 0..2 {
+        let target = grid
+            .shift_row(
+                app.cursor_position,
+                crate::shell::composer_grid::Vertical::Up,
+                &mut motion,
+            )
+            .expect("multi-line draft has a row above");
+        app.cursor_position = target;
+    }
+    // Cursor is now on the top line, in the same display column it held on
+    // the bottom one (the sticky column survives the shorter middle row).
     let top_line_cursor = app.cursor_position;
-    assert!(!crate::shell::input::cursor_line_up(
-        &app.input,
-        &mut app.cursor_position
-    ));
-    assert_eq!(app.cursor_position, top_line_cursor);
+    assert_eq!(
+        top_line_cursor, 6,
+        "two rows up from the bottom is the top line, column preserved"
+    );
+    assert_eq!(
+        grid.shift_row(
+            app.cursor_position,
+            crate::shell::composer_grid::Vertical::Up,
+            &mut motion
+        ),
+        None,
+        "the top row has no row above it"
+    );
 
     // Pressing Up at the top line tries history_prev: already at oldest entry, must be a no-op!
     assert!(!app.history_prev(&rows));

@@ -115,6 +115,8 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         provider_quotas: None,
         connection_usages: std::collections::HashMap::new(),
         modal_body_height: 0,
+        caret_motion: Default::default(),
+        logs: Default::default(),
         sticky_summary_line: None,
         pin_summary_line: None,
         scroll_settle_pending: false,
@@ -438,6 +440,7 @@ async fn console_dispatch(app: &mut App, line: &str, create_when_bare: bool) {
 
 mod completion;
 mod elevation_pipeline;
+mod gesture_input;
 mod history_recall;
 mod input;
 mod modal;

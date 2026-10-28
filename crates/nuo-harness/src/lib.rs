@@ -66,9 +66,9 @@ pub use nuo_wire::{
 #[allow(unused_imports)]
 pub(crate) use nuo_wire::{
     ExecutionEnvironment, HarnessError, ImagePart, InjectionKind, InjectionOrigin, InputRequest,
-    NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, QueuedMessage, StdinReply, TodoList,
-    ToolCall, UserQuestion, UserQuestionReply, UserQuestionRequest, WorkspaceRoot, WorkspaceRoots,
-    message, pressure,
+    NoticeKind, NoticeSeverity, NoticeSource, QueuedMessage, StdinReply, TodoList, ToolCall,
+    UserQuestion, UserQuestionReply, UserQuestionRequest, WorkspaceRoot, WorkspaceRoots, message,
+    pressure,
 };
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from

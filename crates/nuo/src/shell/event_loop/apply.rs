@@ -549,6 +549,10 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.host_console_log.push(line);
             true
         }
+        AppMutation::SurfaceLog { surface, line } => {
+            app.logs.push(surface, line);
+            true
+        }
     }
 }
 
@@ -952,8 +956,20 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 }
                 None => messages.push(fallback),
             },
-            TranscriptEdit::Append { message } => {
-                messages.push(message);
+            TranscriptEdit::Append { class, message } => {
+                // The single admission gate. A row whose class is not dialogue
+                // or turn structure is refused here rather than silently
+                // becoming part of the conversation: operations belong to the
+                // durable ledger, telemetry to chrome, and receipts/notices to
+                // a surface layer (`nuo_view::model::layer`).
+                if class.admits_dialogue() || class.admits_anchor() {
+                    messages.push(message);
+                } else {
+                    tracing::debug!(
+                        ?class,
+                        "refused transcript admission for a non-dialogue event class"
+                    );
+                }
             }
             TranscriptEdit::FinalizeOrphanedReasoning { duration_ms } => {
                 // Freeze every still-streaming trace (its round ended

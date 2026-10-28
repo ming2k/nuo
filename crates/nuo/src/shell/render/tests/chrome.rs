@@ -52,7 +52,6 @@ fn redesigned_components_render_without_panicking() {
                         awaiting_permission: false,
                         spinner_phase: 0,
                         input: "hello",
-                        byte_cursor: 5,
                         chrome_hidden: false,
                         queue_bar: QueueBarProps {
                             items: &[],
@@ -956,7 +955,6 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                     awaiting_permission: false,
                     spinner_phase: 0,
                     input: "",
-                    byte_cursor: 0,
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
@@ -1025,7 +1023,6 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1128,7 +1125,6 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1193,7 +1189,6 @@ fn nonempty_session_does_not_render_empty_state() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1263,7 +1258,6 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1423,7 +1417,6 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1498,7 +1491,6 @@ fn h1_underline_clamps_to_text_extent() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1597,7 +1589,6 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1681,7 +1672,6 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],

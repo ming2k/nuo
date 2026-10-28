@@ -353,22 +353,51 @@ pub const CODE_BAND_GUTTER_GAP: usize = 1;
 /// cleanly. Grows to fit the highest displayed line number in either band.
 pub const CODE_BAND_GUTTER_MIN_WIDTH: usize = 2;
 
-// Bash output middle-folding
-// An expanded bash step can emit hundreds of stdout/stderr lines, burying the
-// trailing "events" — the `exit N` line, the `[output truncated]` marker, and
-// the termination footer (timeout / blocked / cancelled) — far below the fold.
-// Folding collapses the verbose middle into a single `⋯ N lines hidden` row,
-// keeping a head of leading context and a tail of trailing context plus every
-// event footer always visible. Short output (≤ HEAD + TAIL + 1 logical lines)
-// renders verbatim, so folding only kicks in when it actually saves a row.
-// This is a pure rendering convenience — the binary Disclosure
-// (Collapsed/Expanded) and the persisted `expanded` field are untouched, so
-// tool-batch spacing and the `user_pinned` invariant are unaffected.
+// Bash output middle-folding (ADR-0115).
+//
+// An expanded command step can emit hundreds of stdout/stderr lines, burying
+// the trailing "events" — the `exit N` line and the termination footer
+// (timeout / blocked / cancelled) — far below the fold. Folding collapses the
+// verbose middle into a three-row negative-space gap (blank / `N lines
+// omitted` / blank), keeping a head of leading context and a tail of trailing
+// context plus every event footer always visible.
+//
+// The window is deliberately **tail-heavy**, mirroring the model-facing
+// `[INV-FOLD-01]` 25/75 bias in `nuo-tool`: a command's setup and invocation
+// context is short and mostly self-evident (the `$ command` row above the
+// output already frames it), while the error, panic, and final status lines
+// that explain the outcome live at the tail.
+//
+// The geometry is closed: folding is only permitted when it renders *fewer*
+// rows than the verbatim body, which [`bash_fold_applies`] decides from the
+// same three constants the renderer paints with. That makes the threshold
+// impossible to drift from the chrome it accounts for.
 
 /// Leading output lines kept visible above a folded bash middle.
-pub const BASH_FOLD_HEAD_ROWS: usize = 3;
+pub const BASH_FOLD_HEAD_ROWS: usize = 2;
 /// Trailing output lines kept visible below a folded bash middle.
-pub const BASH_FOLD_TAIL_ROWS: usize = 3;
+pub const BASH_FOLD_TAIL_ROWS: usize = 6;
+/// Rows the fold's negative-space gap occupies (blank / label / blank).
+pub const BASH_FOLD_CHROME_ROWS: usize = 3;
+/// Row count at or below which an expanded body renders verbatim — the
+/// smallest body for which folding renders strictly fewer rows.
+pub const BASH_FOLD_MIN_VERBATIM_ROWS: usize =
+    BASH_FOLD_HEAD_ROWS + BASH_FOLD_CHROME_ROWS + BASH_FOLD_TAIL_ROWS;
+
+// The bias is the point of the window: if this ever inverts, the fold would
+// hide the outcome it exists to preserve. Compile-time, so no test run is
+// needed for the guarantee to hold.
+const _: () = assert!(BASH_FOLD_TAIL_ROWS > BASH_FOLD_HEAD_ROWS);
+const _: () = assert!(BASH_FOLD_TAIL_ROWS >= 2 * BASH_FOLD_HEAD_ROWS);
+const _: () = assert!(BASH_FOLD_HEAD_ROWS > 0, "some leading context must survive");
+
+/// Whether a command step's expanded body with `logical_rows` output rows folds
+/// its middle. Folding must always *save* rows: at `BASH_FOLD_MIN_VERBATIM_ROWS`
+/// the folded body would be exactly as tall as the verbatim one, so it stays
+/// verbatim (nothing hidden for no gain).
+pub const fn bash_fold_applies(logical_rows: usize) -> bool {
+    logical_rows > BASH_FOLD_MIN_VERBATIM_ROWS
+}
 
 // Minimum terminal size
 // Below this geometry the layout math (footer split, composer height, code
@@ -434,5 +463,29 @@ mod tests {
         // guillemet as the input surfaces, so no ASCII `<`/`>` can reappear.
         assert_eq!(USER_MESSAGE_GUTTER_GLYPH, INPUT_PROMPT_GLYPH);
         assert_eq!(AI_OUTPUT_LEAD_GLYPH, INPUT_PROMPT_GLYPH);
+    }
+
+    /// Folding is a *compaction*: it must never render a body taller than the
+    /// verbatim one. This is the invariant the pre-ADR-0115 threshold violated
+    /// (an 8-row body folded to HEAD + 3 chrome + TAIL = 9 rows).
+    #[test]
+    fn bash_fold_only_applies_when_it_saves_rows() {
+        let folded_rows = |rows: usize| {
+            if bash_fold_applies(rows) {
+                BASH_FOLD_HEAD_ROWS + BASH_FOLD_CHROME_ROWS + BASH_FOLD_TAIL_ROWS
+            } else {
+                rows
+            }
+        };
+        for rows in 0..200 {
+            assert!(
+                folded_rows(rows) <= rows,
+                "{rows} rows must not grow when folded ({} rendered)",
+                folded_rows(rows),
+            );
+        }
+        // And the boundary is exactly one row past the folded footprint.
+        assert!(!bash_fold_applies(BASH_FOLD_MIN_VERBATIM_ROWS));
+        assert!(bash_fold_applies(BASH_FOLD_MIN_VERBATIM_ROWS + 1));
     }
 }

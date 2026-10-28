@@ -56,7 +56,6 @@ fn render_full_view_with_context(
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],

@@ -1001,3 +1001,150 @@ fn alt_brackets_route_to_tab_history() {
     );
     assert_eq!(fwd, InputAction::TabHistoryForward);
 }
+
+/// The reported defect: after Ctrl-J opens an empty line, the arrows must be
+/// able to *stand* on it.
+///
+/// Caret motion walks the composer's **visual rows** (what the panel paints),
+/// not the buffer's `\n`-separated lines, and every row — including a zero-width
+/// empty one — is a legal caret cell. Before the grid owned both projections,
+/// the empty row was painted but no caret byte could resolve onto it, so ↑/↓
+/// skipped straight over it.
+#[test]
+fn ctrl_j_empty_line_is_a_caret_row() {
+    fn press(
+        input: &mut String,
+        cursor: &mut usize,
+        motion: &mut crate::shell::composer_grid::CaretMotion,
+        code: KeyCode,
+        modifiers: KeyModifiers,
+    ) -> InputAction {
+        let mut drag = SelectionDrag::default();
+        route_event_motion(
+            Event::Key(KeyEvent::new(code, modifiers)),
+            input,
+            cursor,
+            motion,
+            Dispatch::default(),
+            &ModalKeys::default(),
+            &SheetKeys::default(),
+            &SceneKeys::default(),
+            &mut drag,
+        )
+    }
+
+    // Type "a\nb", put the caret at the end of the first line, press Ctrl-J.
+    let mut input = String::from("a\nb");
+    let mut cursor = 1;
+    let mut motion = crate::shell::composer_grid::CaretMotion::default();
+
+    assert_eq!(
+        press(
+            &mut input,
+            &mut cursor,
+            &mut motion,
+            KeyCode::Char('j'),
+            KeyModifiers::CONTROL
+        ),
+        InputAction::None
+    );
+    assert_eq!(input, "a\n\nb", "Ctrl-J opens a line between the two");
+    assert_eq!(cursor, 2, "the caret sits in the line Ctrl-J opened");
+
+    // ↓ leaves the empty line for the text below it…
+    assert_eq!(
+        press(
+            &mut input,
+            &mut cursor,
+            &mut motion,
+            KeyCode::Down,
+            KeyModifiers::NONE
+        ),
+        InputAction::None
+    );
+    assert_eq!(cursor, 3, "down reaches the line below the empty one");
+    // …and ↑ comes back to it, one row at a time.
+    assert_eq!(
+        press(
+            &mut input,
+            &mut cursor,
+            &mut motion,
+            KeyCode::Up,
+            KeyModifiers::NONE
+        ),
+        InputAction::None
+    );
+    assert_eq!(cursor, 2, "up stops on the empty line, not past it");
+    assert_eq!(
+        press(
+            &mut input,
+            &mut cursor,
+            &mut motion,
+            KeyCode::Up,
+            KeyModifiers::NONE
+        ),
+        InputAction::None
+    );
+    assert_eq!(cursor, 0, "and then on the first line");
+    // Only the true top row hands off to history recall.
+    assert_eq!(
+        press(
+            &mut input,
+            &mut cursor,
+            &mut motion,
+            KeyCode::Up,
+            KeyModifiers::NONE
+        ),
+        InputAction::HistoryPrev
+    );
+}
+
+/// ↑/↓ walk the rows the panel *paints*, so a soft-wrapped line is climbed one
+/// visual row at a time instead of being jumped over in a single logical step.
+#[test]
+fn arrows_walk_soft_wrapped_rows_not_logical_lines() {
+    // 14 columns in a 10-column text area wrap onto two rows: [0..10), [10..14).
+    let mut input = String::from("abcdefghijklmn");
+    let mut cursor = input.len();
+    let mut motion = crate::shell::composer_grid::CaretMotion::default();
+    let mut drag = SelectionDrag::default();
+    let keys = SceneKeys {
+        composer_text_width: 10,
+        ..Default::default()
+    };
+
+    let action = route_event_motion(
+        Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        &mut motion,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &keys,
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+    assert_eq!(
+        cursor, 4,
+        "up moves one painted row (column 4 of the first row), not to the line start"
+    );
+
+    // ↓ returns to the same column on the continuation row.
+    let action = route_event_motion(
+        Event::Key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        &mut motion,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &keys,
+        &mut drag,
+    );
+    assert_eq!(action, InputAction::None);
+    assert_eq!(
+        cursor, 14,
+        "down restores the sticky column on the row below"
+    );
+}

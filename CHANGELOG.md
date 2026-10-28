@@ -8,6 +8,55 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **Composer caret motion is a projection onto the painted row grid (Ctrl-J empty lines are caret-reachable).**
+  - **One authority for the composer's rows**: `shell::composer_grid::TextGrid` owns buffer+width → rows,
+    caret byte → (row, column), (row, column) → caret byte, and the ↑/↓ motion those compose. The painter,
+    the height reservation, the completion anchor, click/keyboard selection and the drag-edge autoscroll all
+    read that one grid, so no two consumers can disagree about which row a byte occupies.
+  - **Empty rows are caret-addressable**: a row's byte range is now closed (`start..=end`), with a soft-wrap
+    seam (`end == next.start`) belonging to the continuation row. A newline's empty line has a zero-width
+    range, and the old half-open `start..end` resolution could not map *any* caret byte onto it — the row was
+    painted but the arrows skipped straight over it, so a line opened with `Ctrl-J` above or below the caret
+    was unreachable.
+  - **Layout takes no caret**: rows are a pure function of (text, width). The search for a synthetic
+    "caret row" (which made the box grow/shrink with the caret and made an empty trailing line vanish the
+    moment the caret left it) is gone; `calculate_composer_height` lost its `byte_cursor` argument and
+    `TranscriptProps` lost the field, so layout cannot depend on caret history again.
+  - **↑/↓ walk visual rows, not `\n` lines**, and keep a sticky display column (`CaretMotion`, anchored to
+    the caret byte it produced so any other edit invalidates it) — a caret passing through a short or empty
+    row and back out returns to its original column, and a soft-wrapped line is climbed one painted row at a
+    time. Shift+↑/↓ extend the selection through the same motion.
+  - **The legacy logical-line walkers are deleted** (`cursor_line_up`/`cursor_line_down`), so nothing can
+    reintroduce a second, `\n`-based caret model.
+- **Closed command-output fold geometry, tail-heavy window, and a derived disclosure ladder (ADR-0115).**
+  - **Folding can no longer grow a step**: the fold control compared `HEAD + TAIL + 1` *lines* against a
+    body that paints `HEAD + TAIL + 3` *rows* (the blank/label/blank gap), so an 8-row body "folded" into
+    9 rows. `BASH_FOLD_MIN_VERBATIM_ROWS` is now derived from the geometry constants and swept by
+    `bash_fold_only_applies_when_it_saves_rows` (`[INV-FOLD-02]`).
+  - **The bias is enforced, not tuned**: the retained window is 2 head / 6 tail rows (25/75, mirroring
+    `[INV-FOLD-01]`), with `const` assertions that `TAIL > HEAD` and `TAIL >= 2 × HEAD`, so a layout tweak
+    cannot start hiding the outcome the fold exists to preserve.
+  - **The folded middle is reachable**: activating an expanded command step reveals its hidden rows
+    (`collapsed → expanded+folded → expanded+revealed → collapsed`), and the reveal rung exists iff the
+    painted body folds — `tool_step_folded_rows`/`bash_disclosure_ladder` ask the same derivation the
+    renderer paints with (`[INV-FOLD-04]`). Previously the middle was painted by nothing and selectable
+    nowhere, so `N lines omitted` was a dead end.
+  - **The fold label carries the diagnosis**: the omitted-row label appends the first salient failure
+    signature from the hidden middle (the same scanner the model-facing fold uses), so the human and the
+    model are pointed at the same line.
+  - **The footer names the short copy**: the single `output truncated · partial kept` claimed a loss over
+    a body nothing had cut. Coverage is now tri-partitioned (`Full` / `ModelTruncated` / `CutBeforeUi`),
+    so a complete-but-folded log reads `output truncated for model context` and only a payload that
+    arrived already cut claims `partial kept` (`[INV-FOLD-03]`).
+  - **One derivation, three audiences**: row materialisation, carriage-return resolution, exit-status
+    parsing, termination recovery, and coverage moved out of the painter into
+    `nuo-view::tools::shell_output`; the renderer, the activation ladder, and the copy path now agree on
+    what rows exist by construction, and the three duplicated helpers
+    (`parse_unstructured_shell_content`, `command_structured_lines`, `emit_command_lines_folded`) are
+    deleted.
+
 ## [0.0.53] - 2026-10-27
 
 ### Fixed

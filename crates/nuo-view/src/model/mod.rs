@@ -4,6 +4,9 @@
 
 pub mod document;
 pub mod interactive;
+pub mod layer;
 pub mod layout;
+pub mod log;
 mod markdown;
 pub mod selection;
+pub mod thread;

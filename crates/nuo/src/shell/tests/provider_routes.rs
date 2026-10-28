@@ -1261,13 +1261,14 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
     // Typing must work!
     let mut input = app.input.clone();
     let mut cursor = app.cursor_position;
-    let action = crate::shell::input::route_event(
+    let action = crate::shell::input::route_event_motion(
         crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('!'),
             crossterm::event::KeyModifiers::NONE,
         )),
         &mut input,
         &mut cursor,
+        &mut crate::shell::composer_grid::CaretMotion::default(),
         crate::shell::input::Dispatch {
             overlay: app.surfaces.active_overlay(),
             sheet: None,

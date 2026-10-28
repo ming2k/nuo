@@ -5,21 +5,22 @@
 //! 12 chars`). Inside the panel, in-box text wrapping with vertical scroll
 //! keeps the caret visible, and per-row layout-map recording drives semantic
 //! selection / copy.
+use nuotc::str_len;
 use nuotc::{
     Color, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
-use nuotc::{cursor_column, str_len};
 
 use nuo_view::composer_attachments::{ChipKind, iter_chips};
 use nuo_view::model::layout::{BlockRegion, LayoutMap};
 use nuo_view::model::selection::SelectionState;
 
 use super::Theme;
+use super::composer_grid::TextGrid;
 use super::design::{
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_TEXT_ROW_OFFSET,
     COMPOSER_VERTICAL_CHROME_ROWS, INPUT_PROMPT_GLYPH,
 };
-use super::text_layout::{WrappedLine, block_selection_range, line_selection, wrap_text};
+use super::text_layout::{block_selection_range, line_selection};
 use crate::shell::composer_hints::hint_row_parts;
 
 /// Right-aligned overflow label for a chrome row (the breathing row above
@@ -166,80 +167,6 @@ pub struct ComposerText<'a> {
 /// selection / copy works on input text just like transcript messages.
 pub use nuo_view::model::layout::INPUT_MSG_IDX;
 
-/// Build the wrapped-line list the composer renders, including the synthetic
-/// trailing row it appends when the caret rests past the last wrapped line
-/// (e.g. just after an inserted newline). Both the height computation in
-/// [`super::draw_transcript`] and the actual rendering in [`draw_composer`] go
-/// through this so the box never scrolls its own prompt glyph out of view on
-/// the first newline.
-///
-/// Also the scroll-model source for the interaction layer: edge-autoscroll
-/// during a selection drag resolves its viewport-edge bytes from the same
-/// wrapped rows the renderer paints, so the selection can never disagree
-/// with what is on screen.
-pub(crate) fn composer_wrapped(
-    input: &str,
-    text_width: usize,
-    byte_cursor: usize,
-) -> Vec<WrappedLine> {
-    let mut wrapped = wrap_text(input, text_width);
-    let last_end = wrapped.last().map_or(0, |w| w.end_byte);
-    if byte_cursor > last_end {
-        wrapped.push(WrappedLine {
-            text: String::new(),
-            start_byte: last_end,
-            end_byte: byte_cursor.max(last_end),
-        });
-    }
-    // Always keep at least one row so an empty input box still records a
-    // layout-map region: without it a click inside the empty box can't
-    // resolve to a cursor and the click handler can't clear a focused step
-    // to hand typing back to the prompt.
-    if wrapped.is_empty() {
-        wrapped.push(WrappedLine {
-            text: String::new(),
-            start_byte: 0,
-            end_byte: 0,
-        });
-    }
-    wrapped
-}
-
-/// Number of text rows the composer will render for `input`, accounting for
-/// the trailing caret row. Always at least 1 so an empty box still reserves a
-/// prompt line.
-pub(crate) fn input_row_count(input: &str, text_width: usize, byte_cursor: usize) -> usize {
-    composer_wrapped(input, text_width, byte_cursor)
-        .len()
-        .max(1)
-}
-
-/// Display column of `byte` inside the composer's wrapped text grid: the row
-/// it lands on plus the column within that row, both relative to the text
-/// area (the prompt glyph is added back by the caller when it needs screen
-/// coordinates). Shares `composer_wrapped` with the draw path so the two
-/// can never disagree on where a byte sits.
-///
-/// A byte exactly at a wrapped-line boundary resolves to column 0 of the
-/// *next* row (the position the caret would occupy), so the completion
-/// popup's leading edge follows the trigger token across wrap boundaries
-/// instead of sticking to the end of the previous row.
-pub fn composer_wrapped_pos(input: &str, text_width: usize, byte: usize) -> (usize, usize) {
-    let wrapped = composer_wrapped(input, text_width, byte);
-    // A byte exactly at a wrapped-line boundary (the end of one row and the
-    // start of the continuation) resolves to column 0 of the continuation —
-    // the position the trigger glyph itself occupies. Otherwise the byte
-    // lands on the first row whose end covers it (or flush at the end of the last row).
-    for (row, wl) in wrapped.iter().enumerate() {
-        let is_last = row + 1 == wrapped.len();
-        if byte >= wl.start_byte && (byte < wl.end_byte || (is_last && byte <= wl.end_byte)) {
-            let local = byte.saturating_sub(wl.start_byte).min(wl.text.len());
-            return (row, cursor_column(&wl.text, local));
-        }
-    }
-    (wrapped.len().saturating_sub(1), 0)
-}
-
 /// Display width of the composer's text area inside a box of `full_width`
 /// columns (the total minus the left prompt prefix and right padding).
 pub fn composer_text_width(full_width: usize) -> usize {
@@ -278,25 +205,17 @@ pub fn cursor_screen_pos(
     let text_width = full_w
         .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + COMPOSER_RIGHT_PAD_COLS)
         .max(1);
-    let wrapped = composer_wrapped(input, text_width, byte_cursor);
+    let grid = TextGrid::new(input, text_width);
+    let wrapped = grid.rows();
 
     let visible_rows = (input_rect.height as usize)
         .saturating_sub(COMPOSER_VERTICAL_CHROME_ROWS as usize)
         .max(1);
 
-    // Map the caret's byte offset onto the wrapped grid (mirrors the draw
-    // loop's scan exactly).
-    let mut cursor_line = wrapped.len().saturating_sub(1);
-    let mut cursor_col = 0usize;
-    for (i, wl) in wrapped.iter().enumerate() {
-        let is_last = i + 1 == wrapped.len();
-        if byte_cursor >= wl.start_byte && (byte_cursor < wl.end_byte || (is_last && byte_cursor <= wl.end_byte)) {
-            cursor_line = i;
-            let local_byte = byte_cursor.saturating_sub(wl.start_byte).min(wl.text.len());
-            cursor_col = cursor_column(&wl.text, local_byte);
-            break;
-        }
-    }
+    // Project the caret's byte onto the grid — the exact projection the
+    // completion popup and the click path use, so no consumer can disagree
+    // about which row the caret occupies (empty rows included).
+    let (cursor_line, cursor_col) = grid.cell(byte_cursor);
 
     // Clamp the scroll window the same way the draw loop does.
     let max_scroll = wrapped.len().saturating_sub(visible_rows);
@@ -487,7 +406,8 @@ fn draw_composer_impl(
     let text_width = full_w
         .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + COMPOSER_RIGHT_PAD_COLS)
         .max(1);
-    let wrapped = composer_wrapped(input, text_width, byte_cursor);
+    let grid = TextGrid::new(input, text_width);
+    let wrapped = grid.rows();
 
     // Number of text rows that fit inside the box (top/bottom transition rows
     // consume two lines). The box is sized by draw_transcript to fit the wrapped text
@@ -510,7 +430,8 @@ fn draw_composer_impl(
     let hidden_above = *input_scroll;
     let hidden_below = if input.is_empty() {
         if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
-            let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
+            let ghost_grid = TextGrid::new(ghost, text_width);
+            let ghost_wrapped = ghost_grid.rows();
             ghost_wrapped
                 .len()
                 .saturating_sub(*input_scroll + visible_rows)
@@ -560,7 +481,8 @@ fn draw_composer_impl(
                 .bg(panel_bg)
                 .fg(theme.muted())
                 .add_modifier(Modifier::DIM);
-            let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
+            let ghost_grid = TextGrid::new(ghost, text_width);
+            let ghost_wrapped = ghost_grid.rows();
             let start = *input_scroll;
             let end = (*input_scroll + visible_rows).min(ghost_wrapped.len());
             for (i, wl) in ghost_wrapped[start..end].iter().enumerate() {
@@ -757,7 +679,8 @@ fn draw_composer_impl(
         }
         if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
             if !ghost.starts_with(input) {
-                let ghost_wrapped = composer_wrapped(ghost, text_width, 0);
+                let ghost_grid = TextGrid::new(ghost, text_width);
+                let ghost_wrapped = ghost_grid.rows();
                 for (gi, gw) in ghost_wrapped.iter().enumerate() {
                     if lines.len() >= visible_rows {
                         break;

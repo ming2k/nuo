@@ -4,7 +4,8 @@
 //! Nuo. The TUI only requests results, translates wire offsets into Rust byte
 //! offsets, and renders/applies the returned edits.
 use crate::shell::App;
-use crate::shell::composer::{composer_text_width, composer_wrapped_pos};
+use crate::shell::composer::composer_text_width;
+use crate::shell::composer_grid::TextGrid;
 use nuo_ui_primitives::design::COMPOSER_PROMPT_PREFIX_COLS;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,7 +139,10 @@ pub fn completion_anchor(
             .unwrap_or(0),
         _ => 0,
     };
-    let (row, col) = composer_wrapped_pos(input, text_width, trigger_byte);
+    // The popup anchors to the trigger token's grid cell, so its leading edge
+    // follows the token across a wrap seam instead of sticking to the end of
+    // the previous row.
+    let (row, col) = TextGrid::new(input, text_width).cell(trigger_byte);
     let x = input_rect.x + COMPOSER_PROMPT_PREFIX_COLS as u16 + col.min(text_width) as u16;
 
     let visible_rows = (input_rect.height as usize)

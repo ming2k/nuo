@@ -75,7 +75,7 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
     let max_width = max_width.max(1);
     let mut lines = Vec::new();
     let mut current_line = String::new();
-    let mut current_width = 0;
+    let mut current_width: usize = 0;
     let mut line_start_byte = 0;
     let mut last_breakpoint: Option<usize> = None;
     let mut prev_char: Option<char> = None;
@@ -118,7 +118,7 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
             continue;
         }
 
-        if current_width + g_width > max_width && !current_line.is_empty() {
+        if current_width.saturating_add(g_width) > max_width && !current_line.is_empty() {
             let last_char = current_line.chars().last();
             let move_previous = match (curr_first, last_char) {
                 (Some(f), Some(l)) => prohibited_line_start(f) || prohibited_line_end(l),

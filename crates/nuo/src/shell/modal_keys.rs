@@ -15,8 +15,8 @@
 use crate::shell::keymap::{KeyCode, KeyModifiers};
 
 use crate::shell::input::readline::{
-    delete_next_grapheme, delete_previous_grapheme, next_grapheme_boundary,
-    normalized_cursor_byte, previous_grapheme_boundary,
+    delete_next_grapheme, delete_previous_grapheme, next_grapheme_boundary, normalized_cursor_byte,
+    previous_grapheme_boundary,
 };
 use crate::shell::input::{InputAction, OauthCopyTarget};
 use crate::shell::keymap::LiveHint;

@@ -119,14 +119,38 @@ impl App {
         self.cursor_position.min(self.input.len())
     }
 
+    /// The width the composer lays its text out at, or `0` before the first
+    /// frame has published a composer rect.
+    ///
+    /// Caret ↑/↓ walk the *wrapped* rows, so the resolver needs the geometry
+    /// the panel is actually drawn at. `0` is the "not measured yet" sentinel:
+    /// the grid then falls back to [`TextGrid::unwrapped`], one row per
+    /// logical line, instead of guessing a width.
+    pub fn composer_grid_width(&self) -> usize {
+        self.ui
+            .bounds(crate::shell::ui::UiKey::Composer)
+            .map_or(0, |rect| {
+                crate::shell::composer::composer_text_width(rect.width as usize)
+            })
+    }
+
+    /// The composer's visual text grid at the last drawn geometry. Every
+    /// caller (caret motion, selection extension, scroll bookkeeping) resolves
+    /// its rows here, so none of them can disagree with the renderer.
+    pub fn composer_grid(&self) -> TextGrid {
+        match self.composer_grid_width() {
+            0 => TextGrid::unwrapped(&self.input),
+            width => TextGrid::new(&self.input, width),
+        }
+    }
+
     /// Highest scroll offset the input viewport supports at the last drawn
     /// size: wrapped rows minus visible rows. `None` when no composer rect
     /// is known (nothing drawn yet, or an overlay owns the surface).
     pub fn input_scroll_max(&self) -> Option<usize> {
         let rect = self.ui.bounds(crate::shell::ui::UiKey::Composer)?;
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
-        let rows =
-            crate::shell::composer::input_row_count(&self.input, text_width, self.input.len());
+        let rows = TextGrid::new(&self.input, text_width).row_count();
         let visible = (rect.height as usize)
             .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
             .max(1);
@@ -232,8 +256,8 @@ impl App {
         let visible = (rect.height as usize)
             .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
             .max(1);
-        let wrapped =
-            crate::shell::composer::composer_wrapped(&self.input, text_width, self.input.len());
+        let grid = TextGrid::new(&self.input, text_width);
+        let wrapped = grid.rows();
         if wrapped.is_empty() {
             return false;
         }
@@ -338,11 +362,8 @@ impl App {
                     SelectionEdge::Tail => *anchor,
                     SelectionEdge::Head => *head,
                 };
-                nuo_view::model::selection::floor_grapheme_boundary(
-                    &self.input,
-                    cursor.byte_offset,
-                )
-                .min(self.input.len())
+                nuo_view::model::selection::floor_grapheme_boundary(&self.input, cursor.byte_offset)
+                    .min(self.input.len())
             }
             _ => match edge {
                 SelectionEdge::Tail => 0,

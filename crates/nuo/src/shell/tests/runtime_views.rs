@@ -51,13 +51,14 @@ fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
     let mut input = app.input.clone();
     let mut cursor = app.cursor_position;
     let mut drag = nuo_view::model::selection::SelectionDrag::default();
-    let action = crate::shell::input::route_event(
+    let action = crate::shell::input::route_event_motion(
         crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Tab,
             crossterm::event::KeyModifiers::NONE,
         )),
         &mut input,
         &mut cursor,
+        &mut crate::shell::composer_grid::CaretMotion::default(),
         crate::shell::input::Dispatch::default(),
         &crate::shell::modal_keys::ModalKeys::default(),
         &crate::shell::sheet::SheetKeys::default(),

@@ -24,6 +24,7 @@
 //! consumed the key. A `None` falls through to the shared affordance library
 //! (readline editing, caret motion, paste, scrolling) and the modal arms,
 //! which stay central until each modal owns its own scheme.
+use crate::shell::composer_grid::{CaretMotion, TextGrid, Vertical};
 use crate::shell::keymap::{KeyCode, KeyModifiers};
 
 use crate::shell::input::InputAction;
@@ -71,6 +72,14 @@ pub struct SceneKeys {
     pub focused_target: bool,
     /// Whether the transcript holds browse focus.
     pub transcript_focused: bool,
+    /// The width the composer lays its text out at, i.e. the grid the caret's
+    /// ↑/↓ walk (see [`crate::shell::composer_grid::TextGrid`]). `0` before the
+    /// first frame has published a composer rect, in which case the grid falls
+    /// back to one row per logical line. Geometry belongs to the scene context
+    /// because the interaction grammar ("↑ moves the caret one visual row") is
+    /// defined against it: a resolver that guessed a width could disagree with
+    /// what the panel paints.
+    pub composer_text_width: usize,
     /// Whether the subagent the Subagent scene is focused on (the top of the
     /// focus stack) currently has a live round. Scene-local, exactly like the
     /// side view's [`Self::is_responding`]: the Subagent scene owns its own
@@ -155,11 +164,12 @@ pub(crate) fn live_chat_hints(
 /// `session.*` binding when one is configured, and the canonical chord goes
 /// inactive. The interaction grammar (Enter/Tab/BackTab/Esc/↑/↓/text) is not
 /// remappable.
-pub(crate) fn resolve_chat_surface_key(
+pub(crate) fn resolve_chat_surface_key_motion(
     key: crate::shell::keymap::Key,
     keys: &SceneKeys,
     input: &mut String,
     cursor_position: &mut usize,
+    motion: &mut CaretMotion,
 ) -> Option<InputAction> {
     use crate::shell::keymap::SurfaceVerb;
     let ov = &keys.surface_overrides;
@@ -215,8 +225,8 @@ pub(crate) fn resolve_chat_surface_key(
         }
         KeyCode::Tab => resolve_tab(keys),
         KeyCode::Esc => resolve_esc(keys, keys.is_responding, InputAction::Interrupt),
-        KeyCode::Up => resolve_up(keys, input, cursor_position),
-        KeyCode::Down => resolve_down(keys, input, cursor_position),
+        KeyCode::Up => resolve_up(keys, input, cursor_position, motion),
+        KeyCode::Down => resolve_down(keys, input, cursor_position, motion),
         // Only unmodified (or Shift-capitalized) characters are owned as
         // text; every Control/Alt/Super chord is a shared command chord
         // (readline editing, paste, …) handled by the router.
@@ -249,11 +259,12 @@ pub(crate) fn resolve_chat_surface_key(
 /// remappable `session.scene_back` / `session.scene_forward` verbs, ADR-0092 [INV-NAV-03]),
 /// its **scene-scoped** `Esc` interrupt, and delegates every other key to the shared chat
 /// core for step-focus walking.
-pub(crate) fn resolve_subagent_key(
+pub(crate) fn resolve_subagent_key_motion(
     key: crate::shell::keymap::Key,
     keys: &SceneKeys,
     input: &mut String,
     cursor_position: &mut usize,
+    motion: &mut CaretMotion,
 ) -> Option<InputAction> {
     use crate::shell::keymap::SurfaceVerb;
     let ov = &keys.surface_overrides;
@@ -282,25 +293,26 @@ pub(crate) fn resolve_subagent_key(
             InputAction::InterruptSubagent,
         );
     }
-    resolve_chat_surface_key(key, keys, input, cursor_position)
+    resolve_chat_surface_key_motion(key, keys, input, cursor_position, motion)
 }
 
 /// Route a key to the full-screen scene's own scheme. Dashboard and
 /// Settings do not own keyboard state yet and return `None`, so the router
 /// falls through to the shared affordance library.
-pub(crate) fn resolve_scene_key(
+pub(crate) fn resolve_scene_key_motion(
     scene: impl Into<crate::shell::surfaces::SceneKind>,
     key: crate::shell::keymap::Key,
     keys: &SceneKeys,
     input: &mut String,
     cursor_position: &mut usize,
+    motion: &mut CaretMotion,
 ) -> Option<InputAction> {
     match scene.into() {
         crate::shell::surfaces::SceneKind::Thread => {
-            resolve_chat_surface_key(key, keys, input, cursor_position)
+            resolve_chat_surface_key_motion(key, keys, input, cursor_position, motion)
         }
         crate::shell::surfaces::SceneKind::Subagent => {
-            resolve_subagent_key(key, keys, input, cursor_position)
+            resolve_subagent_key_motion(key, keys, input, cursor_position, motion)
         }
         _ => None,
     }
@@ -457,12 +469,33 @@ fn resolve_esc(keys: &SceneKeys, responding: bool, interrupt: InputAction) -> Op
     }
 }
 
+/// The grid this scene's caret motions walk: the composer's wrapped rows at
+/// the width the caller published. `0` means "no frame has measured the panel
+/// yet" — the grid then falls back to one row per logical line rather than
+/// guessing a width.
+fn composer_grid(keys: &SceneKeys, input: &str) -> TextGrid {
+    match keys.composer_text_width {
+        0 => TextGrid::unwrapped(input),
+        width => TextGrid::new(input, width),
+    }
+}
+
 /// ↑ on the chat surface:
 /// - When a transcript step is focused, walk focus to the previous step.
 /// - When transcript browse focus is active, scroll the transcript up.
-/// - Otherwise, walk completion suggestions, move caret up through multi-line draft,
-///   or at top line hand off to inline history recall.
-fn resolve_up(keys: &SceneKeys, input: &str, cursor_position: &mut usize) -> Option<InputAction> {
+/// - Otherwise, walk completion suggestions, move the caret one **visual row**
+///   up (keeping its display column), or at the top row hand off to inline
+///   history recall.
+///
+/// Visual rows, not `\n`-separated lines: the caret must stop on every row the
+/// panel paints — including the empty rows a Ctrl-J leaves behind — and must
+/// never skip the continuation rows of a soft-wrapped line.
+fn resolve_up(
+    keys: &SceneKeys,
+    input: &str,
+    cursor_position: &mut usize,
+    motion: &mut CaretMotion,
+) -> Option<InputAction> {
     if keys.focused_target {
         Some(InputAction::FocusPrevTarget)
     } else if keys.transcript_focused {
@@ -472,11 +505,13 @@ fn resolve_up(keys: &SceneKeys, input: &str, cursor_position: &mut usize) -> Opt
         && !keys.has_exact_suggestion
     {
         Some(InputAction::SuggestPrev)
-    } else if crate::shell::input::cursor_line_up(input, cursor_position) {
-        // Multi-line draft: ↑ walks the caret to the previous line.
+    } else if let Some(target) =
+        composer_grid(keys, input).shift_row(*cursor_position, Vertical::Up, motion)
+    {
+        *cursor_position = target;
         Some(InputAction::None)
     } else {
-        // Top line: readline-style edge hand-off to inline history recall.
+        // Top row: readline-style edge hand-off to inline history recall.
         Some(InputAction::HistoryPrev)
     }
 }
@@ -484,9 +519,15 @@ fn resolve_up(keys: &SceneKeys, input: &str, cursor_position: &mut usize) -> Opt
 /// ↓ on the chat surface:
 /// - When a transcript step is focused, walk focus to the next step.
 /// - When transcript browse focus is active, scroll the transcript down.
-/// - Otherwise, walk completion suggestions, move caret down through multi-line draft,
-///   or at bottom line hand off to newer history recall / stashed draft.
-fn resolve_down(keys: &SceneKeys, input: &str, cursor_position: &mut usize) -> Option<InputAction> {
+/// - Otherwise, walk completion suggestions, move the caret one **visual row**
+///   down (keeping its display column), or at the bottom row hand off to newer
+///   history recall / the stashed draft.
+fn resolve_down(
+    keys: &SceneKeys,
+    input: &str,
+    cursor_position: &mut usize,
+    motion: &mut CaretMotion,
+) -> Option<InputAction> {
     if keys.focused_target {
         Some(InputAction::FocusNextTarget)
     } else if keys.transcript_focused {
@@ -496,7 +537,10 @@ fn resolve_down(keys: &SceneKeys, input: &str, cursor_position: &mut usize) -> O
         && !keys.has_exact_suggestion
     {
         Some(InputAction::SuggestNext)
-    } else if crate::shell::input::cursor_line_down(input, cursor_position) {
+    } else if let Some(target) =
+        composer_grid(keys, input).shift_row(*cursor_position, Vertical::Down, motion)
+    {
+        *cursor_position = target;
         Some(InputAction::None)
     } else {
         // Last line: walk history forward (or restore the stashed draft once
@@ -521,10 +565,39 @@ fn resolve_printable(
     None
 }
 
+/// Resolve a scene-scoped key with a stateless caret memory.
+///
+/// The thread surface passes its persistent [`CaretMotion`] through
+/// [`resolve_scene_key_motion`]; callers that hold no composer (tests, one-shot
+/// dispatch) use this.
+#[allow(dead_code)] // consumed by the interaction tests
+pub(crate) fn resolve_scene_key(
+    scene: impl Into<crate::shell::surfaces::SceneKind>,
+    key: crate::shell::keymap::Key,
+    keys: &SceneKeys,
+    input: &mut String,
+    cursor_position: &mut usize,
+) -> Option<InputAction> {
+    let mut motion = CaretMotion::default();
+    resolve_scene_key_motion(scene, key, keys, input, cursor_position, &mut motion)
+}
+
+/// Stateless [`resolve_chat_surface_key_motion`].
+#[allow(dead_code)] // consumed by the interaction tests
+pub(crate) fn resolve_chat_surface_key(
+    key: crate::shell::keymap::Key,
+    keys: &SceneKeys,
+    input: &mut String,
+    cursor_position: &mut usize,
+) -> Option<InputAction> {
+    let mut motion = CaretMotion::default();
+    resolve_chat_surface_key_motion(key, keys, input, cursor_position, &mut motion)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shell::input::route_event;
+    use crate::shell::input::route_event_motion;
     use crate::shell::surfaces::SceneKind;
     use crossterm::event::{Event, KeyEvent, KeyEventKind, KeyEventState};
 
@@ -586,13 +659,14 @@ mod tests {
             scene,
             ..Default::default()
         };
-        route_event(
+        crate::shell::input::route_event_motion(
             Event::Key(crate::shell::input::keystroke::event_from_chord(Key {
                 code,
                 modifiers,
             })),
             &mut input,
             &mut cursor,
+            &mut crate::shell::composer_grid::CaretMotion::default(),
             dispatch,
             &crate::shell::modal_keys::ModalKeys::default(),
             &crate::shell::sheet::SheetKeys::default(),
@@ -1336,7 +1410,7 @@ mod tests {
         let mut input = String::from("draft");
         let mut cursor = 5;
         let mut drag = nuo_view::model::selection::SelectionDrag::default();
-        let action = route_event(
+        let action = route_event_motion(
             Event::Key(KeyEvent {
                 code: crossterm::event::KeyCode::Enter,
                 modifiers: crossterm::event::KeyModifiers::NONE,
@@ -1345,6 +1419,7 @@ mod tests {
             }),
             &mut input,
             &mut cursor,
+            &mut crate::shell::composer_grid::CaretMotion::default(),
             crate::shell::input::Dispatch {
                 scene: SceneKind::Settings,
                 ..Default::default()

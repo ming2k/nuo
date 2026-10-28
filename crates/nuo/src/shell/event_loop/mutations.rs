@@ -189,7 +189,15 @@ pub(crate) enum TranscriptEdit {
         fallback: TranscriptMessage,
     },
     /// Append a fully-built message (assistant text, notices, projections).
-    Append { message: TranscriptMessage },
+    Append {
+        /// The event class this row was produced by. Admission is gated on it
+        /// (`[INV-TRANSCRIPT-01]`): only `Dialogue` becomes a fact and only
+        /// `TurnOutcome` becomes an anchor; every other class is refused, so an
+        /// operation, a telemetry sample or a receipt can never enter the thread
+        /// transcript (`nuo_view::model::thread`).
+        class: nuo_wire::EventClass,
+        message: TranscriptMessage,
+    },
     /// Freeze any orphaned still-streaming reasoning trace (its round ended
     /// mid-trace; the spinner would breathe forever).
     FinalizeOrphanedReasoning { duration_ms: Option<u64> },
@@ -379,6 +387,13 @@ pub(crate) enum AppMutation {
     /// A dashboard console receipt: appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::shell::overlays::ConsoleLine),
+    /// One line for a surface's receipt log (ADR-0116). The log tier is
+    /// addressable by surface id, so a receipt never needs the transcript as a
+    /// destination.
+    SurfaceLog {
+        surface: nuo_view::model::log::SurfaceId,
+        line: nuo_view::model::log::SurfaceLine,
+    },
 }
 
 /// The translator's end of the mutation channel.

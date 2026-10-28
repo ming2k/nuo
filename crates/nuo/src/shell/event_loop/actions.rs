@@ -72,6 +72,18 @@ pub(super) struct ActionContext<'a> {
     pub copy_pending: &'a Arc<AtomicUsize>,
     pub paste_tx: &'a mpsc::UnboundedSender<clipboard::ClipboardRead>,
     pub sgr_guard: &'a mut input::SgrLeakGuard,
+    /// Whether the resolved action came from a **keystroke** (as opposed to a
+    /// pointer, wheel, hover, or resize event).
+    ///
+    /// The multi-stroke confirmation policy (the `C-x` scene namespace, the
+    /// double Ctrl+C quit window, the dashboard's `k` kill confirm) is defined
+    /// over *keystrokes*: "the armed state survives exactly one keystroke".
+    /// Gating the disarm on this flag keeps pointer noise out of that state
+    /// machine — a terminal that reports motion (`MouseEventKind::Moved` →
+    /// `InputAction::Hover`, which the WinAPI backend does natively regardless
+    /// of the DEC tracking modes) must not silently cancel a half-typed chord,
+    /// or `C-x w` would intermittently need two attempts.
+    pub key_event: bool,
 }
 
 /// Shared scroll step for keyboard scroll keys and out-of-panel wheel
@@ -204,6 +216,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         copy_pending,
         paste_tx,
         sgr_guard,
+        key_event,
     } = ctx;
     let runtime = *runtime;
     let session = *session;
@@ -211,12 +224,15 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
     let copy_tx = *copy_tx;
     let copy_pending = *copy_pending;
     let paste_tx = *paste_tx;
+    let key_event = *key_event;
     let sgr_guard = &mut **sgr_guard;
     // While the dashboard's kill confirm is armed, only the confirming `k`
     // (or the confirm-cancelling paths inside the dashboard arms) keeps it
-    // alive: any other action — navigation, prompt, focus toggle, Esc —
-    // disarms it. The armed state lives exactly one keystroke.
-    if app.host_kill_confirm.is_some()
+    // alive: any other keystroke — navigation, prompt, focus toggle, Esc —
+    // disarms it. The armed state lives exactly one keystroke, so pointer
+    // noise (motion → `Hover`, wheel, resize) can never cancel it.
+    if key_event
+        && app.host_kill_confirm.is_some()
         && app.current_scene() == SceneKind::Dashboard
         && !matches!(
             action,
@@ -226,18 +242,27 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         host::cancel_kill_confirm(app);
     }
 
-    // While the Ctrl+C quit window is armed, any user action other than
-    // Ctrl+C cancels the armed state so subsequent typing or interaction
-    // does not inadvertently exit the program.
-    if app.ctrl_c_armed() && !matches!(action, input::InputAction::CtrlC | input::InputAction::None)
+    // While the Ctrl+C quit window is armed, any keystroke other than Ctrl+C
+    // cancels the armed state so subsequent typing does not inadvertently exit
+    // the program. The window is wall-clock bounded, so a pointer event is
+    // neither here nor there — it must not consume the operator's first press.
+    if key_event
+        && app.ctrl_c_armed()
+        && !matches!(action, input::InputAction::CtrlC | input::InputAction::None)
     {
         app.arm_ctrl_c(None);
     }
 
-    // An armed scene namespace survives exactly one keystroke: any action other
-    // than re-arming it disarms it, so a half-typed chord cannot linger and
-    // change the meaning of a later, unrelated key.
-    if app.scene_namespace_armed && !matches!(action, input::InputAction::SetSceneNamespaceArmed(_))
+    // An armed scene namespace survives exactly one keystroke: any keystroke
+    // other than re-arming it disarms it, so a half-typed chord cannot linger
+    // and change the meaning of a later, unrelated key. Pointer events are
+    // deliberately excluded from this state machine: a `C-x` typed while the
+    // pointer reports motion (or a spontaneous resize lands mid-chord) used to
+    // be cancelled by that non-keystroke event, which is why `C-x w` could
+    // appear to need two attempts.
+    if key_event
+        && app.scene_namespace_armed
+        && !matches!(action, input::InputAction::SetSceneNamespaceArmed(_))
     {
         app.scene_namespace_armed = false;
     }
@@ -2584,6 +2609,17 @@ pub(super) fn activate_tab_at_index(
     if index == current_idx {
         // [INV-TAB-11] Idempotent container gesture: Re-selecting the already active tab
         // is an inert container operation that preserves the active scene context.
+        //
+        // It still *repaints*. A tab click resolves against the presented
+        // (hit-test) scene, and `active_tab_index()` is live state: if the two
+        // ever drift — anything that moves the surface selection without
+        // publishing a frame — the click lands on the tab the user sees as
+        // inactive while app state already considers it active. Returning
+        // without a repaint would then leave the stale highlight on screen and
+        // swallow every further click on that tab, i.e. a permanently dead
+        // tab. Painting on the idempotent path re-synchronises the two.
+        runtime.dirty.store(true, Ordering::SeqCst);
+        runtime.dirty_notify.notify_waiters();
         return ActionFlow::Handled;
     }
 
@@ -3837,6 +3873,10 @@ pub(crate) async fn dispatch_action_for_test(
         copy_pending: &copy_pending,
         paste_tx: &paste_tx,
         sgr_guard: &mut sgr_guard,
+        // The test shim dispatches a bare action with no originating event;
+        // treat it as a keystroke, the conservative default for the armed-window
+        // confirmation policy.
+        key_event: true,
     };
     let backend = nuotc::Backend::new(Vec::new()).with_bce(nuotc::Bce::No);
     let mut terminal = nuotc::Terminal::new(backend);

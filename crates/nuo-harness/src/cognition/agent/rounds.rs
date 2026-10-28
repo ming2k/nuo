@@ -1354,7 +1354,6 @@ impl Agent {
                         "The retried model request repeated a tool call that already completed. \
                          The checkpointed result remains authoritative; the tool was not run again.",
                     )
-                    .with_surface(NoticeSurface::Toast),
                 ));
             }
             // Pre-dispatch trajectory check, mirroring the native path: catch a repeat
@@ -1426,8 +1425,7 @@ impl Agent {
                          of a call already issued this round. Use the result already in \
                          context, or try a different call.",
                         call.name,
-                    ))
-                    .with_surface(NoticeSurface::Toast),
+                    )),
                 ));
                 let output = ToolOutput::Text(format!(
                     "[loop guard] This call ({}) is blocked for the rest of the turn \

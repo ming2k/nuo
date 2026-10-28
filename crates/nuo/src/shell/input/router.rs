@@ -209,10 +209,11 @@ fn scrolls_own_body(
 ///
 /// `input` and `cursor_position` are mutable because some events modify them directly.
 #[allow(clippy::too_many_arguments)]
-pub fn route_event(
+pub fn route_event_motion(
     event: Event,
     input: &mut String,
     cursor_position: &mut usize,
+    motion: &mut crate::shell::composer_grid::CaretMotion,
     dispatch: Dispatch,
     modal_keys: &crate::shell::modal_keys::ModalKeys,
     sheet_keys: &crate::shell::sheet::SheetKeys,
@@ -412,12 +413,13 @@ pub fn route_event(
             // global arms below. A key the surface does not own falls through
             // to the shared affordance library and the modal arms.
             if bare_chat_surface(&dispatch)
-                && let Some(action) = crate::shell::session::resolve_scene_key(
+                && let Some(action) = crate::shell::session::resolve_scene_key_motion(
                     dispatch.scene,
                     physical_key,
                     scene_keys,
                     input,
                     cursor_position,
+                    motion,
                 )
             {
                 return action;
@@ -815,9 +817,7 @@ pub fn route_event(
                 KeyCode::Delete => {
                     // The palette's delete-selected is owned by its scheme
                     // (modal_keys).
-                    if edits_input_field(&dispatch, modal_keys)
-                        && *cursor_position < input.len()
-                    {
+                    if edits_input_field(&dispatch, modal_keys) && *cursor_position < input.len() {
                         if let Some((start, end)) =
                             nuo_view::composer_attachments::chip_range_for_delete(
                                 input,
@@ -850,8 +850,7 @@ pub fn route_event(
                         {
                             *cursor_position = prev_word_start(input, *cursor_position);
                         } else {
-                            *cursor_position =
-                                previous_grapheme_boundary(input, *cursor_position);
+                            *cursor_position = previous_grapheme_boundary(input, *cursor_position);
                         }
                     }
                     InputAction::None
@@ -859,9 +858,7 @@ pub fn route_event(
                 KeyCode::Right => {
                     // Modal segment/cycle verbs are owned by the modal
                     // scheme (modal_keys), resolved above.
-                    if edits_input_field(&dispatch, modal_keys)
-                        && *cursor_position < input.len()
-                    {
+                    if edits_input_field(&dispatch, modal_keys) && *cursor_position < input.len() {
                         // Ctrl+Right (and Alt+Right) jump forward one word.
                         if key
                             .modifiers
@@ -1047,4 +1044,37 @@ pub fn resolve_block(layout_map: &LayoutMap, x: u16, y: u16) -> Option<(usize, u
         return Some((nuo_view::model::layout::INPUT_MSG_IDX, 0));
     }
     None
+}
+
+/// Route one event with a caller-owned caret-motion memory.
+///
+/// The routed key resolution reaches the scene resolvers through
+/// [`crate::shell::session::resolve_scene_key`], which owns the caret's vertical
+/// memory today; this entry point exists so the thread surface can pass its
+/// persistent [`crate::shell::composer_grid::CaretMotion`] without threading a
+/// second resolution path, and so modal fields (which have no memory) share one
+/// signature.
+#[allow(clippy::too_many_arguments)]
+pub fn route_event(
+    event: Event,
+    input: &mut String,
+    cursor_position: &mut usize,
+    dispatch: Dispatch,
+    modal_keys: &crate::shell::modal_keys::ModalKeys,
+    sheet_keys: &crate::shell::sheet::SheetKeys,
+    scene_keys: &crate::shell::session::SceneKeys,
+    drag: &mut SelectionDrag,
+) -> InputAction {
+    let mut motion = crate::shell::composer_grid::CaretMotion::default();
+    route_event_motion(
+        event,
+        input,
+        cursor_position,
+        &mut motion,
+        dispatch,
+        modal_keys,
+        sheet_keys,
+        scene_keys,
+        drag,
+    )
 }

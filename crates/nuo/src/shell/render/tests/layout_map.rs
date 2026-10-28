@@ -38,7 +38,6 @@ fn transcript_content_rect_spans_band_and_gap_rows() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],

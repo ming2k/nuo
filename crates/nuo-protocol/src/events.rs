@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 // Relocated to the tool leaf (`nuo_tool::events`) per ADR-0008 §3.
 pub use nuo_tool::events::{
-    AgentNotice, NoticeKind, NoticeSeverity, NoticeSource, NoticeSurface, PermissionRequest,
-    StdinRequest, SubagentEvent, UserQuestion, UserQuestionOption, UserQuestionRequest,
+    AgentNotice, NoticeKind, NoticeSeverity, NoticeSource, PermissionRequest, StdinRequest,
+    SubagentEvent, UserQuestion, UserQuestionOption, UserQuestionRequest,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1047,6 +1047,116 @@ impl RoundSummary {
     }
 }
 
+/// The class of a [`RoundEvent`] — the wire-level answer to "what kind of fact
+/// is this?" (ADR-0117, `[INV-TRANSCRIPT-03]`).
+///
+/// The event stream is deliberately **one ordered enum**: dialogue, operations
+/// and telemetry interleave on one channel, and that interleaving is what lets a
+/// frontend position an operation row among dialogue by timestamp. The class is
+/// therefore carried *alongside* the variant rather than replacing it, and it is
+/// declared once, next to the definition, by [`RoundEvent::class`].
+///
+/// Only [`EventClass::Dialogue`] may become a transcript fact, and only
+/// [`EventClass::TurnOutcome`] may become a turn anchor; everything else lives in
+/// another layer entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum EventClass {
+    /// Someone said something (user input admitted, model output, tool steps).
+    /// The only class admitted to the thread transcript as dialogue.
+    Dialogue,
+    /// How a round ended or a structural event that must hold a position in
+    /// time (completion, interrupt, retry resolution, compaction checkpoint,
+    /// background-job lifecycle). Admitted only as a turn anchor.
+    TurnOutcome,
+    /// An operation on the session (slash-command result, configuration
+    /// mutation). Never admitted: it lives in the durable command ledger and is
+    /// joined into the rendering by timestamp.
+    Operation,
+    /// Counters, timings, phase transitions. Never admitted.
+    Telemetry,
+    /// Interaction bookkeeping and one-shot notices. Never admitted; the layer
+    /// is chosen by `nuo_view::model::layer`.
+    Ephemera,
+}
+
+impl EventClass {
+    /// Whether this class may become a dialogue fact in the thread document.
+    pub fn admits_dialogue(self) -> bool {
+        matches!(self, Self::Dialogue)
+    }
+
+    /// Whether this class may become a structural turn marker.
+    pub fn admits_anchor(self) -> bool {
+        matches!(self, Self::TurnOutcome)
+    }
+}
+
+impl RoundEvent {
+    /// What kind of fact this event is.
+    ///
+    /// Exhaustive by design: there is no wildcard arm, so a new variant fails
+    /// the build until its class is chosen. This function is the single audit
+    /// surface for "what may enter the transcript".
+    pub fn class(&self) -> EventClass {
+        match self {
+            // ── dialogue ──────────────────────────────────────────────────
+            Self::Text(_)
+            | Self::StreamStart
+            | Self::StreamDelta(_)
+            | Self::StreamEnd(_)
+            | Self::StreamDiscard
+            | Self::StreamReasoningDelta(_)
+            | Self::StreamReasoningEnd(_)
+            | Self::ToolCall { .. }
+            | Self::ToolResult { .. }
+            | Self::ToolStream { .. }
+            | Self::ToolCancelled { .. }
+            | Self::ToolCallStarted { .. }
+            | Self::ToolInputProgress { .. }
+            | Self::SubagentStep { .. }
+            | Self::SteerAdmitted(_)
+            | Self::FollowUpStarted(_) => EventClass::Dialogue,
+
+            // ── turn structure ────────────────────────────────────────────
+            Self::RoundCompleted(_)
+            | Self::RoundInterrupted(_)
+            | Self::Error(_)
+            | Self::Compacted { .. }
+            | Self::RetryScheduled { .. }
+            | Self::RetryResolved(_)
+            | Self::BackgroundJobStarted(_)
+            | Self::BackgroundJobReady { .. }
+            | Self::BackgroundJobCompleted(_) => EventClass::TurnOutcome,
+
+            // ── operations ────────────────────────────────────────────────
+            Self::CommandResult { .. } => EventClass::Operation,
+
+            // ── telemetry ─────────────────────────────────────────────────
+            Self::ContextTokens(_)
+            | Self::TurnStarted { .. }
+            | Self::TurnPerformance(_)
+            | Self::HarnessState(_)
+            | Self::TodosUpdated(_)
+            | Self::UnattendedChanged(_)
+            | Self::ConfinementChanged(_)
+            | Self::BackgroundJobProgress { .. } => EventClass::Telemetry,
+
+            // ── ephemera ──────────────────────────────────────────────────
+            Self::Notice(_)
+            | Self::SteerUnavailable { .. }
+            | Self::SteerCancelled { .. }
+            | Self::SteerCancelFailed { .. }
+            | Self::FollowUpQueued { .. }
+            | Self::QueueUpdated { .. }
+            | Self::PermissionRequest(_)
+            | Self::UserQuestionRequest(_)
+            | Self::StdinRequest(_)
+            | Self::Activity(_)
+            | Self::UnsentInput { .. } => EventClass::Ephemera,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RoundEvent {
     Notice(AgentNotice),
@@ -2033,12 +2143,12 @@ mod tests {
         // A slash-command reply (the *acknowledgment*, not the invocation) is
         // stamped uniformly so frontends can branch on kind + surface:
         //   - severity Info (it is a status confirmation, not an error),
-        //   - surface Toast (transient bubble, never appended to transcript),
+        //   - the kind that `nuo_view::model::layer` routes to the toast layer
+        //     (a transient bubble, never appended to the transcript),
         //   - source Harness (not the agent / a tool).
         let notice = AgentNotice::command_ack("Delegated mode ON: …");
         assert_eq!(notice.kind, NoticeKind::CommandAck);
         assert_eq!(notice.severity, NoticeSeverity::Info);
-        assert_eq!(notice.surface, NoticeSurface::Toast);
         assert_eq!(notice.source, NoticeSource::Harness);
         assert_eq!(notice.title, "Delegated mode ON: …");
         assert!(notice.body.is_none());
@@ -2077,6 +2187,5 @@ mod tests {
         let json = serde_json::to_string(&notice).expect("serialise");
         let back: AgentNotice = serde_json::from_str(&json).expect("deserialise");
         assert_eq!(back.kind, NoticeKind::CommandAck);
-        assert_eq!(back.surface, NoticeSurface::Toast);
     }
 }

@@ -11,7 +11,11 @@ pub(crate) mod transcript;
 
 #[allow(unused_imports)]
 pub(crate) use actions::{effective_reasoning_effort, modal_page_step};
-pub(crate) use mutations::{AppMutation, CompletionSignal, TranscriptEdit};
+/// The transcript edit vocabulary is re-exported for the shell's event loop and
+/// for the test harness that drives it.
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use mutations::TranscriptEdit;
+pub(crate) use mutations::{AppMutation, CompletionSignal};
 #[cfg(test)]
 pub(crate) use render::render_frame;
 pub(crate) use runtime::{UiRuntime, now_epoch_ms};
@@ -43,7 +47,6 @@ use crate::shell::clipboard_ops;
 use crate::shell::input::{self};
 use nuo_view::model::document::TranscriptMessage;
 
-use input_reader::InputReader;
 use sync::{
     consume_completion_signal, consume_navigation_signals, sync_request_surfaces,
     sync_transcripts_and_session, tick_toast_timers,
@@ -134,15 +137,13 @@ pub(crate) async fn run_app_loop(
     runtime: UiRuntime,
     mutation_rx: mpsc::Receiver<AppMutation>,
     session: crate::shell::SessionSource,
+    input: &mut input_reader::InputSource,
 ) -> io::Result<()> {
     let (copy_tx, mut copy_rx) =
         mpsc::unbounded_channel::<Result<clipboard::CopyOutcome, String>>();
     let copy_pending = Arc::new(AtomicUsize::new(0));
 
     let (paste_tx, mut paste_rx) = mpsc::unbounded_channel::<clipboard::ClipboardRead>();
-
-    let (input_tx, mut input_rx) = mpsc::unbounded_channel::<Event>();
-    let _input_reader = InputReader::spawn(input_tx)?;
 
     let mut sgr_guard = input::SgrLeakGuard::default();
 
@@ -193,9 +194,9 @@ pub(crate) async fn run_app_loop(
             let mut frozen_batch: Vec<Event> = Vec::with_capacity(8);
             tokio::select! {
                 biased;
-                Some(first_event) = input_rx.recv() => {
+                Some(first_event) = input.recv() => {
                     frozen_batch.push(first_event);
-                    while let Ok(ev) = input_rx.try_recv() {
+                    while let Ok(ev) = input.try_recv() {
                         frozen_batch.push(ev);
                     }
                 }
@@ -322,11 +323,7 @@ pub(crate) async fn run_app_loop(
         );
         let composer_active = !is_fullscreen_scene && !in_subagent;
         let current_composer_height = if composer_active {
-            crate::shell::render::calculate_composer_height(
-                viewport_rect,
-                &app.input,
-                app.byte_cursor(),
-            )
+            crate::shell::render::calculate_composer_height(viewport_rect, &app.input)
         } else {
             0
         };
@@ -531,10 +528,10 @@ pub(crate) async fn run_app_loop(
 
         tokio::select! {
             biased;
-            Some(first_event) = input_rx.recv() => {
+            Some(first_event) = input.recv() => {
                 let mut batch = Vec::with_capacity(8);
                 batch.push(first_event);
-                while let Ok(ev) = input_rx.try_recv() {
+                while let Ok(ev) = input.try_recv() {
                     batch.push(ev);
                 }
                 // A resize inside this batch may have shrunk the terminal
@@ -857,6 +854,9 @@ async fn process_one_event<W: io::Write>(
         };
         let scene_keys = crate::shell::session::SceneKeys {
             is_responding,
+            // The caret's ↑/↓ walk the composer's *wrapped* rows, so the
+            // resolver gets the geometry the panel is drawn at this frame.
+            composer_text_width: app.composer_grid_width(),
             composer_send_mode: app.composer_send_mode,
             completion_kind,
             completion_dismissed,
@@ -871,24 +871,30 @@ async fn process_one_event<W: io::Write>(
             focused_subagent_running,
         };
         match edit_buffer {
-            EditBuffer::Composer => input::route_event(
+            EditBuffer::Composer => input::route_event_motion(
                 event.clone(),
                 &mut app.input,
                 &mut app.cursor_position,
+                &mut app.caret_motion,
                 dispatch,
                 &modal_keys,
                 &sheet_keys,
                 &scene_keys,
                 &mut app.drag,
             ),
+            // The modal query fields are single-line: they have no visual row
+            // to walk, so the arrow keys keep their list/edge meaning and the
+            // motion memory stays local (and therefore untouched).
             EditBuffer::Models => {
+                let mut motion = crate::shell::composer_grid::CaretMotion::default();
                 let d = &mut app
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
-                input::route_event(
+                input::route_event_motion(
                     event.clone(),
                     &mut d.query.text,
                     &mut d.query.cursor,
+                    &mut motion,
                     dispatch,
                     &modal_keys,
                     &sheet_keys,
@@ -897,13 +903,15 @@ async fn process_one_event<W: io::Write>(
                 )
             }
             EditBuffer::Connections => {
+                let mut motion = crate::shell::composer_grid::CaretMotion::default();
                 let d = &mut app
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>();
-                input::route_event(
+                input::route_event_motion(
                     event.clone(),
                     &mut d.query.text,
                     &mut d.query.cursor,
+                    &mut motion,
                     dispatch,
                     &modal_keys,
                     &sheet_keys,
@@ -949,6 +957,7 @@ async fn process_one_event<W: io::Write>(
             copy_pending,
             paste_tx,
             sgr_guard,
+            key_event: matches!(event, Event::Key(_)),
         },
     )
     .await;

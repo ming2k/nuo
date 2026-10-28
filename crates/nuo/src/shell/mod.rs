@@ -34,6 +34,7 @@ pub mod clipboard_ops;
 pub mod completion;
 pub mod composer;
 pub mod composer_extension;
+pub mod composer_grid;
 pub mod composer_hints;
 pub mod config;
 pub mod declarative;
@@ -298,8 +299,25 @@ pub async fn run_tui(
 pub async fn run_tui_with_terminal(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<AgentRequest>,
+    rx: mpsc::UnboundedReceiver<AgentResponse>,
+    config: TuiLaunchConfig,
+) -> Result<TuiOutcome, Box<dyn Error>> {
+    let mut input = event_loop::input_reader::InputSource::spawn()?;
+    run_tui_with_input(terminal, tx, rx, config, &mut input).await
+}
+
+/// One attachment's TUI run against a caller-owned [`InputSource`].
+///
+/// The attach loop (`runner::run_attached`) owns the input source so terminal
+/// events that arrive while the next session handshakes are still delivered
+/// instead of being dropped with the previous loop — see
+/// [`event_loop::input_reader::InputSource`].
+pub(crate) async fn run_tui_with_input(
+    terminal: &mut Terminal<io::Stdout>,
+    tx: mpsc::UnboundedSender<AgentRequest>,
     mut rx: mpsc::UnboundedReceiver<AgentResponse>,
     config: TuiLaunchConfig,
+    input: &mut event_loop::input_reader::InputSource,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
     let TuiLaunchConfig {
         initial_provider,
@@ -689,23 +707,45 @@ pub async fn run_tui_with_terminal(
                                         .send(M::PreAttachAttestationError(notice.render_text()))
                                         .await;
                                 }
-                                // Provider retry has a dedicated, self-refreshing
-                                // transcript disclosure driven by RetryScheduled.
-                                // Toast-surfaced notices (command acknowledgments)
-                                // ride the toast surface; everything else appends.
-                                if notice.kind == nuo_wire::NoticeKind::ProviderRetry {
-                                    // RetryScheduled owns the retry disclosure.
-                                } else if notice.surface == nuo_wire::NoticeSurface::Toast {
-                                    mutations
-                                        .send(M::NoticeToast {
-                                            severity: notice_severity_from_core(notice.severity),
-                                            text: notice.render_text(),
-                                        })
-                                        .await;
-                                } else {
-                                    let message = TranscriptMessage::notice_from_core(&notice)
-                                        .with_sent_at_ms(now_ms!());
-                                    transcript!(E::Append { message });
+                                // The layer is derived from the surface context,
+                                // never chosen by the producer and never the
+                                // thread transcript ([INV-LAYER-04]): a notice is
+                                // a receipt, not dialogue. This client has no
+                                // receipt-log viewer in the thread scene and no
+                                // banner row, so `MINIMAL` degrades diagnostics
+                                // to the toast surface — the conversation stays
+                                // pure either way.
+                                let caps = nuo_view::model::layer::SurfaceCapabilities::MINIMAL;
+                                match nuo_view::model::layer::layer_for(
+                                    &notice,
+                                    caps,
+                                    nuo_view::model::log::SurfaceId::THREAD,
+                                ) {
+                                    // `RetryScheduled` owns the retry disclosure;
+                                    // an unhostable receipt is dropped rather
+                                    // than written into the conversation.
+                                    nuo_view::model::layer::ContentLayer::Absorbed => {}
+                                    nuo_view::model::layer::ContentLayer::Toast
+                                    | nuo_view::model::layer::ContentLayer::Banner => {
+                                        mutations
+                                            .send(M::NoticeToast {
+                                                severity: notice_severity_from_core(
+                                                    notice.severity,
+                                                ),
+                                                text: notice.render_text(),
+                                            })
+                                            .await;
+                                    }
+                                    nuo_view::model::layer::ContentLayer::SurfaceLog(surface) => {
+                                        let line = nuo_view::model::log::SurfaceLine::note(
+                                            notice.render_text(),
+                                            now_ms!(),
+                                        )
+                                        .with_label(nuo_view::model::document::notice_topic_label(
+                                            notice.kind,
+                                        ));
+                                        mutations.send(M::SurfaceLog { surface, line }).await;
+                                    }
                                 }
                             }
                             RoundEvent::Text(t) => {
@@ -722,7 +762,10 @@ pub async fn run_tui_with_terminal(
                                     message.round = Some(round);
                                     message.turn = Some(turn);
                                 }
-                                transcript!(E::Append { message });
+                                transcript!(E::Append {
+                                    class: nuo_wire::EventClass::Dialogue,
+                                    message
+                                });
                                 // A one-shot text payload is the degenerate case
                                 // of the delta stream: it *is* visible model
                                 // output, so it moves the session's phase
@@ -1215,7 +1258,10 @@ pub async fn run_tui_with_terminal(
                                     tracked_files,
                                 )
                                 .with_sent_at_ms(now_ms!());
-                                transcript!(E::Append { message });
+                                transcript!(E::Append {
+                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    message
+                                });
                             }
                             RoundEvent::HarnessState(snapshot) => {
                                 harness.loop_status = snapshot.loop_status;
@@ -1390,10 +1436,16 @@ pub async fn run_tui_with_terminal(
                                 } else {
                                     e
                                 };
+                                // A round-level failure is a turn outcome: it
+                                // holds a position in time (the round ended
+                                // here) but says nothing to the model.
                                 let notice =
                                     TranscriptMessage::notice(NoticeSeverity::Error, message)
                                         .with_sent_at_ms(now_ms!());
-                                transcript!(E::Append { message: notice });
+                                transcript!(E::Append {
+                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    message: notice
+                                });
 
                                 mutations.send(M::SetResponding(false)).await;
                                 mutations.send(M::SetPhase(None)).await;
@@ -1421,7 +1473,10 @@ pub async fn run_tui_with_terminal(
                                     format!("Background job started: {label} ({})", info.id.0),
                                 )
                                 .with_sent_at_ms(now_ms!());
-                                transcript!(E::Append { message });
+                                transcript!(E::Append {
+                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    message
+                                });
                             }
                             RoundEvent::BackgroundJobProgress { .. } => {}
                             RoundEvent::BackgroundJobReady { job_id } => {
@@ -1431,7 +1486,10 @@ pub async fn run_tui_with_terminal(
                                     format!("Background service ready: {}", job_id.0),
                                 )
                                 .with_sent_at_ms(now_ms!());
-                                transcript!(E::Append { message });
+                                transcript!(E::Append {
+                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    message
+                                });
                             }
                             RoundEvent::BackgroundJobCompleted(outcome) => {
                                 let (label, is_success, exit_code, duration_secs) = match &outcome
@@ -1503,7 +1561,10 @@ pub async fn run_tui_with_terminal(
                                 };
                                 let message = TranscriptMessage::notice(severity, label)
                                     .with_sent_at_ms(now_ms!());
-                                transcript!(E::Append { message });
+                                transcript!(E::Append {
+                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    message
+                                });
                             }
                         } // end inner `match event`
                     }
@@ -1728,14 +1789,10 @@ pub async fn run_tui_with_terminal(
                                             "{message}\n  Open: {url}\n  Code: {user_code}\n  Waiting for authorization…"
                                         )
                                     };
-                                    let notice =
-                                        TranscriptMessage::notice(NoticeSeverity::Info, body)
-                                            .with_sent_at_ms(now_ms!());
                                     mutations
-                                        .send(M::Transcript {
-                                            edit: event_loop::mutations::TranscriptEdit::Append {
-                                                message: notice,
-                                            },
+                                        .send(M::NoticeToast {
+                                            severity: NoticeSeverity::Info,
+                                            text: body,
                                         })
                                         .await;
                                 }
@@ -1744,16 +1801,10 @@ pub async fn run_tui_with_terminal(
                                 mutations
                                     .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
                                     .await;
-                                let notice = TranscriptMessage::notice(
-                                    NoticeSeverity::Info,
-                                    format!("{provider} authorized."),
-                                )
-                                .with_sent_at_ms(now_ms!());
                                 mutations
-                                    .send(M::Transcript {
-                                        edit: event_loop::mutations::TranscriptEdit::Append {
-                                            message: notice,
-                                        },
+                                    .send(M::NoticeToast {
+                                        severity: NoticeSeverity::Info,
+                                        text: format!("{provider} authorized."),
                                     })
                                     .await;
                             }
@@ -1773,14 +1824,10 @@ pub async fn run_tui_with_terminal(
                                         "{provider}: could not refresh the model list ({message}). Showing the previous list."
                                     ),
                                 };
-                                let notice =
-                                    TranscriptMessage::notice(NoticeSeverity::Warning, text)
-                                        .with_sent_at_ms(now_ms!());
                                 mutations
-                                    .send(M::Transcript {
-                                        edit: event_loop::mutations::TranscriptEdit::Append {
-                                            message: notice,
-                                        },
+                                    .send(M::NoticeToast {
+                                        severity: NoticeSeverity::Warning,
+                                        text,
                                     })
                                     .await;
                             }
@@ -1790,16 +1837,10 @@ pub async fn run_tui_with_terminal(
                                         message: message.clone(),
                                     }))
                                     .await;
-                                let notice = TranscriptMessage::notice(
-                                    NoticeSeverity::Error,
-                                    format!("{provider} connect failed: {message}"),
-                                )
-                                .with_sent_at_ms(now_ms!());
                                 mutations
-                                    .send(M::Transcript {
-                                        edit: event_loop::mutations::TranscriptEdit::Append {
-                                            message: notice,
-                                        },
+                                    .send(M::NoticeToast {
+                                        severity: NoticeSeverity::Error,
+                                        text: format!("{provider} connect failed: {message}"),
                                     })
                                     .await;
                             }
@@ -1807,13 +1848,12 @@ pub async fn run_tui_with_terminal(
                     }
                     AgentResponse::Error(msg) => {
                         mutations.send(M::ClearSwitchingSession).await;
-                        let notice = TranscriptMessage::notice(NoticeSeverity::Error, msg)
-                            .with_sent_at_ms(now_ms!());
+                        // A control-plane error is a receipt: the toast
+                        // surface carries it, the conversation does not.
                         mutations
-                            .send(M::Transcript {
-                                edit: event_loop::mutations::TranscriptEdit::Append {
-                                    message: notice,
-                                },
+                            .send(M::NoticeToast {
+                                severity: NoticeSeverity::Error,
+                                text: msg,
                             })
                             .await;
                     }
@@ -1887,6 +1927,7 @@ pub async fn run_tui_with_terminal(
     }
 
     let mut app = App {
+        logs: nuo_view::model::log::SurfaceLogs::new(),
         last_submit_ms: None,
         surface_store: crate::shell::surfaces::SurfaceStore::new(),
         dev_toast_pinned: std::env::var("NUO_DEV_TOAST")
@@ -1950,6 +1991,7 @@ pub async fn run_tui_with_terminal(
         completion_requested: None,
         completion_request_id: 0,
         cursor_position: 0,
+        caret_motion: crate::shell::composer_grid::CaretMotion::default(),
         input_scroll: 0,
         input_scroll_follow_cursor: true,
         input_drag_scroll: None,
@@ -2205,6 +2247,7 @@ pub async fn run_tui_with_terminal(
         },
         mutation_rx,
         session,
+        input,
     )
     .await;
 

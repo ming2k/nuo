@@ -65,7 +65,6 @@ fn input_box_grows_with_wrapped_content() {
                     awaiting_permission: false,
                     spinner_phase: 0,
                     input,
-                    byte_cursor: input.len(),
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
@@ -1317,7 +1316,6 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: &long_input,
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1608,7 +1606,6 @@ fn queued_user_message_renders_badge_and_dimmer_bg() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1701,7 +1698,6 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -1862,7 +1858,6 @@ fn h1_underline_clamps_with_emoji_grapheme() {
                 awaiting_permission: false,
                 spinner_phase: 0,
                 input: "",
-                byte_cursor: 0,
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
@@ -2373,17 +2368,17 @@ fn calculate_composer_height_matches_draw_transcript_geometry() {
     let viewport = Rect::new(0, 0, 80, 24);
 
     // 1. Single line: 1 wrapped line + 3 chrome rows = 4 rows
-    let h1 = calculate_composer_height(viewport, "single line prompt", 0);
+    let h1 = calculate_composer_height(viewport, "single line prompt");
     assert_eq!(h1, 4);
 
     // 2. Multiline prompt with newlines
     let multiline = "line 1\nline 2\nline 3";
-    let h2 = calculate_composer_height(viewport, multiline, 0);
+    let h2 = calculate_composer_height(viewport, multiline);
     assert_eq!(h2, 6);
 
     // 3. Overflowing prompt caps at viewport / 2 (24 / 2 = 12)
     let overflow = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15";
-    let h3 = calculate_composer_height(viewport, overflow, 0);
+    let h3 = calculate_composer_height(viewport, overflow);
     assert_eq!(h3, 12);
 }
 
@@ -2426,7 +2421,6 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                     awaiting_permission: false,
                     spinner_phase: 0,
                     input,
-                    byte_cursor: 0,
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
@@ -2474,7 +2468,6 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                 height.saturating_sub(nuo_ui_primitives::design::PAGE_HEADER_ROWS),
             ),
             input,
-            0,
         );
         assert_eq!(
             actual_h, expected_h,
@@ -2482,4 +2475,70 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
             input
         );
     }
+}
+
+/// The painter half of the Ctrl-J empty-line contract: the caret glyph lands on
+/// the empty row the newline created, and that row exists whether or not the
+/// caret is resting on it.
+///
+/// Both halves come from one grid (`composer_grid::TextGrid`): a row's byte
+/// range is closed, so an empty line's single byte is a real caret cell instead
+/// of a gap the caret falls through into the row below.
+#[test]
+fn caret_paints_on_the_empty_line_a_newline_creates() {
+    let theme = Theme::default();
+    // "a\n\nb" is the draft Ctrl-J leaves when it opens a line between "a" and
+    // "b"; byte 2 is the empty row itself.
+    let input = "a\n\nb";
+    let mut terminal = nuotc::TestTerminal::new(20, 6);
+    terminal.draw(|f| {
+        draw_composer(
+            ComposerProps {
+                frame: f,
+                input_rect: Rect::new(0, 0, 20, 6),
+                theme: &theme,
+                layout_map: &mut LayoutMap::new(),
+                input_scroll: &mut 0,
+                selection: &SelectionState::None,
+            },
+            ComposerText {
+                input,
+                byte_cursor: 2,
+            },
+            true,
+            true,
+            true,
+            0,
+            0,
+            crate::shell::composer_hints::ComposerHints::default(),
+        );
+    });
+    let (x, y) = match terminal.cursor() {
+        nuotc::CursorState::Visible(x, y) => (x, y),
+        other => panic!("caret should be visible, got {other:?}"),
+    };
+    assert_eq!(
+        y,
+        nuo_ui_primitives::design::COMPOSER_TEXT_ROW_OFFSET + 1,
+        "the caret must sit on the empty middle row"
+    );
+    assert_eq!(
+        x, COMPOSER_PROMPT_PREFIX_COLS as u16,
+        "at column 0 of that row"
+    );
+}
+
+/// A trailing newline is a row, not a caret artifact: the box reserves the same
+/// height for the empty line whether the caret is on it or up on the text.
+#[test]
+fn empty_trailing_line_owns_a_row_independent_of_the_caret() {
+    use crate::shell::render::calculate_composer_height;
+
+    let viewport = Rect::new(0, 0, 60, 24);
+    let one = calculate_composer_height(viewport, "abc");
+    let two = calculate_composer_height(viewport, "abc\n");
+    assert_eq!(two - one, 1, "Ctrl-J must grow the box by exactly one row");
+    // The layout has no caret input at all any more, so no caret position can
+    // change the answer.
+    assert_eq!(two, calculate_composer_height(viewport, "abc\n"));
 }

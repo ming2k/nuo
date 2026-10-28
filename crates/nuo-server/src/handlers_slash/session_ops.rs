@@ -455,7 +455,6 @@ pub(crate) async fn restore_session_runtime(
                 "Unattended mode restored",
                 nuo_wire::NoticeSource::Harness,
             )
-            .with_surface(nuo_wire::NoticeSurface::Inline)
             .with_body(
                 "This session was previously running in unattended execution mode. \
                  Use `/unattended off` to return to interactive mode.",

@@ -387,6 +387,12 @@ pub async fn run_attached(
     let stdout = std::io::stdout();
     let backend = nuotc::Backend::new(stdout).with_profile(profile);
     let mut terminal = nuotc::Terminal::new(backend);
+    // One input source for every attachment in this process: a cross-session
+    // tab switch or tab close detaches and re-attaches *in place*, and an input
+    // source owned by a single attachment dropped whatever the operator pressed
+    // while the next attachment handshook — a lost first click or chord stroke
+    // is indistinguishable from "the gesture needs two attempts".
+    let mut input = crate::shell::event_loop::input_reader::InputSource::spawn()?;
 
     loop {
         let action = match &target {
@@ -488,7 +494,7 @@ pub async fn run_attached(
             crate::shell::StartupOverlay::None,
         );
         let exit_tx = tx.clone();
-        let outcome = crate::shell::run_tui_with_terminal(
+        let outcome = crate::shell::run_tui_with_input(
             &mut terminal,
             tx,
             rx,
@@ -512,6 +518,7 @@ pub async fn run_attached(
                 initial_tabs: preserved_tabs.take(),
                 initial_tab_history: preserved_tab_history.take(),
             },
+            &mut input,
         )
         .await?;
         preserved_tabs = outcome.tabs;

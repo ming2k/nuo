@@ -1,8 +1,10 @@
-//! The shared readline engine: caret motion, word boundaries, grapheme
-//! deletion, and line walking used by the composer and the inline prompts.
-//! Operates natively on byte offsets and grapheme boundaries (aligned with `nuotc`).
-
-use unicode_segmentation::UnicodeSegmentation;
+//! The shared readline engine: intra-line caret motion, word boundaries and
+//! grapheme deletion used by the composer and the inline prompts. Operates
+//! natively on byte offsets and grapheme boundaries (aligned with `nuotc`).
+//!
+//! Vertical caret motion is *not* here: ↑/↓ walk the composer's wrapped visual
+//! rows, which is a grid question — see
+//! [`crate::shell::composer_grid::TextGrid`].
 
 /// accept free-text input. Used by the Alt+Enter and Ctrl+J multi-line
 /// entry bindings (plain Enter sends the message).
@@ -111,56 +113,4 @@ pub(crate) fn next_word_end(input: &str, cursor_position: usize) -> usize {
     pos + leading_ws + word_len
 }
 
-/// Try to move the caret up one logical line in a multi-line buffer,
-/// preserving the visual column clamped to the previous line's width.
-pub(crate) fn cursor_line_up(input: &str, cursor_position: &mut usize) -> bool {
-    let pos = normalized_cursor_byte(input, *cursor_position);
-    let before = &input[..pos];
-    let line_start = before.rfind('\n').map_or(0, |idx| idx + 1);
-    if line_start == 0 {
-        return false;
-    }
-    let col = nuotc::cursor_column(&input[line_start..pos], pos - line_start);
-
-    let prev_end = line_start - 1;
-    let prev_start = input[..prev_end].rfind('\n').map_or(0, |idx| idx + 1);
-    let prev_line = &input[prev_start..prev_end];
-
-    let mut target_byte = 0;
-    for (idx, g) in prev_line.grapheme_indices(true) {
-        let g_end = idx + g.len();
-        if nuotc::cursor_column(prev_line, g_end) > col {
-            break;
-        }
-        target_byte = g_end;
-    }
-    *cursor_position = prev_start + target_byte;
-    true
-}
-
-/// Try to move the caret down one logical line, mirroring `cursor_line_up`.
-pub(crate) fn cursor_line_down(input: &str, cursor_position: &mut usize) -> bool {
-    let pos = normalized_cursor_byte(input, *cursor_position);
-    let after = &input[pos..];
-    let Some(rel_end) = after.find('\n') else {
-        return false;
-    };
-    let line_end = pos + rel_end;
-    let line_start = input[..pos].rfind('\n').map_or(0, |idx| idx + 1);
-    let col = nuotc::cursor_column(&input[line_start..pos], pos - line_start);
-
-    let next_start = line_end + 1;
-    let next_end = input[next_start..].find('\n').map_or(input.len(), |idx| next_start + idx);
-    let next_line = &input[next_start..next_end];
-
-    let mut target_byte = 0;
-    for (idx, g) in next_line.grapheme_indices(true) {
-        let g_end = idx + g.len();
-        if nuotc::cursor_column(next_line, g_end) > col {
-            break;
-        }
-        target_byte = g_end;
-    }
-    *cursor_position = next_start + target_byte;
-    true
-}
+// probe

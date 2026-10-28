@@ -211,6 +211,11 @@ pub fn draw_tool_step(
                         selection,
                         indent,
                         inner_w,
+                        // ADR-0115: the third rung of the disclosure ladder
+                        // reveals the folded output middle instead of hiding
+                        // it. The step owns this state; the renderer never
+                        // infers it.
+                        msg.tool_step_output_revealed().unwrap_or(false),
                     );
                 }
             }

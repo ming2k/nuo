@@ -124,17 +124,40 @@ impl InteractiveEntry for TranscriptMessage {
     }
 
     fn toggle_expanded(&mut self) -> bool {
-        match &mut self.kind {
+        // Command steps walk a three-rung ladder (ADR-0115): expand → reveal the
+        // folded output middle → collapse. Folded-ness is asked of the same
+        // derivation the renderer paints, so the reveal rung exists exactly
+        // when there is something hidden to reveal.
+        let ladder = match &self.kind {
             MessageKind::ToolStep {
                 expanded,
-                user_pinned,
+                output_revealed,
                 ..
-            } => {
-                *expanded = !*expanded;
+            } => Some(TranscriptMessage::bash_disclosure_ladder(
+                *expanded,
+                *output_revealed,
+                self.tool_step_folded_rows().is_some(),
+            )),
+            _ => None,
+        };
+        if let Some((next_expanded, next_revealed)) = ladder {
+            if let MessageKind::ToolStep {
+                expanded,
+                user_pinned,
+                output_revealed,
+                ..
+            } = &mut self.kind
+            {
+                *expanded = next_expanded;
+                *output_revealed = next_revealed;
                 *user_pinned = true;
-                self.refresh_tool_step();
-                true
             }
+            self.refresh_tool_step();
+            return true;
+        }
+        match &mut self.kind {
+            // Handled by the ladder above.
+            MessageKind::ToolStep { .. } => false,
             MessageKind::Reasoning {
                 expanded,
                 user_pinned,
@@ -174,10 +197,16 @@ impl InteractiveEntry for TranscriptMessage {
             MessageKind::ToolStep {
                 expanded: cur,
                 user_pinned,
+                output_revealed,
                 ..
             } => {
                 let changed = *cur != expanded;
                 *cur = expanded;
+                // ADR-0115: collapsing forgets the reveal, so re-expanding always
+                // starts from the folded viewport.
+                if !expanded {
+                    *output_revealed = false;
+                }
                 *user_pinned = true;
                 if changed {
                     self.refresh_tool_step();

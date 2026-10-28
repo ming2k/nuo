@@ -179,29 +179,17 @@ fn compose_frame(
         .map(|setback| setback.summary(now));
 
     // Compute the displayed input text first so the transcript layout can
-    // reserve the right height for a wrapping, growing input box.
-    //
-    // The text and the caret's byte offset are masked *as a pair*: the view
-    // treats `byte_cursor` as an offset into `input` (the wrap engine maps
-    // it onto the wrapped grid, the height reservation synthesizes a
-    // trailing caret row from it). Pairing a masked string with the
-    // unmasked offset happened to work only because `•` is 3 bytes per
-    // char while the underlying text is 1–4 — an invariant nobody
-    // guarantees. Mapping the char-indexed caret through the same mask
-    // keeps every consumer operating on one coherent string.
-    let (masked_input, masked_byte_cursor) =
+    // reserve the right height for a wrapping, growing input box. Only the text
+    // is masked: the box's height is a function of the wrapped row count, so no
+    // caret offset has to be mapped through the mask any more — the composer
+    // itself draws its caret from the real buffer.
+    let masked_input =
         if app.surfaces.contains_sheet(SheetKind::ModelEditor) && app.editor_field == 0 {
             // Mask the API key everywhere it could be rendered (the editor
             // field itself, and any layout pass that inspects the input).
-            let mask = "•".repeat(app.input.chars().count());
-            const MASK_CHAR: &str = "•";
-            let caret_chars = app.input[..app.cursor_position.min(app.input.len())]
-                .chars()
-                .count();
-            let caret_byte = MASK_CHAR.len() * caret_chars.min(mask.chars().count());
-            (mask, caret_byte)
+            "•".repeat(app.input.chars().count())
         } else {
-            (app.input.clone(), app.byte_cursor())
+            app.input.clone()
         };
 
     let is_fullscreen_scene = matches!(
@@ -379,7 +367,6 @@ fn compose_frame(
                 // (SPINNER_PHASES steps); `breathing_color` wraps modulo.
                 spinner_phase: (app.spinner_epoch.elapsed().as_millis() / 100) as usize,
                 input: &masked_input,
-                byte_cursor: masked_byte_cursor,
                 chrome_hidden,
                 queue_bar: render::QueueBarProps {
                     items: &queue_items,

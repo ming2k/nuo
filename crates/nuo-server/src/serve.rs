@@ -237,12 +237,10 @@ fn workspace_trust_notice(
     };
 
     round(nuo_wire::RoundEvent::Notice(
-        nuo_wire::AgentNotice::trust_changed("Workspace configuration changed")
-            .with_surface(nuo_wire::NoticeSurface::Banner)
-            .with_body(format!(
-                "Changed on disk: {changed_desc}.\n\
+        nuo_wire::AgentNotice::trust_changed("Workspace configuration changed").with_body(format!(
+            "Changed on disk: {changed_desc}.\n\
                  Run `/trust` to approve and reload, or `/untrust` to ignore.",
-            )),
+        )),
     ))
 }
 

@@ -5,7 +5,7 @@ use crate::shell::input;
 use crate::shell::interaction::{self, ClickTarget};
 use crate::shell::step_interaction::StepKind;
 use crate::shell::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
-use nuo_view::model::document::{NoticeSeverity, TranscriptMessage};
+use nuo_view::model::document::NoticeSeverity;
 use nuo_view::model::layout::{InteractiveTarget, SemanticCursor};
 use nuo_view::model::selection::{CellDragInfo, SelectionState, floor_grapheme_boundary};
 
@@ -428,15 +428,12 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 let mutations = runtime.mutations.clone();
                 tokio::task::spawn_blocking(move || {
                     if let Err(err) = crate::shell::browser::open_browser(&url_for_open) {
-                        let notice = TranscriptMessage::notice(
-                            NoticeSeverity::Warning,
-                            format!("Failed to open link {url_for_open}: {err}"),
-                        );
+                        // A failed launch is an operation receipt, not
+                        // dialogue: it must not enter the conversation.
                         mutations.blocking_send(
-                            crate::shell::event_loop::AppMutation::Transcript {
-                                edit: crate::shell::event_loop::TranscriptEdit::Append {
-                                    message: notice,
-                                },
+                            crate::shell::event_loop::AppMutation::NoticeToast {
+                                severity: NoticeSeverity::Warning,
+                                text: format!("Failed to open link {url_for_open}: {err}"),
                             },
                         );
                     }

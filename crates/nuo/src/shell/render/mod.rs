@@ -26,13 +26,13 @@ pub(crate) use crate::shell::view_header::{
 #[allow(unused_imports)]
 pub use crate::shell::views::settings::*;
 pub(crate) use nuo_ui_primitives::design::{
-    ACTIVITY_STRIP_ROWS, BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP,
-    CODE_BAND_GUTTER_MIN_WIDTH, COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT,
-    COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS,
-    FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS, MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS,
-    PAGE_HEADER_ROWS, REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
-    STEP_MIN_WIDTH, TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS,
-    TOOL_STEP_CHILDREN_GAP_ROWS, TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
+    ACTIVITY_STRIP_ROWS, CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH,
+    COMPOSER_MAX_HEIGHT_DIVISOR, COMPOSER_MIN_HEIGHT, COMPOSER_PROMPT_PREFIX_COLS,
+    COMPOSER_RIGHT_PAD_COLS, COMPOSER_VERTICAL_CHROME_ROWS, FOOTER_H_INSET, FOOTER_TOP_GAP_ROWS,
+    MIN_TERMINAL_COLS, MIN_TERMINAL_ROWS, MODEL_BAR_ROWS, PAGE_HEADER_ROWS,
+    REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS, STEP_MIN_WIDTH,
+    TOOL_STEP_BODY_INDENT_COLS, TOOL_STEP_BODY_TOP_GAP_ROWS, TOOL_STEP_CHILDREN_GAP_ROWS,
+    TRANSCRIPT_BODY_LEADING_INDENT, TRANSCRIPT_H_INSET,
 };
 pub use nuo_ui_primitives::primitives::recess_backdrop;
 use nuo_ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
@@ -58,7 +58,7 @@ use nuo_view::tools::DiffCache;
 #[cfg(test)]
 use nuotc::{prohibited_line_end, prohibited_line_start};
 // Modules referenced by their bare name within this file.
-use crate::shell::composer;
+use crate::shell::composer_grid::TextGrid;
 use nuo_view::empty_state;
 
 use nuotc::{
@@ -178,13 +178,10 @@ pub struct TranscriptProps<'a> {
     /// Animation phase for the breathing dot and status-text shimmer.
     pub spinner_phase: usize,
     /// The current input-box text (masked while the API-key modal is open). The
-    /// transcript layout reads this so the input box can grow to fit its wrapped text.
+    /// transcript layout reads this so the input box can grow to fit its wrapped
+    /// text — and *only* the text: the box's height is a function of the wrapped
+    /// row count, so it cannot depend on where the caret sits.
     pub input: &'a str,
-    /// Byte offset of the caret inside `input` (mirrors `App::byte_cursor`).
-    /// The box grows one extra row when the caret rests past the last wrapped
-    /// line (e.g. just after an inserted newline), so its height matches what
-    /// [`composer::draw_composer`] actually renders.
-    pub byte_cursor: usize,
     /// When true, the hint bar and input box are hidden (overlay modal open).
     pub chrome_hidden: bool,
     /// The persistent one-row outbox summary pinned below the transcript gap.
@@ -297,14 +294,15 @@ pub(crate) fn composer_layout_text_width(frame_width: usize) -> usize {
 }
 
 /// Single source of truth for the composer's variable height given the current
-/// viewport geometry, input text, and byte cursor.
-pub(crate) fn calculate_composer_height(
-    viewport_size: Rect,
-    input: &str,
-    byte_cursor: usize,
-) -> u16 {
+/// viewport geometry and input text.
+///
+/// The height depends on the wrapped **row count only**: the caret projects
+/// onto that grid rather than feeding it, so moving the caret can never resize
+/// the box and an empty line created by Ctrl-J keeps its row whether or not the
+/// caret is resting on it.
+pub(crate) fn calculate_composer_height(viewport_size: Rect, input: &str) -> u16 {
     let input_text_width = composer_layout_text_width(viewport_size.width as usize);
-    let input_wrapped_lines = composer::input_row_count(input, input_text_width, byte_cursor);
+    let input_wrapped_lines = TextGrid::new(input, input_text_width).row_count();
     let desired_input_height = input_wrapped_lines as u16 + COMPOSER_VERTICAL_CHROME_ROWS;
     let max_input_height =
         (viewport_size.height / COMPOSER_MAX_HEIGHT_DIVISOR).max(COMPOSER_MIN_HEIGHT);
@@ -464,7 +462,6 @@ pub fn draw_transcript(
         awaiting_permission,
         spinner_phase,
         input,
-        byte_cursor,
         chrome_hidden,
         queue_bar,
         tasks_bar,
@@ -619,7 +616,7 @@ pub fn draw_transcript(
     let input_box_height = if in_subagent {
         0
     } else {
-        calculate_composer_height(size, input, byte_cursor)
+        calculate_composer_height(size, input)
     };
     // The hint bar is a single-line status strip pinned flush below the input
     // box — the composer's own bottom panel-bg padding row is all the

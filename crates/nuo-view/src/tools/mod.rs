@@ -26,6 +26,9 @@ mod meta;
 mod read_image;
 mod read_text;
 mod search;
+/// Pure derivation of a command step's output rows, exit status, and fold
+/// window (ADR-0115).
+pub mod shell_output;
 mod streaming;
 mod web;
 

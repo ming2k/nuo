@@ -211,6 +211,11 @@ pub enum MessageKind {
         /// auto/system setter (`set_tool_step_expanded`) is a no-op so
         /// lifecycle transitions can't override a deliberate user choice.
         user_pinned: bool,
+        /// ADR-0115: whether the user has revealed the folded middle of this
+        /// step's output. Ephemeral view state (like `started_at`): never
+        /// persisted, and only meaningful while `expanded` — collapsing the
+        /// step forgets the reveal so the next expansion starts folded.
+        output_revealed: bool,
         duration_ms: Option<u64>,
         /// Wall-clock instant the step started, so the UI can show a live
         /// elapsed time while the call (or subagent) is still running.
@@ -1153,6 +1158,7 @@ impl TranscriptMessage {
                 status,
                 expanded: false,
                 user_pinned: false,
+                output_revealed: false,
                 duration_ms: None,
                 started_at: Some(std::time::Instant::now()),
                 execution_started_at,
@@ -1905,6 +1911,61 @@ impl TranscriptMessage {
         }
     }
 
+    /// ADR-0115: whether this step's folded output middle is currently revealed.
+    pub fn tool_step_output_revealed(&self) -> Option<bool> {
+        match &self.kind {
+            MessageKind::ToolStep {
+                output_revealed, ..
+            } => Some(*output_revealed),
+            _ => None,
+        }
+    }
+
+    /// ADR-0115: the logical output rows this step's expanded body would fold
+    /// away, or `None` when the body renders verbatim. Asked by the activation
+    /// ladder so a key press never promises a reveal that reveals nothing.
+    ///
+    /// The row derivation is [`nuo_view::tools::shell_output`]'s — the same one
+    /// the renderer paints — so the ladder and the drawing cannot disagree.
+    pub fn tool_step_folded_rows(&self) -> Option<usize> {
+        let MessageKind::ToolStep {
+            name,
+            output,
+            structured,
+            ..
+        } = &self.kind
+        else {
+            return None;
+        };
+        crate::tools::shell_output::command_step_fold(
+            name,
+            output.as_deref(),
+            structured.as_deref(),
+        )
+        .map(|fold| fold.hidden)
+    }
+
+    /// The ADR-0115 activation ladder for a command step's disclosure:
+    ///
+    /// ```text
+    /// collapsed ──activate──▶ expanded, folded
+    /// expanded, folded ──activate──▶ expanded, revealed   (whole log on screen)
+    /// expanded, revealed ──activate──▶ collapsed
+    /// expanded, verbatim ──activate──▶ collapsed          (nothing to reveal)
+    /// ```
+    ///
+    /// The reveal rung only exists when the body actually has a folded middle,
+    /// so activation never costs a key press that changes nothing. Collapsing
+    /// forgets the reveal, so re-expanding always starts from the folded
+    /// viewport rather than from an arbitrarily tall body.
+    pub fn bash_disclosure_ladder(expanded: bool, revealed: bool, has_fold: bool) -> (bool, bool) {
+        match (expanded, revealed, has_fold) {
+            (false, _, _) => (true, false),
+            (true, false, true) => (true, true),
+            (true, _, _) => (false, false),
+        }
+    }
+
     /// Auto/system disclosure setter: sets `expanded` **unless** the user has
     /// pinned the step (in which case it's a no-op). This is what lifecycle
     /// transitions (start / finish / cancel) and step creation call, so the
@@ -1914,6 +1975,7 @@ impl TranscriptMessage {
         if let MessageKind::ToolStep {
             expanded: current,
             user_pinned,
+            output_revealed,
             ..
         } = &mut self.kind
         {
@@ -1921,6 +1983,9 @@ impl TranscriptMessage {
                 return;
             }
             *current = expanded;
+            if !expanded {
+                *output_revealed = false;
+            }
             self.refresh_tool_step();
         }
     }
@@ -2847,6 +2912,9 @@ impl TranscriptMessage {
             status,
             expanded,
             user_pinned,
+            // `ToolInvocation` is an *execution* snapshot; the fold reveal is
+            // ephemeral view state and has no place in it.
+            output_revealed: _,
             duration_ms,
             started_at,
             execution_started_at,
@@ -2891,6 +2959,7 @@ impl TranscriptMessage {
             status,
             expanded,
             user_pinned: _,
+            output_revealed: _,
             duration_ms,
             started_at: _,
             execution_started_at: _,

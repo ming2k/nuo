@@ -7,10 +7,7 @@ use unicode_width::UnicodeWidthStr;
 use super::base::{
     MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx, nonempty_wrapped, truncate_to_width,
 };
-use crate::shell::render::{
-    BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH,
-    Theme,
-};
+use crate::shell::render::{CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH, Theme};
 use nuo_ui_primitives::components::inline_layout::SemanticLine;
 use nuo_ui_primitives::design::{JOIN_CAUSE, QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
 use nuo_ui_primitives::theme::ListingClass;
@@ -20,6 +17,7 @@ use nuo_view::text_layout::{
     CodeGutterParams, WrappedLine, block_selection_range, clamp_selection_range, code_gutter_line,
     line_selection, line_spans, padded_tail, wrap_text,
 };
+use nuo_view::tools::shell_output::{BashFold, OutputCoverage, ShellOutput};
 use nuo_view::tools::{DiffCache, DiffHunk, DiffOp, ResultKind};
 
 /// Build the summary line for a tool/subagent step: an optional expand marker
@@ -2220,12 +2218,20 @@ fn exit_code_explanation(code: i32) -> &'static str {
     }
 }
 
-/// Render a `bash` step as a terminal-like `code_bg` block: a `$ command`
-/// prompt line first, then stdout / stderr / an exit or truncation footer.
-/// Output rows have no line-number gutter. Legacy section markers (`Exit N`,
-/// `STDOUT:`, …) are highlighted in `warning` for sessions restored without a
-/// structured payload. The command line is not selectable (it's derived from
-/// the call, not the output stream); output rows are.
+/// Render a command step as a terminal-like `code_bg` block: a `$ command`
+/// prompt line first, then the output's head/tail window (ADR-0115), then the
+/// exit and coverage footers. Output rows have no line-number gutter.
+///
+/// Everything below the prompt is derived by
+/// [`nuo_view::tools::shell_output::ShellOutput`]: in-band markers
+/// (`STDOUT:`, `Exit N`, the harness notes, offload envelopes) are stripped and
+/// the facts they carried are re-materialized in the footers, so a restored
+/// flat text and a live structured payload paint the same shape. `revealed`
+/// turns the fold off for this step — the rows are the same either way, which
+/// is what lets the disclosure ladder promise a reveal that always lands.
+///
+/// The command line is not selectable (it is derived from the call, not the
+/// output stream); output rows are.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_command_content(
     ctx: &mut RenderCtx<'_, '_>,
@@ -2237,6 +2243,7 @@ pub(crate) fn draw_command_content(
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
+    revealed: bool,
 ) {
     let result_bg = ctx.theme.code_surface();
     let pad = Style::default().bg(result_bg);
@@ -2274,34 +2281,27 @@ pub(crate) fn draw_command_content(
         }
     }
 
-    let (output_rows, exit, termination, is_truncated) = match structured {
-        Some(nuo_wire::ToolOutput::Shell {
-            stdout,
-            stderr,
-            lines,
-            exit,
-            truncated,
-            termination,
-            detached_job_id: None,
-            ..
-        }) => {
-            let rows = command_structured_lines(lines, stdout, stderr, base);
-            (rows, *exit, *termination, *truncated)
-        }
-        _ => parse_unstructured_shell_content(content, base),
-    };
+    // ADR-0115: one derivation for the rows, the outcome, and what each
+    // audience holds — the same `nuo-view` derivation the activation ladder
+    // consults, so the fold can only ever hide what activation can reveal.
+    let view = ShellOutput::derive(content, structured);
 
     let mut byte_offset = 0usize;
-    if !output_rows.is_empty() {
-        byte_offset = emit_command_lines_folded(
+    if !view.rows.is_empty() {
+        // Revealing is a *viewport* choice, never a data choice: the whole log
+        // is in `view.rows` either way.
+        let fold = if revealed { None } else { view.fold() };
+        byte_offset = emit_command_output(
             ctx,
             mi,
             block_idx,
             indent,
             wrap_w,
             pad,
+            base,
             sel_range,
-            &output_rows,
+            &view.rows,
+            fold,
             byte_offset,
         );
     }
@@ -2311,7 +2311,7 @@ pub(crate) fn draw_command_content(
     let footer_bg = ctx.theme.match_title_surface();
     let footer_pad = Style::default().bg(footer_bg);
     let footer_marker_style = Style::default().bg(footer_bg).fg(ctx.theme.warn());
-    if let Some(code) = exit {
+    if let Some(code) = view.exit {
         if code != 0 {
             let expl = exit_code_explanation(code);
             let m = format!("exit {} ({})", code, expl);
@@ -2332,20 +2332,16 @@ pub(crate) fn draw_command_content(
 
     // Part 3: Harness Governance Strip (flush beneath Part 2)
     // Only rendered when supervisor intervention occurred (timeout, output
-    // limit, cancellation, truncation).
-    let harness_bg = harness_intervention_surface(termination, ctx.theme);
+    // limit, cancellation) or when a copy of this log was cut.
+    let harness_bg = harness_intervention_surface(view.termination, ctx.theme);
     let harness_pad = Style::default().bg(harness_bg);
-    let governance_entry = termination_footer(termination, ctx.theme, harness_bg).or_else(|| {
-        if is_truncated {
-            let warn_style = Style::default().bg(harness_bg).fg(ctx.theme.warn());
-            Some((
-                format!("output truncated{JOIN_CAUSE}partial kept"),
-                warn_style,
-            ))
-        } else {
-            None
-        }
-    });
+    let governance_entry =
+        termination_footer(view.termination, ctx.theme, harness_bg).or_else(|| {
+            coverage_footer(view.coverage).map(|text| {
+                let warn_style = Style::default().bg(harness_bg).fg(ctx.theme.warn());
+                (text.to_string(), warn_style)
+            })
+        });
 
     if let Some((text, style)) = governance_entry {
         let _ = emit_command_lines(
@@ -2363,133 +2359,133 @@ pub(crate) fn draw_command_content(
     }
 }
 
-/// Parse/normalize unstructured shell content into clean terminal output rows,
-/// optional exit status, and termination reason (ADR-0063).
-/// Eliminates in-band marker pollution (`Exit -1`, `STDOUT:`, `STDERR:`, and verbose harness prose).
-fn parse_unstructured_shell_content(
-    content: &str,
-    base: Style,
-) -> (
-    Vec<(String, Style)>,
-    Option<i32>,
-    nuo_wire::tool_output::ShellTermination,
-    bool,
-) {
-    use nuo_wire::tool_output::ShellTermination;
-    let mut rows: Vec<(String, Style)> = Vec::new();
-    let mut exit_code: Option<i32> = None;
-    let mut termination = ShellTermination::Exited;
-    let mut truncated = false;
-
-    let trimmed_content = content.trim_end_matches(&['\r', '\n'][..]);
-    // Markers are stripped from the stream, but the blank separator rows that
-    // surround them are not content: the model-facing text puts a `\n\n` before
-    // the `[killed by harness: …]` note (`ToolOutput::to_text`) and before the
-    // truncation banner. Consumers paint the rescued footer flush beneath the
-    // output ("Part 3 flushes underneath Part 2"), so a surviving blank row
-    // would open a phantom gap between the output and the footer it explains.
-    // Defer blank rows: emit one only once a real content row follows it.
-    let mut pending_blank = false;
-    for raw_line in trimmed_content.lines() {
-        let trimmed = raw_line.trim_end();
-        let trimmed_leading = trimmed.trim_start();
-
-        // 1. Strip artificial stream section headers
-        if trimmed_leading == "STDOUT:"
-            || trimmed_leading == "STDERR:"
-            || trimmed_leading.starts_with("(success, stderr):")
-        {
-            continue;
-        }
-
-        // 2. Strip truncation markers and VFS prompts
-        if trimmed_leading.starts_with("[Output truncated")
-            || trimmed_leading.starts_with("[output truncated")
-            || trimmed_leading.starts_with("[stream truncated")
-            || trimmed_leading.starts_with("⋯ [Claim-Check Stub:")
-            || trimmed_leading.starts_with("--- [Middle")
-            || trimmed_leading.starts_with("[Output was large")
-            || trimmed_leading.starts_with("[Full raw output saved to:")
-            || trimmed_leading.starts_with("[Full un-truncated output spooled to:")
-            || trimmed_leading.starts_with("- Spool File:")
-            || trimmed_leading.starts_with("- Virtual Path:")
-            || trimmed_leading.starts_with("[Guidance:")
-        {
-            truncated = true;
-            continue;
-        }
-
-        // 3. Strip verbose harness prose and extract termination enum
-        if trimmed_leading.starts_with("[terminated by harness:")
-            || trimmed_leading.starts_with("[killed by harness:")
-            || trimmed_leading.starts_with("[process terminated]")
-            || trimmed_leading.starts_with("[process killed]")
-        {
-            if trimmed_leading.contains("timeout") || trimmed_leading.contains("wall-clock") {
-                termination = ShellTermination::Timeout;
-            } else if trimmed_leading.contains("stream")
-                || trimmed_leading.contains("budget")
-                || trimmed_leading.contains("output limit")
-            {
-                termination = ShellTermination::StreamGuard;
-            } else if trimmed_leading.contains("cancel") {
-                termination = ShellTermination::Cancelled;
-            } else if trimmed_leading.contains("idle") {
-                termination = ShellTermination::IdleBlocked;
-            } else {
-                termination = ShellTermination::Timeout;
-            }
-            continue;
-        }
-
-        if trimmed_leading.starts_with("[process blocked]")
-            || trimmed_leading.starts_with("[terminated by harness: interactive")
-            || trimmed_leading.starts_with("[killed by harness: interactive")
-        {
-            termination = ShellTermination::InteractiveBlocked;
-            continue;
-        }
-
-        if trimmed_leading.starts_with("[process detached]") {
-            termination = ShellTermination::Detached;
-            continue;
-        }
-
-        // 4. Extract exit codes (ignore fake Exit -1)
-        if let Some(code_str) = trimmed_leading
-            .strip_prefix("Exit ")
-            .or_else(|| trimmed_leading.strip_prefix("exit "))
-        {
-            if let Ok(code) = code_str.trim().parse::<i32>() {
-                if code != -1 {
-                    exit_code = Some(code);
-                }
-                continue;
-            }
-        }
-
-        // 5. Authentic user log row. Genuine blank rows *inside* the output stay
-        // (they are the command's own formatting); only blanks made leading by
-        // the marker stripping above are held back and dropped if nothing
-        // follows them.
-        if trimmed.is_empty() {
-            pending_blank = !rows.is_empty();
-            continue;
-        }
-        if pending_blank {
-            rows.push((String::new(), base));
-            pending_blank = false;
-        }
-        rows.push((raw_line.to_string(), base));
+/// The footer line for a command step whose log was cut *somewhere*.
+///
+/// ADR-0115: state which copy is short, not just that something is. The old
+/// single "output truncated · partial kept" claimed the screen held a partial
+/// log even when the screen held every byte — the fold was hiding it, and the
+/// fold can be revealed. A statement the user can check is the whole point.
+fn coverage_footer(coverage: OutputCoverage) -> Option<&'static str> {
+    match coverage {
+        OutputCoverage::Full => None,
+        // The screen is complete; the model's view was cut at the context
+        // watermark, so the fold may hide rows it never saw either.
+        OutputCoverage::ModelTruncated => Some("output truncated for model context"),
+        // The payload arrived already cut: the middle is gone for everyone.
+        OutputCoverage::CutBeforeUi => Some("output truncated · partial kept"),
     }
+}
 
-    (rows, exit_code, termination, truncated)
+/// Paint `rows`, folding the middle when `fold` is `Some`.
+#[allow(clippy::too_many_arguments)]
+fn emit_command_output(
+    ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
+    block_idx: usize,
+    indent: usize,
+    wrap_w: usize,
+    pad: Style,
+    row_style: Style,
+    sel_range: Option<(usize, Option<usize>)>,
+    rows: &[String],
+    fold: Option<BashFold>,
+    mut byte_offset: usize,
+) -> usize {
+    let emit = |ctx: &mut RenderCtx<'_, '_>, row: &str, byte_offset: usize| {
+        emit_command_lines(
+            ctx,
+            mi,
+            block_idx,
+            indent,
+            wrap_w,
+            pad,
+            sel_range,
+            row,
+            row_style,
+            byte_offset,
+        )
+    };
+
+    let Some(fold) = fold else {
+        for row in rows {
+            byte_offset = emit(ctx, row, byte_offset);
+        }
+        return byte_offset;
+    };
+
+    for row in &rows[..fold.head_end] {
+        byte_offset = emit(ctx, row, byte_offset);
+    }
+    // Advance past the hidden rows so every visible row keeps anchoring at its
+    // true `output`-space byte offset — a selection spanning the fold must copy
+    // the rows around it exactly as if the middle were on screen.
+    for row in fold.hidden_rows(rows) {
+        byte_offset += row.len() + 1;
+    }
+    emit_fold_chrome(ctx, indent, pad, &fold, fold.hidden_rows(rows));
+    for row in &rows[fold.tail_start..] {
+        byte_offset = emit(ctx, row, byte_offset);
+    }
+    byte_offset
+}
+
+/// The negative-space fold gap (ADR-0070): a blank row, one quiet indented
+/// label describing exactly what is hidden, and a blank row. The label carries
+/// the omitted line count, its size, and — when the hidden middle contains one
+/// — the first salient failure signature, so the diagnosis is on screen even
+/// though the rows are not (`[INV-FOLD-01]`).
+///
+/// The gap is synthetic: nothing in it is selectable, and
+/// [`BASH_FOLD_CHROME_ROWS`] is the row count the fold geometry budgets for it.
+fn emit_fold_chrome(
+    ctx: &mut RenderCtx<'_, '_>,
+    indent: usize,
+    pad: Style,
+    fold: &BashFold,
+    hidden_rows: &[String],
+) {
+    let blank_row = Line::from(vec![Span::styled(padded_tail(ctx.full_width, 0), pad)]);
+    let _ = ctx.paint(blank_row.clone());
+
+    let omitted_kb = fold.omitted_bytes as f64 / 1024.0;
+    let mut label = format!("  {} lines omitted ({omitted_kb:.1} KB)", fold.hidden);
+    if let Some(signature) = first_salient_signature(hidden_rows) {
+        label.push_str(" — ");
+        label.push_str(&signature);
+    }
+    let label_width = ctx.full_width.saturating_sub(indent).max(1);
+    let label = truncate_to_width(&label, label_width);
+    let used = indent + label.width();
+    let label_line = Line::from(vec![
+        Span::styled(" ".repeat(indent), pad),
+        Span::styled(label, pad.fg(ctx.theme.dim())),
+        Span::styled(padded_tail(ctx.full_width, used), pad),
+    ]);
+    let _ = ctx.paint(label_line);
+    let _ = ctx.paint(blank_row);
+}
+
+/// First salient failure signature among the folded rows, if any.
+///
+/// Shares `nuo-tool`'s scanner with the model-facing fold so the human and the
+/// model are pointed at the same line.
+fn first_salient_signature(hidden_rows: &[String]) -> Option<String> {
+    let omitted = hidden_rows.join("\n");
+    nuo_tool::vfs::extract_salient_signatures(&omitted, 1)
+        .into_iter()
+        .next()
+        .map(|(_, signature)| signature)
 }
 
 /// Emit a (possibly multi-line) bash body section at `indent`, wrapping to
 /// `wrap_w`, all rows in `style`, anchoring selection byte ranges at
-/// `*byte_offset` (advanced past the section). Shared by the structured and
-/// legacy bash renderers.
+/// `*byte_offset` (advanced past the section).
+///
+/// This is the paint boundary for both derived output rows and raw text
+/// snippets (error text, patch warnings, the exit / coverage footers), so it
+/// resolves carriage-return / backspace control sequences itself. Rows coming
+/// from [`ShellOutput`] are already normalized — the resolution is idempotent,
+/// so those pay only the fast-path check and both paths stay byte-identical.
 #[allow(clippy::too_many_arguments)]
 fn emit_command_lines(
     ctx: &mut RenderCtx<'_, '_>,
@@ -2503,20 +2499,11 @@ fn emit_command_lines(
     style: Style,
     mut byte_offset: usize,
 ) -> usize {
-    // Shell capture appends a `\n` after every emitted line, so a payload like
-    // `date`'s stdout (`"Fri … 2026\n"`) would otherwise split into
-    // `["Fri … 2026", ""]` and paint a phantom trailing blank row (padded with
-    // spaces). Trim trailing newlines first; internal blank lines are
-    // preserved. This is a no-op for the single-line marker/legacy callers,
-    // whose strings never carry a trailing newline.
+    // A payload like `date`'s stdout is `"Fri … 2026\n"`; the capture layer
+    // terminates every line with `\n`, so splitting without trimming would paint
+    // a phantom trailing blank row. Internal blank lines are preserved.
     let text = text.trim_end_matches(&['\r', '\n'][..]);
     for logical_line in text.split('\n') {
-        // Carriage-return / backspace normalization: capture already resolves
-        // these (a `\r`-refreshed progress bar collapses to its final frame),
-        // but the legacy / restored-session flat-string path can still carry
-        // raw `\r`s, so resolve them here too — with the *same* function the
-        // capture layer uses, so both paths agree instead of the renderer
-        // doing a cruder "keep only the last segment" approximation.
         let logical_line = nuo_wire::tool_output::normalize_carriage_returns(logical_line);
         let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
         for wl in &wrapped {
@@ -2540,158 +2527,6 @@ fn emit_command_lines(
         }
         byte_offset += logical_line.len() + 1;
     }
-    byte_offset
-}
-
-/// Materialize a structured `Shell` result's output stream into an ordered
-/// list of `(text, style)` logical lines, in the same byte-offset layout
-/// [`emit_command_lines`] uses (one logical line per entry; the caller anchors
-/// them sequentially). Output lines are styled using terminal text style `base`.
-///
-/// Prefers the arrival-ordered `lines` (the TUI-authoritative interleaved
-/// view), falling back to the all-stdout-then-all-stderr flat strings for the
-/// legacy / live-seed / restored-session path. Empty bands contribute nothing.
-fn command_structured_lines(
-    lines: &[nuo_wire::tool_output::ShellLine],
-    stdout: &str,
-    stderr: &str,
-    base: Style,
-) -> Vec<(String, Style)> {
-    let mut out: Vec<(String, Style)> = Vec::new();
-    if !lines.is_empty() {
-        for l in lines {
-            // `emit_command_lines` normalizes CR/BS itself, so pass the raw text.
-            out.push((l.text.clone(), base));
-        }
-        return out;
-    }
-    // Legacy / live-seed fallback: all-stdout band then all-stderr band.
-    for text in [stdout, stderr] {
-        let text = text.trim_end_matches(&['\r', '\n'][..]);
-        if text.is_empty() {
-            continue;
-        }
-        for line in text.split('\n') {
-            out.push((line.to_string(), base));
-        }
-    }
-    out
-}
-
-/// Render `rows` (logical `(text, style)` lines) at `indent`, folding the
-/// verbose middle into a single dim `⋯ N lines hidden` row when there are
-/// more than `BASH_FOLD_HEAD_ROWS + BASH_FOLD_TAIL_ROWS + 1` lines. Visible
-/// rows are registered for selection at their true `output`-space byte
-/// offsets: `byte_offset` advances past *every* logical line (including the
-/// hidden ones) so the tail rows anchor correctly, exactly as the unfolded
-/// path would. The synthesized ellipsis row is not selectable (it is a
-/// summary, not real content).
-///
-/// This preserves the contract that a selection spanning the fold copies the
-/// visible head and tail text only — the hidden middle is neither painted nor
-/// selectable, matching "you can't select what isn't on screen."
-#[allow(clippy::too_many_arguments)]
-fn emit_command_lines_folded(
-    ctx: &mut RenderCtx<'_, '_>,
-    mi: usize,
-    block_idx: usize,
-    indent: usize,
-    wrap_w: usize,
-    pad: Style,
-    sel_range: Option<(usize, Option<usize>)>,
-    rows: &[(String, Style)],
-    mut byte_offset: usize,
-) -> usize {
-    let total = rows.len();
-    let fold_after = BASH_FOLD_HEAD_ROWS + BASH_FOLD_TAIL_ROWS + 1;
-    if total <= fold_after {
-        for (text, style) in rows {
-            byte_offset = emit_command_lines(
-                ctx,
-                mi,
-                block_idx,
-                indent,
-                wrap_w,
-                pad,
-                sel_range,
-                text,
-                *style,
-                byte_offset,
-            );
-        }
-        return byte_offset;
-    }
-
-    // Window: first HEAD rows, one ellipsis row, last TAIL rows.
-    let head_end = BASH_FOLD_HEAD_ROWS;
-    let tail_start = total - BASH_FOLD_TAIL_ROWS;
-    let hidden = tail_start - head_end;
-
-    // head
-    for (text, style) in rows[..head_end].iter() {
-        byte_offset = emit_command_lines(
-            ctx,
-            mi,
-            block_idx,
-            indent,
-            wrap_w,
-            pad,
-            sel_range,
-            text,
-            *style,
-            byte_offset,
-        );
-    }
-
-    // ellipsis
-    // Advance `byte_offset` past every hidden logical line so the tail rows
-    // anchor at their true `output`-space positions. Each hidden line occupies
-    // `text.len() + 1` bytes in the flat stream (the `+1` is the `\n`
-    // separator `emit_command_lines` counts). `normalize_carriage_returns` can
-    // only shrink a line, so this upper bound keeps offsets monotonic; the
-    // tail offsets stay past the head, which is all selection anchoring needs.
-    for (text, _style) in rows[head_end..tail_start].iter() {
-        byte_offset += text.len() + 1;
-    }
-    // 3-row compact negative space folding (ADR-0070):
-    // Row 1: blank breathing space on terminal code_surface
-    let blank_row = Line::from(vec![Span::styled(padded_tail(ctx.full_width, 0), pad)]);
-    let _ = ctx.paint(blank_row.clone());
-
-    // Row 2: quiet single-space indented text with lines and physical metrics
-    let omitted_bytes: usize = rows[head_end..tail_start]
-        .iter()
-        .map(|(t, _)| t.len() + 1)
-        .sum();
-    let omitted_kb = omitted_bytes as f64 / 1024.0;
-    let label = format!("  {} lines omitted ({:.1} KB)", hidden, omitted_kb);
-    let used = indent + label.width();
-    let label_line = Line::from(vec![
-        Span::styled(" ".repeat(indent), pad),
-        Span::styled(label, pad.fg(ctx.theme.dim())),
-        Span::styled(padded_tail(ctx.full_width, used), pad),
-    ]);
-    let _ = ctx.paint(label_line);
-
-    // Row 3: blank breathing space on terminal code_surface
-    let _ = ctx.paint(blank_row);
-
-    // tail
-    for (text, style) in rows[tail_start..].iter() {
-        byte_offset = emit_command_lines(
-            ctx,
-            mi,
-            block_idx,
-            indent,
-            wrap_w,
-            pad,
-            sel_range,
-            text,
-            *style,
-            byte_offset,
-        );
-    }
-
     byte_offset
 }
 
@@ -2934,6 +2769,7 @@ pub(crate) fn draw_tool_result(
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
+    revealed: bool,
 ) {
     let block_idx = 1usize;
     // Explicit tool errors are terminal results, not the successful shape the
@@ -2960,6 +2796,7 @@ pub(crate) fn draw_tool_result(
             let command = command_for(structured, arguments);
             draw_command_content(
                 ctx, mi, block_idx, output, structured, &command, selection, indent, inner_w,
+                revealed,
             );
         }
         ResultKind::Code => {
@@ -3623,43 +3460,38 @@ mod tests {
         assert!(termination_footer(ShellTermination::Exited, &theme, surface).is_none());
     }
 
-    /// The legacy flat-string path (restored sessions, live seeds) carries the
-    /// harness note in-band. Stripping the marker must not leave the blank
-    /// separator row that precedes it: the footer is painted flush beneath the
-    /// output, so a surviving blank would open a phantom gap between the
-    /// output and the footer explaining it.
+    /// ADR-0115: the footer must name *which* copy is short. A step whose
+    /// structured payload crossed the model watermark still holds every row on
+    /// screen, so it may not claim the screen kept a partial log.
     #[test]
-    fn parse_unstructured_shell_content_drops_blank_rows_left_by_stripped_markers() {
-        let theme = nuo_view::Theme::default();
-        let base = Style::default().fg(theme.code_text());
-        let body = "line 1\nline 2\nline 3\n\
-                    [Output truncated: 5509 chars total; full raw log spilled to disk]\n\
-                    \n\
-                    [terminated by harness: output limit reached]";
-        let (rows, exit, termination, truncated) = parse_unstructured_shell_content(body, base);
-        assert_eq!(termination, ShellTermination::StreamGuard);
-        assert_eq!(exit, None);
-        assert!(truncated, "the truncation marker must still be detected");
-        // Output rows only — no trailing empty row for the footer to clear.
+    fn coverage_footer_names_the_short_copy() {
+        assert_eq!(coverage_footer(OutputCoverage::Full), None);
         assert_eq!(
-            rows.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(),
-            vec!["line 1", "line 2", "line 3"]
+            coverage_footer(OutputCoverage::ModelTruncated),
+            Some("output truncated for model context"),
+            "the screen holds the whole log; only the model's copy was cut",
+        );
+        assert_eq!(
+            coverage_footer(OutputCoverage::CutBeforeUi),
+            Some("output truncated · partial kept"),
+            "a payload cut before the UI keeps the older, graver wording",
         );
     }
 
-    /// Blank rows *inside* the command's own output are real formatting and
-    /// must survive; only blanks made leading by marker stripping are dropped.
+    /// The fold label must disclose a hidden failure site the user cannot see
+    /// (`[INV-FOLD-01]`): drawing only a count leaves the diagnosis unreachable.
     #[test]
-    fn parse_unstructured_shell_content_keeps_interior_blank_rows() {
-        let theme = nuo_view::Theme::default();
-        let base = Style::default().fg(theme.code_text());
-        let body = "a\n\nb\n[process terminated]\n";
-        let (rows, _exit, termination, _truncated) = parse_unstructured_shell_content(body, base);
-        assert_eq!(termination, ShellTermination::Timeout);
+    fn fold_label_surfaces_the_first_hidden_failure_signature() {
+        let hidden = vec![
+            "compiling foo".to_string(),
+            "error[E0425]: cannot find value `config` in this scope".to_string(),
+            "panicked at src/main.rs:9".to_string(),
+        ];
         assert_eq!(
-            rows.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(),
-            vec!["a", "", "b"]
+            first_salient_signature(&hidden).as_deref(),
+            Some("error[E0425]: cannot find value `config` in this scope"),
         );
+        assert_eq!(first_salient_signature(&["quiet line".to_string()]), None);
     }
 
     #[test]

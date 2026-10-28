@@ -225,7 +225,8 @@ pub(crate) fn draw_command_palette(
 
     let prefix_width = INPUT_PROMPT_PREFIX.width();
     let field_width = (query_line_rect.width as usize).saturating_sub(prefix_width);
-    let (offset, visible_query) = super::common::field_viewport(query, cursor_position, field_width);
+    let (offset, visible_query) =
+        super::common::field_viewport(query, cursor_position, field_width);
     let caret = super::common::caret_column(query, cursor_position);
     let local = (caret as usize).saturating_sub(offset);
 

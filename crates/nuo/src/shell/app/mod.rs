@@ -20,6 +20,7 @@ use nuo_wire::{
 
 use crate::shell::chrome::tasks_bar::BackgroundTaskItem;
 use crate::shell::completion::CompletionItemKind;
+use crate::shell::composer_grid::{CaretMotion, TextGrid};
 use crate::shell::event_loop::resolve_focused_mut;
 use crate::shell::render::Theme;
 use nuo_ui_primitives::fuzzy;
@@ -457,6 +458,11 @@ pub struct App {
     pub completion_requested: Option<(String, usize)>,
     pub completion_request_id: u64,
     pub cursor_position: usize,
+    /// The caret's vertical-motion memory: the display column ↑/↓ aim for.
+    /// Owned by the composer buffer, so it survives keystrokes but is
+    /// invalidated by any move the caret makes on its own — see
+    /// [`CaretMotion`].
+    pub(crate) caret_motion: CaretMotion,
     pub input_scroll: usize,
     /// Whether the next composer render should move the input viewport to
     /// keep the logical caret visible. Editing and caret movement re-arm
@@ -652,6 +658,10 @@ pub struct App {
     /// What the open dashboard prompt does on submit: `true` = create a new
     /// session (from `n`), `false` = prompt the selected session (from `p`).
     pub host_prompt_new: bool,
+    /// Per-surface receipt logs (ADR-0116): the layer that replaced "append it
+    /// to the transcript" for operations, diagnostics and dialog receipts.
+    /// Addressable, capped, ephemeral, and unreachable from persistence.
+    pub logs: nuo_view::model::log::SurfaceLogs,
     /// The dashboard console's receipt transcript: one entry
     /// per dispatched directive plus the server's answer. Lives for the
     /// dashboard's open lifetime (cleared on open) — it is a cockpit log,
@@ -869,7 +879,7 @@ pub struct App {
     pub copy_toast_message: String,
     pub copy_toast_failed: bool,
     /// A transient notice toast (command acknowledgments such as
-    /// `/delegate on`, surfaced via `NoticeSurface::Toast`). Unlike the
+    /// `/delegate on`, routed to the toast layer by `nuo_view::model::layer`). Unlike the
     /// inline `MessageKind::Notice`, this never enters the transcript: it
     /// renders as a top-right bubble that fades on its own, mirroring the copy
     /// toast. Severity drives the bubble's accent color. Held until
