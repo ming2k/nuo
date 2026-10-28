@@ -158,6 +158,7 @@ pub async fn build_sessions_overview(session: &SessionStore) -> Vec<SessionOverv
                 active: item.active,
                 parent_id: item.parent_id,
                 fork_kind: item.fork_kind,
+                fork_point: item.fork_point,
                 digest: item.digest,
             })
             .collect(),
@@ -176,6 +177,7 @@ pub async fn build_sessions_overview(session: &SessionStore) -> Vec<SessionOverv
             active: true,
             parent_id: summary.parent_id,
             fork_kind: summary.fork_kind,
+            fork_point: summary.fork_point,
             digest: summary.digest,
         });
         overview.sort_by_key(|item| std::cmp::Reverse(item.updated_at));

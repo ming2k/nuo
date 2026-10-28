@@ -457,6 +457,10 @@ pub struct App {
     pub completion_response_cursor: usize,
     pub completion_requested: Option<(String, usize)>,
     pub completion_request_id: u64,
+    /// Caret position as a **byte** offset into `input` — the unit every local
+    /// consumer uses (editor motions, the composer grid, the `@`-mention
+    /// scanner). The completion wire contract is a **Unicode scalar** index;
+    /// [`Self::wire_cursor`] is the one conversion between them.
     pub cursor_position: usize,
     /// The caret's vertical-motion memory: the display column ↑/↓ aim for.
     /// Owned by the composer buffer, so it survives keystrokes but is
@@ -888,6 +892,11 @@ pub struct App {
     pub notice_toast_until: Option<std::time::Instant>,
     pub notice_toast_message: String,
     pub notice_toast_severity: NoticeSeverity,
+    /// The last few warning/error disclosures, retained after their toast fades
+    /// (`app::receipts`). A toast is transient by design; the record is not,
+    /// because the message a user wants to copy is exactly the one that
+    /// vanished while they were looking elsewhere.
+    pub(crate) receipts: receipts::ReceiptLog,
     /// When set (e.g. via `NUO_DEV_TOAST`), keeps the toast pinned during keypresses for visual dev inspection.
     pub dev_toast_pinned: bool,
     /// Deadline until which a second Ctrl+C quits. Wall-clock based (like
@@ -1083,6 +1092,7 @@ mod history;
 mod link;
 pub mod providers;
 mod queue;
+pub mod receipts;
 mod subagents;
 mod surfaces;
 mod tasks;

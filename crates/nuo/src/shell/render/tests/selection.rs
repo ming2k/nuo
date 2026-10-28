@@ -198,3 +198,197 @@ fn extract_selection_text_extracts_modal_document_selections() {
         Some("https://example.com/auth?client_id=123456789".to_string())
     );
 }
+
+/// Paint one transcript through the real renderer and hand back the layout
+/// map — the same shape `layout_map.rs` uses, so these tests read the regions
+/// the pointer path will read.
+fn paint_transcript(
+    messages: &[TranscriptMessage],
+    selection: &SelectionState,
+) -> nuo_view::model::layout::LayoutMap {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    let mut layout_map = LayoutMap::new();
+    terminal.draw(|f| {
+        draw_transcript(
+            f,
+            &mut layout_map,
+            TranscriptProps {
+                messages,
+                scroll: 0,
+                selection,
+                cell_selection: None,
+                backoff_clause: None,
+                activity: "",
+                awaiting_permission: false,
+                spinner_phase: 0,
+                input: "",
+                chrome_hidden: false,
+                queue_bar: QueueBarProps {
+                    items: &[],
+                    paused: false,
+                    blocked: false,
+                    expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
+                },
+                tasks_bar: Default::default(),
+                subagent_bar: None,
+                page_hints: None,
+                tab_bar: None,
+                thread_id: None,
+                thread_context: None,
+                round_started_at: None,
+                hovered_step: None,
+                focused_target: None,
+                logo: None,
+                guidance: EmptyStateGuidance::Tour,
+                carousel_index: 0,
+                theme: &theme,
+                layout: nuo_view::layout::Strategy::default(),
+                height_cache: None,
+            },
+        );
+    });
+    layout_map
+}
+
+/// A notice entry's body is real document text: dragging from its first line to
+/// its last must produce exactly the bytes the entry displays. This is the
+/// regression that motivated the chrome/body split — the head used to register
+/// every one of its rows against a sentinel block index, so a drag resolved to
+/// "no text" and a whole-block select resolved to an empty slice.
+#[test]
+fn a_notice_body_is_drag_selectable_end_to_end() {
+    use nuo_view::model::document::NoticeSeverity;
+    use nuo_view::model::layout::SemanticCursor;
+
+    let raw = "OpenAI HTTP 429 Too Many Requests: rate limited\n{\"error\":{\"code\":\"1305\"}}";
+    let msg = TranscriptMessage::notice(NoticeSeverity::Error, raw);
+    let messages = vec![msg.clone()];
+
+    let layout_map = paint_transcript(&messages, &SelectionState::None);
+
+    // The head is chrome: it registers so a click can resolve the entry, but it
+    // must carry no text.
+    let head = layout_map
+        .regions()
+        .iter()
+        .find(|r| r.block_idx == nuo_view::model::layout::NOTICE_BLOCK_IDX)
+        .expect("the entry head is registered so clicks resolve the entry");
+    assert!(
+        !head.is_text_region(),
+        "the head must not be copyable text: {head:?}"
+    );
+
+    // Body rows address real block bytes.
+    let body_regions: Vec<_> = layout_map
+        .regions()
+        .iter()
+        .filter(|r| r.is_text_region())
+        .collect();
+    assert!(
+        body_regions.len() >= 2,
+        "both body lines must register as text: {body_regions:?}"
+    );
+    for region in body_regions {
+        assert!(
+            region.block_idx < msg.blocks.len(),
+            "a body region must name a real block: {region:?}"
+        );
+        assert_eq!(
+            &msg.blocks[region.block_idx].raw_text()[region.start_byte..region.end_byte],
+            region.text,
+            "region text must be the block's own bytes: {region:?}"
+        );
+    }
+
+    // A drag over the whole body copies exactly what is drawn.
+    let last_block = msg.blocks.len() - 1;
+    let sel = SelectionState::Range {
+        anchor: SemanticCursor::new(0, 0, 0),
+        head: SemanticCursor::new(0, last_block, usize::MAX),
+    };
+    let copied = crate::shell::event_loop::transcript::extract_selection_text(
+        &sel,
+        &messages,
+        "",
+        &layout_map,
+        None,
+    )
+    .expect("a drag over the body must copy");
+    assert_eq!(copied, msg.raw, "drag-copy must equal the displayed text");
+}
+
+/// A whole-entry selection over a notice copies that entry's own block text —
+/// never an empty string. The two gestures (drag, whole-block) must agree about
+/// where the entry's text lives.
+#[test]
+fn a_notice_whole_block_selection_copies_real_text() {
+    use nuo_view::model::document::NoticeSeverity;
+
+    let raw = "Claude HTTP 500 Server Error\nDetails:\nhost unreachable";
+    let msg = TranscriptMessage::notice(NoticeSeverity::Error, raw);
+    let messages = vec![msg.clone()];
+    let layout_map = paint_transcript(&messages, &SelectionState::None);
+
+    let block = crate::shell::event_loop::transcript::extract_selection_text(
+        &SelectionState::Block {
+            message_idx: 0,
+            block_idx: 0,
+        },
+        &messages,
+        "",
+        &layout_map,
+        None,
+    )
+    .expect("block select copies");
+    assert_eq!(block, msg.blocks[0].raw_text());
+    assert!(
+        !block.is_empty(),
+        "a whole-block select over a notice must never resolve to an empty slice"
+    );
+}
+
+/// The pointer cascade must treat a notice's two halves differently: the head
+/// focuses/activates the entry, the body starts a text drag. That distinction
+/// is what lets the same entry be both an affordance and copyable text — and it
+/// is exactly what broke when every notice row carried the sentinel index, since
+/// the body then classified as a step summary and a drag could never start.
+#[test]
+fn a_notice_head_focuses_the_entry_while_its_body_starts_a_drag() {
+    use crate::shell::interaction::{ClickTarget, classify_click};
+    use nuo_view::model::document::NoticeSeverity;
+    use nuo_view::model::layout::NOTICE_BLOCK_IDX;
+
+    let msg = TranscriptMessage::notice(
+        NoticeSeverity::Error,
+        "OpenAI HTTP 429 Too Many Requests: rate limited\n{\"error\":{\"code\":\"1305\"}}",
+    );
+    let messages = vec![msg];
+    let layout_map = paint_transcript(&messages, &SelectionState::None);
+
+    let head = layout_map
+        .regions()
+        .iter()
+        .find(|r| r.block_idx == NOTICE_BLOCK_IDX)
+        .expect("head region");
+    assert!(
+        matches!(
+            classify_click(&layout_map, head.rect.x + 2, head.rect.y),
+            ClickTarget::StepSummary { .. }
+        ),
+        "the entry head must resolve to the entry itself"
+    );
+
+    let body = layout_map
+        .regions()
+        .iter()
+        .find(|r| r.is_text_region())
+        .expect("body region");
+    match classify_click(&layout_map, body.rect.x + body.prefix_cols, body.rect.y) {
+        ClickTarget::Content { cursor } => {
+            assert_eq!(cursor.message_idx, body.message_idx);
+            assert_eq!(cursor.block_idx, body.block_idx);
+        }
+        other => panic!("a body click must start a text drag, got {other:?}"),
+    }
+}

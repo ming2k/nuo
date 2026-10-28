@@ -150,7 +150,7 @@ async fn session_init_options_applies_at_fresh_startup_without_command_ledger_en
     );
 
     // Core architectural invariant: startup options must NOT inject fake
-    // harness commands into the session command ledger / transcript!
+    // slash commands into the session command ledger / transcript!
     let commands = boot.session.commands().await;
     assert!(
         commands.is_empty(),

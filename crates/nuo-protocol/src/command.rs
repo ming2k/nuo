@@ -59,6 +59,23 @@ pub enum CommandResult {
         message: String,
         detail: Option<String>,
     },
+    /// The typed name is not in the command vocabulary.
+    ///
+    /// This is a distinct variant rather than an [`CommandResult::Error`] with
+    /// the right prose because the client must *act* on it: a `/`-prefixed
+    /// draft is a command by definition, so nothing was sent to the model and
+    /// nothing should be lost. A frontend that sees this hands the invocation
+    /// back to the composer (see the TUI's `settle` arm) so a typo is one
+    /// keystroke from being fixed instead of retyped — the difference between
+    /// rejecting a command and punishing the user for misspelling it.
+    ///
+    /// `suggestion` carries the nearest built-in name when the vocabulary can
+    /// produce one; it is *diagnostic only* and is never dispatched.
+    UnknownCommand {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        suggestion: Option<String>,
+    },
     /// A confirmation of a state change (the durable twin of the
     /// `CommandAck` toast). `title` is the one-line headline — the only part
     /// that renders in the prominent tone; `detail` carries zero or more
@@ -111,6 +128,14 @@ impl CommandResult {
                 }
                 out
             }
+            CommandResult::UnknownCommand { name, suggestion } => match suggestion.as_deref() {
+                Some(suggestion) => format!(
+                    "Unknown command: {name}. Did you mean {suggestion}? (Prefix the input with a space to send it as text.)"
+                ),
+                None => format!(
+                    "Unknown command: {name}. Type /help for the command list, or prefix the input with a space to send it as text."
+                ),
+            },
             CommandResult::Ack { title, detail } => {
                 // Headline first, detail lines below — never joined into one
                 // row. Consumers must not reflow these with soft-break
@@ -216,7 +241,9 @@ impl CommandRecord {
 
     pub fn with_result(mut self, result: CommandResult) -> Self {
         self.status = match result {
-            CommandResult::Error { .. } => CommandStatus::Error,
+            CommandResult::Error { .. } | CommandResult::UnknownCommand { .. } => {
+                CommandStatus::Error
+            }
             _ => CommandStatus::Success,
         };
         self.result = Some(result);

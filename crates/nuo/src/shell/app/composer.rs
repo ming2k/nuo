@@ -119,6 +119,29 @@ impl App {
         self.cursor_position.min(self.input.len())
     }
 
+    /// The composer caret in **wire units**: a Unicode scalar (char) index into
+    /// `input`.
+    ///
+    /// `cursor_position` is a *byte* offset — the editor motions
+    /// ([`crate::shell::input::readline`]), the render grid
+    /// ([`crate::shell::composer_grid`]), and the `@`-mention scanner all index
+    /// by bytes. The control-plane contract is different:
+    /// [`nuo_wire::AgentRequest::CompleteComposer`] and
+    /// [`nuo_wire::InputCompletion`]'s `replace_start`/`replace_end` are
+    /// **Unicode scalar indices** (`nuo-server`'s completion engine converts
+    /// them with `char_to_byte`). Sending bytes where the backend reads chars
+    /// silently dead-ends every completion whose prefix is not pure ASCII: the
+    /// backend cannot resolve the offset, returns no items, and a mention typed
+    /// mid-paragraph in (say) Chinese never opens its menu. Convert here, at the
+    /// one boundary where local byte offsets meet the wire contract.
+    pub fn wire_cursor(&self) -> usize {
+        let mut byte = self.cursor_position.min(self.input.len());
+        while byte > 0 && !self.input.is_char_boundary(byte) {
+            byte -= 1;
+        }
+        self.input[..byte].chars().count()
+    }
+
     /// The width the composer lays its text out at, or `0` before the first
     /// frame has published a composer rect.
     ///

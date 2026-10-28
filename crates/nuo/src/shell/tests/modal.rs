@@ -2744,6 +2744,7 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
         active: true,
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -2789,6 +2790,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
         active: false,
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -3051,6 +3053,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
         active: false,
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
@@ -3109,6 +3112,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         active: false,
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         digest: None,
     }];
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);

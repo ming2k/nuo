@@ -36,6 +36,22 @@ pub enum ForkTarget {
     Turn { round: u64, turn: u32 },
 }
 
+/// What a fork produced (ADR-0120).
+///
+/// One typed outcome instead of a four-tuple: the caller must be able to
+/// announce *where* the branch diverged to the client, and a positional tuple
+/// made that an easy thing to drop. The fork point is the same field the child
+/// persisted, so the announcement and the durable record cannot disagree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForkOutcome {
+    /// The freshly minted child session id.
+    pub child_id: String,
+    /// The session the branch was cut from (never repointed — `[INV-FORK-04]`).
+    pub parent_id: String,
+    /// The address the branch diverged at.
+    pub fork_point: nuo_wire::ForkPoint,
+}
+
 impl<'a> CommitTurn<'a> {
     pub fn new(messages: &'a [Message]) -> Self {
         Self {
@@ -583,11 +599,8 @@ impl SessionStore {
     /// Fork the current session at a specific temporal boundary (ADR-0058)
     /// into a sovereign child session WITHOUT mutating or repointing this store.
     /// Returns `(child_id, parent_id, target_round, title)`.
-    pub async fn fork_at(
-        &self,
-        target: ForkTarget,
-    ) -> Result<(String, String, Option<u64>, Option<String>), String> {
-        let (parent_id, child, fork_child_id, target_round, child_title, cutoff_entry_id) = {
+    pub async fn fork_at(&self, target: ForkTarget) -> Result<ForkOutcome, String> {
+        let (parent_id, child, fork_child_id, fork_point, cutoff_entry_id) = {
             let state = self.state.lock().await;
             if state.data.transcript.entries.is_empty() {
                 return Err("Cannot fork an empty session.".to_string());
@@ -596,8 +609,12 @@ impl SessionStore {
             let now = unix_timestamp();
 
             let entries = &state.data.transcript.entries;
-            let (cutoff, target_round) = match target {
-                ForkTarget::Head => (entries.len(), state.data.round_counter),
+            let (cutoff, target_round, fork_point) = match target {
+                ForkTarget::Head => (
+                    entries.len(),
+                    state.data.round_counter,
+                    nuo_wire::ForkPoint::at_round(state.data.round_counter),
+                ),
                 ForkTarget::Round(r) => {
                     if r == 0 {
                         return Err("Cannot fork at round 0.".to_string());
@@ -620,7 +637,7 @@ impl SessionStore {
                         ));
                     }
                     let cutoff = cutoff_idx.unwrap_or(entries.len());
-                    (cutoff, r)
+                    (cutoff, r, nuo_wire::ForkPoint::at_round(r))
                 }
                 ForkTarget::Turn { round: r, turn: t } => {
                     if r == 0 {
@@ -657,7 +674,7 @@ impl SessionStore {
                         ));
                     }
                     let cutoff = start + (t as usize) + 1;
-                    (cutoff, r)
+                    (cutoff, r, nuo_wire::ForkPoint::at_turn(r, t))
                 }
             };
 
@@ -666,16 +683,19 @@ impl SessionStore {
             child.id = fork_child_id.clone();
             child.parent_id = Some(parent_id.clone());
             child.fork_kind = nuo_wire::SessionForkKind::Fork;
+            // Fork provenance is persisted, never inferred (ADR-0120,
+            // `[INV-LINEAGE-01]`): the address is exactly the one `/fork`
+            // accepts, recorded at the moment the branch is created.
+            child.fork_point = Some(fork_point);
             child.created_at = now;
             child.updated_at = now;
             child.round_counter = target_round;
-            let title = state
-                .data
-                .title
-                .as_ref()
-                .map(|t| format!("{t} (fork)"))
-                .or_else(|| Some("fork".to_string()));
-            child.title = title.clone();
+            // A branch must not be identified by a title the fork invented
+            // (`"{parent} (fork)"` is lossy, non-unique, and user-editable —
+            // `[INV-LINEAGE-04]`). It is identified the way every thread is
+            // (ADR-0050): by its own title once earned, else by its first
+            // prompt, and in lineage surfaces by its fork address.
+            child.title = None;
             child.request_usage_records.clear();
 
             // Slice transcript entries
@@ -687,16 +707,8 @@ impl SessionStore {
             child.transcript.directives.retain(|d| d.seq < min_next);
 
             let cutoff_entry_id = child.transcript.entries.last().map(|e| e.id.clone());
-            (
-                parent_id,
-                child,
-                fork_child_id,
-                Some(target_round),
-                title,
-                cutoff_entry_id,
-            )
+            (parent_id, child, fork_child_id, fork_point, cutoff_entry_id)
         };
-
         // Blocking I/O stays outside the session lock.
         persist_to(&self.writer, &child, &self.blob_store)?;
 
@@ -712,14 +724,12 @@ impl SessionStore {
         let child_ir = if let Some(ref entry_id) = cutoff_entry_id
             && parent_ir.history.nodes.contains_key(entry_id)
         {
-            parent_ir.fork_at_leaf(&fork_child_id, entry_id, target_round.unwrap_or(0))
-        } else if let Some(leaf_id) =
-            target_round.and_then(|round| parent_ir.find_round_leaf(round))
-        {
-            parent_ir.fork_at_leaf(&fork_child_id, leaf_id, target_round.unwrap_or(0))
+            parent_ir.fork_at_leaf(&fork_child_id, entry_id, fork_point.round)
+        } else if let Some(leaf_id) = parent_ir.find_round_leaf(fork_point.round) {
+            parent_ir.fork_at_leaf(&fork_child_id, leaf_id, fork_point.round)
         } else {
             let mut ir = parent_ir.fork(&fork_child_id);
-            ir.state.round_counter = target_round.unwrap_or(0);
+            ir.state.round_counter = fork_point.round;
             ir
         };
         let delta = child_ir.drain_delta(0);
@@ -728,7 +738,11 @@ impl SessionStore {
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok((fork_child_id, parent_id, target_round, child_title))
+        Ok(ForkOutcome {
+            child_id: fork_child_id,
+            parent_id,
+            fork_point,
+        })
     }
 
     /// Read the full DAG session tree.

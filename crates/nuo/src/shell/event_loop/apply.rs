@@ -125,12 +125,20 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::SessionForked {
             child_id,
-            target_round,
-            title,
+            parent_id,
+            fork_point,
             prompt,
-            ..
         } => {
-            let label = title.or_else(|| target_round.map(|r| format!("fork@r{r}")));
+            // The tab is labelled with the address the branch diverged at
+            // (ADR-0120): `⑂r2.1`. The fork no longer mints a title, so this
+            // label is the only textual identity it has until the branch earns
+            // its own (ADR-0050) or is identified by its first prompt. A peer
+            // that predates the fork point still identifies the origin by the
+            // parent's short id, so a branch never appears to have no origin.
+            let label = Some(match fork_point {
+                Some(point) => format!("\u{2442}{point}"),
+                None => format!("\u{2442}{}", parent_id.chars().take(8).collect::<String>()),
+            });
             let tab = crate::shell::surfaces::ClientTab::thread(&child_id, label);
             // Checkpoint the departing (parent) tab's context before mounting
             // the child — the same discipline every other session switch uses.
@@ -368,7 +376,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 .refreshing = false;
             true
         }
-        AppMutation::SessionsOverview(mut sessions) => {
+        AppMutation::SessionsOverview(sessions) => {
             for s in &sessions {
                 if let Some(ref t) = s.title {
                     let trimmed = t.trim();
@@ -377,9 +385,16 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                     }
                 }
             }
-            // Self-exclusion: remove the active session from the switch candidates list
-            // so the cursor immediately targets the most recently active alternative session (MRU top).
-            sessions.retain(|s| !s.active);
+            // The current thread stays in the snapshot (ADR-0120). The old
+            // self-exclusion existed so the cursor landed on an *alternative*
+            // thread, but it also deleted every branch forked out of the
+            // attached thread: their `parent_id` named a row that was no longer
+            // in the list, so the projection could not place them and promoted
+            // them to unrelated roots — the exact relation the picker was
+            // opened to inspect. A browser answers "where am I" as well as
+            // "where can I go"; the attached row is marked current, and
+            // selecting it is the idempotent focus-recovery path that already
+            // existed for a re-selected session.
             app.modal_index = app.modal_index.min(sessions.len().saturating_sub(1));
             app.sessions_overview = sessions;
             app.surfaces
@@ -451,6 +466,10 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::NoticeToast { severity, text } => {
             app.copy_toast_until = None;
+            // Retain the fault before showing it: the toast is transient by
+            // design, but a user who looked away must still be able to copy
+            // what it said (`app::receipts`).
+            app.receipts.record(severity, text.clone());
             app.notice_toast_severity = severity;
             app.notice_toast_message = text;
             app.notice_toast_until =
@@ -609,6 +628,11 @@ fn apply_oauth(app: &mut App, signal: crate::shell::app::OauthAddSignal) {
 fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
     let mut post = PostEdit::None;
     let mut changed = true;
+    // A command name the dispatcher did not recognize. Its draft was consumed by
+    // the Enter that submitted it, and nothing was sent to the model, so the
+    // text is handed back to the composer after the document borrow ends (see
+    // the restore below) — a typo must cost one edit, not a retype.
+    let mut rejected_invocation: Option<String> = None;
     // Snapshot the disclosure input the tool arms need before the document borrow.
     let tui_config = app.tui_config.clone();
     {
@@ -896,6 +920,12 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 fallback,
             } => {
                 let invocation = invocation.trim().to_string();
+                // A rejected command name is the one command result that gives
+                // the user something back: nothing was dispatched, so the draft
+                // is still theirs. Hold it for the post-borrow restore below.
+                if let nuo_wire::CommandResult::UnknownCommand { .. } = &result {
+                    rejected_invocation = Some(invocation.clone());
+                }
                 let mut settled_id: Option<u64> = None;
                 if let Some(message) = messages.iter_mut().rev().find(|message| {
                     message.is_command_result()
@@ -1018,10 +1048,40 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
         }
         PostEdit::ClearCache => app.layout_height_cache.clear(),
     }
+    if let Some(rejected) = rejected_invocation {
+        restore_rejected_command_draft(app, rejected);
+    }
     if changed {
         app.transcript_changed_pending = true;
     }
     changed
+}
+
+/// Hand a rejected slash-command draft back to the composer.
+///
+/// The Enter that submitted `/modles` consumed the buffer, and the dispatcher
+/// answered `UnknownCommand`: nothing ran and nothing reached the model. Leaving
+/// the box empty would make a one-letter typo cost a full retype, which is the
+/// exact friction this path exists to remove.
+///
+/// Two rules keep the restore from fighting the user:
+///
+/// - Only an **empty** composer is filled. If the user has started typing the
+///   next thing (or recalled a history row, or a modal borrowed the line), their
+///   text wins and the rejected invocation is simply dropped — the transcript
+///   row still shows exactly what was rejected.
+/// - The caret lands at the end, ready for `Backspace`, and the completion
+///   dismissal is latched exactly as a programmatic replacement would do, so the
+///   popup does not flash open over the restored text.
+fn restore_rejected_command_draft(app: &mut App, invocation: String) {
+    if !app.input.is_empty() {
+        return;
+    }
+    app.input = invocation;
+    app.set_cursor_end();
+    app.suggestion_index = None;
+    app.completion_dismissed = true;
+    app.refresh_backend_completion_request();
 }
 
 /// Execute one view-scoped chrome edit against `App::session_chrome`
@@ -1084,5 +1144,48 @@ fn apply_chrome(app: &mut App, session_id: &str, edit: ChromeEdit) {
         ChromeEdit::TurnPerformance(performance) => {
             chrome.last_turn_performance = Some(*performance);
         }
+    }
+}
+
+#[cfg(test)]
+mod rejected_command_draft_tests {
+    //! A mistyped `/command` must cost one edit, not a retype.
+    //!
+    //! The Enter that submits a command consumes the composer buffer, and the
+    //! dispatcher answers an unrecognized name with
+    //! `CommandResult::UnknownCommand`. Nothing ran and nothing reached the
+    //! model, so the text still belongs to the user — the applier hands it back.
+    use super::*;
+    use crate::shell::tests::new_app_for_relay_tests;
+
+    /// `[INV-CMD-03]` — a rejected command hands its draft back.
+    #[test]
+    fn rejected_command_returns_the_draft_to_the_composer() {
+        let mut app = new_app_for_relay_tests();
+        // The Enter already consumed the buffer, exactly as it would live.
+        assert!(app.input.is_empty());
+        restore_rejected_command_draft(&mut app, "/modles".to_string());
+        assert_eq!(app.input, "/modles");
+        assert_eq!(
+            app.cursor_position,
+            app.input.len(),
+            "caret is retype-ready"
+        );
+        assert!(
+            app.completion_dismissed,
+            "the popup must not flash over a restored draft"
+        );
+    }
+
+    #[test]
+    fn rejected_command_never_clobbers_text_the_user_already_typed() {
+        let mut app = new_app_for_relay_tests();
+        app.input = "next question".to_string();
+        app.cursor_position = app.input.len();
+        restore_rejected_command_draft(&mut app, "/modles".to_string());
+        assert_eq!(
+            app.input, "next question",
+            "the user's newer draft wins; the rejection stays in the transcript and in ↑ history"
+        );
     }
 }

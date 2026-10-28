@@ -712,10 +712,6 @@ async fn process_one_event<W: io::Write>(
         None
     };
 
-    let recognized_command = app.input.starts_with('/')
-        && crate::shell::completion::resolved_slash_command_len(&app.input, &app.command_catalog)
-            .is_some();
-
     // `route_event` performs the hot-path text edits and caret motions
     // directly through mutable references. The edit target is the composer's
     // own buffer — except while a picker's search sub-layer is active, where
@@ -922,15 +918,17 @@ async fn process_one_event<W: io::Write>(
         }
     };
 
-    let action = if matches!(action, input::InputAction::SendSlash(_)) && !recognized_command {
-        if let input::InputAction::SendSlash(text) = action {
-            input::InputAction::SendChat(text)
-        } else {
-            action
-        }
-    } else {
-        action
-    };
+    // No client-side "unknown command" downgrade: a `/`-prefixed draft is a
+    // slash command, full stop. The client cannot know the server's whole
+    // vocabulary (built-ins are compiled into `nuo-server`; an embedding adds
+    // more through `SlashCommandRegistry`), so judging it here would both
+    // swallow typos into the transcript as if they were prompts **and** deny
+    // registered commands it has never heard of. `AgentRequest::SlashCommand` is
+    // the single admission authority: it answers an unrecognized name with a
+    // typed `CommandResult::UnknownCommand` ("Unknown command: /modles. Did you
+    // mean /models?"), which lands as a command block instead of a user turn —
+    // and the applier then hands the draft back to this composer, so a typo
+    // costs one edit rather than a retype (ADR-0119, [INV-CMD-02], [INV-CMD-03]).
 
     if action.is_text_modal_command()
         && let Some(entry) = modal_cmd_history

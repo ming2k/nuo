@@ -694,6 +694,7 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
             id: "s1".into(),
             parent_id: None,
             fork_kind: "trunk".into(),
+            fork_point: None,
             title: None,
             created_at_s: 1,
             updated_at_s: 1,
@@ -841,6 +842,7 @@ fn working_state_round_trips_through_the_session_row() {
             id: "s1".into(),
             parent_id: None,
             fork_kind: "trunk".into(),
+            fork_point: None,
             title: Some("T".into()),
             created_at_s: 1,
             updated_at_s: 1,
@@ -855,6 +857,95 @@ fn working_state_round_trips_through_the_session_row() {
     let sessions = session_store::list_sessions(&engine.conn, None).unwrap();
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].title.as_deref(), Some("T"));
+}
+
+/// `[INV-LINEAGE-01]`: the persisted fork point is surfaced by the read
+/// projection, so no consumer has to reconstruct it. Also pins the truthful
+/// absence: a trunk has no fork point, and a titleless thread reads back as
+/// `None` rather than `Some("")`.
+#[test]
+fn thread_list_view_surfaces_the_persisted_fork_point() {
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+
+    let trunk = SessionRecord {
+        id: "trunk".into(),
+        parent_id: None,
+        fork_kind: "trunk".into(),
+        fork_point: None,
+        title: Some("Trunk".into()),
+        created_at_s: 1,
+        updated_at_s: 1,
+        workspace_root: Some("/tmp".into()),
+        persona: None,
+        msg_count: 0,
+        last_user_prompt: None,
+        digest: None,
+    };
+    session_store::upsert_session(&engine.conn, &trunk).unwrap();
+
+    let mut branch = trunk.clone();
+    branch.id = "branch".into();
+    branch.parent_id = Some("trunk".into());
+    branch.fork_kind = "fork".into();
+    branch.fork_point = Some(nuo_wire::ForkPoint::at_turn(3, 2));
+    branch.created_at_s = 2;
+    branch.updated_at_s = 2;
+    session_store::upsert_session(&engine.conn, &branch).unwrap();
+
+    let read = session_store::get_session(&engine.conn, "branch")
+        .unwrap()
+        .expect("branch row");
+    assert_eq!(read.parent_id.as_deref(), Some("trunk"));
+    assert_eq!(read.fork_kind, "fork");
+    assert_eq!(read.fork_point, Some(nuo_wire::ForkPoint::at_turn(3, 2)));
+    assert_eq!(read.fork_point.unwrap().label(), "r3.2");
+
+    // A trunk is truthfully without provenance, not "forked at r0".
+    let read_trunk = session_store::get_session(&engine.conn, "trunk")
+        .unwrap()
+        .expect("trunk row");
+    assert_eq!(read_trunk.fork_point, None);
+
+    // `upsert_session` must not erase provenance a richer writer stamped.
+    let mut rename_only = branch.clone();
+    rename_only.fork_point = None;
+    rename_only.title = Some("Renamed".into());
+    session_store::upsert_session(&engine.conn, &rename_only).unwrap();
+    let after = session_store::get_session(&engine.conn, "branch")
+        .unwrap()
+        .expect("branch row");
+    assert_eq!(
+        after.fork_point,
+        Some(nuo_wire::ForkPoint::at_turn(3, 2)),
+        "a metadata upsert must not clear the branch's origin"
+    );
+    assert_eq!(after.title.as_deref(), Some("Renamed"));
+}
+
+/// A blank title column is an absent title, not an empty one — the `Option`
+/// contract every display site relies on.
+#[test]
+fn blank_title_reads_back_as_absent() {
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let record = SessionRecord {
+        id: "untitled".into(),
+        parent_id: None,
+        fork_kind: "trunk".into(),
+        fork_point: None,
+        title: None,
+        created_at_s: 1,
+        updated_at_s: 1,
+        workspace_root: Some("/tmp".into()),
+        persona: None,
+        msg_count: 1,
+        last_user_prompt: None,
+        digest: None,
+    };
+    session_store::upsert_session(&engine.conn, &record).unwrap();
+    let loaded = session_store::load_session_full(&engine.conn, "untitled")
+        .unwrap()
+        .expect("row");
+    assert_eq!(loaded.title, None);
 }
 
 #[test]
@@ -1616,4 +1707,163 @@ fn persistence_handle_recovers_after_transient_lock_release() {
     // Subsequent spawn succeeds and is usable
     let handle_ok = PersistenceHandle::spawn(db_path, None);
     assert!(handle_ok.ensure_ready().is_ok());
+}
+
+/// End-to-end shape of the browser's view (ADR-0120): a real migrated database,
+/// real forks through the one primitive, and the picker's own partition query.
+///
+/// This is the regression that would have caught root cause 4 — a fork landing
+/// outside its parent's partition and so vanishing from every query that
+/// filters by workspace — because it asserts on the query the TUI actually
+/// runs. It also builds a depth-2 chain, the shape the old one-level projection
+/// could not represent at all.
+#[tokio::test]
+async fn fork_appears_in_the_pickers_partition_query_with_its_lineage() {
+    use nuo_wire::{ForkPoint, Message, Role, SessionForkKind};
+
+    let dir = std::env::temp_dir().join(format!("nuo-lineage-e2e-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = crate::session::SessionStore::for_path(dir.join("session.json"));
+
+    store
+        .replace_messages(vec![
+            Message::new(Role::User, "round 1 user"),
+            Message::new(Role::Assistant, "round 1 answer"),
+            Message::new(Role::User, "round 2 user"),
+            Message::new(Role::Assistant, "round 2 answer"),
+        ])
+        .await
+        .unwrap();
+    store.set_round_counter(2).await.unwrap();
+    let parent_id = store.id().await;
+
+    // Depth 1: fork the trunk at its settled round.
+    let first = store
+        .fork_at(crate::session::ForkTarget::Round(2))
+        .await
+        .unwrap();
+
+    // Depth 2: fork the *branch*. `/fork` accepts a branch as readily as a
+    // trunk, so the browser must be able to represent what the command creates.
+    // Re-open the child as its own store — the same way a client attaches to it.
+    let branch =
+        crate::session::SessionStore::for_path(dir.join(format!("{}.json", first.child_id)));
+    let second = branch
+        .fork_at(crate::session::ForkTarget::Round(1))
+        .await
+        .unwrap();
+
+    let listed = store.list().await.unwrap();
+    let by_id = |id: &str| {
+        listed
+            .iter()
+            .find(|s| s.id == id)
+            .unwrap_or_else(|| panic!("{id} missing from the picker snapshot"))
+    };
+    let ids: Vec<&str> = listed.iter().map(|s| s.id.as_str()).collect();
+    assert!(
+        ids.contains(&parent_id.as_str()),
+        "the attached thread stays: {ids:?}"
+    );
+
+    // Depth 1 branch: in the snapshot, with its address and origin.
+    let first_row = by_id(&first.child_id);
+    assert_eq!(first_row.fork_point, Some(ForkPoint::at_round(2)));
+    assert_eq!(first_row.fork_kind, SessionForkKind::Fork);
+    assert_eq!(first_row.parent_id.as_deref(), Some(parent_id.as_str()));
+
+    // Depth 2 branch: present too — this is the row the old projection dropped.
+    let second_row = by_id(&second.child_id);
+    assert_eq!(second_row.fork_point, Some(ForkPoint::at_round(1)));
+    assert_eq!(
+        second_row.parent_id.as_deref(),
+        Some(first.child_id.as_str())
+    );
+    // Both branches came back from a partition-filtered query, which is the
+    // assertion that matters: a fork whose partition binding was erased lists
+    // nowhere at all.
+    assert_eq!(
+        listed.len(),
+        3,
+        "trunk + two branches, one partition: {ids:?}"
+    );
+
+    // The parent is untouched: still a trunk, still without provenance.
+    let parent_row = by_id(&parent_id);
+    assert_eq!(parent_row.fork_point, None);
+    assert_eq!(parent_row.fork_kind, SessionForkKind::Trunk);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Migration 25 purges the provenance the retired fork primitive smuggled into
+/// titles (`[INV-LINEAGE-04]`), and only that: a title the user actually typed
+/// is never touched.
+#[test]
+fn migration_25_strips_only_derived_fork_titles() {
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+
+    // The exact shapes the retired `fork_at` produced.
+    engine
+        .conn
+        .execute_batch(
+            r#"
+            INSERT INTO threads (id, title, fork_kind, parent_thread_id, created_at_ms, updated_at_ms)
+            VALUES
+                ('parent',      'Paged Storage Rewrite', 'trunk', NULL,     1000, 1000),
+                ('derived',     'Paged Storage Rewrite (fork)', 'fork', 'parent', 2000, 2000),
+                ('untitled-par','',     'trunk', NULL, 1000, 1000),
+                ('bare',        'fork', 'fork', 'untitled-par', 2000, 2000),
+                -- Authored names that merely contain the marker: keep them.
+                ('authored',    'my (fork) experiment', 'fork', 'parent', 2000, 2000),
+                ('only-fork',   'fork', 'fork', 'parent', 2000, 2000);
+            "#,
+        )
+        .unwrap();
+
+    {
+        // The migration runs inside the caller's transaction and only becomes
+        // durable on commit — commit it, exactly as the migrator does.
+        let tx = engine.conn.unchecked_transaction().unwrap();
+        apply_thread_lineage_graph_schema(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+
+    let title = |id: &str| -> String {
+        engine
+            .conn
+            .query_row("SELECT title FROM threads WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+
+    assert_eq!(
+        title("parent"),
+        "Paged Storage Rewrite",
+        "a trunk keeps its name"
+    );
+    assert_eq!(title("derived"), "", "derived provenance is retired");
+    assert_eq!(
+        title("untitled-par"),
+        "",
+        "an untitled trunk stays untitled"
+    );
+    assert_eq!(
+        title("authored"),
+        "my (fork) experiment",
+        "a user-authored title is never rewritten"
+    );
+    // `fork` is ambiguous: it is derived when the parent is untitled, and the
+    // generated value when the parent is titled. This one's parent is titled,
+    // so the string was authored.
+    assert_eq!(title("only-fork"), "fork");
+
+    // The typed record replaces what the title used to carry.
+    let cols = table_columns(&engine.conn, "threads").unwrap();
+    assert!(cols.contains("fork_round") && cols.contains("fork_turn"));
+    assert!(
+        !cols.contains("fork_fact_id"),
+        "the never-written column is gone"
+    );
 }

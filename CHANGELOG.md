@@ -8,6 +8,196 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Thread history is a lineage graph, not a list (ADR-0120).**
+  - **The fork point is a persisted fact.** `SessionStore::fork_at` records
+    `fork_round`/`fork_turn` on the child in the same transaction that stamps
+    `parent_id` and `fork_kind`, so the recorded address is exactly the one the
+    `/fork` grammar accepts (`/fork 2` → `r2`, `/fork 2.1` → `r2.1`). It rides
+    the row checksum, survives reload, and is projected to
+    `SessionOverview`/`SessionDetail`/`MonitoredSession`/`SessionSummary` as one
+    typed `ForkPoint`, so a turn can no longer be represented without the round
+    it indexes into `[INV-LINEAGE-01]`.
+  - **The picker paints the tree at any depth.** `project_session_rows` is now a
+    recursive, iterative-stack forest projection producing `depth`, `is_last`,
+    and a per-ancestor continuation vector, so rows paint true
+    `│  ├─ `/`└─ ` lanes and every row is emitted exactly once
+    `[INV-LINEAGE-02]`. Sibling order is `(created_at, id)` — a model streaming
+    tokens can no longer move a row out from under the cursor
+    `[INV-LINEAGE-03]`.
+  - **Headless parity.** `nuo thread ls` renders the same geometry, including
+    `⑂r2.1` addresses and an explicit `(from <id>)` marker for a branch whose
+    origin is not in the listing.
+  - **The dashboard dock states lineage in its own medium.** A card grid has no
+    second axis to nest along, so a branch card carries a back-reference
+    (`⇂r2.1#3` — forked at r2.1 from card #3); dock ordering and `#N`
+    addressing stay on creation order so the console's addresses do not renumber.
+
+- **Copyable diagnostics: one pipeline, one record format, one retained log.**
+  - **Every copy resolves through one place.** `shell::copy::CopyRequest` is the only vocabulary —
+    `Selection`, `Entry`, `Diagnostic` — and `CopyRequest::resolve` returns either a payload (text **plus**
+    the receipt sentence) or a typed `CopyError`. Callers can no longer write an empty string to the
+    clipboard, and the toast a user sees is derived from the decision that produced the bytes. A drag, a
+    focused entry, the palette verb and the global chord all resolve identically, so two paths to the same
+    bytes cannot disagree about precedence.
+  - **The failure message names the remedy, not the symptom.** `nothing selected — drag over text, or
+    focus an entry and press y`, `that row has no text — drag over the entry body`. Previously an
+    unresolvable selection silently overwrote the clipboard with `""` while reporting "copied".
+  - **`Shift-y` / `Shift-C` copy a *diagnostic record*** (`nuo-view::model::diagnostic`): a frozen
+    one-line `[nuo diagnostic] kind=… severity=… topic=… provider=… model=… attempt=2/6 at=… thread=… log=…`
+    header, a blank line, then the entry's verbatim body. Lowercase `y` keeps its existing "give me the
+    text" meaning — the upgrade is a separate verb, never a silent payload change. Values containing
+    whitespace are quoted and escaped so the header stays line-oriented and space-splittable; unknown keys
+    are ignorable, so adding a field later never invalidates an older paste.
+  - **A notice's body is now stored, not re-derived** (`nuo-view::model::notice_text`). `raw` and the
+    per-line blocks *are* the display text, produced once at construction; the painter paints it and copy
+    returns it, so "what you see" and "what you copy" are one string by construction. The retired
+    paint-time parse (`parse_notice_content`) was a second projection of `raw` that could drift from the
+    painted rows.
+  - **Notice bodies are drag-selectable end to end.** The entry head (severity glyph, topic, timestamp, a
+    live retry countdown) registers as a text-free *sentinel* region that resolves the entry for focus and
+    activation; body lines register against real block indices with cumulative byte offsets. That split is
+    why a retry's countdown can tick without ever reaching the clipboard. `BlockRegion::entry_sentinel`
+    and `BlockRegion::is_text_region` encode the distinction once, so no consumer re-derives it.
+  - **`Copy Entry as Diagnostic` / `Copy Recent Warnings and Errors` are discoverable**: both are registry
+    commands with availability predicates, and the composer's hint row names the focused-entry verbs
+    (`Esc back · Space expand · y copy · Shift-y diagnostic`) through the same `HintState` origin as every
+    other hint, asserted resolvable by test.
+  - **Transient faults outlive their toast** (`shell::app::receipts`). Warnings and errors shown as toasts —
+    "Failed to open link …: permission denied", "Could not refresh models: backend disconnected", a
+    clipboard write that timed out — are retained (last 8, info-level excluded) and copyable as one
+    diagnostic block. A user who looks up a moment too late no longer loses the message they needed.
+  - **`render_row_line` moved to the row component** (`nuo-ui-primitives::components::row`) so the
+    documentary-modal body and the transcript notice body paint selection through one implementation
+    instead of two copies of the same splice.
+
+### Fixed
+
+- **Forks of a fork were invisible, and the agent's own branches read as unrelated
+  conversations.**
+  - **Root cause 1: the projection stopped at depth one.** `project_session_rows`
+    collected trunks and then walked a single level of children, so a
+    fork-of-a-fork was sorted into `children_by_parent` and never emitted — it
+    was neither a root nor a painted child. A chain `T ← F1 ← F2 ← F3` rendered
+    as `T, F1`. `/fork` on a branch is supported and is the normal way to compare
+    two variants of an early decision, so the feature's own output was being
+    deleted by its browser.
+  - **Root cause 2: the picker deleted the parent it needed.** The client filtered
+    the attached session out of the overview (`retain(|s| !s.active)`) so the
+    cursor would land on an alternative thread. The projection then required a
+    branch's parent to be present and, when it was not, pushed the branch into
+    the root list — so every branch forked out of the conversation you were
+    sitting in appeared as an independent thread with no `⑂` marker. The current
+    thread now stays in the snapshot, marked `[current]`, and a row whose parent
+    is genuinely absent renders at the root lane with a `⑂ from <id>` marker
+    instead of being reclassified.
+  - **Root cause 3: the fork point was never stored.** The only trace of *where*
+    a branch diverged was the title string `"{parent} (fork)"` — lossy (no
+    round), non-unique (N forks of one parent share it), and user-editable. It is
+    retired: `fork_at` no longer mints a title, `[INV-LINEAGE-04]` forbids
+    smuggling provenance into display strings, and migration 25 strips the
+    residue from branches created before this change — but only a title that is
+    byte-for-byte what the retired primitive would have generated from the
+    parent's current title, so a name the user actually typed survives.
+  - **Root cause 4 (data loss, not rendering): a fork fell out of its own
+    partition.** `save_session_delta` — the IR save that `fork_at` runs right
+    after persisting the child — derived `thread_policies.workspace_root` from
+    the IR's `rules_json`, where the partition binding does not live, and its
+    `ON CONFLICT` arm overwrote the value the child had just been given with
+    `''`. The branch was therefore absent from every query that filters by
+    workspace: the picker, `--resume`, and `nuo thread ls`. The delta save now
+    inherits the partition from the parent row and refuses to erase a
+    non-empty binding, and `forked_branch_is_listed_in_the_same_partition_as_its_parent`
+    pins it.
+- **An absent title read back as an empty string.** `threads.title` is
+  `TEXT NOT NULL DEFAULT ''` while every display site treats it as
+  `Option<String>`, so `title.filter(|t| !t.trim().is_empty())` now runs at the
+  load boundary: "this thread has no title" and "this thread has an empty title"
+  are no longer the same value. This is what made a freshly forked, titleless
+  branch look titled.
+- **`@`-mention completion now fires mid-paragraph, not just at the start of the line.**
+  - **Root cause: two index spaces met without a conversion.** The composer caret
+    (`App::cursor_position`) is a **byte** offset — the editor motions, the composer
+    text grid, and the `@` scanner all index by byte — while the control-plane completion
+    contract (`AgentRequest::CompleteComposer`, and `replace_start`/`replace_end` on the
+    reply) is a **Unicode scalar** index. The TUI sent bytes where the backend read chars,
+    so for any draft whose prefix was not pure ASCII the engine could not place the caret,
+    returned nothing, and the popup never opened: a mention typed after CJK prose silently
+    dead-ended. `App::wire_cursor()` now performs that conversion at the single boundary
+    where the two representations meet, and the request, the echoed response, and the
+    cached-response comparison all go through it.
+  - **The `@` scanner was never the problem** — `mention_range_at` is byte-correct by
+    construction, which is why the only visible symptom was a missing popup. Both halves
+    are now pinned: `mid_paragraph_mention_completes_behind_multibyte_text` (mention after
+    Chinese prose), `mid_paragraph_mention_completes_on_a_later_line` (mention after prose
+    on a later composer row), `mid_paragraph_mention_replaces_only_the_token` (the
+    accepted edit splices the token in place and preserves the surrounding text), and
+    `wire_cursor_converts_bytes_to_scalar_indices`.
+  - **One completion implementation, not two.** The test-only `complete_for_frontend_test`
+    fork in the TUI is deleted; unit tests now drive the server's own engine through
+    `nuo_server::input_completion::complete_for_frontend_test`, so a divergence between
+    what the tests exercise and what production runs can no longer hide a defect like this
+    one.
+- **A mistyped `/command` is now an error, never a prompt, and it gives the draft back
+  (ADR-0119).**
+  - **The client stopped judging command names.** The TUI compared each `/` draft against
+    its local `CommandCatalog` and rewrote a miss into `SendChat`, which appended the typo
+    to the transcript as a *user turn* — an instruction to the model that the user could
+    not recall — while also denying any command registered by an embedding
+    (`SlashCommandRegistry`) that the projected catalog had not published.
+    `handlers_slash::dispatch` is now the single admission point
+    (`[INV-CMD-02]`): built-in, alias, registered handler, retired-name steering, or
+    `UnknownCommand`. A `/`-prefixed draft can no longer become dialogue by accident; the
+    escape hatch is explicit (a leading space means prose) and the error says so.
+  - **Rejection is typed and recoverable.** `CommandResult::UnknownCommand { name,
+    suggestion }` replaces the prose-only error: `to_text()` owns the wording for live
+    render, resume, and `/export`, while the payload lets a frontend *act*. The applier
+    hands the invocation back to an empty composer (caret at end, completion dismissal
+    latched), so a typo costs one `Backspace` instead of a retype; if the user has already
+    started typing something else, their text wins and the rejection stays in the
+    transcript.
+  - **Typos name the intent.** `startup::suggest_command` resolves a rejected name by
+    prefix, then by a bounded edit distance (`/modles` → `/models`,
+    `/permisions` → `/permissions`), and the error reads
+    `Unknown command: /modles. Did you mean /models?`. Suggestions are diagnostics only:
+    never dispatched, never offered in the popup.
+- **The completion vocabulary has exactly one owner — the client copy is deleted (`[INV-CMD-04]`).**
+  - **What was wrong.** Removing the client's *judgement* left the client's second *copy*
+    standing: a 480-line hand-written command catalog in `shell/completion.rs`, with
+    `/` completion running off that copy while the server's own `complete_slash_items` was
+    reachable only from tests. Two lists, no shared owner, and measured drift in both
+    directions: the popup could not offer the built-in `/quotas`; it could not complete five
+    aliases the dispatcher resolves (`/auto`, `/yolo`, `/session`, `/unconfine`,
+    `/unconfined`); and it offered `/setup`, which the dispatcher had no arm for at all.
+    No test could see this, because each list was internally consistent.
+  - **What replaced it.** The TUI's `/` tier now calls
+    `nuo_server::input_completion::complete_slash_items` in-process — the function is pure and
+    I/O-free, so zero-latency is preserved without paying a round-trip — and keeps only
+    presentation: wire offsets → byte edits, and row construction. 728 lines of duplicated
+    vocabulary and matching logic are gone, along with `expand_usage_options`' second copy.
+  - **The drift is now a test, not a hope.**
+    `completion_catalog_matches_the_dispatchers_vocabulary` asserts agreement in both
+    directions (everything advertised is admitted; every admitted command is advertised),
+    `builtin_quotas_is_completable_from_the_composer` pins the concrete regression, and
+    `advertised_aliases_complete_and_commit_their_canonical_target` pins that an alias
+    completes under its own spelling but commits the canonical command. The test fixture is
+    the server's catalog, not a test-local one.
+  - **`/setup` was declared where admission happens.** It had been documented and completed
+    for as long as the TUI held its own copy, but `BuiltinCmd::from_alias` never had an arm
+    for it, so it completed and then dead-ended. It now resolves, and
+    `documented_aliases_all_resolve` verifies every alias in the reference table dispatches.
+- **The command vocabulary is named for its scope, not for a runtime layer.** "Harness
+  command" described *who runs* a command and thereby invited the very boundary erosion
+  `[INV-CMD-01]` forbids — once "harness" means "whatever the runtime runs", the dashboard
+  and settings views look admissible. The vocabulary is now **slash command**: a `/name`
+  control-plane operation scoped to the current thread. Nothing executable changed; the
+  name, and the docs that carry it, now state the boundary.
+- **`settle`-time draft restore is a rule, not a special case.** The command-result
+  applier's restore path is the only place that writes the composer from the transcript,
+  and it refuses to write into a non-empty buffer — a rejected command must never clobber
+  text the user has moved on to.
+
 ## [0.0.54] - 2026-10-28
 
 ### Fixed

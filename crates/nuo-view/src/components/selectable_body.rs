@@ -26,7 +26,7 @@
 //! `render_body`: their rows are interactive *targets*, not documents, and
 //! selection there would fight the click affordances.
 
-use nuotc::{Frame, Line, Rect, Span, Style};
+use nuotc::{Frame, Rect, Span, Style};
 
 use crate::model::layout::{BlockRegion, LayoutMap, LinkHit, MODAL_DOC_MSG_IDX};
 use crate::model::selection::SelectionState;
@@ -38,7 +38,7 @@ use nuo_ui_primitives::primitives::{
 };
 use nuo_ui_primitives::theme::Theme;
 
-pub use nuo_ui_primitives::components::row::{RowSegment, SelectableRow};
+pub use nuo_ui_primitives::components::row::{RowSegment, SelectableRow, render_row_line};
 
 /// Compute the total visual rows for a slice of [`SelectableRow`]s within `body_width`.
 #[allow(dead_code)]
@@ -229,83 +229,6 @@ pub fn render_selectable_body(
     }
 
     draw_scrollbar(frame, body_rect, start, max_scroll, theme);
-}
-
-/// Build one visual row's `Line`: walk segment boundaries + selection
-/// boundaries and emit one span per uniform (segment, selected) run. With no
-/// selection (or no intersection) this degenerates to one span per segment.
-///
-/// `text` is the **wrapped slice** of the row's document text and
-/// `base_offset` is that slice's byte offset within the full row — segment
-/// boundaries are therefore translated into the slice's coordinate space
-/// before slicing. (Slicing the wrapped text with full-row offsets silently
-/// drops text on continuation rows: a range that runs past the end of the
-/// slice is skipped, which is how `bash  ls | head` rendered as `l | he`.)
-fn render_row_line(
-    text: &str,
-    base_offset: usize,
-    segments: &[RowSegment],
-    selected: Option<(usize, usize)>,
-    theme: &Theme,
-) -> Line<'static> {
-    if text.is_empty() {
-        return Line::from(Vec::<Span<'static>>::new());
-    }
-    // Segment byte ranges over the concatenated row text, intersected with
-    // the wrapped slice's [base_offset, base_offset + text.len()) window.
-    let slice_end = base_offset + text.len();
-    let mut points: Vec<usize> = Vec::with_capacity(segments.len() * 2 + 3);
-    points.push(0);
-    let mut acc = 0usize;
-    for seg in segments {
-        let seg_start = acc;
-        acc += seg.text.len();
-        let seg_end = acc;
-        // Only segments that overlap this visual row become split points.
-        let (lo, hi) = (seg_start.max(base_offset), seg_end.min(slice_end));
-        if lo < hi {
-            points.push(lo - base_offset);
-            points.push(hi - base_offset);
-        }
-    }
-    if let Some((lo, hi)) = selected {
-        points.push(lo.min(text.len()));
-        points.push(hi.min(text.len()));
-    }
-    points.push(text.len());
-    points.sort_unstable();
-    points.dedup();
-
-    let seg_style = |p: usize| -> Option<&Style> {
-        let full = p + base_offset;
-        let mut acc = 0usize;
-        for seg in segments {
-            acc += seg.text.len();
-            if full < acc {
-                return Some(&seg.style);
-            }
-        }
-        None
-    };
-
-    let mut spans = Vec::new();
-    for pair in points.windows(2) {
-        let (lo, hi) = (pair[0], pair[1]);
-        if lo >= hi || hi > text.len() {
-            continue;
-        }
-        let Some(base) = seg_style(lo) else {
-            continue;
-        };
-        let is_sel = matches!(selected, Some((slo, shi)) if lo >= slo && hi <= shi);
-        let style = if is_sel {
-            base.bg(theme.selected()).fg(theme.fg())
-        } else {
-            *base
-        };
-        spans.push(Span::styled(text[lo..hi].to_string(), style));
-    }
-    Line::from(spans)
 }
 
 #[cfg(test)]

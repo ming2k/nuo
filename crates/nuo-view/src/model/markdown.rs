@@ -44,6 +44,35 @@ pub fn parse_blocks_plain(text: &str) -> Vec<Block> {
     vec![Block::Text(Inline::plain(text.to_string()))]
 }
 
+/// Parse text as **lines**: one `Block::Text` per non-empty line, one
+/// [`Block::Break`] per empty line.
+///
+/// This is the document shape for diagnostic bodies (notice/retry text). It
+/// exists for one reason: a diagnostic must be addressable line by line, so
+/// that
+///
+/// - the renderer registers one region per *logical* line (a long JSON line
+///   still wraps, and its visual rows share that line's block index with
+///   cumulative byte offsets),
+/// - a drag selection copies the exact lines it covers, and
+/// - copy yields the same bytes the entry displays — no markdown
+///   interpretation, so a JSON body containing `*`, `-`, `#` or backticks at a
+///   line start can never be re-read as emphasis, a list, a heading or code.
+///
+/// Blank lines become [`Block::Break`], the model's paragraph-rhythm signal, so
+/// a rebuilt selection re-inserts exactly one blank line between paragraphs.
+pub fn parse_blocks_verbatim(text: &str) -> Vec<Block> {
+    text.split('\n')
+        .map(|line| {
+            if line.trim().is_empty() {
+                Block::Break
+            } else {
+                Block::Text(Inline::plain(line.to_string()))
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn parse_blocks_markdown_tracked(text: &str) -> (Vec<Block>, ParseResume) {
     let mut blocks = Vec::new();
     // Each line with its byte offset in `text`, so the live construct's

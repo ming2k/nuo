@@ -339,6 +339,15 @@ pub enum InputAction {
     FocusedTargetKey(crate::shell::keymap::Key),
     /// Copy the content of the currently focused target (`y` or `c` while a step is focused).
     CopyFocusedTarget,
+    /// Copy the currently focused target (or the last visible notice entry)
+    /// **as a diagnostic record**: a one-line `key=value` header naming the
+    /// entry's kind, severity, topic, route, attempt, timestamp, thread and log
+    /// path, a blank line, then the entry's verbatim text.
+    ///
+    /// This is the channel a user needs when the reason they are copying is to
+    /// have someone else read it: the body alone does not say which model
+    /// produced it, on which attempt, or where the corresponding log lives.
+    CopyFocusedDiagnostic,
     /// Clear the keyboard-focused target, returning every key to its ordinary
     /// input-box meaning. Triggered by `Esc` while a step is focused.
     ClearFocusedTarget,

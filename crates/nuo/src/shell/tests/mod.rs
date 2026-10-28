@@ -32,8 +32,11 @@ use nuo_wire::{AgentRequest, ProviderPickerSnapshot};
 
 use std::collections::HashMap;
 
+/// The vocabulary fixture is the **server's** catalog — the same publication a
+/// real client receives during attach. A test-local copy was what let the TUI's
+/// popup advertise `/delegate` and lose `/quotas` without any test noticing.
 fn test_command_catalog() -> nuo_wire::CommandCatalog {
-    crate::shell::completion::command_catalog(&[])
+    nuo_server::startup::command_catalog(&[])
 }
 
 fn thread_with_subagents() -> Vec<TranscriptMessage> {
@@ -247,6 +250,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         surface_overrides: crate::shell::keymap::SurfaceOverrides::default(),
         focused_target: None,
         copy_toast_until: None,
+        receipts: crate::shell::app::receipts::ReceiptLog::default(),
         copy_toast_message: String::new(),
         copy_toast_failed: false,
         notice_toast_until: None,
@@ -364,6 +368,7 @@ pub(crate) fn overview_row(id: &str) -> nuo_wire::SessionOverview {
     nuo_wire::SessionOverview {
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         id: id.to_string(),
         title: None,
         overview: format!("overview-{id}"),
@@ -424,6 +429,7 @@ fn console_host_rows(app: &mut App) {
         project_root: "/tmp/proj".to_string(),
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         digest: None,
     };
     app.host_sessions = vec![row("aaa", 100), row("bbb", 200)];

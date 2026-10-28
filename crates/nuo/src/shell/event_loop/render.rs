@@ -642,6 +642,7 @@ fn compose_frame(
                     toggle_mode_key: app
                         .surface_overrides
                         .effective_binding(crate::shell::keymap::SurfaceVerb::ToggleSendMode),
+                    entry_focused: app.focused_target.is_some(),
                 }
             };
             let history_ghost: Option<String> =
@@ -891,6 +892,8 @@ fn compose_frame(
                         nuo_view::model::selection::SelectionState::None
                     ),
                     has_running_task: viewed_running,
+                    has_receipts: !app.receipts.is_empty(),
+                    has_focused_entry: app.focused_target.is_some(),
                     queue_count: app.pending_dispatch.len(),
                     has_session: app.has_session(),
                     scene: app.current_scene(),

@@ -99,46 +99,63 @@ fn extract_content_blob(payload_json: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Reassemble the persisted fork address from its two columns. A turn without
+/// a round is not a representable address, so it degrades to "unrecorded"
+/// rather than inventing a round the writer never stamped.
+fn fork_point_from_columns(round: Option<i64>, turn: Option<i64>) -> Option<nuo_wire::ForkPoint> {
+    round.map(|round| nuo_wire::ForkPoint {
+        round: round.max(0) as u64,
+        turn: turn.map(|t| t.max(0) as u32),
+    })
+}
+
 fn map_session_row(row: &Row) -> Result<SessionRecord> {
     Ok(SessionRecord {
         id: row.get(0)?,
         parent_id: row.get(1)?,
         fork_kind: row.get(2)?,
-        title: row.get(3)?,
-        created_at_s: row.get(4)?,
-        updated_at_s: row.get(5)?,
-        workspace_root: row.get(6)?,
-        persona: row.get(7)?,
-        msg_count: row.get(8)?,
-        last_user_prompt: row.get(9)?,
-        digest: row.get(10)?,
+        fork_point: fork_point_from_columns(row.get(3)?, row.get(4)?),
+        title: row.get(5)?,
+        created_at_s: row.get(6)?,
+        updated_at_s: row.get(7)?,
+        workspace_root: row.get(8)?,
+        persona: row.get(9)?,
+        msg_count: row.get(10)?,
+        last_user_prompt: row.get(11)?,
+        digest: row.get(12)?,
     })
 }
 
-type SummaryRow = (
-    String,
-    Option<String>,
-    String,
-    Option<String>,
-    i64,
-    i64,
-    i64,
-    Option<String>,
-    Option<String>,
-);
+/// One picker row as read from `thread_list_view`: identity, lineage, and the
+/// two display fields. Grouped in a struct rather than a positional tuple —
+/// the column count has grown twice (lineage in ADR-0120) and a tuple makes a
+/// mis-ordered `row.get(n)` a silent data swap rather than a compile error.
+struct SummaryRow {
+    id: String,
+    parent_id: Option<String>,
+    fork_kind: String,
+    fork_point: Option<nuo_wire::ForkPoint>,
+    title: Option<String>,
+    created_at_s: i64,
+    updated_at_s: i64,
+    msg_count: i64,
+    last_user_prompt: Option<String>,
+    digest_json: Option<String>,
+}
 
 fn map_summary_row(row: &Row) -> Result<SummaryRow> {
-    Ok((
-        row.get(0)?,
-        row.get(1)?,
-        row.get(2)?,
-        row.get(3)?,
-        row.get(4)?,
-        row.get(5)?,
-        row.get(6)?,
-        row.get(7)?,
-        row.get(8)?,
-    ))
+    Ok(SummaryRow {
+        id: row.get(0)?,
+        parent_id: row.get(1)?,
+        fork_kind: row.get(2)?,
+        fork_point: fork_point_from_columns(row.get(3)?, row.get(4)?),
+        title: row.get(5)?,
+        created_at_s: row.get(6)?,
+        updated_at_s: row.get(7)?,
+        msg_count: row.get(8)?,
+        last_user_prompt: row.get(9)?,
+        digest_json: row.get(10)?,
+    })
 }
 
 fn push_summary(
@@ -146,21 +163,24 @@ fn push_summary(
     item: SummaryRow,
     active_id: &str,
 ) {
-    let (
+    let SummaryRow {
         id,
         parent_id,
-        fork_str,
+        fork_kind: fork_str,
+        fork_point,
         title,
         created_at_s,
         updated_at_s,
         msg_count,
         last_user_prompt,
         digest_json,
-    ) = item;
+    } = item;
     let fork_kind = match fork_str.as_str() {
         "fork" => nuo_wire::SessionForkKind::Fork,
+        "subagent" => nuo_wire::SessionForkKind::Subagent,
         _ => nuo_wire::SessionForkKind::Trunk,
     };
+
     let final_msg_count = msg_count.max(0) as usize;
     if final_msg_count == 0 && id != active_id {
         return;
@@ -182,6 +202,7 @@ fn push_summary(
         title: real_title,
         parent_id,
         fork_kind,
+        fork_point,
         message_count: final_msg_count,
         updated_at: updated_at_s.max(0) as u64,
         created_at: created_at_s.max(0) as u64,

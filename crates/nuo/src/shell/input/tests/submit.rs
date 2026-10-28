@@ -115,14 +115,62 @@ fn enter_with_workspace_view_commands_triggers_guardrail_notice() {
     }
 }
 
+/// `[INV-CMD-02]` — admission belongs to the dispatcher, not the router.
 #[test]
-fn enter_with_unknown_slash_command_dispatches_send_slash() {
+fn enter_with_unrecognised_slash_command_stays_a_slash_command() {
+    // The router is **not** the command authority. It cannot be: the built-in
+    // vocabulary is compiled into `nuo-server`, and an embedding adds more
+    // through `SlashCommandRegistry`. So a `/`-prefixed draft is emitted as
+    // `SendSlash` even when this frontend has never heard of the name, and the
+    // server's dispatcher answers with a typed `CommandResult::UnknownCommand`.
+    // The old client-side downgrade to `SendChat` swallowed typos into the
+    // transcript as if they were prompts (and could never have recognized a
+    // registered extension command).
     let mut input = "/custom-command arg1".to_string();
     assert_eq!(
         enter(&mut input, false),
         InputAction::SendSlash("/custom-command arg1".to_string())
     );
     assert_eq!(input, "");
+
+    let mut typo = "/modles".to_string();
+    assert_eq!(
+        enter(&mut typo, false),
+        InputAction::SendSlash("/modles".to_string()),
+        "a mistyped command must reach the server, which can name the intent"
+    );
+}
+
+/// The escaped-prose hatch must consume its marker.
+///
+/// The unknown-command error advertises "prefix the input with a space", so that
+/// path is a *contract*: the leading space selects prose and must not ride along
+/// into the prompt. Shipping it left an invisible character at the head of every
+/// message the hatch was used for.
+#[test]
+fn leading_space_escape_sends_prose_without_the_marker() {
+    let mut input = " /etc/hosts is odd".to_string();
+    assert_eq!(
+        enter(&mut input, false),
+        InputAction::SendChat("/etc/hosts is odd".to_string()),
+        "the space is the escape marker, not the prompt's first character"
+    );
+    assert_eq!(input, "");
+
+    // A bare marker has nothing to send.
+    let mut blank = " ".to_string();
+    assert_eq!(enter(&mut blank, false), InputAction::None);
+}
+
+#[test]
+fn two_leading_spaces_are_ordinary_indentation() {
+    // Only a *single* leading space is the escape marker; `  foo` is an indented
+    // code block and must reach the model verbatim.
+    let mut input = "   let x = 1;".to_string();
+    assert_eq!(
+        enter(&mut input, false),
+        InputAction::SendChat("   let x = 1;".to_string())
+    );
 }
 
 #[test]

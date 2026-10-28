@@ -157,7 +157,17 @@ pub(crate) fn show_local_toast(
     failed: bool,
     duration: std::time::Duration,
 ) {
-    app.copy_toast_message = message.into();
+    let message = message.into();
+    // A failed local toast is real diagnostic content, so it joins the
+    // retained receipt log before it fades; a successful one is an
+    // acknowledgement of an action the user can repeat and is not retained.
+    if failed {
+        app.receipts.record(
+            nuo_view::model::document::NoticeSeverity::Error,
+            message.clone(),
+        );
+    }
+    app.copy_toast_message = message;
     app.copy_toast_failed = failed;
     app.copy_toast_until = Some(std::time::Instant::now() + duration);
 }

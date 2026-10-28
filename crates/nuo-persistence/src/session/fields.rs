@@ -207,6 +207,13 @@ impl SessionStore {
         self.state.lock().await.data.parent_id.clone()
     }
 
+    /// Where this branch diverged from its parent (ADR-0120). Written once by
+    /// [`SessionStore::fork_at`]; there is deliberately no setter — a branch's
+    /// origin is not a user-editable property.
+    pub async fn fork_point(&self) -> Option<nuo_wire::ForkPoint> {
+        self.state.lock().await.data.fork_point
+    }
+
     pub async fn disabled_tools(&self) -> std::collections::HashSet<String> {
         self.state.lock().await.data.disabled_tools.clone()
     }

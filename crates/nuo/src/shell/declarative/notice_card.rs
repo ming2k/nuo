@@ -121,9 +121,13 @@ impl NoticeCardProps {
             _ => return None,
         };
 
-        let parsed = nuo_view::components::notice::parse_notice_content(&content);
+        // The body is normalized by its single owner in the model tier
+        // (`nuo_view::model::notice_text`); this bridge only splits the stored
+        // text into the card's title/body slots. Re-parsing here would restore
+        // the second projection that owner exists to prevent.
+        let parsed = nuo_view::model::notice_text::normalize(&content);
         Some(Self {
-            title: parsed.header,
+            title: parsed.title,
             message: parsed.detail.unwrap_or(content),
             severity,
             actions: Vec::new(),

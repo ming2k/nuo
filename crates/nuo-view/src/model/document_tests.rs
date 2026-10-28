@@ -916,9 +916,13 @@ fn provider_retry_settles_on_interruption() {
             attempt: Some((2, 5)),
         })
     );
+    // The display text is the structured split rendered as text: the lead on
+    // its own line, then the normalized detail. One text for painting and
+    // copying — never a `title: detail` string splice that the renderer would
+    // have to split back apart.
     assert_eq!(
         msg.raw,
-        "Provider request failed (attempt 2/5): Anthropic HTTP 529: Overloaded"
+        "Provider request failed (attempt 2/5)\nAnthropic HTTP 529: Overloaded"
     );
 }
 

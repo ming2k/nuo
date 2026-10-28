@@ -438,6 +438,59 @@ mod role_command_tests {
 }
 
 #[cfg(test)]
+mod unknown_command_tests {
+    use nuo_wire::CommandResult;
+
+    /// A typo must come back as a **typed, machine-readable** result that names
+    /// the intended command: the client deliberately routes every `/`-prefixed
+    /// draft to the dispatcher instead of downgrading it to a prompt, so this is
+    /// what a typo produces, and the client uses the payload to hand the draft
+    /// back to the composer.
+    #[test]
+    fn typo_names_the_command_that_was_meant() {
+        let result = CommandResult::UnknownCommand {
+            name: "/modles".to_string(),
+            suggestion: crate::startup::suggest_command("/modles").map(str::to_string),
+        };
+        assert!(
+            matches!(
+                &result,
+                CommandResult::UnknownCommand { suggestion: Some(s), .. } if s == "/models"
+            ),
+            "{result:?}"
+        );
+        let text = result.to_text();
+        assert!(text.starts_with("Unknown command: /modles."), "{text}");
+        assert!(text.contains("Did you mean /models?"), "{text}");
+    }
+
+    /// Prose that merely starts with a slash gets the escape hatch, never a
+    /// bogus suggestion.
+    #[test]
+    fn unrelated_slash_text_gets_the_escape_hatch() {
+        let result = CommandResult::UnknownCommand {
+            name: "/etc/hosts".to_string(),
+            suggestion: crate::startup::suggest_command("/etc/hosts").map(str::to_string),
+        };
+        assert!(
+            matches!(
+                &result,
+                CommandResult::UnknownCommand {
+                    suggestion: None,
+                    ..
+                }
+            ),
+            "{result:?}"
+        );
+        let text = result.to_text();
+        assert!(!text.contains("Did you mean"), "{text}");
+        assert!(
+            text.contains("prefix the input with a space"),
+            "the sent-as-text escape must be discoverable: {text}"
+        );
+    }
+}
+
 mod retired_aside_redirect_tests {
     use std::sync::Arc;
 
@@ -494,6 +547,55 @@ mod retired_aside_redirect_tests {
             texts.iter().any(|t| t.contains("retired")),
             "guidance must explain the retirement: {texts:?}"
         );
+    }
+
+    /// `[INV-LINEAGE-01]`: the announcement carries the same fork point the
+    /// child persisted, and the picker's projection surfaces it. One fact, one
+    /// writer, every reader.
+    #[tokio::test]
+    async fn fork_announcement_and_overview_carry_the_persisted_fork_point() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
+        store
+            .replace_messages(vec![
+                Message::new(Role::User, "r1 user"),
+                Message::new(Role::Assistant, "r1 answer"),
+                Message::new(Role::User, "r2 user"),
+                Message::new(Role::Assistant, "r2 answer"),
+            ])
+            .await
+            .unwrap();
+        store.set_round_counter(2).await.unwrap();
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        super::super::session_ops::fork_current_session(&store, &tx, "/fork", "2.0").await;
+
+        let mut announced = None;
+        while let Ok(resp) = rx.try_recv() {
+            if let AgentResponse::SessionForked {
+                child_id,
+                fork_point,
+                ..
+            } = resp
+            {
+                announced = Some((child_id, fork_point));
+            }
+        }
+        let (child_id, fork_point) = announced.expect("a /fork must announce the branch");
+        assert_eq!(fork_point, Some(nuo_wire::ForkPoint::at_turn(2, 0)));
+
+        // The picker's own projection reads the same value off the store — it
+        // does not re-derive it from the announcement.
+        let overview = crate::session_view::build_sessions_overview(&store).await;
+        let child = overview
+            .iter()
+            .find(|row| row.id == child_id)
+            .expect("the branch appears in the overview");
+        assert_eq!(child.fork_point, Some(nuo_wire::ForkPoint::at_turn(2, 0)));
+        assert_eq!(child.fork_kind, nuo_wire::SessionForkKind::Fork);
+        assert_eq!(child.parent_id.as_deref(), Some(store.id().await.as_str()));
+        // A fork no longer invents a title to carry its provenance.
+        assert_eq!(child.title, None, "provenance is not smuggled into a title");
     }
 
     /// A bare `/btw` still forks, but carries no opening message.

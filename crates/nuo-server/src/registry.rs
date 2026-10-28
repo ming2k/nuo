@@ -1845,6 +1845,7 @@ fn base_row(
         // Lineage rides from the overview (fork surfacing).
         parent_id: overview.parent_id,
         fork_kind: overview.fork_kind,
+        fork_point: overview.fork_point,
         digest: overview.digest,
     }
 }
@@ -1864,6 +1865,7 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
                 active,
                 parent_id: item.parent_id,
                 fork_kind: item.fork_kind,
+                fork_point: item.fork_point,
                 digest: item.digest,
             };
         }
@@ -1882,6 +1884,7 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
         // Not on disk yet (never persisted or empty): no lineage to report.
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_point: None,
         digest,
     }
 }

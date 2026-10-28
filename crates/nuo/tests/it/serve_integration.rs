@@ -33,6 +33,7 @@ fn idle_base(id: String) -> nuo_wire::MonitoredSession {
         project_root: String::new(),
         parent_id: None,
         fork_kind: nuo_wire::SessionForkKind::default(),
+        fork_point: None,
         digest: None,
     }
 }

@@ -452,6 +452,7 @@ impl SessionStore {
             title: real_title,
             parent_id: data.parent_id.clone(),
             fork_kind: data.fork_kind,
+            fork_point: data.fork_point,
             message_count: data.transcript.entries.len(),
             updated_at: data.updated_at,
             created_at: data.created_at,

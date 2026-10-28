@@ -71,6 +71,49 @@ pub(super) fn spawn_clipboard_copy(
     });
 }
 
+/// Resolve `request` and, on success, write it to the clipboard and show the
+/// receipt; on failure, explain what *is* copyable.
+///
+/// This is the only place a copy is dispatched from the shell. Every trigger —
+/// the global chord, the focused-entry verb, the diagnostic verb, a dialog's
+/// own copy action — calls it, so the resolution rules
+/// ([`super::copy::CopyRequest`]) and the feedback sentence can never differ
+/// between two paths to the same bytes, and an empty payload can never reach
+/// the clipboard (the previous behaviour silently cleared it while reporting
+/// "copied").
+pub(super) fn copy(
+    app: &mut App,
+    request: super::copy::CopyRequest,
+    viewed_session_id: &str,
+    copy_tx: &mpsc::UnboundedSender<Result<CopyOutcome, String>>,
+    copy_pending: &Arc<AtomicUsize>,
+) {
+    match request.resolve(app, viewed_session_id) {
+        Ok(payload) => {
+            spawn_clipboard_copy(copy_tx, Arc::clone(copy_pending), payload.text);
+            show_copy_receipt(app, payload.feedback);
+        }
+        Err(error) => show_copy_failure(app, error.message()),
+    }
+}
+
+/// Show the outcome of a copy request that had nothing to copy.
+pub(super) fn show_copy_failure(app: &mut App, message: &str) {
+    app.copy_toast_message = message.to_string();
+    app.copy_toast_failed = true;
+    app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(2600));
+}
+
+/// Show a copy receipt. Superseded by the clipboard result toast
+/// ([`set_copy_feedback`]) once the write completes, so a stalled clipboard
+/// still reports honestly rather than leaving the optimistic sentence on
+/// screen forever.
+fn show_copy_receipt(app: &mut App, message: String) {
+    app.copy_toast_message = message;
+    app.copy_toast_failed = false;
+    app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+}
+
 /// Read the system clipboard in a background task and deliver the result to
 /// the event loop. Bounded by a timeout so a stuck clipboard reader can never
 /// freeze paste feedback.

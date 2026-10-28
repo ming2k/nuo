@@ -1568,12 +1568,37 @@ pub(crate) async fn user_command(
         fork_retired_aside(session, resp_tx, name, args).await;
         return;
     }
-    record_error(
+    // Unknown command: a `/`-prefixed draft is a command, not a prompt, so it
+    // must never be silently appended to the transcript as a user turn (the
+    // client sends it here precisely because it is spelled as a command). Answer
+    // with the dedicated `UnknownCommand` result — `startup` owns the vocabulary,
+    // so this is also the only place that can name the command that was meant.
+    record_unknown_command(session, resp_tx, name, args, parts[0]).await;
+}
+
+/// Record an unrecognized `/name` and hand the caller a computable reply.
+///
+/// Distinct from [`record_error`] on purpose: the reply is machine-readable
+/// (`CommandResult::UnknownCommand`), so a frontend can return the draft to the
+/// composer instead of only painting a message. A typo is a *correctable*
+/// gesture — the text is intact and nothing reached the model — and treating it
+/// like a failed side effect (a plain error) is what made it feel unrecoverable.
+pub(crate) async fn record_unknown_command(
+    session: &std::sync::Arc<nuo_persistence::session::SessionStore>,
+    resp_tx: &tokio::sync::mpsc::UnboundedSender<nuo_wire::AgentResponse>,
+    name: &str,
+    args: &str,
+    typed: &str,
+) {
+    record_command(
         session,
         resp_tx,
         name,
         args,
-        format!("Unknown command: {}", parts[0]),
+        nuo_wire::CommandResult::UnknownCommand {
+            name: typed.to_string(),
+            suggestion: crate::startup::suggest_command(typed).map(str::to_string),
+        },
     )
     .await;
 }

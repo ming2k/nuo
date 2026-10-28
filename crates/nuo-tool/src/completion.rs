@@ -1,19 +1,26 @@
 //! Backend-owned command vocabulary shared by every frontend.
 //!
-//! Commands are *harness commands*: control-plane operations owned by the
-//! session harness (invoked from a composer as `/name`). The server owns the
-//! vocabulary; frontends only render it.
+//! A command here is a **slash command**: a `/name` control-plane operation
+//! scoped to the current thread (its model, context, tools, and session), owned
+//! and executed by the server. The server owns the vocabulary; frontends only
+//! render it.
+//!
+//! The name matters, because the boundary does: a *workspace view* (the
+//! dashboard, settings — §[INV-CMD-01], ADR-0041) is a client-navigation surface,
+//! not a command, and must never enter this vocabulary. Calling these
+//! "harness commands" invited exactly that confusion, so the vocabulary is
+//! spelled for its scope instead of for the layer that happens to run it.
 
 use serde::{Deserialize, Serialize};
 
-/// One concrete example for a harness command (invoked as `/name`).
+/// One concrete example for a slash command (invoked as `/name`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandExample {
     pub command: String,
     pub description: String,
 }
 
-/// A canonical harness command and all metadata needed for completion/help.
+/// A canonical slash command and all metadata needed for completion/help.
 ///
 /// Exactly one prose field exists: [`CommandSpec::summary`]. It doubles as the
 /// menu line and the inspector/detail text, so keep it informative on its own
@@ -38,7 +45,7 @@ pub struct CommandSpec {
     pub subcommands: Vec<CommandSubcommandSpec>,
 }
 
-/// One first-token verb of a harness command.
+/// One first-token verb of a slash command.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandSubcommandSpec {
     pub name: String,

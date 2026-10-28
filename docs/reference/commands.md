@@ -21,8 +21,8 @@ Type these at the composer to open the corresponding surface or perform the acti
 | `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) |
 | `/role` | Switch agent role (identity, capability, and workspace) |
 | `/search` | Semantic search over session history |
-| `/threads` | Browse or resume past threads |
-| `/fork` | Fork thread into a child thread (ADR-0058: round/turn granular) |
+| `/threads` | Browse or resume past threads — a lineage forest: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) |
+| `/fork` | Fork thread into a child thread at head, at round (`/fork 2`), or after a turn (`/fork 2.1`); the address is persisted and shown in `/threads`, the dashboard dock, and `nuo thread ls` (ADR-0058, ADR-0120) |
 | `/tree` | Visual DAG thread tree and branch navigation |
 | `/diff` | View workspace modifications made in this thread |
 | `/undo` | Undo the last thread turn and file changes |
@@ -59,7 +59,9 @@ Several commands take a subcommand argument:
 
 ## Aliases
 
-Aliases parse and dispatch but are not advertised, so `/help` lists only the canonical names above:
+Aliases resolve at dispatch but are not listed by `/help`, which keeps to the canonical names
+above. They *are* offered by input completion under their own spelling — selecting one commits
+the canonical command, so the transcript only ever records the canonical form.
 
 | Alias | Canonical |
 | :--- | :--- |
@@ -67,6 +69,30 @@ Aliases parse and dispatch but are not advertised, so `/help` lists only the can
 | `/auto`, `/delegate`, `/autopilot`, `/yolo` | `/unattended` |
 | `/unconfine`, `/unconfined`, `/jail`, `/escape` | `/confinement` |
 | `/setup` | `/init` |
+
+The table is declared once, in `crates/nuo-server/src/startup.rs` (`BuiltinCmd::from_alias`),
+and the completion catalog is generated from that same declaration — so an alias cannot be
+documented, or offered in the popup, without being dispatchable.
+
+---
+
+## Mistyped commands
+
+A `/`-prefixed draft is always a command: the client ships it to the dispatcher rather than
+guessing, so a name that is not in the vocabulary is answered with a typed error instead of
+being appended to the transcript as a prompt (ADR-0119, `[INV-CMD-02]`).
+
+```
+Unknown command: /modles. Did you mean /models? (Prefix the input with a space to send it as text.)
+```
+
+- The nearest built-in is named when there is one (prefix match, then a bounded edit distance).
+- The rejected invocation is handed back to the composer, so fixing a typo costs one
+  keystroke rather than a retype. If you have already typed something else, your text is
+  untouched.
+- To send text that merely *starts* with `/`, prefix it with a space: ` /etc/hosts` is prose
+  and goes to the model. The marker space is consumed, not sent: the model receives
+  `/etc/hosts`. Two or more leading spaces are ordinary indentation and are sent verbatim.
 
 ---
 

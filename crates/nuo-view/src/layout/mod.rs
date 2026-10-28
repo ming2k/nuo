@@ -664,6 +664,8 @@ impl<'a, 'f> Stream<'a, 'f> {
                 &mut self.skip_rows,
                 &mut self.current_y,
                 &mut self.content_lines,
+                &mut self.height_cache.wrap,
+                self.selection,
                 self.theme,
                 hovered,
                 focused_notice,

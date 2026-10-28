@@ -128,6 +128,91 @@ fn render_threads(sessions: &[MonitoredSession], watch: bool, json: bool) {
     println!("{}", format_threads_table(sessions));
 }
 
+/// One headless row: a live session plus the lineage geometry it paints.
+struct ThreadRow<'a> {
+    row: &'a MonitoredSession,
+    /// `""` at the root lane; otherwise ancestor columns plus an elbow — the
+    /// same grammar the TUI picker paints, so a terminal without the TUI still
+    /// sees the tree (ADR-0120).
+    lane: String,
+}
+
+/// Order the flat monitor snapshot into a lineage forest, without dropping a
+/// row. `nuo thread ls` and the TUI picker must agree on what a branch is, so
+/// this derives geometry from the same persisted facts and the same two rules:
+/// creation order within a sibling set, and every row emitted exactly once.
+fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
+    use std::collections::{HashMap, HashSet};
+
+    let present: HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+    let mut children: HashMap<&str, Vec<&MonitoredSession>> = HashMap::new();
+    let mut roots: Vec<&MonitoredSession> = Vec::new();
+    for row in sessions {
+        match row.parent_id.as_deref() {
+            Some(parent) if present.contains(parent) && parent != row.id => {
+                children.entry(parent).or_default().push(row);
+            }
+            _ => roots.push(row),
+        }
+    }
+
+    let by_creation = |a: &&MonitoredSession, b: &&MonitoredSession| {
+        (a.created_at, a.id.as_str()).cmp(&(b.created_at, b.id.as_str()))
+    };
+    roots.sort_by(by_creation);
+    for list in children.values_mut() {
+        list.sort_by(by_creation);
+    }
+
+    let mut out = Vec::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+    // Explicit stack, not recursion: a long chain must not overflow the stack
+    // of a CLI that a script may point at an arbitrary store.
+    let mut stack: Vec<(&MonitoredSession, usize, bool, Vec<bool>)> = roots
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(index, row)| (*row, 0usize, index + 1 == roots.len(), Vec::new()))
+        .collect();
+
+    while let Some((row, depth, is_last, ancestry)) = stack.pop() {
+        if !visited.insert(row.id.as_str()) {
+            continue;
+        }
+        let mut lane = String::new();
+        for (i, continues) in ancestry.iter().enumerate() {
+            if i + 1 == ancestry.len() {
+                lane.push_str(if is_last { "└─ " } else { "├─ " });
+            } else {
+                lane.push_str(if *continues { "│  " } else { "   " });
+            }
+        }
+        let _ = depth;
+        out.push(ThreadRow { row, lane });
+
+        if let Some(kids) = children.get(row.id.as_str()) {
+            let last_index = kids.len().saturating_sub(1);
+            for (index, kid) in kids.iter().enumerate().rev() {
+                let mut next = ancestry.clone();
+                next.push(if depth == 0 { true } else { !is_last });
+                stack.push((kid, depth + 1, index == last_index, next));
+            }
+        }
+    }
+
+    // Rows unreachable from any root (a `parent_id` cycle) still get listed.
+    for row in sessions {
+        if !visited.contains(row.id.as_str()) {
+            out.push(ThreadRow {
+                row,
+                lane: String::new(),
+            });
+        }
+    }
+
+    out
+}
+
 pub fn format_threads_table(sessions: &[MonitoredSession]) -> String {
     let mut out = String::new();
     if sessions.is_empty() {
@@ -139,7 +224,7 @@ pub fn format_threads_table(sessions: &[MonitoredSession]) -> String {
         "  {:<12} {:<12} {:<9} {:>8} {:<10} {}\n",
         "THREAD ID", "STATUS", "ROUNDS", "TOKENS", "UPDATED", "TITLE"
     ));
-    for row in sessions {
+    for ThreadRow { row, lane } in thread_rows(sessions) {
         let tokens = if let Some(ctx) = row.context_tokens {
             fmt_k(ctx)
         } else if row.output_tokens > 0 {
@@ -153,7 +238,26 @@ pub fn format_threads_table(sessions: &[MonitoredSession]) -> String {
             (r, Some(t)) => format!("{r} › {t}"),
             (r, None) => format!("{r}"),
         };
-        let title = truncate(&row.overview, 50);
+        // Title carries the lineage: the lane geometry, the fork address when
+        // the store recorded one, and a warning when the origin is not here.
+        let mut title = String::new();
+        if !lane.is_empty() {
+            title.push_str(&lane);
+        }
+        match (row.fork_kind, row.fork_point) {
+            (nuo_wire::SessionForkKind::Fork, Some(point)) => title.push_str(&format!("⑂{point} ")),
+            (nuo_wire::SessionForkKind::Fork, None) => title.push_str("⑂ "),
+            _ => {}
+        }
+        if let (nuo_wire::SessionForkKind::Fork, Some(parent)) =
+            (row.fork_kind, row.parent_id.as_deref())
+            && lane.is_empty()
+        {
+            // An anchorless branch: the parent is not in this listing. Say so
+            // instead of letting the row read as an independent thread.
+            title.push_str(&format!("(from {}) ", short_id(parent)));
+        }
+        title.push_str(&truncate(&row.overview, 50));
 
         out.push_str(&format!(
             "  {:<12} {:<12} {:<9} {:>8} {:<10} {}\n",
@@ -239,6 +343,7 @@ mod tests {
             project_root: "/data".into(),
             parent_id: None,
             fork_kind: SessionForkKind::default(),
+            fork_point: None,
             digest: None,
         }];
         let formatted = format_threads_table(&rows);
@@ -248,6 +353,100 @@ mod tests {
         assert!(formatted.contains("2 › 1"));
         assert!(formatted.contains("12.5k"));
         assert!(formatted.contains("implement universal snapshot"));
+    }
+
+    /// A headless listing must show the same lineage the TUI paints: a branch
+    /// is never a bare row, and its fork address comes from the store
+    /// (`[INV-LINEAGE-01]`, `[INV-LINEAGE-02]`).
+    #[test]
+    fn threads_table_nests_branches_under_their_trunk() {
+        let row = |id: &str, parent: Option<&str>, created: u64| MonitoredSession {
+            id: id.into(),
+            title: Some(id.into()),
+            overview: id.into(),
+            created_at: created,
+            updated_at: created,
+            message_count: 1,
+            hosting: SessionHosting::Hosted,
+            status: SessionStatus::Idle,
+            round: 0,
+            turn: None,
+            output_tokens: 0,
+            elapsed_ms: 0,
+            current_tool: None,
+            activity: None,
+            context_tokens: None,
+            note: None,
+            project_root: "/data".into(),
+            parent_id: parent.map(str::to_string),
+            fork_kind: if parent.is_some() {
+                SessionForkKind::Fork
+            } else {
+                SessionForkKind::Trunk
+            },
+            fork_point: parent.map(|_| nuo_wire::ForkPoint::at_turn(1, 0)),
+            digest: None,
+        };
+
+        let rows = vec![
+            row("trunk0001", None, 10),
+            row("fork00001", Some("trunk0001"), 20),
+            row("fork00002", Some("trunk0001"), 30),
+        ];
+        let formatted = format_threads_table(&rows);
+
+        assert!(formatted.contains("trunk0001"), "{formatted}");
+        assert!(
+            formatted.contains("├─ ⑂r1.0 fork00001"),
+            "a non-last branch paints an elbow plus its fork address: {formatted}"
+        );
+        assert!(
+            formatted.contains("└─ ⑂r1.0 fork00002"),
+            "the last branch closes its elbow: {formatted}"
+        );
+        // Creation order, not snapshot order.
+        let first = formatted.find("fork00001").unwrap();
+        let second = formatted.find("fork00002").unwrap();
+        assert!(first < second, "siblings are ordered by creation");
+    }
+
+    /// A branch whose parent is not in the listing (the common case: the parent
+    /// is the thread you are attached to, or it was reaped) must announce its
+    /// origin instead of masquerading as a top-level conversation.
+    #[test]
+    fn threads_table_marks_a_branch_whose_origin_is_absent() {
+        let rows = vec![MonitoredSession {
+            id: "orphan0001".into(),
+            title: None,
+            overview: "orphan".into(),
+            created_at: 10,
+            updated_at: 10,
+            message_count: 1,
+            hosting: SessionHosting::Hosted,
+            status: SessionStatus::Idle,
+            round: 0,
+            turn: None,
+            output_tokens: 0,
+            elapsed_ms: 0,
+            current_tool: None,
+            activity: None,
+            context_tokens: None,
+            note: None,
+            project_root: "/data".into(),
+            parent_id: Some("missing-parent-id".into()),
+            fork_kind: SessionForkKind::Fork,
+            fork_point: None,
+            digest: None,
+        }];
+        let formatted = format_threads_table(&rows);
+        assert!(
+            formatted.contains("(from missing-pa)"),
+            "the absent origin is named (short id), not hidden: {formatted}"
+        );
+        assert!(
+            formatted.contains("⑂"),
+            "the row still reads as a branch: {formatted}"
+        );
     }
 
     #[test]

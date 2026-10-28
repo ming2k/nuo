@@ -78,6 +78,7 @@ use nuotc::{Color, Line, Span, Style};
 use unicode_width::UnicodeWidthStr;
 
 use crate::text_layout::wrap_text;
+use crate::theme::Theme;
 
 /// One styled segment of a selectable row. The row's document text is the
 /// concatenation of its segments' texts, in order.
@@ -616,6 +617,88 @@ fn render_atoms(spans: &mut Vec<Span>, atoms: &[(GroupAtom, usize)], bg: Color) 
         };
         spans.push(Span::styled(text, style));
     }
+}
+
+/// Paint one **visual** row of a [`SelectableRow`]: split it at segment
+/// boundaries and at the selected byte range, so each glyph keeps its own
+/// style under the selection highlight.
+///
+/// `text` is the wrapped slice (`nuotc`'s `wrap_text`) and `base_offset` is
+/// that slice's byte offset inside the logical row — the same coordinates a
+/// `BlockRegion` records. Segment boundaries and the selected range are
+/// therefore translated into the slice's coordinate space before slicing.
+/// (Slicing the wrapped text with full-row offsets silently drops text on
+/// continuation rows: a range that runs past the end of the slice is skipped,
+/// which is how `bash  ls | head` once rendered as `l | he`.)
+///
+/// This is the single selection-splicing implementation: documentary modal
+/// bodies (`nuo-view`'s `render_selectable_body`) and the transcript's notice
+/// entries both paint through it.
+pub fn render_row_line(
+    text: &str,
+    base_offset: usize,
+    segments: &[RowSegment],
+    selected: Option<(usize, usize)>,
+    theme: &Theme,
+) -> Line<'static> {
+    if text.is_empty() {
+        return Line::from(Vec::<Span<'static>>::new());
+    }
+    // Segment byte ranges over the concatenated row text, intersected with
+    // the wrapped slice's [base_offset, base_offset + text.len()) window.
+    let slice_end = base_offset + text.len();
+    let mut points: Vec<usize> = Vec::with_capacity(segments.len() * 2 + 3);
+    points.push(0);
+    let mut acc = 0usize;
+    for seg in segments {
+        let seg_start = acc;
+        acc += seg.text.len();
+        let seg_end = acc;
+        // Only segments that overlap this visual row become split points.
+        let (lo, hi) = (seg_start.max(base_offset), seg_end.min(slice_end));
+        if lo < hi {
+            points.push(lo - base_offset);
+            points.push(hi - base_offset);
+        }
+    }
+    if let Some((lo, hi)) = selected {
+        points.push(lo.min(text.len()));
+        points.push(hi.min(text.len()));
+    }
+    points.push(text.len());
+    points.sort_unstable();
+    points.dedup();
+
+    let seg_style = |p: usize| -> Option<&Style> {
+        let full = p + base_offset;
+        let mut acc = 0usize;
+        for seg in segments {
+            acc += seg.text.len();
+            if full < acc {
+                return Some(&seg.style);
+            }
+        }
+        None
+    };
+
+    let mut spans = Vec::new();
+    for pair in points.windows(2) {
+        let (lo, hi) = (pair[0], pair[1]);
+        if lo >= hi || hi > text.len() {
+            continue;
+        }
+        let Some(base) = seg_style(lo) else {
+            continue;
+        };
+        let is_sel = matches!(selected, Some((slo, shi)) if lo >= slo && hi <= shi);
+        let style = if is_sel {
+            base.bg(theme.selected()).fg(theme.fg())
+        } else {
+            *base
+        };
+        spans.push(Span::styled(text[lo..hi].to_string(), style));
+    }
+    Line::from(spans)
 }
 
 #[cfg(test)]

@@ -14,12 +14,15 @@ pub(crate) fn upsert_session(conn: &Connection, session: &SessionRecord) -> Resu
     conn.execute(
         r#"
         INSERT INTO threads (
-            id, parent_thread_id, fork_kind, title, msg_count, last_user_prompt, digest, created_at_ms, updated_at_ms
+            id, parent_thread_id, fork_kind, fork_round, fork_turn, title,
+            msg_count, last_user_prompt, digest, created_at_ms, updated_at_ms
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 * 1000, ?9 * 1000)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
         ON CONFLICT(id) DO UPDATE SET
             parent_thread_id = excluded.parent_thread_id,
             fork_kind = excluded.fork_kind,
+            fork_round = COALESCE(excluded.fork_round, threads.fork_round),
+            fork_turn = COALESCE(excluded.fork_turn, threads.fork_turn),
             title = excluded.title,
             msg_count = excluded.msg_count,
             last_user_prompt = excluded.last_user_prompt,
@@ -30,6 +33,10 @@ pub(crate) fn upsert_session(conn: &Connection, session: &SessionRecord) -> Resu
             session.id,
             session.parent_id,
             session.fork_kind,
+            session.fork_point.map(|point| point.round as i64),
+            session
+                .fork_point
+                .and_then(|point| point.turn.map(|t| t as i64)),
             session.title.as_deref().unwrap_or(""),
             session.msg_count,
             session.last_user_prompt,
@@ -60,7 +67,7 @@ pub(crate) fn upsert_session(conn: &Connection, session: &SessionRecord) -> Resu
 /// Retrieve a single session by id.
 pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<SessionRecord>> {
     conn.query_row(
-        "SELECT id, parent_id, fork_kind, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest FROM thread_list_view WHERE id = ?1",
+        "SELECT id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest FROM thread_list_view WHERE id = ?1",
         params![session_id],
         map_session_row,
     )
@@ -73,8 +80,9 @@ pub(crate) fn list_sessions(
     conn: &Connection,
     filter: Option<&nuo_wire::WorkspaceFilter>,
 ) -> Result<Vec<SessionRecord>> {
-    const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
-                        workspace_root, persona, msg_count, last_user_prompt, digest";
+    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, \
+                        created_at_s, updated_at_s, workspace_root, persona, \
+                        msg_count, last_user_prompt, digest";
     let mut sessions = Vec::new();
     match filter {
         Some(nuo_wire::WorkspaceFilter::Path(path)) => {
@@ -114,8 +122,9 @@ pub(crate) fn list_subagent_sessions(
     conn: &Connection,
     parent_id: &str,
 ) -> Result<Vec<SessionRecord>> {
-    const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
-                        workspace_root, persona, msg_count, last_user_prompt, digest";
+    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, \
+                        created_at_s, updated_at_s, workspace_root, persona, \
+                        msg_count, last_user_prompt, digest";
     let sql = format!(
         "SELECT {COLS} FROM thread_list_view WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC"
     );
@@ -233,13 +242,16 @@ pub(crate) fn save_session_inner(
         conn.execute(
             r#"
             INSERT INTO threads (
-                id, parent_thread_id, fork_kind, title, title_manual, status,
-                active_branch_id, round_counter, msg_count, last_user_prompt, tree,
-                transcript_generation, digest, digest_anchor, checksum, created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, 0, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 * 1000, ?14 * 1000)
+                id, parent_thread_id, fork_kind, fork_round, fork_turn, title,
+                title_manual, status, active_branch_id, round_counter, msg_count,
+                last_user_prompt, tree, transcript_generation, digest,
+                digest_anchor, checksum, created_at_ms, updated_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 'idle', 'main', ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15 * 1000, ?16 * 1000)
             ON CONFLICT(id) DO UPDATE SET
                 parent_thread_id = excluded.parent_thread_id,
                 fork_kind = excluded.fork_kind,
+                fork_round = excluded.fork_round,
+                fork_turn = excluded.fork_turn,
                 title = excluded.title,
                 round_counter = excluded.round_counter,
                 msg_count = excluded.msg_count,
@@ -255,6 +267,9 @@ pub(crate) fn save_session_inner(
                 data.id,
                 data.parent_id,
                 fork_str,
+                data.fork_point.map(|point| point.round as i64),
+                data.fork_point
+                    .and_then(|point| point.turn.map(|t| t as i64)),
                 data.title.as_deref().unwrap_or(""),
                 data.round_counter as i64,
                 msg_count,
@@ -665,6 +680,7 @@ pub(crate) fn load_session_full(
         .query_row(
             r#"
             SELECT t.id, t.parent_thread_id, t.fork_kind, t.title,
+                   t.fork_round, t.fork_turn,
                    t.created_at_ms / 1000, t.updated_at_ms / 1000,
                    p.workspace_root, p.additional_roots_json, p.system_role,
                    t.digest, t.digest_anchor, t.tree, t.transcript_generation,
@@ -683,26 +699,28 @@ pub(crate) fn load_session_full(
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, String>(7)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<i64>>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
                     row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<i64>>(10)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, Option<String>>(10)?,
                     row.get::<_, Option<String>>(11)?,
-                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<i64>>(12)?,
                     row.get::<_, Option<String>>(13)?,
-                    row.get::<_, i64>(14)?,
-                    row.get::<_, i64>(15)?,
-                    row.get::<_, String>(16)?,
-                    row.get::<_, String>(17)?,
+                    row.get::<_, Option<String>>(14)?,
+                    row.get::<_, Option<String>>(15)?,
+                    row.get::<_, i64>(16)?,
+                    row.get::<_, i64>(17)?,
                     row.get::<_, String>(18)?,
                     row.get::<_, String>(19)?,
-                    row.get::<_, Option<String>>(20)?,
-                    row.get::<_, Option<i64>>(21)?,
-                    row.get::<_, i64>(22)?,
-                    row.get::<_, Option<String>>(23)?,
+                    row.get::<_, String>(20)?,
+                    row.get::<_, String>(21)?,
+                    row.get::<_, Option<String>>(22)?,
+                    row.get::<_, Option<i64>>(23)?,
+                    row.get::<_, i64>(24)?,
+                    row.get::<_, Option<String>>(25)?,
                 ))
             },
         )
@@ -712,6 +730,8 @@ pub(crate) fn load_session_full(
         parent_id,
         fork_kind,
         title,
+        fork_round,
+        fork_turn,
         created_at_s,
         updated_at_s,
         workspace_root,
@@ -901,7 +921,19 @@ pub(crate) fn load_session_full(
             "subagent" => nuo_wire::SessionForkKind::Subagent,
             _ => nuo_wire::SessionForkKind::Trunk,
         },
-        title,
+        // Provenance (ADR-0120). A partial record (a turn with no round) is
+        // not a representable `ForkPoint`, so it degrades to "unrecorded"
+        // rather than inventing a round the writer never stamped.
+        fork_point: fork_round.map(|round| nuo_wire::ForkPoint {
+            round: round.max(0) as u64,
+            turn: fork_turn.map(|t| t.max(0) as u32),
+        }),
+        // The column is `TEXT NOT NULL DEFAULT ''` because a NULL title is not
+        // a useful distinction for the index; `Option` is. Reading `''` back as
+        // `Some("")` made "this thread has no title" indistinguishable from
+        // "this thread has an empty one", so a brand-new branch looked titled to
+        // every display site (ADR-0120).
+        title: title.filter(|t| !t.trim().is_empty()),
         created_at: created_at_s.max(0) as u64,
         updated_at: updated_at_s.max(0) as u64,
         role: persona,
@@ -1082,8 +1114,8 @@ pub(crate) fn list_switch_candidates(
     partition: &nuo_wire::SessionPartition,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
-    const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
-                        msg_count, last_user_prompt, digest";
+    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
+                        updated_at_s, msg_count, last_user_prompt, digest";
     let mut summaries = Vec::new();
     match partition {
         nuo_wire::SessionPartition::Workspace(path) => {
@@ -1122,8 +1154,8 @@ pub(crate) fn list_session_summaries_in_partition(
     partition: &nuo_wire::SessionPartition,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
-    const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
-                        msg_count, last_user_prompt, digest";
+    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
+                        updated_at_s, msg_count, last_user_prompt, digest";
     let mut summaries = Vec::new();
     match partition {
         nuo_wire::SessionPartition::Workspace(path) => {
@@ -1160,8 +1192,8 @@ pub(crate) fn list_session_summaries(
     filter: Option<&nuo_wire::WorkspaceFilter>,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
-    const COLS: &str = "id, parent_id, fork_kind, title, created_at_s, updated_at_s, \
-                        msg_count, last_user_prompt, digest";
+    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
+                        updated_at_s, msg_count, last_user_prompt, digest";
     let mut summaries = Vec::new();
     match filter {
         Some(nuo_wire::WorkspaceFilter::Path(path)) => {
@@ -1297,6 +1329,8 @@ pub(crate) fn get_session_detail(
         Ok(Some(nuo_wire::SessionDetail {
             id: data.id.clone(),
             title: data.title.clone(),
+            parent_id: data.parent_id.clone(),
+            fork_point: data.fork_point,
             digest: data.digest.clone(),
             created_at: data.created_at,
             updated_at: data.updated_at,

@@ -683,8 +683,10 @@ pub enum AgentResponse {
     SessionForked {
         child_id: String,
         parent_id: String,
-        target_round: Option<u64>,
-        title: Option<String>,
+        /// Where the branch diverged (ADR-0120). Optional only so a peer
+        /// predating the field still decodes; this binary always sends it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fork_point: Option<ForkPoint>,
         /// A user message to dispatch into the new branch once the client has
         /// attached to it. Set by the retired `/btw <prompt>` steer (ADR-0058
         /// §4) so an aside habit lands as a fork *with* its question, not a
@@ -1497,6 +1499,12 @@ pub struct SessionOverview {
     /// or `trunk` (no parent).
     #[serde(default)]
     pub fork_kind: SessionForkKind,
+    /// Where this branch diverged from its parent (ADR-0120), persisted at
+    /// fork time by the one fork primitive. `None` on a trunk and on branches
+    /// whose provenance predates the field — never inferred from a title, a
+    /// round counter, or a filtered snapshot (`[INV-LINEAGE-01]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_point: Option<ForkPoint>,
     /// Structured digest (intent + history checklist), if
     /// the session has generated one.
     #[serde(default)]
@@ -1517,6 +1525,58 @@ pub enum SessionForkKind {
     Subagent,
 }
 
+/// Where a branch diverged from its parent (ADR-0120).
+///
+/// The address is exactly the one the `/fork` grammar accepts, so the recorded
+/// value round-trips through the gesture that created the branch:
+///
+/// ```text
+/// /fork        → ForkPoint { round: <parent's round_counter>, turn: None }
+/// /fork 2      → ForkPoint { round: 2, turn: None }
+/// /fork 2.1    → ForkPoint { round: 2, turn: Some(1) }
+/// ```
+///
+/// One type rather than two independent options: a `turn` cannot exist without
+/// the `round` it indexes into, so the invalid combination is unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForkPoint {
+    /// The parent's 1-indexed user round at the cut.
+    pub round: u64,
+    /// The 0-indexed turn inside that round; `None` when the branch diverged at
+    /// the round boundary itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<u32>,
+}
+
+impl ForkPoint {
+    /// A cut at the conclusion of `round`.
+    pub fn at_round(round: u64) -> Self {
+        Self { round, turn: None }
+    }
+
+    /// A cut after turn `turn` of `round`.
+    pub fn at_turn(round: u64, turn: u32) -> Self {
+        Self {
+            round,
+            turn: Some(turn),
+        }
+    }
+
+    /// The browser-facing address: `r2` or `r2.1`.
+    pub fn label(&self) -> String {
+        match self.turn {
+            Some(turn) => format!("r{}.{}", self.round, turn),
+            None => format!("r{}", self.round),
+        }
+    }
+}
+
+impl std::fmt::Display for ForkPoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label())
+    }
+}
+
 /// Full detail for one session, requested on demand (the session-info
 /// sub-view, `i` from the sessions picker). Unlike [`SessionOverview`], which
 /// carries a truncated preview, this carries the *complete* last effective user
@@ -1527,6 +1587,14 @@ pub struct SessionDetail {
     pub id: String,
     /// Stored title (AI or manual), if any.
     pub title: Option<String>,
+    /// Lineage (ADR-0120): the thread this one was forked from and the address
+    /// it diverged at, so the info sub-view can state where a branch came from
+    /// without consulting the picker's row set (which may not contain its
+    /// parent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_point: Option<ForkPoint>,
     /// Structured digest (intent + history checklist), if
     /// the session has generated one — the resume-time working-memory view.
     #[serde(default)]

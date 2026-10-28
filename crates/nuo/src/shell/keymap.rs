@@ -99,6 +99,9 @@ pub enum CommandId {
     KillThread,
     CloseTab,
     CopySelection,
+    CopyFocusedEntry,
+    CopyDiagnostic,
+    CopyRecentDiagnostics,
 
     // Session & Composer
     SendPrompt,
@@ -257,6 +260,13 @@ pub struct AppContext {
     pub active_dialog: Option<DialogKind>,
     pub is_responding: bool,
     pub has_selection: bool,
+    /// Whether a transcript entry currently holds keyboard focus. Copy and
+    /// diagnostic-copy act on the focused entry, so both must be able to say
+    /// why they are unavailable instead of silently doing nothing.
+    pub has_focused_entry: bool,
+    /// Whether any warning/error disclosure is still retained in the receipt
+    /// log (`app::receipts`).
+    pub has_receipts: bool,
     pub has_running_task: bool,
     pub queue_count: usize,
     /// Whether an ambient session exists (ADR-0035 precondition gating).
@@ -327,11 +337,36 @@ fn avail_idle_composer(ctx: &AppContext) -> Availability {
     }
 }
 
-fn avail_selection(ctx: &AppContext) -> Availability {
-    if ctx.has_selection {
+/// Copy verbs act on whatever the keyboard is on: an active selection or a
+/// focused entry. Unavailable only when it is neither, and the reason names
+/// both ways to aim.
+fn avail_copyable(ctx: &AppContext) -> Availability {
+    if ctx.has_selection || ctx.has_focused_entry {
         Availability::Available
     } else {
-        Availability::Unavailable("no active selection")
+        Availability::Unavailable("nothing selected or focused")
+    }
+}
+
+/// Diagnostic copy needs an entry: a free-floating text selection has no
+/// provenance to report (no kind, severity, route or attempt), so a
+/// "diagnostic" of it would be a header full of nothing.
+/// Recent-fault copy needs at least one retained receipt: with none, the
+/// command has nothing to hand over and says so rather than copying an empty
+/// block.
+fn avail_has_receipts(ctx: &AppContext) -> Availability {
+    if ctx.has_receipts {
+        Availability::Available
+    } else {
+        Availability::Unavailable("no recent warnings or errors")
+    }
+}
+
+fn avail_focused_entry(ctx: &AppContext) -> Availability {
+    if ctx.has_focused_entry {
+        Availability::Available
+    } else {
+        Availability::Unavailable("no focused entry")
     }
 }
 
@@ -441,10 +476,57 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         scope: Scope::Global,
         bindings: &[Key::CTRL_SHIFT_C, Key::CMD_C],
         slash: None,
-        availability: avail_selection,
+        availability: avail_copyable,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Copy selected text to clipboard",
+        description: "Copy selected text, or the focused entry, to the clipboard",
+    },
+    // Transcript entry copy. Both verbs are focus-scoped (`y`/`c` and
+    // `Y`/`C` on a focused entry) — they are declared here so the palette can
+    // list them and so their availability is stated once. They carry no global
+    // chord: a bare letter pressed with no focus belongs to the composer, and
+    // binding it globally would make typing impossible.
+    CommandSpec {
+        id: CommandId::CopyFocusedEntry,
+        label: "Copy Focused Entry",
+        hint: "y",
+        category: CommandCategory::Session,
+        scope: Scope::Session,
+        bindings: &[],
+        slash: None,
+        availability: avail_focused_entry,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Copy the focused transcript entry verbatim",
+    },
+    CommandSpec {
+        id: CommandId::CopyDiagnostic,
+        label: "Copy Entry as Diagnostic",
+        hint: "Shift-y",
+        category: CommandCategory::Session,
+        scope: Scope::Session,
+        bindings: &[],
+        slash: None,
+        availability: avail_focused_entry,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Copy the focused entry with its kind, severity, route, attempt, timestamp, thread and log path",
+    },
+    CommandSpec {
+        id: CommandId::CopyRecentDiagnostics,
+        label: "Copy Recent Warnings and Errors",
+        // No chord: this is a recovery verb you reach for *after* missing a
+        // toast, so it belongs in the palette rather than on a key you would
+        // have to memorise in advance.
+        hint: "",
+        category: CommandCategory::Session,
+        scope: Scope::Session,
+        bindings: &[],
+        slash: None,
+        availability: avail_has_receipts,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Copy the warnings and errors the client surfaced recently, including ones whose toast has already faded",
     },
     // Session & Composer Controls
     CommandSpec {

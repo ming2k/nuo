@@ -37,6 +37,7 @@ pub mod composer_extension;
 pub mod composer_grid;
 pub mod composer_hints;
 pub mod config;
+pub mod copy;
 pub mod declarative;
 pub mod disclosure;
 pub mod event_loop;
@@ -1681,16 +1682,14 @@ pub(crate) async fn run_tui_with_input(
                     AgentResponse::SessionForked {
                         child_id,
                         parent_id,
-                        target_round,
-                        title,
+                        fork_point,
                         prompt,
                     } => {
                         mutations
                             .send(M::SessionForked {
                                 child_id,
-                                _parent_id: parent_id,
-                                target_round,
-                                title,
+                                parent_id,
+                                fork_point,
                                 prompt,
                             })
                             .await;
@@ -2121,6 +2120,7 @@ pub(crate) async fn run_tui_with_input(
         surface_overrides: tui_config.surface_key_overrides(),
         focused_target: None,
         copy_toast_until: None,
+        receipts: crate::shell::app::receipts::ReceiptLog::default(),
         copy_toast_message: String::new(),
         copy_toast_failed: false,
         notice_toast_until: None,

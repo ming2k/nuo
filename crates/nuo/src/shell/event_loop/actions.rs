@@ -20,7 +20,7 @@ use nuo_view::model::selection::SelectionState;
 
 use super::runtime::UiRuntime;
 use super::sync::show_local_toast;
-use super::transcript::{extract_focused_target_text, extract_selection_text};
+use super::transcript::extract_selection_text;
 
 mod commands;
 mod host;
@@ -1377,31 +1377,21 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             );
             let idx = app.active_index().min(rows.len().saturating_sub(1));
             if let Some(item) = rows.get(idx) {
-                match item {
-                    crate::shell::overlays::session::SessionPickerItem::Trunk {
-                        session,
-                        child_count,
-                        ..
-                    } if *child_count > 0 => {
-                        let id = session.id.clone();
-                        if app
-                            .surfaces
+                // Any row with children toggles, at any depth: a fork of a fork
+                // is a first-class branch and must expand like its parent.
+                if item.child_count > 0 {
+                    let id = item.session().id.clone();
+                    let collapsed = app
+                        .surfaces
+                        .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
+                        .expanded
+                        .remove(&id);
+                    if !collapsed {
+                        app.surfaces
                             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                             .expanded
-                            .contains(&id)
-                        {
-                            app.surfaces
-                                .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
-                                .expanded
-                                .remove(&id);
-                        } else {
-                            app.surfaces
-                                .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
-                                .expanded
-                                .insert(id);
-                        }
+                            .insert(id);
                     }
-                    _ => {}
                 }
             }
         }
@@ -1677,25 +1667,36 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 .min(app.permission_max_scroll);
         }
         input::InputAction::CopySelection => {
-            if let Some(text) = extract_selection_text(
-                &app.selection,
-                app.focused_messages(),
-                &app.input,
-                &app.ui.document,
-                app.drag.cell_info.as_ref(),
-            ) {
-                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-            } else if let Some(target) = app.focused_target
-                && let Some(text) = extract_focused_target_text(app.focused_messages(), target)
-            {
-                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+            // The global chord: copy whatever the keyboard is on, with one
+            // resolution rule (`CopyRequest::for_current_focus`) so a drag and
+            // a focused entry can never disagree about precedence. When nothing
+            // is aimed at, say so instead of writing an empty string.
+            match crate::shell::copy::CopyRequest::for_current_focus(app) {
+                Some(request) => {
+                    clipboard_ops::copy(app, request, viewed_session_id, copy_tx, copy_pending)
+                }
+                None => clipboard_ops::show_copy_failure(
+                    app,
+                    crate::shell::copy::CopyError::NoSelection.message(),
+                ),
             }
         }
         input::InputAction::CopyFocusedTarget => {
-            if let Some(target) = app.focused_target
-                && let Some(text) = extract_focused_target_text(app.focused_messages(), target)
-            {
-                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+            if let Some(target) = app.focused_target {
+                clipboard_ops::copy(
+                    app,
+                    crate::shell::copy::CopyRequest::Entry {
+                        message_idx: target.message_idx,
+                    },
+                    viewed_session_id,
+                    copy_tx,
+                    copy_pending,
+                );
+            }
+        }
+        input::InputAction::CopyFocusedDiagnostic => {
+            if let Some(request) = crate::shell::copy::diagnostic_for_current_focus(app) {
+                clipboard_ops::copy(app, request, viewed_session_id, copy_tx, copy_pending);
             }
         }
         input::InputAction::CtrlC => {
@@ -1905,6 +1906,8 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     nuo_view::model::selection::SelectionState::None
                 ),
                 has_running_task: is_busy,
+                has_receipts: !app.receipts.is_empty(),
+                has_focused_entry: app.focused_target.is_some(),
                 queue_count: app.pending_dispatch.len(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
@@ -3970,15 +3973,69 @@ async fn execute_command_by_id(
             app.send_intent(AgentRequest::EndSession);
             return ActionFlow::Exit;
         }
+        CommandId::CopyFocusedEntry => {
+            // The palette's verb form of the focused-entry chord (`y`). Same
+            // resolution, same receipt, same failure message — the palette is
+            // a discoverability path, not a second copy implementation.
+            if let Some(target) = app.focused_target {
+                clipboard_ops::copy(
+                    app,
+                    crate::shell::copy::CopyRequest::Entry {
+                        message_idx: target.message_idx,
+                    },
+                    viewed_session_id,
+                    copy_tx,
+                    copy_pending,
+                );
+            } else {
+                clipboard_ops::show_copy_failure(
+                    app,
+                    crate::shell::copy::CopyError::MissingEntry.message(),
+                );
+            }
+        }
+        CommandId::CopyRecentDiagnostics => {
+            // The escape hatch for everything that never had (or no longer has)
+            // a transcript row: transient toasts, failed local actions, the
+            // "could not reach the backend" family. Rendered through the same
+            // diagnostic shape so one paste carries the whole sequence.
+            let log_path = crate::shell::copy::client_log_path_for_report();
+            match app
+                .receipts
+                .render(Some(viewed_session_id), log_path.as_deref())
+            {
+                Some(text) => {
+                    clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+                    app.copy_toast_message = "recent warnings and errors copied".to_string();
+                    app.copy_toast_failed = false;
+                    app.copy_toast_until =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                }
+                None => clipboard_ops::show_copy_failure(app, "no recent warnings or errors"),
+            }
+        }
+        CommandId::CopyDiagnostic => {
+            // The palette's verb form of `Shift-y`.
+            if let Some(request) = crate::shell::copy::diagnostic_for_current_focus(app) {
+                clipboard_ops::copy(app, request, viewed_session_id, copy_tx, copy_pending);
+            } else {
+                clipboard_ops::show_copy_failure(
+                    app,
+                    crate::shell::copy::CopyError::MissingEntry.message(),
+                );
+            }
+        }
         CommandId::CopySelection => {
-            if let Some(text) = extract_selection_text(
-                &app.selection,
-                app.focused_messages(),
-                &app.input,
-                &app.ui.document,
-                app.drag.cell_info.as_ref(),
-            ) {
-                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+            // The palette entry resolves through the same rule as the chord it
+            // mirrors: one command, one meaning, whichever surface fired it.
+            match crate::shell::copy::CopyRequest::for_current_focus(app) {
+                Some(request) => {
+                    clipboard_ops::copy(app, request, viewed_session_id, copy_tx, copy_pending)
+                }
+                None => clipboard_ops::show_copy_failure(
+                    app,
+                    crate::shell::copy::CopyError::NoSelection.message(),
+                ),
             }
         }
         CommandId::SendPrompt => {

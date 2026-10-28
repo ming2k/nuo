@@ -6,7 +6,7 @@
 //! the `define_builtin_commands!` macro *and* a `match` arm, so completion,
 //! `/help`, and dispatch can never drift.
 //!
-//! That closed set is the right default for the shared harness commands
+//! That closed set is the right default for the shared slash commands
 //! (`/models`, `/mcp`, `/pursue`, …) every agent needs. But an application
 //! embedding the server (a future `nuo-quant` binary) often wants its own
 //! commands that run *Rust* logic, not a markdown prompt template (the only

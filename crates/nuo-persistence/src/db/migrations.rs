@@ -5,14 +5,14 @@
 use super::*;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 24;
+pub const CURRENT_DB_VERSION: u32 = 25;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "cc86d25238798520b0876b73311111af04dacf451192db8a580c93c685c420da";
+    "b824de090924bbedc2733ed09d17fcf80f462d867b8cf29f70293b711ad69262";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
@@ -523,6 +523,16 @@ pub const MIGRATIONS: &[Migration] = &[
         // thread_list_view, rename session_id -> thread_id on all child tables,
         // and purge legacy zombie tables and dead 'aside' concept.
         version: 24,
+        sql: "",
+    },
+    Migration {
+        // Thread lineage graph (ADR-0120): the fork point becomes a persisted,
+        // typed fact on the child thread (`fork_round` / `fork_turn`), written by
+        // the one fork primitive and read verbatim by every consumer. `fork_fact_id`
+        // is dropped — no writer ever filled it, and a round/turn address is the
+        // gesture `/fork` accepts and the browser can show. DDL is conditional
+        // so a database already carrying the columns passes through.
+        version: 25,
         sql: "",
     },
 ];
@@ -1569,6 +1579,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 if migration.version == 24 {
                     apply_thread_canonical_clean_break_schema(&tx)?;
                 }
+                if migration.version == 25 {
+                    apply_thread_lineage_graph_schema(&tx)?;
+                }
             }
         }
 
@@ -1620,6 +1633,11 @@ pub struct SessionRecord {
     pub id: String,
     pub parent_id: Option<String>,
     pub fork_kind: String,
+    /// Fork provenance (ADR-0120): the address the branch diverged at, or
+    /// `None` on a trunk. One canonical type rather than the two raw columns,
+    /// so an invalid pairing (a turn with no round) cannot be carried around.
+    #[serde(default)]
+    pub fork_point: Option<nuo_wire::ForkPoint>,
     pub title: Option<String>,
     pub created_at_s: i64,
     pub updated_at_s: i64,
@@ -2332,6 +2350,121 @@ pub fn apply_thread_canonical_clean_break_schema(tx: &rusqlite::Transaction) -> 
             "#,
         )?;
     }
+
+    Ok(())
+}
+
+/// Thread lineage graph (ADR-0120), applied by migration 25.
+///
+/// Promotes fork provenance from an unpopulated column (`fork_fact_id`) and a
+/// display-string convention (`"{parent} (fork)"`) to two typed, persisted
+/// fields on the child thread, and republishes `thread_list_view` so every
+/// projection reads them without inferring anything:
+///
+/// - `fork_round` — the parent's 1-indexed user round at the cut, or `NULL`
+///   for a trunk.
+/// - `fork_turn`  — the 0-indexed turn inside that round, or `NULL` when the
+///   cut is the round boundary itself.
+///
+/// `fork_fact_id` is dropped: nothing wrote it, nothing read it, and a node id
+/// is not an address a user can act on. The full-resolution causal anchor stays
+/// where it belongs — the child `SessionIR`'s `active_leaf` (ADR-0104 §3).
+pub fn apply_thread_lineage_graph_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "threads")? {
+        return Ok(());
+    }
+    let existing = table_columns(tx, "threads")?;
+
+    // 1. The typed fork point. `ADD COLUMN` is a cheap metadata-only operation
+    //    in SQLite, so this stays conditional rather than rebuilding the row.
+    if !existing.contains("fork_round") {
+        tx.execute_batch("ALTER TABLE threads ADD COLUMN fork_round INTEGER;")?;
+    }
+    if !existing.contains("fork_turn") {
+        tx.execute_batch("ALTER TABLE threads ADD COLUMN fork_turn INTEGER;")?;
+    }
+
+    // 2. Purge the never-written provenance column. It documented a capability
+    //    the system never had (ADR-0059's zero-legacy discipline).
+    if existing.contains("fork_fact_id") {
+        tx.execute_batch("ALTER TABLE threads DROP COLUMN fork_fact_id;")?;
+    }
+
+    // 3. Purge the smuggled provenance (ADR-0120 §3, `[INV-LINEAGE-04]`). The
+    //    retired fork primitive wrote `"{parent title} (fork)"` — and bare
+    //    `"fork"` when the parent had no title — so a branch's divergence point
+    //    lived in a user-editable display string. Those titles are machine data,
+    //    not authored names, and every branch they described now has a typed
+    //    `fork_round`/`fork_turn` record instead (or, for branches predating
+    //    this migration, an honest `NULL`).
+    //
+    //    The strip is deliberately narrow: a title is only treated as derived
+    //    when it is byte-for-byte what the retired primitive would have
+    //    produced from the parent's *current* title. A user who typed "fork" or
+    //    "... (fork)" themselves keeps it.
+    tx.execute_batch(
+        r#"
+        UPDATE threads
+           SET title = ''
+         WHERE fork_kind = 'fork'
+           AND title = 'fork'
+           AND (parent_thread_id IS NULL
+                OR (SELECT COALESCE(NULLIF(parent.title, ''), 'fork')
+                      FROM threads parent
+                     WHERE parent.id = threads.parent_thread_id) = 'fork');
+
+        UPDATE threads
+           SET title = ''
+         WHERE fork_kind = 'fork'
+           AND title <> 'fork'
+           AND title = (
+                SELECT COALESCE(NULLIF(parent.title, ''), 'fork') || ' (fork)'
+                  FROM threads parent
+                 WHERE parent.id = threads.parent_thread_id
+           );
+        "#,
+    )?;
+
+    // 4. Republish the read projection with the lineage pair. Ordering is
+    //    deterministic — `parent_thread_id, created_at_ms, id` — so a browser
+    //    that sorts by lineage and creation never sees rows move (INV-LINEAGE-03).
+    tx.execute_batch(
+        r#"
+        DROP VIEW IF EXISTS thread_list_view;
+        CREATE VIEW thread_list_view AS
+        SELECT
+            t.id,
+            t.parent_thread_id AS parent_id,
+            t.fork_kind,
+            t.fork_round,
+            t.fork_turn,
+            t.title,
+            t.created_at_ms / 1000 AS created_at_s,
+            t.updated_at_ms / 1000 AS updated_at_s,
+            p.workspace_root,
+            p.system_role AS persona,
+            CASE
+                WHEN EXISTS (SELECT 1 FROM facts f WHERE f.thread_id = t.id AND f.deletion = 'present')
+                THEN (SELECT COUNT(*) FROM facts f WHERE f.thread_id = t.id AND f.deletion = 'present')
+                ELSE t.msg_count
+            END AS msg_count,
+            COALESCE(
+                (SELECT COALESCE(
+                    json_extract(f.payload_json, '$.user_message.text'),
+                    json_extract(f.payload_json, '$.message.content')
+                 )
+                 FROM facts f
+                 WHERE f.thread_id = t.id AND f.deletion = 'present'
+                 ORDER BY f.seq DESC LIMIT 1),
+                t.last_user_prompt
+            ) AS last_user_prompt,
+            t.digest,
+            t.status,
+            t.round_counter
+        FROM threads t
+        LEFT JOIN thread_policies p ON p.thread_id = t.id;
+        "#,
+    )?;
 
     Ok(())
 }

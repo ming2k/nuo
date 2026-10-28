@@ -5,6 +5,7 @@
 //! terminal grid characters.
 use nuo_wire::{Role, SubagentEvent};
 
+use crate::model::search::{self, Facets};
 use nuo_ui_primitives::design::{COMMAND_CARD_LEAD_COLS, JOIN_ENUMERATE_COLS};
 use unicode_width::UnicodeWidthStr;
 
@@ -1784,6 +1785,179 @@ impl TranscriptMessage {
         true
     }
 
+    /// The set of roles this entry plays, for facet filtering.
+    ///
+    /// Classification lives here, beside the enum it classifies, so a new
+    /// [`MessageKind`] cannot be added without the compiler pointing at this
+    /// function. It is a *set* because entries genuinely are several things at
+    /// once: a failed shell call is a tool step and an error, a subagent task is
+    /// a tool step carrying other entries.
+    pub fn facets(&self) -> Facets {
+        match &self.kind {
+            MessageKind::Text => {
+                if self.role == Role::User {
+                    Facets::USER
+                } else {
+                    Facets::TEXT
+                }
+            }
+            MessageKind::Reasoning { .. } => Facets::THOUGHT,
+            MessageKind::ToolStep {
+                status, structured, ..
+            } => {
+                let failed_status =
+                    matches!(status, ToolStepStatus::Failed | ToolStepStatus::Denied);
+                let failed_output = structured
+                    .as_deref()
+                    .is_some_and(nuo_wire::ToolOutput::is_error);
+                if failed_status || failed_output {
+                    Facets::TOOL.union(Facets::ERROR)
+                } else {
+                    Facets::TOOL
+                }
+            }
+            MessageKind::Notice { severity, .. } => {
+                if *severity == NoticeSeverity::Error {
+                    Facets::NOTICE.union(Facets::ERROR)
+                } else {
+                    Facets::NOTICE
+                }
+            }
+            // A live retry renders through the notice renderer, so it is a
+            // notice for selection purposes too.
+            MessageKind::ProviderRetry { .. } => Facets::NOTICE,
+            MessageKind::CommandResult { .. } => Facets::COMMAND,
+            // A compaction checkpoint is harness-emitted status about the
+            // thread, not dialogue from either party.
+            MessageKind::CompactedCard { .. } => Facets::NOTICE,
+        }
+    }
+
+    /// The tool name a [`search::Facet::ToolNamed`] selection can match.
+    ///
+    /// Subagent tasks report their bound profile (`explore`, `plan`, …) because
+    /// that is the name the step is labelled with on screen and the one a user
+    /// would type into a filter; a plain tool step reports its tool name.
+    pub fn tool_label(&self) -> Option<&str> {
+        match &self.kind {
+            MessageKind::ToolStep { name, profile, .. } => {
+                Some(profile.as_deref().unwrap_or(name.as_str()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Visit each searchable text region of this entry, in *field-priority*
+    /// order, borrowing the source text.
+    ///
+    /// This is the single declaration of "what is searchable" for the whole
+    /// application: [`search::find`] keeps no copy of the document, it walks
+    /// these borrowed segments. A new [`MessageKind`] therefore gets correct
+    /// search behaviour by adding one arm here — and gets *no* search behaviour
+    /// if it is forgotten, rather than silently searching stale state.
+    ///
+    /// `visit` returns `true` to stop early (used to keep the first match in
+    /// each entry). Returns whether the walk was stopped.
+    pub fn visit_search_segments(
+        &self,
+        visit: &mut impl FnMut(search::Field, &str) -> bool,
+    ) -> bool {
+        match &self.kind {
+            MessageKind::Text => {
+                if !self.raw.is_empty() && visit(search::Field::Prose, &self.raw) {
+                    return true;
+                }
+            }
+            MessageKind::Reasoning { content, .. } => {
+                if visit(search::Field::Thought, content) {
+                    return true;
+                }
+            }
+            MessageKind::ToolStep {
+                name,
+                arguments,
+                output,
+                children,
+                ..
+            } => {
+                if visit(search::Field::ToolName, name) {
+                    return true;
+                }
+                if !arguments.is_empty() && visit(search::Field::ToolArgs, arguments) {
+                    return true;
+                }
+                if let Some(output) = output.as_deref().filter(|text| !text.is_empty())
+                    && visit(search::Field::ToolOutput, output)
+                {
+                    return true;
+                }
+                // A subagent's own transcript is where its work actually lives;
+                // excluding it would make a delegated task unfindable by its
+                // content, which is the opposite of the point.
+                for child in children {
+                    if child.visit_search_segments(visit) {
+                        return true;
+                    }
+                }
+            }
+            MessageKind::Notice { parts, .. } => {
+                if let Some(parts) = parts.as_deref() {
+                    if let Some(topic) = parts.topic.as_deref()
+                        && visit(search::Field::Notice, topic)
+                    {
+                        return true;
+                    }
+                    if visit(search::Field::Notice, &parts.title) {
+                        return true;
+                    }
+                    if let Some(detail) = parts.detail.as_deref()
+                        && visit(search::Field::Notice, detail)
+                    {
+                        return true;
+                    }
+                }
+                if !self.raw.is_empty() && visit(search::Field::Notice, &self.raw) {
+                    return true;
+                }
+            }
+            MessageKind::ProviderRetry { failure, .. } => {
+                if visit(search::Field::Notice, failure) {
+                    return true;
+                }
+            }
+            MessageKind::CommandResult { invocation, .. } => {
+                if visit(search::Field::Command, &invocation.name) {
+                    return true;
+                }
+                if !invocation.args.is_empty() && visit(search::Field::Command, &invocation.args) {
+                    return true;
+                }
+                if let Some(text) = self.command_result_text()
+                    && visit(search::Field::Command, &text)
+                {
+                    return true;
+                }
+            }
+            MessageKind::CompactedCard {
+                summary,
+                tracked_files,
+                ..
+            } => {
+                if let Some(summary) = summary.as_deref()
+                    && visit(search::Field::Prose, summary)
+                {
+                    return true;
+                }
+                for file in tracked_files {
+                    if visit(search::Field::Prose, file) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub fn is_tool_step(&self) -> bool {
         matches!(self.kind, MessageKind::ToolStep { .. })
     }
@@ -2325,14 +2499,14 @@ impl TranscriptMessage {
         };
         let parts = match record.reason {
             nuo_wire::RoundInterruptReason::Error => {
-                let parsed = crate::components::notice::parse_notice_content(&raw);
+                let parsed = crate::model::notice_text::normalize(&raw);
                 NoticeParts {
                     origin: Some(NoticeOrigin::Provider {
                         provider_name: None,
                         attempt: None,
                     }),
                     topic: Some("error".to_string()),
-                    title: parsed.header,
+                    title: parsed.title,
                     detail: parsed.detail,
                 }
             }
@@ -2372,10 +2546,13 @@ impl TranscriptMessage {
     /// Construct a notice message. Replaces the ad-hoc
     /// `TranscriptMessage::new(Role::System, format!("Error: …"))` pattern with
     /// a typed severity so the renderer can pick color/icon from one place.
-    /// Leaves the structured parts unset — the renderer falls back to its
-    /// heuristic parse of `raw`. Core (`AgentNotice`) notices should use
-    /// [`Self::notice_from_core`] instead so the topic/title/detail split
-    /// survives the boundary instead of being re-derived from text.
+    ///
+    /// `raw` is transport/harness text; it is normalized **once** here
+    /// (`model::notice_text`) into the entry's display text, which is then both
+    /// painted verbatim and copied verbatim — one text, three consumers.
+    /// Callers with a structured topic/title/detail split chain
+    /// [`Self::with_notice_parts`], which re-derives the display text from
+    /// those parts.
     pub fn notice(severity: NoticeSeverity, raw: impl Into<String>) -> Self {
         // Notices receive transport and harness errors directly. HTTP proxy
         // bodies commonly use CRLF, and allowing the raw `\r` through to the
@@ -2384,12 +2561,13 @@ impl TranscriptMessage {
         // then paints over unrelated transcript cells. Keep this constructor
         // on the same sanitized boundary as ordinary and retry messages.
         let raw = sanitize_text(&raw.into()).into_owned();
-        let blocks = parse_blocks(&raw);
+        let text = crate::model::notice_text::display_text(&raw);
+        let blocks = parse_blocks_verbatim(&text);
         Self {
             id: next_message_id(),
             role: Role::System,
             blocks,
-            raw,
+            raw: text,
             kind: MessageKind::Notice {
                 severity,
                 parts: None,
@@ -2462,7 +2640,28 @@ impl TranscriptMessage {
 
     /// Attach the structured topic/detail split to a notice. No-op on
     /// non-notice messages.
+    ///
+    /// The parts are authoritative: attaching them **re-derives** the entry's
+    /// display text (`raw`) and its per-line blocks from `title`/`detail`, so
+    /// the entry keeps displaying, selecting, and copying one text. An empty
+    /// title carries no structure to project and leaves the text as
+    /// constructed.
     pub fn with_notice_parts(mut self, parts: NoticeParts) -> Self {
+        if parts.title.trim().is_empty() {
+            if let MessageKind::Notice { parts: slot, .. } = &mut self.kind {
+                *slot = Some(Box::new(parts));
+            }
+            return self;
+        }
+        let text = crate::model::notice_text::NoticeText {
+            title: parts.title.clone(),
+            detail: parts.detail.clone(),
+        }
+        .display_text();
+        self.raw = text.clone();
+        self.blocks = parse_blocks_verbatim(&text);
+        self.resume_byte = self.raw.len();
+        self.live_blocks = 0;
         if let MessageKind::Notice { parts: slot, .. } = &mut self.kind {
             *slot = Some(Box::new(parts));
         }
@@ -2477,6 +2676,15 @@ impl TranscriptMessage {
         }
     }
 
+    /// Project this entry into a paste-ready diagnostic record
+    /// (`model::diagnostic`).
+    ///
+    /// `None` when the entry carries no text — an empty paste is worse than no
+    /// paste, so callers surface "nothing to copy" instead.
+    pub fn diagnostic(&self) -> Option<crate::model::diagnostic::DiagnosticRecord> {
+        crate::model::diagnostic::DiagnosticRecord::from_message(self)
+    }
+
     /// Construct a transient provider-retry notice message.
     pub fn provider_retry(
         attempt: usize,
@@ -2485,12 +2693,17 @@ impl TranscriptMessage {
         failure: impl Into<String>,
     ) -> Self {
         let failure = sanitize_text(&failure.into()).into_owned();
-        let blocks = parse_blocks(&failure);
+        // `failure` stays the raw transport text (the settle path and the
+        // diagnostic header derive their facts from it); `raw`/`blocks` carry
+        // the *display* text, so a live entry paints and copies the same
+        // normalized body a settled one does.
+        let text = crate::model::notice_text::display_text(&failure);
+        let blocks = parse_blocks_verbatim(&text);
         Self {
             id: next_message_id(),
             role: Role::System,
             blocks,
-            raw: failure.clone(),
+            raw: text,
             kind: MessageKind::ProviderRetry {
                 attempt,
                 max_attempts,
@@ -2524,8 +2737,9 @@ impl TranscriptMessage {
         failure: impl Into<String>,
     ) {
         let failure = sanitize_text(&failure.into()).into_owned();
-        self.blocks = parse_blocks(&failure);
-        self.raw = failure.clone();
+        let text = crate::model::notice_text::display_text(&failure);
+        self.blocks = parse_blocks_verbatim(&text);
+        self.raw = text;
         // Retry notices never stream; freeze the body (safe default for any
         // stray suffix parse).
         self.resume_byte = self.raw.len();
@@ -2568,13 +2782,21 @@ impl TranscriptMessage {
             let user_pinned = *user_pinned;
 
             let title = format!("Provider request failed (attempt {attempt}/{max_attempts})");
-            let raw = if failure.trim().is_empty() {
-                title.clone()
+            // The settled entry's detail is the *normalized* failure (pretty
+            // JSON, one-line summary lead) — the live entry showed the same
+            // text, so settling does not change what a user would copy.
+            let detail = if failure.trim().is_empty() {
+                None
             } else {
-                format!("{title}: {failure}")
+                Some(crate::model::notice_text::display_text(&failure))
             };
-            self.blocks = parse_blocks(&raw);
-            self.raw = raw;
+            let text = crate::model::notice_text::NoticeText {
+                title: title.clone(),
+                detail: detail.clone(),
+            }
+            .display_text();
+            self.blocks = parse_blocks_verbatim(&text);
+            self.raw = text;
             self.resume_byte = self.raw.len();
             self.live_blocks = 0;
 
@@ -2585,11 +2807,7 @@ impl TranscriptMessage {
                 }),
                 topic: Some("retry".to_string()),
                 title,
-                detail: if failure.trim().is_empty() {
-                    None
-                } else {
-                    Some(failure)
-                },
+                detail,
             };
             self.kind = MessageKind::Notice {
                 severity: NoticeSeverity::Warning,
@@ -3361,7 +3579,7 @@ use super::markdown::{ParseResume, parse_blocks_tracked};
 /// (code fences, headings, rules, blockquotes) while preserving the original
 /// text so copying yields exact source.
 pub(crate) use super::markdown::{clamp_link_ranges, clamp_ranges, scan_inline};
-pub use super::markdown::{parse_blocks, parse_blocks_plain};
+pub use super::markdown::{parse_blocks, parse_blocks_plain, parse_blocks_verbatim};
 
 #[cfg(test)]
 #[path = "document_tests.rs"]

@@ -16,7 +16,10 @@
 //!   a directory basename), uptime since the session opened, and lifecycle
 //!   status. Cards tile into as many columns as the width affords and are
 //!   ordered by sequence number (creation order), so positions are stable
-//!   while statuses flip around them.
+//!   while statuses flip around them. A forked branch also carries a
+//!   back-reference to its origin card (`⇂r2.1#3` — forked at r2.1 from card
+//!   #3): a grid has no second axis to nest along, so lineage is stated, not
+//!   implied [ADR-0120].
 //!
 //! Data is the live monitor snapshot the TUI maintains client-side (folded
 //! from the server's `MonitorEvent` stream), so the dashboard refreshes
@@ -76,6 +79,13 @@ struct DockEntry<'a> {
     row: &'a MonitoredSession,
     seq: usize,
     workspace: String,
+    /// Lineage (ADR-0120): the dock sequence of this card's parent, when the
+    /// parent is itself in the dock. A card grid has no second axis to indent
+    /// along, so a branch states its origin with a back-reference
+    /// (`⇂r2.1#N`) instead of a nesting the geometry cannot express.
+    parent_seq: Option<usize>,
+    /// The persisted fork address, when the store recorded one (`⇂r2.1`).
+    fork_point: Option<nuo_wire::ForkPoint>,
 }
 
 /// The dashboard's sequence axis: indices into `rows` ordered by creation
@@ -122,8 +132,27 @@ fn dock_entries(rows: &[MonitoredSession]) -> Vec<DockEntry<'_>> {
             row,
             seq: seq + 1,
             workspace,
+            parent_seq: None,
+            fork_point: row.fork_point,
         });
     }
+
+    // Resolve each branch's parent to its dock sequence (the `#N` the console
+    // grammar already uses for addressing). Done after numbering so a branch
+    // can point at a parent created later in the tuple order.
+    let seq_of: std::collections::HashMap<&str, usize> = entries
+        .iter()
+        .flatten()
+        .map(|entry| (entry.row.id.as_str(), entry.seq))
+        .collect();
+    for entry in entries.iter_mut().flatten() {
+        entry.parent_seq = entry
+            .row
+            .parent_id
+            .as_deref()
+            .and_then(|parent| seq_of.get(parent).copied());
+    }
+
     entries
         .into_iter()
         .enumerate()
@@ -546,14 +575,26 @@ fn dock_card_line(
     // status (15) · three 2-cell gutters (6). The name takes the rest.
     const FIXED: usize = 2 + 5 + 7 + 15 + 6;
     let name_w = cell_width.saturating_sub(FIXED).max(4);
-    // Lineage badge (fork surfacing): a branch of a live thread is
-    // labeled `⑂ fork`, so the dock reads as trunk cards with their derived
-    // branches marked, not as N independent sessions. A trunk keeps the
-    // plain name (the main line needs no badge: there is exactly one).
+    // Lineage badge (fork surfacing, ADR-0120). A grid cannot nest, so a branch
+    // states its origin positionally — `⇂r2.1#3` reads "forked at r2.1 from
+    // card #3" — while a trunk keeps the plain name (there is exactly one main
+    // line and it needs no marker). The fork address comes from the store; the
+    // parent sequence is resolved from the dock itself.
     let lineage = match row.fork_kind {
         nuo_wire::SessionForkKind::Trunk => String::new(),
-        nuo_wire::SessionForkKind::Fork => "⑂fork ".to_string(),
         nuo_wire::SessionForkKind::Subagent => String::new(),
+        nuo_wire::SessionForkKind::Fork => {
+            let address = entry
+                .fork_point
+                .map(|point| point.label())
+                .unwrap_or_default();
+            match (address.is_empty(), entry.parent_seq) {
+                (false, Some(parent)) => format!("\u{21b2}{address}#{parent} "),
+                (false, None) => format!("\u{21b2}{address} "),
+                (true, Some(parent)) => format!("\u{21b2}#{parent} "),
+                (true, None) => "\u{21b2} ".to_string(),
+            }
+        }
     };
     let lineage_w = lineage.chars().count();
     let name_budget = name_w.saturating_sub(lineage_w);
@@ -1507,6 +1548,7 @@ mod tests {
             project_root: project_root.into(),
             parent_id: None,
             fork_kind: nuo_wire::SessionForkKind::Trunk,
+            fork_point: None,
             digest: None,
         }
     }
@@ -1612,10 +1654,11 @@ mod tests {
     }
 
     #[test]
-    fn dock_card_badges_a_forked_session_by_kind() {
-        // Lineage surfacing: a trunk card carries no badge (exactly one main
-        // line per thread); a fork branch is badged `⑂fork` so the dock reads
-        // as trunk + derived branches rather than N independent sessions.
+    fn dock_card_states_lineage_as_a_back_reference() {
+        // A card grid has no second axis to nest along (ADR-0120 Alternative E),
+        // so lineage is stated positionally: `⇂r2.1#1` reads "forked at r2.1
+        // from card #1". A trunk carries no marker — there is exactly one main
+        // line and it needs none.
         let theme = Theme::default();
         let now = 1_000u64;
 
@@ -1625,25 +1668,42 @@ mod tests {
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(
-            !text.contains('⑂'),
+            !text.contains('\u{21b2}'),
             "a trunk carries no lineage badge: {text}"
         );
 
+        // An explicit fork with a recorded address, parent present in the dock.
+        let trunk_row = row("t", 1, "/work/main", SessionStatus::Running);
         let mut fork = row("a", 2, "/work/main", SessionStatus::Running);
         fork.parent_id = Some("t".into());
         fork.fork_kind = nuo_wire::SessionForkKind::Fork;
-        let entries = dock_entries(std::slice::from_ref(&fork));
-        let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
+        fork.fork_point = Some(nuo_wire::ForkPoint::at_turn(2, 1));
+        let rows = vec![trunk_row, fork];
+        let entries = dock_entries(&rows);
+        let fork_entry = entries.iter().find(|e| e.row.id == "a").expect("fork card");
+        let line = dock_card_line(fork_entry, 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("⑂fork"), "a fork branch is badged: {text}");
+        assert!(
+            text.contains("\u{21b2}r2.1#1"),
+            "a branch names its fork address and origin card: {text}"
+        );
 
-        let mut fork = row("f", 3, "/work/main", SessionStatus::Idle);
-        fork.parent_id = Some("t".into());
-        fork.fork_kind = nuo_wire::SessionForkKind::Fork;
-        let entries = dock_entries(std::slice::from_ref(&fork));
+        // A branch whose parent is not in the dock still states the address.
+        let mut orphan = row("f", 3, "/work/main", SessionStatus::Idle);
+        orphan.parent_id = Some("absent".into());
+        orphan.fork_kind = nuo_wire::SessionForkKind::Fork;
+        orphan.fork_point = Some(nuo_wire::ForkPoint::at_round(4));
+        let entries = dock_entries(std::slice::from_ref(&orphan));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("⑂fork"), "an explicit fork is badged: {text}");
+        assert!(
+            text.contains("\u{21b2}r4"),
+            "an anchorless branch still states where it diverged: {text}"
+        );
+        assert!(
+            !text.contains("#0"),
+            "no card is invented for an absent parent: {text}"
+        );
     }
 
     #[test]

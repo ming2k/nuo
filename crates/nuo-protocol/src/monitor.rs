@@ -14,7 +14,7 @@
 //! `AgentResponse` stream lives in `nuo_runtime::monitor`.
 use serde::{Deserialize, Serialize};
 
-use crate::events::SessionForkKind;
+use crate::events::{ForkPoint, SessionForkKind};
 
 /// Handshake action selecting a server-observability stream instead of a
 /// session attach. Sent as the first frame:
@@ -236,16 +236,23 @@ pub struct MonitoredSession {
     /// metadata, not conversation.
     #[serde(default)]
     pub project_root: String,
-    /// Lineage (fork surfacing): the parent session this one was
-    /// forked from, when it is a branch. `None` on a trunk. The dashboard
-    /// groups by trunk: one main card per conversation, its branches
-    /// badged beneath — the main line is always exactly one.
+    /// Lineage (fork surfacing, ADR-0120): the parent session this one was
+    /// forked from, when it is a branch. `None` on a trunk. A **card grid**
+    /// (the dashboard dock) cannot nest, so a branch card states the relation
+    /// with a back-reference marker (`⇂r2.1#N` → fork address + the parent's dock
+    /// sequence) and
+    /// the parent marker row; the picker, which is a list, paints the full
+    /// `├─/└─` geometry from the same persisted fact.
     #[serde(default)]
     pub parent_id: Option<String>,
     /// How this session came to exist: trunk root or `/fork` branch (ADR-0058).
     /// Defaults to `Trunk` for producers that predate the field.
     #[serde(default)]
     pub fork_kind: SessionForkKind,
+    /// Where this branch diverged from its parent (ADR-0120). Persisted on the
+    /// child at fork time and read verbatim here — never re-derived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_point: Option<ForkPoint>,
     /// Structured digest (intent + history checklist), if
     /// the session has generated one.
     #[serde(default)]
@@ -276,6 +283,7 @@ impl MonitoredSession {
             project_root: String::new(),
             parent_id: None,
             fork_kind: SessionForkKind::default(),
+            fork_point: None,
             digest: None,
         }
     }
@@ -427,6 +435,7 @@ mod tests {
                 project_root: "/tmp/proj".into(),
                 parent_id: None,
                 fork_kind: SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             }],
         };

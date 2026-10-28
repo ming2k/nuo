@@ -461,11 +461,13 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_excludes_scene_and_harness_commands() {
+    fn command_palette_excludes_scene_controls_and_slash_commands() {
         let ctx = AppContext::default();
         let entries = filter_palette_commands("", &[], &ctx);
 
-        // Harness commands must NOT be in client command palette
+        // Slash commands are thread-scoped operations, not workspace
+        // navigation, so the client palette must not list them (ADR-0041
+        // [INV-CMD-01], ADR-0119).
         assert!(
             !entries
                 .iter()

@@ -7,7 +7,7 @@
 //! - History: `Esc close` (left) / `Tab / Enter insert` (right)
 use nuotc::{Color, Modifier, Span, Style};
 
-use crate::shell::keymap::{HintSide, LiveHint};
+use crate::shell::keymap::{HintSide, Key, LiveHint};
 use crate::shell::modal_keys::live_history_hints;
 use crate::shell::session::{HintState, live_chat_hints};
 use nuo_ui_primitives::components::keycap::keycap_style;
@@ -120,6 +120,12 @@ pub struct ComposerHints {
     /// the hint row advertises exactly the binding that fires. Defaults to the
     /// canonical `Tab` when unremapped.
     pub toggle_mode_key: crate::shell::keymap::Key,
+    /// Whether a transcript entry holds keyboard focus. The composer is inert
+    /// in that state (`(Composer inactive)`), so the row instead names the
+    /// verbs a focused entry accepts — the affordances that are otherwise
+    /// undiscoverable, since a bare letter typed with no focus belongs to the
+    /// prompt.
+    pub entry_focused: bool,
 }
 
 impl Default for ComposerHints {
@@ -130,6 +136,7 @@ impl Default for ComposerHints {
             history_recall: None,
             recall_draft_saved: false,
             toggle_mode_key: crate::shell::keymap::Key::TAB,
+            entry_focused: false,
         }
     }
 }
@@ -149,11 +156,43 @@ pub(crate) fn hint_row_parts(
     theme: &Theme,
     bg: Color,
     toggle_mode_key: crate::shell::keymap::Key,
+    entry_focused: bool,
 ) -> (Vec<Span<'static>>, Vec<Span<'static>>) {
     let key_style = keycap_style(theme).bg(bg);
     let hint_style = theme.keycap_label_style().bg(bg);
     let compact = density.compact();
     let tiny = matches!(density, ActionDensity::Tiny);
+
+    // Entry focus: the prompt is inert, so the row documents what the focused
+    // entry accepts. Rendered through the same `HintState` origin as every
+    // other row, so a hint here can no more drift from the resolver than one
+    // in the prompt state can.
+    if entry_focused {
+        let hints = live_chat_hints(HintState::EntryFocused, toggle_mode_key);
+        let mut left: Vec<Span<'static>> = Vec::new();
+        let mut right: Vec<Span<'static>> = Vec::new();
+        for h in &hints {
+            let sink = match h.side {
+                HintSide::Nav => &mut left,
+                HintSide::Action => &mut right,
+            };
+            if !sink.is_empty() {
+                sink.push(Span::styled("   ", hint_style));
+            }
+            sink.push(Span::styled(h.display_key(), key_style));
+            sink.push(Span::styled(format!(" {}", h.label), hint_style));
+        }
+        if tiny {
+            // Only the copy verb survives the narrowest width: it is the reason
+            // a user parks focus on an entry.
+            left.clear();
+            right = vec![
+                Span::styled(Key::plain('y').display().to_string(), key_style),
+                Span::styled(" copy", hint_style),
+            ];
+        }
+        return (left, right);
+    }
 
     // HistorySearch is a modal whose keys are owned by its own scheme
     // (`modal_keys::live_history_hints`); this row renders exactly
@@ -301,6 +340,7 @@ mod tests {
             &theme,
             Color::Reset,
             crate::shell::keymap::Key::TAB,
+            false,
         );
         assert_eq!(text(&left), "", "idle row carries no nav chords");
         assert_eq!(text(&right), "Enter send");
@@ -323,6 +363,7 @@ mod tests {
             &theme,
             Color::Reset,
             crate::shell::keymap::Key::TAB,
+            false,
         );
         assert_eq!(text(&left), "Tab follow-up mode");
         assert_eq!(text(&right), "Enter send steer");
@@ -338,6 +379,7 @@ mod tests {
             &theme,
             Color::Reset,
             crate::shell::keymap::Key::TAB,
+            false,
         );
         assert_eq!(text(&left), "Tab steer mode");
         assert_eq!(text(&right), "Enter queue follow-up");
@@ -353,11 +395,50 @@ mod tests {
             &theme,
             Color::Reset,
             crate::shell::keymap::Key::CTRL_T,
+            false,
         );
         assert_eq!(
             text(&left),
             "Ctrl-t follow-up mode",
             "the hint must advertise the effective toggle binding, not the canonical"
         );
+    }
+
+    /// A focused entry makes the composer inert, so the row must document what
+    /// the entry accepts instead — and it must never claim the copy verbs are
+    /// live in the prompt state, where a bare `y` belongs to typing.
+    #[test]
+    fn entry_focus_row_names_the_entry_verbs_and_nothing_from_the_prompt_state() {
+        let theme = Theme::default();
+        let (left, right) = hint_row_parts(
+            false,
+            ActionDensity::Full,
+            ComposeTarget::Prompt,
+            &theme,
+            Color::Reset,
+            crate::shell::keymap::Key::TAB,
+            true,
+        );
+        assert_eq!(text(&left), "Esc back   Space expand");
+        assert_eq!(text(&right), "y copy   Shift-y diagnostic");
+    }
+
+    /// The narrowest width keeps only the verb that justified parking focus
+    /// there: copy. Falling back to the prompt row here would advertise keys
+    /// that do nothing while an entry holds focus.
+    #[test]
+    fn entry_focus_row_degrades_to_copy_on_the_narrowest_width() {
+        let theme = Theme::default();
+        let (left, right) = hint_row_parts(
+            false,
+            ActionDensity::Tiny,
+            ComposeTarget::Prompt,
+            &theme,
+            Color::Reset,
+            crate::shell::keymap::Key::TAB,
+            true,
+        );
+        assert_eq!(text(&left), "", "nav chords drop first");
+        assert_eq!(text(&right), "y copy");
     }
 }

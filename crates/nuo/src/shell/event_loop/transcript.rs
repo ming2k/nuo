@@ -99,17 +99,6 @@ pub(crate) fn extract_selection_text(
     get_selected_text(sel, messages, &grid, cell_info)
 }
 
-/// Extract readable text content from an interactive focused target (for component copy).
-pub(crate) fn extract_focused_target_text(
-    messages: &[nuo_view::model::document::TranscriptMessage],
-    target: nuo_view::model::layout::InteractiveTarget,
-) -> Option<String> {
-    use nuo_view::model::interactive::InteractiveEntry;
-    messages
-        .get(target.message_idx)
-        .and_then(|m| m.extract_copy_text())
-}
-
 /// Format the current loop status into human-readable text.
 pub(crate) fn display_status(
     loop_status: nuo_wire::LoopStatus,

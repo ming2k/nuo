@@ -59,80 +59,250 @@ pub struct SessionsModalProps<'a> {
     pub running_sessions: Option<&'a std::collections::HashSet<String>>,
 }
 
-/// A projected row item in the sessions picker modal.
+/// One row of the picker's projected lineage forest.
+///
+/// A single shape, not a `Trunk`/`Branch` pair: the pair encoded the depth-1
+/// assumption in the type system (there was no way to express a grandchild),
+/// which is exactly how forks of forks became unrepresentable and then
+/// invisible (ADR-0120). Depth and lane geometry are data here, so rendering is
+/// a pure function of this struct.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionPickerItem<'a> {
-    Trunk {
-        session: &'a nuo_wire::SessionOverview,
-        child_count: usize,
-        expanded: bool,
-    },
-    Branch {
-        session: &'a nuo_wire::SessionOverview,
-        is_last: bool,
-    },
+pub struct SessionPickerItem<'a> {
+    /// The thread this row shows.
+    pub session: &'a nuo_wire::SessionOverview,
+    /// Nesting depth: `0` for a root, `1` for a direct child, and so on.
+    pub depth: usize,
+    /// Whether this row is the last child of its parent — the `└─` vs `├─`
+    /// decision.
+    pub is_last: bool,
+    /// Per-ancestor continuation flags, outermost first. `true` means that
+    /// ancestor still has a following sibling, so its lane column paints `│`;
+    /// `false` means the lane is closed and paints spaces. This is the whole
+    /// graph geometry: rendering never recomputes relationships.
+    pub ancestry: Vec<bool>,
+    /// How many direct children this row has (collapsed or expanded).
+    pub child_count: usize,
+    /// Whether this row's children are shown.
+    pub expanded: bool,
+    /// `true` when `parent_id` names a thread absent from this snapshot. The row
+    /// is a branch whose origin the picker cannot draw — it must be marked as
+    /// such, never silently promoted to a root conversation (`[INV-LINEAGE-02]`).
+    pub parent_missing: bool,
 }
 
 impl<'a> SessionPickerItem<'a> {
+    /// The thread this row projects.
     pub fn session(&self) -> &'a nuo_wire::SessionOverview {
-        match self {
-            Self::Trunk { session, .. } => session,
-            Self::Branch { session, .. } => session,
+        self.session
+    }
+
+    /// The lane prefix for this row: `""` at depth 0, otherwise a run of
+    /// ancestor columns then the `├─ `/`└─ ` elbow.
+    pub fn lane_prefix(&self) -> String {
+        if self.depth == 0 {
+            return String::new();
+        }
+        let mut out = String::with_capacity(self.depth * 3);
+        for (i, continues) in self.ancestry.iter().enumerate() {
+            // The innermost column is the elbow; every outer one is a lane.
+            if i + 1 == self.ancestry.len() {
+                out.push_str(if self.is_last { "└─ " } else { "├─ " });
+            } else {
+                out.push_str(if *continues { "│  " } else { "   " });
+            }
+        }
+        out
+    }
+
+    /// The lineage marker that follows the lane: a fork address when the store
+    /// recorded one, else the bare branch glyph.
+    pub fn lineage_marker(&self) -> String {
+        match self.session.fork_point {
+            Some(point) => format!("⑂{point} "),
+            None if self.parent_missing => "⑂ ".to_string(),
+            None => "⑂ ".to_string(),
         }
     }
 }
 
-/// Project session overviews into a hierarchical trunk-first list with expandable timeline branches.
+/// Project session overviews into the lineage forest (ADR-0120).
+///
+/// Guarantees, in order of how badly a browser needs them:
+///
+/// 1. **Nothing is dropped.** Every session in `sessions` is emitted exactly
+///    once — including the thread the user is attached to, and including a
+///    branch whose parent is not in this snapshot (`[INV-LINEAGE-02]`).
+/// 2. **Position is deterministic.** Roots and siblings are ordered by
+///    `(created_at, id)`, never by `updated_at`: a list that reorders while a
+///    model streams cannot be navigated with a cursor (`[INV-LINEAGE-03]`).
+/// 3. **Geometry is computed once.** `depth`, `is_last` and `ancestry` are
+///    produced here; the renderer only paints them.
+/// 4. **Corrupt lineage terminates.** A `parent_id` cycle is broken by visiting
+///    each row at most once, so a bad database cannot hang the picker.
+///
+/// `expanded_set` names the rows whose children are shown. Collapsed rows still
+/// report their `child_count` so the badge reads `[⑂ 3]` before expanding.
 pub fn project_session_rows<'a>(
     sessions: &'a [nuo_wire::SessionOverview],
     expanded_set: Option<&std::collections::HashSet<String>>,
 ) -> Vec<SessionPickerItem<'a>> {
-    use nuo_wire::SessionForkKind;
+    use std::collections::{HashMap, HashSet};
 
-    let mut trunks: Vec<&'a nuo_wire::SessionOverview> = Vec::new();
-    let mut children_by_parent: std::collections::HashMap<
-        &str,
-        Vec<&'a nuo_wire::SessionOverview>,
-    > = std::collections::HashMap::new();
+    let by_id: HashMap<&str, &'a nuo_wire::SessionOverview> =
+        sessions.iter().map(|s| (s.id.as_str(), s)).collect();
 
-    let all_ids: std::collections::HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
+    // Children indexed by parent id. A row is a child only when its parent is
+    // present; otherwise it is an *anchorless* root (handled below).
+    let mut children: HashMap<&str, Vec<&'a nuo_wire::SessionOverview>> = HashMap::new();
+    let mut roots: Vec<&'a nuo_wire::SessionOverview> = Vec::new();
+    let mut parent_missing: HashSet<&str> = HashSet::new();
 
-    for s in sessions {
-        let is_branch = s.parent_id.is_some() && s.fork_kind != SessionForkKind::Trunk;
-        if is_branch
-            && let Some(ref pid) = s.parent_id
-            && all_ids.contains(pid.as_str())
-        {
-            children_by_parent.entry(pid.as_str()).or_default().push(s);
-            continue;
-        }
-        trunks.push(s);
-    }
-
-    let mut rows = Vec::new();
-    for trunk in trunks {
-        let children = children_by_parent.get(trunk.id.as_str());
-        let child_count = children.as_ref().map(|c| c.len()).unwrap_or(0);
-        let is_expanded = child_count > 0
-            && expanded_set
-                .map(|set| set.contains(&trunk.id))
-                .unwrap_or(false);
-
-        rows.push(SessionPickerItem::Trunk {
-            session: trunk,
-            child_count,
-            expanded: is_expanded,
-        });
-
-        if is_expanded && let Some(child_list) = children {
-            for (idx, child) in child_list.iter().enumerate() {
-                let is_last = idx + 1 == child_list.len();
-                rows.push(SessionPickerItem::Branch {
-                    session: child,
-                    is_last,
-                });
+    for session in sessions {
+        match session.parent_id.as_deref() {
+            Some(parent) if by_id.contains_key(parent) && parent != session.id => {
+                children.entry(parent).or_default().push(session);
+            }
+            // No parent at all: a genuine root.
+            None => roots.push(session),
+            // A parent that is not in the snapshot. The picker must still show
+            // the row — it is a branch of *something*, and hiding it is how the
+            // agent's own forks used to vanish (`[INV-LINEAGE-02]`).
+            Some(_) => {
+                parent_missing.insert(session.id.as_str());
+                roots.push(session);
             }
         }
+    }
+
+    // Deterministic order: creation, then id so equal timestamps stay total.
+    let order = |a: &&'a nuo_wire::SessionOverview, b: &&'a nuo_wire::SessionOverview| {
+        (a.created_at, a.id.as_str()).cmp(&(b.created_at, b.id.as_str()))
+    };
+    roots.sort_by(order);
+    for list in children.values_mut() {
+        list.sort_by(order);
+    }
+
+    let is_expanded = |id: &str| expanded_set.map(|set| set.contains(id)).unwrap_or(false);
+
+    let mut rows: Vec<SessionPickerItem<'a>> = Vec::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+
+    // Iterative depth-first walk (an explicit stack, not recursion: a deep or
+    // adversarially long chain must not be able to overflow the render stack).
+    // Each frame carries the geometry its children inherit.
+    struct Frame<'s> {
+        session: &'s nuo_wire::SessionOverview,
+        depth: usize,
+        is_last: bool,
+        ancestry: Vec<bool>,
+    }
+
+    let root_count = roots.len();
+    let mut stack: Vec<Frame<'a>> = roots
+        .iter()
+        .enumerate()
+        .rev()
+        .map(|(index, session)| Frame {
+            session,
+            depth: 0,
+            // A root has no elbow, but the flag is inherited by its subtree as
+            // the outermost lane column, so it must be truthful.
+            is_last: index + 1 == root_count,
+            ancestry: Vec::new(),
+        })
+        .collect();
+
+    while let Some(frame) = stack.pop() {
+        if !visited.insert(frame.session.id.as_str()) {
+            // A cycle (or a duplicate row) — emit once and stop descending.
+            continue;
+        }
+        let kids = children
+            .get(frame.session.id.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let expanded = !kids.is_empty() && is_expanded(frame.session.id.as_str());
+
+        rows.push(SessionPickerItem {
+            session: frame.session,
+            depth: frame.depth,
+            is_last: frame.is_last,
+            ancestry: frame.ancestry.clone(),
+            child_count: kids.len(),
+            expanded,
+            parent_missing: parent_missing.contains(frame.session.id.as_str()),
+        });
+
+        if !expanded {
+            continue;
+        }
+
+        // Push in reverse so the stack pops them in ascending order.
+        let last_index = kids.len().saturating_sub(1);
+        for (index, kid) in kids.iter().enumerate().rev() {
+            let mut ancestry = frame.ancestry.clone();
+            if frame.depth > 0 {
+                // Our own continuation becomes an outer column for our children.
+                ancestry.push(!frame.is_last);
+            } else {
+                // Depth-0 roots have no elbow, but their children still need a
+                // column per ancestor level, so the root contributes one.
+                ancestry.push(true);
+            }
+            stack.push(Frame {
+                session: kid,
+                depth: frame.depth + 1,
+                is_last: index == last_index,
+                ancestry,
+            });
+        }
+    }
+
+    // Unreachable-row pass. Two different situations produce an unvisited row,
+    // and conflating them is what would re-introduce the original defect in
+    // reverse (collapsed children would show as roots):
+    //
+    // - **Hidden by a collapsed ancestor.** The user closed a subtree. This row
+    //   is intentionally not painted; it is reachable the moment its ancestor
+    //   expands. Nothing to do here.
+    // - **Stuck in a cycle.** Corrupt lineage with no root above it. It would
+    //   never be painted at any expansion state, so it must be listed
+    //   (`[INV-LINEAGE-02]`).
+    //
+    // Walking up from an unvisited row distinguishes them: reaching an emitted
+    // row means the chain is sound (just folded); returning to the walk's own
+    // starting point means a cycle.
+    let stranded: Vec<&'a nuo_wire::SessionOverview> = sessions
+        .iter()
+        .filter(|session| !visited.contains(session.id.as_str()))
+        .filter(|session| {
+            let mut cursor = session.parent_id.as_deref();
+            let mut steps = 0usize;
+            while let Some(parent) = cursor {
+                if visited.contains(parent) {
+                    return false; // sound chain, merely folded
+                }
+                if parent == session.id.as_str() || steps > sessions.len() {
+                    return true; // cycle (or a chain longer than the row set)
+                }
+                cursor = by_id.get(parent).and_then(|row| row.parent_id.as_deref());
+                steps += 1;
+            }
+            true // no root reachable at all
+        })
+        .collect();
+
+    for session in stranded {
+        rows.push(SessionPickerItem {
+            session,
+            depth: 0,
+            is_last: false,
+            ancestry: Vec::new(),
+            child_count: children.get(session.id.as_str()).map_or(0, Vec::len),
+            expanded: false,
+            parent_missing: true,
+        });
     }
 
     rows
@@ -284,112 +454,96 @@ pub fn draw_sessions_modal(
         let meta_w = meta.width();
         const COL_GUTTER: usize = 2;
 
-        match item {
-            SessionPickerItem::Trunk {
-                child_count,
-                expanded,
-                ..
-            } => {
-                let is_running = running_sessions.is_some_and(|r| r.contains(&session.id));
-                let run_badge = if is_running {
-                    let spin = theme.glyphs.spinner_frame(spinner_phase);
-                    format!(" [{spin} RUNNING]")
-                } else {
-                    String::new()
-                };
-                let tree_badge = if *child_count > 0 {
-                    if *expanded {
-                        format!(" [▼ ⑂ {}]", child_count)
-                    } else {
-                        format!(" [⑂ {}]", child_count)
-                    }
-                } else {
-                    String::new()
-                };
-                let badge = format!("{run_badge}{tree_badge}");
-                let badge_w = badge.width();
-                let col1_budget = body_width.saturating_sub(meta_w + badge_w + COL_GUTTER);
-                let display_title = session
-                    .title
-                    .as_deref()
-                    .filter(|t| !t.trim().is_empty())
-                    .unwrap_or(if !session.overview.trim().is_empty() {
-                        session.overview.as_str()
-                    } else {
-                        "(untitled)"
-                    });
-                let overview = truncate_ellipsis(&one_line(display_title), col1_budget);
-                let left_w = overview.width() + badge_w;
-                let pad = body_width.saturating_sub(left_w + meta_w);
-                let badge_style = if is_selected {
-                    Style::default().bg(s.bg).fg(theme.primary)
-                } else if is_running {
-                    Style::default().bg(s.bg).fg(theme.warning)
-                } else {
-                    Style::default().bg(s.bg).fg(theme.brand())
-                };
-                let spans = vec![
-                    Span::styled(overview, Style::default().bg(s.bg).fg(s.fg)),
-                    Span::styled(badge, badge_style),
-                    Span::styled(" ".repeat(pad), Style::default().bg(s.bg)),
-                    Span::styled(meta, Style::default().bg(s.bg).fg(s.dim)),
-                ];
-                body.push(Line::from(spans));
+        // Geometry is data (ADR-0120): the lane prefix carries every ancestor
+        // column plus this row's elbow, and is empty at depth 0.
+        let lane = item.lane_prefix();
+        let lineage = item.lineage_marker();
+        let marker = if item.parent_missing {
+            // The origin exists but is not in this snapshot; say so rather than
+            // pretending the thread is a root conversation.
+            let parent = session.parent_id.as_deref().unwrap_or("?");
+            format!("{lineage}from {} ", short_id(parent))
+        } else if item.depth > 0 || session.parent_id.is_some() {
+            lineage
+        } else {
+            String::new()
+        };
+
+        let is_running = running_sessions.is_some_and(|r| r.contains(&session.id));
+        let run_badge = if is_running {
+            let spin = theme.glyphs.spinner_frame(spinner_phase);
+            format!(" [{spin} RUNNING]")
+        } else {
+            String::new()
+        };
+        // The child badge only means something when the row has descendants.
+        let tree_badge = if item.child_count > 0 {
+            if item.expanded {
+                format!(" [\u{25bc} \u{2442} {}]", item.child_count)
+            } else {
+                format!(" [\u{2442} {}]", item.child_count)
             }
-            SessionPickerItem::Branch { is_last, .. } => {
-                let prefix = if *is_last {
-                    "  └─ ⑂ "
-                } else {
-                    "  ├─ ⑂ "
-                };
-                let prefix_w = prefix.width();
-                let is_running = running_sessions.is_some_and(|r| r.contains(&session.id));
-                let run_badge = if is_running {
-                    let spin = theme.glyphs.spinner_frame(spinner_phase);
-                    format!(" [{spin} RUNNING]")
-                } else {
-                    String::new()
-                };
-                let badge_w = run_badge.width();
-                let col1_budget =
-                    body_width.saturating_sub(meta_w + prefix_w + badge_w + COL_GUTTER);
-                let display_title = session
-                    .title
-                    .as_deref()
-                    .filter(|t| !t.trim().is_empty())
-                    .unwrap_or(if !session.overview.trim().is_empty() {
-                        session.overview.as_str()
-                    } else {
-                        "(untitled)"
-                    });
-                let overview = truncate_ellipsis(&one_line(display_title), col1_budget);
-                let left_w = prefix_w + overview.width() + badge_w;
-                let pad = body_width.saturating_sub(left_w + meta_w);
-                let branch_prefix_style = if is_selected {
-                    Style::default().bg(s.bg).fg(theme.primary)
-                } else {
-                    Style::default().bg(s.bg).fg(theme.dim())
-                };
-                let branch_text_style = if is_selected {
-                    Style::default().bg(s.bg).fg(s.fg)
-                } else {
-                    Style::default().bg(s.bg).fg(theme.muted())
-                };
-                let run_badge_style = if is_selected {
-                    Style::default().bg(s.bg).fg(theme.primary)
-                } else {
-                    Style::default().bg(s.bg).fg(theme.warning)
-                };
-                let spans = vec![
-                    Span::styled(prefix, branch_prefix_style),
-                    Span::styled(overview, branch_text_style),
-                    Span::styled(run_badge, run_badge_style),
-                    Span::styled(" ".repeat(pad), Style::default().bg(s.bg)),
-                    Span::styled(meta, Style::default().bg(s.bg).fg(s.dim)),
-                ];
-                body.push(Line::from(spans));
-            }
-        }
+        } else {
+            String::new()
+        };
+
+        let prefix = format!("{lane}{marker}");
+        let prefix_w = prefix.width();
+        let badge = format!("{run_badge}{tree_badge}");
+        let badge_w = badge.width();
+        let is_current = session.active;
+        let current_badge = if is_current { " [current]" } else { "" };
+        let current_w = current_badge.width();
+        let col1_budget =
+            body_width.saturating_sub(meta_w + prefix_w + badge_w + current_w + COL_GUTTER);
+
+        let display_title = session
+            .title
+            .as_deref()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or(if !session.overview.trim().is_empty() {
+                session.overview.as_str()
+            } else {
+                "(untitled)"
+            });
+        let overview = truncate_ellipsis(&one_line(display_title), col1_budget);
+        let left_w = prefix_w + overview.width() + badge_w + current_w;
+        let pad = body_width.saturating_sub(left_w + meta_w);
+
+        // A branch reads as derived: its geometry and name are dimmed next to
+        // the trunk's plain name, and everything brightens under selection.
+        let lane_style = if is_selected {
+            Style::default().bg(s.bg).fg(theme.primary)
+        } else {
+            Style::default().bg(s.bg).fg(theme.dim())
+        };
+        let text_style = if is_selected || item.depth == 0 {
+            Style::default().bg(s.bg).fg(s.fg)
+        } else {
+            Style::default().bg(s.bg).fg(theme.muted())
+        };
+        let badge_style = if is_selected {
+            Style::default().bg(s.bg).fg(theme.primary)
+        } else if is_running {
+            Style::default().bg(s.bg).fg(theme.warning)
+        } else {
+            Style::default().bg(s.bg).fg(theme.brand())
+        };
+        let current_style = if is_selected {
+            Style::default().bg(s.bg).fg(theme.primary)
+        } else {
+            Style::default().bg(s.bg).fg(theme.ok())
+        };
+
+        let spans = vec![
+            Span::styled(prefix, lane_style),
+            Span::styled(overview, text_style),
+            Span::styled(badge, badge_style),
+            Span::styled(current_badge.to_string(), current_style),
+            Span::styled(" ".repeat(pad), Style::default().bg(s.bg)),
+            Span::styled(meta, Style::default().bg(s.bg).fg(s.dim)),
+        ];
+        body.push(Line::from(spans));
     }
 
     // The window is already the visible slice, so render it at scroll 0 and
@@ -402,6 +556,13 @@ pub fn draw_sessions_modal(
         render_modal_footer_with_extra(frame, fo, &list_footer_hints, &list_extra, theme);
     }
     area
+}
+
+/// The first 8 characters of a session id — enough to recognize an identifier
+/// the user may have seen elsewhere (a log line, a tab), short enough to sit in
+/// a lane marker.
+fn short_id(id: &str) -> String {
+    id.chars().take(8).collect()
 }
 
 /// Build the session-info sub-view body: a label/value read-out (id, title,
@@ -569,87 +730,233 @@ mod tests {
         assert!(!output.contains("Loading threads…"));
     }
 
+    /// A session row with the fields these tests care about spelled out, so a
+    /// new wire field does not turn every assertion into a fixture edit.
+    fn overview(id: &str, parent: Option<&str>, created_at: u64) -> nuo_wire::SessionOverview {
+        nuo_wire::SessionOverview {
+            id: id.into(),
+            title: Some(id.into()),
+            overview: id.into(),
+            created_at,
+            updated_at: created_at,
+            message_count: 1,
+            active: false,
+            parent_id: parent.map(str::to_string),
+            fork_kind: if parent.is_some() {
+                nuo_wire::SessionForkKind::Fork
+            } else {
+                nuo_wire::SessionForkKind::Trunk
+            },
+            fork_point: parent.map(|_| nuo_wire::ForkPoint::at_round(1)),
+            digest: None,
+        }
+    }
+
+    fn expanded(ids: &[&str]) -> std::collections::HashSet<String> {
+        ids.iter().map(|id| (*id).to_string()).collect()
+    }
+
+    fn ids(rows: &[SessionPickerItem<'_>]) -> Vec<String> {
+        rows.iter().map(|row| row.session().id.clone()).collect()
+    }
+
+    /// `[INV-LINEAGE-02]`: nothing may be dropped. A branch of a branch is a
+    /// first-class row; before ADR-0120 a depth-2 fork was collected as a child
+    /// and then never emitted, so it was invisible and unselectable.
     #[test]
-    fn project_session_rows_groups_by_trunk_and_branches() {
-        use nuo_wire::{SessionForkKind, SessionOverview};
-        let s1 = SessionOverview {
-            id: "s1".into(),
-            title: Some("Trunk 1".into()),
-            overview: "Trunk 1".into(),
-            created_at: 100,
-            updated_at: 100,
-            message_count: 5,
-            active: false,
-            parent_id: None,
-            fork_kind: SessionForkKind::Trunk,
-            digest: None,
-        };
-        let s2 = SessionOverview {
-            id: "s2".into(),
-            title: Some("Branch 1".into()),
-            overview: "Branch 1".into(),
-            created_at: 110,
-            updated_at: 110,
-            message_count: 2,
-            active: false,
-            parent_id: Some("s1".into()),
-            fork_kind: SessionForkKind::Fork,
-            digest: None,
-        };
-        let s3 = SessionOverview {
-            id: "s3".into(),
-            title: Some("Trunk 2".into()),
-            overview: "Trunk 2".into(),
-            created_at: 120,
-            updated_at: 120,
-            message_count: 10,
-            active: false,
-            parent_id: None,
-            fork_kind: SessionForkKind::Trunk,
-            digest: None,
-        };
-        let sessions = vec![s1, s2, s3];
+    fn deep_fork_chain_remains_visible() {
+        let sessions = vec![
+            overview("T", None, 10),
+            overview("F1", Some("T"), 20),
+            overview("F2", Some("F1"), 30),
+            overview("F3", Some("F2"), 40),
+        ];
 
-        // 1. Collapsed state
+        // Collapsed: only the roots are listed, but the child counts chain.
         let collapsed = project_session_rows(&sessions, None);
-        assert_eq!(collapsed.len(), 2, "only 2 trunk rows when collapsed");
-        match &collapsed[0] {
-            SessionPickerItem::Trunk {
-                session,
-                child_count,
-                expanded,
-            } => {
-                assert_eq!(session.id, "s1");
-                assert_eq!(*child_count, 1);
-                assert!(!*expanded);
-            }
-            _ => panic!("expected trunk"),
-        }
+        assert_eq!(ids(&collapsed), vec!["T"]);
+        assert_eq!(collapsed[0].child_count, 1);
 
-        // 2. Expanded state
-        let mut expanded_set = std::collections::HashSet::new();
-        expanded_set.insert("s1".to_string());
-        let expanded = project_session_rows(&sessions, Some(&expanded_set));
-        assert_eq!(expanded.len(), 3, "2 trunks + 1 expanded branch");
-        match &expanded[0] {
-            SessionPickerItem::Trunk {
-                session,
-                child_count,
-                expanded,
-            } => {
-                assert_eq!(session.id, "s1");
-                assert_eq!(*child_count, 1);
-                assert!(*expanded);
-            }
-            _ => panic!("expected trunk"),
-        }
-        match &expanded[1] {
-            SessionPickerItem::Branch { session, is_last } => {
-                assert_eq!(session.id, "s2");
-                assert!(*is_last);
-            }
-            _ => panic!("expected branch"),
-        }
+        // Fully expanded: every link of the chain is present, in depth order.
+        let all = project_session_rows(&sessions, Some(&expanded(&["T", "F1", "F2"])));
+        assert_eq!(ids(&all), vec!["T", "F1", "F2", "F3"]);
+        assert_eq!(all[1].depth, 1);
+        assert_eq!(all[2].depth, 2);
+        assert_eq!(all[3].depth, 3);
+    }
+
+    /// `[INV-LINEAGE-02]`: the agent's own branches must not be laundered into
+    /// unrelated roots. The picker's snapshot drops the attached thread, so a
+    /// fork of the thread you are sitting in arrives with a `parent_id` that is
+    /// not in the set — that row must stay marked, not become a conversation.
+    #[test]
+    fn orphaned_branch_is_marked_not_promoted() {
+        let sessions = vec![
+            overview("F1", Some("ACTIVE"), 20),
+            overview("OTHER", None, 10),
+        ];
+
+        let rows = project_session_rows(&sessions, None);
+        assert_eq!(
+            ids(&rows),
+            vec!["OTHER", "F1"],
+            "a branch is still listed, in creation order"
+        );
+        let orphan = &rows[1];
+        assert!(
+            orphan.parent_missing,
+            "the origin is absent, and that is stated"
+        );
+        assert_eq!(
+            orphan.depth, 0,
+            "an anchorless branch sits at the root lane"
+        );
+        assert!(
+            orphan.lane_prefix().is_empty(),
+            "there is no ancestor lane to paint"
+        );
+    }
+
+    /// `[INV-LINEAGE-02]`: every session is emitted exactly once, whatever the
+    /// shape of the lineage — including rows caught in a `parent_id` cycle,
+    /// which must terminate instead of hanging the render loop.
+    #[test]
+    fn projection_emits_every_row_exactly_once() {
+        let mut sessions = vec![
+            overview("T", None, 10),
+            overview("A", Some("T"), 20),
+            overview("B", Some("T"), 30),
+            overview("A1", Some("A"), 40),
+        ];
+        let all = project_session_rows(&sessions, Some(&expanded(&["T", "A", "B"])));
+        assert_eq!(all.len(), sessions.len());
+        let mut seen: Vec<String> = ids(&all);
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), sessions.len(), "no row is emitted twice");
+
+        // A cycle has no root; the rows must still appear (as anchorless
+        // branches) rather than vanish or loop forever.
+        sessions.push(overview("X", Some("Y"), 50));
+        sessions.push(overview("Y", Some("X"), 60));
+        let cyc = project_session_rows(&sessions, Some(&expanded(&["T", "A", "B"])));
+        assert_eq!(cyc.len(), sessions.len());
+        assert!(ids(&cyc).iter().any(|id| id == "X"));
+        assert!(ids(&cyc).iter().any(|id| id == "Y"));
+    }
+
+    /// The rendered modal, not just the projection: a depth-2 chain paints a
+    /// nested lane and each row states its own fork address. This is the
+    /// user-visible half of the depth-1 defect — before ADR-0120 the grandchild
+    /// was not painted at any expansion state.
+    #[test]
+    fn sessions_modal_paints_a_two_level_fork_chain() {
+        let theme = Theme::default();
+        let selection = nuo_view::model::selection::SelectionState::None;
+        let mut layout_map = nuo_view::model::layout::LayoutMap::default();
+        let mut scroll = 0;
+        let mut info_scroll = 0;
+
+        let mut trunk = overview("trunk", None, 10);
+        trunk.title = Some("Trunk Work".into());
+        let mut child = overview("child", Some("trunk"), 20);
+        child.title = Some("Child Branch".into());
+        child.fork_point = Some(nuo_wire::ForkPoint::at_round(1));
+        let mut grandchild = overview("grandchild", Some("child"), 30);
+        grandchild.title = Some("Grand Branch".into());
+        grandchild.fork_point = Some(nuo_wire::ForkPoint::at_turn(2, 1));
+
+        let sessions = vec![trunk, child, grandchild];
+        let expanded = std::collections::HashSet::from(["trunk".to_string(), "child".to_string()]);
+
+        let mut term = TestTerminal::new(90, 28);
+        term.draw(|frame| {
+            draw_sessions_modal(
+                frame,
+                SessionsModalProps {
+                    sessions: &sessions,
+                    expanded_sessions: Some(&expanded),
+                    selected: 0,
+                    scroll: &mut scroll,
+                    follow: false,
+                    startup_picker: false,
+                    spinner_phase: 0,
+                    session_info_detail: false,
+                    session_detail: None,
+                    session_info_scroll: &mut info_scroll,
+                    sessions_loading: false,
+                    running_sessions: None,
+                },
+                &theme,
+                &selection,
+                &mut layout_map,
+            );
+        });
+
+        let output: String = crate::shell::grid_rows(term.buffer()).join("\n");
+        assert!(output.contains("Trunk Work"), "{output}");
+        assert!(
+            output.contains("└─ ⑂r1 Child Branch"),
+            "the depth-1 branch paints its elbow and address: {output}"
+        );
+        assert!(
+            output.contains("└─ ⑂r2.1 Grand Branch"),
+            "the depth-2 branch paints a nested lane: {output}"
+        );
+    }
+
+    /// `[INV-LINEAGE-03]`: order is a pure function of lineage and creation
+    /// time. A liveness signal (`updated_at`) must never move a visible row —
+    /// a list that reorders while a model streams cannot be navigated.
+    #[test]
+    fn projection_is_stable_across_updates() {
+        let mut sessions = vec![
+            overview("T", None, 10),
+            overview("A", Some("T"), 20),
+            overview("B", Some("T"), 30),
+        ];
+        let before = ids(&project_session_rows(&sessions, Some(&expanded(&["T"])))).to_vec();
+
+        // A child finishes a long round: `updated_at` leaps past everything.
+        sessions[2].updated_at = u64::MAX;
+        let after = ids(&project_session_rows(&sessions, Some(&expanded(&["T"])))).to_vec();
+
+        assert_eq!(before, after, "positions do not depend on liveness");
+
+        // The same guarantee holds with the snapshot delivered in any order.
+        sessions.reverse();
+        assert_eq!(
+            ids(&project_session_rows(&sessions, Some(&expanded(&["T"])))),
+            before
+        );
+    }
+
+    /// The lane geometry is data, so it can be asserted without a terminal:
+    /// sibling elbows, a continuing parent lane, and a closing elbow.
+    #[test]
+    fn lane_geometry_paints_continuations_and_closing_elbows() {
+        let sessions = vec![
+            overview("T", None, 10),
+            overview("A", Some("T"), 20),
+            overview("A1", Some("A"), 30),
+            overview("A2", Some("A"), 40),
+            overview("B", Some("T"), 50),
+            overview("OTHER", None, 60),
+        ];
+        let rows = project_session_rows(&sessions, Some(&expanded(&["T", "A"])));
+        let lane = |id: &str| {
+            rows.iter()
+                .find(|row| row.session().id == id)
+                .map(SessionPickerItem::lane_prefix)
+                .unwrap_or_else(|| panic!("row {id} missing"))
+        };
+
+        assert_eq!(lane("T"), "", "a root has no lane");
+        assert_eq!(lane("A"), "├─ ", "A is not the last child of T");
+        assert_eq!(lane("A1"), "│  ├─ ", "A continues, so its lane stays open");
+        assert_eq!(lane("A2"), "│  └─ ", "the last child closes its elbow");
+        assert_eq!(lane("B"), "└─ ", "B closes T's subtree");
+        assert_eq!(lane("OTHER"), "", "another root starts a new lane");
     }
 
     #[test]
@@ -671,6 +978,7 @@ mod tests {
             active: false,
             parent_id: None,
             fork_kind: SessionForkKind::Trunk,
+            fork_point: None,
             digest: None,
         };
         let s2 = SessionOverview {
@@ -683,6 +991,9 @@ mod tests {
             active: false,
             parent_id: Some("s1".into()),
             fork_kind: SessionForkKind::Fork,
+            // A real branch records where it diverged; the picker paints that
+            // address rather than inventing a name for it (ADR-0120).
+            fork_point: Some(nuo_wire::ForkPoint::at_round(1)),
             digest: None,
         };
         let sessions = vec![s1, s2];
@@ -747,7 +1058,12 @@ mod tests {
         let output_expanded: String = crate::shell::grid_rows(term_exp.buffer()).join("\n");
         assert!(output_expanded.contains("Auth Refactor"));
         assert!(output_expanded.contains("[▼ ⑂ 1]"));
-        assert!(output_expanded.contains("└─ ⑂ Regex Branch"));
+        // The branch row paints its lane elbow plus the persisted fork address
+        // (ADR-0120) — not an invented title, and not a bare glyph.
+        assert!(
+            output_expanded.contains("└─ ⑂r1 Regex Branch"),
+            "a branch states where it diverged: {output_expanded}"
+        );
     }
 
     #[test]
@@ -768,6 +1084,7 @@ mod tests {
             active: true,
             parent_id: None,
             fork_kind: nuo_wire::SessionForkKind::Trunk,
+            fork_point: None,
             digest: None,
         };
         let sessions = vec![s1];

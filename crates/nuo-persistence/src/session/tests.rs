@@ -534,12 +534,18 @@ async fn fork_shares_entries_and_diverges() {
         .unwrap();
 
     let parent_id = store.id().await;
-    let (child_id, fork_parent, _round, _title) = store.fork_at(ForkTarget::Head).await.unwrap();
+    let outcome = store.fork_at(ForkTarget::Head).await.unwrap();
+    let child_id = outcome.child_id.clone();
 
     // Sovereign fork [INV-FORK-04]: the parent pointer is never repointed.
     assert_eq!(store.id().await, parent_id);
-    assert_eq!(fork_parent, parent_id);
+    assert_eq!(outcome.parent_id, parent_id);
     assert_ne!(child_id, parent_id);
+    // Provenance is recorded at fork time, never inferred (ADR-0120).
+    assert_eq!(
+        outcome.fork_point.round, 0,
+        "an empty transcript has no rounds"
+    );
 
     // The child's own persisted state carries the shared transcript.
     let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
@@ -566,13 +572,14 @@ async fn fork_at_round_slices_transcript_and_preserves_parent() {
         .unwrap();
 
     let parent_id_before = store.id().await;
-    let (child_id, parent_id, target_round, _title) =
-        store.fork_at(ForkTarget::Round(1)).await.unwrap();
+    let outcome = store.fork_at(ForkTarget::Round(1)).await.unwrap();
+    let child_id = outcome.child_id.clone();
+    let parent_id = outcome.parent_id.clone();
 
     // Sovereign invariant [INV-FORK-04]: parent pointer stays untouched!
     assert_eq!(store.id().await, parent_id_before);
     assert_eq!(parent_id, parent_id_before);
-    assert_eq!(target_round, Some(1));
+    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_round(1));
     assert_ne!(child_id, parent_id);
 
     // Parent still has all 4 messages
@@ -606,22 +613,25 @@ async fn fork_at_turn_slices_intra_round_and_rejects_out_of_range() {
         .unwrap();
 
     // `/fork 1.0` keeps only the first entry of round 1.
-    let (child_id, _parent, target_round, _title) = store
+    let outcome = store
         .fork_at(ForkTarget::Turn { round: 1, turn: 0 })
         .await
         .unwrap();
-    assert_eq!(target_round, Some(1));
-    let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
+    // The recorded address is the one the command that produced it accepts.
+    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_turn(1, 0));
+    assert_eq!(outcome.fork_point.label(), "r1.0");
+    let child = SessionStore::for_path(dir.join(format!("{}.json", outcome.child_id)));
     let window = child.model_window().await;
     assert_eq!(window.len(), 1);
     assert_eq!(window[0].content, "round 1 user");
 
     // `/fork 1.1` keeps the user message plus the next intra-round entry.
-    let (child_id, _parent, _round, _title) = store
+    let outcome = store
         .fork_at(ForkTarget::Turn { round: 1, turn: 1 })
         .await
         .unwrap();
-    let child = SessionStore::for_path(dir.join(format!("{child_id}.json")));
+    assert_eq!(outcome.fork_point.label(), "r1.1");
+    let child = SessionStore::for_path(dir.join(format!("{}.json", outcome.child_id)));
     let window = child.model_window().await;
     assert_eq!(window.len(), 2);
     assert_eq!(window[1].content, "round 1 turn 0");
@@ -635,6 +645,119 @@ async fn fork_at_turn_slices_intra_round_and_rejects_out_of_range() {
 
     // The parent session is untouched throughout [INV-FORK-04].
     assert_eq!(store.model_window().await.len(), 5);
+}
+
+/// `[INV-LINEAGE-01]` / `[INV-LINEAGE-04]`: the fork point is a persisted fact
+/// on the child, it survives a reload, and the fork does **not** invent a title
+/// to carry it. Before ADR-0120 the only trace of where a branch diverged was
+/// the string `"{parent} (fork)"` — lossy, non-unique, and user-editable.
+#[tokio::test]
+async fn fork_records_the_fork_point_and_does_not_mint_a_title() {
+    let dir = temp_dir("fork_provenance");
+    let path = dir.join("session.json");
+    let store = SessionStore::for_path(path.clone());
+    store
+        .replace_messages(vec![
+            user("round 1 user"),
+            assistant("round 1 assistant"),
+            user("round 2 user"),
+            assistant("round 2 assistant"),
+        ])
+        .await
+        .unwrap();
+    store
+        .set_title(Some("Parent Work".into()), false)
+        .await
+        .unwrap();
+
+    let outcome = store
+        .fork_at(ForkTarget::Turn { round: 2, turn: 0 })
+        .await
+        .unwrap();
+    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_turn(2, 0));
+    assert_eq!(outcome.fork_point.label(), "r2.0");
+
+    // The child reloads with the provenance intact, and with no title the fork
+    // invented on its behalf.
+    let child = SessionStore::for_path(dir.join(format!("{}.json", outcome.child_id)));
+    assert_eq!(
+        child.fork_point().await,
+        Some(nuo_wire::ForkPoint::at_turn(2, 0)),
+        "the fork point survives a reload"
+    );
+    assert!(
+        child.title().await.0.is_none(),
+        "a fork must not smuggle provenance into a title, and an absent title \
+         must not read back as an empty string"
+    );
+    assert_eq!(
+        child.active_summary().await.overview,
+        "round 2 user",
+        "a titleless branch is identified by the last user prompt in its slice (ADR-0050)"
+    );
+    assert_eq!(
+        child.parent_id().await.as_deref(),
+        Some(outcome.parent_id.as_str())
+    );
+
+    // The parent is untouched: its title and its full transcript are intact.
+    assert_eq!(store.title().await.0.as_deref(), Some("Parent Work"));
+    assert_eq!(store.fork_point().await, None, "a trunk has no fork point");
+    assert_eq!(store.model_window().await.len(), 4);
+}
+
+/// A head fork records the parent's settled round, so the address names a real
+/// divergence point even when the user did not type one.
+#[tokio::test]
+async fn head_fork_records_the_parents_settled_round() {
+    let store = store("fork_head_provenance").await;
+    store
+        .replace_messages(vec![user("r1"), assistant("r1 done")])
+        .await
+        .unwrap();
+    store.set_round_counter(3).await.unwrap();
+
+    let outcome = store.fork_at(ForkTarget::Head).await.unwrap();
+    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_round(3));
+}
+
+/// The picker's snapshot is a *partition* query. A forked branch that lands in
+/// a different partition than its parent is invisible in the very list a user
+/// opens to inspect the fork, so persistence must place it beside its origin.
+#[tokio::test]
+async fn forked_branch_is_listed_in_the_same_partition_as_its_parent() {
+    let dir = temp_dir("fork_partition");
+    let path = dir.join("session.json");
+    let store = SessionStore::for_path(path.clone());
+    store
+        .replace_messages(vec![
+            user("round 1 user"),
+            assistant("round 1 assistant"),
+            user("round 2 user"),
+            assistant("round 2 assistant"),
+        ])
+        .await
+        .unwrap();
+    store.set_round_counter(2).await.unwrap();
+
+    let outcome = store
+        .fork_at(ForkTarget::Turn { round: 2, turn: 0 })
+        .await
+        .unwrap();
+
+    let listed = store.list().await.unwrap();
+    let ids: Vec<&str> = listed.iter().map(|s| s.id.as_str()).collect();
+    assert!(
+        ids.contains(&outcome.child_id.as_str()),
+        "the branch must appear in the picker's partition snapshot (partition {:?}): {ids:?}",
+        store.partition()
+    );
+    let child = listed
+        .iter()
+        .find(|s| s.id == outcome.child_id)
+        .expect("branch row");
+    assert_eq!(child.parent_id.as_deref(), Some(outcome.parent_id.as_str()));
+    assert_eq!(child.fork_point, Some(nuo_wire::ForkPoint::at_turn(2, 0)));
 }
 
 // ---------------------------------------------------------------

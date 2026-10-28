@@ -180,6 +180,43 @@ pub struct BlockRegion {
     pub hidden_ranges: Vec<(usize, usize)>,
 }
 
+impl BlockRegion {
+    /// A region that marks an entry's **chrome** row — its head — rather than
+    /// addressable document text.
+    ///
+    /// The head of a step/notice/card entry carries affordances (severity
+    /// glyph, topic label, timestamp, a live countdown), so it is registered so
+    /// that hit-testing can resolve the *entry* (focus, activation) while it
+    /// carries no text: a drag cannot start on it, a whole-block select cannot
+    /// claim it, and none of its volatile chrome can reach the clipboard.
+    /// Text that a user may want to copy belongs to the body, registered
+    /// against real block indices.
+    pub fn entry_sentinel(message_idx: usize, block_idx: usize, rect: Rect) -> Self {
+        Self {
+            message_idx,
+            block_idx,
+            start_byte: 0,
+            end_byte: 0,
+            text: String::new(),
+            prefix_cols: 0,
+            rect,
+            hidden_ranges: Vec::new(),
+        }
+    }
+
+    /// Whether this region addresses copyable document text.
+    ///
+    /// Both halves matter, and both are encoded here once so no consumer has to
+    /// re-derive them: the region must belong to a real block (a sentinel index
+    /// names an *entry*, not text, and bytes offset into it are meaningless),
+    /// and it must actually carry text. Anything else — an entry head, a spacer
+    /// row — is chrome.
+    pub fn is_text_region(&self) -> bool {
+        !self.text.is_empty()
+            && InteractiveTarget::for_block(self.block_idx, self.message_idx).is_none()
+    }
+}
+
 /// Records the layout of rendered blocks for a single frame.
 #[derive(Debug, Clone, Default)]
 pub struct LayoutMap {
@@ -272,6 +309,15 @@ impl LayoutMap {
     /// Record that a portion of a block occupies a screen rectangle.
     pub fn push(&mut self, region: BlockRegion) {
         self.regions.push(region);
+    }
+
+    /// Every region registered for this frame, in paint order.
+    ///
+    /// Exposed so a consumer can audit the whole map (a frame-wide invariant
+    /// test, a focus walk) instead of probing it point by point with
+    /// [`Self::region_at`] and hoping it guessed the right coordinates.
+    pub fn regions(&self) -> &[BlockRegion] {
+        &self.regions
     }
 
     /// Record the visible transcript content rect for this frame, drawn inside

@@ -577,30 +577,27 @@ async fn emit_fork(
     prompt: Option<String>,
 ) -> Option<String> {
     match session.fork_at(target).await {
-        Ok((id, parent_id, target_round, title)) => {
-            let round_desc = match target_round {
-                Some(r) => format!("at round {r}"),
-                None => "at head".to_string(),
-            };
+        Ok(outcome) => {
+            let fork_point = outcome.fork_point;
             record_command(
                 session,
                 resp_tx,
                 name,
                 args,
                 CommandResult::Text(format!(
-                    "Forked child thread {} from {} ({round_desc}). Opening new sovereign tab...",
-                    id, parent_id
+                    "Forked child thread {} from {} (at {fork_point}). Opening new sovereign tab...",
+                    outcome.child_id, outcome.parent_id
                 )),
             )
             .await;
+            let child_id = outcome.child_id;
             let _ = resp_tx.send(AgentResponse::SessionForked {
-                child_id: id.clone(),
-                parent_id,
-                target_round,
-                title,
+                child_id: child_id.clone(),
+                parent_id: outcome.parent_id,
+                fork_point: Some(fork_point),
                 prompt,
             });
-            Some(id)
+            Some(child_id)
         }
         Err(error) => {
             record_error(session, resp_tx, name, args, error).await;

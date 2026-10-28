@@ -258,11 +258,13 @@ pub(crate) enum AppMutation {
     HarnessConfined(bool),
     ClearSwitchingSession,
     LiveSession(String),
+    /// A fork landed (ADR-0058, ADR-0120). Carries the persisted fork point so
+    /// the new tab is labelled with the address the branch actually diverged
+    /// at, instead of a title the fork invented.
     SessionForked {
         child_id: String,
-        _parent_id: String,
-        target_round: Option<u64>,
-        title: Option<String>,
+        parent_id: String,
+        fork_point: Option<nuo_wire::ForkPoint>,
         /// Opening prompt to dispatch into the child after re-attach (retired
         /// `/btw <prompt>` steer, `[INV-DEPR-01]`).
         prompt: Option<String>,

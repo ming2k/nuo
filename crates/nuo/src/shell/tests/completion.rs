@@ -209,7 +209,7 @@ fn resolved_slash_len_covers_only_the_command_token_not_args() {
 #[test]
 fn resolved_slash_len_matches_custom_command() {
     let customs = vec![("/deploy".to_string(), "Deploy the app".to_string())];
-    let catalog = crate::shell::completion::command_catalog(&customs);
+    let catalog = nuo_server::startup::command_catalog(&customs);
     assert_eq!(
         resolved_slash_command_len("/deploy prod", &catalog),
         Some(7)
@@ -231,6 +231,49 @@ fn resolved_slash_len_rejects_partial_prefix_and_unknown_commands() {
     // Plain prose and `@` mentions never highlight.
     assert_eq!(resolved_slash_command_len("hello", &catalog), None);
     assert_eq!(resolved_slash_command_len("@src/main.rs", &catalog), None);
+}
+
+/// Anti-drift: the popup and the dispatcher must agree on the vocabulary.
+///
+/// They diverged for real. The TUI kept a hand-written copy of the catalog, and
+/// by the time it was measured it had lost `/quotas` (a built-in the dispatcher
+/// admits and the menu could not complete), was missing five
+/// aliases the server resolves (`/auto`, `/yolo`, `/session`, `/unconfine`,
+/// `/unconfined`), and carried a `/setup` alias the server could not dispatch at
+/// all. Nothing could catch that: the two lists had no shared owner.
+///
+/// There is one owner now (`nuo_server::startup::command_catalog`). This pins
+/// the consequence in both directions — every advertised name is admitted, and
+/// every admitted command is advertised.
+#[test]
+fn completion_catalog_matches_the_dispatchers_vocabulary() {
+    let catalog = test_command_catalog();
+    assert!(
+        !catalog.commands.is_empty(),
+        "a client with an empty catalog cannot complete a command"
+    );
+    for spec in &catalog.commands {
+        assert!(
+            nuo_server::startup::BuiltinCmd::from_slash(&spec.name).is_some(),
+            "client advertises {} but the dispatcher does not admit it",
+            spec.name
+        );
+    }
+    for alias in &catalog.aliases {
+        assert!(
+            nuo_server::startup::BuiltinCmd::from_slash(&alias.name).is_some(),
+            "client advertises alias {} that the dispatcher does not resolve",
+            alias.name
+        );
+    }
+    // Every executable built-in is completable: a command you cannot discover
+    // from the menu does not exist for practical purposes.
+    for (name, _) in nuo_server::startup::BuiltinCmd::ALL {
+        assert!(
+            catalog.recognizes(name),
+            "built-in {name} is missing from the completion catalog"
+        );
+    }
 }
 
 /// The anchor pass is what makes "popup visible ⇒ first row selected" true:
@@ -1548,5 +1591,181 @@ fn adr0162_swr_retains_backend_completions_during_path_mention_typing() {
         retained.len(),
         1,
         "SWR must retain active completions during in-flight typing"
+    );
+}
+
+#[test]
+fn mid_paragraph_mention_completes_behind_multibyte_text() {
+    // Regression: the composer caret is a *byte* offset, the completion wire
+    // contract is a *scalar index*. Sending bytes where the backend reads chars
+    // makes every mention typed after non-ASCII text (any CJK paragraph) look
+    // like it sits past the end of the input, so the engine returned nothing and
+    // the popup never opened — the mention "only worked at the start of a line".
+    let (mut app, _tmp) = app_in_tempdir(&["src/main.rs", "src/lib.rs"], &[]);
+    app.input = "看一下这个 @file:src/".to_string();
+    app.cursor_position = app.input.len();
+
+    assert_eq!(
+        app.completion_kind(),
+        CompletionKind::Path,
+        "the mention itself is detected (byte-indexed scan)"
+    );
+    assert_eq!(
+        app.wire_cursor(),
+        app.input.chars().count(),
+        "the wire carries scalar indices, not bytes"
+    );
+    let completions = app.completions();
+    assert!(
+        completions
+            .iter()
+            .any(|c| c.insert_text.starts_with("@file:src/main.rs")),
+        "a mention inside a CJK paragraph must complete: {completions:?}"
+    );
+}
+
+#[test]
+fn mid_paragraph_mention_replaces_only_the_token() {
+    // The accepted edit splices the mention token in place: the prose before it
+    // (multibyte included) and the text after it survive untouched. The backend
+    // adds the trailing space only when the suffix does not already supply one,
+    // so the user's own spacing is never doubled.
+    let (mut app, _tmp) = app_in_tempdir(&["src/main.rs"], &[]);
+    app.input = "看一下这个 @file:src/ 然后再继续".to_string();
+    app.cursor_position = app.input.find(" 然后再继续").expect("suffix");
+
+    let index = app
+        .completions()
+        .iter()
+        .position(|c| c.insert_text.starts_with("@file:src/main.rs"))
+        .expect("file candidate for a mid-paragraph mention");
+    app.accept_completion(index);
+
+    assert_eq!(app.input, "看一下这个 @file:src/main.rs 然后再继续");
+}
+
+#[test]
+fn mid_paragraph_mention_completes_on_a_later_line() {
+    // "Paragraph" in the composer is a multi-line draft: the mention sits after
+    // prose on a line that is neither the first row nor the first column.
+    let (mut app, _tmp) = app_in_tempdir(&["src/main.rs"], &[]);
+    app.input = "first line\nplease read @file:src/".to_string();
+    app.cursor_position = app.input.len();
+
+    assert_eq!(app.completion_kind(), CompletionKind::Path);
+    let completions = app.completions();
+    assert!(
+        completions
+            .iter()
+            .any(|c| c.insert_text.starts_with("@file:src/main.rs")),
+        "a mention after prose on a later line must complete: {completions:?}"
+    );
+}
+
+#[test]
+fn wire_cursor_converts_bytes_to_scalar_indices() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    // Pure ASCII: identical.
+    app.input = "hello @file".to_string();
+    app.cursor_position = app.input.len();
+    assert_eq!(app.wire_cursor(), app.input.len());
+    // Multibyte prefix: fewer scalars than bytes.
+    app.input = "看一下 @file".to_string();
+    app.cursor_position = app.input.len();
+    assert_eq!(app.wire_cursor(), 9);
+    assert_eq!(app.byte_cursor(), app.input.len());
+    // A caret parked mid-buffer converts the prefix only.
+    app.input = "看一下 @file:src".to_string();
+    app.cursor_position = "看一下 @file".len();
+    assert_eq!(app.wire_cursor(), 9);
+}
+
+/// The *specific* regression the drift caused, pinned as a user-visible fact.
+///
+/// `/quotas` is a real built-in (`BuiltinCmd::Quotas`). While the TUI owned a
+/// second vocabulary, typing `/quot` in the composer produced no completion row
+/// at all — the popup silently could not offer a command that runs.
+#[test]
+fn builtin_quotas_is_completable_from_the_composer() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.input = "/quot".to_string();
+    app.cursor_position = app.input.len();
+    let labels: Vec<String> = app.completions().into_iter().map(|c| c.label).collect();
+    assert!(
+        labels.iter().any(|l| l == "/quotas"),
+        "/quotas is a built-in and must complete, got {labels:?}"
+    );
+}
+
+/// Aliases the server resolves must complete too, under their own spelling, with
+/// the canonical command as the committed edit (`alias_of`).
+#[test]
+fn advertised_aliases_complete_and_commit_their_canonical_target() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    for (typed, alias_label, canonical) in [
+        ("/yol", "/yolo", "/unattended"),
+        ("/jai", "/jail", "/confinement"),
+        ("/set", "/setup", "/init"),
+    ] {
+        app.input = typed.to_string();
+        app.cursor_position = app.input.len();
+        let completions = app.completions();
+        let row = completions
+            .iter()
+            .find(|c| c.label == alias_label)
+            .unwrap_or_else(|| {
+                panic!(
+                    "{typed} must offer {alias_label}, got {:?}",
+                    completions.iter().map(|c| &c.label).collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(
+            row.insert_text, canonical,
+            "{alias_label} commits {canonical}"
+        );
+    }
+}
+
+/// The edit-offset half of the index contract.
+///
+/// `replace_start`/`replace_end` arrive as Unicode **scalar** indices and are
+/// translated to bytes by `char_to_byte`. Confusing the two corrupts text rather
+/// than merely showing nothing, so it needs its own assertion: with CJK prose in
+/// front (3 bytes per scalar) a byte/scalar mix-up lands the splice inside a
+/// character. The accepted edit must leave the prose and the suffix byte-intact.
+#[test]
+fn mid_paragraph_mention_edit_offsets_are_scalar_indices() {
+    let (mut app, _tmp) = app_in_tempdir(&["src/main.rs"], &[]);
+    app.input = "看一下这个 @file:src/ 然后再继续".to_string();
+    // Caret at the end of the mention token; prose before, prose after.
+    let caret = app.input.find(" 然后再继续").expect("suffix present");
+    app.cursor_position = caret;
+
+    let wire_items = nuo_server::input_completion::complete_for_frontend_test(
+        app.command_catalog.clone(),
+        app.cwd.clone(),
+        &app.input,
+        app.wire_cursor(),
+    );
+    let file = wire_items
+        .iter()
+        .find(|i| i.insert_text.starts_with("@file:src/main.rs"))
+        .expect("file candidate");
+    // Scalar offsets: `看一下这个 ` is 6 scalars, the token 10.
+    assert_eq!((file.replace_start, file.replace_end), (6, 16));
+    // Byte offsets for the very same range are 4 bytes wider — proof the two
+    // index spaces genuinely differ here, so a mix-up could not pass silently.
+    assert_eq!("看一下这个 ".len(), 16);
+
+    let index = app
+        .completions()
+        .iter()
+        .position(|c| c.insert_text.starts_with("@file:src/main.rs"))
+        .expect("file candidate through the TUI adapter");
+    app.accept_completion(index);
+    assert_eq!(app.input, "看一下这个 @file:src/main.rs 然后再继续");
+    assert!(
+        app.input.starts_with("看一下这个 "),
+        "the CJK prefix must survive the splice byte-for-byte"
     );
 }

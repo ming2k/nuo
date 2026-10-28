@@ -251,6 +251,7 @@ fn redesigned_components_render_without_panicking() {
                 active: true,
                 parent_id: None,
                 fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             },
             nuo_wire::SessionOverview {
@@ -263,6 +264,7 @@ fn redesigned_components_render_without_panicking() {
                 active: false,
                 parent_id: None,
                 fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             },
         ];

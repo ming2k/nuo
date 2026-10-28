@@ -156,16 +156,41 @@ pub fn save_session_delta(conn: &Connection, delta: &SessionDelta) -> Result<()>
                     compaction_trigger_tokens, rules_json, capabilities_json, guardrails_json, budget_json, updated_at_ms
                 ) VALUES (
                     ?1,
-                    COALESCE(json_extract(?2, '$.workspace_root'), ''),
-                    COALESCE(json_extract(?2, '$.system_persona'), 'general'),
+                    -- Partition binding: the IR's `rules_json` is NOT the
+                    -- authority for it (ADR-0120). A fork inherits the
+                    -- parent's binding; only when that is unavailable does the
+                    -- IR snapshot supply a value.
+                    COALESCE(
+                        NULLIF((SELECT p.workspace_root FROM thread_policies p
+                                JOIN threads t ON t.parent_thread_id = p.thread_id
+                                WHERE t.id = ?1 AND p.workspace_root <> ''), ''),
+                        NULLIF(json_extract(?2, '$.workspace_root'), ''),
+                        ''
+                    ),
+                    COALESCE(
+                        NULLIF((SELECT p.system_role FROM thread_policies p
+                                JOIN threads t ON t.parent_thread_id = p.thread_id
+                                WHERE t.id = ?1 AND p.system_role <> ''), ''),
+                        NULLIF(json_extract(?2, '$.system_persona'), ''),
+                        'general'
+                    ),
                     CASE WHEN json_extract(?4, '$.unattended') = 1 THEN 1 ELSE 0 END,
                     COALESCE(json_extract(?5, '$.max_context_tokens'), 128000),
                     COALESCE(json_extract(?5, '$.compaction_trigger_tokens'), 96000),
                     ?2, ?3, ?4, ?5, ?6 * 1000
                 )
                 ON CONFLICT(thread_id) DO UPDATE SET
-                    workspace_root = excluded.workspace_root,
-                    system_role = excluded.system_role,
+                    -- Never erase a partition binding: an empty derivation from
+                    -- the IR snapshot must not silently drop a thread out of
+                    -- every picker/resume query that filters by workspace.
+                    workspace_root = COALESCE(
+                        NULLIF(excluded.workspace_root, ''),
+                        thread_policies.workspace_root
+                    ),
+                    system_role = COALESCE(
+                        NULLIF(excluded.system_role, ''),
+                        thread_policies.system_role
+                    ),
                     unattended = excluded.unattended,
                     max_context_tokens = excluded.max_context_tokens,
                     compaction_trigger_tokens = excluded.compaction_trigger_tokens,

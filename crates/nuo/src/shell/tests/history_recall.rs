@@ -1315,6 +1315,7 @@ fn test_composer_hints_history_search_density() {
         &theme,
         theme.panel(),
         key,
+        false,
     );
     let left_str: String = left.iter().map(|s| s.content.as_ref()).collect();
     let right_str: String = right.iter().map(|s| s.content.as_ref()).collect();
@@ -1334,6 +1335,7 @@ fn test_composer_hints_history_search_density() {
         &theme,
         theme.panel(),
         key,
+        false,
     );
     let left_c_str: String = left_c.iter().map(|s| s.content.as_ref()).collect();
     let right_c_str: String = right_c.iter().map(|s| s.content.as_ref()).collect();
@@ -1351,6 +1353,7 @@ fn test_composer_hints_history_search_density() {
         &theme,
         theme.panel(),
         key,
+        false,
     );
     let left_t_str: String = left_t.iter().map(|s| s.content.as_ref()).collect();
     let right_t_str: String = right_t.iter().map(|s| s.content.as_ref()).collect();

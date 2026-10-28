@@ -109,6 +109,12 @@ pub(crate) enum HintState {
     /// draft is stashed; the advertised chord set names the escape hatch
     /// (`Esc draft`) so the state is never a dead end.
     Recall,
+    /// A transcript entry holds keyboard focus, so the next keypress acts on
+    /// that entry rather than the composer. The row names the verbs that are
+    /// live *only* in this state (`y` copy, `Shift-y` diagnostic, `Space`
+    /// expand, `Esc` back) — the affordances that are otherwise undiscoverable
+    /// because a bare letter pressed with no focus belongs to the composer.
+    EntryFocused,
 }
 
 /// Short session id prefix (up to 8 characters) for compact display.
@@ -149,6 +155,16 @@ pub(crate) fn live_chat_hints(
             LiveHint::nav(Key::ESC, "dismiss"),
             LiveHint::action(Key::TAB, "select"),
             LiveHint::action(Key::ENTER, "select"),
+        ],
+        // Entry focus: the copy verbs lead (they are the reason a user parks
+        // focus here), then the universal toggle, then the way back. Every
+        // chord here resolves in `resolve_chat_surface_key`'s focused-target
+        // arm (asserted by `focused_entry_hints_are_resolvable`).
+        HintState::EntryFocused => &[
+            LiveHint::nav(Key::ESC, "back"),
+            LiveHint::nav(Key::plain(' '), "expand"),
+            LiveHint::action(Key::plain('y'), "copy"),
+            LiveHint::action(Key::shift_code(KeyCode::Char('Y')), "diagnostic"),
         ],
     };
     hints.to_vec()
@@ -230,7 +246,12 @@ pub(crate) fn resolve_chat_surface_key_motion(
         // Only unmodified (or Shift-capitalized) characters are owned as
         // text; every Control/Alt/Super chord is a shared command chord
         // (readline editing, paste, …) handled by the router.
-        // When a target is focused, 'y' and 'c' copy the target's content.
+        // When a target is focused, `y`/`c` copy the target's content and
+        // `Y`/`C` copy it as a diagnostic record. The two are deliberately
+        // different chords rather than one chord with a modifier-read: a plain
+        // `y` must stay the "give me the text" verb people already have in
+        // muscle memory, while the record is the deliberate "give me something
+        // I can paste into a report" verb.
         KeyCode::Char(c)
             if !key
                 .modifiers
@@ -238,6 +259,8 @@ pub(crate) fn resolve_chat_surface_key_motion(
         {
             if keys.focused_target && (c == 'y' || c == 'c') {
                 Some(InputAction::CopyFocusedTarget)
+            } else if keys.focused_target && (c == 'Y' || c == 'C') {
+                Some(InputAction::CopyFocusedDiagnostic)
             } else if keys.focused_target && c == ' ' {
                 // Space is the universal toggle in this TUI's dialogs
                 // (MCP servers, permission rules), so it activates the focused
@@ -351,8 +374,24 @@ fn resolve_enter(
     }
     let text = std::mem::take(input);
     *cursor_position = 0;
+    // The documented escape hatch: exactly one leading space makes the draft
+    // *prose* instead of a command. It has to be consumed, not trimmed off the
+    // front of the prompt — both because the user typed it to mean "not a
+    // command", and because shipping it leaves an invisible character at the
+    // head of what the model sees. Two or more leading spaces are ordinary
+    // formatting (an indented code block) and are left alone.
+    let text = match text.strip_prefix(' ') {
+        Some(rest) if !rest.starts_with(' ') => {
+            return if rest.is_empty() {
+                None
+            } else {
+                send_prose(keys, rest.to_string())
+            };
+        }
+        _ => text,
+    };
     if text.starts_with('/') {
-        // Workspace views (Dashboard, Settings) are not in-session harness commands
+        // Workspace views (Dashboard, Settings) are not thread-scoped slash commands
         // (ADR-0041 [INV-CMD-01], [INV-ROUTER-01]). Intercept and guide the operator.
         let trimmed = text.trim();
         if trimmed == "/dashboard" || trimmed.starts_with("/dashboard ") {
@@ -391,21 +430,28 @@ fn resolve_enter(
             _ => InputAction::SendSlash(text),
         };
         Some(action)
-    } else if !text.is_empty() {
-        if keys.is_responding {
-            match keys.composer_send_mode {
-                crate::shell::app::ComposerSendMode::Steer => {
-                    Some(InputAction::SteerImmediate(text))
-                }
-                crate::shell::app::ComposerSendMode::FollowUp => {
-                    Some(InputAction::QueueFollowUp(text))
-                }
-            }
-        } else {
-            Some(InputAction::SendChat(text))
+    } else {
+        send_prose(keys, text)
+    }
+}
+
+/// Submit `text` as a prompt: steered into the live round, queued behind it, or
+/// sent as a fresh turn — the composer's send mode decides, not this function.
+///
+/// Extracted so the two ways a draft becomes prose (an ordinary non-slash
+/// draft, and a `/`-prefixed draft escaped with a leading space) cannot pick
+/// different send modes.
+fn send_prose(keys: &SceneKeys, text: String) -> Option<InputAction> {
+    if text.is_empty() {
+        return None;
+    }
+    if keys.is_responding {
+        match keys.composer_send_mode {
+            crate::shell::app::ComposerSendMode::Steer => Some(InputAction::SteerImmediate(text)),
+            crate::shell::app::ComposerSendMode::FollowUp => Some(InputAction::QueueFollowUp(text)),
         }
     } else {
-        None
+        Some(InputAction::SendChat(text))
     }
 }
 
@@ -1004,6 +1050,62 @@ mod tests {
         );
         assert_eq!(action, Some(InputAction::CopyFocusedTarget));
         assert_eq!(input, "", "copy key must not pollute composer input");
+    }
+
+    /// `Shift-y` / `Shift-C` are the diagnostic-copy chord, and they are the
+    /// *only* difference from `y`/`c`: the lowercase verb keeps its historical
+    /// "give me the text" meaning, so muscle memory is never silently upgraded
+    /// into a different payload.
+    #[test]
+    fn shift_copy_keys_emit_a_diagnostic_for_the_focused_target() {
+        for code in [KeyCode::Char('Y'), KeyCode::Char('C')] {
+            let mut input = String::from("");
+            let mut cursor = 0;
+            let action = resolve_chat_surface_key(
+                crate::shell::keymap::Key {
+                    modifiers: KeyModifiers::SHIFT,
+                    code,
+                },
+                &ctx(Mode::FocusedTarget, |_| {}),
+                &mut input,
+                &mut cursor,
+            );
+            assert_eq!(
+                action,
+                Some(InputAction::CopyFocusedDiagnostic),
+                "{code:?} must request a diagnostic"
+            );
+            assert_eq!(input, "", "copy keys must never pollute the composer");
+        }
+    }
+
+    /// Hints and dispatch share one origin: every chord the entry-focus row
+    /// advertises must actually resolve to an action while an entry is focused.
+    /// Without this, the newly-discoverable copy verbs could advertise a dead
+    /// key the moment the resolver changed.
+    #[test]
+    fn focused_entry_hints_are_resolvable() {
+        for hint in live_chat_hints(HintState::EntryFocused, crate::shell::keymap::Key::TAB) {
+            let mut input = String::new();
+            let mut cursor = 0;
+            let resolved = resolve_chat_surface_key(
+                hint.key,
+                &ctx(Mode::FocusedTarget, |_| {}),
+                &mut input,
+                &mut cursor,
+            );
+            assert!(
+                resolved.is_some(),
+                "entry-focus hint {key:?} did not resolve while an entry is focused",
+                key = hint.key
+            );
+            assert_eq!(
+                input,
+                "",
+                "hint chord {key:?} leaked into the composer",
+                key = hint.key
+            );
+        }
     }
 
     #[test]

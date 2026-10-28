@@ -96,6 +96,7 @@ impl MonitorTracker {
                 // and `fork_kind` are stamped at fork time.
                 self.base.parent_id.clone_from(&item.parent_id);
                 self.base.fork_kind = item.fork_kind;
+                self.base.fork_point = item.fork_point;
                 self.base.digest.clone_from(&item.digest);
             }
             return;
@@ -272,6 +273,7 @@ mod tests {
                 project_root: "/tmp/proj".into(),
                 parent_id: None,
                 fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             },
             SessionStatus::Idle,
@@ -296,6 +298,7 @@ mod tests {
                 active: true,
                 parent_id: None,
                 fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             },
             // Another session's row must not leak into ours.
@@ -309,6 +312,7 @@ mod tests {
                 active: false,
                 parent_id: None,
                 fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             },
         ]));
@@ -335,6 +339,7 @@ mod tests {
                 active: false,
                 parent_id: None,
                 fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_point: None,
                 digest: None,
             },
         ]));

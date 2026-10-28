@@ -74,7 +74,7 @@ impl CommandCategory {
     }
 }
 
-/// Rich metadata and specification for a harness command.
+/// Rich metadata and specification for a built-in slash command.
 ///
 /// Contains:
 /// - `name`: The canonical slash-prefixed name (e.g. `"/schedule"`)
@@ -472,6 +472,12 @@ impl BuiltinCmd {
             "/auto" | "/delegate" | "/autopilot" | "/yolo" => Some(BuiltinCmd::Unattended),
             // `/unconfine`, `/unconfined`, `/jail`, `/escape` are aliases for `/confinement`.
             "/unconfine" | "/unconfined" | "/jail" | "/escape" => Some(BuiltinCmd::Confinement),
+            // `/setup` was documented and completed for as long as the TUI kept
+            // its own catalog copy, but never resolved here — so it completed,
+            // then dead-ended. The catalog has one owner now, and this is the
+            // owner that decides admission, so the alias is declared where it
+            // takes effect.
+            "/setup" => Some(BuiltinCmd::Init),
             _ => None,
         }
     }
@@ -542,6 +548,64 @@ pub fn suggest_for_trigger(word: &str) -> Option<(&'static str, &'static str)> {
         .iter()
         .find(|(trigger, _, _)| *trigger == word)
         .map(|(_, target, reason)| (*target, *reason))
+}
+
+/// Nearest built-in name for a mistyped `/<word>` — the "Did you mean …?" half
+/// of the unknown-command error.
+///
+/// This is **diagnostics, not dispatch**: nothing here is ever executed or
+/// offered in the completion popup. It exists because a `/`-prefixed draft is a
+/// command by definition (the client no longer downgrades one into a prompt), so
+/// a typo must come back as an error that names the intended command rather
+/// than as a bare rejection the user has to decode.
+///
+/// Two passes, cheapest first:
+///
+/// 1. **Prefix** — the typed stem is a prefix of a built-in (`/perm` →
+///    `/permissions`). This is what a truncated-at-Enter typo looks like.
+/// 2. **Edit budget** — a single edit for short names, two for longer ones, so
+///    transpositions (`/modles`) and dropped/extra letters (`/permisions`)
+///    still resolve. Ties break on the shorter name.
+pub fn suggest_command(typed: &str) -> Option<&'static str> {
+    let typed = typed.strip_prefix('/').unwrap_or(typed);
+    // One letter matches half the vocabulary; require a real stem.
+    if typed.len() < 3 {
+        return None;
+    }
+    if let Some(name) = BuiltinCmd::ALL
+        .iter()
+        .map(|(name, _)| *name)
+        .filter(|name| name.trim_start_matches('/').starts_with(typed))
+        .min_by_key(|name| name.len())
+    {
+        return Some(name);
+    }
+    let budget = if typed.len() <= 5 { 1 } else { 2 };
+    BuiltinCmd::ALL
+        .iter()
+        .map(|(name, _)| (edit_distance(typed, name.trim_start_matches('/')), *name))
+        .filter(|(distance, _)| *distance <= budget)
+        .min_by_key(|(distance, name)| (*distance, name.len()))
+        .map(|(_, name)| name)
+}
+
+/// Levenshtein distance over `char`s. Small strings only (command names), so the
+/// plain two-row DP is the right size of tool.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut current = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let substitution = prev[j] + usize::from(ca != cb);
+            // `current[j]` is already `distance(a[..=i], b[..=j])`'s delete term.
+            current[j + 1] = substitution.min(prev[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut current);
+    }
+    prev[b.len()]
 }
 
 /// Build the frontend-neutral command catalog published by the server during
@@ -622,6 +686,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
             ("/unconfined", "/confinement"),
             ("/jail", "/confinement"),
             ("/escape", "/confinement"),
+            ("/setup", "/init"),
         ]
         .into_iter()
         .map(|(name, target)| nuo_wire::CommandAlias {
@@ -706,6 +771,58 @@ pub fn init_tracing() -> Option<WorkerGuard> {
 mod tests {
     use super::*;
 
+    /// Every documented alias must actually resolve here.
+    ///
+    /// `/setup` did not: it was listed in `docs/reference/commands.md` and (in a
+    /// hand-maintained client copy of the catalog) completed in the popup, yet
+    /// this table — the only one that admits anything — had no arm for it. The
+    /// alias is now declared in the same file as the vocabulary it belongs to.
+    #[test]
+    fn documented_aliases_all_resolve() {
+        for (alias, target) in [
+            ("/resume", "/threads"),
+            ("/session", "/threads"),
+            ("/sessions", "/threads"),
+            ("/auto", "/unattended"),
+            ("/delegate", "/unattended"),
+            ("/autopilot", "/unattended"),
+            ("/yolo", "/unattended"),
+            ("/unconfine", "/confinement"),
+            ("/unconfined", "/confinement"),
+            ("/jail", "/confinement"),
+            ("/escape", "/confinement"),
+            ("/setup", "/init"),
+        ] {
+            let resolved = BuiltinCmd::from_slash(alias)
+                .unwrap_or_else(|| panic!("documented alias {alias} is not admitted"));
+            assert_eq!(
+                resolved.slash_name(),
+                target,
+                "{alias} must resolve to {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn mistyped_commands_resolve_to_the_intended_builtin() {
+        // Transposition, dropped letter, and truncation are the three ways a
+        // command name is actually mistyped at a keyboard.
+        assert_eq!(suggest_command("/modles"), Some("/models"));
+        assert_eq!(suggest_command("/permisions"), Some("/permissions"));
+        assert_eq!(suggest_command("/permi"), Some("/permissions"));
+        // Already-valid names and prose never get redirected: this is a
+        // diagnostic for names the dispatcher has *already* rejected.
+        assert_eq!(suggest_command("/help"), Some("/help"));
+    }
+
+    #[test]
+    fn distant_words_get_no_suggestion() {
+        // A pasted path or an unrelated word must not be nudged onto a command.
+        for typed in ["/etc/hosts", "/shrug", "/zzz", "/x"] {
+            assert_eq!(suggest_command(typed), None, "{typed}");
+        }
+    }
+
     #[test]
     fn threads_is_canonical_and_sessions_resume_resolve_as_aliases() {
         assert_eq!(
@@ -724,11 +841,12 @@ mod tests {
 
     #[test]
     fn dashboard_and_settings_are_purged_from_builtin_commands() {
-        // ADR-0041 [INV-CMD-01]: Workspace views are purged from the harness command registry
+        // ADR-0041 [INV-CMD-01]: Workspace views are purged from the slash
+        // command registry — they are client navigation, not thread commands.
         for cmd in ["/dashboard", "/settings", "/host", "/config"] {
             assert!(
                 BuiltinCmd::from_slash(cmd).is_none(),
-                "{cmd} must not resolve to a harness command"
+                "{cmd} must not resolve to a slash command"
             );
             assert!(
                 !BuiltinCmd::ALL.iter().any(|(name, _)| *name == cmd),

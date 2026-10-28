@@ -40,6 +40,48 @@ pub trait InteractiveEntry {
     fn pin_expanded(&mut self, expanded: bool) -> bool;
 }
 
+/// The entry's verbatim copy text — **exactly what it displays**.
+///
+/// A notice's body is stored, not re-derived at copy time
+/// (`crate::model::notice_text`), so this returns the same bytes the entry
+/// paints and the selection hit-test addresses. That equality is the whole
+/// point: a user who drags over an error and presses copy must get that error,
+/// and a user who focuses the entry and copies must get the same bytes.
+pub fn copy_text(message: &TranscriptMessage) -> Option<String> {
+    let text = match &message.kind {
+        MessageKind::ToolStep {
+            output,
+            arguments,
+            name,
+            ..
+        } => output
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| format!("{name} {arguments}")),
+        MessageKind::Reasoning { content, .. } => content.clone(),
+        MessageKind::CommandResult {
+            invocation, result, ..
+        } => {
+            let inv_str = format!("{} {}", invocation.name, invocation.args)
+                .trim()
+                .to_string();
+            result
+                .as_ref()
+                .map(|r| format!("{inv_str}: {r:?}"))
+                .unwrap_or(inv_str)
+        }
+        // Notices and retries carry their display text verbatim: `raw` *is* the
+        // normalized body (`notice_text::display_text`), and the per-line
+        // blocks are that same text split at its own newlines.
+        MessageKind::Notice { .. } | MessageKind::ProviderRetry { .. } => message.raw.clone(),
+        MessageKind::CompactedCard { summary, .. } => {
+            summary.clone().unwrap_or_else(|| message.raw.clone())
+        }
+        MessageKind::Text => message.raw.clone(),
+    };
+    Some(text)
+}
+
 impl InteractiveEntry for TranscriptMessage {
     fn is_focusable(&self) -> bool {
         match &self.kind {
@@ -70,45 +112,7 @@ impl InteractiveEntry for TranscriptMessage {
     }
 
     fn extract_copy_text(&self) -> Option<String> {
-        let text = match &self.kind {
-            MessageKind::ToolStep {
-                output,
-                arguments,
-                name,
-                ..
-            } => output
-                .as_ref()
-                .cloned()
-                .unwrap_or_else(|| format!("{name} {arguments}")),
-            MessageKind::Reasoning { content, .. } => content.clone(),
-            MessageKind::CommandResult {
-                invocation, result, ..
-            } => {
-                let inv_str = format!("{} {}", invocation.name, invocation.args)
-                    .trim()
-                    .to_string();
-                result
-                    .as_ref()
-                    .map(|r| format!("{inv_str}: {r:?}"))
-                    .unwrap_or(inv_str)
-            }
-            MessageKind::ProviderRetry { failure, .. } => failure.clone(),
-            MessageKind::Notice { parts, .. } => parts
-                .as_ref()
-                .map(|p| {
-                    if let Some(detail) = &p.detail {
-                        format!("{}: {detail}", p.title)
-                    } else {
-                        p.title.clone()
-                    }
-                })
-                .unwrap_or_else(|| self.raw.clone()),
-            MessageKind::CompactedCard { summary, .. } => {
-                summary.clone().unwrap_or_else(|| self.raw.clone())
-            }
-            MessageKind::Text => self.raw.clone(),
-        };
-        Some(text)
+        copy_text(self)
     }
 
     fn is_expanded(&self) -> Option<bool> {

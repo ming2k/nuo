@@ -46,7 +46,10 @@ use tokio::sync::Mutex;
 /// `request_usage_records` mirror — usage lives in its own key-addressed table
 /// (its integrity is the table's PK), so including it made every ordinary turn
 /// checksum scale with the session's total retained attempts (invariant #3).
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 15;
+/// v16 (ADR-0120): the fork point becomes part of the session row, so a
+/// reloaded branch still knows where it diverged. Legacy rows load with `None`,
+/// which is the truthful "unrecorded" value.
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 16;
 
 /// A session-scoped connection + model pin (C6). `connection`
 /// carries the **connection id** (provider + account + endpoint, per
@@ -74,6 +77,12 @@ pub struct SessionData {
     /// or an explicit `/fork` branch (ADR-0058).
     #[serde(default)]
     pub(crate) fork_kind: nuo_wire::SessionForkKind,
+    /// Where this branch diverged from its parent (ADR-0120), as the address
+    /// `/fork` itself accepts. `None` on a trunk, and on a branch whose
+    /// provenance predates the field — never reconstructed from a title or a
+    /// round counter (`[INV-LINEAGE-01]`).
+    #[serde(default)]
+    pub(crate) fork_point: Option<nuo_wire::ForkPoint>,
     pub(crate) created_at: u64,
     pub(crate) updated_at: u64,
     /// The single durable transcript: immutable entries plus the
@@ -172,6 +181,7 @@ impl SessionData {
             id: self.id.clone(),
             parent_id: self.parent_id.clone(),
             fork_kind: self.fork_kind,
+            fork_point: self.fork_point,
             created_at: self.created_at,
             updated_at: self.updated_at,
             transcript: nuo_wire::Transcript::default(),
@@ -240,6 +250,7 @@ impl Default for SessionData {
             id: uuid::Uuid::new_v4().to_string(),
             parent_id: None,
             fork_kind: nuo_wire::SessionForkKind::Trunk,
+            fork_point: None,
             created_at: now,
             updated_at: now,
             transcript: nuo_wire::Transcript::new(),
@@ -336,6 +347,10 @@ struct SessionRowChecksumView<'a> {
     digest_anchor: Option<u64>,
     disabled_tools: &'a std::collections::HashSet<String>,
     fork_kind: nuo_wire::SessionForkKind,
+    /// Fork provenance (ADR-0120). Folded into the row checksum: a silent
+    /// rewrite of where a branch diverged is as destructive as a lost turn.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fork_point: Option<nuo_wire::ForkPoint>,
     generation: &'a str,
     id: &'a str,
     parent_id: Option<&'a str>,
@@ -365,6 +380,7 @@ impl<'a> From<&'a SessionData> for SessionRowChecksumView<'a> {
             digest_anchor: data.digest_anchor,
             disabled_tools: &data.disabled_tools,
             fork_kind: data.fork_kind,
+            fork_point: data.fork_point,
             generation: &data.generation,
             id: &data.id,
             parent_id: data.parent_id.as_deref(),
@@ -451,6 +467,10 @@ pub struct SessionSummary {
     /// How this session came to exist: trunk root, or explicit `/fork`
     /// branch (ADR-0058). Drives the dashboard's lineage grouping.
     pub fork_kind: nuo_wire::SessionForkKind,
+    /// Where the branch diverged from its parent (ADR-0120), as the address
+    /// `/fork` itself accepts. `None` on a trunk and on branches whose
+    /// provenance predates the field.
+    pub fork_point: Option<nuo_wire::ForkPoint>,
     pub message_count: usize,
     pub updated_at: u64,
     pub created_at: u64,
@@ -1332,7 +1352,7 @@ mod history;
 
 #[cfg(test)]
 pub(crate) use history::rebuild_transcript_from_messages as rebuild_for_test;
-pub use history::{CommitTurn, ForkTarget};
+pub use history::{CommitTurn, ForkOutcome, ForkTarget};
 mod store;
 #[cfg(test)]
 mod tests;
