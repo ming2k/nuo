@@ -65,26 +65,28 @@ pub const MODELS: &[Model] = &[
         id: "claude-opus-4-8",
         family: "claude",
         context_window: 1_000_000,
-        thinking: ReasoningSupport::AnthropicAdaptive,
+        thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
         id: "claude-sonnet-4-6",
         family: "claude",
         context_window: 1_000_000,
-        thinking: ReasoningSupport::AnthropicAdaptive,
+        thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -96,13 +98,14 @@ pub const MODELS: &[Model] = &[
         // emit `thinking:{type:"adaptive"}` regardless of the user's on/off
         // choice (an opt-out is a no-op on this model). Manual `type:"enabled"`
         // also returns 400.
-        thinking: ReasoningSupport::AnthropicAdaptiveAlwaysOn,
+        thinking: ReasoningSupport::AdaptiveAlwaysOn,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -114,7 +117,7 @@ pub const MODELS: &[Model] = &[
         // `AnthropicAdaptive` (omit disables) nor `AnthropicAdaptiveAlwaysOn`
         // (cannot disable) — so the transport emits an explicit `disabled` on
         // opt-out to honor ADR-0046. Manual `type:"enabled"` returns 400.
-        thinking: ReasoningSupport::AnthropicAdaptiveOnByDefault,
+        thinking: ReasoningSupport::AdaptiveOnByDefault,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
@@ -122,6 +125,7 @@ pub const MODELS: &[Model] = &[
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -131,12 +135,13 @@ pub const MODELS: &[Model] = &[
         // Haiku 4.5 supports only MANUAL extended thinking
         // (`thinking:{type:"enabled",budget_tokens}`); it has no adaptive mode
         // and rejects the `effort` parameter (400), hence empty `effort_levels`.
-        thinking: ReasoningSupport::AnthropicManual,
+        thinking: ReasoningSupport::Manual,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

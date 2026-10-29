@@ -10,6 +10,63 @@ the project adheres to the federated SemVer model described in
 
 ### Added
 
+- **`/diff` and `/undo` are real, and they refuse rather than lie (ADR-0125).**
+  - **Three documented capabilities were backed by nothing.** `/diff` emitted a fixed
+    acknowledgement string; `/undo` moved the session tree's active leaf and restored
+    *no file content*, while reporting the turn rolled back; `Tier1Mutation`'s
+    "commit journal undo" described a journal that did not exist. Documentation that
+    promises a mechanism it lacks is worse than a missing feature, and
+    `docs/reference/commands.md` now describes what the commands do, including the
+    refusal.
+  - **Reversibility is a declared, closed property.** `EffectClass`
+    (`None`/`FileBytes`/`ExternalEffect`/`ProcessEffect`/`Opaque`) is orthogonal to
+    `RiskProfile`: risk answers "must a human authorize this?", effect answers "can it
+    be undone?". Derivation from declared `ToolAccesses` may **promote** severity but
+    never launder it, so an under-declared write is corrected upward and an
+    unlocatable mutation fails closed to `Opaque`.
+  - **The journal is write-ahead.** Pre-images reach the CAS before the mutation runs,
+    so a crash mid-write leaves changed bytes with a record instead of silently
+    unrecorded. Four invariants are enforced by SQLite triggers, not convention:
+    observations are write-once (`INV-EFFECT-01`), reversal is one-shot and monotonic
+    (`INV-EFFECT-02`), completion is one-shot (`INV-EFFECT-03`), and an unconfirmed
+    effect cannot be reversed (`INV-EFFECT-04`).
+  - **Reversal is a three-way check.** `/undo` restores byte-for-byte only when the file
+    still holds exactly what this thread wrote; if the user (or a later round, or a
+    formatter) changed it since, the file is left alone and the refusal is reported.
+    Multiple writes to one path unwind newest-first, through their own history.
+  - **Shell and network effects are receipts, not forgiveness.** They are recorded and
+    shown under "cannot undo" with the reason, so the surface is complete rather than
+    comfortable. Making `execute_command` reversible via OS snapshots was evaluated and
+    rejected: it would restore files while a published package or pushed commit stayed
+    pushed — a plausible lie the user acts on.
+  - **Credential files are never captured.** A `.env`, an `id_rsa`, a `.git-credentials`
+    is withheld from the content store (`INV-EFFECT-07`), because that store outlives
+    the session and ADR-0032 already forbids exactly this leakage for nuo's own state.
+    The change is still recorded and `/undo` explains why it cannot be restored.
+  - **Write tools declare their accesses again.** `write_file` and `edit_text` had
+    stopped declaring any file access, so two concurrent writes to one path did not
+    serialize in the scheduler and the jail middleware recovered the target by
+    string-matching argument names. Both now declare `accesses` and `scope_target`
+    from one mapping, while reads keep `Unspecified` so they stay auto-admitted.
+- **Pure previews, at the approval gate and across the turn (ADR-0125 §9).**
+  - `Tool::preview` returns the change a call *would* make without making it, computed
+    by the same function the execution path uses — so an approved diff cannot differ
+    from the bytes written.
+  - The permission sheet shows the unified diff with `+N -M` counts in **both** states:
+    a prompt whose most decision-relevant content hides behind a toggle is a prompt
+    that gets approved unread. Two honest non-answers are stated explicitly — "no
+    change: identical content", and "this call's effect cannot be shown in advance".
+  - Previews are also emitted at preflight next to the `ToolCall` events, so a batch's
+    whole footprint is visible before anything runs and a batch-level decision is
+    possible at all. `ToolPreview` is classified `Ephemera` by the exhaustive `class()`
+    audit: a resumed transcript must never replay a diff nothing applied.
+- **Pre-image liveness and retention.** The CAS collector's live set is a union over
+  the tables that can reach the bytes (`INV-EFFECT-06`) — the first cut derived it from
+  `blob_refs` alone, so the first maintenance pass would have deleted every pre-image
+  and broken `/undo` silently. Retention expires **bytes, not rows**
+  (`INV-EFFECT-05`): the observation survives, so a change that happened never stops
+  having happened.
+
 - **Attach refusals are typed, stale tabs are retired, and session rebasing is
   identity-addressed (ADR-0123).**
   - **A tab can outlive its session; the client no longer dies for it.** The
@@ -80,15 +137,23 @@ the project adheres to the federated SemVer model described in
     yields to `Esc` only when `Esc` has no other job (not with the viewer, an
     overlay or a sheet open), so one press never destroys both the interruption
     and the place it points at.
-  - **`Ctrl-o` / `/notices` / palette / badge-click opens the viewer**: newest at
-    the bottom, one row per notice with severity glyph, `HH:MM` stamp and topic
-    tag; `Enter` expands the full wrapped message; `y` copies the whole log as
-    one `[nuo diagnostic] kind=notices` block; `x` clears it.
+  - **`Ctrl-o` / `/notices` / palette / badge-click opens the dock**: a
+    **footer-stack row**, not a modal and not a float. Newest at the bottom, one
+    row per notice with severity glyph, `HH:MM` stamp and topic tag; `Enter`
+    (or a click) expands the full wrapped message; `y` copies the whole log as one
+    `[nuo diagnostic] kind=notices` block; `x` clears it. Docking is what keeps the
+    conversation readable *above* it and the composer live *below* it — reading the
+    fault and the turn it interrupted stays one task, and retyping or retrying is
+    never blocked. Its height is **a function of the viewport only** — a quarter of
+    the screen, floored at a readable minimum, capped at half so it never displaces
+    the conversation — because a log-length-derived height reflowed the transcript
+    on every arriving fault. The sole growth input is the selected notice's
+    expanded detail, which the user asked for with `Enter`
+    `[INV-NOTICE-02, INV-NOTICE-06, INV-NOTICE-07]`.
   - **The log is client-global, not a dialog.** `NoticeViewer` state lives on
-    `App` and the panel paints above every overlay, so a fault raised while a
-    dialog is up is still readable — and the log survives a scene or session
-    switch, because `DialogKind`'s session-scoped unwinder would discard it
-    exactly when the user switched tabs to go looking `[INV-NOTICE-02]`.
+    `App` and the dock is a footer row, so it survives a scene or session switch —
+    `DialogKind`'s session-scoped unwinder would discard it exactly when the user
+    switched tabs to go looking `[INV-NOTICE-02]`.
   - **An unread-fault badge on the model bar.** `SurfaceLog` now carries its own
     `unread` watermark (incremented on push, cleared by `mark_read`), so the
     count survives re-layouts and a viewer that was never constructed. The badge
@@ -157,6 +222,185 @@ the project adheres to the federated SemVer model described in
     progress *and* recovered faults in one type). The peek row's rank order is
     explicit — parked human decision, then live setback, then derived activity —
     and no renderer parses a count back out of a rendered sentence.
+
+### Fixed
+
+- **`nuotc` 0.0.6: a full-frame restyle no longer corrupts wide-glyph rows.**
+  Opening any modal recesses the live surface by restyling *every* cell of the
+  frame (`recess_backdrop(Recess::Dim)`). `Paint::restyle` implemented that
+  read-modify-write by handing the restyled cell to `CellGrid::set`, which exists
+  to place a *glyph* and therefore repairs the wide-glyph pairs a landing could
+  straddle: a style-only change to a `Continuation` blanked the head to its left,
+  and a style-only change to a `Wide` head blanked its continuation. One recess
+  demoted every continuation in the frame.
+  - **The symptom is stranded cells, not a colour choice.** A row is walked by
+    advancing each head by `CellWidth::advance`, so a head whose continuation had
+    been demoted still advanced two columns while the trailing column became
+    separately visitable: a 24-column row of CJK prose measured 33 columns. The
+    differ then skipped the columns it believed the head already covered, the
+    terminal kept showing the previous frame's pixels there, and the retained grid
+    and the screen were left permanently out of step (ADR-0002 / `[INV-DIFF-01]`).
+  - **Why it read as grey squares.** The demoted continuation also lost the
+    surface background, leaving `Color::Reset` — which a dim cannot scale and BCE
+    turns into the terminal's *own* default background. Against a dimmed `#040404`
+    surface, the stranded columns therefore appeared as `#282828` blocks (the
+    reporter's gruvbox background) in a one-cell-wide, multi-row checkerboard
+    beside CJK text.
+  - **Fix lives in the substrate, not here.** `nuotc` 0.0.6 adds the
+    geometry-preserving `CellGrid::restyle_cell` (style only, never `symbol` or
+    `CellWidth`) and routes `restyle` through it; `set` keeps its role as the
+    glyph-placement entry point. Both layers carry a regression test that asserts
+    the pairing *and* that a fully restyled row still measures exactly as wide as
+    the grid — the property the differ depends on.
+  - The pin moves `v0.0.5` → `v0.0.6`.
+
+- **`thinkingLevel` was stamped in the wrong case, and a content-free Google
+  `400` now explains itself.**
+  - **The wire enum is closed, upper-case, and was being sent as a generic
+    effort word.** `Effort::as_str()` produced `"high"`/`"medium"`, but
+    `generationConfig.thinkingConfig.thinkingLevel` accepts exactly
+    `LOW`/`MEDIUM`/`HIGH` (live capture,
+    `docs/reference/openapi/antigravity.yml` → `ThinkingConfig`). The catalog
+    also advertises a `minimal` rung the field does not accept, so that rung was
+    sent verbatim as well. Both are now translated by one provider-owned mapping
+    (`request::thinking_level_wire`) that clamps into the accepted enum, and the
+    same function replaces the ad-hoc `to_uppercase()` in the Interactions
+    builder — which had the identical `MINIMAL` bug.
+  - **A `400` that names no field now carries the request that was refused.**
+    Google's canonical refusal body is
+    `{"error":{"code":400,"message":"Request contains an invalid argument.",
+    "status":"INVALID_ARGUMENT"}}` — no field, no `fieldViolations` — so the
+    notice read as one unattributable line and there was nothing to act on.
+    `send_google_request` now returns the `RequestShape` it actually put on the
+    wire (routed model id, stamped `thinkingConfig`, tool and content counts)
+    and every refusal path folds it into the error as detail. This is *evidence*,
+    not a diagnosis: the block reports what was sent and never claims to know
+    which field the upstream objected to, because the upstream did not say. The
+    rendering is deliberately brace-free so the client's notice normalizer
+    cannot mistake the diagnostic for a JSON error body and re-parse it
+    (`RequestShape::describe`, locked by
+    `request_shape_reads_back_what_the_envelope_carried` and
+    `a_content_free_400_gains_the_sent_request_shape`).
+  - **`is_request_refusal` decides who gets the evidence.** It is the shared
+    typed predicate (never prose-sniffing), so a `429`/`404` keeps its own
+    guidance instead of having irrelevant request anatomy bolted onto it
+    (`a_non_refusal_keeps_its_own_guidance_and_gains_no_shape`).
+  - **The downgrade predicate reads the upstream text, by construction.** The
+    appended guidance necessarily mentions `thinkingConfig`/`thinkingLevel`/
+    `HTTP 400` — that is what makes a content-free refusal actionable — which
+    means an *augmented* message matches `rejects_thinking_config` for **any**
+    `400`. Deciding the elastic downgrade from it would have swallowed an
+    unrelated contract violation (a bad tool schema, a refused image) and
+    latched the channel into permanent chain-withholding. `rejects_thinking_config_error`
+    takes the untouched `ProviderError`, so "classify before you augment" is the
+    only thing a call site can express; the trap itself is asserted in
+    `the_augmented_message_must_never_be_fed_to_the_downgrade_predicate` so the
+    reason cannot be quietly deleted.
+  - **No compatibility wrapper.** `clarify_error` (which was just
+    `clarify_error_with_shape(…, None)`) is deleted rather than kept as an
+    alias: a second entry point that silently drops the evidence is exactly the
+    shape that lets a future call site regress. `clarify_error_with_shape` is
+    the one constructor of an augmented provider error.
+  - **End-to-end, not per-crate.** `a_content_free_400_reaches_the_transcript_with_its_evidence`
+    drives the real provider builder, the real normalizer and the real
+    `TranscriptMessage`, asserting the evidence survives into the painted block
+    list — the defect spanned that boundary, so a test on either side alone
+    would have passed while the user still saw one bare line.
+
+- **A Google model's effort slider now actually changes the wire depth.**
+  `EditConnectionModel` persisted the chosen rung for Anthropic and OpenAI
+  routes but carried an explicit no-op arm for both Google transports, on the
+  now-stale premise that "Google ignores effort and thinking" — a premise that
+  predates `Transport::GoogleGenerateContent::effort`. Picking `low` on
+  `gemini-3.8-flash` validated and sent the rung, the handler discarded it, the
+  route kept deriving `effort: None`, and the provider fell back to
+  `Effort::channel_default` (`high`); the ladder looked dead and the picker
+  snapped back to the old rung. Effort is now stored on every transport, and
+  only the Anthropic-specific *thinking* switch is cleared elsewhere
+  [INV-ENTITY-02]. Guarded by `edit_model_persists_effort_on_google_routes`,
+  which asserts both the persisted rung and the derived
+  `GoogleGenerateContent { effort }` the provider factory reads.
+
+- **Turn and round headers always carry their `HH:MM` send time.** A header is
+  the only place an entry's send time reaches the reader, and most live turn
+  bands had no clock at all: the `sent_at_ms` stamp was applied only to
+  assistant text, so a turn whose first component was a reasoning trace
+  (`› turn N  model effort`, no time) or a tool-only turn showed no `HH:MM` for
+  the rest of its life. The resumed session had the mirror-image gap — the
+  restore path stamped tool steps but not reasoning traces — and the harness
+  persisted assistant messages with `sent_at_ms: None`, leaving resume to fall
+  back to the second-truncated `timestamp`.
+  - **The stamp is a property of the turn, not of whichever component arrived
+    first.** The live translator mints one send time per turn at `TurnStarted`
+    and every component of that turn (thinking, text, announced and dispatched
+    tool steps) reads that one value, so a band can never show two different
+    clocks for one turn.
+  - **Admission repairs a missing stamp** instead of trusting every call site:
+    `TranscriptMessage::adopt_sent_at_ms` fills an unstamped component from the
+    turn that already carries a time, so a future builder that forgets cannot
+    silently drop the header's clock. A component of an unstamped turn stays
+    unstamped — a header must never borrow another turn's moment, and it must
+    never invent one.
+  - **Resume carries the same millisecond.** The harness stamps the assistant
+    message's `sent_at_ms` from the attempt's recorded dispatch boundary, and the
+    restore path copies it onto the reasoning trace as well as the tool steps, so
+    a reloaded band shows the instant the live one did. `to_wire` still zeroes the
+    field: it is storage/UI metadata, never provider conversation content.
+  - Behaviour locks in `shell::render::tests::turn_headers` (the painted contract
+    for round headers, thinking-first bands, tool-only bands, one-clock-per-turn,
+    and the unstamped negative control) and
+    `shell::tests::turn_header_time` (turn-scoped adoption through the real
+    applier), plus a resume-parity case in the history-recall suite.
+
+### Added
+
+- **Source residency is now an enforced architectural invariant (ADR-0124).**
+  Rust compiles only what a `mod` declaration reaches, so a `.rs` file nothing
+  names produces no error, no warning, and no test failure — it silently stops
+  existing. That had already happened twice: `crates/nuo/src/shell/snapshot_tests.rs`
+  (2469 lines, 56 tests, the crate's only painted-grid regression net) lost its
+  `mod` line in the `29cb306` crate relocation and sat uncompiled through three
+  geometry ADRs, and `crates/nuo-protocol/src/provider_auth.rs` survived as a
+  file no compiler ever saw. Nothing in the existing gate set — `cargo check`,
+  `cargo test`, clippy, the presentation firewall, doc links — can observe
+  reachability, which is why the loss went unnoticed until it was searched for.
+  - **`nuo::dev::residency`** walks every crate under `crates/*`, `providers/*`,
+    `tools/*` from the entry points Cargo really compiles (`src/lib.rs`,
+    `src/main.rs`, and every auto-discovered `tests/`/`benches/`/`examples/`
+    target root) and follows `mod` declarations through every layout Rust
+    accepts: `name.rs`, `name/mod.rs`, the RFC 2126 sibling forest
+    (`foo.rs` → `foo/bar.rs`), and explicit `#[path]` overrides. The scan is a
+    comment/literal-masking lexer, not a regex, so prose and string literals
+    cannot forge a declaration.
+  - **Test-target asset trees are inputs, not modules.** `tests/<target>/…` is
+    source only for the `tests/<target>.rs` root that declares it; otherwise it
+    is data the tests read (a parser corpus, a fixture). This is what lets a
+    Rust-parsing tool ship `.rs` fixtures without tripping its own gate.
+  - **`[INV-ARCH-RESIDENCY-01]`** is enforced by
+    `test_inv_arch_source_residency` in `crates/nuo/tests/architecture_firewall.rs`
+    (so it runs in `cargo test --workspace`) and reachable as
+    `nuo dev check residency` (also part of `all`). One run reports every orphan
+    grouped by crate — reporting only the first would have hidden the second.
+  - **`snapshot_tests.rs` is compiled again**, which immediately paid for itself:
+    it surfaced a baseline predating ADR-0115's closed fold geometry, a
+    notice-body wrapping bug, and the `provider_auth.rs` orphan.
+
+### Fixed
+
+- **A notice body no longer loses every continuation row.** `draw_notice_view`
+  assembled a one-element segment list from the wrapped *slice* while passing the
+  slice's logical-row-relative `start_byte` as `render_row_line`'s
+  `base_offset`. Segment ranges and `base_offset` share the logical-row
+  coordinate space, so on any continuation row no segment covered the slice and
+  the splice correctly produced an empty line: a multi-line notice painted its
+  first row and silently dropped the rest, while `content_lines` still counted
+  them (so the transcript reserved height for rows that were never drawn). Fixed
+  by giving the row one segment spanning the full row text — the row is
+  single-styled — and locked by `notice_body_paints_every_wrapped_row`.
+- **`crates/nuo-protocol/src/provider_auth.rs` is deleted.** It was a passthrough
+  re-export (`pub use nuo_provider::auth::*`), which `docs/dev/standards/architecture.md`
+  §2.3 prohibits outright, and it had been unreachable since `a21978b` removed its
+  `pub mod` line. Dead *and* disallowed: deleting it is the only correct outcome.
 
 ## [0.0.55] - 2026-10-28
 

@@ -74,12 +74,14 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
         "the model's own configured effort passes through unchanged"
     );
 
-    // Now the default branch: a row whose route has no configured effort. The
-    // documented rule is `medium` **clamped onto the ladder**. On
-    // `low/high/max` that is `low` (the highest rung ≤ medium), not `high`:
-    // `high` ranks *above* the requested `medium`, and opening there silently
-    // deepens every request the user never touched. Hand-rolling the clamp
-    // instead of calling `Effort::clamp_to` is what produced that drift.
+    // Now the no-value branch: a row whose route reports no depth at all.
+    // The editor opens **empty** and does not invent a tier. Choosing a
+    // default is the server's job (it clamps the provider's declared
+    // preference onto the provider's declared ladder); the client has neither
+    // the baseline tables nor the declared preference, so any value it made up
+    // here would be a second implementation of a rule it cannot see — which is
+    // exactly how the old `unwrap_or("medium")` + local `clamp_to` opened the
+    // editor on a tier the wire would not carry (ADR-0126).
     //
     // (`thinking` is set so the row stays openable — a row opens when it
     // exposes effort *or* thinking. The sheet must be dismissed first: the
@@ -90,8 +92,8 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     crate::shell::event_loop::actions::handle_open_model_editor(&mut app);
     assert_eq!(
-        app.editor_effort, "low",
-        "default must be medium clamped onto the ladder (clamp_to), not the next tier up"
+        app.editor_effort, "",
+        "no server-resolved depth means an empty editor, never a client-invented tier"
     );
 
     let mut terminal = nuotc::TestTerminal::new(100, 24);

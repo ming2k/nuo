@@ -151,6 +151,16 @@ fn run_dev_check(target: cli::CheckTarget) -> Result<(), Box<dyn std::error::Err
         }
     }
 
+    if target == cli::CheckTarget::All || target == cli::CheckTarget::Residency {
+        println!("Checking Rust source residency (every .rs file reachable from a crate root)...");
+        if let Err(e) = nuo::dev::residency::check_source_residency(&root) {
+            eprintln!("{e}");
+            ok = false;
+        } else {
+            println!("source residency: clean");
+        }
+    }
+
     if ok {
         Ok(())
     } else {

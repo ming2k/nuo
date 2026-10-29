@@ -380,6 +380,12 @@ fn transcript_from_core_inner(
                 thinking.provider = provider.clone();
                 thinking.model = model.clone();
                 thinking.effort = effort.clone();
+                // The trace is a component of *this* assistant message's turn, so
+                // it carries that message's send time. Without this the restored
+                // band header lost its `HH:MM` whenever thinking was the turn's
+                // first component — the live path stamps every component from the
+                // turn's own clock, and resume must agree.
+                thinking.sent_at_ms = message_sent_at_ms;
                 if track_rounds {
                     thinking.round = Some(restored_round);
                     thinking.turn = Some(restored_turn);

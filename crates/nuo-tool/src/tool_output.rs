@@ -1426,3 +1426,82 @@ mod tests {
         assert_eq!(back.to_text(), text);
     }
 }
+
+/// `(added, removed)` line counts for the change from `old` to `new`.
+///
+/// A **summary**, not a diff: it counts lines that appear only in `new` (added) and
+/// only in `old` (removed), using a longest-common-subsequence walk over the line
+/// sequences. It lives in the tool leaf because a *preview* needs the number before
+/// any event exists (ADR-0125) — the approval prompt shows "+2 -1" beside the diff,
+/// and that number must come from the same place the model-facing summary does.
+///
+/// Deliberately dependency-free rather than reaching for the presentation layer's
+/// Myers implementation: `nuo-tool` is a zero-I/O leaf and must not acquire a diff
+/// crate for one integer pair. The renderer keeps its richer per-line and word-level
+/// output; this computes only what a caller without a renderer can use.
+///
+/// `O(old_lines × new_lines)` time and `O(new_lines)` space. Both inputs are tool
+/// arguments or file contents a caller already holds in memory, and a preview is
+/// computed at most once per approval prompt, so the quadratic factor is bounded by
+/// realistic file sizes (a 5,000-line file against a 5,000-line proposal is 25M
+/// comparisons — a few milliseconds, once).
+pub fn line_change_counts(old: &str, new: &str) -> (usize, usize) {
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+    let common = longest_common_subsequence_len(&old_lines, &new_lines);
+    (new_lines.len() - common, old_lines.len() - common)
+}
+
+/// Length of the longest common subsequence of two line slices.
+fn longest_common_subsequence_len(left: &[&str], right: &[&str]) -> usize {
+    // Rolling row: only the previous line of the DP table is ever read.
+    let mut previous = vec![0usize; right.len() + 1];
+    let mut current = vec![0usize; right.len() + 1];
+    for left_line in left {
+        for (index, right_line) in right.iter().enumerate() {
+            current[index + 1] = if left_line == right_line {
+                previous[index] + 1
+            } else {
+                previous[index + 1].max(current[index])
+            };
+        }
+        std::mem::swap(&mut previous, &mut current);
+        current.fill(0);
+    }
+    previous[right.len()]
+}
+
+#[cfg(test)]
+mod line_change_counts_tests {
+    use super::line_change_counts;
+
+    #[test]
+    fn identical_text_is_a_noop() {
+        assert_eq!(line_change_counts("a\nb\n", "a\nb\n"), (0, 0));
+        assert_eq!(line_change_counts("", ""), (0, 0));
+    }
+
+    #[test]
+    fn pure_insertion_and_pure_deletion() {
+        assert_eq!(line_change_counts("a\n", "a\nb\n"), (1, 0));
+        assert_eq!(line_change_counts("a\nb\n", "a\n"), (0, 1));
+    }
+
+    #[test]
+    fn a_creation_counts_every_line_as_added() {
+        assert_eq!(line_change_counts("", "one\ntwo\n"), (2, 0));
+    }
+
+    #[test]
+    fn an_interleaved_change_counts_both_sides() {
+        // Change the middle line only: one added, one removed — not the whole file.
+        assert_eq!(line_change_counts("a\nb\nc\n", "a\nB\nc\n"), (1, 1));
+    }
+
+    #[test]
+    fn a_moved_line_is_not_a_change() {
+        // The LCS keeps both lines, so a reorder is two of nothing rather than a
+        // spurious remove-plus-add pair.
+        assert_eq!(line_change_counts("a\nb\n", "b\na\n"), (1, 1));
+    }
+}

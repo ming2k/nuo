@@ -70,9 +70,13 @@ The protocol layer maps a chosen `Effort` onto each public API specification, no
 | OpenAI Responses | `reasoning.effort` | enum string |
 | OpenAI chat completions | `reasoning_effort` | enum string |
 | Anthropic Messages | `output_config.effort` | enum string |
-| Google generateContent | `thinkingConfig.thinkingLevel` / `.thinkingBudget` | enum string / int tokens |
+| Google generateContent | `thinkingConfig.thinkingLevel` / `.thinkingBudget` | **closed upper-case enum** `LOW`/`MEDIUM`/`HIGH` / int tokens |
 
 Providers that implement the OpenAI Responses / chat-completions specification (xAI Grok, Moonshot Kimi, DeepSeek, Z.AI GLM) reuse the OpenAI translation verbatim. Google is the outlier: a Gemini model declares an `Effort` ladder like any other, and the Google protocol maps each rung onto `thinkingLevel` (3.x) or a `thinkingBudget` bucket (2.5).
+
+**The Google rung is not the generic effort spelling.** `Effort::as_str` produces lower-case vocabulary words (`"high"`, `"minimal"`, …), but `thinkingLevel` is a closed, case-sensitive enum of exactly `LOW`/`MEDIUM`/`HIGH` (verified against the live Antigravity capture, `docs/reference/openapi/antigravity.yml` → `ThinkingConfig.thinkingLevel`). Sending `"high"` — or `"minimal"`, a rung the *catalog* advertises but the *field* does not accept — is rejected as `400 INVALID_ARGUMENT` with the content-free body `Request contains an invalid argument.`, which names no field and is therefore very hard to attribute. The translation is provider-owned wire knowledge and lives in one place per provider (`nuo_provider_google_antigravity::request::thinking_level_wire`); a provider that stamps `as_str()` directly onto a closed enum field is a defect, not a mapping choice.
+
+Because that class of `400` cannot explain itself, the Google provider also folds the **shape of the request it actually sent** into the error (routed model id, the stamped `thinkingConfig`, tool and content counts) — see `RequestShape`. That is evidence travelling with the failure, not a guess at the cause.
 
 A dialect may also *decline* a field the specification defines. DeepSeek's Responses surface defines `reasoning` as `{effort}` only — it has no summarized-CoT channel and returns plaintext `reasoning_text` items — so the builder emits neither `reasoning.summary` nor `include: ["reasoning.encrypted_content"]` there (ADR-0083).
 
@@ -86,7 +90,31 @@ The ladder is therefore the **accepted set**, not the set of rungs a model *dist
 
 ---
 
-## 7. Baseline Ladders
+## 7. Who Decides the Default, and Who Decides the Switch
+
+Depth and the on/off switch are **provider declarations**, not framework rules
+(ADR-0126). Nothing in the framework branches on a vendor or model-family name.
+
+- **Default depth** — `Model::default_effort`. The framework's entire role is
+  `Effort::channel_default(declared, ladder)`: clamp the provider's declared
+  preference onto the provider's declared ladder. A provider that declares no
+  preference gets the vendor-neutral `High`, still clamped onto its own ladder.
+  A route with no ladder has no default at all, and the request omits the field.
+- **Whether a separate on/off switch exists** —
+  `ReasoningSupport::has_thinking_switch()`, derived from the route's already
+  declared reasoning encoding. The adaptive and manual encodings take a field
+  that can be omitted or explicitly disabled; the content/summary encodings are
+  always-on streams with nothing to switch. A depth-only surface expresses "off"
+  with its shallowest rung.
+- **The user's choice** is stored in the route's open tuning map
+  (`TunableSettings`), keyed by the knob id (`"effort"`, `"thinking"`). It is
+  resolved in exactly one place (`Channel::effective_effort` /
+  `Channel::thinking_state`), and the wire and the UI both read that result — the
+  UI never re-clamps and never infers a knob's presence from a protocol string.
+
+---
+
+## 8. Baseline Ladders
 
 Specific family ladders are constants in `nuo_provider::effort_ladders`:
 

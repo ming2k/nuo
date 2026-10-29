@@ -804,6 +804,21 @@ pub struct TranscriptMessage {
     /// Wall-clock send time for transcript headers, in Unix epoch milliseconds.
     /// Restored messages use the persisted millisecond value when available and
     /// fall back to the durable core-message timestamp for legacy sessions.
+    ///
+    /// This is the **only** temporal fact a header carries, so an entry that
+    /// never gets stamped renders `› turn N  model effort` with no clock at all —
+    /// the reader then cannot tell when the message was produced. Two rules keep
+    /// it from going missing:
+    ///
+    /// - Every component of one turn (thinking, assistant text, tool steps)
+    ///   carries the **same** value: the band paints one `HH:MM`, so the stamp is
+    ///   a property of the turn, not of whichever component opened the band.
+    /// - Admission repairs a missing stamp from the turn that already has one
+    ///   ([`TranscriptMessage::adopt_sent_at_ms`]), so a builder call site that
+    ///   forgets to stamp itself cannot silently drop the header's clock.
+    ///
+    /// The wire keeps it out of provider requests (`Message::to_wire` zeroes it):
+    /// it is storage/UI metadata, never conversation content.
     pub sent_at_ms: Option<u64>,
     /// Durable provenance / injection origin stamped by the harness (ADR-0050).
     pub injection_origin: Option<nuo_wire::InjectionOrigin>,
@@ -1070,6 +1085,30 @@ impl TranscriptMessage {
     /// ADR-0026: collapse a pre-dispatch step onto its dispatch `call_id` and complete arguments —
     /// re-key the id, record arguments, and clear the slot/byte pre-dispatch state in one step.
     /// ADR-0046: transition from Ingesting to Executing phase by capturing `execution_started_at`.
+    /// ADR-0125: attach the pure preview of what this call will do.
+    ///
+    /// Stored in `structured` — the same field a completed step renders its diff
+    /// from — rather than in a parallel one. A preview *is* the structured output the
+    /// step would produce, so reusing the field means the preview card and the result
+    /// card are drawn by one renderer and cannot disagree about what the change
+    /// looks like. The status stays `Executing` (or `Ingesting`), so nothing mistakes
+    /// a preview for a completed result; the terminal `ToolResult` overwrites the field
+    /// with what actually happened.
+    ///
+    /// Returns whether the step matched, so the caller can distinguish "previewed an
+    /// in-flight step" from "no step exists yet".
+    pub fn set_tool_preview(&mut self, call_id: &str, preview: nuo_wire::PreviewResult) -> bool {
+        let MessageKind::ToolStep { id, structured, .. } = &mut self.kind else {
+            return false;
+        };
+        if id != call_id {
+            return false;
+        }
+        *structured = Some(Box::new(preview.as_patch()));
+        self.refresh_tool_step();
+        true
+    }
+
     pub fn collapse_tool_call(
         &mut self,
         call_id: impl Into<String>,
@@ -2312,6 +2351,28 @@ impl TranscriptMessage {
             MessageKind::ToolStep { children, .. } => Some(children),
             _ => None,
         }
+    }
+
+    /// Adopt `sent_at_ms` if this entry has no send time yet.
+    ///
+    /// The band header shows **one** `HH:MM` per turn, and every component of
+    /// that turn (thinking, assistant text, tool steps) must therefore read the
+    /// same instant. A component created by an arm that forgot to stamp itself
+    /// adopts the turn's already-established time instead of silently rendering
+    /// a header with no clock — the failure this method exists to make
+    /// unreachable. An already-stamped entry is never rewritten: its own moment
+    /// is a fact, not a default.
+    pub fn adopt_sent_at_ms(&mut self, sent_at_ms: Option<u64>) {
+        if self.sent_at_ms.is_none() {
+            self.sent_at_ms = sent_at_ms;
+        }
+    }
+
+    /// The turn this entry belongs to, as a `(round, turn)` pair. `None` when
+    /// either position is unknown (legacy entries), which is also exactly when
+    /// the renderer falls back to unbanded flow.
+    pub fn turn_position(&self) -> Option<(u64, u64)> {
+        Some((self.round?, self.turn?))
     }
 
     /// The subagent's role (`explore` / `plan` / `verify` / …), identified by

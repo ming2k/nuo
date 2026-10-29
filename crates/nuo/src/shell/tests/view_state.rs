@@ -54,14 +54,45 @@ fn composer_paste_still_chips_large_text_on_main_prompt() {
 
 #[test]
 fn composer_image_paste_rejected_when_model_lacks_vision() {
-    // When the current model doesn't support vision, pasting an image on
-    // the main prompt should show a failure toast and leave no attachment.
-    // No picker-snapshot row exists for the route, so the gate falls back to
-    // the in-process static registry (glm-5.2 baseline: vision: false).
+    // When the current model doesn't support vision, pasting an image on the
+    // main prompt must show a failure toast and leave no attachment.
+    //
+    // The declaration comes from the **server's projected picker row**, not from
+    // a client-side capability resolve: this client does not link the provider
+    // registry in production, so a local resolve would report "undeclared" for
+    // every route and the gate could never refuse. (It only appeared to work in
+    // tests because the registry is a dev-dependency here — the same illusion
+    // that let the old suite pass while the shipped binary disagreed with the
+    // server.) ADR-0126: one authority per fact, and the server owns this one.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
     app.current_provider = "mock".to_string();
-    app.current_model = "glm-5.2".to_string(); // vision: false
+    app.current_model = "glm-5.2".to_string();
+    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+        default_id: "mock".to_string(),
+        rows: vec![nuo_wire::ProviderPickerRow {
+            id: "mock".to_string(),
+            name: "Mock".to_string(),
+            model: "glm-5.2".to_string(),
+            models: vec!["glm-5.2".to_string()],
+            builtin: true,
+            protocol: "openai-chat-completions".to_string(),
+            base_url: "https://example.test/v1".to_string(),
+            key_ready: true,
+            provider: "mock".to_string(),
+            client_identity: Default::default(),
+            last_used_ms: None,
+            auth: Default::default(),
+            model_info: vec![nuo_wire::ProviderModelInfo {
+                model: "glm-5.2".to_string(),
+                protocol: "openai-chat-completions".to_string(),
+                // The server declared this route text-only.
+                vision: Some(false),
+                context_window: 200_000,
+                ..Default::default()
+            }],
+        }],
+    };
     app.input = String::new();
     app.cursor_position = 0;
 
@@ -107,7 +138,7 @@ fn composer_image_paste_accepted_when_model_vision_is_undeclared() {
     app.cursor_position = 0;
 
     assert_eq!(
-        app.active_route_capabilities().vision,
+        clipboard_ops::active_route_vision_declaration(&app),
         None,
         "an unknown id must stay undeclared rather than resolve to text-only"
     );

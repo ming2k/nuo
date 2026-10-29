@@ -14,7 +14,25 @@ pub struct ProcessLock {
 
 impl ProcessLock {
     /// Try to acquire an exclusive lock without blocking.
+    ///
+    /// The parent directory is created on demand. Without this, a lock on a
+    /// path inside a not-yet-materialised directory (a pristine `NUO_HOME`
+    /// whose `instance/` has never been written) failed with `ENOENT` — an
+    /// error indistinguishable, to every caller that treats `Err` as "someone
+    /// else holds it", from genuine contention. `ensure_server_explicit` reads
+    /// it that way and falls into a 6 s blind poll instead of spawning a
+    /// server, which is 40x the cost of the work the poll waits for.
     pub fn acquire(path: &Path) -> Result<Self, String> {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent).map_err(|error| {
+                format!(
+                    "could not create lock directory {}: {error}",
+                    parent.display()
+                )
+            })?;
+        }
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -188,6 +206,45 @@ mod tests {
         drop(first);
         assert!(!ProcessLock::is_locked(&path));
         assert!(ProcessLock::acquire(&path).is_ok());
+    }
+
+    /// A lock whose parent directory does not exist yet must be acquirable.
+    ///
+    /// Regression: `acquire` opened the lock file with `create(true)` but never
+    /// created the directory, so a pristine instance dir produced `ENOENT`.
+    /// Callers treat any `Err` from `acquire` as "another process holds it",
+    /// so the failure silently degraded into a 6 s poll (measured: 6364 ms vs
+    /// 150 ms on a warm home).
+    #[test]
+    fn acquire_creates_a_missing_parent_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("instance").join("server-spawning.lock");
+        assert!(!path.parent().unwrap().exists());
+
+        let lock = ProcessLock::acquire(&path).expect("acquire must create the parent directory");
+        assert_eq!(ProcessLock::probe_holder(&path), Some(std::process::id()));
+        assert!(ProcessLock::is_locked(&path));
+        drop(lock);
+    }
+
+    /// Absence of a directory must never look like contention: the error for a
+    /// genuinely unreachable path names the directory, not "another nuo
+    /// instance may already be running".
+    #[test]
+    fn a_missing_directory_is_not_reported_as_contention() {
+        let dir = tempfile::tempdir().unwrap();
+        // A regular file where the parent directory should be: `create_dir_all`
+        // cannot satisfy this, so it is the one remaining failure mode.
+        let blocker = dir.path().join("blocked");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let path = blocker.join("nested").join("server.lock");
+
+        let error = ProcessLock::acquire(&path).unwrap_err();
+        assert!(
+            error.contains("could not create lock directory"),
+            "expected a directory-creation error, got: {error}"
+        );
+        assert!(!error.contains("another nuo instance may already be running"));
     }
 
     #[test]

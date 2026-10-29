@@ -18,6 +18,7 @@ unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 
 [dev-dependencies]
+nuo-provider = { workspace = true }
 nuo-provider-openai = { workspace = true }
 nuo-provider-anthropic = { workspace = true }
 nuo-provider-google-antigravity = { workspace = true }

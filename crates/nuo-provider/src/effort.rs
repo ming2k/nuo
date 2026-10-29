@@ -36,7 +36,7 @@
 //! [`Effort`] is the *vocabulary*; a model still needs to know *which rungs it
 //! accepts*. That per-model ladder is a **capability**, and — like every other
 //! capability (context window, reasoning, vision) — it resolves through one
-//! precedence chain (ADR-0065):
+//! precedence chain (ADR-0068):
 //!
 //! ```text
 //! live discovery (a preset whose RemoteCatalogSource carries effort tiers)
@@ -195,13 +195,22 @@ impl Effort {
     }
 
     /// The channel-level default effort tier for a model that advertises an
-    /// effort ladder: GPT families default to [`Effort::Medium`] (their wire
-    /// middle tier); every other family defaults to [`Effort::High`] clamped
-    /// to the ladder — a ladder topping out below `high` resolves to its
-    /// deepest tier, and a ladder omitting both `high` and `medium` snaps up
-    /// to the nearest supported rung. Never emits a tier the ladder does not
-    /// contain; a model with an empty ladder has no default (`None`), and the
-    /// request must not stamp an effort field at all.
+    /// effort ladder.
+    ///
+    /// `preferred` is the **provider's declared** preference for this model
+    /// (or `None` when it expressed none); the framework only clamps it onto
+    /// the ladder the provider declared, topping out below `high` resolving to
+    /// the ladder's deepest rung, and a ladder omitting both `high` and
+    /// `medium` snapping up to the nearest supported rung. It never emits a
+    /// tier the ladder does not contain; a model with an empty ladder has no
+    /// default (`None`), and the request must not stamp an effort field at all.
+    ///
+    /// The preference is data, not a family-name rule: this function used to
+    /// branch on `"gpt"`-prefixed family strings, which meant the framework
+    /// core had to be edited whenever a provider wanted a different default.
+    /// A provider now states its own preference where it declares the model
+    /// ([`crate::Model::default_effort`]), and the fallback for a model that states
+    /// none is the vendor-neutral [`Effort::High`].
     ///
     /// Single source of truth for **both** the picker's display fallback and
     /// the request-boundary default in the provider factory. Before it was
@@ -209,17 +218,11 @@ impl Effort {
     /// channel override was `None`), so an always-thinking endpoint gated
     /// only by `reasoning_effort` (Zhipu GLM-5.x) fell back to its
     /// server-side default — far deeper than the tier the UI promised.
-    pub fn channel_default(family: &str, effort_levels: &[Effort]) -> Option<Effort> {
+    pub fn channel_default(preferred: Option<Effort>, effort_levels: &[Effort]) -> Option<Effort> {
         if effort_levels.is_empty() {
             return None;
         }
-        let preferred =
-            if family == "gpt" || family == "openai-subscription" || family.starts_with("gpt") {
-                Effort::Medium
-            } else {
-                Effort::High
-            };
-        Some(preferred.clamp_to(effort_levels))
+        Some(preferred.unwrap_or(Effort::High).clamp_to(effort_levels))
     }
 
     /// Resolve this known requested effort against a channel's **open** effort
@@ -268,45 +271,6 @@ impl Effort {
             });
         EffortLevel::Known(clamped)
     }
-
-    /// Translate this depth into a Google Gemini 2.5 `thinkingBudget` integer,
-    /// the form Gemini 2.5 (Flash/Pro) accepts instead of an enum. Gemini 2.5
-    /// takes a token budget in a model-specific range (`max_budget`):
-    /// `gemini-2.5-flash` tops out at `24576`; `gemini-2.5-pro` at `32768`.
-    ///
-    /// A chosen [`Effort`] **pins** the budget — it is a deliberate request,
-    /// never "let the server decide". (Gemini's own "dynamic" is `-1`, the
-    /// server default when the field is *omitted*; nuo reaches that by not
-    /// stamping the field at all — an unset channel effort — not by mapping any
-    /// rung to `-1`.) `minimal` ~10%,
-    /// `low` ~25%, `medium` ~50% of `max_budget`; `high`/`xhigh`/`max` all pin
-    /// to the model's full cap (`xhigh` is not a native Gemini rung — the
-    /// protocol layer clamps it down to `high` first — and `max` differs from
-    /// `high` only in intent: it explicitly names the cap).
-    ///
-    /// `None` maps to `0`, the only way to turn thinking off — but Gemini 2.5
-    /// Pro rejects `0` (its floor is `128`), so callers must only honor
-    /// [`Effort::None`] when the model actually supports an off budget.
-    pub const fn gemini_thinking_budget(self, max_budget: u32) -> i64 {
-        match self {
-            // 0 = off. Only honored by models whose floor is 0 (Flash/Lite);
-            // Pro rejects it (floor 128), so the protocol layer must skip
-            // stamping None there.
-            Effort::None => 0,
-            // The floor of 1 guarantees a nonzero bucket even on a tiny max
-            // budget; `core::cmp::max` is not const-stable yet, so the helper
-            // spells the clamp out. `max(1)` matters only for unrealistically
-            // small `max_budget` values, but keeps the contract honest.
-            Effort::Minimal => nonzero(max_budget as u64 / 10),
-            Effort::Low => nonzero(max_budget as u64 / 4),
-            Effort::Medium => nonzero(max_budget as u64 / 2),
-            // A deliberate request pins the budget to the model's full cap —
-            // never dynamic (`-1`). `xhigh` is not native to Gemini; the
-            // protocol layer clamps it to `high` before reaching here, and it
-            // resolves to the same cap regardless.
-            Effort::High | Effort::Xhigh | Effort::Max | Effort::Ultra => max_budget as i64,
-        }
-    }
 }
 
 /// A reasoning-depth level **as a channel knows it** — either a known rung of
@@ -317,7 +281,7 @@ impl Effort {
 /// the ordered vocabulary clamp/UI/config key off of; it must stay small and
 /// `Copy` (the static `Model` registry is `Copy`). But a provider's live
 /// `/models` may advertise a tier the vocabulary does not name (e.g. a future
-/// `"turbo"`), and [ADR-0065] makes that advertisement authoritative. Dropping
+/// `"turbo"`), and [ADR-0068] makes that advertisement authoritative. Dropping
 /// it would silently downgrade a live capability — so the runtime, per-channel
 /// view ([`crate::model::ModelCapabilities`] / [`crate::model::RemoteModelMetadata`])
 /// carries [`EffortLevel`] to preserve unknown tiers verbatim and stamp them
@@ -340,7 +304,7 @@ impl Effort {
 /// before. This keeps the flexibility honest: a tier outside the vocabulary
 /// reaches the wire, but never pretends to a depth it cannot be ranked at.
 ///
-/// [ADR-0065]: ../adr/0065-runtime-fitted-model-capability-overlay.md
+/// [ADR-0068]: ../adr/0068-canonical-model-catalog-normalization-and-semantic-lifting.md
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum EffortLevel {
@@ -391,13 +355,6 @@ impl From<Effort> for EffortLevel {
     fn from(e: Effort) -> EffortLevel {
         EffortLevel::Known(e)
     }
-}
-
-/// `≥ 1` floor for a Gemini budget bucket. `core::cmp::max` is not yet
-/// const-stable, so [`Effort::gemini_thinking_budget`] spells the clamp through
-/// this helper. Kept private: only the budget translation needs it.
-const fn nonzero(tokens: u64) -> i64 {
-    if tokens < 1 { 1 } else { tokens as i64 }
 }
 
 // Baseline value-sets (Layer B).
@@ -491,19 +448,34 @@ mod tests {
     }
 
     #[test]
-    fn gemini_thinking_budget_buckets_within_range() {
-        // Gemini 2.5 Flash: 0–24576. Each rung is a fraction of the cap.
-        assert_eq!(Effort::None.gemini_thinking_budget(24576), 0);
-        assert_eq!(Effort::Minimal.gemini_thinking_budget(24576), 2457);
-        assert_eq!(Effort::Low.gemini_thinking_budget(24576), 6144);
-        assert_eq!(Effort::Medium.gemini_thinking_budget(24576), 12288);
-        assert_eq!(Effort::High.gemini_thinking_budget(24576), 24576);
-        assert_eq!(Effort::Max.gemini_thinking_budget(24576), 24576);
-        // Gemini 2.5 Pro: 128–32768. Buckets scale by the larger cap.
-        assert_eq!(Effort::Medium.gemini_thinking_budget(32768), 16384);
-        assert_eq!(Effort::High.gemini_thinking_budget(32768), 32768);
-        // A floor of 1 is guaranteed even on a tiny max budget.
-        assert_eq!(Effort::Minimal.gemini_thinking_budget(5), 1);
+    fn channel_default_clamps_the_providers_declared_preference() {
+        // The framework's whole contribution: clamp the provider's declared
+        // preference onto the provider's declared ladder. It never consults a
+        // family name.
+        assert_eq!(
+            Effort::channel_default(Some(Effort::Medium), TEST_FULL),
+            Some(Effort::Medium)
+        );
+        // A preference deeper than the ladder clamps down to its ceiling.
+        assert_eq!(
+            Effort::channel_default(Some(Effort::Max), TEST_LEVEL),
+            Some(Effort::High)
+        );
+        // A preference the ladder does not contain snaps up to its shallowest.
+        assert_eq!(
+            Effort::channel_default(Some(Effort::Medium), TEST_GAPPED),
+            Some(Effort::Low)
+        );
+        // A provider that declares no preference gets the vendor-neutral
+        // default, still clamped onto its own ladder.
+        assert_eq!(Effort::channel_default(None, TEST_GLM), Some(Effort::High));
+        assert_eq!(
+            Effort::channel_default(None, TEST_LEVEL),
+            Some(Effort::High)
+        );
+        // No ladder means no default: the request omits the field entirely.
+        assert_eq!(Effort::channel_default(Some(Effort::High), &[]), None);
+        assert_eq!(Effort::channel_default(None, &[]), None);
     }
 
     #[test]
@@ -542,49 +514,6 @@ mod tests {
             serde_json::from_str::<EffortLevel>("\"turbo\"").unwrap(),
             EffortLevel::Other("turbo".to_string())
         );
-    }
-
-    #[test]
-    fn channel_default_matches_the_picker_rule() {
-        // GLM-5.x: ladder low/high/xhigh/max → high.
-        assert_eq!(
-            Effort::channel_default(
-                "glm",
-                &[Effort::Low, Effort::High, Effort::Xhigh, Effort::Max]
-            ),
-            Some(Effort::High)
-        );
-        // GPT families default to their wire middle tier.
-        assert_eq!(
-            Effort::channel_default("gpt", &[Effort::Low, Effort::Medium, Effort::High]),
-            Some(Effort::Medium)
-        );
-        assert_eq!(
-            Effort::channel_default(
-                "openai-subscription",
-                &[
-                    Effort::Low,
-                    Effort::Medium,
-                    Effort::High,
-                    Effort::Xhigh,
-                    Effort::Max,
-                    Effort::Ultra
-                ]
-            ),
-            Some(Effort::Medium)
-        );
-        // A ladder without high/medium snaps up to its shallowest tier.
-        assert_eq!(
-            Effort::channel_default("kimi", &[Effort::Low, Effort::Max]),
-            Some(Effort::Low)
-        );
-        // A ladder capped below high resolves to its deepest tier.
-        assert_eq!(
-            Effort::channel_default("llama", &[Effort::Minimal, Effort::Low]),
-            Some(Effort::Low)
-        );
-        // No ladder → no default: the request omits the effort field.
-        assert_eq!(Effort::channel_default("glm", &[]), None);
     }
 
     #[test]

@@ -13,6 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::effect::EffectClass;
 use crate::risk::RiskProfile;
 use crate::scope::ToolScope;
 
@@ -37,6 +38,11 @@ pub struct ToolDescriptor {
     pub aliases: Vec<String>,
     /// Declared risk profile for policy reasoning.
     pub risk: RiskProfile,
+    /// Declared reversibility ceiling (ADR-0125). The most irreversible effect
+    /// any call to this tool can produce; the workspace journal reads it to
+    /// decide whether a pre-image must be captured and whether `/undo` may
+    /// promise a reversal.
+    pub effect: EffectClass,
     /// Declared operational scopes for stage-gated assembly.
     pub scopes: Vec<ToolScope>,
     /// Whether executing this tool may block awaiting a live human decision.
@@ -62,6 +68,7 @@ impl Default for ToolDescriptor {
             variant: "default".to_string(),
             aliases: Vec::new(),
             risk: RiskProfile::ReadOnly,
+            effect: EffectClass::None,
             scopes: Vec::new(),
             requires_user: false,
             requires_vision: false,
@@ -128,6 +135,12 @@ impl ToolDescriptorBuilder {
     /// Set the risk profile.
     pub fn risk(mut self, risk: RiskProfile) -> Self {
         self.descriptor.risk = risk;
+        self
+    }
+
+    /// Set the reversibility ceiling (ADR-0125).
+    pub fn effect(mut self, effect: EffectClass) -> Self {
+        self.descriptor.effect = effect;
         self
     }
 

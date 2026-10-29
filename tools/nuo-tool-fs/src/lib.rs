@@ -12,11 +12,46 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use nuo_tool::{
-    BuiltinTool, PatchOp, RiskProfile, Tool, ToolContext, ToolError, ToolOutput, ToolSchema,
-    ToolScope,
+    BuiltinTool, PatchOp, PreviewResult, RiskProfile, ScopeTarget, Tool, ToolAccesses, ToolContext,
+    ToolError, ToolOutput, ToolSchema, ToolScope,
 };
 use serde::Deserialize;
 use serde_json::Value;
+
+/// The `path` argument of a file tool's raw JSON arguments, when present and
+/// non-empty.
+///
+/// The single mapping from "what the model said" to "which path this call
+/// touches". Both [`Tool::scope_target`] (permission) and [`Tool::accesses`]
+/// (scheduler arbitration and effect classification) read it, so a tool cannot
+/// declare one path to the permission gate and another to the scheduler.
+fn path_argument(arguments: &str) -> Option<String> {
+    serde_json::from_str::<Value>(arguments)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("path")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .map(str::to_string)
+        })
+}
+
+/// The read-side declaration shared by every pure-inspection fs tool.
+///
+/// Reads declare a real access so the scheduler can arbitrate them against a
+/// concurrent write to the same path (a reader never conflicts with another
+/// reader, but must not run inside a write), while their
+/// [`scope_target`](Tool::scope_target) stays `Unspecified` so they remain
+/// auto-admitted by the permission chain — reading is not an authority the user
+/// should ever be asked to grant.
+fn read_accesses(arguments: &str) -> ToolAccesses {
+    match path_argument(arguments) {
+        Some(path) => ToolAccesses::read_file(path),
+        None => ToolAccesses::none(),
+    }
+}
 
 /// Context holding the active workspace root and system tool settings.
 #[derive(Clone)]
@@ -127,6 +162,10 @@ impl Tool for ReadTextTool {
 
     fn scopes(&self) -> Vec<ToolScope> {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
+    }
+
+    fn accesses(&self, arguments: &str) -> ToolAccesses {
+        read_accesses(arguments)
     }
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
@@ -275,6 +314,46 @@ impl Tool for WriteFileTool {
         vec![ToolScope::Workspace]
     }
 
+    fn scope_target(&self, arguments: &str) -> ScopeTarget {
+        match path_argument(arguments) {
+            Some(path) => ScopeTarget::Path(PathBuf::from(path)),
+            // Unparseable arguments are the schema gate's problem, not the
+            // permission gate's: leaving this `Unspecified` lets the call
+            // through to the schema policy, which rejects it with a precise
+            // message instead of a bogus permission prompt for "*".
+            None => ScopeTarget::Unspecified,
+        }
+    }
+
+    fn accesses(&self, arguments: &str) -> ToolAccesses {
+        match path_argument(arguments) {
+            Some(path) => ToolAccesses::write_file(path),
+            None => ToolAccesses::none(),
+        }
+    }
+
+    /// The overwrite's diff: current bytes against the proposed bytes.
+    ///
+    /// A creating write shows an empty `old`, so the preview reads as a creation
+    /// rather than as an edit of nothing.
+    fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
+        let args: WriteFileArgs = serde_json::from_value(arguments.clone()).ok()?;
+        let path = self.ctx.resolve_path(&args.path);
+        let existing = fs::read_to_string(&path).ok();
+        Some(PreviewResult {
+            path: args.path,
+            op: if existing.is_some() {
+                PatchOp::Edit
+            } else {
+                PatchOp::Create
+            },
+            old: existing.unwrap_or_default(),
+            new: args.content,
+            start_line: 1,
+            warnings: Vec::new(),
+        })
+    }
+
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         let args: WriteFileArgs = serde_json::from_value(arguments).map_err(|err| {
             ToolError::execution(self.name(), format!("invalid arguments: {err}"))
@@ -333,6 +412,44 @@ pub struct EditTextArgs {
     pub new_string: String,
 }
 
+/// The pure half of an `edit_text`: given the file's current content, decide
+/// whether the edit is legal and what it produces.
+///
+/// Split out so the **preview** and the **execution** paths cannot disagree. A
+/// preview that re-implemented the match logic would eventually drift — it would
+/// show a diff for an edit that execution then rejects (or worse, apply a
+/// different one), and the preview would become the lie instead of the safeguard.
+/// One function, two callers, so an edit's diff is exactly what will be written.
+fn plan_edit(
+    content: &str,
+    old_string: &str,
+    new_string: &str,
+    raw_path: &str,
+) -> Result<(String, usize), String> {
+    if old_string.is_empty() {
+        return Err("`old_string` cannot be empty".to_string());
+    }
+
+    let matches: Vec<_> = content.match_indices(old_string).collect();
+    if matches.is_empty() {
+        return Err(diagnose_edit_failure(content, old_string, raw_path));
+    }
+    if matches.len() > 1 {
+        let line_numbers: Vec<String> = matches
+            .iter()
+            .map(|(offset, _)| (content[..*offset].matches('\n').count() + 1).to_string())
+            .collect();
+        return Err(format!(
+            "`old_string` matched in {} places in `{raw_path}` (lines {}). It must match exactly once. Provide more surrounding context to disambiguate.",
+            matches.len(),
+            line_numbers.join(", ")
+        ));
+    }
+
+    let start_line = content[..matches[0].0].matches('\n').count() + 1;
+    Ok((content.replacen(old_string, new_string, 1), start_line))
+}
+
 /// Surgically replaces an exact, unique occurrence of text in a file.
 pub struct EditTextTool {
     ctx: Arc<SystemToolContext>,
@@ -366,21 +483,51 @@ impl Tool for EditTextTool {
         vec![ToolScope::Workspace]
     }
 
+    fn scope_target(&self, arguments: &str) -> ScopeTarget {
+        match path_argument(arguments) {
+            Some(path) => ScopeTarget::Path(PathBuf::from(path)),
+            None => ScopeTarget::Unspecified,
+        }
+    }
+
+    fn accesses(&self, arguments: &str) -> ToolAccesses {
+        match path_argument(arguments) {
+            // Read-modify-write: `edit_text` both reads and rewrites the file,
+            // so it conflicts with any other access to the same path.
+            Some(path) => ToolAccesses::read_write_file(path),
+            None => ToolAccesses::none(),
+        }
+    }
+
+    /// The edit's diff, derived by the *same* function execution uses.
+    ///
+    /// `old` is the file's current bytes (not `old_string`): a preview is what the
+    /// user needs to approve, and that is the whole file region that changes, not
+    /// the needle the model happened to write. `new` is the full post-edit content
+    /// for the same reason — a diff of needle-vs-replacement would hide the effect
+    /// of a replacement that duplicates or drops surrounding text.
+    fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
+        let args: EditTextArgs = serde_json::from_value(arguments.clone()).ok()?;
+        let path = self.ctx.resolve_path(&args.path);
+        let content = fs::read_to_string(&path).ok()?;
+        let (modified, start_line) =
+            plan_edit(&content, &args.old_string, &args.new_string, &args.path).ok()?;
+        Some(PreviewResult {
+            path: args.path,
+            op: PatchOp::Edit,
+            old: content,
+            new: modified,
+            start_line,
+            warnings: Vec::new(),
+        })
+    }
+
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         let args: EditTextArgs = serde_json::from_value(arguments).map_err(|err| {
             ToolError::execution(self.name(), format!("invalid arguments: {err}"))
         })?;
 
         let raw_path = &args.path;
-        let old_string = &args.old_string;
-        let new_string = &args.new_string;
-
-        if old_string.is_empty() {
-            return Err(ToolError::execution(
-                self.name(),
-                "`old_string` cannot be empty",
-            ));
-        }
 
         let path = self.ctx.resolve_path(raw_path);
         let content = fs::read_to_string(&path).map_err(|err| {
@@ -390,30 +537,12 @@ impl Tool for EditTextTool {
             )
         })?;
 
-        let matches: Vec<_> = content.match_indices(old_string).collect();
-        if matches.is_empty() {
-            return Err(ToolError::execution(
-                self.name(),
-                diagnose_edit_failure(&content, old_string, raw_path),
-            ));
-        }
-        if matches.len() > 1 {
-            let line_numbers: Vec<String> = matches
-                .iter()
-                .map(|(offset, _)| (content[..*offset].matches('\n').count() + 1).to_string())
-                .collect();
-            return Err(ToolError::execution(
-                self.name(),
-                format!(
-                    "`old_string` matched in {} places in `{raw_path}` (lines {}). It must match exactly once. Provide more surrounding context to disambiguate.",
-                    matches.len(),
-                    line_numbers.join(", ")
-                ),
-            ));
-        }
+        // The one place the edit is decided. `plan_edit` is shared with
+        // `preview`, so an approved preview is byte-for-byte what gets written.
+        let (modified, start_line) =
+            plan_edit(&content, &args.old_string, &args.new_string, raw_path)
+                .map_err(|error| ToolError::execution(self.name(), error))?;
 
-        let start_line = content[..matches[0].0].matches('\n').count() + 1;
-        let modified = content.replacen(old_string, new_string, 1);
         fs::write(&path, modified).map_err(|err| {
             ToolError::execution(
                 self.name(),
@@ -424,8 +553,8 @@ impl Tool for EditTextTool {
         Ok(ToolOutput::Patch {
             path: raw_path.clone(),
             op: PatchOp::Edit,
-            old: old_string.clone(),
-            new: new_string.clone(),
+            old: args.old_string.clone(),
+            new: args.new_string.clone(),
             start_line,
             warnings: Vec::new(),
         })
@@ -632,6 +761,14 @@ impl Tool for ListDirTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
+    fn accesses(&self, arguments: &str) -> ToolAccesses {
+        // A directory listing reads one node, not the whole subtree.
+        match path_argument(arguments) {
+            Some(path) => ToolAccesses::read_file(path),
+            None => ToolAccesses::none(),
+        }
+    }
+
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         let args: ListDirArgs = serde_json::from_value(arguments).map_err(|err| {
             ToolError::execution(self.name(), format!("invalid arguments: {err}"))
@@ -800,6 +937,15 @@ impl Tool for FindFilesTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
+    fn accesses(&self, arguments: &str) -> ToolAccesses {
+        // Recursive walk: claims the whole subtree so a concurrent write
+        // anywhere under the search root serializes against this scan.
+        match path_argument(arguments) {
+            Some(path) => ToolAccesses::search_tree(path),
+            None => ToolAccesses::search_tree("."),
+        }
+    }
+
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         let mut arguments = arguments;
         if let Some(obj) = arguments.as_object_mut() {
@@ -926,6 +1072,13 @@ impl Tool for SearchTextTool {
         vec![ToolScope::ReadOnly, ToolScope::Workspace]
     }
 
+    fn accesses(&self, arguments: &str) -> ToolAccesses {
+        match path_argument(arguments) {
+            Some(path) => ToolAccesses::search_tree(path),
+            None => ToolAccesses::search_tree("."),
+        }
+    }
+
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         let args: SearchTextArgs = serde_json::from_value(arguments).map_err(|err| {
             ToolError::execution(self.name(), format!("invalid arguments: {err}"))
@@ -1007,6 +1160,9 @@ pub fn create_fs_tools(ctx: Arc<SystemToolContext>) -> Vec<Arc<dyn Tool>> {
         Arc::new(SearchTextTool::new(ctx)),
     ]
 }
+
+#[cfg(test)]
+mod preview_tests;
 
 #[cfg(test)]
 mod tests {

@@ -762,3 +762,102 @@ mod tests {
         assert!(hunks_5[0].lines.len() > hunks_3[0].lines.len());
     }
 }
+
+/// Render a preview as git-style unified hunk lines, for a surface that needs the
+/// change as plain rows rather than as a rich diff card.
+///
+/// The permission sheet is exactly such a surface (ADR-0125): it must show the
+/// change being authorized, but it owns a flat line body and no diff-card layout.
+/// Rather than grow a second diff implementation there — which would drift from
+/// the one the transcript uses, so a preview and the applied result could disagree
+/// about what changed — this exposes the same `similar`-backed computation as
+/// prefixed text.
+///
+/// Output is standard unified-diff shape: `@@ … @@` range headers, then `-`/`+`/` `
+/// rows, bounded by `context` unchanged lines around each hunk. That is what a
+/// reader already knows how to parse at a glance.
+///
+/// Returns an empty vector when `old == new` (a no-op change has nothing to show).
+pub fn unified_diff_rows(old: &str, new: &str, context: usize) -> Vec<String> {
+    if old == new {
+        return Vec::new();
+    }
+    let diff = TextDiff::from_lines(old, new);
+    let mut rows = Vec::new();
+    for group in diff.grouped_ops(context) {
+        let (old_start, old_count, new_start, new_count) = group.iter().fold(
+            (usize::MAX, 0usize, usize::MAX, 0usize),
+            |(os, oc, ns, nc), op| {
+                (
+                    os.min(op.old_range().start),
+                    oc + op.old_range().len(),
+                    ns.min(op.new_range().start),
+                    nc + op.new_range().len(),
+                )
+            },
+        );
+        // Unified-diff headers are 1-based and omit a count of one.
+        let old_display = if old_count == 0 {
+            old_start
+        } else {
+            old_start + 1
+        };
+        let new_display = if new_count == 0 {
+            new_start
+        } else {
+            new_start + 1
+        };
+        rows.push(format!(
+            "@@ -{old_display},{old_count} +{new_display},{new_count} @@"
+        ));
+        for op in &group {
+            for change in diff.iter_changes(op) {
+                let sign = match change.tag() {
+                    ChangeTag::Insert => '+',
+                    ChangeTag::Delete => '-',
+                    ChangeTag::Equal => ' ',
+                };
+                let value = change.value();
+                rows.push(format!("{sign}{}", value.trim_end_matches('\n')));
+            }
+        }
+    }
+    rows
+}
+
+#[cfg(test)]
+mod unified_diff_rows_tests {
+    use super::unified_diff_rows;
+
+    #[test]
+    fn identical_inputs_produce_nothing() {
+        assert!(unified_diff_rows("a\n", "a\n", 3).is_empty());
+    }
+
+    #[test]
+    fn a_change_carries_a_range_header_and_signed_rows() {
+        let rows = unified_diff_rows("a\nb\nc\n", "a\nB\nc\n", 3);
+        assert!(
+            rows[0].starts_with("@@ -1,3 +1,3 @@"),
+            "range header, got {}",
+            rows[0]
+        );
+        assert!(rows.iter().any(|row| row == "-b"));
+        assert!(rows.iter().any(|row| row == "+B"));
+        assert!(
+            rows.iter().all(|row| row.starts_with(['@', '-', '+', ' '])),
+            "every row carries a unified-diff prefix"
+        );
+    }
+
+    #[test]
+    fn a_creation_is_all_additions() {
+        let rows = unified_diff_rows("", "one\ntwo\n", 3);
+        assert!(rows.iter().any(|row| row == "+one"));
+        assert!(rows.iter().any(|row| row == "+two"));
+        assert!(
+            !rows.iter().any(|row| row.starts_with('-')),
+            "nothing was removed when creating: {rows:?}"
+        );
+    }
+}

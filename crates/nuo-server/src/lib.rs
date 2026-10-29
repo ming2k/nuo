@@ -109,6 +109,7 @@ pub mod task_ledger;
 pub mod ui_bridge;
 pub mod usage_cache;
 pub mod wire_channel;
+pub mod workspace_journal;
 
 pub use archivist::{archivist_address, build_archivist};
 pub use background_jobs::{BackgroundJobEvent, BackgroundJobManager, SessionJobService};

@@ -477,6 +477,19 @@ pub(crate) async fn run_tui_with_input(
         tokio::spawn(async move {
             // Per-session `(round, turn)` position.
             let mut positions_by_session = HashMap::<String, (u64, u64)>::new();
+            // Per-session wall-clock send time of the *current* turn, in
+            // Unix-epoch milliseconds.
+            //
+            // One turn emits many components (thinking, assistant text, and a
+            // tool batch), but its band header shows exactly one `HH:MM`. The
+            // stamp is therefore a property of the **turn**, not of whichever
+            // component happened to be created first: every component reads this
+            // one value. A resumed session derives the same thing from the single
+            // persisted assistant message (`Message::sent_at_ms` / `timestamp`),
+            // so live and restored bands can never disagree — and a turn whose
+            // first component is thinking, or a tool announcement, carries the
+            // same time as one that starts with prose.
+            let mut turn_sent_at_by_session = HashMap::<String, u64>::new();
             // ADR-0026: per-session announced-but-unclaimed provider slots, in
             // announcement order. The translator stamps the step's `input_slot`;
             // the applier resolves the collapse and the progress ticks by that
@@ -533,18 +546,15 @@ pub(crate) async fn run_tui_with_input(
             }
             macro_rules! picker_effort {
                 () => {
+                    // The picker row already carries the server's resolved
+                    // depth — no protocol sniffing, no re-derivation
+                    // (ADR-0126).
                     picker
                         .rows
                         .iter()
                         .find(|row| row.id == current_provider)
                         .and_then(|row| row.model_info.iter().find(|m| m.model == current_model))
-                        .and_then(|m| {
-                            let show = match m.protocol.as_str() {
-                                "anthropic" => m.thinking == Some(true),
-                                _ => m.effort.is_some(),
-                            };
-                            show.then(|| m.effort.clone()).flatten()
-                        })
+                        .and_then(|m| m.effort.clone())
                 };
             }
             macro_rules! now_ms {
@@ -553,6 +563,19 @@ pub(crate) async fn run_tui_with_input(
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_millis() as u64)
                         .unwrap_or(0)
+                };
+            }
+
+            // The current turn's send time for `$session`, minting it on first
+            // use. `TurnStarted` normally seeds it; the lazy arm keeps a
+            // provider that streams without announcing a turn readable (the
+            // band still gets a time) and never overwrites a seeded value, so
+            // every component of one turn reads the same instant.
+            macro_rules! turn_sent_at {
+                ($session:expr) => {
+                    *turn_sent_at_by_session
+                        .entry($session.clone())
+                        .or_insert_with(|| now_ms!())
                 };
             }
 
@@ -881,6 +904,10 @@ pub(crate) async fn run_tui_with_input(
                             RoundEvent::TurnStarted { round, turn } => {
                                 let turn = turn as u64 + 1;
                                 positions_by_session.insert(session_id.clone(), (round, turn));
+                                // A new turn mints a new send time: its band header
+                                // is a fresh moment, and every component of this
+                                // turn will read this one value.
+                                turn_sent_at_by_session.insert(session_id.clone(), now_ms!());
                                 transcript!(E::StampTurnPrompt { round });
 
                                 mutations.send(M::SetRoundCount(round)).await;
@@ -925,7 +952,12 @@ pub(crate) async fn run_tui_with_input(
                                 let mut created =
                                     TranscriptMessage::new(Role::Assistant, delta.clone())
                                         .with_attribution(provider, model)
-                                        .with_effort(effort);
+                                        .with_effort(effort)
+                                        // The turn header's `HH:MM` reads this
+                                        // stamp. It is the *turn's* send time, so
+                                        // thinking / text / tools of one turn can
+                                        // never disagree, live or resumed.
+                                        .with_sent_at_ms(turn_sent_at!(session_id));
                                 if let Some((r, t)) = position {
                                     created.round = Some(r);
                                     created.turn = Some(t);
@@ -958,7 +990,11 @@ pub(crate) async fn run_tui_with_input(
                                         final_content.clone(),
                                     )
                                     .with_attribution(provider, model)
-                                    .with_effort(effort);
+                                    .with_effort(effort)
+                                    // Same rule as the delta arm: this
+                                    // only-visible-bytes path must carry the
+                                    // turn's send time into the band header.
+                                    .with_sent_at_ms(turn_sent_at!(session_id));
                                     if let Some((r, t)) = position {
                                         message.round = Some(r);
                                         message.turn = Some(t);
@@ -1018,7 +1054,13 @@ pub(crate) async fn run_tui_with_input(
                                 let effort = picker_effort!();
                                 let mut created = TranscriptMessage::reasoning(delta.clone())
                                     .with_attribution(provider, model)
-                                    .with_effort(effort);
+                                    .with_effort(effort)
+                                    // A reasoning trace is a turn component, so it
+                                    // carries the turn's send time: when thinking
+                                    // is the *first* thing a turn emits (the common
+                                    // case for a reasoning channel), this entry
+                                    // owns the band header and its `HH:MM`.
+                                    .with_sent_at_ms(turn_sent_at!(session_id));
                                 if let Some((r, t)) = position {
                                     created.round = Some(r);
                                     created.turn = Some(t);
@@ -1079,6 +1121,11 @@ pub(crate) async fn run_tui_with_input(
                                 )
                                 .with_attribution(provider, model)
                                 .with_effort(effort)
+                                // A tool-only turn has no text or thinking to own
+                                // the band header: this announced step does. It
+                                // carries the turn's send time so the live band
+                                // shows `HH:MM` exactly as the resumed one does.
+                                .with_sent_at_ms(turn_sent_at!(session_id))
                                 .with_input_slot(index);
                                 if let Some((round, turn)) = position {
                                     message = message.with_round(round).with_turn(turn);
@@ -1121,7 +1168,11 @@ pub(crate) async fn run_tui_with_input(
                                 let effort = picker_effort!();
                                 retry_progress = None;
                                 let position = positions_by_session.get(&session_id).copied();
-                                let sent_at_ms = now_ms!();
+                                // The turn's time, not this call's: it is the same
+                                // value the announced step (and every sibling
+                                // component) carries, so collapsing an announcement
+                                // onto the dispatch id cannot change the band header.
+                                let sent_at_ms = turn_sent_at!(session_id);
                                 // ADR-0026: collapse onto the announced step for
                                 // this call's provider slot, if one is pending.
                                 // Otherwise (a whole-argument provider, or an
@@ -1152,6 +1203,14 @@ pub(crate) async fn run_tui_with_input(
                                 }
 
                                 mutations.send(M::SetResponding(true)).await;
+                            }
+                            RoundEvent::ToolPreview { id, preview, .. } => {
+                                // ADR-0125: the preview arrives strictly after the
+                                // `ToolCall` that created this step, so matching by
+                                // dispatch id finds it. No phase change and no
+                                // responding toggle: nothing is running yet, and the
+                                // card simply gains its diff.
+                                transcript!(E::ToolPreview { id, preview });
                             }
                             RoundEvent::ToolResult {
                                 id,
@@ -2592,3 +2651,13 @@ fn load_user_logo() -> Option<Vec<String>> {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+/// Painted-grid baselines for the tool-step and transcript rendering geometry.
+///
+/// This module is the crate's visual regression net: it locks the *painted*
+/// rows (cell symbols, background-color runs) of the disclosure cards and the
+/// turn band at fixed terminal sizes. It is a sibling of [`tests`] rather than a
+/// child because it owns insta baselines under `shell/snapshots/`, whose paths
+/// are derived from this module's name.
+#[cfg(test)]
+mod snapshot_tests;

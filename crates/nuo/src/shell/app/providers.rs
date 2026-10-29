@@ -471,43 +471,33 @@ impl App {
             })
     }
 
-    /// Return the authoritative route capabilities for the active route.
-    pub fn active_route_capabilities(&self) -> nuo_wire::RouteCapabilities {
-        self.active_model_info()
-            .map(|info| info.route_capabilities())
-            .unwrap_or_else(|| {
-                // No server row yet (startup, or a route the snapshot has not
-                // refreshed): the baseline layer alone, resolved through the
-                // same three-valued merge the server uses, so an id no layer
-                // knows stays *undeclared* rather than being reported as a
-                // text-only claim.
-                nuo_wire::ModelCapabilities::for_channel(&self.current_model, None)
-                    .to_route_capabilities()
-            })
-    }
-
     /// Return the authoritative context window (in tokens) for the active route.
-    /// Evaluated server-side via. Falls back to static
-    /// baseline only when the snapshot has not mounted.
+    ///
+    /// Read straight from the server's projected row — this client never
+    /// re-resolves capabilities, because it does not link the provider registry
+    /// and would therefore disagree with what the server actually routes. The
+    /// static baseline is consulted only when the snapshot has not mounted at
+    /// all (startup).
     pub fn active_model_context_window(&self) -> usize {
-        let cw = self.active_route_capabilities().context_window;
-        if cw > 0 {
-            cw
-        } else {
-            nuo_wire::model::resolve(&self.current_model).context_window
+        if let Some(info) = self.active_model_info() {
+            return info.context_window;
         }
+        nuo_wire::model::resolve(&self.current_model).context_window
     }
 
     /// Whether images would travel to the active route.
     ///
-    /// **Permissive on undeclared**: `true` unless a layer declared
-    /// that the route rejects images. This answers the *request* policy, not
-    /// "was vision advertised" — a gate that must be certain should read
-    /// [`Self::active_route_capabilities`]`.vision` and treat `None` as
-    /// unknown. Uses server-projected capabilities from `ProviderModelInfo`,
-    /// falling back to the baseline layers when the snapshot has not mounted.
+    /// **Permissive on undeclared**: `true` unless the server's projected row
+    /// declared that the route rejects images. Answering this from a
+    /// locally-invented capability set would let the composer offer a paste the
+    /// wire would strip (ADR-0126: one authority per fact).
     pub fn active_model_supports_vision(&self) -> bool {
-        self.active_route_capabilities().accepts_images()
+        match self.active_model_info() {
+            Some(info) => info.vision != Some(false),
+            // No server row yet: attempt the image rather than silently
+            // stripping it, matching the three-valued policy.
+            None => true,
+        }
     }
 
     /// Whether the provider with this snapshot id is user-defined (not a

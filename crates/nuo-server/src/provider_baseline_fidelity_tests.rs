@@ -22,6 +22,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -34,6 +35,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -46,6 +48,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -58,6 +61,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Kimi (Moonshot / opencode-go)
@@ -81,6 +85,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -93,6 +98,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -105,6 +111,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -117,6 +124,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Claude (Anthropic, via Anthropic-compatible relays)
@@ -127,26 +135,28 @@ const PRE_MIGRATION: &[Model] = &[
         id: "claude-opus-4-8",
         family: "claude",
         context_window: 1_000_000,
-        thinking: ReasoningSupport::AnthropicAdaptive,
+        thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
         id: "claude-sonnet-4-6",
         family: "claude",
         context_window: 1_000_000,
-        thinking: ReasoningSupport::AnthropicAdaptive,
+        thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -158,13 +168,14 @@ const PRE_MIGRATION: &[Model] = &[
         // emit `thinking:{type:"adaptive"}` regardless of the user's on/off
         // choice (an opt-out is a no-op on this model). Manual `type:"enabled"`
         // also returns 400.
-        thinking: ReasoningSupport::AnthropicAdaptiveAlwaysOn,
+        thinking: ReasoningSupport::AdaptiveAlwaysOn,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -176,7 +187,7 @@ const PRE_MIGRATION: &[Model] = &[
         // `AnthropicAdaptive` (omit disables) nor `AnthropicAdaptiveAlwaysOn`
         // (cannot disable) — so the transport emits an explicit `disabled` on
         // opt-out to honor ADR-0046. Manual `type:"enabled"` returns 400.
-        thinking: ReasoningSupport::AnthropicAdaptiveOnByDefault,
+        thinking: ReasoningSupport::AdaptiveOnByDefault,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
@@ -184,6 +195,7 @@ const PRE_MIGRATION: &[Model] = &[
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -193,12 +205,13 @@ const PRE_MIGRATION: &[Model] = &[
         // Haiku 4.5 supports only MANUAL extended thinking
         // (`thinking:{type:"enabled",budget_tokens}`); it has no adaptive mode
         // and rejects the `effort` parameter (400), hence empty `effort_levels`.
-        thinking: ReasoningSupport::AnthropicManual,
+        thinking: ReasoningSupport::Manual,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // GPT-5.6 (OpenAI)
@@ -220,6 +233,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -232,6 +246,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -244,6 +259,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -256,6 +272,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // GPT (OpenAI)
@@ -273,6 +290,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -285,6 +303,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -297,6 +316,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // OpenAI relays and gateways can expose additional text aliases not used by the
@@ -312,6 +332,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -324,6 +345,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -336,6 +358,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -348,6 +371,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // Legacy GPT-4o family — no longer in OpenAI's frontier chat lineup (it
@@ -363,6 +387,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -375,6 +400,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // Google (native)
@@ -393,6 +419,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -405,6 +432,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -417,6 +445,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -429,6 +458,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -441,6 +471,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -454,6 +485,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Antigravity / Google relay models
@@ -473,6 +505,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -485,6 +518,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -497,6 +531,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -509,6 +544,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -521,6 +557,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -533,6 +570,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -545,6 +583,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // DeepSeek (opencode-go / direct)
@@ -558,6 +597,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -570,6 +610,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // MiMo (Xiaomi / opencode-go, OpenAI format)
@@ -583,6 +624,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -595,6 +637,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -607,6 +650,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -619,6 +663,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // MiniMax (opencode-go, Anthropic /messages format)
@@ -632,6 +677,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -644,6 +690,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -656,6 +703,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Qwen (opencode-go, OpenAI /chat/completions format)
@@ -672,6 +720,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -684,6 +733,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -696,6 +746,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -708,6 +759,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // xAI Grok (OpenAI-compatible; SuperGrok OAuth or XAI_API_KEY)
@@ -721,6 +773,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -733,6 +786,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -745,6 +799,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -757,6 +812,7 @@ const PRE_MIGRATION: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::XAI_GROK,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

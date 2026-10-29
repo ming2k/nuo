@@ -351,6 +351,11 @@ impl Agent {
                 // side effects.
                 self.run_turn_start_hooks(messages, &round.state, round.turn_index)
                     .await;
+                // Publish the turn coordinate for the workspace journal's rows
+                // (ADR-0125). Set here — once per logical ReAct turn, before any
+                // tool dispatch in it — so a row's `turn_id` names the turn the
+                // mutation happened in rather than always the round's first.
+                self.set_current_turn(round.turn_index as u64);
                 // Assemble once per turn, then gate on context pressure with
                 // the assembled request (hot path): the estimate and
                 // the provider call share one assembly. A projection that
@@ -1113,7 +1118,15 @@ impl Agent {
                 subagent_meta: None,
                 origin: None,
                 timestamp: Some(nuo_wire::todos::unix_now()),
-                sent_at_ms: None,
+                // The durable send time of this turn, at the same millisecond
+                // granularity the live client stamps its band header with. The
+                // provider-call boundary is the moment this turn's content began
+                // arriving, and it is the only wall-clock reading the harness
+                // actually took — the `timestamp` above truncates to seconds, so
+                // a resumed band would otherwise show a different minute from the
+                // live one it replaced. Stamped from the attempt's own recorded
+                // boundary so live and resume read the same instant.
+                sent_at_ms: Some(request_accounting.started_at_epoch_ms()),
                 cache_frozen: false,
             };
             if !valid_assistant_response(&response) {
@@ -1172,6 +1185,7 @@ impl Agent {
                 .await?
             {
                 round.turn_index += 1;
+                self.set_current_turn(round.turn_index as u64);
                 if self.check_hard_stop(round.turn_index).is_break() {
                     return Err(self.hard_stop_error());
                 }
@@ -1224,6 +1238,7 @@ impl Agent {
             }
             if continue_round {
                 round.turn_index += 1;
+                self.set_current_turn(round.turn_index as u64);
                 if self.check_hard_stop(round.turn_index).is_break() {
                     return Err(self.hard_stop_error());
                 }

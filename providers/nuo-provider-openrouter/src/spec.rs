@@ -24,6 +24,7 @@ pub const MODELS: &[Model] = &[Model {
     protocol: WireProtocol::OpenAiChatCompletions,
     model_guidance: "",
     effort_levels: NEX_N25_EFFORTS,
+    default_effort: Some(nuo_provider::Effort::High),
     wire_entities: None,
 }];
 

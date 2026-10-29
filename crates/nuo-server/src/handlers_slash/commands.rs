@@ -630,45 +630,236 @@ pub(crate) async fn tree(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
 }
 
 pub(crate) async fn diff(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv { session, .. } = env;
-    record_ack(
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    let session_id = session.id().await;
+
+    let effects = match session
+        .persistence()
+        .list_workspace_effects(session_id.clone())
+        .await
+    {
+        Ok(effects) => effects,
+        Err(error) => {
+            record_error(
+                session,
+                resp_tx,
+                name,
+                args,
+                format!("could not read the workspace journal: {error}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    let workspace_root = session.workspace_root();
+    let (reversible, irreversible, unconfirmed) =
+        project_changes(&effects, workspace_root.as_deref());
+    record_command(
         session,
+        resp_tx,
         name,
         args,
-        "Workspace diff tracking is active on the current thread branch.",
+        CommandResult::WorkspaceChanges {
+            reversible,
+            irreversible,
+            unconfirmed,
+        },
     )
     .await;
 }
 
 pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv { session, .. } = env;
-    let tree = session.tree().await;
-    if let Some(current_leaf) = tree.active_leaf()
-        && let Some(parent_id) = tree
-            .entries
-            .get(&current_leaf)
-            .and_then(|e| e.parent_id.clone())
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
+    let session_id = session.id().await;
+    let workspace_root = session.workspace_root();
+
+    // The undo unit is the round: it is the boundary the user perceives ("what did
+    // that turn do?") and the boundary the causal graph already uses.
+    let candidate_limit = UNDO_CANDIDATE_LIMIT;
+    let candidates = match session
+        .persistence()
+        .undoable_workspace_effects(session_id.clone(), candidate_limit)
+        .await
     {
-        let _ = session.switch_tree_leaf(&parent_id).await;
-        record_ack(
+        Ok(effects) => effects,
+        Err(error) => {
+            record_error(
+                session,
+                resp_tx,
+                name,
+                args,
+                format!("could not read the workspace journal: {error}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Only the newest round's rows: undoing "the last turn" must not silently
+    // reach back into earlier rounds.
+    let newest_round = candidates.first().map(|effect| effect.round_id.clone());
+    let targets: Vec<_> = candidates
+        .into_iter()
+        .filter(|effect| Some(&effect.round_id) == newest_round.as_ref())
+        .collect();
+
+    if targets.is_empty() {
+        record_command(
             session,
+            resp_tx,
             name,
             args,
-            &format!(
-                "Rolled back active thread branch to parent node {}.",
-                parent_id
-            ),
+            CommandResult::UndoOutcome {
+                restored: Vec::new(),
+                refused: Vec::new(),
+                nothing_to_undo: true,
+            },
         )
         .await;
-    } else {
-        record_ack(
-            session,
-            name,
-            args,
-            "Cannot undo: already at the root of the thread tree.",
-        )
-        .await;
+        return;
     }
+
+    // Reverse through the same content-addressed store the journal wrote through,
+    // so a pre-image is looked up by the hash that was recorded for it.
+    let store = crate::workspace_journal::SessionBlobAdapter::new(session.blob_store().clone());
+    let outcomes = nuo_harness::runtime::workspace_journal::reversal::reverse_all(
+        &targets,
+        workspace_root.as_deref(),
+        &store,
+    );
+
+    let mut restored = Vec::new();
+    let mut refused = Vec::new();
+    for (stamp, outcome) in outcomes {
+        match outcome {
+            nuo_harness::runtime::workspace_journal::reversal::Reversal::Restored(file) => {
+                // Stamp before reporting: a reversal the journal does not know
+                // about would be offered again on the next `/undo`, and the second
+                // attempt would either refuse (post-image no longer matches) or,
+                // worse, act twice.
+                if let Err(error) = session
+                    .persistence()
+                    .mark_workspace_effect_reversed(
+                        stamp.effect_id,
+                        unix_ms(),
+                        Some(stamp.note.clone()),
+                    )
+                    .await
+                {
+                    refused.push(nuo_wire::UndoRefusal {
+                        path: file.path.clone(),
+                        reason: format!(
+                            "restored, but the journal could not record it: {error}. \
+                             Do not run /undo again for this round; the file is correct."
+                        ),
+                    });
+                }
+                restored.push(file);
+            }
+            nuo_harness::runtime::workspace_journal::reversal::Reversal::Refused(refusal) => {
+                // A refusal is stamped too, with its reason, so a later `/diff`
+                // explains why the change stayed instead of silently dropping it.
+                let _ = session
+                    .persistence()
+                    .mark_workspace_effect_reversed(
+                        stamp.effect_id,
+                        unix_ms(),
+                        Some(stamp.note.clone()),
+                    )
+                    .await;
+                refused.push(refusal);
+            }
+            nuo_harness::runtime::workspace_journal::reversal::Reversal::Skipped => {}
+        }
+    }
+
+    record_command(
+        session,
+        resp_tx,
+        name,
+        args,
+        CommandResult::UndoOutcome {
+            restored,
+            refused,
+            nothing_to_undo: false,
+        },
+    )
+    .await;
+}
+
+/// How many recent journal rows `/undo` considers before narrowing to the newest
+/// round. A round that touched more files than this is not silently truncated: the
+/// cap is far above any plausible round and exists only so a runaway journal cannot
+/// turn `/undo` into an unbounded read.
+const UNDO_CANDIDATE_LIMIT: u32 = 512;
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Project journal rows into the three groups `/diff` reports.
+///
+/// The grouping is the point: a change the journal cannot reverse must not appear
+/// in the same list as one it can, and a row whose mutation may never have run must
+/// not be presented as either.
+fn project_changes(
+    effects: &[nuo_persistence::workspace_effects::WorkspaceEffect],
+    workspace_root: Option<&std::path::Path>,
+) -> (
+    Vec<nuo_wire::ChangedFile>,
+    Vec<nuo_wire::ChangedFile>,
+    Vec<nuo_wire::ChangedFile>,
+) {
+    let mut reversible = Vec::new();
+    let mut irreversible = Vec::new();
+    let mut unconfirmed = Vec::new();
+    for effect in effects {
+        let file = nuo_wire::ChangedFile {
+            path: display_path(effect.path.as_deref(), workspace_root),
+            tool: effect.tool_name.clone(),
+            round_id: effect.round_id.clone(),
+            line_counts: None,
+            reason: effect.irreversible_reason.clone(),
+            created: effect.op == nuo_persistence::workspace_effects::JournalOp::Create,
+            deleted: effect.op == nuo_persistence::workspace_effects::JournalOp::Delete,
+        };
+        if effect.effect_class == "file_bytes" {
+            if effect.completed_at_ms.is_none() {
+                // Journaled but never confirmed: the journal cannot say whether
+                // the mutation ran, so it belongs in its own group.
+                unconfirmed.push(file);
+            } else if effect.reversed_at_ms.is_some() {
+                // Already undone: reporting it as a pending change would invite a
+                // second `/undo` for work that is no longer there.
+            } else {
+                reversible.push(file);
+            }
+        } else {
+            irreversible.push(file);
+        }
+    }
+    (reversible, irreversible, unconfirmed)
+}
+
+fn display_path(path: Option<&str>, workspace_root: Option<&std::path::Path>) -> String {
+    let Some(path) = path else {
+        return "<no path>".to_string();
+    };
+    if let Some(root) = workspace_root
+        && let Ok(relative) = std::path::Path::new(path).strip_prefix(root)
+        && !relative.as_os_str().is_empty()
+    {
+        return relative.to_string_lossy().into_owned();
+    }
+    path.to_string()
 }
 
 pub(crate) async fn stats(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {

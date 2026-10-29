@@ -619,6 +619,60 @@ impl Agent {
         // model's `call.id` — the UI keys its step off the ToolCall event id,
         // so using `call.id` here would orphan every subagent child stream and
         // every live tool stream, leaving the subagent view empty.
+        // Workspace effect journal (ADR-0125): capture before the mutation.
+        //
+        // This bracket is deliberately *inside* the permission chain's success
+        // path and *outside* the tool invocation: an uncaptured mutation must
+        // never run, and a mutation that runs must always be completed. Both
+        // halves are skipped wholesale when no journal is installed.
+        let journal = self.workspace_journal();
+        let pending_write = match journal.as_ref() {
+            Some(journal) => {
+                let thread_id = self.hook_session_id();
+                let round_id = self.round_count().to_string();
+                let turn_id = self.current_turn().to_string();
+                // Dense seq per call: the journal's ordering unit is the
+                // observation, and a batch of parallel calls must not collide.
+                let seq = crate::runtime::workspace_journal::next_seq(&round_id, &turn_id, call_id);
+                let coordinates = crate::runtime::CallCoordinates {
+                    thread_id: &thread_id,
+                    round_id: &round_id,
+                    turn_id: &turn_id,
+                    call_id,
+                    seq,
+                };
+                match crate::runtime::journal_begin(
+                    journal.as_ref(),
+                    self.workspace_root().as_deref(),
+                    coordinates,
+                    tool.as_ref(),
+                    &call.arguments,
+                )
+                .await
+                {
+                    Ok(pending) => Some((journal, pending)),
+                    Err(error) => {
+                        // Veto: an uncaptured mutation would be silently
+                        // irreversible, which is the failure this exists to
+                        // prevent.
+                        return ToolOutput::Error {
+                            message: format!(
+                                "Refused to run `{}`: its effects could not be \
+                                 recorded, so the change would not be reversible. {error}",
+                                call.name
+                            ),
+                            detail: Some(
+                                "The workspace journal is the only record of what a tool \
+                                 changed. Without it /undo would claim more than it can do."
+                                    .to_string(),
+                            ),
+                        };
+                    }
+                }
+            }
+            None => None,
+        };
+
         let parent_call_id = call_id.to_string();
         let stream_call_id = call_id.to_string();
         let stream_tx = event_tx.clone();
@@ -642,7 +696,7 @@ impl Agent {
             input,
             input_handler: Some(&input_supervisor),
         };
-        match tool
+        let output = match tool
             .call_structured_with_events(
                 invocation,
                 Box::new(|event| {
@@ -660,7 +714,17 @@ impl Agent {
                 message: err,
                 detail: None,
             },
+        };
+
+        // Second half of the journal bracket: observe post-images and complete
+        // the write-ahead rows. Runs on *both* success and failure because a tool
+        // that errored halfway may still have written bytes — leaving the row
+        // unconfirmed would make those bytes permanently un-undoable.
+        if let Some((journal, pending)) = pending_write {
+            crate::runtime::journal_finish(journal.as_ref(), pending).await;
         }
+
+        output
     }
 
     /// Single-call wrapper that forwards channel events to a mutable callback.

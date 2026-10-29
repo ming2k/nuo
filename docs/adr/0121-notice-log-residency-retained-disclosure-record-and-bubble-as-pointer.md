@@ -100,19 +100,66 @@ is where they go when they have forgotten it. What `Info` does **not** do is
 raise the fault badge — a badge that lights up for "copied to clipboard" trains
 the user to ignore the one that matters.
 
-### 3. The viewer is a client-global surface, not a dialog
+### 3. The viewer is a client-global **footer-stack row**, not a dialog and not a modal
 
-`NoticeViewer` state lives on `App` and the panel is painted above every overlay
-(`UiKey::Notices`, barrier + modal). It is deliberately **not** a `DialogKind`:
-`DialogKind::scope()` would make it `Session`- or `Scene`-scoped, and the
-session-switch unwinder would discard the log at exactly the moment the user
-switched tabs to go looking for it. A clipboard failure is a fact about this
-client process, not about the conversation on screen.
+The panel is `FooterRowId::NoticeDock` — a declared row of the footer stack
+([`nuo_view::footer_stack`]). Three reasons, each of which rules out an
+alternative:
 
-The consequence is that the router must be told about the viewer explicitly
+- **Not a float or a modal, because reading the fault and the turn it interrupted
+  is one task.** A fault usually *explains* what is on screen behind it ("could
+  not reach the backend" is the answer to "why did my round stop?"). A centred
+  panel hides the evidence and turns one task into two.
+- **Not modal, because the composer must stay live.** The most common reaction to
+  a fault is to retype or retry — precisely what a modal barrier forbids.
+- **A footer row rather than a bespoke float, because the stack is already the one
+  authority for chrome geometry.** Docking makes the dock's height participate in
+  the transcript split through `footer_stack::measure`/`place`, so there is no
+  second layout path to keep in sync. The exhaustive `FooterRowId` match is what
+  forces every consumer to handle the new row.
+
+The dock still is **not** a `DialogKind`: `DialogKind::scope()` would make it
+`Session`- or `Scene`-scoped, and the session-switch unwinder would discard the log
+at exactly the moment the user switched tabs to go looking for it. A clipboard
+failure is a fact about this client process, not about the conversation on screen.
+
+The consequence is that the router must be told about the dock explicitly
 (`Dispatch::notice_viewer_open`), or its arrow keys would scroll the transcript
 behind it. That field is the price of not abusing `OverlaySurface`, and it is
 cheaper than the lifetime bug the abuse would cause.
+
+### 3a. Docked height is a function of the viewport, never of the log
+
+`notice_dock_rows(viewport)` is a pure function of the viewport and nothing else,
+and both the footer split and the paint call it — so the height cannot disagree
+with itself.
+
+The absence of a "how many notices" parameter is the decision, and it is not
+taste. A height derived from the log's length makes the footer grow on every
+arrival, which shrinks the transcript above it and **reflows the text the user is
+reading** — while they read it, because reviewing a fault is exactly when more
+faults arrive. The first draft of this decision did that, and a 25-arrival run
+reflowed the conversation 12 consecutive times. That is the layout-jitter class
+ADR-0062 already banned for the activity strip ("strictly bounded to at most 1 row
+… eliminating layout jitter"); a docked log pane is the same shape of surface, and
+every docked log pane in every tool behaves this way — the pane has a size, the
+content scrolls inside it.
+
+The bounds:
+
+- **base: a quarter of the viewport**, floored at `NOTICE_DOCK_MIN_ROWS` so the
+  panel is a readable viewport rather than a sliver.
+- **ceiling: half the viewport**, because the dock explains the conversation behind
+  it and must never displace it. There is deliberately no *additional* percentage
+  cap: an absolute cap only fought the proportion (a 20% cap silently turned a
+  quarter into a fifth on every terminal).
+- **one explicit exception**: an expanded detail block may grow the panel, up to
+  that same ceiling. Pressing `Enter` is an explicit request for more room, so the
+  reflow is the requested layout. A notice *arriving* never grows it.
+
+Row arithmetic exists **once**: `notice_block_rows` is used by the paint loop and
+by the pointer→notice inverse mapping. A click handler that re-derived it would
+drift the moment an expanded detail block changed height.
 
 ### 4. The thread scene declares the log instead of degrading
 
@@ -193,10 +240,13 @@ view by one row instead of recentering.
   appended to the notice log before any bubble is painted; there is no mutation
   that shows a bubble without recording it. Enforced by: the single
   `NoticeDisclosure` mutation and the single `record_notice` funnel.
-- `[INV-NOTICE-02]` **The viewer is reachable from every scene.** The notice log
-  is client-global and is never discarded by a session or scene switch. Enforced
-  by: `NoticeViewer` living on `App`, and the log addressed as `SurfaceId::NOTICES`
-  in the registry rather than through `DialogKind`'s session-scoped unwinding.
+- `[INV-NOTICE-02]` **The dock is reachable from every scene and never covers the
+  conversation.** The notice log is client-global and is never discarded by a
+  session or scene switch; the panel is a footer-stack row, so the transcript
+  yields rows to it rather than being painted over. Enforced by: `NoticeViewer`
+  living on `App`, the log addressed as `SurfaceId::NOTICES`, and the row being
+  declared in `footer_stack` (an exhaustive `FooterRowId` match means a consumer
+  cannot ignore it).
 - `[INV-NOTICE-03]` **The bubble never hides its own escape hatch.** A fault
   bubble's hint row is reserved before the message wraps. Enforced by:
   `message_row_budget` in `components::toast` and its regression test.
@@ -205,10 +255,19 @@ view by one row instead of recentering.
   meaning; only an acknowledgement yields to arbitrary input. Enforced by:
   `dismisses_notice_bubble` plus the viewer/overlay/sheet preconditions in
   `process_one_event`, and their tests.
-- `[INV-NOTICE-05]` **The cursor stays on screen.** The viewer computes its own
+- `[INV-NOTICE-05]` **The cursor stays on screen.** The dock computes its own
   viewport offset from the selected *row*, because the body is not one row per
   notice. Enforced by: the pre-paint scroll clamp in `overlays::notices` and its
   expanded-row regression test.
+- `[INV-NOTICE-06]` **One row arithmetic, two directions.** The row count used to
+  paint and to map a pointer back to a notice is a single function
+  (`notice_block_rows`). Enforced by: both callers plus the forward/reverse
+  agreement test.
+- `[INV-NOTICE-07]` **The dock's height cannot depend on the log.** It is a
+  function of the viewport only; the sole growth input is the selected notice's
+  expanded detail. Enforced by: the signature (`notice_dock_rows(height)` has no
+  content parameter), and the stability test that renders 25 consecutive arrivals
+  and asserts one height.
 
 ## Consequences
 
@@ -260,6 +319,24 @@ view by one row instead of recentering.
   scene-scoped, and `Dialogs::switch_session` / `SurfaceRouter::switch_scene`
   would reset or archive it. Losing the notice log on a tab switch is losing it
   precisely when the user goes looking.
+
+### Alternative E: A centred modal panel (Rejected)
+
+- **Why considered**: It is the largest viewport for the least layout work, and
+  the first draft of this decision did exactly that.
+- **Why rejected**: It makes reading the fault and reading the turn it interrupted
+  two tasks instead of one, hides the evidence the fault explains, and its input
+  barrier forbids the retype-or-retry reaction that a fault most often provokes.
+  A footer row keeps all three.
+
+### Alternative F: A docked panel with a user-configurable presentation (Rejected)
+
+- **Why considered**: "Modal for focus, dock for context" is a defensible taste
+  split, and a `notices.presentation = modal | dock` key would satisfy both.
+- **Why rejected**: The two are not equal alternatives — the modal is strictly
+  worse for this content (see Alternative E). A configuration key would preserve a
+  known-inferior path, double the surface's test matrix, and let two users describe
+  the same feature differently. One right answer, no knob.
 
 ## Links
 

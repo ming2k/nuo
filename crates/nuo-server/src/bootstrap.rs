@@ -566,6 +566,19 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // approvals survive across sessions in this project. Best-effort: a
     // missing or unreadable permissions.json just means we re-prompt.
     agent.set_project_root(workspace_root.clone());
+    // Workspace effect journal (ADR-0125): bracket every mutating tool call with
+    // capture and completion, writing through this session's own single-writer
+    // door. Installed here rather than at agent construction because the port is
+    // bound to a *session*: a subagent with no session of its own gets no port and
+    // journals nothing, which is correct — its effects belong to its parent's
+    // round.
+    if workspace_root.is_some() {
+        let _journal = crate::workspace_journal::install(
+            agent.as_ref(),
+            session.persistence().clone(),
+            session.blob_store().clone(),
+        );
+    }
     // Seed declarative permission rules from `[permissions]` config so default
     // policies are data-driven. Runtime "Always" decisions still write to
     // permissions.json; these config rules re-apply on every start.

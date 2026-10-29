@@ -330,7 +330,7 @@ impl ModelFoldAccumulator {
             max_output_tokens: self.max_output_tokens,
             reasoning,
             thinking: Some(if model_id.starts_with("claude-") {
-                ReasoningSupport::AnthropicAdaptive
+                ReasoningSupport::Adaptive
             } else {
                 ReasoningSupport::ReasoningContent
             }),

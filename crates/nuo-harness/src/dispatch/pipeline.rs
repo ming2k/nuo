@@ -229,6 +229,39 @@ impl Agent {
                 arguments: call.arguments.clone(),
             });
         }
+        // Emit each call's pure preview, here at the same choke point and strictly
+        // before any execution (ADR-0125 §9).
+        //
+        // Why up front rather than only inside the approval prompt: a batch of five
+        // writes would otherwise surface five separate approval prompts, and the
+        // operator would never see the *aggregate* effect they are authorizing. At
+        // this point every mutating card carries its diff before anything runs, so
+        // the turn's total footprint is visible as a whole — and a frontend may offer
+        // a single decision for the batch, which a per-prompt diff cannot support.
+        //
+        // The preview is pure, so emitting it for every call is safe even for calls
+        // that will be short-circuited below (blocked by the loop guard, or a
+        // checkpoint replay): those calls' cards then still show what they *would*
+        // have done, which is more informative than an empty card, and none of those
+        // effects happen.
+        for (call, id) in tool_calls.iter().zip(&call_ids) {
+            let Some(tool) = self.tool_manager().find(&call.name) else {
+                continue;
+            };
+            let arguments = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                .unwrap_or(serde_json::Value::Null);
+            // `None` is a real answer (an unpredicable effect) and is not emitted:
+            // there is nothing to show, and a "preview unavailable" card for every
+            // shell command would be noise rather than information. The approval
+            // prompt still states the absence in prose where a decision is at stake.
+            if let Some(preview) = tool.tool.preview(&arguments) {
+                on_event(AgentEvent::ToolPreview {
+                    id: id.clone(),
+                    name: call.name.clone(),
+                    preview,
+                });
+            }
+        }
         // Signature-level trajectory guard: a call whose canonical
         // signature is in the per-round block mask is short-circuited here, before execution. The model gets an
         // explanatory error instead of the content/side-effect, so it is

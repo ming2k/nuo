@@ -25,7 +25,7 @@ use super::transcript::extract_selection_text;
 mod commands;
 mod host;
 mod modals;
-mod mouse;
+pub(crate) mod mouse;
 
 #[allow(unused_imports)]
 pub(crate) use modals::{

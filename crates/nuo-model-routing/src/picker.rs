@@ -7,9 +7,7 @@ use super::{Stores, effective_default_connection_id};
 use nuo_persistence::config::Config;
 use nuo_persistence::connection_usage::ConnectionUsage;
 use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
-use nuo_wire::{
-    Effort, ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot, ReasoningMode,
-};
+use nuo_wire::{ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot};
 
 /// Whether a model id matches any pattern in `hidden_patterns` (case-insensitive glob or exact match).
 pub fn model_is_hidden(model: &str, hidden_patterns: &[String]) -> bool {
@@ -291,16 +289,19 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
         .remote
         .as_ref()
         .and_then(|remote| remote.name.clone());
+    // The route's tunables, derived from the provider's own declaration. The
+    // framework never sniffs the protocol or the family to decide which knobs
+    // exist — it asks the resolved capabilities
+    // (`ModelCapabilities::tunables`) and renders whatever comes back.
     let effort_levels: Vec<String> = caps
         .effort_levels
         .iter()
         .map(|lvl| lvl.as_str().to_string())
         .collect();
-    let known_efforts: Vec<Effort> = caps
-        .effort_levels
-        .iter()
-        .filter_map(|lvl| lvl.as_known())
-        .collect();
+    let effort = channel
+        .effective_effort(&caps)
+        .map(|effort| effort.as_str().to_string());
+    let thinking = channel.thinking_state(&caps);
     // The provider's declared availability for this model, round-tripped from
     // the remote catalog (ADR-0068). This is the *declaration*; the caller
     // applies the user's sovereign override via `derive::effective_availability`
@@ -312,121 +313,22 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
     // The provider's listing intent, orthogonal to availability: an
     // API-supported model may be deliberately unlisted (Codex `visibility`).
     let advertised = channel.remote.as_ref().and_then(|remote| remote.advertised);
-    match &channel.transport {
-        Transport::AnthropicMessages {
-            effort, thinking, ..
-        } => {
-            let thinking_on = matches!(thinking, Some(ReasoningMode::Adaptive));
-            ProviderModelInfo {
-                model: channel.model.clone(),
-                name,
-                protocol: nuo_wire::WireProtocol::AnthropicMessages
-                    .as_str()
-                    .to_string(),
-                effort: Some((*effort).unwrap_or(Effort::High).as_str().to_string()),
-                thinking: Some(thinking_on),
-                effort_levels,
-                favorite: false,
-                last_used_ms: None,
-                vision,
-                context_window,
-                max_output_tokens,
-                availability: availability.clone(),
-                availability_overridden: false,
-                advertised,
-                availability_stale: false,
-            }
-        }
-        Transport::OpenAiChatCompletions { effort, .. } => {
-            let effective = Effort::channel_default(&caps.family, &known_efforts)
-                .map(|default| (*effort).unwrap_or(default).as_str().to_string());
-            ProviderModelInfo {
-                model: channel.model.clone(),
-                name,
-                protocol: nuo_wire::WireProtocol::OpenAiChatCompletions
-                    .as_str()
-                    .to_string(),
-                effort: effective,
-                thinking: None,
-                effort_levels,
-                favorite: false,
-                last_used_ms: None,
-                vision,
-                context_window,
-                max_output_tokens,
-                availability: availability.clone(),
-                availability_overridden: false,
-                advertised,
-                availability_stale: false,
-            }
-        }
-        Transport::OpenAiResponses { effort, .. } => {
-            let effective = Effort::channel_default(&caps.family, &known_efforts)
-                .map(|default| (*effort).unwrap_or(default).as_str().to_string());
-            ProviderModelInfo {
-                model: channel.model.clone(),
-                name,
-                protocol: nuo_wire::WireProtocol::OpenAiResponses.as_str().to_string(),
-                effort: effective,
-                thinking: None,
-                effort_levels,
-                favorite: false,
-                last_used_ms: None,
-                vision,
-                context_window,
-                max_output_tokens,
-                availability: availability.clone(),
-                availability_overridden: false,
-                advertised,
-                availability_stale: false,
-            }
-        }
-        Transport::GoogleGenerateContent { effort, .. } => {
-            let effective = Effort::channel_default(&caps.family, &known_efforts)
-                .map(|default| (*effort).unwrap_or(default).as_str().to_string());
-            ProviderModelInfo {
-                model: channel.model.clone(),
-                name,
-                protocol: nuo_wire::WireProtocol::GoogleGenerateContent
-                    .as_str()
-                    .to_string(),
-                effort: effective,
-                thinking: None,
-                effort_levels,
-                favorite: false,
-                last_used_ms: None,
-                vision,
-                context_window,
-                max_output_tokens,
-                availability: availability.clone(),
-                availability_overridden: false,
-                advertised,
-                availability_stale: false,
-            }
-        }
-        Transport::GoogleInteractions { effort, .. } => {
-            let effective = Effort::channel_default(&caps.family, &known_efforts)
-                .map(|default| (*effort).unwrap_or(default).as_str().to_string());
-            ProviderModelInfo {
-                model: channel.model.clone(),
-                name,
-                protocol: nuo_wire::WireProtocol::GoogleInteractions
-                    .as_str()
-                    .to_string(),
-                effort: effective,
-                thinking: None,
-                effort_levels,
-                favorite: false,
-                last_used_ms: None,
-                vision,
-                context_window,
-                max_output_tokens,
-                availability: availability.clone(),
-                availability_overridden: false,
-                advertised,
-                availability_stale: false,
-            }
-        }
+    ProviderModelInfo {
+        model: channel.model.clone(),
+        name,
+        protocol: channel.transport.protocol_label().to_string(),
+        effort,
+        thinking,
+        effort_levels,
+        favorite: false,
+        last_used_ms: None,
+        vision,
+        context_window,
+        max_output_tokens,
+        availability,
+        availability_overridden: false,
+        advertised,
+        availability_stale: false,
     }
 }
 
@@ -442,13 +344,13 @@ mod tests {
             transport: Transport::OpenAiChatCompletions {
                 base_url: "https://example.test/v1/chat/completions".to_string(),
                 client_profile: nuo_wire::ClientProfile::Native,
-                effort: Some(nuo_wire::effort::Effort::High),
                 dialect: nuo_wire::OpenAiChatDialect::Standard,
             },
             credentials: nuo_wire::static_credential(String::new()),
             model: model.to_string(),
             remote,
             user_overrides: None,
+            tunings: Default::default(),
             prompt_cache: PromptCacheCapabilities::unsupported(),
             prompt_cache_preference: Default::default(),
         }
@@ -591,10 +493,7 @@ mod tests {
             ]),
             ..Default::default()
         };
-        let mut channel = openai_channel("gpt-6-astra", Some(remote));
-        if let Transport::OpenAiChatCompletions { effort, .. } = &mut channel.transport {
-            *effort = None;
-        }
+        let channel = openai_channel("gpt-6-astra", Some(remote));
         let info = channel_model_info(&channel);
         assert_eq!(
             info.effort_levels,

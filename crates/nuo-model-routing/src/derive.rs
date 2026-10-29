@@ -29,8 +29,8 @@ use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
 use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
 use nuo_wire::model::CapabilityOverrides;
 use nuo_wire::{
-    ClientProfile, ConnectionFilterPolicy, Effort, NamedFilterPolicy, ProviderDialect,
-    ReasoningMode, SecretString, WireProtocol,
+    ClientProfile, ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString,
+    WireProtocol,
 };
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
@@ -237,15 +237,16 @@ pub fn derive_channel(
         .and_then(|settings| settings.prompt_cache)
         .unwrap_or_default();
 
-    // Effort applies to OpenAI/Anthropic/Google alike; thinking is an
-    // Anthropic-protocol switch.
-    let effort = route_settings
-        .and_then(|r| r.effort.as_deref())
-        .and_then(Effort::parse);
-    let thinking = route_settings.map(|r| match r.thinking {
-        Some(false) => ReasoningMode::Off,
-        _ => ReasoningMode::Adaptive,
-    });
+    // The user's tuning choices, keyed by the provider's own knob ids
+    // (ADR-0126). They travel on the `Channel`, never on the `Transport`: a
+    // tuning choice is a setting on a route, not a property of the pipe that
+    // carries it. Whether a knob reaches the wire at all is a provider
+    // declaration (`Model::effort_levels` / `Model::thinking`), decided
+    // at the request boundary.
+    // One carrier, one copy: the route's tuning map IS the user's choice set.
+    let tunings = route_settings
+        .map(|settings| settings.tunings.clone())
+        .unwrap_or_default();
 
     let (protocol, base_url, client_profile, dialect, responses_state) =
         base_route(connection, model, remote.as_ref())?;
@@ -270,20 +271,16 @@ pub fn derive_channel(
         WireProtocol::GoogleGenerateContent => Transport::GoogleGenerateContent {
             base_url,
             client_profile,
-            effort,
             dialect: dialect.google(),
         },
         WireProtocol::GoogleInteractions => Transport::GoogleInteractions {
             base_url,
             client_profile,
-            effort,
             dialect: dialect.google_interactions(),
         },
         WireProtocol::AnthropicMessages => Transport::AnthropicMessages {
             base_url,
             client_profile,
-            effort,
-            thinking,
             dialect: dialect.anthropic(),
         },
         WireProtocol::OpenAiResponses => {
@@ -304,7 +301,6 @@ pub fn derive_channel(
             Transport::OpenAiResponses {
                 base_url,
                 client_profile,
-                effort,
                 dialect: dialect.openai_responses(),
                 state: responses_state,
             }
@@ -312,7 +308,6 @@ pub fn derive_channel(
         WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
             base_url,
             client_profile,
-            effort,
             dialect: dialect.openai_chat(),
         },
     };
@@ -324,6 +319,7 @@ pub fn derive_channel(
         model: model.to_string(),
         remote,
         user_overrides,
+        tunings,
         prompt_cache,
         prompt_cache_preference,
     })

@@ -773,13 +773,13 @@ fn copilot_model_from_capabilities(
         .and_then(Value::as_bool)
         == Some(true)
     {
-        Some(ReasoningSupport::AnthropicAdaptive)
+        Some(ReasoningSupport::Adaptive)
     } else if supports
         .and_then(|s| s.get("max_thinking_budget"))
         .and_then(Value::as_u64)
         .is_some()
     {
-        Some(ReasoningSupport::AnthropicManual)
+        Some(ReasoningSupport::Manual)
     } else {
         reasoning.map(|enabled| {
             if enabled {
@@ -1601,7 +1601,7 @@ mod tests {
         // `reasoning_effort` vocabulary.
         assert_eq!(gpt4o.reasoning, Some(true));
         assert_eq!(gpt4o.effort_levels, None);
-        assert_eq!(gpt4o.thinking, Some(ReasoningSupport::AnthropicAdaptive));
+        assert_eq!(gpt4o.thinking, Some(ReasoningSupport::Adaptive));
     }
 
     #[test]
@@ -1655,7 +1655,7 @@ mod tests {
         assert_eq!(claude.availability, None);
         assert_eq!(claude.protocol, Some(WireProtocol::AnthropicMessages));
         assert_eq!(claude.family.as_deref(), Some("claude-opus"));
-        assert_eq!(claude.thinking, Some(ReasoningSupport::AnthropicAdaptive));
+        assert_eq!(claude.thinking, Some(ReasoningSupport::Adaptive));
         assert_eq!(claude.tool_call, Some(true));
         assert_eq!(claude.max_output_tokens, Some(64_000));
 
@@ -1669,7 +1669,7 @@ mod tests {
                 nuo_provider::EffortLevel::Known(nuo_provider::Effort::High)
             ])
         );
-        assert_eq!(remote.thinking, Some(ReasoningSupport::AnthropicAdaptive));
+        assert_eq!(remote.thinking, Some(ReasoningSupport::Adaptive));
 
         let internal = models
             .iter()

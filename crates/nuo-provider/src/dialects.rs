@@ -525,6 +525,7 @@ impl DiscoveredModel {
             catalog_source: self.catalog_source.clone(),
             availability: self.availability.clone(),
             advertised: self.advertised,
+            default_effort: None,
             wire_entities: self
                 .wire_entities
                 .as_ref()
@@ -669,8 +670,18 @@ impl ResponsesState {
 /// How a [`Channel`] speaks to its model. Determines which `Provider`
 /// implementation is constructed for it (in the composition root).
 ///
-/// Variants carry only the endpoint shape intrinsic to the transport.
-/// Per-call credentials and the wire model id live on the [`Channel`] itself,
+/// Variants carry **only** the endpoint shape intrinsic to the transport:
+/// where requests go, how the body is framed, and which dialect reads it.
+///
+/// In particular they carry **no user tuning**. Reasoning depth and the
+/// thinking switch used to live here, welded into the variant that happened to
+/// speak the right protocol — which meant a new knob had to be threaded
+/// through every variant, every destructuring site, and the picker's
+/// per-protocol match arms. A tuning choice is a *user setting on a route*,
+/// not a property of the pipe, so it lives on [`Channel::tunings`] where a
+/// route — any route — can carry any knob its provider declares (ADR-0126).
+///
+/// Per-call credentials and the wire model id likewise live on the [`Channel`],
 /// so the same transport serves a built-in preset and a user-defined relay.
 #[derive(Debug, Clone)]
 pub enum Transport {
@@ -678,36 +689,30 @@ pub enum Transport {
     OpenAiChatCompletions {
         base_url: String,
         client_profile: crate::ClientProfile,
-        effort: Option<crate::Effort>,
         dialect: OpenAiChatDialect,
     },
     /// Anthropic-compatible `/messages` endpoint at `base_url`.
     AnthropicMessages {
         base_url: String,
         client_profile: crate::ClientProfile,
-        effort: Option<crate::Effort>,
-        thinking: Option<crate::ReasoningMode>,
         dialect: AnthropicMessagesDialect,
     },
     /// Google native GenerateContent API (`generativelanguage.googleapis.com` or Antigravity).
     GoogleGenerateContent {
         base_url: String,
         client_profile: crate::ClientProfile,
-        effort: Option<crate::Effort>,
         dialect: GoogleGenerateContentDialect,
     },
     /// Google native Interactions API (`generativelanguage.googleapis.com/v1beta/interactions`).
     GoogleInteractions {
         base_url: String,
         client_profile: crate::ClientProfile,
-        effort: Option<crate::Effort>,
         dialect: GoogleInteractionsDialect,
     },
     /// OpenAI **Responses** API (`/responses` endpoint).
     OpenAiResponses {
         base_url: String,
         client_profile: crate::ClientProfile,
-        effort: Option<crate::Effort>,
         dialect: OpenAiResponsesDialect,
         /// Whether this endpoint persists response state (ADR-0114).
         state: ResponsesState,
@@ -792,6 +797,16 @@ pub struct Channel {
     /// the remote overlay in [`Channel::capabilities`]. `None` means the
     /// user has no opinion and the two lower layers decide.
     pub user_overrides: Option<crate::model::CapabilityOverrides>,
+    /// The user's **tuning choices** for this route, keyed by the provider's
+    /// own knob ids — the single writable shape for per-route tuning
+    /// (ADR-0126). Depth and the thinking switch are read through the typed
+    /// accessors ([`crate::tuning::TunableSettings::effort`] /
+    /// [`crate::tuning::TunableSettings::thinking`]); every other knob a
+    /// provider declares travels here untouched.
+    ///
+    /// This is deliberately *not* on [`Transport`]: a tuning choice is a user
+    /// setting on a route, not a property of the pipe that carries it.
+    pub tunings: crate::tuning::TunableSettings,
     /// Prompt-cache controls and telemetry declared by this concrete route.
     /// This is intentionally independent of model-family capabilities: a
     /// relay speaking the same wire protocol may expose none of them.
@@ -809,6 +824,7 @@ impl fmt::Debug for Channel {
             .field("model", &self.model)
             .field("remote", &self.remote)
             .field("user_overrides", &self.user_overrides)
+            .field("tunings", &self.tunings)
             .field("prompt_cache", &self.prompt_cache)
             .field("prompt_cache_preference", &self.prompt_cache_preference)
             .finish()
@@ -858,6 +874,43 @@ impl Channel {
             Some(user) => merged.apply_overrides(user),
             None => merged,
         }
+    }
+
+    /// The **effective reasoning depth** this route would stamp, or `None` when
+    /// the route exposes no depth knob (so the request omits the field).
+    ///
+    /// The precedence is the user's stored choice, then the provider's declared
+    /// default clamped onto the provider's declared ladder. The framework never
+    /// picks a tier of its own beyond the vendor-neutral fallback inside
+    /// [`crate::ModelCapabilities::default_effort`]. A stored choice is clamped
+    /// to the ladder here — the single clamp point shared by the picker and the
+    /// request boundary, so the tier the UI shows is the tier the wire carries.
+    pub fn effective_effort(&self, caps: &crate::ModelCapabilities) -> Option<crate::Effort> {
+        let known: Vec<crate::Effort> = caps
+            .effort_levels
+            .iter()
+            .filter_map(crate::effort::EffortLevel::as_known)
+            .collect();
+        if known.is_empty() {
+            return None;
+        }
+        self.tunings
+            .effort()
+            .map(|requested| requested.clamp_to(&known))
+            .or_else(|| caps.default_effort())
+    }
+
+    /// The **effective thinking switch** for this route: `Some` only when the
+    /// provider declares a separate on/off knob, carrying the user's choice or
+    /// the route's default. `None` means the route has no switch (a depth-only
+    /// surface expresses "off" with its shallowest rung instead).
+    pub fn thinking_state(&self, caps: &crate::ModelCapabilities) -> Option<bool> {
+        // Whether a switch exists is a property of the route's declared
+        // reasoning **encoding** — not a parallel boolean. A depth-only surface
+        // expresses "off" with its shallowest rung, so it has no switch.
+        caps.thinking
+            .has_thinking_switch()
+            .then(|| self.tunings.thinking().unwrap_or(false))
     }
 }
 
@@ -960,13 +1013,13 @@ mod tests {
                 transport: Transport::OpenAiChatCompletions {
                     base_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
                     client_profile: crate::ClientProfile::from("agent"),
-                    effort: None,
                     dialect: Default::default(),
                 },
                 credentials: crate::static_credential("k"),
                 model: "deepseek-v4-flash".to_string(),
                 remote: None,
                 user_overrides: None,
+                tunings: Default::default(),
                 prompt_cache_preference: PromptCachePreference::default(),
                 prompt_cache: PromptCacheCapabilities::unsupported(),
             }],
@@ -994,13 +1047,13 @@ mod tests {
             transport: Transport::OpenAiChatCompletions {
                 base_url: "https://api.openai.com/v1/chat/completions".to_string(),
                 client_profile: crate::ClientProfile::from("agent"),
-                effort: None,
                 dialect: Default::default(),
             },
             credentials: crate::static_credential("   "),
             model: "gpt-4o".to_string(),
             remote: None,
             user_overrides: None,
+            tunings: Default::default(),
             prompt_cache_preference: PromptCachePreference::default(),
             prompt_cache: PromptCacheCapabilities::unsupported(),
         };
@@ -1014,8 +1067,6 @@ mod tests {
         let needs_key = Transport::AnthropicMessages {
             base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
             client_profile: crate::ClientProfile::from("agent"),
-            effort: None,
-            thinking: None,
             dialect: Default::default(),
         }
         .needs_api_key();
@@ -1026,14 +1077,13 @@ mod tests {
             transport: Transport::AnthropicMessages {
                 base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
                 client_profile: crate::ClientProfile::from("agent"),
-                effort: None,
-                thinking: None,
                 dialect: Default::default(),
             },
             credentials: crate::static_credential("  "),
             model: "minimax-m3".to_string(),
             remote: None,
             user_overrides: None,
+            tunings: Default::default(),
             prompt_cache_preference: PromptCachePreference::default(),
             prompt_cache: PromptCacheCapabilities::unsupported(),
         };
@@ -1056,13 +1106,13 @@ mod tests {
                         base_url: "https://opencode.ai/inference/openai/v1/chat/completions"
                             .to_string(),
                         client_profile: crate::ClientProfile::from("agent"),
-                        effort: None,
                         dialect: Default::default(),
                     },
                     credentials: crate::static_credential("k"),
                     model: "glm-5.2".to_string(),
                     remote: None,
                     user_overrides: None,
+                    tunings: Default::default(),
                     prompt_cache_preference: PromptCachePreference::default(),
                     prompt_cache: PromptCacheCapabilities::unsupported(),
                 },
@@ -1071,14 +1121,13 @@ mod tests {
                     transport: Transport::AnthropicMessages {
                         base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
                         client_profile: crate::ClientProfile::from("agent"),
-                        effort: None,
-                        thinking: None,
                         dialect: Default::default(),
                     },
                     credentials: crate::static_credential("k"),
                     model: "claude-opus-5".to_string(),
                     remote: None,
                     user_overrides: None,
+                    tunings: Default::default(),
                     prompt_cache_preference: PromptCachePreference::default(),
                     prompt_cache: PromptCacheCapabilities::unsupported(),
                 },
@@ -1116,13 +1165,13 @@ mod tests {
                 transport: Transport::OpenAiChatCompletions {
                     base_url: "https://example.com/v1/chat/completions".to_string(),
                     client_profile: crate::ClientProfile::from("agent"),
-                    effort: None,
                     dialect: Default::default(),
                 },
                 credentials: crate::static_credential("k"),
                 model: "fixture-alpha".to_string(),
                 remote: None,
                 user_overrides: None,
+                tunings: Default::default(),
                 prompt_cache_preference: PromptCachePreference::default(),
                 prompt_cache: PromptCacheCapabilities::unsupported(),
             }],

@@ -298,6 +298,19 @@ fn part_is_thought(part: &Value) -> bool {
 /// case-insensitive because relays re-case Google's field names freely, and it
 /// accepts both the camelCase (`thinkingConfig`) and snake_case
 /// (`thinking_config`) spellings for the same reason.
+///
+/// # Call this on the *upstream* message, never on the augmented one
+///
+/// [`clarify_error_with_shape`] appends guidance that itself mentions `thinkingConfig`,
+/// `thinkingLevel` and `HTTP 400` (it has to — that is what makes a
+/// content-free refusal actionable). Feed an augmented message to this
+/// predicate and *every* 400 matches, so an unrelated contract violation (a bad
+/// tool schema, a refused image) would trigger the thinking downgrade and latch
+/// the channel into permanent chain-withholding.
+///
+/// [`rejects_thinking_config_error`] is the typed entry point that keeps the two
+/// apart by construction: it reads the upstream text before any augmentation.
+/// Prefer it over calling this directly.
 pub fn rejects_thinking_config(error: &str) -> bool {
     let haystack = error.to_ascii_lowercase();
     let names_thinking = [
@@ -326,10 +339,145 @@ pub fn rejects_thinking_config(error: &str) -> bool {
     .any(|needle| haystack.contains(needle))
 }
 
-/// Augment a transport-layer error with model-specific guidance. For native
-/// Google, a `404 NOT_FOUND` almost always means the upstream does not serve
-/// this model id — not a transient fault. `429 RESOURCE_EXHAUSTED` explains
-/// quota / rate limits. Other errors pass through unchanged.
+/// The **typed** form of [`rejects_thinking_config`]: decide from the raw
+/// upstream error, before this provider augments it.
+///
+/// This exists so the ordering cannot be got wrong at a call site. The
+/// augmentation in [`clarify_error_with_shape`] deliberately mentions the
+/// thinking surface (to make an otherwise content-free 400 actionable), so
+/// classifying an already-augmented message would match every 400 and latch the
+/// channel into chain-withholding for an unrelated fault. Taking the untouched
+/// `ProviderError` makes "classify the upstream text" the only thing a caller
+/// can express.
+pub fn rejects_thinking_config_error(err: &nuo_provider::ProviderError) -> bool {
+    rejects_thinking_config(err.message())
+}
+
+/// The salient facts of the request body this provider **actually sent**.
+///
+/// Google's `400 INVALID_ARGUMENT` is frequently uninformative — the canonical
+/// shape is the bare `{"error":{"code":400,"message":"Request contains an
+/// invalid argument.","status":"INVALID_ARGUMENT"}}`, which names no field and
+/// carries no `fieldViolations`. A user then has nothing to act on: the notice
+/// says "invalid argument" and stops.
+///
+/// The provider is the only layer that knows what it put on the wire, so it
+/// captures those facts here and folds them into the error. This is *evidence*,
+/// not inference: every field is read back off the body that was sent, so it
+/// cannot describe a request other than the refused one (ADR-0074, ADR-0113).
+///
+/// Deliberately small and owned — no borrowed body, no `serde_json::Value`
+/// clone of a multi-megabyte conversation. Only the shape axes that upstream
+/// contract violations actually turn on are retained.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RequestShape {
+    /// The wire model id in the envelope's `model` field. This can differ from
+    /// the channel's model id (`gemini-3.8-flash` → `gemini-3.8-flash-tiered`),
+    /// and the wire id is the one the upstream routes and rejects on.
+    pub wire_model: String,
+    /// The `generationConfig.thinkingConfig` object as stamped, compact JSON.
+    /// `None` when the surface was omitted (a non-reasoning route, a Claude
+    /// route, or a downgrade after a previous refusal).
+    pub thinking_config: Option<String>,
+    /// Number of `functionDeclarations` sent.
+    pub tool_count: usize,
+    /// Number of `contents[]` entries sent.
+    pub content_count: usize,
+}
+
+impl RequestShape {
+    /// Read the shape back off the body that was sent.
+    pub fn of(wire_model: &str, body: &serde_json::Value) -> Self {
+        let request = body.get("request").unwrap_or(body);
+        let thinking_config = request
+            .get("generationConfig")
+            .and_then(|config| config.get("thinkingConfig"))
+            .filter(|config| !config.is_null())
+            .and_then(|config| serde_json::to_string(config).ok());
+        let tool_count = request
+            .get("tools")
+            .and_then(|tools| tools.as_array())
+            .map(|tools| {
+                tools
+                    .iter()
+                    .filter_map(|tool| tool.get("functionDeclarations"))
+                    .filter_map(|decls| decls.as_array())
+                    .map(Vec::len)
+                    .sum()
+            })
+            .unwrap_or(0);
+        let content_count = request
+            .get("contents")
+            .and_then(|contents| contents.as_array())
+            .map(Vec::len)
+            .unwrap_or(0);
+        Self {
+            wire_model: wire_model.to_string(),
+            thinking_config,
+            tool_count,
+            content_count,
+        }
+    }
+
+    /// The one-line-per-fact rendering folded into a request-refusal error.
+    ///
+    /// Phrased as a report of what was sent ("this request carried …"), never
+    /// as a diagnosis, because the upstream did not tell us which field it
+    /// objected to. A caller that guesses here would be inventing a cause; the
+    /// point of this block is that the *evidence* travels with the failure so a
+    /// human (or a `/debug trace` capture) can attribute it.
+    ///
+    /// Deliberately **brace-free**: this text is appended to a provider error
+    /// that the client then normalizes, and the notice normalizer treats the
+    /// first `{` as the start of a JSON error body (it pretty-prints it into the
+    /// entry's detail). Emitting the raw `thinkingConfig` object here would make
+    /// the normalizer re-parse our own diagnostic as if it were the upstream's
+    /// payload and mangle both the title and the detail. So the fields are
+    /// flattened to `key=value` pairs instead.
+    pub fn describe(&self) -> String {
+        let mut facts = vec![format!("model={}", self.wire_model)];
+        match self.thinking_config.as_deref() {
+            Some(config) => facts.push(format!("thinkingConfig=({})", flatten_json(config))),
+            None => facts.push("thinkingConfig=omitted".to_string()),
+        }
+        facts.push(format!("tools={}", self.tool_count));
+        facts.push(format!("contents={}", self.content_count));
+        format!(
+            "The request that was refused carried: {}.\n\
+             Google's message names no field, so read this list against the \
+             upstream contract: a `thinkingConfig` the routed entity does not \
+             accept (a per-level entity rejects the whole in-band object), a \
+             `thinkingLevel` outside `LOW`/`MEDIUM`/`HIGH`, a model id that is \
+             not the registered entity, or a tool schema outside Google's \
+             OpenAPI subset. Arm `/debug trace` to capture the exact body.",
+            facts.join(", ")
+        )
+    }
+}
+
+/// Flatten a compact JSON object into `key=value, key=value` without braces or
+/// quotes, so the result can be embedded in prose the notice normalizer will
+/// not mistake for a JSON payload.
+fn flatten_json(config: &str) -> String {
+    let Ok(serde_json::Value::Object(map)) = serde_json::from_str(config) else {
+        // Not an object (never produced by the request builder, but be total):
+        // strip the two characters that would trip the normalizer.
+        return config.replace(['{', '}'], "").replace('"', "");
+    };
+    map.iter()
+        .map(|(key, value)| match value {
+            serde_json::Value::String(s) => format!("{key}={s}"),
+            other => format!("{key}={other}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Augment a transport-layer error with model-specific guidance, folding in
+/// the shape of the request that was refused. For native Google, a `404
+/// NOT_FOUND` almost always means the upstream does not serve this model id —
+/// not a transient fault. `429 RESOURCE_EXHAUSTED` explains quota / rate
+/// limits.
 ///
 /// The input may be a `[NUO_RETRYABLE]`-enveloped error (429/5xx from
 /// [`ensure_success`](nuo_provider::transport::ensure_success)); appending to the
@@ -337,20 +485,47 @@ pub fn rejects_thinking_config(error: &str) -> bool {
 /// retryable classification downstream, so the guidance is folded **into**
 /// the envelope's message and any `RetryInfo` delay Google embedded in the
 /// body is promoted to `retry_after_ms` when the envelope has none.
-pub fn clarify_error(
+///
+/// `shape` is `Some` whenever the caller knows what it put on the wire. It is
+/// only folded in for a request refusal
+/// ([`nuo_provider::error::ProviderError::is_request_refusal`]) — the one class whose upstream body
+/// is routinely content-free.
+///
+/// # Classify before you call this
+///
+/// The guidance appended here deliberately mentions `thinkingConfig` /
+/// `thinkingLevel` / `HTTP 400` so a content-free refusal becomes actionable.
+/// That means the **returned** message matches
+/// [`rejects_thinking_config`]. Never decide a downgrade from it — use
+/// [`rejects_thinking_config_error`] on the untouched error first.
+pub fn clarify_error_with_shape(
     err: nuo_provider::ProviderError,
     model: &str,
     base_url: &str,
+    shape: Option<&RequestShape>,
 ) -> nuo_provider::ProviderError {
     let server_delay = google_retry_after_ms(err.message());
-    let mut err = err.map_message(|msg| clarify_message(msg, model, base_url));
+    // A request refusal is the one class whose upstream body is routinely
+    // content-free, so the sent shape is folded in as the error's detail. The
+    // predicate is the shared typed one (`ProviderError::is_request_refusal`),
+    // read *before* the message is rewritten, so this cannot disagree with the
+    // classification that produced the error. It also covers in-band refusals
+    // (a vendor reporting the refusal inside a 2xx body), which carry no status.
+    let shape = shape.filter(|_| err.is_request_refusal());
+    let mut err = err.map_message(|msg| {
+        let msg = clarify_message(msg, model, base_url);
+        match shape {
+            Some(shape) => format!("{msg}\n\n{}", shape.describe()),
+            None => msg,
+        }
+    });
     if server_delay.is_some() {
         err = err.with_retry_after_if_absent(server_delay);
     }
     err
 }
 
-/// The plain-message half of [`clarify_error`]: append guidance only, never
+/// The plain-message half of [`clarify_error_with_shape`]: append guidance only, never
 /// touching any envelope structure.
 fn clarify_message(err: String, model: &str, base_url: &str) -> String {
     if err.contains("HTTP 404") || err.contains("\"status\": \"NOT_FOUND\"") {
@@ -722,6 +897,130 @@ mod tests {
     }
 
     #[test]
+    fn request_shape_reads_back_what_the_envelope_carried() {
+        // The Antigravity envelope nests the GenerateContentRequest under
+        // `request`; the shape must read the inner object, not the wrapper.
+        let body = serde_json::json!({
+            "project": "aicode-consumers",
+            "model": "gemini-3.8-flash-tiered",
+            "request": {
+                "contents": [
+                    {"role": "user", "parts": [{"text": "hi"}]},
+                    {"role": "model", "parts": [{"text": "hello"}]},
+                ],
+                "generationConfig": {
+                    "thinkingConfig": {"includeThoughts": true, "thinkingLevel": "HIGH"}
+                },
+                "tools": [
+                    {"functionDeclarations": [{"name": "a"}, {"name": "b"}]},
+                ],
+            }
+        });
+        let shape = super::RequestShape::of("gemini-3.8-flash-tiered", &body);
+        assert_eq!(shape.wire_model, "gemini-3.8-flash-tiered");
+        assert_eq!(shape.content_count, 2);
+        assert_eq!(shape.tool_count, 2);
+        assert_eq!(
+            shape.thinking_config.as_deref(),
+            Some(r#"{"includeThoughts":true,"thinkingLevel":"HIGH"}"#)
+        );
+        let described = shape.describe();
+        assert!(
+            described.contains("model=gemini-3.8-flash-tiered"),
+            "{described}"
+        );
+        assert!(described.contains("thinkingLevel=HIGH"), "{described}");
+        assert!(described.contains("tools=2"), "{described}");
+        assert!(described.contains("contents=2"), "{described}");
+        // The rendering must be brace-free: the client's notice normalizer
+        // treats the first `{` as the start of a JSON body and would re-parse
+        // this diagnostic as if it were the upstream's payload.
+        assert!(!described.contains('{'), "{described}");
+        assert!(!described.contains('}'), "{described}");
+    }
+
+    #[test]
+    fn request_shape_reports_an_omitted_thinking_surface_explicitly() {
+        // A downgraded / non-reasoning request must say "omitted" rather than
+        // silently dropping the fact — the absence IS the diagnostic when a
+        // previous attempt was refused for that surface.
+        let body = serde_json::json!({
+            "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+        });
+        let shape = super::RequestShape::of("gemini-2.5-flash", &body);
+        assert!(shape.thinking_config.is_none());
+        assert_eq!(shape.tool_count, 0);
+        assert!(shape.describe().contains("thinkingConfig=omitted"));
+    }
+
+    #[test]
+    fn a_content_free_400_gains_the_sent_request_shape() {
+        // The reported failure: Google's canonical refusal names no field, so
+        // the notice said only "Request contains an invalid argument." with
+        // nothing to act on. The sent shape must now ride along.
+        let raw = nuo_provider::ProviderError::new(
+            "Google",
+            nuo_provider::ProviderErrorKind::InvalidRequest,
+            "Google HTTP 400 Bad Request: Request contains an invalid argument.",
+        )
+        .with_status(400);
+        let shape = super::RequestShape::of(
+            "gemini-3.8-flash-tiered",
+            &serde_json::json!({
+                "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                "generationConfig": {
+                    "thinkingConfig": {"includeThoughts": true, "thinkingLevel": "HIGH"}
+                },
+            }),
+        );
+        let clarified = super::clarify_error_with_shape(
+            raw,
+            "gemini-3.8-flash",
+            "https://cloudcode-pa.googleapis.com",
+            Some(&shape),
+        );
+        let msg = clarified.message();
+        assert!(msg.starts_with("Google HTTP 400 Bad Request"), "{msg}");
+        assert!(
+            msg.contains("Request contains an invalid argument."),
+            "{msg}"
+        );
+        // The evidence travels with the failure.
+        assert!(msg.contains("model=gemini-3.8-flash-tiered"), "{msg}");
+        assert!(msg.contains("thinkingLevel=HIGH"), "{msg}");
+        // ...and it is framed as a report, never as a diagnosis.
+        assert!(msg.contains("names no field"), "{msg}");
+        assert_eq!(clarified.status(), Some(400));
+        // The whole message stays brace-free so the client's notice normalizer
+        // does not mistake our diagnostic for a JSON error body.
+        assert!(!msg.contains('{'), "{msg}");
+    }
+
+    #[test]
+    fn a_non_refusal_keeps_its_own_guidance_and_gains_no_shape() {
+        // A 429's body is rich; bolting the request shape onto it would bury
+        // the quota facts under irrelevant request anatomy.
+        let raw = nuo_provider::ProviderError::new(
+            "Google",
+            nuo_provider::ProviderErrorKind::RateLimited,
+            "Google HTTP 429 Too Many Requests: {\"error\":{\"status\":\"RESOURCE_EXHAUSTED\"}}",
+        )
+        .with_status(429)
+        .retryable(None);
+        let shape = super::RequestShape::of("gemini-3.8-flash-tiered", &serde_json::json!({}));
+        let clarified =
+            super::clarify_error_with_shape(raw, "gemini-3.8-flash", "https://x", Some(&shape));
+        assert!(clarified.message().contains("RESOURCE_EXHAUSTED"));
+        assert!(!clarified.message().contains("names no field"));
+        assert_eq!(
+            clarified.retry_disposition(),
+            nuo_provider::RetryDisposition::Retry {
+                retry_after_ms: None
+            }
+        );
+    }
+
+    #[test]
     fn clarify_error_appends_guidance_to_retryable_error() {
         let raw = nuo_provider::ProviderError::new(
             "Google",
@@ -730,10 +1029,11 @@ mod tests {
         )
         .with_status(429)
         .retryable(None);
-        let clarified = super::clarify_error(
+        let clarified = super::clarify_error_with_shape(
             raw,
             "gemini-3.7-flash",
             "https://cloudcode-pa.googleapis.com",
+            None,
         );
 
         assert_eq!(clarified.status(), Some(429));
@@ -767,7 +1067,7 @@ mod tests {
         )
         .with_status(429)
         .retryable(None);
-        let clarified = super::clarify_error(raw, "gemini-3.7-flash", "https://x");
+        let clarified = super::clarify_error_with_shape(raw, "gemini-3.7-flash", "https://x", None);
         assert_eq!(
             clarified.retry_disposition(),
             nuo_provider::RetryDisposition::Retry {
@@ -790,7 +1090,7 @@ mod tests {
         )
         .with_status(429)
         .retryable(Some(120_000));
-        let clarified = super::clarify_error(raw, "m", "https://x");
+        let clarified = super::clarify_error_with_shape(raw, "m", "https://x", None);
         assert_eq!(
             clarified.retry_disposition(),
             nuo_provider::RetryDisposition::Retry {
@@ -807,7 +1107,7 @@ mod tests {
             "Google HTTP 404 Not Found",
         )
         .with_status(404);
-        let clarified = super::clarify_error(raw, "m", "https://x");
+        let clarified = super::clarify_error_with_shape(raw, "m", "https://x", None);
         assert!(clarified.message().starts_with("Google HTTP 404"));
         assert!(
             clarified
@@ -867,5 +1167,62 @@ mod tests {
         assert!(!rejects_thinking_config(
             "Google HTTP 429: RESOURCE_EXHAUSTED thinking about quota"
         ));
+    }
+
+    #[test]
+    fn the_augmented_message_must_never_be_fed_to_the_downgrade_predicate() {
+        // Regression lock. `clarify_error` appends guidance that necessarily
+        // mentions `thinkingConfig`, `thinkingLevel` and `HTTP 400` — that is
+        // what makes a content-free refusal actionable. So the *augmented*
+        // message matches `rejects_thinking_config` for ANY 400, and using it
+        // for the downgrade decision would latch the channel into permanent
+        // chain-withholding on an unrelated fault (a bad tool schema, a refused
+        // image).
+        //
+        // The typed entry point reads the upstream text, so it stays false.
+        let upstream = nuo_provider::ProviderError::new(
+            "Google",
+            nuo_provider::ProviderErrorKind::InvalidRequest,
+            "Google HTTP 400 Bad Request: Request contains an invalid argument.",
+        )
+        .with_status(400);
+        // Unrelated fault: the upstream says nothing about the thinking surface.
+        assert!(
+            !super::rejects_thinking_config_error(&upstream),
+            "an unrelated 400 must not be classified as a thinking rejection"
+        );
+
+        let shape = super::RequestShape::of(
+            "gemini-3.8-flash-tiered",
+            &serde_json::json!({
+                "generationConfig": {
+                    "thinkingConfig": {"includeThoughts": true, "thinkingLevel": "HIGH"}
+                },
+            }),
+        );
+        let augmented = super::clarify_error_with_shape(
+            upstream,
+            "gemini-3.8-flash",
+            "https://x",
+            Some(&shape),
+        );
+        // The augmented text DOES match the raw predicate — this is exactly the
+        // trap, and asserting it keeps the reason for the typed entry point
+        // visible and tested rather than a comment someone can delete.
+        assert!(
+            super::rejects_thinking_config(augmented.message()),
+            "the augmented message is expected to match the raw predicate; \
+             that is precisely why callers must classify before augmenting"
+        );
+        // ...and a genuine thinking rejection is still recognized upstream.
+        let genuine = nuo_provider::ProviderError::new(
+            "Google",
+            nuo_provider::ProviderErrorKind::InvalidRequest,
+            "Google HTTP 400: {\"error\":{\"status\":\"INVALID_ARGUMENT\",\
+             \"message\":\"Invalid JSON payload received. Unknown name \
+             \\\"thinkingConfig\\\" at 'request': Cannot find field.\"}}",
+        )
+        .with_status(400);
+        assert!(super::rejects_thinking_config_error(&genuine));
     }
 }

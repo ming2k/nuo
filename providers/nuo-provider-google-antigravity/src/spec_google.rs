@@ -33,6 +33,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -45,6 +46,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -57,6 +59,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -69,6 +72,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -81,6 +85,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -93,6 +98,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -105,6 +111,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -118,6 +125,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -130,6 +138,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -142,6 +151,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -154,6 +164,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: effort_ladders::GEMINI_BUDGET,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -166,6 +177,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -178,6 +190,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

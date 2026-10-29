@@ -1166,7 +1166,13 @@ impl RoundEvent {
             | Self::UserQuestionRequest(_)
             | Self::StdinRequest(_)
             | Self::Activity(_)
-            | Self::UnsentInput { .. } => EventClass::Ephemera,
+            | Self::UnsentInput { .. }
+            // A preview describes an *intention*: "this call would write these
+            // bytes". It is therefore ephemera by classification, not by
+            // convention — the durable record of a change is the journal's
+            // completed row, and a resumed transcript must never replay a diff
+            // nothing ever applied.
+            | Self::ToolPreview { .. } => EventClass::Ephemera,
         }
     }
 }
@@ -1266,6 +1272,27 @@ pub enum RoundEvent {
         id: String,
         name: String,
         arguments: String,
+    },
+    /// A **pure** preview of what a call will do, emitted strictly before any
+    /// execution (ADR-0125).
+    ///
+    /// Display-only and deliberately non-durable, exactly like
+    /// `ToolCall`: the authoritative record of a change is the workspace
+    /// journal's completed row, not an event that described an intention. It
+    /// exists so a frontend can show the turn's whole footprint before anything
+    /// runs - a batch of writes produces one visible set of diffs rather than N
+    /// separable approvals.
+    ///
+    /// A frontend that ignores it loses only the ahead-of-time view; the preview
+    /// is also attached to any permission request it gives rise to, so a gated
+    /// call still shows its change at the moment of decision. A frontend must
+    /// **never** treat a preview as evidence that a change happened: no bytes are
+    /// written when this arrives.
+    ToolPreview {
+        /// The dispatch id, matching the `ToolCall` it describes.
+        id: String,
+        name: String,
+        preview: crate::preview::PreviewResult,
     },
     ToolResult {
         id: String,
@@ -1725,14 +1752,25 @@ pub struct ProviderModelInfo {
     /// `model`. `None` — the common case — means show the bare wire id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Wire protocol id of the channel serving this model (`"openai"` |
-    /// `"anthropic"` | `"google"`).
+    /// Wire protocol id of the channel serving this model (`"openai-chat-completions"`
+    /// | `"anthropic-messages"` | `"google-generate-content"` | …).
+    ///
+    /// **Display/diagnostics only.** No surface may branch on this string to
+    /// decide which knobs exist — whether a route exposes depth or a thinking
+    /// switch is carried by [`Self::effort`] / [`Self::thinking`] being `None`,
+    /// resolved server-side from the provider's own declaration (ADR-0126).
     pub protocol: String,
-    /// Effective reasoning effort for channels whose model exposes an effort
-    /// knob. `None` for protocols/models that do not expose one.
+    /// The **effective reasoning depth** this route would stamp, already
+    /// resolved server-side (stored choice clamped onto the declared ladder,
+    /// else the provider's declared default). `None` when the route exposes no
+    /// depth knob.
+    ///
+    /// This is authoritative: a frontend renders it and never re-clamps or
+    /// invents a fallback of its own.
     pub effort: Option<String>,
-    /// Effective extended-thinking state for channels that expose a separate
-    /// thinking on/off knob. `None` for protocols that do not expose one.
+    /// The **effective extended-thinking switch**: `Some` only when the
+    /// provider declares a separate on/off knob. `None` means the route has no
+    /// switch, so no switch is rendered.
     pub thinking: Option<bool>,
     /// Reasoning effort tiers this channel/model supports, in ascending order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1799,23 +1837,6 @@ pub struct ProviderModelInfo {
     /// confirmed.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub availability_stale: bool,
-}
-
-impl ProviderModelInfo {
-    /// Extract the materialized route capabilities from this model info row.
-    pub fn route_capabilities(&self) -> crate::RouteCapabilities {
-        crate::RouteCapabilities {
-            context_window: self.context_window,
-            max_output_tokens: self.max_output_tokens,
-            vision: self.vision,
-            tool_call: true,
-            thinking: if self.thinking == Some(true) {
-                crate::ReasoningSupport::AnthropicAdaptive
-            } else {
-                crate::ReasoningSupport::None
-            },
-        }
-    }
 }
 
 /// Full snapshot of provider-picker state: which provider is the current
@@ -1945,6 +1966,27 @@ pub enum AgentEvent {
         id: String,
         name: String,
         arguments: String,
+    },
+    /// A **pure** preview of what a call will do, emitted strictly before any
+    /// execution (ADR-0125).
+    ///
+    /// Display-only and deliberately non-durable, exactly like
+    /// `ToolCall`: the authoritative record of a change is the workspace
+    /// journal's completed row, not an event that described an intention. It
+    /// exists so a frontend can show the turn's whole footprint before anything
+    /// runs - a batch of writes produces one visible set of diffs rather than N
+    /// separable approvals.
+    ///
+    /// A frontend that ignores it loses only the ahead-of-time view; the preview
+    /// is also attached to any permission request it gives rise to, so a gated
+    /// call still shows its change at the moment of decision. A frontend must
+    /// **never** treat a preview as evidence that a change happened: no bytes are
+    /// written when this arrives.
+    ToolPreview {
+        /// The dispatch id, matching the `ToolCall` it describes.
+        id: String,
+        name: String,
+        preview: crate::preview::PreviewResult,
     },
     ToolResult {
         id: String,

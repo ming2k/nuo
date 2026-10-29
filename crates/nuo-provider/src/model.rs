@@ -54,12 +54,28 @@ pub struct Model {
     /// source of truth; the prompt engine just renders whatever the resolved
     /// model carries.
     pub model_guidance: &'static str,
-    /// The reasoning-effort levels this model honors, ascending. Used as the
-    /// clamp range when a user requests an effort the model doesn't support.
+    /// The reasoning-effort levels this model honors, ascending.
+    ///
+    /// This is the model's depth **ladder** and the single declaration of it —
+    /// the request-boundary clamp range, the picker's segmented selector, and
+    /// the resolved `ModelCapabilities::effort_levels` all derive from this one
+    /// table rather than keeping a copy. See ADR-0126.
+    ///
     /// `&[]` means effort control does not apply (non-reasoning models, or
     /// protocols without an effort field). Models with unknown effort tiers
-    /// default to [`crate::effort::COMMON_LADDER`]; non-reasoning models carry `&[]`.
+    /// default to [`crate::effort::COMMON_LADDER`]; non-reasoning models carry
+    /// `&[]`.
     pub effort_levels: &'static [crate::effort::Effort],
+    /// The provider's declared **default** reasoning depth for this model —
+    /// the tier a request stamps when the user has expressed no choice.
+    ///
+    /// This is provider data, not a framework rule: the framework only clamps
+    /// it onto [`Self::effort_levels`] ([`crate::effort::Effort::channel_default`])
+    /// and never infers it from a family-name prefix. `None` means the provider
+    /// expressed no preference, in which case the vendor-neutral
+    /// [`crate::effort::Effort::High`] is clamped onto the ladder. Ignored when
+    /// `effort_levels` is empty.
+    pub default_effort: Option<crate::effort::Effort>,
     /// The model's **compiled offline-floor wire-entity table** (ADR-0074).
     ///
     /// `Some` when the vetted baseline carries the per-level PredictionService
@@ -192,9 +208,15 @@ pub struct RemoteModelMetadata {
     /// means that the model accepts no effort control. Carries
     /// [`EffortLevel`](crate::effort::EffortLevel) so a provider-advertised tier
     /// the vocabulary does not name is preserved verbatim and stamped through
-    /// (ADR-0065), rather than silently dropped.
+    /// (ADR-0068), rather than silently dropped.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_levels: Option<Vec<crate::effort::EffortLevel>>,
+    /// Endpoint-advertised **default** reasoning depth, when the catalogue
+    /// states a preference (Kimi and Copilot publish one alongside their
+    /// tiers). Absent means the endpoint expressed none, and the vetted
+    /// baseline's declared default — or the vendor-neutral fallback — stands.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_effort: Option<crate::effort::Effort>,
     /// The catalog the model came from, as the provider names it — Qoder's
     /// `source` (`"system"` for platform models, `"custom"` for user-added
     /// ones). Not presentation: a signed surface may carry this value on the
@@ -256,9 +278,17 @@ pub struct ModelCapabilities {
     pub vision: Option<bool>,
     /// The effort ladder this channel honors, as [`crate::EffortLevel`] so a
     /// provider-advertised tier outside the [`crate::Effort`] vocabulary is preserved
-    /// and stamped through (ADR-0065). Built in `for_channel` from the remote
+    /// and stamped through (ADR-0068). Built in `for_channel` from the remote
     /// advertisement over the static baseline.
     pub effort_levels: Vec<crate::effort::EffortLevel>,
+    /// The provider's **declared default** reasoning depth for this route, or
+    /// `None` when it expressed no preference. Resolved with the same
+    /// precedence as the ladder (remote advertisement over the static
+    /// baseline) so a live catalog may revise the default alongside the rungs.
+    ///
+    /// The framework's only use of it is to clamp it onto
+    /// [`Self::effort_levels`]; it is never inferred from a family name.
+    pub default_effort: Option<crate::effort::Effort>,
     /// The concrete per-level wire entities the upstream catalog registered
     /// for this model (ADR-0074). Empty when the canonical id routes
     /// verbatim — every provider except the tiered Antigravity families
@@ -290,45 +320,7 @@ impl RemoteModelMetadata {
     }
 }
 
-/// Materialized, route-scoped capabilities evaluated server-side via.
-/// Projected to frontends as the infallible single source of truth.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub struct RouteCapabilities {
-    /// Context window size in tokens. Guaranteed > 0 for all routed channels.
-    pub context_window: usize,
-    /// Maximum generation tokens, when declared or configured.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_output_tokens: Option<u32>,
-    /// Whether the route accepts image attachments, as declared by the
-    /// resolution layers: `None` means **undeclared**, never a
-    /// client-side guess that images are unsupported.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vision: Option<bool>,
-    /// Whether the route supports tool/function calling.
-    pub tool_call: bool,
-    /// Extended thinking / reasoning support mode.
-    pub thinking: ReasoningSupport,
-}
-
-impl RouteCapabilities {
-    /// Unknown is permissive: only an explicit `Some(false)` vetoes images.
-    pub const fn accepts_images(&self) -> bool {
-        !matches!(self.vision, Some(false))
-    }
-}
-
 impl ModelCapabilities {
-    /// Materialize the route-scoped projection for cross-process DTOs.
-    pub fn to_route_capabilities(&self) -> RouteCapabilities {
-        RouteCapabilities {
-            context_window: self.context_window,
-            max_output_tokens: self.max_output_tokens,
-            vision: self.vision,
-            tool_call: self.tool_call,
-            thinking: self.thinking,
-        }
-    }
-
     /// Whether image attachments may be put on the wire for this route.
     ///
     /// **Unknown is permissive**: only an explicit `Some(false)`
@@ -788,6 +780,22 @@ pub enum ModelTargetScope {
 }
 
 impl ModelCapabilities {
+    /// The provider's declared default reasoning depth, clamped onto the
+    /// ladder this route actually honors.
+    ///
+    /// `None` when the route exposes no ladder at all — in which case the
+    /// request must not stamp an effort field. This is the single source of
+    /// truth for both the picker's display fallback and the request-boundary
+    /// default, so the two can never disagree.
+    pub fn default_effort(&self) -> Option<crate::effort::Effort> {
+        let known: Vec<crate::effort::Effort> = self
+            .effort_levels
+            .iter()
+            .filter_map(crate::effort::EffortLevel::as_known)
+            .collect();
+        crate::effort::Effort::channel_default(self.default_effort, &known)
+    }
+
     /// Resolve effective capabilities for `model_id`, applying all explicitly
     /// advertised remote fields over the local baseline.
     ///
@@ -844,6 +852,11 @@ impl ModelCapabilities {
                     .map(Into::into)
                     .collect()
             }),
+            // The declared default travels with the ladder it belongs to. A
+            // remote advertisement that revises the rungs also revises the
+            // default (its own, when it states one); otherwise the vetted
+            // baseline's declared preference stands.
+            default_effort: remote.default_effort.or(baseline.default_effort),
             // Wire-entity resolution (ADR-0074): the live observation wins;
             // when it never ran, the vetted baseline's compiled table serves
             // the offline floor. A referenced family's registered entities
@@ -1015,6 +1028,7 @@ pub fn fallback_model(_id: &str) -> Model {
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,
     }
 }
@@ -1035,6 +1049,7 @@ pub fn resolve(id: &str) -> Model {
         if let Some(overridden) = fitted_entry(model.id) {
             return Model {
                 effort_levels: overridden.model.effort_levels,
+                default_effort: Some(crate::effort::Effort::High),
                 wire_entities: None,
                 ..*model
             };
@@ -1052,7 +1067,7 @@ pub fn resolve(id: &str) -> Model {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Capability metadata for a model id no registered baseline knows,
-/// learned at runtime from a provider's live model list (ADR-0065).
+/// learned at runtime from a provider's live model list (ADR-0068).
 ///
 /// Only **trusted** providers may feed this overlay (official endpoints whose
 /// `/models` advertises real capability fields, opted in via their template);
@@ -1152,6 +1167,7 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                     FittedEntry {
                         model: Model {
                             effort_levels: Box::leak(levels.into_boxed_slice()),
+                            default_effort: Some(crate::effort::Effort::High),
                             wire_entities: None,
                             ..*baseline
                         },
@@ -1184,6 +1200,7 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                     protocol: fitted.protocol,
                     model_guidance: "",
                     effort_levels: Box::leak(levels.into_boxed_slice()),
+                    default_effort: Some(crate::effort::Effort::High),
                     wire_entities: None,
                 },
                 declared_vision: fitted.vision,
@@ -1266,7 +1283,7 @@ mod tests {
 
     #[test]
     fn user_thinking_override_controls_chain_disclosure() {
-        // baseline has ReasoningSupport::AnthropicAdaptive -> chain_disclosed = true
+        // baseline has ReasoningSupport::Adaptive -> chain_disclosed = true
         let caps = ModelCapabilities::for_channel("fixture-alpha", None);
         assert!(caps.chain_disclosed());
 
@@ -1305,6 +1322,7 @@ mod tests {
             protocol: WireProtocol::OpenAiChatCompletions,
             model_guidance: "",
             effort_levels: crate::effort::COMMON_LADDER,
+            default_effort: Some(crate::effort::Effort::High),
             wire_entities: None,
         },
         Model {
@@ -1317,6 +1335,7 @@ mod tests {
             protocol: WireProtocol::AnthropicMessages,
             model_guidance: "",
             effort_levels: &[],
+            default_effort: Some(crate::effort::Effort::High),
             wire_entities: None,
         },
     ];
@@ -1330,6 +1349,7 @@ mod tests {
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,
     }];
 

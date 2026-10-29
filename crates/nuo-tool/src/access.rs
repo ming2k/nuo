@@ -184,6 +184,35 @@ impl ToolAccesses {
             .iter()
             .any(|left| other.0.iter().any(|right| access_conflict(left, right)))
     }
+
+    /// The one path this call names, when it names exactly one.
+    ///
+    /// Used by the workspace journal to describe an effect whose location is
+    /// unambiguous: a shell command that happens to declare a cwd is not a claim
+    /// about one file, so it yields `None`. A call is "single-path" only when every
+    /// declared access is a non-recursive `File` on the same path — anything else
+    /// (two files, a subtree, `All`) has no single answer, and inventing one would
+    /// make `/diff` describe a change it cannot locate.
+    pub fn single_file_path(&self) -> Option<String> {
+        let mut only: Option<&str> = None;
+        for access in &self.0 {
+            let ToolAccess::File {
+                path, recursive, ..
+            } = access
+            else {
+                return None;
+            };
+            if *recursive {
+                return None;
+            }
+            match only {
+                Some(existing) if existing != path.as_str() => return None,
+                Some(_) => {}
+                None => only = Some(path.as_str()),
+            }
+        }
+        only.map(str::to_string)
+    }
 }
 
 /// Per-access-pair conflict rule (kimi-code's `resourceAccessesConflict`):

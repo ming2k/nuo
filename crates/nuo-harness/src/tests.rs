@@ -2076,6 +2076,16 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
             AgentEvent::ToolCallStarted { index, name, .. } => {
                 Some(format!("tool-call-started {index} {name}"))
             }
+            // ADR-0125: previews are deterministic function of the workspace, so
+            // they belong in the transcript-normalized assertion stream — a
+            // behavioural test can then assert "the diff was shown before the
+            // write", which is the property that matters.
+            AgentEvent::ToolPreview { name, preview, .. } => Some(format!(
+                "tool-preview {name} {} +{} -{}",
+                preview.path,
+                preview.line_counts().0,
+                preview.line_counts().1
+            )),
             AgentEvent::ToolInputProgress { index, bytes, .. } => {
                 Some(format!("tool-input-progress {index} {bytes}"))
             }
@@ -4038,4 +4048,131 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
         }
         other => panic!("expected HarnessError::Provider(QuotaExhausted), got {other:?}"),
     }
+}
+
+// ── Turn-scoped previews (ADR-0125) ─────────────────────────────────────────
+
+/// A write tool that *does* have a pure preview, so a test can assert the ordering
+/// guarantee that matters: the diff is emitted before the bytes change.
+struct PreviewableWriteTool {
+    name: &'static str,
+    path: &'static str,
+    before: &'static str,
+    after: &'static str,
+}
+
+#[async_trait]
+impl Tool for PreviewableWriteTool {
+    fn name(&self) -> &str {
+        self.name
+    }
+    fn description(&self) -> &str {
+        "previewable write test tool"
+    }
+    fn parameters(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object"})
+    }
+    fn risk_profile(&self) -> nuo_tool::RiskProfile {
+        nuo_tool::RiskProfile::IdempotentMutation
+    }
+    fn scope_target(&self, _arguments: &str) -> nuo_wire::ScopeTarget {
+        nuo_wire::ScopeTarget::Path(std::path::PathBuf::from(self.path))
+    }
+    fn accesses(&self, _arguments: &str) -> nuo_wire::ToolAccesses {
+        nuo_wire::ToolAccesses::write_file(self.path.to_string())
+    }
+    fn preview(&self, _arguments: &serde_json::Value) -> Option<nuo_wire::PreviewResult> {
+        Some(nuo_wire::PreviewResult {
+            path: self.path.to_string(),
+            op: nuo_wire::PatchOp::Edit,
+            old: self.before.to_string(),
+            new: self.after.to_string(),
+            start_line: 1,
+            warnings: Vec::new(),
+        })
+    }
+    async fn call(&self, _arguments: &str) -> Result<String, String> {
+        Ok(format!("wrote {}", self.path))
+    }
+}
+
+/// The preview is emitted up front, alongside the calls themselves, so a whole
+/// batch's footprint is visible before anything runs.
+///
+/// This is the turn-scoped preview's reason for existing: with the diff attached
+/// only to permission prompts, a batch of five authorized writes gives the operator
+/// five separable decisions and no view of the aggregate. Emitting at preflight means
+/// every mutating card carries its diff before execution begins, which is what makes
+/// a single batch-level decision possible at all.
+#[tokio::test]
+async fn previews_are_emitted_up_front_for_every_mutating_call() {
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            turn(&[("c1", "write_a", "{}"), ("c2", "write_b", "{}")]),
+            text_turn("done"),
+        ])),
+        vec![
+            Arc::new(PreviewableWriteTool {
+                name: "write_a",
+                path: "a.rs",
+                before: "old a\n",
+                after: "new a\n",
+            }),
+            Arc::new(PreviewableWriteTool {
+                name: "write_b",
+                path: "b.rs",
+                before: "",
+                after: "brand new\n",
+            }),
+        ],
+        crate::AgentIdentity::default(),
+    ));
+
+    let (events, _) = run_golden_round(&agent, "go", PermissionDecision::Session).await;
+    let lines = transcript(&events);
+
+    let first_preview = lines
+        .iter()
+        .position(|line| line.starts_with("tool-preview"))
+        .expect("a mutating call must be previewed");
+    let first_result = lines
+        .iter()
+        .position(|line| line.starts_with("tool-result"))
+        .expect("the calls must have run");
+    assert!(
+        first_preview < first_result,
+        "every preview must precede the first result, got:\n{lines:#?}"
+    );
+
+    // Both are present, with counts derived from the preview content itself.
+    assert!(
+        lines.contains(&"tool-preview write_a a.rs +1 -1".to_string()),
+        "the edit's diff is reported: {lines:#?}"
+    );
+    assert!(
+        lines.contains(&"tool-preview write_b b.rs +1 -0".to_string()),
+        "a creation counts only additions: {lines:#?}"
+    );
+}
+
+/// A read-only call is not previewed: there is no change to describe, and a
+/// "preview" card for every `read_text` would bury the ones that matter.
+#[tokio::test]
+async fn read_only_calls_are_not_previewed() {
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![
+            turn(&[("c1", "alpha", "{\"k\":1}")]),
+            text_turn("done"),
+        ])),
+        vec![Arc::new(RecordingTool::read("alpha", "A-out"))],
+        crate::AgentIdentity::default(),
+    ));
+
+    let (events, _) = run_golden_round(&agent, "go", PermissionDecision::Reject).await;
+    assert!(
+        !transcript(&events)
+            .iter()
+            .any(|line| line.starts_with("tool-preview")),
+        "a read has nothing to preview"
+    );
 }

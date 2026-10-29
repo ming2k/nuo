@@ -111,11 +111,10 @@ pub fn build_provider_for_channel(
         Transport::GoogleGenerateContent {
             base_url,
             client_profile,
-            effort,
             dialect,
         } => {
             let capabilities = channel.capabilities();
-            let effective_effort = effective_channel_effort(*effort, &capabilities);
+            let effective_effort = channel.effective_effort(&capabilities);
             let mut provider = GoogleProvider::with_credentials(
                 credentials,
                 channel.model.clone(),
@@ -135,11 +134,10 @@ pub fn build_provider_for_channel(
         Transport::GoogleInteractions {
             base_url,
             client_profile,
-            effort,
             dialect: _,
         } => {
             let capabilities = channel.capabilities();
-            let effective_effort = effective_channel_effort(*effort, &capabilities);
+            let effective_effort = channel.effective_effort(&capabilities);
             let mut provider = GoogleInteractionsProvider::with_credentials(
                 credentials,
                 channel.model.clone(),
@@ -158,8 +156,6 @@ pub fn build_provider_for_channel(
         Transport::AnthropicMessages {
             base_url,
             client_profile,
-            effort,
-            thinking,
             dialect,
         } => {
             let mut provider = AnthropicMessagesProvider::with_credentials(
@@ -179,12 +175,15 @@ pub fn build_provider_for_channel(
             {
                 provider = provider.with_max_tokens(max_tokens);
             }
+            // Depth and the on/off switch are read from the route's resolved
+            // tunables, never from the transport: the transport knows how to
+            // send a request, not what the user chose (ADR-0126).
             let mut cfg = ThinkingConfig::for_model(&nuo_provider::model::resolve(&channel.model));
-            if let Some(mode) = thinking {
-                cfg = cfg.with_mode(*mode);
+            if channel.thinking_state(&capabilities).unwrap_or(false) {
+                cfg = cfg.with_mode(nuo_provider::ReasoningMode::Adaptive);
             }
-            if let Some(effort) = effort {
-                cfg = cfg.with_effort(*effort);
+            if let Some(effort) = channel.effective_effort(&capabilities) {
+                cfg = cfg.with_effort(effort);
             }
             provider = provider
                 .with_thinking(cfg)
@@ -196,11 +195,10 @@ pub fn build_provider_for_channel(
         Transport::OpenAiChatCompletions {
             base_url,
             client_profile,
-            effort,
             dialect,
         } => {
             let capabilities = channel.capabilities();
-            let effective_effort = effective_channel_effort(*effort, &capabilities);
+            let effective_effort = channel.effective_effort(&capabilities);
             let (catalog_source, display_name) = channel.catalog_provenance();
             let mut provider = OpenAiChatCompletionsProvider::with_credentials(
                 credentials,
@@ -225,12 +223,11 @@ pub fn build_provider_for_channel(
         Transport::OpenAiResponses {
             base_url,
             client_profile,
-            effort,
             dialect,
             state,
         } => {
             let capabilities = channel.capabilities();
-            let effective_effort = effective_channel_effort(*effort, &capabilities);
+            let effective_effort = channel.effective_effort(&capabilities);
             // Persistence needs both a surface that declares it and a dialect
             // whose schema defines `store` (ADR-0114). Anything less replays the
             // full local context and never anchors on `previous_response_id`.
@@ -253,20 +250,6 @@ pub fn build_provider_for_channel(
             Arc::new(provider)
         }
     }
-}
-
-fn effective_channel_effort(
-    override_effort: Option<nuo_provider::Effort>,
-    capabilities: &nuo_provider::ModelCapabilities,
-) -> Option<nuo_provider::Effort> {
-    override_effort.or_else(|| {
-        let known: Vec<nuo_provider::Effort> = capabilities
-            .effort_levels
-            .iter()
-            .filter_map(nuo_provider::EffortLevel::as_known)
-            .collect();
-        nuo_provider::Effort::channel_default(&capabilities.family, &known)
-    })
 }
 
 struct NuoProviderFactory;

@@ -92,7 +92,7 @@ impl ThinkingConfig {
     /// Whether the resolved model requires the manual-thinking beta header.
     /// Used by `request::beta_header`.
     pub(super) fn needs_manual_beta(self, support: ReasoningSupport) -> bool {
-        matches!(support, ReasoningSupport::AnthropicManual) && self.mode.is_on()
+        matches!(support, ReasoningSupport::Manual) && self.mode.is_on()
     }
 }
 

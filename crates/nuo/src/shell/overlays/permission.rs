@@ -803,6 +803,22 @@ pub fn draw_permission_sheet(
     let mut body_lines: Vec<Line> = Vec::new();
     body_lines.push(Line::from(header));
 
+    // The preview, when the tool can compute one (ADR-0125). Rendered through the
+    // shared `similar`-backed diff so a previewed change and an applied change are
+    // the same rows — a second implementation here would eventually show something
+    // the execution does not do.
+    //
+    // It appears in **both** states, deliberately: an approval prompt whose most
+    // decision-relevant content is hidden behind a "Details" toggle is a prompt that
+    // gets approved without being read. The diff is the question, not the fine print.
+    // An absent preview is rendered as its own line rather than silently omitted,
+    // because "no description of the effect is possible" is exactly what the operator
+    // needs to know before granting authority to something unpredictable.
+    let preview_rows: Vec<String> = match &request.preview {
+        Some(preview) => nuo_view::tools::diff::unified_diff_rows(&preview.old, &preview.new, 3),
+        None => Vec::new(),
+    };
+
     if confirm_always {
         body_lines.push(Line::from(Span::styled(
             "Grants this tool until nuo exits.",
@@ -814,6 +830,73 @@ pub fn draw_permission_sheet(
             request.description.clone(),
             Style::default().fg(theme.fg()),
         )));
+    }
+
+    match &request.preview {
+        Some(preview) if preview.is_unchanged() => {
+            // An idempotent write. Saying so is kinder than showing an empty diff,
+            // and it tells the operator this approval changes nothing.
+            body_lines.push(Line::from(Span::styled(
+                "No change: this call rewrites the file with identical content.",
+                Style::default().fg(theme.muted()),
+            )));
+        }
+        Some(preview) => {
+            let (added, removed) = preview.line_counts();
+            body_lines.push(Line::from(""));
+            body_lines.push(Line::from(vec![
+                Span::styled(
+                    "Change ",
+                    Style::default()
+                        .fg(theme.info())
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("+{added}"), Style::default().fg(theme.ok())),
+                Span::styled(" ", Style::default()),
+                Span::styled(format!("-{removed}"), Style::default().fg(theme.err())),
+                Span::styled(
+                    format!("  {}", request.scope),
+                    Style::default().fg(theme.muted()),
+                ),
+            ]));
+            // A bounded window: the sheet is anchored to the composer slot, so an
+            // unbounded diff would push its own footer off-screen. The user can
+            // still expand for the full argument JSON.
+            const PREVIEW_ROWS: usize = 10;
+            for row in preview_rows.iter().take(PREVIEW_ROWS) {
+                let style = if row.starts_with('+') {
+                    Style::default().fg(theme.ok())
+                } else if row.starts_with('-') {
+                    Style::default().fg(theme.err())
+                } else if row.starts_with("@@") {
+                    Style::default().fg(theme.info())
+                } else {
+                    Style::default().fg(theme.muted())
+                };
+                body_lines.push(Line::from(Span::styled(row.clone(), style)));
+            }
+            if preview_rows.len() > PREVIEW_ROWS {
+                body_lines.push(Line::from(Span::styled(
+                    format!(
+                        "… {} more line(s) (expand Details for the full arguments)",
+                        preview_rows.len() - PREVIEW_ROWS
+                    ),
+                    Style::default().fg(theme.muted()),
+                )));
+            }
+        }
+        None => {
+            // No preview is possible for this tool. State it rather than leaving a
+            // silent gap: the operator is being asked to authorize an effect that
+            // cannot be described in advance.
+            body_lines.push(Line::from(Span::styled(
+                "This call's effect cannot be shown in advance.",
+                Style::default().fg(theme.muted()),
+            )));
+        }
+    }
+
+    if show_details {
         body_lines.push(Line::from(""));
         body_lines.push(Line::from(Span::styled(
             "Arguments",
@@ -1281,6 +1364,23 @@ mod tests {
         rows.join("\n")
     }
 
+    /// The visible text of one rect, read column by column from the painted
+    /// grid. Scoping an assertion to the region that owns the content keeps
+    /// neighbouring chrome (a scrollbar gutter, a border, a footer band) out
+    /// of the substring under test.
+    fn body_text(terminal: &nuotc::TestTerminal, rect: Rect) -> String {
+        let buf = terminal.buffer();
+        let mut rows = Vec::new();
+        for y in rect.y..rect.bottom() {
+            let mut row = String::new();
+            for x in rect.x..rect.right() {
+                row.push_str(buf.get(x, y).map(|c| c.symbol.as_str()).unwrap_or(" "));
+            }
+            rows.push(row.trim_end().to_string());
+        }
+        rows.join("\n")
+    }
+
     /// A wrapped multi-span body row must keep every character. The header is
     /// `label` + `"  "` + scope (three spans); when the concatenation is wider
     /// than the body, the continuation row re-slices spans with byte
@@ -1368,15 +1468,24 @@ mod tests {
             );
         });
 
-        // Body width = 14 - 1 - 2*1 = 11; header `tool  ls | head` is 15
-        // cols, so it wraps. No non-whitespace character may be dropped by
-        // the wrap — the concatenated header rows must reassemble to the
-        // full header (whitespace at a wrap point may trail and go unrendered).
+        // Body width = 14 - 1 - 2*2 = 9; header `tool  ls | head` is 15 cols,
+        // so it spans two visual rows. No non-whitespace character may be
+        // dropped by the wrap: the body rows reassemble to the full header
+        // (whitespace at a wrap point may trail and go unrendered).
+        //
+        // Read the header from the body's own columns rather than from the
+        // whole painted grid. `sheet_text` returns every column, and once the
+        // body overflows, the scrollbar gutter (`▼` at `area.right() - 1`)
+        // paints on the header's continuation row — chrome that a text filter
+        // anchored on `head` would happily append to the header and then
+        // report as a lost character. The wrap is what is under test here, not
+        // the indicator, so the assertion is scoped to the body rect.
+        let content_x = 1 + PERMISSION_H_PADDING;
+        let content_w = 14u16.saturating_sub(1 + 2 * PERMISSION_H_PADDING).max(1);
+        let body = Rect::new(content_x, 16 + PERMISSION_TOP_PADDING, content_w, 2);
         let text = sheet_text(&terminal);
-        let header: String = text
+        let header: String = body_text(&terminal, body)
             .lines()
-            .map(|l| l.trim_start_matches('┃').trim())
-            .filter(|l| l.starts_with("tool") || l.starts_with('|') || l.starts_with("head"))
             .flat_map(|l| l.chars().filter(|c| !c.is_whitespace()))
             .collect();
         assert_eq!(

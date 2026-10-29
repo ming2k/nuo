@@ -376,16 +376,16 @@ fn stamp_thinking(
     let resolved = thinking.resolve_for(&capabilities.effort_levels);
     let want = resolved.mode.is_on();
     match capabilities.thinking {
-        ReasoningSupport::AnthropicManual if want => {
+        ReasoningSupport::Manual if want => {
             body["thinking"] = json!({
                 "type": "enabled",
                 "budget_tokens": manual_thinking_budget(max_tokens),
             });
         }
-        ReasoningSupport::AnthropicAdaptiveAlwaysOn => {
+        ReasoningSupport::AdaptiveAlwaysOn => {
             body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
         }
-        ReasoningSupport::AnthropicAdaptiveOnByDefault => {
+        ReasoningSupport::AdaptiveOnByDefault => {
             // Sonnet 5: omitting the field RUNS thinking. Honor opt-OUT with
             // `{type:"disabled"}`; opt-in emits adaptive.
             if want {

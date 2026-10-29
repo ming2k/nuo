@@ -164,6 +164,75 @@ pub const MODEL_BAR_MODEL_GAP: usize = 1;
 /// ActivityStrip: the consolidated single-row strip (ADR-0062 [INV-FOOTER-02])
 /// shown directly above Composer while a round, queue items, or tasks are active.
 pub const ACTIVITY_STRIP_ROWS: u16 = 1;
+
+/// NoticeDock (ADR-0121): the retained-disclosure panel docked above the
+/// activity strip while it is open.
+///
+/// # Its height is a function of the viewport, never of the log
+///
+/// This is the load-bearing rule, and it is not a preference. A height derived
+/// from "how many notices exist" makes the footer grow on every arrival, which
+/// shrinks the transcript above it and **reflows the text the user is reading** —
+/// while they are reading it, because reviewing a fault is exactly when more
+/// faults arrive. That is the layout-jitter class ADR-0062 already banned for the
+/// activity strip ("strictly bounded to at most 1 row … eliminating layout
+/// jitter"), and a docked log pane is the same shape of surface.
+///
+/// Every docked log pane in every tool behaves this way: the pane has a size and
+/// the content scrolls inside it. So:
+///
+/// - **base**: `clamp(viewport / 4, MIN, MAX)` — a quarter of the screen, floored
+///   so the panel is a readable viewport, capped so it never dominates.
+/// - **never more than half the viewport**, whatever the arithmetic says: the dock
+///   explains the conversation behind it and must never displace it.
+/// - **one explicit exception**: an expanded detail block may grow the panel, up
+///   to that same ceiling. A user pressing `Enter` asked for the reflow, so it is
+///   not jitter — it is the requested layout. A notice *arriving* never grows it.
+pub const NOTICE_DOCK_MIN_ROWS: u16 = 6;
+
+/// The dock's base height for a terminal `height` rows tall — **independent of the
+/// log's length**.
+///
+/// See [`NOTICE_DOCK_MIN_ROWS`] for why that independence is the whole contract.
+///
+/// A quarter of the viewport, floored at the readable minimum. There is
+/// deliberately **no percentage cap on top**: the half-viewport rule below is the
+/// real protection against displacing the conversation, and an extra absolute cap
+/// only fought the proportion (a 20% cap turned a quarter into a fifth on every
+/// terminal, which is how a "proportional" pane ends up not proportional).
+pub const fn notice_dock_rows(height: u16) -> u16 {
+    let ceiling = notice_dock_ceiling(height);
+    let base = if height / 4 < NOTICE_DOCK_MIN_ROWS {
+        NOTICE_DOCK_MIN_ROWS
+    } else {
+        height / 4
+    };
+    let base = if ceiling < base { ceiling } else { base };
+    // An open dock always gets a row if the screen has any to give: an open panel
+    // that paints nothing is a promise the layout silently breaks.
+    if base == 0 && height >= 2 { 1 } else { base }
+}
+
+/// The dock's ceiling for a terminal `height` rows tall: **half the viewport**.
+///
+/// One bound, not two. The dock explains the conversation behind it and must never
+/// displace it, and "half" states that in the units the constraint actually has.
+const fn notice_dock_ceiling(height: u16) -> u16 {
+    height / 2
+}
+
+/// The dock's height when the selected notice's detail block is expanded.
+///
+/// Growth is allowed **only** here, because pressing `Enter` is an explicit
+/// request for more room. `detail_rows` is the wrapped row count the expanded
+/// block needs; the result is clamped to the same ceiling as the base, so a
+/// pathological detail cannot swallow the screen.
+pub const fn notice_dock_rows_expanded(height: u16, detail_rows: u16) -> u16 {
+    let base = notice_dock_rows(height);
+    let ceiling = notice_dock_ceiling(height);
+    let wanted = base.saturating_add(detail_rows);
+    if ceiling < wanted { ceiling } else { wanted }
+}
 /// Minimum gap between a footer bar's left content and its right-pinned
 /// keycap legend (e.g. the queue bar's `Ctrl+Q expand`). Deliberately wider than the
 /// 2-col inter-cluster
@@ -487,5 +556,96 @@ mod tests {
         // And the boundary is exactly one row past the folded footprint.
         assert!(!bash_fold_applies(BASH_FOLD_MIN_VERBATIM_ROWS));
         assert!(bash_fold_applies(BASH_FOLD_MIN_VERBATIM_ROWS + 1));
+    }
+}
+
+#[cfg(test)]
+mod notice_dock_tests {
+    use super::*;
+
+    #[test]
+    fn the_dock_height_does_not_depend_on_how_many_notices_exist() {
+        // THE contract. A height derived from the log's length makes the footer
+        // grow on every arrival, shrinking and reflowing the transcript the user
+        // is reading — while they read it, because reviewing a fault is exactly
+        // when more faults arrive. That is ADR-0062's layout-jitter class.
+        //
+        // The signature is the proof: `notice_dock_rows` takes only the viewport,
+        // so no caller *can* pass a notice count. This test documents the shape of
+        // the guarantee for the next reader.
+        for height in [10u16, 24, 40, 80, 200] {
+            let expected = notice_dock_rows(height);
+            assert_eq!(
+                notice_dock_rows(height),
+                expected,
+                "the same viewport must always yield the same height"
+            );
+        }
+    }
+
+    #[test]
+    fn the_dock_is_a_readable_fraction_of_the_screen() {
+        // A quarter of the viewport, floored at the readable minimum and capped
+        // against the conversation it explains.
+        assert_eq!(notice_dock_rows(80), 20, "80/4 = a 20-row review pane");
+        assert_eq!(notice_dock_rows(40), 10);
+        assert_eq!(
+            notice_dock_rows(24),
+            NOTICE_DOCK_MIN_ROWS,
+            "a short terminal gets the floor, not a sliver"
+        );
+        assert_eq!(
+            notice_dock_rows(120),
+            30,
+            "a tall terminal gets a proportionally taller pane"
+        );
+    }
+
+    #[test]
+    fn the_dock_never_displaces_the_conversation_it_explains() {
+        for height in [4u16, 10, 20, 24, 30, 40, 50, 60, 80, 120, 200] {
+            let dock = notice_dock_rows(height);
+            assert!(
+                dock <= height / 2,
+                "dock {dock} must leave at least half of {height} to the transcript"
+            );
+            assert!(dock <= height, "and must never exceed the viewport");
+        }
+    }
+
+    #[test]
+    fn the_dock_never_asks_for_zero_rows_when_it_is_open() {
+        // Opening the panel and getting a zero-height row would be a promise the
+        // layout silently breaks.
+        for height in [2u16, 4, 6, 8, 10] {
+            assert!(
+                notice_dock_rows(height) > 0,
+                "an open dock always gets a row on a {height}-row terminal"
+            );
+        }
+    }
+
+    #[test]
+    fn an_expanded_detail_may_grow_the_dock_but_never_past_the_ceiling() {
+        // The one allowed exception: pressing `Enter` is an explicit request for
+        // more room, so the reflow it causes is the requested layout, not jitter.
+        let base = notice_dock_rows(80);
+        assert_eq!(
+            notice_dock_rows_expanded(80, 6),
+            base + 6,
+            "a detail block buys the rows it needs"
+        );
+        assert_eq!(
+            notice_dock_rows_expanded(80, 500),
+            40,
+            "a pathological detail is capped at half the viewport"
+        );
+        // And it is monotonic in the detail size, so `Enter` never shrinks the pane.
+        let mut prev = base;
+        for rows in 0..30u16 {
+            let grown = notice_dock_rows_expanded(80, rows);
+            assert!(grown >= prev, "expansion must not shrink the dock");
+            prev = grown;
+        }
     }
 }

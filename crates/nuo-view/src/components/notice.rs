@@ -182,6 +182,15 @@ pub fn draw_notice_view(
         };
         let sel_range = block_selection_range(selection, mi, bi);
         let lines = wrap.wrap_text(text, body_wrap_width);
+        // `render_row_line` works in the **logical row's** coordinate space:
+        // `base_offset` is where this wrapped slice starts inside the row, and
+        // each segment's byte range is measured from the row's start too. The
+        // whole run therefore carries one segment spanning the full row — the
+        // row is single-styled. Handing it the *slice* as the segment (with a
+        // row-relative `base_offset`) left continuation rows with no segment
+        // covering them, and `render_row_line` correctly painted nothing: every
+        // notice longer than one visual line silently lost its body.
+        let segments = [RowSegment::styled(text.to_string(), style)];
         for wl in lines.iter() {
             *content_lines += 1;
             if *skip_rows > 0 {
@@ -192,7 +201,6 @@ pub fn draw_notice_view(
                 continue;
             }
             let line_rect = Rect::new(area.x, *current_y, area.width, 1);
-            let segments = [RowSegment::styled(wl.text.clone(), style)];
             let mut line = render_row_line(
                 &wl.text,
                 wl.start_byte,

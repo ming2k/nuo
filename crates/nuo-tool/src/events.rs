@@ -236,6 +236,19 @@ pub struct PermissionRequest {
     /// Structured tool-specific payload submitted to the permission handler.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submission: Option<crate::hazard::ToolPermissionSubmission>,
+    /// A pure preview of what this call would do, when the tool can compute one
+    /// without performing it (ADR-0125).
+    ///
+    /// Present for file mutations, absent for effects that cannot be predicted
+    /// (shell, network, subagent). Its absence is information: it tells the operator
+    /// that authorizing this call means authorizing an effect nobody can describe in
+    /// advance, which is exactly what they need to know before saying yes.
+    ///
+    /// It lives on the *request* rather than on a separate event so the diff and the
+    /// question cannot be decoupled: every frontend that can ask for authority can
+    /// also show the change, and a frontend that omits it is visibly withholding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<crate::preview::PreviewResult>,
 }
 
 /// One option offered to the user inside an `ask_user` question.

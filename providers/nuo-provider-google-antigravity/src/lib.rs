@@ -234,22 +234,34 @@ impl GoogleProvider {
         BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
-        let response = self.send_google_request(&request, true, true, None).await?;
+        let (response, shape) = self.send_google_request(&request, true, true, None).await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {
-                response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url)
+                response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    Some(&shape),
+                )
             })?;
         Ok(self.wrap_event_stream(response))
     }
 
+    /// Send one Google request, returning the response **and** the shape of the
+    /// body that was actually put on the wire.
+    ///
+    /// The shape travels with the response so every refusal path can fold the
+    /// sent evidence into the error (see [`response::RequestShape`]): Google's
+    /// `400` body names no field, so without this the notice can only say
+    /// "invalid argument".
     async fn send_google_request(
         &self,
         request: &ModelRequest,
         is_stream: bool,
         omit_thinking: bool,
         timeout: Option<std::time::Duration>,
-    ) -> Result<HttpResponse, ProviderError> {
+    ) -> Result<(HttpResponse, response::RequestShape), ProviderError> {
         let _cache_plan = self
             .prompt_cache
             .resolve(request)
@@ -263,6 +275,7 @@ impl GoogleProvider {
         let auth = auth_result.map_err(|e| ProviderError::authentication("Google", e))?;
         let (url, headers, body) =
             self.prepare_request_for_auth(request.clone(), is_stream, omit_thinking, &auth);
+        let shape = self.request_shape(&body);
 
         let mut req_builder = RequestBuilder::new(http::Method::POST, &url)
             .headers(headers.clone())
@@ -289,6 +302,7 @@ impl GoogleProvider {
                 omit_thinking,
                 &refreshed_auth,
             );
+            let retry_shape = self.request_shape(&retry_body);
             let mut retry_builder = RequestBuilder::new(http::Method::POST, &retry_url)
                 .headers(retry_headers)
                 .json(&retry_body)
@@ -296,10 +310,28 @@ impl GoogleProvider {
             if let Some(t) = timeout {
                 retry_builder = retry_builder.timeout(t);
             }
-            return Ok(self.client.send_raw(retry_builder, "Google").await?);
+            return Ok((
+                self.client.send_raw(retry_builder, "Google").await?,
+                retry_shape,
+            ));
         }
 
-        Ok(response)
+        Ok((response, shape))
+    }
+
+    /// Read the shape of a prepared body back into a [`response::RequestShape`],
+    /// resolving the wire model id exactly as the envelope did.
+    fn request_shape(&self, body: &serde_json::Value) -> response::RequestShape {
+        let wire_model = if self.is_antigravity() {
+            effective_antigravity_wire_model(
+                &self.capabilities,
+                &self.endpoint.model,
+                self.reasoning_effort,
+            )
+        } else {
+            self.endpoint.model.clone()
+        };
+        response::RequestShape::of(&wire_model, body)
     }
 
     fn wrap_event_stream(
@@ -487,13 +519,18 @@ impl GoogleProvider {
             model = %self.endpoint.model,
             "upstream rejected thinkingConfig; retrying without disclosed thinking (chain withheld by upstream)"
         );
-        let response = self
+        let (response, shape) = self
             .send_google_request(&request, false, true, Some(self.client.request_timeout()))
             .await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {
-                response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url)
+                response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    Some(&shape),
+                )
             })?;
 
         let response_json: serde_json::Value = decode_response_json(response, "Google").await?;
@@ -505,10 +542,11 @@ impl GoogleProvider {
                 ProviderErrorKind::Protocol,
                 format!("Google Error: {}", err),
             );
-            return Err(response::clarify_error(
+            return Err(response::clarify_error_with_shape(
                 provider_err,
                 &self.endpoint.model,
                 &self.endpoint.base_url,
+                Some(&shape),
             ));
         }
 
@@ -715,7 +753,7 @@ impl Provider for GoogleProvider {
         request: ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
         let omit = self.thinking_was_rejected();
-        let response = self
+        let (response, shape) = self
             .send_google_request(&request, false, omit, Some(self.client.request_timeout()))
             .await?;
         let response = match ensure_success(response, "Google", Some(&self.endpoint.model)).await {
@@ -724,8 +762,19 @@ impl Provider for GoogleProvider {
                 // Elastic downgrade (see `stream_chat_events`): when the
                 // upstream rejects our `thinkingConfig`, retry the identical
                 // turn with thinking omitted rather than failing it.
-                let e = response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url);
-                if response::rejects_thinking_config(e.message()) && self.note_thinking_rejected() {
+                //
+                // Classify the *upstream* error, then augment. The augmented
+                // message names the thinking surface on purpose, so testing it
+                // would match every 400 and latch the channel into
+                // chain-withholding for an unrelated fault.
+                let rejected = response::rejects_thinking_config_error(&e);
+                let e = response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    Some(&shape),
+                );
+                if rejected && self.note_thinking_rejected() {
                     return Box::pin(self.chat_without_thinking(request)).await;
                 }
                 return Err(e);
@@ -741,10 +790,11 @@ impl Provider for GoogleProvider {
                 ProviderErrorKind::Protocol,
                 format!("Google Error: {}", err),
             );
-            return Err(response::clarify_error(
+            return Err(response::clarify_error_with_shape(
                 provider_err,
                 &self.endpoint.model,
                 &self.endpoint.base_url,
+                Some(&shape),
             ));
         }
 
@@ -759,7 +809,7 @@ impl Provider for GoogleProvider {
         nuo_provider::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
-        let response = self.send_google_request(&request, true, omit, None).await?;
+        let (response, shape) = self.send_google_request(&request, true, omit, None).await?;
         let response = match ensure_success(response, "Google", Some(&self.endpoint.model)).await {
             Ok(response) => response,
             Err(e) => {
@@ -771,8 +821,16 @@ impl Provider for GoogleProvider {
                 // classified error — the sticky flag below is still set so the
                 // *next* text stream skips the doomed stamp instead of paying
                 // a failed request.
-                let e = response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url);
-                if response::rejects_thinking_config(e.message()) {
+                // Classify the upstream error before augmenting it — see
+                // `rejects_thinking_config_error` for why the order matters.
+                let rejected = response::rejects_thinking_config_error(&e);
+                let e = response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    Some(&shape),
+                );
+                if rejected {
                     self.note_thinking_rejected();
                 }
                 return Err(e);
@@ -798,7 +856,7 @@ impl Provider for GoogleProvider {
         nuo_provider::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
-        let response = self.send_google_request(&request, true, omit, None).await?;
+        let (response, shape) = self.send_google_request(&request, true, omit, None).await?;
         let response = match ensure_success(response, "Google", Some(&self.endpoint.model)).await {
             Ok(response) => response,
             Err(e) => {
@@ -808,8 +866,18 @@ impl Provider for GoogleProvider {
                 // thinking-disclosure surface omitted so the answer still
                 // streams; the sticky flag (`note_thinking_rejected`) makes
                 // this at most one extra request per channel per process.
-                let e = response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url);
-                if response::rejects_thinking_config(e.message()) && self.note_thinking_rejected() {
+                //
+                // Classify the upstream error before augmenting it — the
+                // augmented text names the thinking surface on purpose, so
+                // testing it would match every 400.
+                let rejected = response::rejects_thinking_config_error(&e);
+                let e = response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    Some(&shape),
+                );
+                if rejected && self.note_thinking_rejected() {
                     tracing::warn!(
                         model = %self.endpoint.model,
                         "upstream rejected thinkingConfig; streaming without disclosed thinking (chain withheld by upstream)"
@@ -1260,7 +1328,7 @@ mod tests {
         );
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["thinkingLevel"],
-            "high"
+            "HIGH"
         );
 
         let (_, _, without) = p.prepare_request(ModelRequest::new(Vec::new()), true, true);

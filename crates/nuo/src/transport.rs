@@ -570,7 +570,12 @@ pub async fn ensure_server_explicit(
     let _spawn_guard = match nuo_host::lock::ProcessLock::acquire(&spawn_lock_path) {
         Ok(guard) => Some(guard),
         Err(_) => {
+            // Another client is spawning. Poll for its discovery record, but
+            // keep retrying the lock: abandon the wait the moment the holder
+            // releases it, instead of burning the full 6 s budget even after
+            // the spawning client has finished or died.
             let wait_deadline = tokio::time::Instant::now() + Duration::from_secs(6);
+            let mut acquired = None;
             while tokio::time::Instant::now() < wait_deadline {
                 tokio::time::sleep(SERVER_START_POLL).await;
                 if let Some(info) = discover(project_root) {
@@ -578,8 +583,12 @@ pub async fn ensure_server_explicit(
                         return Ok(info);
                     }
                 }
+                if let Ok(guard) = nuo_host::lock::ProcessLock::acquire(&spawn_lock_path) {
+                    acquired = Some(guard);
+                    break;
+                }
             }
-            nuo_host::lock::ProcessLock::acquire(&spawn_lock_path).ok()
+            acquired
         }
     };
 

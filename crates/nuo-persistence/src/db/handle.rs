@@ -9,6 +9,9 @@ pub struct StorageMaintenanceReport {
     pub reclaimed_entries: usize,
     pub reclaimed_blobs: usize,
     pub reclaimed_blob_bytes: u64,
+    /// Pre-images whose retention window elapsed this pass. Their journal rows
+    /// survive as evidence; only their bytes became reclaimable.
+    pub expired_preimages: usize,
     pub created_backup: Option<PathBuf>,
     pub pruned_backups: usize,
 }
@@ -291,6 +294,166 @@ impl PersistenceHandle {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::RecordCommand { cmd, ack: ack_tx })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Append a write-ahead workspace effect, returning its journal id
+    /// (ADR-0125).
+    ///
+    /// Called *before* the mutating tool runs. This is deliberately a blocking
+    /// `send().await` on the writer ack rather than a fire-and-forget: a
+    /// pre-image that is not durable is a pre-image that does not exist, and the
+    /// point of the write-ahead row is that it survives the crash that follows
+    /// the mutation. If the journal cannot be written the caller must **not**
+    /// perform the mutation — an unrecorded reversible write would be silently
+    /// irreversible.
+    pub async fn append_workspace_effect(
+        &self,
+        effect: crate::workspace_effects::NewOwnedEffect,
+    ) -> Result<i64, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::AppendWorkspaceEffect {
+                effect: Box::new(effect),
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Append a workspace effect that needs no recovery point, returning its
+    /// journal id. Used for shell, network, and process effects, whose value is
+    /// the receipt rather than the ability to restore.
+    pub async fn append_completed_workspace_effect(
+        &self,
+        effect: crate::workspace_effects::NewOwnedEffect,
+        completed_at_ms: u64,
+    ) -> Result<i64, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::AppendCompletedWorkspaceEffect {
+                effect: Box::new(effect),
+                completed_at_ms,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Complete a write-ahead effect with its post-image. `Ok(false)` means the
+    /// row was already completed or does not exist.
+    pub async fn complete_workspace_effect(
+        &self,
+        effect_id: i64,
+        after_hash: Option<String>,
+        completed_at_ms: u64,
+    ) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::CompleteWorkspaceEffect {
+                effect_id,
+                after_hash,
+                completed_at_ms,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Stamp a journal row as reversed. `Ok(false)` means another caller
+    /// already reversed it.
+    pub async fn mark_workspace_effect_reversed(
+        &self,
+        effect_id: i64,
+        reversed_at_ms: u64,
+        note: Option<String>,
+    ) -> Result<bool, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::MarkWorkspaceEffectReversed {
+                effect_id,
+                reversed_at_ms,
+                note,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Read a thread's whole journal in observation order.
+    pub async fn list_workspace_effects(
+        &self,
+        thread_id: String,
+    ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::ListWorkspaceEffects {
+                thread_id,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Expire pre-images older than `older_than_ms`, returning how many rows were
+    /// newly expired. Their bytes leave the collector's live set on the next sweep;
+    /// the journal rows keep their observation (ADR-0125 `INV-EFFECT-05`).
+    pub async fn expire_preimages(
+        &self,
+        older_than_ms: u64,
+        now_ms: u64,
+    ) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::ExpirePreimages {
+                older_than_ms,
+                now_ms,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Blocking variant of [`Self::expire_preimages`], for the maintenance pass
+    /// which runs on a dedicated blocking thread (never on an async worker).
+    pub fn expire_preimages_blocking(
+        &self,
+        older_than_ms: u64,
+        now_ms: u64,
+    ) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.run_blocking(
+            PersistenceCommand::ExpirePreimages {
+                older_than_ms,
+                now_ms,
+                ack: ack_tx,
+            },
+            ack_rx,
+        )
+    }
+
+    /// Read the newest confirmed, not-yet-reversed reversible effects, newest
+    /// first.
+    pub async fn undoable_workspace_effects(
+        &self,
+        thread_id: String,
+        limit: u32,
+    ) -> Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::UndoableWorkspaceEffects {
+                thread_id,
+                limit,
+                ack: ack_tx,
+            })
             .await
             .map_err(|_| PersistenceError::WriterDown)?;
         ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
@@ -805,7 +968,26 @@ impl PersistenceHandle {
         let entries = self.collect_entry_garbage_blocking().unwrap_or(0);
         report.reclaimed_entries = entries;
 
-        // 2. CAS blob sweep against reader snapshot
+        // 2. Expire pre-images past the retention window, *then* sweep the CAS.
+        //
+        // Order is load-bearing: the sweep's live set is derived from the journal,
+        // so expiring first is what makes an aged-out pre-image actually
+        // reclaimable. Sweeping first would keep every pre-image alive forever,
+        // because nothing would ever remove it from the live set.
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let window_ms = crate::workspace_effects::DEFAULT_PREIMAGE_RETENTION_DAYS
+            .saturating_mul(24 * 60 * 60 * 1000);
+        match self.expire_preimages_blocking(now_ms.saturating_sub(window_ms), now_ms) {
+            Ok(expired) => report.expired_preimages = expired,
+            Err(error) => {
+                tracing::warn!(%error, "pre-image retention sweep failed; keeping all pre-images");
+            }
+        }
+
+        // 3. CAS blob sweep against reader snapshot
         if let Some(ref blob_store) = self.blob_store {
             let (blob_count, blob_bytes) = match self.reader().and_then(|r| r.live_blob_hashes()) {
                 Ok(live) => blob_store.retain_only(&live),

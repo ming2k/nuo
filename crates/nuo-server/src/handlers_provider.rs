@@ -1031,36 +1031,36 @@ pub(crate) async fn edit_model(
             .filter(|s| nuo_wire::effort::Effort::parse(s).is_some())
     });
 
-    // Resolve the route's transport to decide which knobs apply (Anthropic
-    // honors thinking; OpenAI/Responses carry effort only; Google ignores both).
+    // Guard the edit against a route that cannot be derived at all (an
+    // unknown connection, or a model the surface does not serve). The derived
+    // channel itself is not consulted: which knobs apply is the *provider's*
+    // declaration, and the request boundary already ignores a knob a route does
+    // not expose (ADR-0126). This is a validity check, not a knob selector.
     let stores = nuo_model_routing::Stores::load();
     let Some(conn) = stores.connections.get(&connection) else {
         return;
     };
-    let channel = match nuo_model_routing::derive_channel(conn, &model, &stores.inputs()) {
-        Ok(channel) => channel,
-        Err(error) => {
-            let _ = resp_tx.send(AgentResponse::Error(error.to_string()));
-            return;
-        }
-    };
-    let transport = channel.transport;
+    if let Err(error) = nuo_model_routing::derive_channel(conn, &model, &stores.inputs()) {
+        let _ = resp_tx.send(AgentResponse::Error(error.to_string()));
+        return;
+    }
 
     let mut routes = RouteSettingsStore::load();
     let entry = routes.settings_for_mut(&connection, &model);
-    match transport {
-        nuo_provider::catalog::Transport::AnthropicMessages { .. } => {
-            entry.effort = valid_effort;
-            entry.thinking = thinking;
-        }
-        nuo_provider::catalog::Transport::OpenAiChatCompletions { .. }
-        | nuo_provider::catalog::Transport::OpenAiResponses { .. } => {
-            entry.effort = valid_effort;
-            entry.thinking = None;
-        }
-        nuo_provider::catalog::Transport::GoogleGenerateContent { .. }
-        | nuo_provider::catalog::Transport::GoogleInteractions { .. } => {}
-    }
+    // Depth and the thinking switch are written into the route's open tuning
+    // map, keyed by the framework's own knob ids. There is no per-protocol
+    // `match` here: whether a knob applies is the *provider's* declaration
+    // (`Model::effort_levels` / `Model::thinking`), and the request
+    // boundary already ignores a knob a route does not expose. Clearing the
+    // switch on a route that has none is therefore unnecessary — and the old
+    // `match` on `Transport` was exactly the pipe-versus-setting conflation
+    // ADR-0126 removes.
+    entry.tunings.set_effort(
+        valid_effort
+            .as_deref()
+            .and_then(nuo_wire::effort::Effort::parse),
+    );
+    entry.tunings.set_thinking(thinking);
     // Capability overrides (layer 1): `None` keeps the stored
     // record untouched; `Some(record)` replaces it wholesale (empty clears).
     if let Some(record) = overrides {
@@ -1127,8 +1127,12 @@ pub(crate) async fn edit_model_reasoning(
     let provider_id = config.default_connection.clone();
     let mut routes = RouteSettingsStore::load();
     let entry = routes.settings_for_mut(&provider_id, &model);
-    entry.effort = valid_effort;
-    entry.thinking = thinking;
+    entry.tunings.set_effort(
+        valid_effort
+            .as_deref()
+            .and_then(nuo_wire::effort::Effort::parse),
+    );
+    entry.tunings.set_thinking(thinking);
     if let Some(record) = overrides {
         entry.capability_overrides = (!record.is_empty()).then_some(record);
     }
@@ -1892,13 +1896,11 @@ pub(crate) async fn query_connection_detail(
         .and_then(|m| entry.channel_for_model(m))
         .or_else(|| entry.default_channel());
     let active_channel_info = active_channel.map(nuo_model_routing::channel_model_info);
-    let active_model_effort = active_channel_info.as_ref().and_then(|info| {
-        let show = match info.protocol.as_str() {
-            "anthropic" => info.thinking == Some(true),
-            _ => info.effort.is_some(),
-        };
-        if show { info.effort.clone() } else { None }
-    });
+    // The server resolved these already; no protocol sniffing here. Depth and
+    // the switch are what the route would actually stamp (ADR-0126).
+    let active_model_effort = active_channel_info
+        .as_ref()
+        .and_then(|info| info.effort.clone());
     let active_model_thinking = active_channel_info.as_ref().and_then(|info| info.thinking);
 
     let auth_type = if connection.auth.is_negotiated() {
@@ -2679,6 +2681,92 @@ mod tests {
             Some(nuo_wire::ConnectionFilterPolicy::Named(
                 nuo_wire::NamedFilterPolicy::All
             ))
+        );
+    }
+
+    /// The model `e` editor's effort choice must be persisted on **every**
+    /// transport, Google included. The handler used to carry an explicit
+    /// no-op arm for the two Google transports, so a `gemini-3.8-flash`
+    /// ladder change was validated and then dropped on the floor: the route
+    /// kept deriving `effort: None` and the provider fell back to
+    /// `Effort::channel_default` (`high`), which is why the slider appeared
+    /// to do nothing and the picker snapped back to the old rung.
+    #[tokio::test]
+    async fn edit_model_persists_effort_on_google_routes() {
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = nuo_persistence::paths::Dirs {
+            config_dir: dir.path().join("config"),
+            data_dir: dir.path().join("data"),
+            state_dir: dir.path().join("state"),
+            cache_dir: dir.path().join("cache"),
+            runtime_dir: None,
+        };
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
+        crate::provider_registry::init();
+
+        let mut conns = Connections::default();
+        conns.connections.push(Connection {
+            name: "gemini".to_string(),
+            provider: "google".to_string(),
+            ..Default::default()
+        });
+        conns.save().unwrap();
+
+        // `default_connection` stays empty, so this is not the live route and
+        // the handler takes its picker-refresh branch instead of activating.
+        let mut config = Config::default();
+        let mut usage = ConnectionUsage::default();
+        let (resp_tx, _resp_rx) = mpsc::unbounded_channel();
+        let agent = nuo_harness::Agent::builder(
+            Arc::new(nuo_harness::NoProvider),
+            Vec::new(),
+            nuo_harness::AgentIdentity::default(),
+        )
+        .build();
+        let provider_for_task = Arc::new(RwLock::new(agent.provider.clone()));
+        let session = SessionStore::for_path(dir.path().join("session.json"));
+
+        edit_model(
+            ProviderEnv {
+                config: &mut config,
+                agent: &agent,
+                provider_for_task: &provider_for_task,
+                session: &session,
+                resp_tx: &resp_tx,
+                provider_usage: &mut usage,
+            },
+            "gemini".to_string(),
+            "gemini-3.8-flash".to_string(),
+            Some("low".to_string()),
+            None,
+            None,
+        )
+        .await;
+
+        assert_eq!(
+            RouteSettingsStore::load()
+                .settings_for("gemini", "gemini-3.8-flash")
+                .and_then(|settings| settings.tunings.effort())
+                .map(|e| e.as_str().to_string())
+                .as_deref(),
+            Some("low"),
+            "a Google route must persist the chosen effort instead of dropping it"
+        );
+
+        // The persisted rung must also reach the derived route, which is what
+        // the provider factory reads to stamp `thinkingConfig.thinkingLevel`.
+        let stores = nuo_model_routing::Stores::load();
+        let conn = stores.connections.get("gemini").unwrap();
+        let channel =
+            nuo_model_routing::derive_channel(conn, "gemini-3.8-flash", &stores.inputs()).unwrap();
+        // The stored rung travels on the channel's tunings, and the resolved
+        // capabilities clamp it onto the route's ladder. The transport carries
+        // no user choice at all (ADR-0126).
+        let caps = channel.capabilities();
+        assert_eq!(
+            channel.effective_effort(&caps),
+            Some(nuo_provider::Effort::Low),
+            "the derived route must expose the stored rung"
         );
     }
 

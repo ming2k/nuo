@@ -108,6 +108,68 @@ pub enum CommandResult {
     ConfigReload { details: Vec<String> },
     /// `/compact` — confirmation of a compaction run.
     Compacted { rounds_compacted: usize },
+    /// `/diff` — what this thread changed in the workspace (ADR-0125).
+    ///
+    /// Three groups, not one list, because the distinction is the whole point:
+    /// an entry whose changes cannot be reversed must never be rendered as
+    /// though it could. A frontend that showed a flat "changes" list would be
+    /// promising a reversal the journal has already decided it cannot deliver.
+    WorkspaceChanges {
+        /// Files this thread changed that the journal can still restore.
+        reversible: Vec<ChangedFile>,
+        /// Files this thread changed that it cannot restore, each with the
+        /// reason. Rendered in the same view so the user sees the whole truth.
+        irreversible: Vec<ChangedFile>,
+        /// Calls that ran but may not have completed (a crash between the
+        /// write-ahead row and its completion). Reported separately: the journal
+        /// cannot say whether these changed anything.
+        unconfirmed: Vec<ChangedFile>,
+    },
+    /// `/undo` — the outcome of a reversal attempt.
+    UndoOutcome {
+        /// Files whose pre-image was written back, newest first.
+        restored: Vec<ChangedFile>,
+        /// Files left alone because they changed since this thread touched them.
+        /// A reversal never overwrites work it did not produce.
+        refused: Vec<UndoRefusal>,
+        /// True when there was nothing left to undo in this thread.
+        nothing_to_undo: bool,
+    },
+}
+
+/// One file's change, as `/diff` and `/undo` report it.
+///
+/// Line counts come from the recorded pre- and post-images rather than from a
+/// tool's self-report, so they describe what actually changed on disk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangedFile {
+    /// The path as the user sees it — workspace-relative when it is inside the
+    /// workspace, absolute otherwise.
+    pub path: String,
+    /// The tool call that made the change.
+    pub tool: String,
+    /// The round it was made in.
+    pub round_id: String,
+    /// Lines added and removed, when both images are known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_counts: Option<(usize, usize)>,
+    /// Why this change cannot be reversed, for the irreversible group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Whether the file was created (as opposed to edited or deleted).
+    pub created: bool,
+    /// Whether the file was deleted.
+    pub deleted: bool,
+}
+
+/// One file a reversal deliberately left alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UndoRefusal {
+    /// The path as the user sees it.
+    pub path: String,
+    /// Why it was refused — always a fact about the file's current content, not
+    /// a guess about intent.
+    pub reason: String,
 }
 
 impl CommandResult {
@@ -195,6 +257,16 @@ impl CommandResult {
             CommandResult::Compacted { rounds_compacted } => {
                 format!("Compacted {rounds_compacted} complete round(s) into transcript archive.")
             }
+            CommandResult::WorkspaceChanges {
+                reversible,
+                irreversible,
+                unconfirmed,
+            } => workspace_changes_to_text(reversible, irreversible, unconfirmed),
+            CommandResult::UndoOutcome {
+                restored,
+                refused,
+                nothing_to_undo,
+            } => undo_outcome_to_text(restored, refused, *nothing_to_undo),
         }
     }
 
@@ -276,6 +348,110 @@ impl CommandRecord {
         self.timestamp = timestamp;
         self
     }
+}
+
+/// Render one file row for the `/diff` and `/undo` bodies.
+fn file_row(file: &ChangedFile) -> String {
+    let mut row = file.path.clone();
+    if file.created {
+        row.push_str(" (created)");
+    } else if file.deleted {
+        row.push_str(" (deleted)");
+    }
+    if let Some((added, removed)) = file.line_counts {
+        row.push_str(&format!(" +{added} -{removed}"));
+    }
+    row.push_str(&format!(" [{} @ {}]", file.tool, file.round_id));
+    row
+}
+
+/// Render `/diff`.
+///
+/// The three groups are always present, even when empty, so the user learns the
+/// vocabulary once: some changes can be undone, some cannot, and some are
+/// unknown. Collapsing an empty group would make the two that remain look like
+/// the whole story.
+fn workspace_changes_to_text(
+    reversible: &[ChangedFile],
+    irreversible: &[ChangedFile],
+    unconfirmed: &[ChangedFile],
+) -> String {
+    if reversible.is_empty() && irreversible.is_empty() && unconfirmed.is_empty() {
+        return "This thread has not changed any workspace files.".to_string();
+    }
+    let mut out = String::new();
+    if !reversible.is_empty() {
+        out.push_str("Changes this thread can undo:\n");
+        for file in reversible {
+            out.push_str("- ");
+            out.push_str(&file_row(file));
+            out.push('\n');
+        }
+    }
+    if !irreversible.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("Changes this thread cannot undo:\n");
+        for file in irreversible {
+            out.push_str("- ");
+            out.push_str(&file_row(file));
+            if let Some(reason) = &file.reason {
+                out.push_str("\n  ");
+                out.push_str(reason);
+            }
+            out.push('\n');
+        }
+    }
+    if !unconfirmed.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("Changes with unknown outcome (the run was interrupted):\n");
+        for file in unconfirmed {
+            out.push_str("- ");
+            out.push_str(&file_row(file));
+            out.push('\n');
+        }
+    }
+    out.trim_end().to_string()
+}
+
+/// Render `/undo`.
+fn undo_outcome_to_text(
+    restored: &[ChangedFile],
+    refused: &[UndoRefusal],
+    nothing_to_undo: bool,
+) -> String {
+    if nothing_to_undo {
+        return "Nothing to undo in this thread.".to_string();
+    }
+    let mut out = String::new();
+    if !restored.is_empty() {
+        out.push_str("Restored:\n");
+        for file in restored {
+            out.push_str("- ");
+            out.push_str(&file_row(file));
+            out.push('\n');
+        }
+    }
+    if !refused.is_empty() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str("Not restored (the file changed after this thread wrote it):\n");
+        for refusal in refused {
+            out.push_str("- ");
+            out.push_str(&refusal.path);
+            out.push_str("\n  ");
+            out.push_str(&refusal.reason);
+            out.push('\n');
+        }
+    }
+    if out.is_empty() {
+        return "Nothing was restored.".to_string();
+    }
+    out.trim_end().to_string()
 }
 
 /// Mirror of `nuo-server::review::format_review_report`, kept here so

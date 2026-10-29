@@ -21,7 +21,7 @@ use nuo_provider::{CredentialStore, TokenSet};
 use nuo_provider::{DEEPSEEK_BUILTIN_MODELS, route_for_model};
 use nuo_wire::{
     ConnectionAuth, ConnectionFilterPolicy, Effort, NamedFilterPolicy, OpenAiResponsesDialect,
-    ReasoningMode, WireProtocol,
+    WireProtocol,
 };
 
 use std::sync::Mutex;
@@ -1054,10 +1054,12 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
     let mut routes = RouteSettingsStore::default();
     routes
         .settings_for_mut("anthropic", "claude-opus-4-8")
-        .effort = Some("max".to_string());
+        .tunings
+        .set_effort(Some(Effort::Max));
     routes
         .settings_for_mut("anthropic", "claude-opus-4-8")
-        .thinking = Some(false);
+        .tunings
+        .set_thinking(Some(false));
 
     let anthropic = instance("anthropic", Some("anthropic"));
     let channel = derive_channel(
@@ -1066,15 +1068,19 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
         &inputs_of(&cache, &routes, &Credentials::default()),
     )
     .unwrap();
-    match &channel.transport {
-        Transport::AnthropicMessages {
-            effort, thinking, ..
-        } => {
-            assert_eq!(*effort, Some(Effort::Max));
-            assert_eq!(*thinking, Some(ReasoningMode::Off), "explicit off wins");
-        }
-        other => panic!("expected Anthropic transport, got {other:?}"),
-    }
+    // Depth and the switch live on the channel's tunings, not on the
+    // transport: the transport is the pipe, the tuning is the user's choice
+    // (ADR-0126).
+    assert!(matches!(
+        channel.transport,
+        Transport::AnthropicMessages { .. }
+    ));
+    assert_eq!(
+        channel.tunings.effort(),
+        Some(Effort::Max),
+        "the stored depth reaches the channel"
+    );
+    assert_eq!(channel.tunings.thinking(), Some(false), "explicit off wins");
     // A sibling model with no entry stays at the opt-in default (off).
     let sonnet = derive_channel(
         &anthropic,
@@ -1082,15 +1088,21 @@ fn reasoning_route_settings_apply_to_anthropic_routes() {
         &inputs_of(&cache, &routes, &Credentials::default()),
     )
     .unwrap();
-    match &sonnet.transport {
-        Transport::AnthropicMessages {
-            effort, thinking, ..
-        } => {
-            assert!(effort.is_none());
-            assert!(thinking.is_none());
-        }
-        other => panic!("expected Anthropic transport, got {other:?}"),
-    }
+    assert!(matches!(
+        sonnet.transport,
+        Transport::AnthropicMessages { .. }
+    ));
+    assert_eq!(
+        sonnet.effective_effort(&sonnet.capabilities()),
+        Some(Effort::High),
+        "a sibling with no stored choice takes the provider's declared default"
+    );
+    assert_eq!(
+        sonnet.thinking_state(&sonnet.capabilities()),
+        Some(false),
+        "the thinking switch has no user choice, so it is off"
+    );
+    assert!(sonnet.tunings.thinking().is_none(), "nothing was stored");
 }
 
 #[test]
@@ -1223,13 +1235,13 @@ fn channel_model_info_effort_ladders_survive() {
         transport: Transport::GoogleGenerateContent {
             base_url: "https://cloudcode-pa.googleapis.com".to_string(),
             client_profile: nuo_wire::ClientProfile::Antigravity,
-            effort: None,
             dialect: Default::default(),
         },
         credentials: nuo_wire::static_credential(""),
         model: "gemini-3.7-flash".to_string(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache_preference: nuo_wire::PromptCachePreference::default(),
         prompt_cache: nuo_wire::PromptCacheCapabilities::unsupported(),
     };

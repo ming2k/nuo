@@ -28,7 +28,10 @@ use super::response::{TEXT_THOUGHT_SIGNATURE_META_KEY, THOUGHT_SIGNATURES_META_K
 ///
 /// Gemini exposes **two mutually exclusive** depth surfaces, so a single field
 /// is insufficient and the request never sends both (doing so is a 400):
-/// - [`GoogleThinking::Level`] — Gemini 3.x `thinkingLevel` enum.
+/// - [`GoogleThinking::Level`] — Gemini 3.x `thinkingLevel` enum. The wire
+///   value is the closed upper-case set `LOW`/`MEDIUM`/`HIGH`, produced by
+///   [`thinking_level_wire`] — never [`nuo_provider::Effort::as_str`], whose
+///   spelling and rung set differ.
 /// - [`GoogleThinking::Budget`] — Gemini 2.5 `thinkingBudget` integer tokens.
 ///
 /// `None` here means "no override; let the server default stand" and is
@@ -36,9 +39,10 @@ use super::response::{TEXT_THOUGHT_SIGNATURE_META_KEY, THOUGHT_SIGNATURES_META_K
 /// 3.x cannot disable thinking at all, so there is no off path for it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GoogleThinking {
-    /// `thinkingLevel` for a Gemini 3.x model: one of `minimal`/`low`/
-    /// `medium`/`high`. Never `none`/`xhigh`/`max` (Gemini 3.x rejects them);
-    /// the resolver clamps those down before constructing this variant.
+    /// `thinkingLevel` for a Gemini 3.x model: the closed wire enum
+    /// `LOW`/`MEDIUM`/`HIGH` (via [`thinking_level_wire`]). Never
+    /// `none`/`xhigh`/`max` (Gemini 3.x rejects them); the resolver clamps
+    /// those down before constructing this variant.
     Level(nuo_provider::Effort),
     /// `thinkingBudget` for a Gemini 2.5 model: a token count in the model's
     /// supported range. `0` disables thinking (Flash/Lite only — Pro's floor is
@@ -86,10 +90,94 @@ pub fn resolve_thinking(
     // choice in one place and never inspects the free-form model id string.
     let is_budget = known.contains(&nuo_provider::Effort::Max);
     Some(if is_budget {
-        GoogleThinking::Budget(clamped.gemini_thinking_budget(max_budget))
+        GoogleThinking::Budget(thinking_budget_wire(clamped, max_budget))
     } else {
         GoogleThinking::Level(clamped)
     })
+}
+
+/// Translate a clamped [`Effort`](nuo_provider::Effort) into a Gemini 2.5
+/// `thinkingBudget` integer — the form that surface accepts instead of an
+/// enum. The model's ceiling is `max_budget` (`gemini-2.5-flash` tops out at
+/// `24576`, `gemini-2.5-pro` at `32768`; see [`max_thinking_budget`]).
+///
+/// A chosen depth **pins** the budget: it is a deliberate request, never "let
+/// the server decide". (Gemini's own dynamic value is `-1`, which is the
+/// server default *when the field is omitted* — nuo reaches that by not
+/// stamping the field at all, i.e. an unset channel effort, never by mapping a
+/// rung onto `-1`.) `minimal` ≈ 10%, `low` ≈ 25%, `medium` ≈ 50% of
+/// `max_budget`; `high` and everything deeper pin the model's full cap
+/// (`xhigh` is not a native Gemini rung — the caller clamps it to `high` first
+/// — and `max` differs from `high` only in intent: it names the cap
+/// explicitly).
+///
+/// [`Effort::None`](nuo_provider::Effort::None) maps to `0`, the only way to
+/// turn thinking off — but Gemini 2.5 Pro rejects `0` (floor `128`), so the
+/// caller must only honor an off rung where the model's floor is actually `0`.
+///
+/// This is provider-owned wire knowledge and lives here, beside
+/// [`thinking_level_wire`], rather than on the framework's shared
+/// [`Effort`](nuo_provider::Effort)
+/// vocabulary: the bucket fractions are one surface's encoding, not a property
+/// of "reasoning depth" (ADR-0126).
+pub const fn thinking_budget_wire(effort: nuo_provider::Effort, max_budget: u32) -> i64 {
+    use nuo_provider::Effort;
+    // `core::cmp::max` is not const-stable, so the `≥ 1` floor is spelled out.
+    // It only matters for unrealistically small `max_budget` values, but keeps
+    // the contract honest: a nonzero bucket never rounds down to "off".
+    const fn floor_one(tokens: u64) -> i64 {
+        if tokens < 1 { 1 } else { tokens as i64 }
+    }
+    match effort {
+        Effort::None => 0,
+        Effort::Minimal => floor_one(max_budget as u64 / 10),
+        Effort::Low => floor_one(max_budget as u64 / 4),
+        Effort::Medium => floor_one(max_budget as u64 / 2),
+        Effort::High | Effort::Xhigh | Effort::Max | Effort::Ultra => max_budget as i64,
+    }
+}
+
+/// The `thinkingLevel` values a Google Gemini 3.x surface accepts, shallowest
+/// first. Live-verified against `docs/reference/openapi/antigravity.yml`
+/// (`ThinkingConfig.thinkingLevel.enum`), whose capture also shows the shipped
+/// `agy` sending `thinkingLevel: "LOW"` on its title lane.
+const THINKING_LEVELS: [&str; 3] = ["LOW", "MEDIUM", "HIGH"];
+
+/// Translate a clamped [`Effort`](nuo_provider::Effort) onto the
+/// `thinkingLevel` string this surface accepts.
+///
+/// This is provider-owned wire knowledge (ADR-0074/ADR-0113), and
+/// [`Effort::as_str`](nuo_provider::Effort::as_str) is the wrong value here for
+/// two independent reasons:
+///
+/// - **The enum is upper-case and case-sensitive.** `"high"` is not `HIGH`.
+///   Google answers a mismatch with `400 INVALID_ARGUMENT` carrying only its
+///   generic *"Request contains an invalid argument."* — no field name, no
+///   `fieldViolations`, nothing a caller could attribute. That is the failure
+///   this function exists to make unreachable.
+/// - **`minimal` is not a member.** The Antigravity *catalog* advertises
+///   `minimal`/`low`/`medium`/`high` as the display ladder for every Gemini
+///   3.x row, but the field itself accepts exactly three values. `minimal`
+///   therefore clamps up to the shallowest real rung instead of being sent
+///   verbatim.
+///
+/// The deeper vocabulary rungs (`xhigh`/`max`/`ultra`) have no surface in this
+/// enum and clamp down to `HIGH`; [`resolve_thinking`] has already clamped
+/// against the model's declared ladder, so this is defense in depth.
+pub fn thinking_level_wire(effort: nuo_provider::Effort) -> &'static str {
+    use nuo_provider::Effort;
+    let wire = match effort {
+        // Below this enum's floor — the shallowest accepted rung stands in.
+        Effort::None | Effort::Minimal | Effort::Low => THINKING_LEVELS[0],
+        Effort::Medium => THINKING_LEVELS[1],
+        // `High` and everything deeper than this enum's ceiling.
+        Effort::High | Effort::Xhigh | Effort::Max | Effort::Ultra => THINKING_LEVELS[2],
+    };
+    debug_assert!(
+        THINKING_LEVELS.contains(&wire),
+        "thinkingLevel must be a member of the accepted enum, got {wire}"
+    );
+    wire
 }
 
 /// Inputs to [`body`]: the prepared tool schemas in OpenAI function-spec
@@ -217,7 +305,7 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
         match thinking {
             GoogleThinking::Level(effort) => {
                 body["generationConfig"]["thinkingConfig"]["thinkingLevel"] =
-                    json!(effort.as_str());
+                    json!(thinking_level_wire(effort));
             }
             GoogleThinking::Budget(tokens) => {
                 body["generationConfig"]["thinkingConfig"]["thinkingBudget"] = json!(tokens);
@@ -909,8 +997,8 @@ pub fn stream_url(base_url: &str, model: &str) -> String {
     format!("{base_url}/models/{model}:streamGenerateContent?alt=sse")
 }
 
-/// The maximum `thinkingBudget` a Gemini 2.5 model accepts, in tokens — the cap
-/// [`nuo_provider::Effort::gemini_thinking_budget`] buckets against. Gemini 2.5 Flash tops
+/// The maximum `thinkingBudget` a Gemini 2.5 model accepts, in tokens — the
+/// cap [`thinking_budget_wire`] buckets against. Gemini 2.5 Flash tops
 /// out at `24576`; Pro at `32768`; Flash-Lite (floor `512`) also at `24576`.
 /// Any other model id (Gemini 3.x, non-reasoning) returns `0`, signaling "no
 /// budget surface" so [`resolve_thinking`] never constructs a `Budget` for it.
@@ -957,6 +1045,7 @@ mod tests {
             vision,
             effort_levels: Vec::new(),
             effort_entities: Vec::new(),
+            default_effort: None,
         }
     }
 
@@ -1595,7 +1684,9 @@ mod tests {
 
     #[test]
     fn body_stamps_thinking_level_and_budget() {
-        // Level → thinkingLevel string.
+        // Level → thinkingLevel string. The wire enum is UPPER-CASE and closed
+        // (`LOW`/`MEDIUM`/`HIGH`); a lower-cased rung is a 400 that names no
+        // field, which is why the translation lives in one typed place.
         let level_body = body(
             vec![Message::new(Role::User, "think")],
             test_body_input(
@@ -1606,7 +1697,7 @@ mod tests {
         );
         assert_eq!(
             level_body["generationConfig"]["thinkingConfig"]["thinkingLevel"],
-            "medium"
+            "MEDIUM"
         );
         // Budget → thinkingBudget integer.
         let budget_body = body(
@@ -1617,6 +1708,60 @@ mod tests {
             budget_body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
             8192
         );
+    }
+
+    #[test]
+    fn thinking_budget_wire_buckets_within_the_models_cap() {
+        use super::thinking_budget_wire;
+        use nuo_provider::Effort;
+
+        // Gemini 2.5 Flash: 0–24576. Each rung is a fraction of the cap, and
+        // the bucket never escapes the model's ceiling.
+        assert_eq!(thinking_budget_wire(Effort::None, 24576), 0);
+        assert_eq!(thinking_budget_wire(Effort::Minimal, 24576), 2457);
+        assert_eq!(thinking_budget_wire(Effort::Low, 24576), 6144);
+        assert_eq!(thinking_budget_wire(Effort::Medium, 24576), 12288);
+        assert_eq!(thinking_budget_wire(Effort::High, 24576), 24576);
+        assert_eq!(thinking_budget_wire(Effort::Max, 24576), 24576);
+        // Gemini 2.5 Pro: 128–32768. Buckets scale by the larger cap.
+        assert_eq!(thinking_budget_wire(Effort::Medium, 32768), 16384);
+        assert_eq!(thinking_budget_wire(Effort::High, 32768), 32768);
+        // A floor of 1 is guaranteed even on a tiny max budget, so a nonzero
+        // rung can never round down into "off".
+        assert_eq!(thinking_budget_wire(Effort::Minimal, 5), 1);
+        assert_eq!(thinking_budget_wire(Effort::Low, 2), 1);
+    }
+
+    #[test]
+    fn thinking_level_wire_is_always_a_member_of_the_accepted_enum() {
+        use super::{THINKING_LEVELS, thinking_level_wire};
+        use nuo_provider::Effort;
+
+        // The whole closed `Effort` vocabulary must map into the three accepted
+        // values — never through `as_str()`, whose case and rung set differ.
+        for effort in Effort::ORDER {
+            let wire = thinking_level_wire(effort);
+            assert!(
+                THINKING_LEVELS.contains(&wire),
+                "{effort:?} produced {wire}, which is not in {THINKING_LEVELS:?}"
+            );
+            assert_ne!(
+                wire,
+                effort.as_str(),
+                "{effort:?} must not be stamped as its generic effort spelling"
+            );
+        }
+        // The exact rung mapping, including the clamp at each end.
+        assert_eq!(thinking_level_wire(Effort::Low), "LOW");
+        assert_eq!(thinking_level_wire(Effort::Medium), "MEDIUM");
+        assert_eq!(thinking_level_wire(Effort::High), "HIGH");
+        // `minimal` is advertised by the catalog but is NOT a wire value.
+        assert_eq!(thinking_level_wire(Effort::Minimal), "LOW");
+        // Deeper-than-ceiling rungs clamp down, never up past the enum.
+        assert_eq!(thinking_level_wire(Effort::Xhigh), "HIGH");
+        assert_eq!(thinking_level_wire(Effort::Max), "HIGH");
+        assert_eq!(thinking_level_wire(Effort::Ultra), "HIGH");
+        assert_eq!(thinking_level_wire(Effort::None), "LOW");
     }
 
     #[test]

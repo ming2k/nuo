@@ -114,6 +114,18 @@ pub(crate) enum TranscriptEdit {
         call_id: String,
         arguments: String,
     },
+    /// ADR-0125: attach a pure preview to the in-flight step it describes, so the
+    /// turn's whole footprint is visible before anything runs. The preview lands in
+    /// the step's `structured` field (the same one a completed diff renders from),
+    /// so a preview card and a result card cannot disagree.
+    ///
+    /// A no-op when no step matches: the step may not exist yet (a dispatch that
+    /// outran its announcement), and the call's eventual permission request still
+    /// carries the preview where a decision is at stake.
+    ToolPreview {
+        id: String,
+        preview: nuo_wire::PreviewResult,
+    },
     /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call.
     ToolInputProgress {
         slot: usize,

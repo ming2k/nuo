@@ -24,8 +24,8 @@ Type these at the composer to open the corresponding surface or perform the acti
 | `/threads` | Browse or resume past threads — a lineage forest: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) |
 | `/fork` | Fork thread into a child thread at head, at round (`/fork 2`), or after a turn (`/fork 2.1`); the address is persisted and shown in `/threads`, the dashboard dock, and `nuo thread ls` (ADR-0058, ADR-0120) |
 | `/tree` | Visual DAG thread tree and branch navigation |
-| `/diff` | View workspace modifications made in this thread |
-| `/undo` | Undo the last thread turn and file changes |
+| `/diff` | View what this thread changed in the workspace, grouped by whether the change can be undone |
+| `/undo` | Undo the last round's reversible file changes; refuses anything that moved on since |
 | `/stats` | View context token accounting and thread stats |
 | `/trace` | Inspect session execution trace and latency waterfall |
 | `/usage` | Cross-session token usage statistics overlay |
@@ -93,6 +93,72 @@ Unknown command: /modles. Did you mean /models? (Prefix the input with a space t
 - To send text that merely *starts* with `/`, prefix it with a space: ` /etc/hosts` is prose
   and goes to the model. The marker space is consumed, not sent: the model receives
   `/etc/hosts`. Two or more leading spaces are ordinary indentation and are sent verbatim.
+
+---
+
+## Undoing changes (`/diff`, `/undo`)
+
+Every tool call that changed state outside the conversation is recorded in a
+durable workspace journal (`workspace_effects`, ADR-0125). `/diff` projects it and
+`/undo` acts on it, and both are honest about the boundary:
+
+- **Reversible** — `write_file`, `edit_text`: the journal captured the file's
+  bytes *before* the call, so `/undo` can put them back exactly.
+- **Irreversible** — `execute_command` and every network or MCP tool. These are
+  recorded as receipts (what ran, when, what it left on disk) but can never be
+  undone: a shell command may have written anything, published anything, or
+  changed a database, and the harness cannot tell which from the command text.
+  `/undo` names them and refuses rather than pretending.
+- **Unknown** — a call that was journaled but never completed (the process died
+  between the write and its result). The journal cannot say whether these
+  changed anything, so `/diff` lists them separately and `/undo` leaves them.
+
+`/undo` restores byte-for-byte, and **only** when the file still holds exactly
+what this thread wrote. If you (or a later round, or a formatter) changed the
+file since, it is left alone and reported:
+
+```
+Not restored (the file changed after this thread wrote it):
+- src/lib.rs
+  the file changed after this thread wrote it; restoring the old content would discard that work
+```
+
+That refusal is the point. An `/undo` that overwrote your own edits would be
+worse than one that declines.
+
+## Approving a change
+
+When a write needs your authority, the prompt shows the change itself, not just the
+path — a unified diff with `+N -M` counts, computed from the file's current bytes
+against what the call would write.
+
+An approval prompt whose most decision-relevant content is hidden behind a toggle is
+a prompt that gets approved without being read, so the diff is always visible; the
+`Details` expansion adds the full argument JSON.
+
+Two honest non-answers are also shown explicitly:
+
+- *"No change: this call rewrites the file with identical content."* — an idempotent
+  write.
+- *"This call's effect cannot be shown in advance."* — `execute_command`, a network
+  fetch, a subagent. No preview is possible without causing the effect, and a prompt
+  that implied otherwise would be inventing confidence.
+
+Previews are pure: they read the workspace and nothing else. The diff you approve is
+computed by the same function that performs the edit, so what you see is what gets
+written.
+
+## Seeing a whole turn before it runs
+
+When the model issues several writes in one turn, each tool card shows its diff
+**before anything executes** — the turn's entire footprint is visible as a set, not
+as N separable approvals. A batch of five writes is one reviewable change, not five
+questions asked one at a time.
+
+This is display-only. A preview appearing in the transcript is *not* evidence that a
+change happened: no bytes are written until the tool runs, and a preview is never
+persisted, so a resumed session never replays a diff that was never applied. The
+authoritative record of what changed is `/diff`.
 
 ---
 

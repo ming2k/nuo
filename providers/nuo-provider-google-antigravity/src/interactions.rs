@@ -210,10 +210,15 @@ impl GoogleInteractionsProvider {
         }
 
         if let Some(effort) = self.reasoning_effort {
+            // The depth rung is the same closed enum on this surface. Translate
+            // through the one provider-owned mapping rather than upper-casing
+            // the generic effort spelling, which would emit `MINIMAL` (a value
+            // the field does not accept) and can only come back as an
+            // unattributable `400 INVALID_ARGUMENT`.
             body["generation_config"] = json!({
                 "thinking_config": {
                     "include_thoughts": true,
-                    "thinking_level": effort.as_str().to_uppercase(),
+                    "thinking_level": crate::request::thinking_level_wire(effort),
                 }
             });
         }
@@ -258,7 +263,12 @@ impl Provider for GoogleInteractionsProvider {
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {
-                crate::response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url)
+                crate::response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    None,
+                )
             })?;
 
         let response_json: serde_json::Value = decode_response_json(response, "Google").await?;
@@ -306,7 +316,12 @@ impl Provider for GoogleInteractionsProvider {
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {
-                crate::response::clarify_error(e, &self.endpoint.model, &self.endpoint.base_url)
+                crate::response::clarify_error_with_shape(
+                    e,
+                    &self.endpoint.model,
+                    &self.endpoint.base_url,
+                    None,
+                )
             })?;
 
         let stream =

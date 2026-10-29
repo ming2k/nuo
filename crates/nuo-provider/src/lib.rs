@@ -32,6 +32,7 @@ pub mod spec;
 pub mod state;
 pub mod surface;
 pub mod transport;
+pub mod tuning;
 pub mod vision;
 pub mod wire_surface;
 
@@ -92,6 +93,7 @@ pub use model_providers::*;
 pub use reasoning::*;
 pub use state::*;
 pub use surface::*;
+pub use tuning::*;
 pub use wire_surface::*;
 
 pub use nuo_inference_wire::WireProtocol;

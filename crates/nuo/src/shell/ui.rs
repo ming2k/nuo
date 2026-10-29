@@ -314,12 +314,16 @@ impl ComponentTree {
                 InputPolicy::Modal,
                 true,
             ),
+            // The notice dock is a footer row (ADR-0121), not an overlay: it
+            // docks above the composer, so it parents to the footer and does not
+            // claim modality. Keys reach it through the explicit
+            // `Dispatch::notice_viewer_open` arm instead.
             UiKey::Notices => (
-                Some(UiKey::Root),
-                48,
-                PointerPolicy::Barrier,
-                InputPolicy::Modal,
-                true,
+                Some(UiKey::Footer),
+                4,
+                PointerPolicy::Target,
+                InputPolicy::None,
+                false,
             ),
             UiKey::Toast => (
                 Some(UiKey::Root),

@@ -546,6 +546,7 @@ mod tests {
             vision: Some(true),
             effort_levels: Effort::ORDER.iter().copied().map(Into::into).collect(),
             effort_entities: Vec::new(),
+            default_effort: None,
         }
     }
 

@@ -281,6 +281,19 @@ pub struct Agent {
     /// subagents, the review diagnostic, and tests — they have no session of
     /// their own to persist, so the turn boundary is a plain no-op there.
     turn_persist: std::sync::Mutex<Option<TurnPersistFn>>,
+    /// Workspace effect journal port installed by the server (ADR-0125). `None`
+    /// disables journaling entirely — the honest posture for subagents, tests, and
+    /// any embedding with no durable journal, because a journal that cannot be
+    /// written must not silently pretend a mutation was reversible.
+    ///
+    /// Installed rather than required so the harness stays usable without
+    /// persistence, but when present the bracket is unconditional: dispatch calls
+    /// it around every tool invocation, and a capture failure vetoes the call.
+    workspace_journal:
+        std::sync::RwLock<Option<std::sync::Arc<dyn crate::runtime::WorkspaceJournalPort>>>,
+    /// The ReAct turn currently executing within the round, for journal
+    /// coordinates. Advanced by the round loop.
+    current_turn: std::sync::atomic::AtomicU64,
     /// Request-projection archive sink installed by the session driver
     /// fired once per freshly assembled request with its forensic
     /// record. `None` for subagents, the review diagnostic, and tests.
@@ -1412,6 +1425,7 @@ mod tests {
                     },
                 },
             }),
+            preview: None,
         };
 
         let output = permission_required_output(&request).to_text();

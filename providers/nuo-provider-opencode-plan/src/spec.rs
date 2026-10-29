@@ -39,6 +39,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -57,6 +58,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -69,6 +71,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -81,6 +84,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -93,6 +97,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Anthropic Claude (via opencode-go Anthropic messages route)
@@ -100,12 +105,13 @@ pub const MODELS: &[Model] = &[
         id: "claude-haiku-5-5",
         family: "claude",
         context_window: 1_000_000,
-        thinking: ReasoningSupport::AnthropicAdaptive,
+        thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Google Gemini (via opencode-go Google Gemini route)
@@ -119,6 +125,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::GoogleGenerateContent,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // GLM family (Zhipu / Z.AI / opencode-go)
@@ -132,6 +139,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -144,6 +152,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -156,6 +165,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -168,6 +178,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -180,6 +191,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -192,6 +204,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -204,6 +217,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -216,6 +230,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -228,6 +243,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -240,6 +256,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -252,6 +269,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -264,6 +282,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // MiMo (Xiaomi / opencode-go, OpenAI format)
@@ -277,6 +296,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -289,6 +309,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -301,6 +322,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -313,6 +335,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // MiniMax (opencode-go, Anthropic /messages format)
@@ -326,6 +349,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -338,6 +362,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -350,6 +375,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Qwen (opencode-go)
@@ -363,6 +389,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -375,6 +402,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::COMMON,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -387,6 +415,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -399,6 +428,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // =========================================================================
@@ -417,6 +447,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -429,6 +460,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

@@ -37,6 +37,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -49,6 +50,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -61,6 +63,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -73,6 +76,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // Non-seeded models retained solely as metadata for ids returned by the
@@ -87,6 +91,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -99,6 +104,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
 ];

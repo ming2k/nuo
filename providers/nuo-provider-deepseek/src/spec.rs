@@ -69,6 +69,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // DeepSeek V4 Pro — DeepSeek-V4-Pro-0813, the pure-text reasoning
@@ -83,6 +84,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // Retired V4 Flash generation. The name is still accepted upstream and is
@@ -98,6 +100,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // The retired experimental vision name, likewise served by V4.1 Flash.
@@ -111,6 +114,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

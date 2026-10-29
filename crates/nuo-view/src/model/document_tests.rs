@@ -1020,6 +1020,63 @@ fn command_result_populates_command_invocation() {
     assert_eq!(no_args_cmd.raw, "/compact");
 }
 
+/// `/diff` and `/undo` replies carry lists, and must parse as markdown.
+///
+/// Only an `Ack` parses plain (its newlines are headline/detail structure that
+/// the markdown soft-break rule would squeeze onto one row). Every other result
+/// keeps the block parser so a `- ` list becomes real list rows. Pinning this
+/// here means a future edit that widens the plain-parse condition — which would
+/// silently collapse `/undo`'s "Restored:" rows into one line — fails a test.
+#[test]
+fn workspace_change_results_parse_as_markdown_not_plain() {
+    let undo = nuo_wire::CommandResult::UndoOutcome {
+        restored: vec![nuo_wire::ChangedFile {
+            path: "src/lib.rs".into(),
+            tool: "edit_text".into(),
+            round_id: "3".into(),
+            line_counts: Some((2, 1)),
+            reason: None,
+            created: false,
+            deleted: false,
+        }],
+        refused: vec![nuo_wire::UndoRefusal {
+            path: "src/other.rs".into(),
+            reason: "the file changed after this thread wrote it".into(),
+        }],
+        nothing_to_undo: false,
+    };
+    let message = TranscriptMessage::command_result("undo".to_string(), String::new(), Some(undo));
+    assert!(
+        message
+            .blocks
+            .iter()
+            .any(|block| matches!(block, Block::ListItem { .. })),
+        "the restored/refused rows must become list rows, got {:?}",
+        message.blocks
+    );
+    // Every row must stay on its own line: two list items, not one paragraph.
+    assert!(
+        message
+            .blocks
+            .iter()
+            .filter(|block| matches!(block, Block::ListItem { .. }))
+            .count()
+            >= 2,
+        "each restored/refused entry is its own row, got {:?}",
+        message.blocks
+    );
+
+    // The same holds for `/diff`, whose empty-group case must still render its
+    // headline rather than parsing to nothing.
+    let diff = nuo_wire::CommandResult::WorkspaceChanges {
+        reversible: Vec::new(),
+        irreversible: Vec::new(),
+        unconfirmed: Vec::new(),
+    };
+    let empty = TranscriptMessage::command_result("diff".to_string(), String::new(), Some(diff));
+    assert!(!empty.blocks.is_empty(), "an empty /diff still says so");
+}
+
 #[test]
 fn notice_strips_terminal_controls_from_crlf_http_errors() {
     let n = TranscriptMessage::notice(

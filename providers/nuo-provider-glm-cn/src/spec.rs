@@ -42,6 +42,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -60,6 +61,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -72,6 +74,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -84,6 +87,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -96,6 +100,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -108,6 +113,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -120,6 +126,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -132,6 +139,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

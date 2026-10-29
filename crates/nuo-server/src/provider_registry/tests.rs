@@ -335,13 +335,13 @@ fn build_provider_stamps_entry_id_on_openai_compat() {
         transport: Transport::OpenAiChatCompletions {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
             client_profile: nuo_provider::ClientProfile::from("agent"),
-            effort: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "gpt-4o".to_string(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -357,23 +357,23 @@ fn openai_channel_without_override_defaults_effort_on_the_wire() {
         transport: Transport::OpenAiChatCompletions {
             base_url: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions".to_string(),
             client_profile: nuo_provider::ClientProfile::from("agent"),
-            effort: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "glm-5.3".to_string(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
     let provider = build_provider_for_channel(&channel, "glm-cn", None);
     assert_eq!(provider.effort(), Some(nuo_provider::Effort::High));
 
+    // A user choice is a tuning on the channel, so overriding it must take
+    // effect without touching the transport at all (ADR-0125).
     let mut pinned = channel;
-    if let Transport::OpenAiChatCompletions { effort, .. } = &mut pinned.transport {
-        *effort = Some(nuo_provider::Effort::Low);
-    }
+    pinned.tunings.set_effort(Some(nuo_provider::Effort::Low));
     let provider = build_provider_for_channel(&pinned, "glm-cn", None);
     assert_eq!(provider.effort(), Some(nuo_provider::Effort::Low));
 }
@@ -385,13 +385,13 @@ fn ladderless_model_keeps_absent_effort_on_the_wire() {
         transport: Transport::OpenAiChatCompletions {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
             client_profile: nuo_provider::ClientProfile::from("agent"),
-            effort: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "gpt-4o".to_string(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -406,14 +406,13 @@ fn build_provider_dispatches_anthropic_transport() {
         transport: Transport::AnthropicMessages {
             base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
             client_profile: nuo_provider::ClientProfile::from("agent"),
-            effort: None,
-            thinking: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("go-key"),
         model: "qwen3.6-plus".to_string(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -429,13 +428,13 @@ fn build_provider_dispatches_google_interactions_transport() {
         transport: Transport::GoogleInteractions {
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
             client_profile: nuo_provider::ClientProfile::Native,
-            effort: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("goog-key"),
         model: "gemini-3.8-flash".to_string(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -629,7 +628,6 @@ fn unstated_responses_storage_replays_the_full_context() {
         transport: Transport::OpenAiResponses {
             base_url: "https://relay.example.com/v1/responses".into(),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: None,
             dialect,
             state,
         },
@@ -637,6 +635,7 @@ fn unstated_responses_storage_replays_the_full_context() {
         model: "deepseek/deepseek-v4.1-flash".into(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
     };

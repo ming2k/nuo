@@ -6,6 +6,7 @@
 pub mod adr_lineage;
 pub mod doc_links;
 pub mod firewall;
+pub mod residency;
 
 use std::path::PathBuf;
 

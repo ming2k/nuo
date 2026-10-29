@@ -135,6 +135,20 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
             .any(|message| message.role == Role::Assistant && message.content == MOCK_REPLY),
         "live session should contain the mock assistant reply"
     );
+    // The assistant message carries its own durable send stamp, taken from the
+    // attempt's dispatch boundary. It is *not* the caller's UI stamp (that one
+    // belongs to the prompt), but it must be a real millisecond reading: with
+    // `None` on disk, resume fell back to the second-truncated `timestamp` and
+    // a reloaded band could show a different minute than the live one it
+    // replaced.
+    assert!(
+        live_messages
+            .iter()
+            .find(|message| message.role == Role::Assistant && message.content == MOCK_REPLY)
+            .and_then(|message| message.sent_at_ms)
+            .is_some(),
+        "the harness must stamp the assistant message's send time for resume parity"
+    );
 
     // Drop all in-memory state. The next line intentionally drops `agent`,
     // `session`, and the channel so the only thing left is the on-disk file.

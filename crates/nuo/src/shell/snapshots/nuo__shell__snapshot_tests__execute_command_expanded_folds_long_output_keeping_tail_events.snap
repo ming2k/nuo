@@ -1,15 +1,18 @@
 ---
-source: crates/nuo-tui/src/snapshot_tests.rs
+source: crates/nuo/src/shell/snapshot_tests.rs
+assertion_line: 461
 expression: "render_grid(&m, 80, 40)"
 ---
 - Run cargo (failed 0ms)
   $ cargo build
   line 1
   line 2
-  line 3
 
-    14 lines omitted (0.1 KB)
+    12 lines omitted (0.1 KB)
 
+  line 15
+  line 16
+  line 17
   line 18
   line 19
   line 20
@@ -28,4 +31,6 @@ A=#070808  B=#111312  C=#1C1E1C  .=reset
 8: B80
 9: B80
 10: B80
-11: C80
+11: B80
+12: B80
+13: C80

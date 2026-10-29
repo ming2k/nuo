@@ -59,6 +59,95 @@ impl PersistenceCommand {
                     guarded(|| crate::db::usage_projection::record_command(&engine.conn, &cmd));
                 let _ = ack.send(res);
             }
+            Self::AppendWorkspaceEffect { effect, ack } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::append_effect(&engine.conn, &effect.as_borrowed())
+                        .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
+            Self::AppendCompletedWorkspaceEffect {
+                effect,
+                completed_at_ms,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::append_completed_effect(
+                        &engine.conn,
+                        &effect.as_borrowed(),
+                        completed_at_ms,
+                    )
+                    .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
+            Self::CompleteWorkspaceEffect {
+                effect_id,
+                after_hash,
+                completed_at_ms,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::complete_effect(
+                        &engine.conn,
+                        effect_id,
+                        after_hash.as_deref(),
+                        completed_at_ms,
+                    )
+                    .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
+            Self::MarkWorkspaceEffectReversed {
+                effect_id,
+                reversed_at_ms,
+                note,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::mark_reversed(
+                        &engine.conn,
+                        effect_id,
+                        reversed_at_ms,
+                        note.as_deref(),
+                    )
+                    .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
+            Self::ListWorkspaceEffects { thread_id, ack } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::list_effects(&engine.conn, &thread_id)
+                        .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
+            Self::ExpirePreimages {
+                older_than_ms,
+                now_ms,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::expire_preimages(&engine.conn, older_than_ms, now_ms)
+                        .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
+            Self::UndoableWorkspaceEffects {
+                thread_id,
+                limit,
+                ack,
+            } => {
+                let res = guarded(|| {
+                    crate::workspace_effects::undoable_effects(
+                        &engine.conn,
+                        &thread_id,
+                        limit as usize,
+                    )
+                    .map_err(engine_error)
+                });
+                let _ = ack.send(res);
+            }
             Self::RecordRequestProjection {
                 session_id,
                 record,
@@ -269,6 +358,22 @@ impl PersistenceCommand {
             | Self::SetKV { ack, .. }
             | Self::SaveInputHistory { ack, .. }
             | Self::ClearInputHistory { ack } => {
+                let _ = ack.send(Err(error));
+            }
+            // The journal's acks carry a value (`i64` id, `bool` race result, or
+            // the effect list), so they cannot share the unit-ack arm above.
+            Self::AppendWorkspaceEffect { ack, .. }
+            | Self::AppendCompletedWorkspaceEffect { ack, .. } => {
+                let _ = ack.send(Err(error));
+            }
+            Self::CompleteWorkspaceEffect { ack, .. }
+            | Self::MarkWorkspaceEffectReversed { ack, .. } => {
+                let _ = ack.send(Err(error));
+            }
+            Self::ListWorkspaceEffects { ack, .. } | Self::UndoableWorkspaceEffects { ack, .. } => {
+                let _ = ack.send(Err(error));
+            }
+            Self::ExpirePreimages { ack, .. } => {
                 let _ = ack.send(Err(error));
             }
             Self::DeleteSession { ack, .. } | Self::RenameSession { ack, .. } => {

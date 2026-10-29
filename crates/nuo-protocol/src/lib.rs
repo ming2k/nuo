@@ -106,6 +106,16 @@ pub use tool_output::{
 pub mod tool_access;
 pub use tool_access::{ToolAccess, ToolAccesses, ToolFileAccessOperation};
 
+/// Re-exports the pure preview shape from `nuo-tool` so the wire vocabulary (the
+/// `ToolPreview` event and `PermissionRequest::preview`) can name it without a
+/// second definition. A mirrored struct here would be a second thing to keep in
+/// sync, and the whole point of `PreviewResult` is that a preview and an applied
+/// patch are one shape.
+pub mod preview {
+    pub use nuo_tool::preview::*;
+}
+pub use preview::PreviewResult;
+
 pub mod auth;
 pub use auth::{
     ChatGptAuthMetadata, CopilotAuthMetadata, CredentialSource, ExtensionMap, GoogleAuthMetadata,
@@ -128,6 +138,8 @@ pub use client_identity::{
 };
 pub mod effort;
 pub use effort::{COMMON_LADDER, Effort, EffortLevel};
+pub mod tuning;
+pub use tuning::{EFFORT_KNOB, THINKING_KNOB, TunableSetting, TunableSettings};
 pub mod reasoning;
 pub use reasoning::{ReasoningMode, ReasoningSupport};
 pub mod dynamic;
@@ -262,9 +274,9 @@ pub use mcp::{McpConnectionStatus, McpServerConfig};
 pub use model::{
     Availability, BaselineModels, CapabilityOverrides, ConnectionFilterPolicy, DeclaredModel,
     FittedModel, Model, ModelCapabilities, ModelCapabilityPatch, ModelScopeConfig,
-    ModelTargetScope, NamedFilterPolicy, RemoteModelMetadata, RouteCapabilities, WireProtocol,
-    baseline_models, model_by_id, register_fitted_models, resolve as resolve_model,
-    sanitize_model_id, simple_glob_matches,
+    ModelTargetScope, NamedFilterPolicy, RemoteModelMetadata, WireProtocol, baseline_models,
+    model_by_id, register_fitted_models, resolve as resolve_model, sanitize_model_id,
+    simple_glob_matches,
 };
 pub use monitor::*;
 pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError};

@@ -19,8 +19,8 @@ use nuo_view::model::layout::LayoutMap;
 use nuo_view::model::selection::SelectionState;
 use nuo_wire::Role;
 
-use super::Theme;
-use super::disclosure::draw_tool_step;
+use crate::shell::disclosure::draw_tool_step;
+use crate::shell::render::Theme;
 
 /// Build a finished tool-step message with optional output and expand state.
 fn tool_step(
@@ -155,7 +155,7 @@ fn render_grid(msg: &TranscriptMessage, width: u16, height: u16) -> String {
 /// Compact per-row background run-length map + legend for a rendered buffer.
 /// Skips rows that are entirely the terminal default so the output stays
 /// focused on the painted step.
-fn background_map(buf: &nuotc::Grid) -> (String, String) {
+fn background_map(buf: &nuotc::CellGrid) -> (String, String) {
     use nuotc::Color;
     type Bg = Color;
 
@@ -820,9 +820,11 @@ fn render_transcript_frame(
     width: u16,
     height: u16,
     scroll: u16,
-    height_cache: Option<&mut super::HeightCache>,
+    height_cache: Option<&mut crate::shell::render::HeightCache>,
 ) -> RenderedTranscript {
-    use super::{EmptyStateGuidance, QueueBarProps, Theme, TranscriptProps, draw_transcript};
+    use crate::shell::render::{
+        EmptyStateGuidance, QueueBarProps, Theme, TranscriptProps, draw_transcript,
+    };
     use nuo_view::model::layout::LayoutMap;
 
     let theme = Theme::default();
@@ -852,6 +854,7 @@ fn render_transcript_frame(
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                notice_dock: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -911,7 +914,7 @@ fn first_content_row(grid: &str) -> &str {
 /// the reading position survives a column resize instead of drifting.
 #[test]
 fn resize_reanchors_the_manual_viewport_top() {
-    use super::HeightCache;
+    use crate::shell::render::HeightCache;
 
     // A long leading paragraph wraps to many more rows at 60 columns than at
     // 80, so every message after it shifts downward on the narrow reflow —
@@ -990,7 +993,7 @@ fn resize_reanchors_the_manual_viewport_top() {
 /// re-anchor (which would fight the user's own scrolling).
 #[test]
 fn steady_width_captures_but_never_resolves() {
-    use super::HeightCache;
+    use crate::shell::render::HeightCache;
 
     let messages: Vec<TranscriptMessage> = (0..40)
         .map(|i| TranscriptMessage::new(Role::User, format!("steady line {i}")))
@@ -1012,7 +1015,7 @@ fn steady_width_captures_but_never_resolves() {
 /// silently fail, leaving the raw offset in place (the drift the fix removes).
 #[test]
 fn resize_resolves_an_anchor_far_outside_the_stale_window() {
-    use super::HeightCache;
+    use crate::shell::render::HeightCache;
 
     // A very long leading paragraph: at 120 columns it wraps to a handful of
     // rows, but at 40 columns it explodes into dozens — a big downward shift
@@ -1073,14 +1076,46 @@ fn resize_resolves_an_anchor_far_outside_the_stale_window() {
 /// A catalog-sync warning (model-list refresh failure) renders as a notification
 /// entry: severity header row, gap, then the wrapped body — never as a bare
 /// un-styled text line.
+/// A notice body must paint **every** wrapped row, not just its first.
+///
+/// Regression: `draw_notice_view` built a one-element segment list from the
+/// wrapped *slice* while passing the slice's row-relative `start_byte` as
+/// `render_row_line`'s `base_offset`. Segment ranges and `base_offset` share the
+/// logical-row coordinate space, so on any continuation row no segment covered
+/// the slice and the splice produced an empty line — a multi-line notice
+/// silently rendered its first row and dropped the rest, while
+/// `content_lines` still counted them (so the transcript reserved height for
+/// rows that were never painted).
+#[test]
+fn notice_body_paints_every_wrapped_row() {
+    let raw = "aa: could not refresh the model list (model-list HTTP request failed: \
+               error sending request for url (https://api.deepseek.com/v1/models)). \
+               Showing the previous list.";
+    let msg = TranscriptMessage::notice(NoticeSeverity::Warning, raw);
+    let grid = render_transcript_grid(&[msg], 60, 24);
+
+    // Every word of the body must be reachable in the painted grid. Checking the
+    // tail is enough to catch the drop: the old bug kept the first row only.
+    let painted: String = grid.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "error sending request",
+        "api.deepseek.com",
+        "Showing the previous list.",
+    ] {
+        assert!(
+            painted.contains(needle),
+            "notice body dropped {needle:?}; painted text was:\n{grid}"
+        );
+    }
+}
+
 #[test]
 fn catalog_sync_warning_notice_renders_as_entry() {
     let raw = "aa: could not refresh the model list (model-list HTTP request failed: \
                error sending request for url (https://api.deepseek.com/v1/models)). \
                Showing the previous list.";
     let msg = TranscriptMessage::notice(NoticeSeverity::Warning, raw);
-    let grid = render_transcript_grid(&[msg], 60, 12);
-    println!("{grid}");
+    let grid = render_transcript_grid(&[msg], 60, 24);
 
     // Row 0 is the page-header band; the entry header is the first painted
     // transcript row.
@@ -1394,7 +1429,7 @@ fn command_ack_height_is_viewport_independent_and_last_row_is_reachable() {
 
     // Production keeps a height cache across frames. The first clipped frame
     // must cache the same complete height, never just the painted prefix.
-    let mut height_cache = super::HeightCache::default();
+    let mut height_cache = crate::shell::render::HeightCache::default();
     let top = render_transcript_frame(&messages, 60, 12, 0, Some(&mut height_cache));
     assert!(
         top.content_lines > top.view_height as usize,

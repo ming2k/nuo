@@ -642,8 +642,9 @@ pub(crate) fn model_detail_body(
     // 4. Status or Configuration section
     if rm.usable {
         layout = layout.section("Configuration");
-        if !rm.effort_levels.is_empty() || rm.effort.is_some() {
-            let current_effort = rm.effort.as_deref().unwrap_or("medium");
+        // Show the server's resolved value, never a locally invented default:
+        // `rm.effort` is `None` only when the route exposes no depth knob.
+        if let Some(current_effort) = rm.effort.as_deref() {
             layout = layout.kv_styled("Reasoning Effort", current_effort, value_style);
         }
         if let Some(thinking) = rm.thinking {
@@ -655,7 +656,7 @@ pub(crate) fn model_detail_body(
             };
             layout = layout.kv_styled("Thinking", check, style);
         }
-        if rm.effort_levels.is_empty() && rm.effort.is_none() && rm.thinking.is_none() {
+        if rm.effort.is_none() && rm.thinking.is_none() {
             layout = layout.kv("Mode", "Standard");
         }
     } else {

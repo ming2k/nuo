@@ -416,6 +416,109 @@ Gave up after 6 attempt(s); the upstream service appears overloaded. Resend the 
     }
 
     #[test]
+    fn a_provider_diagnostics_lead_line_stays_the_title() {
+        // A provider fault whose upstream body is content-free (Google's
+        // canonical `400 INVALID_ARGUMENT`) is augmented with a report of the
+        // request that was sent. The *first* line is still the fault itself, so
+        // the entry's bold lead must remain the provider's own words — the
+        // evidence block is detail, and must survive intact for the reader to
+        // act on. This is the client half of that contract: the producer emits
+        // brace-free prose (see `nuo_provider_google_antigravity::RequestShape`),
+        // so the JSON heuristic below cannot re-parse it as a payload.
+        let raw = "Google HTTP 400 Bad Request: Request contains an invalid argument.\n\n\
+The request that was refused carried: model=gemini-3.8-flash-tiered, \
+thinkingConfig=(includeThoughts=true, thinkingLevel=HIGH), tools=12, contents=43.\n\
+Google's message names no field, so read this list against the upstream contract: \
+a `thinkingLevel` outside `LOW`/`MEDIUM`/`HIGH` is a 400.";
+        let parsed = normalize(raw);
+        assert_eq!(
+            parsed.title,
+            "Google HTTP 400 Bad Request: Request contains an invalid argument."
+        );
+        let detail = parsed.detail.expect("the sent-shape evidence must survive");
+        assert!(detail.contains("thinkingLevel=HIGH"), "{detail}");
+        assert!(detail.contains("contents=43"), "{detail}");
+        assert!(detail.contains("names no field"), "{detail}");
+    }
+
+    /// End-to-end lock for the whole reported defect: the provider builds the
+    /// error from a real refusal, the client normalizes it, and the transcript
+    /// entry must actually carry the evidence into its rendered body.
+    ///
+    /// This crosses the crate boundary on purpose (the Google provider is a
+    /// dev-dependency) because the defect spanned it: the provider owned the
+    /// `thinkingLevel` value *and* the diagnostic, while the notice model owned
+    /// the rendering. A unit test on either side alone would have passed while
+    /// the user still saw one bare line.
+    #[test]
+    fn a_content_free_400_reaches_the_transcript_with_its_evidence() {
+        use crate::model::document::{NoticeSeverity, TranscriptMessage};
+        use nuo_provider::ProviderErrorKind;
+
+        // 1. The upstream refusal, verbatim — this is all Google says.
+        let upstream = nuo_provider::ProviderError::new(
+            "Google",
+            ProviderErrorKind::InvalidRequest,
+            "Google HTTP 400 Bad Request: Request contains an invalid argument.",
+        )
+        .with_status(400);
+
+        // 2. The provider folds in what it actually sent.
+        let shape = nuo_provider_google_antigravity::response::RequestShape::of(
+            "gemini-3.8-flash-tiered",
+            &serde_json::json!({
+                "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+                "generationConfig": {
+                    "thinkingConfig": {"includeThoughts": true, "thinkingLevel": "HIGH"}
+                },
+            }),
+        );
+        let clarified = nuo_provider_google_antigravity::response::clarify_error_with_shape(
+            upstream,
+            "gemini-3.8-flash",
+            "https://cloudcode-pa.googleapis.com",
+            Some(&shape),
+        );
+
+        // 3. The client builds the transcript entry from that message.
+        let msg = TranscriptMessage::notice(NoticeSeverity::Error, clarified.message().to_string());
+
+        // The painted body must lead with the fault and carry the evidence —
+        // not collapse to the single unattributable line that was reported.
+        assert!(
+            msg.raw
+                .starts_with("Google HTTP 400 Bad Request: Request contains an invalid argument."),
+            "the fault must stay the lead line: {}",
+            msg.raw
+        );
+        assert!(
+            msg.raw.contains("model=gemini-3.8-flash-tiered"),
+            "the routed wire model must be visible: {}",
+            msg.raw
+        );
+        assert!(
+            msg.raw.contains("thinkingLevel=HIGH"),
+            "the stamped depth must be visible: {}",
+            msg.raw
+        );
+        assert!(
+            msg.raw.lines().count() > 1,
+            "the entry must be multi-line, not a single template line: {}",
+            msg.raw
+        );
+        // Every evidence line survives into a painted block (no line is lost
+        // between normalization and the block list the renderer walks).
+        let painted = msg
+            .blocks
+            .iter()
+            .map(|block| block.raw_text())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(painted.contains("thinkingLevel=HIGH"), "{painted}");
+        assert!(painted.contains("names no field"), "{painted}");
+    }
+
+    #[test]
     fn normalizes_nested_gateway_json_error_digesting_escapes_and_newlines() {
         let raw = r#"OpenAI Responses HTTP 400 Bad Request: {"error":{"message":"{\"error\":{\"message\":\"The messages parameter is illegal. Please check the documentation.\",\"type\":\"AI_APICallError\",\"param\":{\"error\":\"The messages parameter is illegal. Please check the documentation.\",\"statusCode\":400,\"name\":\"AI_APICallError\",\"message\":\"The messages parameter is illegal. Please check the documentation.\",\"isRetryable\":false,\"type\":\"AI_APICallError\"}},\"providerMetadata\":{\"gateway\":{\"routing\":{\"originalModelId\":\"zai/glm-5.3-flashx\",\"resolvedProvider\":\"zai\",\"fallbacksAvailable\":[],\"canonicalSlug\":\"zai/glm-5.3-flashx\",\"modelAttemptCount\":1,\"modelAttempts\":[{\"canonicalSlug\":\"zai/glm-5.3-flashx\",\"success\":false,\"providerAttemptCount\":1,\"providerAttempts\":[{\"provider\":\"zai\",\"credentialType\":\"system\",\"success\":false,\"error\":\"The messages parameter is illegal. Please check the documentation.\",\"startTime\":1792727628864,\"endTime\":1792727630532,\"providerRequestId\":\"20261023115350796e7fbd69c94610\",\"statusCode\":400}]}],\"totalProviderAttemptCount\":1,\"affinity\":{\"outcome\":\"no_pin\"},\"cli…(truncated)","type":"invalid_request_error"}}"#;
         let parsed = normalize(raw);

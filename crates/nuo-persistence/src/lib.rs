@@ -49,6 +49,7 @@ pub mod session;
 pub mod tools;
 pub mod usage_stats;
 mod web_migration;
+pub mod workspace_effects;
 pub mod workspace_security;
 
 pub use asset_attestation::AssetAttestationLedger;

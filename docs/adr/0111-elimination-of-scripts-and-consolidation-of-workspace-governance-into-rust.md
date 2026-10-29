@@ -52,19 +52,22 @@ All verification logic is reimplemented in pure Rust within `crates/nuo/src/dev/
 ### 3. Native Integration Test Targets
 
 Verification gates are declared as standard Cargo integration tests in `crates/nuo/tests/`:
-- `crates/nuo/tests/architecture_firewall.rs`: Executes `test_inv_arch_firewall_and_topology` and `test_inv_arch_cli_lean_link`.
+- `crates/nuo/tests/architecture_firewall.rs`: Executes `test_inv_arch_firewall_and_topology`, `test_inv_arch_cli_lean_link`, and `test_inv_arch_source_residency`.
 - `crates/nuo/tests/doc_governance.rs`: Executes `test_doc_links` and `test_adr_lineage`.
 
 These run automatically as part of `cargo test --workspace` and can be invoked individually via `cargo test -p nuo --test <name>`.
+
+The residency gate is specified by [ADR-0124](0124-source-residency-every-rust-file-reachable-from-a-crate-root.md), which establishes `[INV-ARCH-RESIDENCY-01]`: every `.rs` file under a tier root must be reachable from a crate root by `mod` declarations.
 
 ### 4. First-Class Developer CLI Commands
 
 The `nuo dev` command family (ADR-0073) is expanded to support offline verification:
 ```bash
-nuo dev check all       # Run all gates
-nuo dev check firewall  # Run architecture firewall and lean CLI link check
-nuo dev check docs      # Run documentation hyperlink and audience check
-nuo dev check adr       # Run ADR reference lineage check
+nuo dev check all        # Run all gates
+nuo dev check firewall   # Run architecture firewall and lean CLI link check
+nuo dev check docs       # Run documentation hyperlink and audience check
+nuo dev check adr        # Run ADR reference lineage check
+nuo dev check residency  # Run Rust source reachability check (ADR-0124)
 ```
 
 ### 5. Harmonized CI Workflow

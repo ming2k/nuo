@@ -30,6 +30,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // GPT-5.6 (OpenAI)
@@ -51,6 +52,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -63,6 +65,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -75,6 +78,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -87,6 +91,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // GPT (OpenAI)
@@ -104,6 +109,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -116,6 +122,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -128,6 +135,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     // Legacy GPT-4o family — no longer in OpenAI's frontier chat lineup (it
@@ -143,6 +151,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -155,6 +164,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: &[],
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -167,6 +177,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -179,6 +190,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -191,6 +203,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -203,6 +216,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiChatCompletions,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
 ];

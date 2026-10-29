@@ -218,6 +218,16 @@ impl SessionStore {
         &self.blob_store
     }
 
+    /// The persistence handle this session writes through.
+    ///
+    /// Exposed so the server can install a `nuo-harness`-facing journal port
+    /// (ADR-0125) that writes through the *same* single-writer door rather than
+    /// opening a second connection. Narrow on purpose: callers get the handle,
+    /// not a way to reach into session state.
+    pub fn persistence(&self) -> &crate::db::PersistenceHandle {
+        &self.writer
+    }
+
     /// Test-only: lock the session state (same crate sibling module access).
     #[cfg(test)]
     pub(crate) async fn state_lock_for_test(&self) -> tokio::sync::MutexGuard<'_, SessionState> {

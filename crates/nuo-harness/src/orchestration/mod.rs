@@ -1897,6 +1897,12 @@ pub fn relay_agent_event(
                 arguments,
             },
         ),
+        // The preview rides the same relay as the call it describes (ADR-0125).
+        // It is classified `Ephemera` on the far side, so no frontend can persist
+        // it into the transcript: a diff nothing applied must not survive a resume.
+        AgentEvent::ToolPreview { id, name, preview } => {
+            round_response(session_id, RoundEvent::ToolPreview { id, name, preview })
+        }
         AgentEvent::ToolResult {
             id,
             name,

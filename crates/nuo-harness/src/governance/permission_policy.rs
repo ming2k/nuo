@@ -338,6 +338,11 @@ impl PermissionPolicy for BashPolicy {
                             origin: None,
                             hazard: Some(nuo_wire::hazard::HazardLevel::CommandExecution),
                             submission: None,
+                            // A shell command's effect cannot be computed without
+                            // running it, which is precisely why this prompt asks a
+                            // human (ADR-0125). An absent preview here is the honest
+                            // answer, not an omission.
+                            preview: None,
                         }),
                         rule: PermissionRule {
                             tool: "execute_command".to_string(),
@@ -392,6 +397,18 @@ impl PermissionPolicy for BrokerPolicy {
             .unwrap_or_else(|| ctx.tool.permission_description());
         let hazard = submission.as_ref().map(|s| s.hazard_level);
 
+        // A pure preview of what authorizing this call would do (ADR-0125). Asked
+        // here — at the gate that is about to hand the decision to a human — because
+        // this is the only point where the diff changes anything: a caller that
+        // auto-approves never needs it, and a caller that refuses never shows it.
+        //
+        // `None` is a real answer, not a gap: a shell command, a network fetch, or a
+        // subagent cannot describe its effect without causing it, and a prompt that
+        // said otherwise would be manufacturing confidence.
+        let preview = ctx
+            .tool
+            .preview(&serde_json::from_str(ctx.arguments).unwrap_or(serde_json::Value::Null));
+
         PolicyDecision::MissingAuthority {
             request: Box::new(nuo_wire::PermissionRequest {
                 id: String::new(), // caller fills the generated id
@@ -405,6 +422,7 @@ impl PermissionPolicy for BrokerPolicy {
                 origin: None,
                 hazard,
                 submission,
+                preview,
             }),
             rule,
         }

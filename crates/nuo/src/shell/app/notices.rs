@@ -105,6 +105,16 @@ pub struct NoticeViewer {
     /// The body height the last paint produced. Written by the renderer so
     /// `PgUp`/`PgDn` step by a real page instead of a guess.
     pub body_height: u16,
+    /// The screen row the body's first visible line was painted at.
+    ///
+    /// Recorded by the dock and read by the click handler, so pointer
+    /// hit-testing resolves through the geometry that actually painted rather
+    /// than by recomputing the footer stack. `None` until the dock has painted
+    /// once.
+    pub body_origin: Option<u16>,
+    /// The body's width in columns at that paint, so a click maps back to a
+    /// notice through the same wrap arithmetic that laid the rows out.
+    pub body_width: usize,
 }
 
 impl NoticeViewer {
@@ -118,6 +128,8 @@ impl NoticeViewer {
             detail: false,
             detail_scroll: 0,
             body_height: 0,
+            body_origin: None,
+            body_width: 0,
         }
     }
 

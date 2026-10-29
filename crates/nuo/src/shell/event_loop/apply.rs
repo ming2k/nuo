@@ -642,6 +642,20 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
     let mut rejected_invocation: Option<String> = None;
     // Snapshot the disclosure input the tool arms need before the document borrow.
     let tui_config = app.tui_config.clone();
+    // The turn position and send time this edit's payload *would* join, captured
+    // before the document borrow. A freshly created component that arrives
+    // unstamped adopts its turn's time ([`TranscriptMessage::adopt_sent_at_ms`]),
+    // so a header can never lose its only temporal fact to a forgotten builder
+    // call — the invariant is repaired here rather than trusted at every arm.
+    let turn_time_adoption =
+        |messages: &[TranscriptMessage], round: Option<u64>, turn: Option<u64>| -> Option<u64> {
+            let (round, turn) = (round?, turn?);
+            messages
+                .iter()
+                .rev()
+                .filter(|message| message.turn_position() == Some((round, turn)))
+                .find_map(|message| message.sent_at_ms)
+        };
     {
         let messages = &mut app.messages;
         match edit {
@@ -659,7 +673,8 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 match crate::shell::append_stream_text_delta(messages, round, turn, &delta) {
                     Some(id) => post = PostEdit::Invalidate(id),
                     None => {
-                        if let Some(message) = created {
+                        if let Some(mut message) = created {
+                            message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
                             messages.push(message);
                         }
                     }
@@ -687,7 +702,8 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     None => {
                         // Defensive fallback for providers that deliver only
                         // a final payload with no preceding deltas.
-                        if let Some(message) = created {
+                        if let Some(mut message) = created {
+                            message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
                             messages.push(message);
                         }
                     }
@@ -716,7 +732,8 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 match crate::shell::append_reasoning_delta(messages, round, turn, &delta) {
                     Some(_) => {}
                     None => {
-                        if let Some(message) = created {
+                        if let Some(mut message) = created {
+                            message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
                             messages.push(message);
                         }
                     }
@@ -752,6 +769,9 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 }
             }
             TranscriptEdit::ToolStart { message } => {
+                let mut message = message;
+                let (round, turn) = (message.round, message.turn);
+                message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
                 messages.push(message);
             }
             TranscriptEdit::ToolAnnounce {
@@ -765,6 +785,8 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 // following `ToolCallCollapse` re-keys it onto the dispatch id.
                 // A just-pushed message has no cached height to evict.
                 let mut message = message;
+                let (round, turn) = (message.round, message.turn);
+                message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
                 if let Some(status) = message.tool_step_status() {
                     let default = crate::shell::step_interaction::default_tool_expanded(
                         status,
@@ -785,6 +807,16 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     // and clear the pre-dispatch slot/byte state in one transition.
                     step.collapse_tool_call(call_id, arguments);
                     post = PostEdit::Invalidate(step.id);
+                }
+            }
+            TranscriptEdit::ToolPreview { id, preview } => {
+                // Match by dispatch call id: the up-front `ToolCall` events have
+                // already created (or collapsed) the step this describes.
+                for message in messages.iter_mut() {
+                    if message.set_tool_preview(&id, preview.clone()) {
+                        post = PostEdit::Invalidate(message.id);
+                        break;
+                    }
                 }
             }
             TranscriptEdit::ToolInputProgress {

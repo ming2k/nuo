@@ -455,6 +455,7 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
         origin: None,
         hazard: None,
         submission: None,
+        preview: None,
     });
     crate::shell::event_loop::sync::sync_request_surfaces(&mut app, &runtime);
     assert_eq!(

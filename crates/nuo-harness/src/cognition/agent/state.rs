@@ -181,6 +181,8 @@ impl Agent {
             round_paused_ms: std::sync::atomic::AtomicU64::new(0),
             identity: std::sync::RwLock::new(identity),
             turn_persist: std::sync::Mutex::new(None),
+            workspace_journal: std::sync::RwLock::new(None),
+            current_turn: std::sync::atomic::AtomicU64::new(0),
             request_projection_persist: std::sync::Mutex::new(None),
             title_established: std::sync::Mutex::new(None),
             model_request_assembler,
@@ -845,6 +847,45 @@ impl Agent {
     /// boundaries no-ops.
     pub fn set_turn_persist(&self, f: TurnPersistFn) {
         *self.turn_persist.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
+    }
+
+    /// Install the workspace effect journal port (ADR-0125).
+    ///
+    /// Called once by the server after the session is open. With the port
+    /// installed, dispatch brackets every tool invocation with capture and
+    /// completion; without it, journaling is disabled rather than degraded — there
+    /// is no in-memory fallback, because a journal that vanishes at process exit
+    /// would make `/undo` a promise that lasts until the crash.
+    pub fn set_workspace_journal(
+        &self,
+        journal: std::sync::Arc<dyn crate::runtime::WorkspaceJournalPort>,
+    ) {
+        *self
+            .workspace_journal
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(journal);
+    }
+
+    /// The installed journal port, if any.
+    pub(crate) fn workspace_journal(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::runtime::WorkspaceJournalPort>> {
+        self.workspace_journal
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Advance the ReAct turn counter used for journal coordinates. Called by the
+    /// round loop at each turn boundary.
+    pub(crate) fn set_current_turn(&self, turn: u64) {
+        self.current_turn
+            .store(turn, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The ReAct turn currently executing, for journal coordinates.
+    pub(crate) fn current_turn(&self) -> u64 {
+        self.current_turn.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Install the title-established observer fired by the background session

@@ -192,6 +192,14 @@ pub struct TranscriptProps<'a> {
     pub queue_bar: QueueBarProps<'a>,
     /// The background tasks status bar.
     pub tasks_bar: TasksBarProps<'a>,
+    /// The notice dock's payload (ADR-0121), when it is open.
+    ///
+    /// Carried as *data* through the same props struct every other footer row
+    /// uses, so the dock's height participates in the footer stack's split and
+    /// its rect comes back out of `footer_stack::place` like any other row. A
+    /// float painted separately by the event loop would have had to recompute
+    /// the footer's height independently — two layout paths that drift.
+    pub notice_dock: Option<NoticeDockProps<'a>>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
     /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0024).
@@ -447,6 +455,38 @@ fn draw_step_dispatch(
     }
 }
 
+/// The notice dock's payload (ADR-0121): the retained disclosures, the cursor,
+/// and where the scroll currently sits.
+///
+/// The viewer state is a `&mut` because the dock derives its scroll offset from
+/// the rect the footer stack placed — the geometry and the viewport are one
+/// computation, not two.
+pub struct NoticeDockProps<'a> {
+    pub lines: &'a [nuo_view::model::log::SurfaceLine],
+    pub viewer: &'a mut crate::shell::app::notices::NoticeViewer,
+}
+
+/// The dock's height in footer rows for this frame, or 0 when it is closed.
+///
+/// The one place the footer stack's split and the dock's paint agree on how tall
+/// the row is. The height is a function of the **viewport** — never of how many
+/// notices exist — because a log-length-derived height grows the footer on every
+/// arrival and reflows the transcript the user is reading (ADR-0121). The single
+/// exception is an expanded detail block: pressing `Enter` is an explicit request
+/// for more room, so that reflow is the requested layout rather than jitter.
+fn notice_dock_height(size: nuotc::Rect, dock: Option<&NoticeDockProps<'_>>) -> u16 {
+    let Some(dock) = dock else {
+        return 0;
+    };
+    let base = nuo_ui_primitives::design::notice_dock_rows(size.height);
+    if !dock.viewer.detail {
+        return base;
+    }
+    let detail_rows =
+        crate::shell::overlays::notices::expanded_detail_rows(dock.lines, dock.viewer, size.width);
+    nuo_ui_primitives::design::notice_dock_rows_expanded(size.height, detail_rows)
+}
+
 /// Draw the main transcript area, recording layout info.
 pub fn draw_transcript(
     frame: &mut Frame,
@@ -466,6 +506,7 @@ pub fn draw_transcript(
         chrome_hidden,
         queue_bar,
         tasks_bar,
+        notice_dock,
         subagent_bar,
         page_hints,
         tab_bar,
@@ -630,7 +671,13 @@ pub fn draw_transcript(
         MODEL_BAR_ROWS
     };
     // The footer stack is declared once, in draw order (ADR-0062).
-    // Order, top → bottom: top gap, consolidated activity strip, input box, hint bar.
+    // Order, top → bottom: top gap, notice dock, consolidated activity strip,
+    // input box, hint bar.
+    //
+    // The dock sits *above* the activity strip because a fault outranks a status
+    // summary: the row the user must read comes first, and the transient strip
+    // stays closest to the composer it describes.
+    let dock_height = notice_dock_height(size, notice_dock.as_ref());
     let footer_rows: Vec<FooterRow> = if chrome_hidden || in_subagent {
         Vec::new()
     } else {
@@ -638,6 +685,10 @@ pub fn draw_transcript(
             FooterRow {
                 id: FooterRowId::TopGap,
                 height: FOOTER_TOP_GAP_ROWS,
+            },
+            FooterRow {
+                id: FooterRowId::NoticeDock,
+                height: dock_height,
             },
             FooterRow {
                 id: FooterRowId::ActivityStrip,
@@ -850,6 +901,13 @@ pub fn draw_transcript(
     // `place` applies the shared `FOOTER_H_INSET` extent itself, so no
     // hand-derived `footer_x`/`footer_w` remains.
     let placed_footer = footer_stack::place(chunks[1], &footer_rows);
+
+    // The notice dock (ADR-0121) is *placed* here and painted by the event loop,
+    // which is where `UiKey` lives. The stack still owns its geometry: the row's
+    // height fed `measure` above (so the transcript gave up exactly these rows)
+    // and its rect comes back out of `placed_footer` for the caller to paint into
+    // and for click dispatch to hit-test against. One geometry authority, no
+    // second path.
 
     // The consolidated activity strip (ADR-0062 [INV-FOOTER-02]) sits directly above
     // the input box, strictly bounded to at most 1 row. It projects the active round

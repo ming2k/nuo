@@ -277,25 +277,32 @@ pub struct FittedModelInfo {
     pub efforts: Vec<String>,
 }
 
-/// Per-(instance, model) reasoning overrides — the user's own per-route
+/// Per-(instance, model) tuning overrides — the user's own per-route
 /// choices (set from the model `e` editor), persisted in **state** via
 /// [`crate::route_settings::RouteSettingsStore`] (keyed
 /// `providers[<instance_id>][<model_id>]`). Unlike the *derived* capability
-/// fields ([`FittedModelInfo`]), these are not rebuildable: the entry's
-/// presence opts the model in to reasoning on Anthropic-protocol routes,
-/// `thinking` defaulting **on** unless explicitly `false` (ADR-0046).
+/// fields ([`FittedModelInfo`]), these are not rebuildable.
+///
+/// The knobs themselves live in [`TunableSettings`](nuo_wire::TunableSettings),
+/// an **open** map keyed by the provider's own knob ids (ADR-0126). That is
+/// what lets a provider ship a new knob without a persistence migration: the
+/// map carries it, and a build that has never heard of it still round-trips the
+/// value rather than erasing it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RouteSettings {
-    /// Reasoning depth: `"none"`/`"minimal"`/`"low"`/`"medium"`/`"high"`/
-    /// `"xhigh"`/`"max"`, clamped at request time to the model's levels.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    /// Whether extended thinking is on (`true`) or off (`false`) once the
-    /// route is opted in. Defaults to on when the entry exists; set `false`
-    /// to reason with depth only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thinking: Option<bool>,
+    /// Every tuning the user has set on this route, keyed by the provider's own
+    /// knob id — the **single** carrier of per-route tuning (ADR-0126).
+    ///
+    /// There are deliberately no typed `effort` / `thinking` fields beside it.
+    /// They existed briefly as "mirrors" of two keys in this map, which made one
+    /// fact storable two ways and forced every reader to reconcile them. The
+    /// map alone is sufficient: depth and the thinking switch are read through
+    /// the typed accessors ([`nuo_wire::TunableSettings::effort`] /
+    /// [`nuo_wire::TunableSettings::thinking`]), and every other provider knob
+    /// needs no field at all.
+    #[serde(default, skip_serializing_if = "nuo_wire::TunableSettings::is_empty")]
+    pub tunings: nuo_wire::TunableSettings,
     /// Explicit capability overrides -- the **top layer** of the capability
     /// resolution order. `None`/empty means "no opinion": the
     /// effective capabilities fall through to remote metadata, then the
@@ -310,13 +317,10 @@ pub struct RouteSettings {
 }
 
 impl RouteSettings {
-    /// Whether the entry carries any explicit knob. An entry with neither
-    /// field set still opts the model in to thinking on Anthropic routes.
-    /// Capability overrides (layer 1) count as a knob: a record that
-    /// only carries them must not be pruned as empty.
+    /// Whether the entry carries any explicit knob. An entry with nothing set
+    /// is pruned rather than stored.
     pub fn is_empty(&self) -> bool {
-        self.effort.is_none()
-            && self.thinking.is_none()
+        self.tunings.is_empty()
             && self
                 .capability_overrides
                 .as_ref()
@@ -2359,33 +2363,40 @@ deepseek = "new-key"
     }
 
     #[test]
-    fn route_settings_presence_opts_in_and_is_empty_semantics() {
-        // ADR-0046: entry presence opts in; a bare entry (no knobs) still
-        // counts as configured, while an entry that carries no fields after
-        // mutation reports empty so callers can prune it.
-        let empty = RouteSettings::default();
-        assert!(empty.is_empty());
-        let bare = RouteSettings {
-            effort: None,
-            thinking: None,
-            capability_overrides: None,
-            prompt_cache: None,
-        };
-        assert!(bare.is_empty());
-        let with_effort = RouteSettings {
-            effort: Some("high".to_string()),
-            thinking: None,
-            capability_overrides: None,
-            prompt_cache: None,
-        };
+    fn route_settings_is_empty_tracks_the_tuning_map() {
+        // An entry that carries nothing must report empty so callers prune it.
+        assert!(RouteSettings::default().is_empty());
+
+        // A depth choice makes the entry non-empty. There is no separate
+        // `effort` field to check: the open tuning map is the single carrier
+        // (ADR-0126), so "is this route configured" is exactly "is the map
+        // non-empty, or does it carry overrides/cache intent".
+        let mut with_effort = RouteSettings::default();
+        with_effort.tunings.set_effort(Some(nuo_wire::Effort::High));
         assert!(!with_effort.is_empty());
-        let with_thinking = RouteSettings {
-            effort: None,
-            thinking: Some(false),
-            capability_overrides: None,
-            prompt_cache: None,
-        };
+        assert_eq!(with_effort.tunings.effort(), Some(nuo_wire::Effort::High));
+
+        // The same holds for the thinking switch.
+        let mut with_thinking = RouteSettings::default();
+        with_thinking.tunings.set_thinking(Some(false));
         assert!(!with_thinking.is_empty());
+        assert_eq!(with_thinking.tunings.thinking(), Some(false));
+
+        // Clearing a knob restores emptiness — no residue anywhere.
+        with_effort.tunings.set_effort(None);
+        assert!(with_effort.is_empty());
+
+        // A knob the framework has never heard of also counts: the map is open,
+        // and an unrecognised provider knob must not be pruned as "nothing".
+        let mut unknown = RouteSettings::default();
+        unknown
+            .tunings
+            .set("edit_format", nuo_wire::TunableSetting::from("apply_patch"));
+        assert!(!unknown.is_empty());
+        assert_eq!(
+            unknown.tunings.get("edit_format").and_then(|v| v.as_rung()),
+            Some("apply_patch")
+        );
     }
 
     // project-scope MCP merge

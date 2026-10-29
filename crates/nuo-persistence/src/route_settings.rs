@@ -52,13 +52,63 @@ fn read_legacy_cache_route_settings() -> BTreeMap<String, BTreeMap<String, Route
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
         return BTreeMap::new();
     };
-    serde_json::from_value(
-        value
-            .get("route_settings")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
-    )
-    .unwrap_or_default()
+    let Some(map) = value.get("route_settings").and_then(|v| v.as_object()) else {
+        return BTreeMap::new();
+    };
+
+    // The retired shape stored depth and the switch as **typed fields**
+    // (`RouteSettings { effort, thinking, .. }`). Those fields are gone — the
+    // open tuning map is now the single carrier (ADR-0126) — so this reader is
+    // the one place the old spelling is translated. It must be explicit:
+    // `RouteSettings` denies unknown fields, so deserializing the retired JSON
+    // directly would reject the whole entry and silently lose the user's
+    // overrides instead of rescuing them.
+    let mut out: BTreeMap<String, BTreeMap<String, RouteSettings>> = BTreeMap::new();
+    for (connection, models) in map {
+        let Some(models) = models.as_object() else {
+            continue;
+        };
+        let mut migrated = BTreeMap::new();
+        for (model, raw) in models {
+            let Some(record) = raw.as_object() else {
+                continue;
+            };
+            let mut settings = RouteSettings::default();
+            if let Some(effort) = record.get("effort").and_then(|v| v.as_str()) {
+                settings.tunings.set_effort(nuo_wire::Effort::parse(effort));
+            }
+            if let Some(thinking) = record.get("thinking").and_then(|v| v.as_bool()) {
+                settings.tunings.set_thinking(Some(thinking));
+            }
+            if let Some(unknown) = record.get("tunings")
+                && let Ok(extra) =
+                    serde_json::from_value::<nuo_wire::TunableSettings>(unknown.clone())
+            {
+                for (id, value) in &extra {
+                    settings.tunings.set(id, value.clone());
+                }
+            }
+            if let Some(overrides) = record.get("capability_overrides")
+                && let Ok(overrides) =
+                    serde_json::from_value::<nuo_wire::CapabilityOverrides>(overrides.clone())
+            {
+                settings.capability_overrides = (!overrides.is_empty()).then_some(overrides);
+            }
+            if let Some(cache) = record.get("prompt_cache")
+                && let Ok(preference) =
+                    serde_json::from_value::<nuo_wire::PromptCachePreference>(cache.clone())
+            {
+                settings.prompt_cache = Some(preference);
+            }
+            if !settings.is_empty() {
+                migrated.insert(model.clone(), settings);
+            }
+        }
+        if !migrated.is_empty() {
+            out.insert(connection.clone(), migrated);
+        }
+    }
+    out
 }
 
 /// The persisted shape: the user's route settings plus the migration marker.
@@ -198,7 +248,10 @@ mod tests {
 
     fn store_with(instance: &str, model: &str, effort: &str) -> RouteSettingsStore {
         let mut store = RouteSettingsStore::default();
-        store.settings_for_mut(instance, model).effort = Some(effort.to_string());
+        store
+            .settings_for_mut(instance, model)
+            .tunings
+            .set_effort(nuo_wire::Effort::parse(effort));
         store
     }
 
@@ -209,13 +262,17 @@ mod tests {
     #[test]
     fn rename_connection_carries_route_settings() {
         let mut store = RouteSettingsStore::default();
-        store.settings_for_mut("old", "qfmodel").effort = Some("xhigh".into());
+        store
+            .settings_for_mut("old", "qfmodel")
+            .tunings
+            .set_effort(nuo_wire::Effort::parse("xhigh"));
         store.rename_connection("old", "new");
 
         assert_eq!(
             store
                 .settings_for("new", "qfmodel")
-                .and_then(|s| s.effort.clone())
+                .and_then(|s| s.tunings.effort())
+                .map(|e| e.as_str().to_string())
                 .as_deref(),
             Some("xhigh")
         );
@@ -230,12 +287,16 @@ mod tests {
     #[test]
     fn route_case_only_rename_is_a_no_op() {
         let mut store = RouteSettingsStore::default();
-        store.settings_for_mut("qod", "qfmodel").effort = Some("low".into());
+        store
+            .settings_for_mut("qod", "qfmodel")
+            .tunings
+            .set_effort(nuo_wire::Effort::parse("low"));
         store.rename_connection("qod", "QOD");
         assert_eq!(
             store
                 .settings_for("qod", "qfmodel")
-                .and_then(|s| s.effort.clone())
+                .and_then(|s| s.tunings.effort())
+                .map(|e| e.as_str().to_string())
                 .as_deref(),
             Some("low")
         );
@@ -246,10 +307,18 @@ mod tests {
     fn mut_insert_remove_and_empty_semantics() {
         let mut store = RouteSettingsStore::default();
         assert!(store.is_empty());
-        store.settings_for_mut("p", "m").effort = Some("high".into());
+        store
+            .settings_for_mut("p", "m")
+            .tunings
+            .set_effort(nuo_wire::Effort::parse("high"));
         assert!(!store.is_empty());
         assert_eq!(
-            store.settings_for("p", "m").unwrap().effort.as_deref(),
+            store
+                .settings_for("p", "m")
+                .unwrap()
+                .tunings
+                .effort()
+                .map(|e| e.as_str()),
             Some("high")
         );
         store.remove("p", "m");
@@ -278,8 +347,9 @@ mod tests {
             reloaded
                 .settings_for("anthropic", "claude-x")
                 .unwrap()
-                .effort
-                .as_deref(),
+                .tunings
+                .effort()
+                .map(|e| e.as_str()),
             Some("high")
         );
     }
@@ -320,8 +390,14 @@ mod tests {
         assert_eq!(
             store.settings_for("kimi", "kimi-k2").unwrap(),
             &RouteSettings {
-                effort: Some("medium".into()),
-                thinking: Some(false),
+                tunings: {
+                    let mut tunings = nuo_wire::TunableSettings::new();
+                    tunings.set_effort(Some(nuo_wire::Effort::Medium));
+                    // The retired `thinking: false` is rescued too — both typed
+                    // fields became keys in the open map (ADR-0126).
+                    tunings.set_thinking(Some(false));
+                    tunings
+                },
                 capability_overrides: None,
                 prompt_cache: None,
             },
@@ -341,8 +417,9 @@ mod tests {
             again
                 .settings_for("kimi", "kimi-k2")
                 .unwrap()
-                .effort
-                .as_deref(),
+                .tunings
+                .effort()
+                .map(|e| e.as_str()),
             Some("medium")
         );
     }

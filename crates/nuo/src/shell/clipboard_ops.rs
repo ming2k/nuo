@@ -26,7 +26,7 @@ use nuo_view::composer_attachments::{image_chip, paste_chip, paste_line_count, s
 /// resolution for the route the server will serve — merely read as a
 /// declaration rather than as a policy.
 pub(crate) fn active_route_vision_declaration(app: &App) -> Option<bool> {
-    app.active_route_capabilities().vision
+    app.active_model_info().and_then(|info| info.vision)
 }
 
 /// The escape hatch named in the paste rejection: a declared text-only route is

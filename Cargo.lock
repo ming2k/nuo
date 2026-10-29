@@ -2458,6 +2458,7 @@ version = "0.0.55"
 dependencies = [
  "chrono",
  "nuo-protocol",
+ "nuo-provider",
  "nuo-provider-anthropic",
  "nuo-provider-google-antigravity",
  "nuo-provider-openai",
@@ -2473,8 +2474,8 @@ dependencies = [
 
 [[package]]
 name = "nuotc"
-version = "0.0.5"
-source = "git+https://github.com/ming2k/nuotc.git?tag=v0.0.5#d95ef302fd02d9042d02a03fd6211cf547bfd594"
+version = "0.0.6"
+source = "git+https://github.com/ming2k/nuotc.git?tag=v0.0.6#d96ff31c7583a3f254b38b2bebbd81be50f2991b"
 dependencies = [
  "bitflags",
  "crossterm",

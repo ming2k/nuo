@@ -51,6 +51,25 @@ fn restored_assistant_tool_step_uses_message_timestamp_for_turn_header() {
 }
 
 #[test]
+fn restored_reasoning_component_carries_the_turn_send_time() {
+    // A reasoning trace is a component of its assistant message's turn, so it
+    // must carry that message's send time. When thinking is the turn's *first*
+    // component it owns the band header — an unstamped trace silently dropped
+    // the header's `HH:MM` on every resumed reasoning turn.
+    let mut assistant = Message::new(Role::Assistant, "answer");
+    assistant.timestamp = Some(1_700_000_002);
+    assistant.reasoning_content = Some("inspect first".to_string());
+
+    let restored = transcript_messages_from_core(vec![assistant], &config::TuiConfig::default());
+    assert!(restored[0].is_reasoning());
+    assert_eq!(
+        restored[0].sent_at_ms,
+        Some(1_700_000_002_000),
+        "a restored reasoning trace must carry its turn's send time"
+    );
+}
+
+#[test]
 fn restored_assistant_components_share_their_round_and_turn() {
     let mut assistant = Message::new(Role::Assistant, "continue");
     assistant.reasoning_content = Some("inspect first".to_string());

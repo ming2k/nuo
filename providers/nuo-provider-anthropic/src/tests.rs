@@ -45,6 +45,7 @@ fn caps_with_vision(vision: Option<bool>) -> nuo_provider::ModelCapabilities {
         vision,
         effort_levels: Vec::new(),
         effort_entities: Vec::new(),
+        default_effort: None,
     }
 }
 

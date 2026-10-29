@@ -20,6 +20,7 @@ pub mod completion;
 pub mod context;
 pub mod descriptor;
 pub mod dynamic;
+pub mod effect;
 pub mod error;
 pub mod events;
 pub mod guard;
@@ -28,7 +29,9 @@ pub mod mention;
 pub mod message;
 pub mod output;
 pub mod policy;
+pub mod preview;
 pub mod registry;
+pub mod residency;
 pub mod risk;
 pub mod scope;
 pub mod skills_config;
@@ -52,6 +55,9 @@ pub use completion::{
 pub use context::{ServiceMap, ServiceMapBuilder, ToolContext, ToolInvocation, ToolStreamSink};
 pub use descriptor::{ToolDescriptor, ToolDescriptorBuilder};
 pub use dynamic::DynamicTool;
+
+pub use effect::EffectClass;
+pub use effect::reconciling;
 pub use error::{Result, ToolError};
 pub use guard::TrajectoryGuardConfig;
 pub use mcp::McpTool;
@@ -61,7 +67,9 @@ pub use message::{
 };
 pub use output::ToolOutput;
 pub use policy::ToolPolicy;
+pub use preview::PreviewResult;
 pub use registry::ToolRegistry;
+pub use residency::{CaptureEligibility, classify as classify_capture_eligibility};
 pub use risk::RiskProfile;
 pub use scope::{ScopeTarget, ToolScope};
 pub use skills_config::SkillsConfig;
@@ -127,6 +135,7 @@ pub trait Tool: Send + Sync {
             variant: self.variant().to_string(),
             aliases: self.aliases().iter().map(|a| a.to_string()).collect(),
             risk: self.risk_profile(),
+            effect: self.effect_class(),
             scopes: self.scopes(),
             requires_user: self.requires_user(),
             requires_vision: self.requires_vision(),
@@ -231,6 +240,49 @@ pub trait Tool: Send + Sync {
         }
     }
 
+    /// Reversibility classification of this tool's *ceiling* — the most
+    /// irreversible effect any call to it can produce (ADR-0125).
+    ///
+    /// This is deliberately a separate axis from
+    /// [`risk_profile`](Self::risk_profile): risk answers "must a human
+    /// authorize this?", effect answers "can this be undone?". The default
+    /// derivation reads only the declared [`RiskProfile`], which is the
+    /// conservative floor; a tool that declares locatable file accesses is
+    /// refined by [`effect_class_for`](Self::effect_class_for).
+    ///
+    /// A tool whose effect does not fit its risk profile must override this:
+    /// `read_url` is `NetworkAccess` *and* `ExternalEffect` (already derived),
+    /// but a hypothetical local-only cache warmer would be `Destructive` risk
+    /// with `None` effect and must say so explicitly.
+    fn effect_class(&self) -> EffectClass {
+        match self.risk_profile() {
+            RiskProfile::ReadOnly => EffectClass::None,
+            RiskProfile::IdempotentMutation => EffectClass::FileBytes,
+            RiskProfile::Destructive => EffectClass::Opaque,
+            RiskProfile::NetworkAccess => EffectClass::ExternalEffect,
+            RiskProfile::ArbitraryExecution => EffectClass::Opaque,
+        }
+    }
+
+    /// Reversibility classification of *this call*, joining the tool's declared
+    /// ceiling with what its declared [`accesses`](Self::accesses) actually
+    /// implicate for these arguments.
+    ///
+    /// The join only ever promotes severity, so this cannot launder a class:
+    /// a tool declaring `Opaque` stays `Opaque` no matter how clean its access
+    /// list looks, and a tool declaring `FileBytes` that reports no locatable
+    /// mutating path is promoted to `Opaque` — the journal cannot capture a
+    /// pre-image for a path it was never told about, so claiming
+    /// file-reversibility there would be a promise the undo path cannot keep.
+    ///
+    /// `declared` is the tool's already-computed [`accesses`](Self::accesses)
+    /// for these arguments; callers that have it should pass it rather than
+    /// re-deriving (dispatch already computes it for scheduler arbitration).
+    fn effect_class_for(&self, arguments: &str) -> EffectClass {
+        let accesses = self.accesses(arguments);
+        reconciling(self.effect_class(), &accesses)
+    }
+
     /// Threat / hazard classification of this tool.
     fn hazard_level(&self) -> HazardLevel {
         HazardLevel::from(self.risk_profile())
@@ -270,6 +322,28 @@ pub trait Tool: Send + Sync {
     /// Whether invocation of this tool under `ctx` with `arguments` requires explicit approval.
     fn requires_approval(&self, _ctx: &ToolContext, _arguments: &serde_json::Value) -> bool {
         false
+    }
+
+    /// A **pure** preview of what this call would do, when the tool can compute one
+    /// without performing it (ADR-0125).
+    ///
+    /// "Pure" is the contract: this method may read the workspace, but it must not
+    /// mutate it, spend tokens, spawn a process, or emit events. It exists so a
+    /// human can be shown the concrete effect of a call *before* authorizing it —
+    /// a diff instead of a path — and so an unattended round can be reviewed after
+    /// the fact without a second execution.
+    ///
+    /// The default is `None` and that is honest, not lazy: a shell command, a
+    /// network fetch, or a subagent spawn has no effect that can be computed
+    /// without being caused. A tool returning `None` is telling the truth; a tool
+    /// that *tried* to predict an unpredictable effect would be manufacturing
+    /// confidence in exactly the place it must not.
+    ///
+    /// Returning `None` for arguments that are also invalid is required: a preview
+    /// is only meaningful if the call would succeed, and producing a diff for a call
+    /// that will then be rejected would make the preview the lie.
+    fn preview(&self, _arguments: &serde_json::Value) -> Option<PreviewResult> {
+        None
     }
 
     /// Executes the tool with the supplied JSON arguments within the given context.

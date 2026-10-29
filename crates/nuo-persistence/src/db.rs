@@ -33,7 +33,9 @@ pub mod usage_projection;
 
 pub use handle::{StorageMaintenanceReport, get_persistence_handle};
 pub(crate) use migrations::*;
-pub use migrations::{CURRENT_DB_VERSION, SessionTranscriptView, open_in_memory_for_tests};
+pub use migrations::{
+    CURRENT_DB_VERSION, SessionRecord, SessionTranscriptView, open_in_memory_for_tests,
+};
 
 #[cfg(test)]
 mod tests;
@@ -874,6 +876,60 @@ pub(crate) enum PersistenceCommand {
         cmd: nuo_wire::CommandRecord,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
+    /// Append a write-ahead workspace effect and return its journal id
+    /// (ADR-0125). Sent *after* the pre-image is durably stored and *before*
+    /// the tool mutates the path, so a crash mid-mutation leaves a record.
+    AppendWorkspaceEffect {
+        effect: Box<crate::workspace_effects::NewOwnedEffect>,
+        ack: oneshot::Sender<Result<i64, PersistenceError>>,
+    },
+    /// Append a workspace effect that needs no recovery point (shell, network,
+    /// process): the row arrives already completed.
+    AppendCompletedWorkspaceEffect {
+        effect: Box<crate::workspace_effects::NewOwnedEffect>,
+        completed_at_ms: u64,
+        ack: oneshot::Sender<Result<i64, PersistenceError>>,
+    },
+    /// Complete a write-ahead effect with its post-image. `false` means the row
+    /// was already completed or does not exist.
+    CompleteWorkspaceEffect {
+        effect_id: i64,
+        after_hash: Option<String>,
+        completed_at_ms: u64,
+        ack: oneshot::Sender<Result<bool, PersistenceError>>,
+    },
+    /// Stamp a row as reversed. `false` means it was already reversed (another
+    /// caller won the race) or does not exist.
+    MarkWorkspaceEffectReversed {
+        effect_id: i64,
+        reversed_at_ms: u64,
+        note: Option<String>,
+        ack: oneshot::Sender<Result<bool, PersistenceError>>,
+    },
+    /// Read a thread's whole journal, in observation order — the `/diff`
+    /// projection.
+    ListWorkspaceEffects {
+        thread_id: String,
+        ack: oneshot::Sender<
+            Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError>,
+        >,
+    },
+    /// Read the newest confirmed, not-yet-reversed reversible effects, newest
+    /// first — the `/undo` candidate set.
+    UndoableWorkspaceEffects {
+        thread_id: String,
+        limit: u32,
+        ack: oneshot::Sender<
+            Result<Vec<crate::workspace_effects::WorkspaceEffect>, PersistenceError>,
+        >,
+    },
+    /// Expire pre-images past `older_than_ms`, so the collector can reclaim their
+    /// bytes while the journal keeps recording that the change happened.
+    ExpirePreimages {
+        older_than_ms: u64,
+        now_ms: u64,
+        ack: oneshot::Sender<Result<usize, PersistenceError>>,
+    },
     RecordRequestProjection {
         session_id: String,
         record: nuo_wire::RequestProjection,
@@ -1021,6 +1077,23 @@ fn guarded<T>(f: impl FnOnce() -> Result<T>) -> Result<T, PersistenceError> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(res) => res.map_err(PersistenceError::Engine),
         Err(panic) => Err(PersistenceError::Poisoned(panic_message(&panic))),
+    }
+}
+
+/// Flatten a typed [`PersistenceError`] back to the engine error that
+/// [`guarded`] expects.
+///
+/// The workspace-journal helpers return the public error type so direct
+/// (non-actor) callers get a precise failure. The actor's handler runs them
+/// through [`guarded`], which owns the panic containment and the
+/// down/poisoned classification — so the handler must hand it a
+/// `rusqlite::Result`. A non-engine variant is a programming error at this
+/// boundary (nothing here encodes or resolves a revision), and is surfaced as a
+/// constraint failure rather than silently swallowed.
+fn engine_error(error: PersistenceError) -> rusqlite::Error {
+    match error {
+        PersistenceError::Engine(error) => error,
+        other => rusqlite::Error::InvalidParameterName(other.to_string()),
     }
 }
 

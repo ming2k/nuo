@@ -57,6 +57,7 @@ pub enum CheckTarget {
     Firewall,
     Docs,
     Adr,
+    Residency,
 }
 
 /// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061)
@@ -489,10 +490,11 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 Some("firewall") | Some("arch") => CheckTarget::Firewall,
                 Some("docs") | Some("links") => CheckTarget::Docs,
                 Some("adr") | Some("lineage") => CheckTarget::Adr,
+                Some("residency") | Some("modules") => CheckTarget::Residency,
                 None | Some("all") => CheckTarget::All,
                 Some(other) => {
                     return Err(format!(
-                        "unknown check target '{other}'. Available: `all`, `firewall`, `docs`, `adr`"
+                        "unknown check target '{other}'. Available: `all`, `firewall`, `docs`, `adr`, `residency`"
                     ));
                 }
             };

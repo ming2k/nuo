@@ -381,6 +381,7 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
             nuo_provider::Effort::High.into(),
         ],
         effort_entities: Vec::new(),
+        default_effort: None,
     };
     let provider = OpenAiChatCompletionsProvider::with_base_url(
         "sk-or-test".into(),
@@ -611,8 +612,9 @@ async fn anthropic_stream_surfaces_in_band_error_event() {
 // wire body a configured channel actually publishes.
 // ═════════════════════════════════════════════════════════════════════════════
 
+use nuo_provider::Effort;
 use nuo_provider::catalog::{Channel, Transport};
-use nuo_provider::{Effort, ReasoningMode};
+
 use nuo_server::provider_registry::build_provider_for_channel;
 
 /// Build a channel → factory provider, send one turn to a mockito server that
@@ -657,7 +659,6 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
         transport: Transport::OpenAiResponses {
             base_url: format!("{}/v1/responses", server.url()),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: Some(Effort::None),
             dialect: nuo_provider::OpenAiResponsesDialect::DeepSeek,
             state: nuo_provider::ResponsesState::Stateless,
         },
@@ -665,6 +666,11 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
         model: "deepseek-flash".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_effort(Some(Effort::None));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -717,14 +723,17 @@ async fn factory_publishes_explicit_high_effort() {
         transport: Transport::AnthropicMessages {
             base_url: String::new(), // rewritten by the harness
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: Some(Effort::High),
-            thinking: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_effort(Some(Effort::High));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -745,14 +754,18 @@ async fn factory_keeps_effort_decoupled_from_thinking_off() {
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: Some(Effort::Medium),
-            thinking: Some(ReasoningMode::Off),
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_effort(Some(Effort::Medium));
+            tunings.set_thinking(Some(false));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -770,14 +783,17 @@ async fn factory_publishes_thinking_without_output_config() {
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: None,
-            thinking: Some(ReasoningMode::Adaptive),
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-opus-4-8".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_thinking(Some(true));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -800,14 +816,18 @@ async fn sonnet5_opt_out_emits_explicit_disabled() {
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: Some(Effort::High),
-            thinking: Some(ReasoningMode::Off),
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-sonnet-5".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_effort(Some(Effort::High));
+            tunings.set_thinking(Some(false));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -830,14 +850,18 @@ async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: Some(Effort::Xhigh),
-            thinking: Some(ReasoningMode::Adaptive),
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-sonnet-5".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_effort(Some(Effort::Xhigh));
+            tunings.set_thinking(Some(true));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -861,14 +885,17 @@ async fn fable5_always_on_thinking_ignores_off_override() {
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
             client_profile: nuo_provider::ClientProfile::from("ua"),
-            effort: None,
-            thinking: Some(ReasoningMode::Off),
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-fable-5".into(),
         remote: None,
         user_overrides: None,
+        tunings: {
+            let mut tunings = nuo_provider::TunableSettings::new();
+            tunings.set_thinking(Some(false));
+            tunings
+        },
         prompt_cache_preference: nuo_provider::PromptCachePreference::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
     };
@@ -1334,13 +1361,13 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
         transport: Transport::OpenAiChatCompletions {
             base_url: url,
             client_profile: nuo_provider::ClientProfile::OpenCode,
-            effort: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("opencode-token"),
         model: "glm-5.2".into(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };
@@ -1379,14 +1406,13 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
         transport: Transport::AnthropicMessages {
             base_url: url,
             client_profile: nuo_provider::ClientProfile::OpenCode,
-            effort: None,
-            thinking: None,
             dialect: Default::default(),
         },
         credentials: nuo_provider::static_credential("opencode-token"),
         model: "qwen3.6-plus".into(),
         remote: None,
         user_overrides: None,
+        tunings: Default::default(),
         prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
         prompt_cache_preference: Default::default(),
     };

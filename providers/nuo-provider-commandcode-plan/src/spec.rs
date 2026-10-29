@@ -15,12 +15,13 @@ pub const MODELS: &[Model] = &[
         id: "claude-sonnet-5-5",
         family: "claude",
         context_window: 1_000_000,
-        thinking: ReasoningSupport::AnthropicAdaptive,
+        thinking: ReasoningSupport::Adaptive,
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
         model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -33,6 +34,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
+        default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
     },
     Model {
@@ -45,6 +47,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     // CommandCode names its models `vendor/model`, and the server resolves the
@@ -64,6 +67,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -76,6 +80,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
     Model {
@@ -88,6 +93,7 @@ pub const MODELS: &[Model] = &[
         protocol: WireProtocol::OpenAiResponses,
         model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
 ];

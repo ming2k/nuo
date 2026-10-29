@@ -206,39 +206,19 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                 provider_id: row.provider_id.clone(),
                 model: row.model.clone(),
             });
-            // Default the effort to the model's own configured
-            // value, else `medium` clamped onto the model's
-            // ladder — a ladder without `medium` (e.g. Kimi
-            // K3's low/high/max) must still open with a rung
-            // the segmented selector can highlight.
+            // The rungs, the current value and the switch are all the
+            // **server's resolved answer** (the snapshot row), never a
+            // client-side re-derivation. This client does not link the
+            // provider registry, so it has no baseline ladders and no
+            // knowledge of a provider's declared default — re-deriving either
+            // here is precisely how the editor once opened on a tier the wire
+            // would not carry (ADR-0126).
             //
-            // The ladder itself comes from the snapshot row (the server's
-            // Resolution), never from `resolve_model`: this client
-            // does not link `nuo-providers`, so the static baseline tables are
-            // absent here and a client-side resolve would yield an empty
-            // ladder — which is exactly what collapsed the node slider.
-            //
-            // The default is clamped with the canonical `Effort::clamp_to`
-            // (via `clamp_to_levels`, which also honors provider tiers the
-            // vocabulary does not name). Re-implementing the clamp here by
-            // hand is how the open value drifted from the documented
-            // "medium clamped onto the ladder" rule.
+            // `row.effort` is therefore already clamped onto `row.effort_levels`
+            // by the server; the open value is a plain read.
             app.editor_effort_levels = row.effort_levels.clone();
-            app.editor_effort = row.effort.clone().unwrap_or_else(|| {
-                let levels: Vec<nuo_wire::EffortLevel> = row
-                    .effort_levels
-                    .iter()
-                    .map(|l| nuo_wire::EffortLevel::parse(l))
-                    .collect();
-                nuo_wire::Effort::Medium
-                    .clamp_to_levels(&levels)
-                    .as_str()
-                    .to_string()
-            });
+            app.editor_effort = row.effort.clone().unwrap_or_default();
             app.editor_thinking_available = row.thinking.is_some();
-            // ADR-0046: reasoning is opt-in where a separate
-            // thinking switch exists. OpenAI GPT effort has no
-            // thinking switch, so this value is ignored there.
             app.editor_thinking = row.thinking.unwrap_or(false);
             app.editor_field = if !app.editor_effort_levels.is_empty() || row.effort.is_some() {
                 1
@@ -679,19 +659,22 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
     }
 }
 
+/// The reasoning depth to advertise in the composer/footer for the active
+/// model, as the **server already resolved it**.
+///
+/// No protocol sniffing: whether depth shows at all is the provider's
+/// declaration (`ProviderModelInfo::effort` is `None` for a route with no depth
+/// knob), and which tier applies is the server's clamp, not this client's. The
+/// old `match protocol { "anthropic" => …, _ => … }` here re-derived a rule the
+/// server owns, which is how the footer once disagreed with the wire
+/// (ADR-0126).
 pub(crate) fn effective_reasoning_effort(app: &App) -> Option<&str> {
     app.provider_picker
         .rows
         .iter()
         .find(|row| row.id == app.current_provider)
         .and_then(|row| row.model_info.iter().find(|m| m.model == app.current_model))
-        .and_then(|m| {
-            let show = match m.protocol.as_str() {
-                "anthropic" => m.thinking == Some(true),
-                _ => m.effort.is_some(),
-            };
-            if show { m.effort.as_deref() } else { None }
-        })
+        .and_then(|m| m.effort.as_deref())
 }
 
 pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, key_ready: bool) {
