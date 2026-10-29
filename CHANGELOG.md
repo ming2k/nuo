@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.57] - 2026-10-29
+
 ### Fixed
 
 - **The thread browser listed history backwards (ADR-0128).**
