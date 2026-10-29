@@ -1,14 +1,21 @@
 //! Pre-view workspace trust gate.
 //!
 //! When the client attaches to a session whose project root carries
-//! project-authored contributions (skills, MCP, hooks, rules) that were
-//! **never** trusted — `WorkspaceTrustState::Quarantined` from the durable
-//! `WorkspaceSecurityStore` — the server's attach-sync `HarnessState`
-//! already carries the security snapshot. This module turns that snapshot
-//! into the *first* thing the user sees: a blocking question dialog opened
-//! before the composer takes input, so the trust decision happens up front
-//! instead of via a passive banner the user can (and usually does) scroll
-//! past.
+//! project-authored contributions (skills, MCP, hooks, rules) awaiting a human
+//! decision — any `WorkspaceTrustState::needs_review` value from the durable
+//! `WorkspaceSecurityStore`: never trusted (`Quarantined`), trusted content that
+//! then changed on disk (`Changed`), or a lapsed lease (`Expired`) — the
+//! server's attach-sync `HarnessState` already carries the security snapshot.
+//! This module turns that snapshot into the *first* thing the user sees: a
+//! blocking question dialog opened before the composer takes input, so the trust
+//! decision happens up front instead of via a passive banner the user can (and
+//! usually does) scroll past.
+//!
+//! `Changed` belongs here for the same reason `Quarantined` does: a trust
+//! decision is bound to specific content, so content that moved after approval
+//! is exactly as unauthorized as content that was never approved. Excluding it
+//! (which this module used to do) demoted the highest-risk posture to a
+//! transient toast.
 //!
 //! The dialog is deliberately not a new modal. It reuses the ask_user
 //! question sheet (`QuestionModel`) by synthesizing
@@ -17,20 +24,22 @@
 //! already knows. Two seams keep the synthetic request honest:
 //!
 //! - **Identity.** The request id is the constant
-//!   [`TRUST_GATE_REQUEST_ID`]. The reply path intercepts that id and maps
-//!   the answer to the canonical `/trust …` slash command — never a bespoke
-//!   wire message — so persistence *and* the atomic live reload stay owned
-//!   by the one code path that already handles them. A synthetic request is
-//!   never forwarded as `UserQuestionReply` (the server has no parked round
-//!   waiting for it).
-//! - **Lifecycle.** The gate is fed by `HarnessState` snapshots. It opens
-//!   once per quarantined attach and closes as soon as a snapshot reports
-//!   the workspace trusted (the `/trust` handler republishes the snapshot),
-//!   so a stale dialog can never linger after the decision.
+//!   [`TRUST_GATE_REQUEST_ID`]. The reply path intercepts that id and turns it
+//!   into the control-plane `AgentRequest::TrustWorkspace` decision — never a
+//!   slash command typed into the transcript and never a `UserQuestionReply`
+//!   (the server has no parked round waiting for one). Persistence and the
+//!   atomic live reload stay owned by the one server path that handles them.
+//! - **Lifecycle.** The gate is fed by `HarnessState` snapshots. It opens once
+//!   per attach while anything is awaiting review, and closes as soon as a
+//!   snapshot reports nothing left to decide — whether that is because the user
+//!   trusted the content (`Trusted`) or refused it (`Denied`, which is equally
+//!   settled). A stale dialog can never linger after the decision.
 //!
-//! Escaping the dialog is an explicit "keep quarantined" — the same outcome
-//! as picking the option — which mirrors how the old banner left the
-//! workspace untrusted, just with a decision the user actually made.
+//! Dismissing the dialog is a recorded refusal, not an exit: the offered
+//! domains are refused for their current content, so they stay inactive and are
+//! not asked about again until the bytes change. The session then continues on
+//! the chat surface — the gate also opens for content that changed mid-session,
+//! where quitting the terminal would be an absurd answer.
 use nuo_wire::{
     TrustDomain, UserQuestion, UserQuestionOption, UserQuestionRequest, WorkspaceSecuritySnapshot,
     WorkspaceTrustState,
@@ -40,29 +49,6 @@ use nuo_wire::{
 /// reply path (`super::event_loop`) and never sent to the server as a
 /// `UserQuestionReply`.
 pub const TRUST_GATE_REQUEST_ID: &str = "__workspace_trust_gate__";
-
-/// Which quarantined domains the snapshot advertises, in display order.
-/// Only `Absent` domains are skipped: there is nothing to decide about a
-/// domain the workspace does not use.
-pub fn quarantined_domains(snapshot: &WorkspaceSecuritySnapshot) -> Vec<TrustDomain> {
-    [
-        (TrustDomain::Mcp, snapshot.mcp),
-        (TrustDomain::Skills, snapshot.skills),
-        (TrustDomain::Hooks, snapshot.hooks),
-        (TrustDomain::Instructions, snapshot.instructions),
-        (TrustDomain::ExWorkspace, snapshot.ex_workspace),
-        (TrustDomain::UserAssets, snapshot.user_assets),
-    ]
-    .into_iter()
-    .filter(|(_, state)| {
-        matches!(
-            *state,
-            WorkspaceTrustState::Quarantined | WorkspaceTrustState::Expired
-        )
-    })
-    .map(|(domain, _)| domain)
-    .collect()
-}
 
 pub fn status_badge(state: WorkspaceTrustState) -> &'static str {
     match state {
@@ -75,10 +61,10 @@ pub fn status_badge(state: WorkspaceTrustState) -> &'static str {
     }
 }
 
-/// Build the trust-gate question request for unverified file assets, or
-/// `None` when nothing needs gating (trusted, absent, or explicitly denied).
+/// Build the trust-gate question request for assets awaiting a decision, or
+/// `None` when nothing needs gating (absent, trusted, or explicitly denied).
 pub fn gate_request(snapshot: &WorkspaceSecuritySnapshot) -> Option<UserQuestionRequest> {
-    let domains = quarantined_domains(snapshot);
+    let domains = snapshot.domains_needing_review();
     if domains.is_empty() {
         return None;
     }
@@ -104,12 +90,69 @@ pub fn gate_request(snapshot: &WorkspaceSecuritySnapshot) -> Option<UserQuestion
         id: TRUST_GATE_REQUEST_ID.to_string(),
         questions: vec![UserQuestion {
             header: None,
-            question: "Authorize project assets for this workspace:\n(Unselected assets will remain untrusted and inactive for this session)".to_string(),
+            question: gate_question(&domains, snapshot),
             options,
             multi_select: true,
         }],
         origin: Some("workspace trust".to_string()),
     })
+}
+
+/// The gate's question, which must say *which* kind of decision this is.
+///
+/// A first-contact prompt and a re-review prompt are different questions with
+/// the same options. Telling a user "authorize these assets" when they already
+/// did, and the bytes simply changed underneath them, hides the one fact that
+/// makes the decision informed: what they approved is not what is on disk.
+/// The affected domains are named so the user need not diff the workspace to
+/// find out.
+fn gate_question(domains: &[TrustDomain], snapshot: &WorkspaceSecuritySnapshot) -> String {
+    let changed: Vec<&str> = domains
+        .iter()
+        .filter(|d| snapshot.state(**d) == WorkspaceTrustState::Changed)
+        .map(|d| domain_label(*d))
+        .collect();
+    let expired: Vec<&str> = domains
+        .iter()
+        .filter(|d| snapshot.state(**d) == WorkspaceTrustState::Expired)
+        .map(|d| domain_label(*d))
+        .collect();
+    let fresh: Vec<&str> = domains
+        .iter()
+        .filter(|d| snapshot.state(**d) == WorkspaceTrustState::Quarantined)
+        .map(|d| domain_label(*d))
+        .collect();
+
+    let mut lines: Vec<String> = Vec::new();
+    if !changed.is_empty() {
+        lines.push(format!(
+            "Previously trusted content changed on disk: {}.",
+            changed.join(", ")
+        ));
+        lines.push(
+            "The earlier approval was for different content, so it does not carry over. \
+             Review the changes before authorizing them again."
+                .to_string(),
+        );
+    }
+    if !expired.is_empty() {
+        lines.push(format!(
+            "Attestation lease expired, so it needs routine re-approval: {}.",
+            expired.join(", ")
+        ));
+    }
+    if !fresh.is_empty() {
+        lines.push(format!(
+            "Project assets never reviewed in this workspace: {}.",
+            fresh.join(", ")
+        ));
+    }
+    lines.push(
+        "Unselected assets stay inactive for this session and will not be asked about again \
+         unless their content changes."
+            .to_string(),
+    );
+    lines.join("\n")
 }
 
 /// Map a trust-gate dialog answer back to the selected trust domains.
@@ -133,15 +176,13 @@ pub fn answer_to_domains(answers: &[Vec<String>]) -> Vec<TrustDomain> {
     domains
 }
 
+/// The path a user recognizes a domain by.
+///
+/// Delegates to [`TrustDomain::label`] so the gate, the attach banner (which the
+/// server composes, without linking this crate), and `/trust status` cannot name
+/// the same asset three different ways.
 pub fn domain_label(domain: TrustDomain) -> &'static str {
-    match domain {
-        TrustDomain::UserAssets => "~/.config/nuo/config.toml",
-        TrustDomain::ExWorkspace => ".nuo/config.toml",
-        TrustDomain::Mcp => ".nuo/mcp.json",
-        TrustDomain::Skills => ".nuo/skills/",
-        TrustDomain::Hooks => ".nuo/hooks/",
-        TrustDomain::Instructions => "AGENTS.md",
-    }
+    domain.label()
 }
 
 pub fn domain_description(domain: TrustDomain) -> &'static str {
@@ -213,17 +254,110 @@ mod tests {
     }
 
     #[test]
-    fn changed_domains_do_not_gate() {
-        // Previously trusted domains that mutated on disk are escalated via
-        // in-session banner notices, not a blocking pre-attach modal.
+    fn changed_domains_gate_exactly_like_never_trusted_domains() {
+        // The regression this pins. `Changed` means "the content you approved
+        // is not the content on disk" — the strongest reason to ask a human,
+        // and previously the only one that did *not* gate. It escalated to a
+        // transient banner instead, which re-fired on every attach and could be
+        // scrolled past, so the highest-risk state had the weakest affordance.
+        let changed = gate_request(&snapshot(
+            WorkspaceTrustState::Changed,
+            WorkspaceTrustState::Changed,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Changed,
+        ))
+        .expect("changed content must gate: the earlier approval was for other bytes");
+
+        let quarantined = gate_request(&snapshot(
+            WorkspaceTrustState::Quarantined,
+            WorkspaceTrustState::Quarantined,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Quarantined,
+        ))
+        .expect("never-trusted content must gate");
+
+        // Same gate, same domains — only the wording and the badge differ. The
+        // badge is the point: a re-review must be distinguishable from a first
+        // contact at a glance.
+        let paths = |r: &UserQuestionRequest| {
+            r.questions
+                .first()
+                .unwrap()
+                .options
+                .iter()
+                .map(|o| {
+                    o.label
+                        .split("  ·  ")
+                        .next()
+                        .unwrap_or(&o.label)
+                        .to_string()
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(paths(&changed), paths(&quarantined));
         assert!(
-            gate_request(&snapshot(
-                WorkspaceTrustState::Changed,
-                WorkspaceTrustState::Changed,
-                WorkspaceTrustState::Absent,
-                WorkspaceTrustState::Changed
-            ))
-            .is_none()
+            changed.questions[0]
+                .options
+                .iter()
+                .all(|o| o.label.contains("[Changed]")),
+            "a re-review must be badged as changed, not as new: {:?}",
+            paths(&changed)
+        );
+        assert!(
+            quarantined.questions[0]
+                .options
+                .iter()
+                .all(|o| o.label.contains("[New]")),
+            "a first contact must be badged as new"
+        );
+    }
+
+    #[test]
+    fn expired_domains_gate_for_routine_re_attestation() {
+        let req = gate_request(&snapshot(
+            WorkspaceTrustState::Expired,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Absent,
+        ))
+        .expect("a lapsed lease needs re-attestation");
+        assert!(req.questions[0].options[0].label.contains("[Expired]"));
+    }
+
+    #[test]
+    fn the_gate_question_names_why_it_is_asking() {
+        // A first-contact prompt and a re-review prompt have identical options
+        // but are different questions. Saying "authorize these assets" when the
+        // user already did — and the bytes changed underneath them — hides the
+        // one fact that makes the decision informed.
+        let changed = gate_request(&snapshot(
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Changed,
+        ))
+        .expect("changed instructions must gate");
+        let question = &changed.questions[0].question;
+        assert!(
+            question.contains("changed on disk") && question.contains("AGENTS.md"),
+            "a re-review must name what changed: {question}"
+        );
+        assert!(
+            !question.contains("never reviewed"),
+            "a re-review must not be described as a first contact: {question}"
+        );
+
+        let fresh = gate_request(&snapshot(
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Quarantined,
+        ))
+        .expect("never-trusted instructions must gate");
+        let question = &fresh.questions[0].question;
+        assert!(
+            question.contains("never reviewed") && !question.contains("changed on disk"),
+            "a first contact must not be described as a change: {question}"
         );
     }
 

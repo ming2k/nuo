@@ -21,6 +21,16 @@ nuo -t <thread_id>
 
 `nuo --resume` resumes the most recent matching thread. From inside the interface, the `/threads` command opens the same picker.
 
+Both listings lead with the **most recently created** thread and read downward to
+the oldest one. A fork stays nested beneath the trunk it came from no matter how
+new it is, and a trunk's branches are likewise newest first. Positions come from
+creation time only — never from the last time a thread was touched — so the list
+does not shift under the cursor while a model streams (ADR-0128).
+
+The dashboard dock is the exception: its `#N` labels are the addresses the console
+accepts (for example `@3 please retry`), so they keep counting from the oldest
+session upward (ADR-0120, ADR-0128).
+
 ---
 
 ## 2. List and Terminate Threads

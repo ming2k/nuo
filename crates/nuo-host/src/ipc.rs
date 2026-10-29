@@ -59,6 +59,24 @@ pub fn probe(endpoint: &LocalEndpoint) -> LocalEndpointProbe {
     native::probe(endpoint)
 }
 
+/// Async counterpart of [`probe`], for callers already inside a runtime.
+///
+/// The synchronous [`probe`] blocks on `UnixStream::connect`, which parks the
+/// calling Tokio worker for the duration of the connect attempt. Liveness
+/// discovery runs on every client start and every control verb, so it goes
+/// through this instead. A completed connect *is* the liveness signal: the
+/// stream is dropped immediately rather than spoken to.
+pub async fn probe_async(endpoint: &LocalEndpoint) -> LocalEndpointProbe {
+    let LocalEndpoint::UnixSocket(path) = endpoint else {
+        return LocalEndpointProbe::default();
+    };
+    let exists = path.exists();
+    LocalEndpointProbe {
+        exists,
+        connectable: exists && tokio::net::UnixStream::connect(path).await.is_ok(),
+    }
+}
+
 /// A per-user endpoint name safe for discovery records. Unix callers provide
 /// the socket path chosen by their path policy; Windows derives a named-pipe
 /// namespace from the current user's SID and the instance key.

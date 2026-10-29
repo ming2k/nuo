@@ -1270,19 +1270,27 @@ impl SessionDriver {
                     )
                     .await;
                 }
-                AgentRequest::TrustWorkspace { domains } => {
+                AgentRequest::TrustWorkspace { domains, decision } => {
                     let user_assets_state =
                         crate::handlers_slash::security_ops::compute_user_assets_trust();
-                    let user_assets_needed_review = matches!(
-                        user_assets_state,
-                        nuo_wire::WorkspaceTrustState::Quarantined
-                            | nuo_wire::WorkspaceTrustState::Changed
-                            | nuo_wire::WorkspaceTrustState::Expired
-                    );
-                    if domains.contains(&nuo_wire::TrustDomain::UserAssets) {
-                        crate::handlers_slash::security_ops::trust_user_assets();
-                    } else if user_assets_needed_review {
-                        crate::handlers_slash::security_ops::deny_user_assets();
+                    let user_assets_needed_review = user_assets_state.needs_review();
+                    // The decision is carried explicitly, never inferred from the
+                    // domain list. `domains` means "these" — granting the refused
+                    // set would be a security inversion, so the refusal has its
+                    // own arm below and never reaches the grant path.
+                    let granting = decision == nuo_wire::TrustDecision::Grant;
+                    if granting {
+                        if domains.contains(&nuo_wire::TrustDomain::UserAssets) {
+                            crate::handlers_slash::security_ops::trust_user_assets();
+                        } else if user_assets_needed_review {
+                            crate::handlers_slash::security_ops::deny_user_assets();
+                        }
+                    } else {
+                        // A refusal names what to refuse; everything else is
+                        // untouched, including grants the user made earlier.
+                        if domains.contains(&nuo_wire::TrustDomain::UserAssets) {
+                            crate::handlers_slash::security_ops::deny_user_assets();
+                        }
                     }
                     let effective = if let Some(root) = &project_root_for_side {
                         let ws_domains: Vec<nuo_wire::TrustDomain> = domains
@@ -1291,46 +1299,63 @@ impl SessionDriver {
                             .filter(|d| *d != nuo_wire::TrustDomain::UserAssets)
                             .collect();
 
-                        // Candidate workspace domains D: domains requiring human review
+                        // Candidate workspace domains D: every domain awaiting a
+                        // human decision, per the one predicate. Enumerating this
+                        // inline is how the gate and the driver came to disagree
+                        // about whether `Changed` was a candidate.
                         let pre_snap = workspace_security.snapshot(root);
-                        let candidate_ws: Vec<nuo_wire::TrustDomain> = [
-                            nuo_wire::TrustDomain::Mcp,
-                            nuo_wire::TrustDomain::Skills,
-                            nuo_wire::TrustDomain::Hooks,
-                            nuo_wire::TrustDomain::Instructions,
-                            nuo_wire::TrustDomain::ExWorkspace,
-                        ]
-                        .into_iter()
-                        .filter(|&d| {
-                            matches!(
-                                pre_snap.state(d),
-                                nuo_wire::WorkspaceTrustState::Quarantined
-                                    | nuo_wire::WorkspaceTrustState::Changed
-                                    | nuo_wire::WorkspaceTrustState::Expired
-                            )
-                        })
-                        .collect();
-
-                        if !ws_domains.is_empty()
-                            && let Err(error) = workspace_security.trust_domains(root, &ws_domains)
-                        {
-                            tracing::error!(?error, "failed to persist workspace trust");
-                            let _ = resp_tx.send(round_response(
-                                &session.id().await,
-                                nuo_wire::RoundEvent::Notice(nuo_wire::AgentNotice::trust_changed(
-                                    format!("Workspace trust failed: {error}"),
-                                )),
-                            ));
-                        }
-
-                        // Explicit negative attestation on unselected candidate domains: D \ S
-                        let unselected_ws: Vec<nuo_wire::TrustDomain> = candidate_ws
+                        let candidate_ws: Vec<nuo_wire::TrustDomain> = pre_snap
+                            .domains_needing_review()
                             .into_iter()
-                            .filter(|d| !ws_domains.contains(d))
+                            .filter(|d| *d != nuo_wire::TrustDomain::UserAssets)
                             .collect();
 
-                        if !unselected_ws.is_empty() {
-                            let _ = workspace_security.deny_domains(root, &unselected_ws);
+                        if granting {
+                            if !ws_domains.is_empty()
+                                && let Err(error) =
+                                    workspace_security.trust_domains(root, &ws_domains)
+                            {
+                                tracing::error!(?error, "failed to persist workspace trust");
+                                let _ = resp_tx.send(round_response(
+                                    &session.id().await,
+                                    nuo_wire::RoundEvent::Notice(
+                                        nuo_wire::AgentNotice::trust_failure(format!(
+                                            "Workspace trust failed: {error}"
+                                        )),
+                                    ),
+                                ));
+                            }
+
+                            // Explicit negative attestation on unselected candidate domains: D \ S
+                            let unselected_ws: Vec<nuo_wire::TrustDomain> = candidate_ws
+                                .into_iter()
+                                .filter(|d| !ws_domains.contains(d))
+                                .collect();
+
+                            if !unselected_ws.is_empty() {
+                                let _ = workspace_security.deny_domains(root, &unselected_ws);
+                            }
+                        } else {
+                            // A refusal records exactly what was named and touches
+                            // nothing else: `deny_domains` leaves existing grants
+                            // intact, unlike the revoke path.
+                            let refused: Vec<nuo_wire::TrustDomain> = ws_domains
+                                .into_iter()
+                                .filter(|d| candidate_ws.contains(d))
+                                .collect();
+                            if !refused.is_empty()
+                                && let Err(error) = workspace_security.deny_domains(root, &refused)
+                            {
+                                tracing::error!(?error, "failed to persist workspace refusal");
+                                let _ = resp_tx.send(round_response(
+                                    &session.id().await,
+                                    nuo_wire::RoundEvent::Notice(
+                                        nuo_wire::AgentNotice::trust_failure(format!(
+                                            "Workspace trust refusal failed: {error}"
+                                        )),
+                                    ),
+                                ));
+                            }
                         }
 
                         let mut snapshot = workspace_security.snapshot(root);
@@ -1871,7 +1896,8 @@ mod tests {
             "/delegate on".to_string()
         )));
         assert!(!round_owned_request(&AgentRequest::TrustWorkspace {
-            domains: Vec::new()
+            domains: Vec::new(),
+            decision: nuo_wire::TrustDecision::Grant,
         }));
         assert!(!round_owned_request(&AgentRequest::Interrupt));
         assert!(!round_owned_request(&AgentRequest::SwitchConnection {

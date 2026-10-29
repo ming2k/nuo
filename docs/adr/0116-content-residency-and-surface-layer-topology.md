@@ -126,11 +126,20 @@ NoticeKind          source         layer
 ProviderRetry       any            Absorbed        (RetryScheduled owns the disclosure)
 CommandAck          any            Toast           (ephemeral reply; invocation stays durable)
 TrustChanged        any            Banner          (retained condition; gate owns attach-time)
+TrustFailure        any            SurfaceLog      (a lost decision is a receipt; a fault bubbles)
 NudgeInjected       any            SurfaceLog      (the injected fact is already an L0 entry)
 ReviewAlert         any            SurfaceLog
 ImageInputWithheld  any            SurfaceLog
 (any future kind)   any            SurfaceLog(ambient)   ← default is the log tier, never L0
 ```
+
+`TrustChanged` and `TrustFailure` are separate rows because they are opposite
+facts (ADR-0127). A *condition* waits for a human decision and must stay on
+screen; a *failure* is a past event with a cause worth re-reading, and its
+`Error` severity is what makes it raise a bubble naming the log. While they
+shared one kind, the mounted trust gate had to intercept every `TrustChanged`
+into its error slot — which, once the gate mounts on changed content, would
+render the workspace's own state as an error.
 
 ### 4. `SurfaceLog`: the addressable receipt log tier
 

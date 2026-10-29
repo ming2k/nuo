@@ -257,7 +257,8 @@ fn completions_expose_only_canonical_trust_subcommands() {
             "/trust skills",
             "/trust hooks",
             "/trust status",
-            "/trust revoke"
+            "/trust revoke",
+            "/trust deny"
         ]
     );
 

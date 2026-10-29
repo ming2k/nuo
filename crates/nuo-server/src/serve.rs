@@ -205,12 +205,19 @@ pub(crate) async fn build_declarative_snapshot(
     buffer.lock().await.build_session_snapshot(session_id)
 }
 
-/// Inform a newly attached client that previously trusted project-authored
-/// configurations have changed on disk and are quarantined pending review.
+/// Inform a newly attached client that project-authored configurations are
+/// awaiting a human decision.
+///
+/// This is the **fallback**, not the primary affordance. An interactive client
+/// reads the same snapshot out of the attach-sync `HarnessState` and opens the
+/// pre-view gate before the composer takes input; only a client that cannot
+/// answer (an autonomous attach) needs the passive escalation, because a
+/// question pushed to a channel nobody reads would park the security decision
+/// forever.
+///
 /// Trust mutation is intentionally available only through the canonical
 /// `/trust` command path, which also reloads every affected consumer
-/// atomically. The never-trusted case is handled pre-view by the trust
-/// dialog fed from the attach-sync `HarnessState`.
+/// atomically.
 fn workspace_trust_notice(
     session_id: &str,
     snapshot: &nuo_wire::WorkspaceSecuritySnapshot,
@@ -219,27 +226,22 @@ fn workspace_trust_notice(
         session_id: session_id.to_string(),
         event,
     };
-    let changed = [
-        ("AGENTS.md", snapshot.instructions),
-        (".nuo/config.toml", snapshot.ex_workspace),
-        (".nuo/mcp.json", snapshot.mcp),
-        (".nuo/skills/", snapshot.skills),
-        (".nuo/hooks/", snapshot.hooks),
-    ]
-    .into_iter()
-    .filter_map(|(name, state)| (state == nuo_wire::WorkspaceTrustState::Changed).then_some(name))
-    .collect::<Vec<_>>();
-
-    let changed_desc = if changed.is_empty() {
+    let awaiting = snapshot.domains_needing_review();
+    let changed_desc = if awaiting.is_empty() {
         "workspace files".to_string()
     } else {
-        changed.join(", ")
+        awaiting
+            .iter()
+            .map(|domain| domain.label())
+            .collect::<Vec<_>>()
+            .join(", ")
     };
 
     round(nuo_wire::RoundEvent::Notice(
         nuo_wire::AgentNotice::trust_changed("Workspace configuration changed").with_body(format!(
-            "Changed on disk: {changed_desc}.\n\
-                 Run `/trust` to approve and reload, or `/untrust` to ignore.",
+            "Awaiting review: {changed_desc}.\n\
+             Run `/trust` to approve and reload, `/trust deny` to ignore until the content \
+             changes, or `/untrust` to revoke every grant for this workspace.",
         )),
     ))
 }
@@ -1581,22 +1583,28 @@ async fn handle_wire_stream(
             .await
             .map_err(|e| format!("wire send: {e}"))?;
     }
-    // Surface trust posture after attach. Trust mutation is intentionally
-    // available only through the canonical `/trust` command path, which also
-    // reloads every affected consumer atomically.
+    // Surface the trust posture after attach, as a *fallback* escalation.
     //
-    // The attach flow splits by *why* the workspace is untrusted:
+    // Trust mutation is intentionally available only through the canonical
+    // `/trust` command path, which also reloads every affected consumer
+    // atomically.
     //
-    // - `Quarantined` (contributions present, never granted): the
-    //   pre-view `HarnessState` above already carried the security snapshot
-    //   through attach-sync, and an interactive client answers the trust
-    //   dialog *before* the composer takes input. A banner here would only
-    //   duplicate the dialog.
-    // - `Changed` (previously trusted content mutated, e.g. via git pull):
-    //   there is nothing to gate on — the user already made a trust
-    //   decision for this workspace — so a banner is the honest escalation.
+    // The primary affordance is the gate: the pre-view `HarnessState` above
+    // already carried the security snapshot through attach-sync, so an
+    // interactive client answers the question before the composer takes input.
+    // Pushing a banner as well would duplicate the dialog the user is looking
+    // at — and this branch used to fire only for `Changed`, which is precisely
+    // the state that *could not* gate, so the highest-risk posture got a
+    // scroll-past toast and nothing else.
+    //
+    // Now both `Quarantined` and `Changed` gate (one predicate:
+    // `WorkspaceTrustState::needs_review`), and the banner is reserved for the
+    // client that cannot answer: an autonomous attach, where a parked question
+    // would freeze the security decision forever. `HumanChannelPosture` is the
+    // authority on that, not a guess about which client is connected.
     let snap = bound.security_snapshot();
-    if matches!(snap.aggregate(), nuo_wire::WorkspaceTrustState::Changed) {
+    let gate_owned = after_attach == nuo_wire::human_request::HumanChannelPosture::Interactive;
+    if snap.needs_review() && !gate_owned {
         let session_id = bound.session.id().await;
         let response = workspace_trust_notice(&session_id, &snap);
         wire_sink

@@ -17,8 +17,8 @@ pub struct ServerStart {
 
 /// Start detached: spawn the server in the background and return.
 /// If a conflicting server is already running, directly replace it (ADR-0029).
-pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(info) = client::discover(Path::new(".")) {
+pub async fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(info) = client::discover(Path::new(".")).await {
         if info.pid != std::process::id() {
             eprintln!("nuo: replacing existing server (pid {})...", info.pid);
             let _ = nuo_host::process::takeover_pid_sync(
@@ -66,7 +66,7 @@ pub fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Erro
 
 /// Stop the running server through the budget-aware shutdown pipeline.
 pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
-    let info = match client::discover(Path::new(".")) {
+    let info = match client::discover(Path::new(".")).await {
         Some(info) => info,
         None => {
             let lock_path = nuo::serve_discovery::global_lock_path();
@@ -111,7 +111,9 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
 /// re-read its configuration and re-sync MCP servers + skills without dropping
 /// any connection.
 pub async fn reload_server() -> Result<(), Box<dyn std::error::Error>> {
-    let info = client::discover(Path::new(".")).ok_or("no local nuo server is running")?;
+    let info = client::discover(Path::new("."))
+        .await
+        .ok_or("no local nuo server is running")?;
     client::reload(&info).await?;
     eprintln!("nuo: server reloaded (configuration, MCP servers, skills).");
     Ok(())
@@ -121,7 +123,7 @@ pub async fn restart_server(
     flags: &ServerStart,
     force: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(info) = client::discover(Path::new(".")) {
+    if let Some(info) = client::discover(Path::new(".")).await {
         eprintln!("nuo: stopping existing server (pid {})...", info.pid);
         if force {
             let _ = nuo_host::process::takeover_pid(
@@ -134,7 +136,7 @@ pub async fn restart_server(
             let _ = client::stop(&info).await;
         }
     }
-    detach_server(flags)
+    detach_server(flags).await
 }
 
 /// Run server in foreground (the supervisor shape).

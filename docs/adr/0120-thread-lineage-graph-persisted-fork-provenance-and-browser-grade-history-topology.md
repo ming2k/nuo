@@ -15,6 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Persistence, Protocol, Server, Interface Architecture
 - Amends: [ADR-0058](0058-granular-causal-session-forking-sovereign-tab-projection-and-aside-retirement.md), [ADR-0104](0104-fork-client-projection-reconciliation-and-aside-retirement-completion.md)
+- Amended by: [ADR-0128](0128-thread-browser-order-newest-creation-first-with-cursor-stability.md) — §5's ordering *direction* is now `created_at` descending (newest first); the stability clause is unchanged
 - Related: [ADR-0117](0117-transcript-admission-purity-dialogue-only-thread-documents.md), [ADR-0119](0119-slash-command-admission-thread-scoped-naming-server-authority-and-recoverable-rejection.md)
 
 ---
@@ -183,11 +184,19 @@ Both consume `fork_point` from the wire; neither re-derives it.
 
 ### 5. Ordering is a pure function of lineage and creation time
 
-Roots and siblings sort by `created_at` ascending (id tiebreak), never by
-`updated_at`. A refresh therefore repaints identical positions while statuses and
-token counts change beneath them. This deliberately gives up "most recent thread
-first" in the picker: a browser is entered to *locate* a thread, and a list that
+Roots and siblings sort by `created_at` (id tiebreak), never by `updated_at`. A
+refresh therefore repaints identical positions while statuses and token counts
+change beneath them: a browser is entered to *locate* a thread, and a list that
 reorders while you arrow through it cannot be located in.
+
+> **Amended by [ADR-0128](0128-thread-browser-order-newest-creation-first-with-cursor-stability.md)**:
+> the *direction* named here is `created_at` **descending** — newest thread
+> first, within each sibling set. The *stability* clause above is unchanged and
+> remains binding: no liveness signal may reorder a visible row. The reasons
+> given here for giving up "most recent thread first" conflated stability with
+> direction; recency by *creation* is stable and is what a browser should lead
+> with. The dashboard dock keeps the ascending axis, because its rows carry the
+> `#N` console address rather than a browsing order.
 
 ## Normative Invariants
 
@@ -202,7 +211,11 @@ reorders while you arrow through it cannot be located in.
   `deep_fork_chain_remains_visible`, and `orphaned_branch_is_marked_not_promoted`.
 - **`[INV-LINEAGE-03]` Position is deterministic.** Row order is a pure function
   of `(parent_id, created_at, id)`; no liveness signal may reorder a visible list.
-  *Enforced by* `projection_is_stable_across_updates`.
+  The key's direction is fixed by [ADR-0128](0128-thread-browser-order-newest-creation-first-with-cursor-stability.md):
+  `created_at` descending, id ascending. *Enforced by*
+  `projection_is_stable_across_updates` and
+  `siblings_are_ordered_newest_creation_first`.
+
 - **`[INV-LINEAGE-04]` Provenance is structured, never smuggled.** No layer writes
   fork metadata into a title, a note, or an untyped string.
   *Enforced by* `fork_does_not_mint_a_title`.
@@ -214,9 +227,10 @@ reorders while you arrow through it cannot be located in.
   act rather than a memory test. The three surfaces cannot disagree, because they
   read one persisted field instead of re-deriving it. Deleting `fork_fact_id`
   removes a column that documented a capability the system never had.
-- **Negative & Trade-offs**: The picker no longer leads with the most recently
-  touched thread, and the current thread appears in its own list; both are
-  deliberate browser semantics and both are cursor-stable. The projection is now
+- **Negative & Trade-offs**: The current thread appears in its own list (it is
+  marked `[current]`): a browser answers "where am I" as well as "where can I
+  go". Order is creation-recency, not touch-recency — see ADR-0128 for why the
+  two are different and why only the latter is unstable. The projection is now
   recursive and must stay cheap — it operates on the already-materialized
   overview (`O(n)` build, `O(1)` per painted row, windowing unchanged). Lineage
   fields are additive on the wire with `serde(default)`, so a peer predating
@@ -254,7 +268,9 @@ reorders while you arrow through it cannot be located in.
 - **Why considered**: Matches the switcher's MRU semantics users already know.
 - **Why rejected**: A row set that reorders on every model token cannot be
   navigated with a cursor. Locating a thread requires stable positions; recency
-  is a *switching* heuristic, not a *browsing* one.
+  is a *switching* heuristic, not a *browsing* one. (Note the distinction
+  ADR-0128 draws: *touch* recency is unstable, *creation* recency is not, and the
+  browser sorts on the latter.)
 
 ### Alternative E: Nest branch cards inside the dashboard grid (Rejected)
 
@@ -267,6 +283,8 @@ reorders while you arrow through it cannot be located in.
 
 - Amends: [ADR-0058](0058-granular-causal-session-forking-sovereign-tab-projection-and-aside-retirement.md),
   [ADR-0104](0104-fork-client-projection-reconciliation-and-aside-retirement-completion.md)
+- Amended by: [ADR-0128](0128-thread-browser-order-newest-creation-first-with-cursor-stability.md)
+  (ordering direction: newest creation first, stability preserved)
 - Related: [ADR-0059](0059-canonical-thread-persistence-schema-and-zero-legacy-clean-break.md)
   (zero-legacy clean break), [ADR-0050](0050-authentic-thread-title-lifecycle-clean-scene-head-and-semantic-tab-projection.md)
   (thread identity), [ADR-0047](0047-autonomous-surface-interaction-architecture-and-spatial-event-delegation.md)

@@ -44,8 +44,23 @@ pub enum NoticeKind {
     ReviewAlert,
     /// Workspace trust state changed or needs a decision: project-authored
     /// content changed on disk after being trusted (quarantined pending
-    /// review), or a project entry shadows a user-scope entry..
+    /// review), or a project entry shadows a user-scope entry.
+    ///
+    /// This is a **condition**, not a fault: the trust store is healthy and the
+    /// harness is reporting a fact about the workspace. It is what the attach
+    /// escalation and the pre-attach gate speak in.
     TrustChanged,
+    /// A trust **decision could not be applied** — the grant or refusal could
+    /// not be persisted, so the workspace's trust state did not move.
+    ///
+    /// Split out of [`NoticeKind::TrustChanged`] because the two are opposite
+    /// facts and the client must act on them differently: a `TrustChanged`
+    /// condition is answered by a human decision, while a `TrustFailure` is
+    /// answered by retrying (or fixing the store) — and only the failure
+    /// belongs in the mounted gate's error slot. While they shared a kind, the
+    /// gate had to intercept every `TrustChanged` notice and hope none of them
+    /// was merely an escalation.
+    TrustFailure,
     /// A harness-level acknowledgment of a slash command / configuration change
     /// (e.g. `/delegate on`, `--delegate`, `/permissions clear`). These are
     /// status confirmations, not model output: they carry no conversational
@@ -368,6 +383,23 @@ impl AgentNotice {
         Self::new(
             NoticeKind::TrustChanged,
             NoticeSeverity::Warning,
+            title,
+            NoticeSource::Harness,
+        )
+    }
+
+    /// Build a workspace-trust **failure** notice: a trust decision could not be
+    /// persisted, so the workspace's trust state did not move.
+    ///
+    /// `Error` severity, not `Warning`: unlike a [`Self::trust_changed`]
+    /// condition (which is waiting on a human decision), this one means the
+    /// human's decision was lost. It also carries the bubble for free — a fault
+    /// raises one and names the notice log, an acknowledgement does not — which
+    /// is what makes a failed grant visible instead of silent.
+    pub fn trust_failure(title: impl Into<String>) -> Self {
+        Self::new(
+            NoticeKind::TrustFailure,
+            NoticeSeverity::Error,
             title,
             NoticeSource::Harness,
         )

@@ -104,7 +104,7 @@ fn spawn_control_verb(runtime: &UiRuntime, verb: ConsoleVerb, target: Option<usi
 /// discovery failure or the server's rejection, both receipt-ready.
 async fn discover_and_control(request: crate::shell::client::ControlRequest) -> Result<(), String> {
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    match crate::shell::client::discover(&project_root) {
+    match crate::shell::client::discover(&project_root).await {
         Some(info) => crate::shell::client::control(&info, request).await,
         None => {
             tracing::warn!("dashboard control: no server discovered");
@@ -177,7 +177,7 @@ async fn dispatch_archivist(app: &mut App, runtime: &UiRuntime, raw: &str, text:
     tokio::spawn(async move {
         let project_root =
             std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let outcome = match crate::shell::client::discover(&project_root) {
+        let outcome = match crate::shell::client::discover(&project_root).await {
             Some(info) => {
                 crate::shell::client::control_with_reply(
                     &info,
@@ -370,7 +370,7 @@ pub(super) async fn dispatch_console_command(
             tokio::spawn(async move {
                 let project_root =
                     std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-                let Some(info) = crate::shell::client::discover(&project_root) else {
+                let Some(info) = crate::shell::client::discover(&project_root).await else {
                     tracing::warn!("dashboard control: no server discovered");
                     return;
                 };

@@ -21,7 +21,7 @@ Type these at the composer to open the corresponding surface or perform the acti
 | `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) |
 | `/role` | Switch agent role (identity, capability, and workspace) |
 | `/search` | Semantic search over session history |
-| `/threads` | Browse or resume past threads — a lineage forest: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) |
+| `/threads` | Browse or resume past threads — a lineage forest, newest thread first: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) |
 | `/fork` | Fork thread into a child thread at head, at round (`/fork 2`), or after a turn (`/fork 2.1`); the address is persisted and shown in `/threads`, the dashboard dock, and `nuo thread ls` (ADR-0058, ADR-0120) |
 | `/tree` | Visual DAG thread tree and branch navigation |
 | `/diff` | View what this thread changed in the workspace, grouped by whether the change can be undone |
@@ -34,7 +34,8 @@ Type these at the composer to open the corresponding surface or perform the acti
 | `/skills` | Browse available skills and view trust status |
 | `/init` | Scaffold a project-local `.nuo/` config tree |
 | `/trust` | Trust project-authored asset domains |
-| `/untrust` | Revoke project asset trust |
+| `/trust deny` | Refuse the current content of a domain (recorded; not asked again until it changes) |
+| `/untrust` | Revoke every project asset grant |
 | `/export` | Export thread to clipboard as Markdown |
 | `/retry` | Retry last failed model request |
 | `/help` | Show available commands and keybindings |
@@ -53,7 +54,7 @@ Several commands take a subcommand argument:
 | `/confinement` | `on` / `off` | Enable / disable workspace filesystem confinement |
 | `/jobs` | `kill` / `logs` | Terminate an active background job / show its recent output |
 | `/skills` | `list` / `status` | List discovered skills / show health and trust state |
-| `/trust` | `all`, `instructions`, `ex-workspace`, `mcp`, `skills`, `hooks`, `status`, `revoke` | Trust or inspect a project asset domain |
+| `/trust` | `all`, `instructions`, `ex-workspace`, `mcp`, `skills`, `hooks`, `status`, `revoke`, `deny [domain]` | Trust, inspect, revoke, or refuse a project asset domain |
 
 ---
 

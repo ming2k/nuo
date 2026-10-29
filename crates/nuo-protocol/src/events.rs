@@ -10,6 +10,30 @@ pub use nuo_tool::events::{
     SubagentEvent, UserQuestion, UserQuestionOption, UserQuestionRequest,
 };
 
+/// What a human decided when asked to review project-authored content.
+///
+/// A closed two-value vocabulary rather than an inferred one, because the two
+/// answers have opposite effects and the request that carries them
+/// ([`AgentRequest::TrustWorkspace`]) also carries the domain list. Sending the
+/// refused domains in a field that means "grant" is a security inversion that no
+/// type would have caught; naming the intent makes it unrepresentable.
+///
+/// Deliberately has **no** serde default. A frame that omits the decision is
+/// rejected, because every default would have to pick a direction, and the only
+/// safe direction for a malformed trust frame is to refuse it outright.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrustDecision {
+    /// Load the listed domains: persist a grant for their current content.
+    Grant,
+    /// Do not load the listed domains: persist a refusal for their current
+    /// content, so they are not asked about again until that content changes.
+    ///
+    /// Domains outside the list are left untouched — a refusal is scoped, unlike
+    /// [`AgentRequest`]'s revoke path, which drops every grant for the workspace.
+    Deny,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentRequest {
     /// Submit a user prompt to start an interactive round.
@@ -74,12 +98,21 @@ pub enum AgentRequest {
         paused: bool,
     },
     SlashCommand(String),
-    /// Trust project-authored asset domains for the active workspace.
-    /// Direct control-plane admission action — does not emit `/trust` into the
-    /// transcript or record command history.
+    /// Answer the pre-view workspace-trust decision for the active workspace.
+    ///
+    /// A direct control-plane admission action — it does not emit `/trust` into
+    /// the transcript or record command history.
+    ///
+    /// `decision` states *which way* the list points, and the list is always the
+    /// set the decision applies to: `Grant` authorizes these domains (the server
+    /// refuses every other candidate itself), `Deny` refuses exactly these and
+    /// leaves every other grant intact. The intent is a field rather than
+    /// something the server infers, because a bare `Vec<TrustDomain>` does not
+    /// say which direction it points — and reading a refusal as a grant is a
+    /// security inversion in the one path whose purpose is to record refusals.
     TrustWorkspace {
-        #[serde(default)]
         domains: Vec<TrustDomain>,
+        decision: TrustDecision,
     },
     /// Soft reload (ADR-0034 Level 1): re-read the configuration matrix and
     /// credentials, and re-sync MCP servers and skills, without dropping any
@@ -2301,6 +2334,41 @@ mod tests {
         let back: AgentNotice =
             serde_json::from_str(&serde_json::to_string(&notice).unwrap()).expect("round-trip");
         assert_eq!(back.kind, NoticeKind::TrustChanged);
+    }
+
+    #[test]
+    fn a_trust_decision_is_carried_explicitly_not_inferred_from_the_domains() {
+        // The inversion this makes unrepresentable: `domains` alone does not say
+        // which direction it points, so a caller holding only a list of refused
+        // domains would have *granted* them. The decision is its own field.
+        let grant = AgentRequest::TrustWorkspace {
+            domains: vec![TrustDomain::Instructions],
+            decision: TrustDecision::Grant,
+        };
+        let deny = AgentRequest::TrustWorkspace {
+            domains: vec![TrustDomain::Instructions],
+            decision: TrustDecision::Deny,
+        };
+        let grant_json = serde_json::to_string(&grant).expect("serialise");
+        let deny_json = serde_json::to_string(&deny).expect("serialise");
+        assert_ne!(
+            grant_json, deny_json,
+            "identical domain lists with opposite decisions must not serialise identically"
+        );
+        assert!(deny_json.contains("\"deny\""), "got {deny_json}");
+        assert!(grant_json.contains("\"grant\""), "got {grant_json}");
+
+        // The decision is mandatory: a frame that omits it is rejected rather
+        // than silently read as a grant. Defaulting would mean a malformed or
+        // truncated frame *authorizes* project content, which is the one
+        // direction the default must never point.
+        let missing = serde_json::from_str::<AgentRequest>(
+            r#"{"TrustWorkspace":{"domains":["instructions"]}}"#,
+        );
+        assert!(
+            missing.is_err(),
+            "a TrustWorkspace without a decision must not deserialise"
+        );
     }
 
     #[test]

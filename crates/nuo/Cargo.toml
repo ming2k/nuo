@@ -42,7 +42,7 @@ nuo-mcp = { workspace = true }
 nuo-tool = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { workspace = true }
 bytes = { workspace = true }
 tokio-tungstenite = { workspace = true }

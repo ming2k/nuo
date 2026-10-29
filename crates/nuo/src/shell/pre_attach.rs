@@ -1,21 +1,24 @@
-//! Pre-attach workspace trust interstitial surface..
+//! Pre-attach workspace trust interstitial surface.
 //!
 //! When the TUI attaches to a session whose project root carries
-//! never-trusted project-authored contributions (skills, MCP, hooks,
-//! rules) — `WorkspaceTrustState::Quarantined` from the durable
+//! project-authored contributions that are awaiting a human decision —
+//! `Quarantined`, `Changed`, or `Expired` per
+//! [`WorkspaceSecuritySnapshot::domains_needing_review`] from the durable
 //! `WorkspaceSecurityStore` — the PreAttach surface mounts before any
 //! chat transcript, composer, or session chrome. Visually it is a
 //! full-screen black background with a centered trust prompt and an
-//! option list navigated by `↑`/`↓`, selected by `Enter`, and escaped
-//! by `Esc`. Selection is shown as a background highlight, not a
+//! option list navigated by `↑`/`↓`, selected by `Enter`/`Space`, and
+//! declined by `Esc`. Selection is shown as a background highlight, not a
 //! cursor marker.
 //!
 //! The surface owns the entire terminal area for the duration of the
-//! trust decision. There is no parent surface to drop back to and no
-//! composer to fall through to: dismissing the surface quits the TUI,
-//! because an untrusted workspace has no useful work to do per
-//! (every model round and direct-shell command fails
-//! preflight).
+//! trust decision. While it is up there is no composer behind it to fall
+//! through to, so it claims the keyboard — but a *decline* (Esc, or
+//! trusting nothing) records the refusal and yields to the chat surface
+//! with every affected domain unloaded. It deliberately does not quit:
+//! the gate also opens for `Changed` content on a live session, and
+//! terminating the terminal is not an answer to "someone changed
+//! AGENTS.md, do you still want it?".
 //!
 //! The trust question wording, domain listing, and answer-to-command
 //! mapping remain owned by [`nuo_view::trust_gate`]; this module only
@@ -32,11 +35,19 @@ use nuo_ui_primitives::components::options::push_wrapped_styled;
 use nuo_ui_primitives::primitives::contrast_fg;
 use nuo_view::trust_gate;
 
-/// Width budget for the centered trust panel, as a fraction of the
-/// terminal width. Clamped so the panel stays readable both on very
-/// narrow and very wide terminals.
-const PANEL_WIDTH_FRACTION: u16 = 6; // /10
-const PANEL_MIN_WIDTH: u16 = 48;
+/// Width budget for the centered trust panel, as a percentage of the terminal
+/// width. Clamped so the panel stays readable on very narrow terminals and does
+/// not sprawl on very wide ones.
+///
+/// The divisor is a percentage (`60` → 60%), not a "sixth": the constant used to
+/// be `6` while this comment claimed "roughly 60%", which produced a panel 16% of
+/// the terminal wide. At 80 columns that is 13 cells — narrow enough that the
+/// option descriptions and the key-hint footer were clipped mid-word.
+const PANEL_WIDTH_PERCENT: u16 = 60;
+/// Floor chosen so a full 60-column sentence still fits on an 80-column
+/// terminal: the panel is inset from the screen, so a smaller floor forces
+/// mid-word breaks in the security prompt itself.
+const PANEL_MIN_WIDTH: u16 = 56;
 const PANEL_MAX_WIDTH: u16 = 96;
 
 /// Visual marker prefix on the highlighted option row. The user
@@ -48,7 +59,7 @@ const INDENT: &str = "  ";
 /// The runtime state of the PreAttach surface.
 ///
 /// Owns the trust-gate question's input state machine plus a flag
-/// distinguishing a real first-contact gate from a
+/// distinguishing a real review gate from a
 /// `NUO_FORCE_PRE_ATTACH=1` acceptance fixture (which renders an
 /// extra banner so operators know they are in acceptance mode and
 /// which domains they are verifying).
@@ -61,7 +72,7 @@ pub struct PreAttachState {
     model: QuestionModel,
     /// `true` when this PreAttach was force-mounted by the
     /// `NUO_FORCE_PRE_ATTACH=1` acceptance env var (no real
-    /// quarantined workspace). The surface renders an extra banner
+    /// workspace awaiting review). The surface renders an extra banner
     /// naming the env var so operators know why they are seeing it.
     acceptance: bool,
     /// `true` once the user has submitted a decision to trust, providing
@@ -73,14 +84,16 @@ pub struct PreAttachState {
     /// (e.g. the durable trust store is unavailable). Rendered on the
     /// surface so a failed confirmation is an actionable message instead of
     /// a silent loop of the same dialog, and reset with `submitting` so the
-    /// user can retry or quit.
+    /// user can retry or decline.
     attestation_error: Option<String>,
-    /// The quarantined domains present in this workspace.
+    /// The domains this gate offered — every one awaiting a decision when it
+    /// mounted. A `Decline` refuses exactly this set, so it is captured at mount
+    /// rather than re-derived from a later snapshot that may have moved.
     domains: Vec<nuo_wire::TrustDomain>,
 }
 
 /// The signal the listener task raises when a freshly-arrived
-/// `HarnessState` snapshot demands a first-contact trust decision.
+/// `HarnessState` snapshot demands a trust decision.
 ///
 /// Drains to `None` once the per-frame sync has mounted
 /// [`PreAttachState`]. Carries the snapshot itself rather than a
@@ -102,20 +115,28 @@ pub enum PreAttachDecision {
     /// User chose to trust the workspace. Direct control-plane admission
     /// request — does not route through slash commands or pollute the transcript.
     Trust { domains: Vec<nuo_wire::TrustDomain> },
-    /// User chose to keep the workspace untrusted (`Keep quarantined`
-    /// option or `Esc`). The TUI should quit — there is no chat
-    /// surface to fall through to.
-    Quit,
+    /// User refused the offered domains (`Esc`, or confirming an empty
+    /// selection). The refusal is recorded durably, so the workspace stops
+    /// asking about *this* content, and the session continues untrusted.
+    ///
+    /// A refusal used to mean `Quit`, which was defensible while the gate could
+    /// only open on a never-trusted workspace: an untrusted workspace had no
+    /// useful work to do, so there was no chat surface to fall through to. It is
+    /// no longer defensible now that `Changed` gates too — that workspace is
+    /// mid-session, with a transcript, a task list, and a user who only wanted
+    /// to say "no" to a diff. Quitting the terminal is not an answer to that
+    /// question, so the refusal now records itself and yields to the chat
+    /// surface with every affected domain still unloaded.
+    Decline { domains: Vec<nuo_wire::TrustDomain> },
 }
 
 impl PreAttachState {
-    /// Build a PreAttach surface from a quarantined snapshot. Returns
-    /// `None` when the snapshot does not actually demand a gate
-    /// (`Absent` / `Trusted` / `Changed`) — the
+    /// Build a PreAttach surface from a snapshot awaiting review. Returns
+    /// `None` when nothing does (`Absent` / `Trusted` / `Denied`) — the
     /// [`trust_gate::gate_request`] rules are authoritative.
     pub fn from_snapshot(snapshot: &WorkspaceSecuritySnapshot) -> Option<Self> {
         let request = trust_gate::gate_request(snapshot)?;
-        let domains = trust_gate::quarantined_domains(snapshot);
+        let domains = snapshot.domains_needing_review();
         let mut model = QuestionModel::open(request);
         model.select_all(0);
         Some(Self {
@@ -127,11 +148,11 @@ impl PreAttachState {
         })
     }
 
-    /// Build an acceptance fixture: a synthesized snapshot with every
-    /// domain `Quarantined`, so every domain row appears in the
-    /// rendered prompt and operators can verify the visual design
-    /// end-to-end without preparing a real quarantined workspace.
-    #[allow(clippy::expect_used)] // Synthesis is deterministic: all-five-Quarantined MUST produce a gate request.
+    /// Build an acceptance fixture: a synthesized snapshot with every domain
+    /// awaiting review, so every domain row appears in the rendered prompt and
+    /// operators can verify the visual design end-to-end without preparing a
+    /// real workspace.
+    #[allow(clippy::expect_used)] // Synthesis is deterministic: all-six-awaiting-review MUST produce a gate request.
     pub fn acceptance_fixture() -> Self {
         let snapshot = WorkspaceSecuritySnapshot {
             root: "/tmp/nuo-acceptance".to_string(),
@@ -142,10 +163,9 @@ impl PreAttachState {
             ex_workspace: WorkspaceTrustState::Quarantined,
             user_assets: WorkspaceTrustState::Quarantined,
         };
-        let request = trust_gate::gate_request(&snapshot).expect(
-            "synthesized quarantined snapshot with all five domains must produce a gate request",
-        );
-        let domains = trust_gate::quarantined_domains(&snapshot);
+        let request = trust_gate::gate_request(&snapshot)
+            .expect("a snapshot with every domain awaiting review must produce a gate request");
+        let domains = snapshot.domains_needing_review();
         let mut model = QuestionModel::open(request);
         model.select_all(0);
         Self {
@@ -160,7 +180,7 @@ impl PreAttachState {
     /// `true` when this surface was force-mounted by
     /// `NUO_FORCE_PRE_ATTACH=1`. The renderer paints an extra
     /// banner so operators can tell acceptance mode from a real
-    /// first-contact gate at a glance.
+    /// real review gate at a glance.
     pub fn acceptance(&self) -> bool {
         self.acceptance
     }
@@ -180,7 +200,7 @@ impl PreAttachState {
 
     /// Record a failed trust-grant round-trip. Resets
     /// `submitting` so the surface resumes the decision instead of spinning,
-    /// and keeps the question mounted — the user retries or quits with full
+    /// and keeps the question mounted — the user retries or declines with full
     /// knowledge of why the last confirmation did not take effect.
     pub fn note_attestation_error(&mut self, message: String) {
         self.submitting = false;
@@ -206,9 +226,13 @@ impl PreAttachState {
     /// result back.
     pub fn apply(&mut self, action: QuestionAction) -> Option<PreAttachDecision> {
         if self.submitting {
-            if matches!(action, QuestionAction::Cancel) {
-                return Some(PreAttachDecision::Quit);
-            }
+            // A submitted decision is already in flight; the server's republished
+            // snapshot is the authority on what it did. Cancelling here used to
+            // emit a refusal of *every* offered domain — including the ones just
+            // submitted — so the outcome depended on whether the grant or the
+            // refusal reached the store first. That is a race with a security
+            // answer, so the surface simply stays inert until the snapshot
+            // resolves it (`attestation_error` re-opens the decision on failure).
             return None;
         }
         // Clone-aside pattern: take the model, update, write back.
@@ -221,10 +245,30 @@ impl PreAttachState {
             match effect {
                 QuestionEffect::Reply { answers, .. } => {
                     let selected = trust_gate::answer_to_domains(&answers);
+                    // Anything the user left unselected is a refusal, and it is
+                    // named here rather than inferred later: the domains that
+                    // were *offered* are the ones to refuse, not merely the ones
+                    // still pending after a partial grant.
+                    let declined = self
+                        .domains
+                        .iter()
+                        .copied()
+                        .filter(|domain| !selected.contains(domain))
+                        .collect();
                     self.submitting = true;
+                    if selected.is_empty() {
+                        // Nothing selected: this is a refusal, and dispatching a
+                        // grant for zero domains would ask the server to do
+                        // nothing and leave the gate to re-open.
+                        return Some(PreAttachDecision::Decline { domains: declined });
+                    }
                     return Some(PreAttachDecision::Trust { domains: selected });
                 }
-                QuestionEffect::Cancelled { .. } => return Some(PreAttachDecision::Quit),
+                QuestionEffect::Cancelled { .. } => {
+                    return Some(PreAttachDecision::Decline {
+                        domains: self.domains.clone(),
+                    });
+                }
                 // `Closed` always follows `Reply` or `Cancelled` in
                 // the same effect batch (see `QuestionModel::update`),
                 // so the decision has already been emitted and we
@@ -264,7 +308,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Acceptance mode (NUO_FORCE_PRE_ATTACH=1) — selecting Trust persists against the real workspace.",
+            "Acceptance mode (NUO_FORCE_PRE_ATTACH=1) — a decision here persists against the real workspace.",
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
@@ -307,7 +351,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Press [Esc] to cancel and keep untrusted.",
+            "Waiting for the server to record the decision...",
             Style::default().fg(theme.muted()),
             body_width,
         );
@@ -347,7 +391,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             &mut lines,
             INDENT,
             INDENT,
-            "Adjust the selection and press Enter to retry, or Esc to keep untrusted.",
+            "Adjust the selection and press Enter to retry, or Esc to refuse and continue untrusted.",
             Style::default().fg(theme.muted()),
             body_width,
         );
@@ -374,10 +418,15 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
             );
             lines.push(Line::default());
         }
+        // No indent on the question body: the panel is already inset by black
+        // margins, so an extra gutter only narrows the wrap width — which is
+        // what pushed a 47-column phrase into a mid-word break
+        // ("…different conten" / "t, so…") in the sentence a user must read
+        // most carefully.
         push_wrapped_styled(
             &mut lines,
-            INDENT,
-            INDENT,
+            "",
+            "",
             &question.question,
             Style::default().fg(theme.fg()),
             body_width,
@@ -436,14 +485,29 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
     lines.push(Line::default());
     lines.push(Line::default());
 
-    // Footer key hints
+    // Footer key hints.
+    //
+    // Wrapped, not a bare `Line`: a `Line` longer than the panel is silently
+    // clipped, which shipped a gate whose footer read "Enter confirm   Es" — the
+    // exit hint never reached the screen. The gate owns the whole terminal, so a
+    // clipped footer is a surface with no stated exit.
+    //
+    // The single-select wording is kept under the panel's narrowest usable width
+    // so the exit hint stays on one line; wrapping it is the fallback, not the
+    // normal case.
     let hint_text = if qmodel.active_multi_select() {
-        "↑/↓ navigate   Space toggle   Enter confirm   Esc quit"
+        "↑/↓ move   Space toggle   Enter confirm   Esc decline"
     } else {
-        "↑/↓ navigate   Enter select   Esc quit"
+        "↑/↓ move   Enter select   Esc decline"
     };
-    let hint = Span::styled(hint_text, Style::default().fg(theme.muted()));
-    lines.push(Line::from(hint));
+    push_wrapped_styled(
+        &mut lines,
+        "",
+        "",
+        hint_text,
+        Style::default().fg(theme.muted()),
+        body_width,
+    );
 
     f.render_widget(
         &mut Paragraph::new(lines)
@@ -457,8 +521,10 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
 /// width × auto-height (the paragraph lays out its own rows), pinned
 /// to the vertical center of the terminal.
 fn centered_panel(area: Rect) -> Rect {
-    let tenth = area.width.max(1) / PANEL_WIDTH_FRACTION.max(1);
-    let width = tenth
+    let width = area
+        .width
+        .saturating_mul(PANEL_WIDTH_PERCENT)
+        .saturating_div(100)
         .clamp(PANEL_MIN_WIDTH, PANEL_MAX_WIDTH)
         .min(area.width.saturating_sub(2));
     let height = area.height.saturating_sub(4).clamp(12, 28);
@@ -507,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn from_snapshot_returns_none_when_not_quarantined() {
+    fn from_snapshot_returns_none_when_nothing_needs_review() {
         let trusted = WorkspaceSecuritySnapshot {
             root: "/tmp/proj".to_string(),
             mcp: WorkspaceTrustState::Trusted,
@@ -519,7 +585,27 @@ mod tests {
         };
         assert!(PreAttachState::from_snapshot(&trusted).is_none());
 
-        // Changed domains escalate through in-session banner, not pre-attach gate
+        // A refusal is a decision: `Denied` is settled, so the gate must not
+        // re-open and nag.
+        let denied = WorkspaceSecuritySnapshot {
+            root: "/tmp/proj".to_string(),
+            mcp: WorkspaceTrustState::Denied,
+            skills: WorkspaceTrustState::Trusted,
+            hooks: WorkspaceTrustState::Absent,
+            instructions: WorkspaceTrustState::Denied,
+            ex_workspace: WorkspaceTrustState::Trusted,
+            user_assets: WorkspaceTrustState::Absent,
+        };
+        assert!(PreAttachState::from_snapshot(&denied).is_none());
+    }
+
+    #[test]
+    fn from_snapshot_mounts_for_changed_content() {
+        // The regression this pins. `Changed` used to escalate through an
+        // in-session banner instead of gating, so the one state meaning "the
+        // content you approved is not the content on disk" got a scroll-past
+        // toast that re-fired on every attach. It gates now, and the prompt says
+        // what changed.
         let changed = WorkspaceSecuritySnapshot {
             root: "/tmp/proj".to_string(),
             mcp: WorkspaceTrustState::Trusted,
@@ -529,7 +615,20 @@ mod tests {
             ex_workspace: WorkspaceTrustState::Trusted,
             user_assets: WorkspaceTrustState::Trusted,
         };
-        assert!(PreAttachState::from_snapshot(&changed).is_none());
+        let state = PreAttachState::from_snapshot(&changed)
+            .expect("changed instructions must mount the gate");
+        let question = &state.model().request().questions[0];
+        assert_eq!(
+            question.options.len(),
+            1,
+            "only the changed domain is listed"
+        );
+        assert_eq!(question.options[0].label, "AGENTS.md  ·  [Changed]");
+        assert!(
+            question.question.contains("changed on disk"),
+            "the prompt must say why it is asking: {}",
+            question.question
+        );
     }
 
     #[test]
@@ -570,7 +669,7 @@ mod tests {
     }
 
     #[test]
-    fn navigate_then_submit_trust_all_emits_command() {
+    fn navigate_then_submit_trust_all_emits_a_grant() {
         let mut state = PreAttachState::from_snapshot(&quarantined_snapshot()).unwrap();
         // By default, all options start selected. Pressing enter trusts all of them.
         let decision = state.apply(QuestionAction::Submit);
@@ -585,8 +684,11 @@ mod tests {
             })
         );
         assert!(state.submitting());
-        // Subsequent navigation or submit actions while submitting are ignored.
+        // While the decision is in flight the surface is inert — including for
+        // Esc. A cancel here used to refuse every offered domain (the ones just
+        // submitted included), so the outcome raced the in-flight grant.
         assert_eq!(state.apply(QuestionAction::Down), None);
+        assert_eq!(state.apply(QuestionAction::Cancel), None);
         assert_eq!(state.apply(QuestionAction::Submit), None);
     }
 
@@ -606,10 +708,62 @@ mod tests {
     }
 
     #[test]
-    fn esc_emits_quit() {
+    fn esc_declines_without_quitting() {
+        // A refusal is a decision, not an exit. The gate also opens for
+        // `Changed` content on a live session, where terminating the terminal
+        // would be an absurd answer to "someone changed AGENTS.md".
         let mut state = PreAttachState::from_snapshot(&quarantined_snapshot()).unwrap();
         let decision = state.apply(QuestionAction::Cancel);
-        assert_eq!(decision, Some(PreAttachDecision::Quit));
+        assert_eq!(
+            decision,
+            Some(PreAttachDecision::Decline {
+                domains: vec![
+                    TrustDomain::Mcp,
+                    TrustDomain::Skills,
+                    TrustDomain::Instructions,
+                ],
+            }),
+            "declining must name every offered domain so the refusal can be recorded"
+        );
+    }
+
+    #[test]
+    fn a_partial_selection_declines_exactly_what_was_left_out() {
+        // The domains to refuse are the ones *offered but unselected* — not
+        // merely the ones still pending after a partial grant, which is how the
+        // server-side pre-attach path had to infer it.
+        let mut state = PreAttachState::from_snapshot(&quarantined_snapshot()).unwrap();
+        state.apply(QuestionAction::Down); // highlight -> 1 (.nuo/skills/)
+        state.apply(QuestionAction::Toggle); // toggle off .nuo/skills/
+        let decision = state.apply(QuestionAction::Submit);
+        assert_eq!(
+            decision,
+            Some(PreAttachDecision::Trust {
+                domains: vec![TrustDomain::Mcp, TrustDomain::Instructions],
+            }),
+        );
+    }
+
+    #[test]
+    fn submitting_nothing_is_a_refusal_not_an_empty_grant() {
+        // Dispatching a grant for zero domains would ask the server to do
+        // nothing and leave the gate to re-open — the loop, with extra steps.
+        let mut state = PreAttachState::from_snapshot(&quarantined_snapshot()).unwrap();
+        for _ in 0..3 {
+            state.apply(QuestionAction::Toggle); // clear all three selections
+            state.apply(QuestionAction::Down);
+        }
+        let decision = state.apply(QuestionAction::Submit);
+        assert_eq!(
+            decision,
+            Some(PreAttachDecision::Decline {
+                domains: vec![
+                    TrustDomain::Mcp,
+                    TrustDomain::Skills,
+                    TrustDomain::Instructions,
+                ],
+            }),
+        );
     }
 
     /// A failed attestation round-trip: the failure message is

@@ -125,16 +125,20 @@ impl<'a> SessionPickerItem<'a> {
     }
 }
 
-/// Project session overviews into the lineage forest (ADR-0120).
+/// Project session overviews into the lineage forest (ADR-0120, ADR-0128).
 ///
 /// Guarantees, in order of how badly a browser needs them:
 ///
 /// 1. **Nothing is dropped.** Every session in `sessions` is emitted exactly
 ///    once — including the thread the user is attached to, and including a
 ///    branch whose parent is not in this snapshot (`[INV-LINEAGE-02]`).
-/// 2. **Position is deterministic.** Roots and siblings are ordered by
-///    `(created_at, id)`, never by `updated_at`: a list that reorders while a
-///    model streams cannot be navigated with a cursor (`[INV-LINEAGE-03]`).
+/// 2. **Position is deterministic, newest first.** Roots and siblings are
+///    ordered by `created_at` **descending** (id breaks ties), never by
+///    `updated_at`: the thread a reader is most likely looking for is the one
+///    that began most recently, while a liveness signal that changes on every
+///    model token must never move a row under the cursor (`[INV-LINEAGE-03]`).
+///    The descending direction is per sibling set, so a branch still paints
+///    beneath the trunk it came from, however much newer it is.
 /// 3. **Geometry is computed once.** `depth`, `is_last` and `ancestry` are
 ///    produced here; the renderer only paints them.
 /// 4. **Corrupt lineage terminates.** A `parent_id` cycle is broken by visiting
@@ -174,9 +178,11 @@ pub fn project_session_rows<'a>(
         }
     }
 
-    // Deterministic order: creation, then id so equal timestamps stay total.
+    // Deterministic order: newest creation first, id as the tiebreak so equal
+    // timestamps still form a total order. Descending on `created_at` only —
+    // `updated_at` is a liveness signal and must not move a row (`[INV-LINEAGE-03]`).
     let order = |a: &&'a nuo_wire::SessionOverview, b: &&'a nuo_wire::SessionOverview| {
-        (a.created_at, a.id.as_str()).cmp(&(b.created_at, b.id.as_str()))
+        (b.created_at, a.id.as_str()).cmp(&(a.created_at, b.id.as_str()))
     };
     roots.sort_by(order);
     for list in children.values_mut() {
@@ -292,6 +298,12 @@ pub fn project_session_rows<'a>(
             true // no root reachable at all
         })
         .collect();
+
+    // The stranded tail keeps the same total order as every other sibling set,
+    // so a cycle's rows do not land in whatever sequence the wire happened to
+    // serialize them in (`[INV-LINEAGE-03]`).
+    let mut stranded = stranded;
+    stranded.sort_by(order);
 
     for session in stranded {
         rows.push(SessionPickerItem {
@@ -799,10 +811,10 @@ mod tests {
         let rows = project_session_rows(&sessions, None);
         assert_eq!(
             ids(&rows),
-            vec!["OTHER", "F1"],
-            "a branch is still listed, in creation order"
+            vec!["F1", "OTHER"],
+            "a branch is still listed, newest thread first"
         );
-        let orphan = &rows[1];
+        let orphan = &rows[0];
         assert!(
             orphan.parent_missing,
             "the origin is absent, and that is stated"
@@ -932,7 +944,9 @@ mod tests {
     }
 
     /// The lane geometry is data, so it can be asserted without a terminal:
-    /// sibling elbows, a continuing parent lane, and a closing elbow.
+    /// sibling elbows, a continuing parent lane, and a closing elbow. Siblings
+    /// are listed newest first (ADR-0128), so the *last* row of a sibling set is
+    /// the oldest one and it is that row which closes the elbow.
     #[test]
     fn lane_geometry_paints_continuations_and_closing_elbows() {
         let sessions = vec![
@@ -952,11 +966,43 @@ mod tests {
         };
 
         assert_eq!(lane("T"), "", "a root has no lane");
-        assert_eq!(lane("A"), "├─ ", "A is not the last child of T");
-        assert_eq!(lane("A1"), "│  ├─ ", "A continues, so its lane stays open");
-        assert_eq!(lane("A2"), "│  └─ ", "the last child closes its elbow");
-        assert_eq!(lane("B"), "└─ ", "B closes T's subtree");
+        assert_eq!(lane("B"), "├─ ", "B is the newest child, so T continues");
+        assert_eq!(lane("A"), "└─ ", "the oldest child closes T's elbow");
+        assert_eq!(
+            lane("A2"),
+            "│  ├─ ",
+            "A2 is the newest grandchild, so A's lane stays open"
+        );
+        assert_eq!(
+            lane("A1"),
+            "│  └─ ",
+            "the oldest grandchild closes the elbow"
+        );
         assert_eq!(lane("OTHER"), "", "another root starts a new lane");
+    }
+
+    /// The browser leads with the most recently *created* thread, at every
+    /// level of the forest: roots and each sibling set are newest first, while a
+    /// newer branch still hangs beneath the trunk it came from. Ordering reads
+    /// `created_at` only, so it never depends on snapshot arrival order
+    /// (`[INV-LINEAGE-03]`, ADR-0128).
+    #[test]
+    fn siblings_are_ordered_newest_creation_first() {
+        let sessions = vec![
+            overview("old", None, 10),
+            overview("new", None, 30),
+            overview("mid", None, 20),
+            // A branch created after every root stays nested under `old`.
+            overview("old-kid", Some("old"), 40),
+        ];
+
+        let rows = project_session_rows(&sessions, Some(&expanded(&["old"])));
+        assert_eq!(
+            ids(&rows),
+            vec!["new", "mid", "old", "old-kid"],
+            "roots newest first; the branch keeps its trunk's position"
+        );
+        assert_eq!(rows[3].depth, 1, "a newer child does not jump the queue");
     }
 
     #[test]

@@ -178,3 +178,102 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
     );
     assert!(app.pre_attach.is_none(), "the resolved gate unmounts");
 }
+
+/// A refused workspace resolves to `Denied`, which is a decision — the gate
+/// must unmount and never re-open on the same content.
+///
+/// The failure mode this pins is the nagging loop the refusal exists to stop:
+/// if `Denied` still counted as "needs review", the user would refuse, watch the
+/// gate vanish, and get the identical question on the next snapshot republish.
+#[test]
+fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = UiRuntime::minimal_for_test();
+
+    mount_gate(&mut app);
+    assert!(app.pre_attach.is_some());
+
+    // The server recorded the refusal: every offered domain is now `Denied`.
+    let denied = WorkspaceSecuritySnapshot {
+        root: "/tmp/proj".to_string(),
+        mcp: WorkspaceTrustState::Denied,
+        skills: WorkspaceTrustState::Denied,
+        hooks: WorkspaceTrustState::Absent,
+        instructions: WorkspaceTrustState::Denied,
+        ex_workspace: WorkspaceTrustState::Absent,
+        user_assets: WorkspaceTrustState::Absent,
+    };
+    let snapshot = |security: WorkspaceSecuritySnapshot| {
+        crate::shell::event_loop::AppMutation::Harness(nuo_wire::HarnessSnapshot {
+            loop_status: nuo_wire::LoopStatus::Idle,
+            round_counter: 0,
+            retry_pending: false,
+            unattended: false,
+            confined: false,
+            role: None,
+            workspace: Some("/tmp/proj".to_string()),
+            workspace_security: security,
+        })
+    };
+    crate::shell::event_loop::apply::apply(&mut app, &runtime, snapshot(denied.clone()));
+    assert!(
+        app.pre_attach.is_none(),
+        "a recorded refusal unmounts the gate"
+    );
+
+    // A later periodic republish of the same denied snapshot must not resurrect
+    // it — neither via the latch nor via the mount arm itself.
+    crate::shell::event_loop::apply::apply(&mut app, &runtime, snapshot(denied.clone()));
+    assert!(
+        app.pre_attach.is_none(),
+        "a denied workspace must not be re-gated on republish"
+    );
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::PreAttach(crate::shell::PreAttachSignal {
+            snapshot: denied,
+        }),
+    );
+    assert!(
+        app.pre_attach.is_none(),
+        "the mount arm itself must treat Denied as settled"
+    );
+}
+
+/// Content that changes *again* after a refusal is a new question, and the gate
+/// must ask it — `Denied` covers the bytes that were refused, not the domain
+/// forever.
+#[test]
+fn changed_content_after_a_refusal_is_asked_again() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = UiRuntime::minimal_for_test();
+
+    // A fresh app: no latch, nothing dismissed.
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::PreAttach(crate::shell::PreAttachSignal {
+            snapshot: WorkspaceSecuritySnapshot {
+                root: "/tmp/proj".to_string(),
+                mcp: WorkspaceTrustState::Denied,
+                skills: WorkspaceTrustState::Absent,
+                hooks: WorkspaceTrustState::Absent,
+                instructions: WorkspaceTrustState::Changed,
+                ex_workspace: WorkspaceTrustState::Absent,
+                user_assets: WorkspaceTrustState::Absent,
+            },
+        }),
+    );
+    let gate = app
+        .pre_attach
+        .as_ref()
+        .expect("changed content after a refusal must re-open the gate");
+    let options = &gate.model().request().questions[0].options;
+    assert_eq!(
+        options.len(),
+        1,
+        "only the domain that changed is offered, not the one already refused"
+    );
+    assert_eq!(options[0].label, "AGENTS.md  ·  [Changed]");
+}

@@ -21,6 +21,14 @@
 //!   #3): a grid has no second axis to nest along, so lineage is stated, not
 //!   implied [ADR-0120].
 //!
+//!   This axis stays **creation-ascending** (`#1` is the oldest session) while
+//!   the browsing surfaces (`/threads`, `nuo thread ls`) are
+//!   creation-**descending** [ADR-0128]. The first field here is not a reading
+//!   order but an address: the console accepts `@3 …` / `#3` control verbs, and
+//!   every receipt already printed in the log names a `#N`. Reversing the paint
+//!   while keeping the numbers would make the address axis read backwards;
+//!   renumbering would invalidate addresses already spoken.
+//!
 //! Data is the live monitor snapshot the TUI maintains client-side (folded
 //! from the server's `MonitorEvent` stream), so the dashboard refreshes
 //! itself without any extra round-trip. The keyboard defaults to the
@@ -93,6 +101,11 @@ struct DockEntry<'a> {
 /// The renderer and every selection-driven action (attach / interrupt /
 /// prompt) must agree on this mapping — a positional selection means the
 /// `#seq`-th card, not the `selected`-th snapshot row.
+///
+/// Ascending is deliberate here and is *not* the picker's order: `#1` is the
+/// oldest session because the number is an address the console consumes
+/// (`@3 …`), not a browsing order. The browsing surfaces lead with the newest
+/// thread instead (ADR-0128).
 pub fn creation_order(rows: &[MonitoredSession]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..rows.len()).collect();
     order.sort_by(|&a, &b| {

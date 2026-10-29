@@ -1219,6 +1219,40 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 );
                 record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
             }
+            TrustRoute::DenyAll | TrustRoute::Deny(TrustDomain::UserAssets) => {
+                // A workspace-free session's only project-supplied assets are
+                // user-level MCP servers, so a refusal here is exactly the
+                // `deny_user_assets` path — the same one the pre-attach gate
+                // uses for unselected user rows.
+                let denied = crate::handlers_slash::security_ops::deny_user_assets();
+                let effective = nuo_persistence::config::Config::load();
+                let mcp_report = mcp_runtime.reconfigure(effective.mcp.clone()).await;
+                let mut snap = nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
+                snap.user_assets = crate::handlers_slash::security_ops::compute_user_assets_trust();
+                agent.set_workspace_security(snap.clone());
+                let message = if denied.is_empty() {
+                    "Nothing to refuse: no user-level asset is awaiting review.".to_string()
+                } else {
+                    format!(
+                        "User asset trust refused.\n\
+                         - Refused: {}\n\
+                         - Connected MCP: {}\n\
+                         Refused assets stay inactive until their declaration changes.",
+                        denied.join(", "),
+                        if mcp_report.connected.is_empty() {
+                            "none".to_string()
+                        } else {
+                            mcp_report
+                                .connected
+                                .iter()
+                                .filter_map(|(n, ok)| ok.then_some(n.as_str()))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
+                    )
+                };
+                record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+            }
             TrustRoute::Status => {
                 let mut snapshot = nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
                 snapshot.user_assets =
@@ -1279,6 +1313,118 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 snapshot.hooks.as_str(),
                 snapshot.user_assets.as_str(),
                 snapshot.aggregate().as_str(),
+            );
+            record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
+        }
+        TrustRoute::DenyAll | TrustRoute::Deny(_) => {
+            // A refusal is a decision, not an absence of one. Recording it is
+            // what stops the workspace asking again: `deny_domains` stores the
+            // digest of the content that was refused, so the next snapshot
+            // reports `Denied` (settled, no gate) until the bytes change — at
+            // which point it flips to `Changed` and asks again. That is the
+            // exact "stop nagging me about *this* content" semantic the attach
+            // banner used to promise while pointing at `/untrust`, which
+            // revoked everything and re-armed the gate instead.
+            let snapshot_before = workspace_security.snapshot(project_root);
+            let requested: Vec<TrustDomain> = match route {
+                TrustRoute::DenyAll => snapshot_before.domains_needing_review(),
+                TrustRoute::Deny(domain) => vec![domain],
+                _ => unreachable!(),
+            };
+            if requested.is_empty() {
+                record_command(
+                    session,
+                    resp_tx,
+                    name,
+                    args,
+                    CommandResult::Text(
+                        "Nothing to refuse: no project asset domain is awaiting review."
+                            .to_string(),
+                    ),
+                )
+                .await;
+                send_harness_state_for_session(
+                    resp_tx,
+                    &session.id().await,
+                    agent,
+                    session,
+                    LoopStatus::Idle,
+                )
+                .await;
+                return;
+            }
+
+            let user_domains: Vec<TrustDomain> = requested
+                .iter()
+                .copied()
+                .filter(|d| *d == TrustDomain::UserAssets)
+                .collect();
+            let ws_domains: Vec<TrustDomain> = requested
+                .iter()
+                .copied()
+                .filter(|d| *d != TrustDomain::UserAssets)
+                .collect();
+            let user_denied = if user_domains.is_empty() {
+                Vec::new()
+            } else {
+                crate::handlers_slash::security_ops::deny_user_assets()
+            };
+            let denied = if ws_domains.is_empty() {
+                Vec::new()
+            } else {
+                match workspace_security.deny_domains(project_root, &ws_domains) {
+                    Ok(denied) => denied,
+                    Err(error) => {
+                        record_error(session, resp_tx, name, args, error).await;
+                        return;
+                    }
+                }
+            };
+            let report = match reload_trusted_assets(
+                agent,
+                mcp_runtime,
+                workspace_security,
+                project_root,
+                skills_registry,
+                shared_additional_roots,
+            )
+            .await
+            {
+                Ok(report) => report,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            // The refusal is a decision the user must be able to see the
+            // *consequence* of, so report both what was refused and what the
+            // workspace now looks like — an unloaded domain is the point, not a
+            // side effect.
+            let denied_str = denied
+                .iter()
+                .chain(user_denied.iter().map(|_| &TrustDomain::UserAssets))
+                .map(|domain| domain.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let still_pending = report
+                .snapshot
+                .domains_needing_review()
+                .into_iter()
+                .map(|domain| domain.as_str())
+                .collect::<Vec<_>>();
+            let message = format!(
+                "Project asset trust refused.\n\
+                 - Root: {}\n\
+                 - Refused: {denied_str}\n\
+                 - Still awaiting review: {}\n\
+                 Refused content stays inactive. This will not be asked again until the content \
+                 changes on disk.",
+                report.snapshot.root,
+                if still_pending.is_empty() {
+                    "none".to_string()
+                } else {
+                    still_pending.join(", ")
+                },
             );
             record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
         }

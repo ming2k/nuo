@@ -189,7 +189,11 @@ pub(crate) fn deny_user_assets() -> Vec<String> {
     denied
 }
 
-#[allow(dead_code)]
+/// Parse a trust-domain name from user input.
+///
+/// Shared by the grant grammar and `/trust deny`, so a user learns one
+/// vocabulary for both answers — the alternative is remembering one spelling for
+/// yes and a different one for no.
 pub(crate) fn parse_trust_domain(sub: &str) -> Result<TrustDomain, String> {
     let normalized = sub.trim().to_ascii_lowercase();
     match normalized.as_str() {
@@ -211,6 +215,10 @@ pub(crate) fn parse_trust_domain(sub: &str) -> Result<TrustDomain, String> {
 pub(crate) enum TrustRoute {
     GrantAll,
     Grant(TrustDomain),
+    /// Refuse the present content of every domain, recording the refusal.
+    DenyAll,
+    /// Refuse one domain's present content, recording the refusal.
+    Deny(TrustDomain),
     Revoke,
     Status,
 }
@@ -220,9 +228,30 @@ pub(crate) fn trust_route(name: &str, parts: &[&str]) -> Result<TrustRoute, Stri
         return if parts.len() == 1 {
             Ok(TrustRoute::Revoke)
         } else {
-            Err("/untrust accepts no arguments.".to_string())
+            Err(
+                "/untrust accepts no arguments. Use `/trust deny [domain]` to refuse \
+                  project assets without revoking every grant."
+                    .to_string(),
+            )
         };
     }
+    // `deny` is a distinct verb, not a modifier of `trust`: it records a human
+    // refusal so the workspace stops asking until the content changes. It used
+    // to have no command at all — `deny_domains()` existed and was reachable
+    // only from the pre-attach gate's unselected rows — so the attach banner
+    // could tell the user to "ignore" the escalation and then point at
+    // `/untrust`, which revokes *every* grant and re-arms the gate as
+    // `Quarantined`. The exit the message named did not exist.
+    match parts.get(1).copied() {
+        Some("deny") => match parts.get(2).copied() {
+            None | Some("all") => Ok(TrustRoute::DenyAll),
+            Some(domain) => parse_trust_domain(domain).map(TrustRoute::Deny),
+        },
+        _ => trust_route_grant(parts),
+    }
+}
+
+fn trust_route_grant(parts: &[&str]) -> Result<TrustRoute, String> {
     match parts.get(1).copied() {
         None | Some("all") => Ok(TrustRoute::GrantAll),
         Some("mcp") => Ok(TrustRoute::Grant(TrustDomain::Mcp)),
@@ -241,7 +270,8 @@ pub(crate) fn trust_route(name: &str, parts: &[&str]) -> Result<TrustRoute, Stri
         Some("revoke") => Ok(TrustRoute::Revoke),
         Some(other) => Err(format!(
             "Unknown /trust subcommand '{other}'. Use `/trust`, `/trust all`, `/trust instructions`, \
-             `/trust ex-workspace`, `/trust mcp`, `/trust skills`, `/trust hooks`, `/trust user-assets`, `/trust status`, or `/trust revoke`."
+             `/trust ex-workspace`, `/trust mcp`, `/trust skills`, `/trust hooks`, `/trust user-assets`, \
+             `/trust deny [domain]`, `/trust status`, or `/trust revoke`."
         )),
     }
 }

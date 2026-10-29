@@ -320,13 +320,14 @@ pub use policy_schema::*;
 
 /// Current protocol version.
 ///
-/// 15: `ConversationCleared` carries `previous_id` (ADR-0123 `[INV-TAB-13]`).
-/// Session rebasing is identity-addressed, so a server that cannot state which
-/// session is being left cannot be served correctly — the frame change is not
+/// 16: `AgentRequest::TrustWorkspace` carries an explicit `TrustDecision`.
+/// A grant and a refusal were previously indistinguishable in that frame (the
+/// domain list was the only carrier), so a client that sends `Deny` must not be
+/// served by a server that would read it as `Grant` — the frame change is not
 /// additive and the window floor moves with it.
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 15;
+pub const MIN_PROTOCOL_VERSION: u32 = 16;
 
 /// Initial options and postures when creating a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

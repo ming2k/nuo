@@ -22,7 +22,12 @@ const SKILLS_PATHS: &[&str] = &[".nuo/skills", "skills"];
 
 const HOOK_PATHS: &[&str] = &[".nuo/hooks"];
 
-const INSTRUCTION_PATHS: &[&str] = &["AGENTS.md"];
+/// Every file the Instructions domain digests.
+///
+/// Derived from the one canonical list rather than written out again: the loader
+/// and this digest used to keep separate lists and had drifted, so
+/// `.cursorrules`/`.windsurfrules` reached the system prompt unattested.
+const INSTRUCTION_PATHS: &[&str] = nuo_host::PROJECT_RULE_FILES;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct WorkspaceRecord {
@@ -563,6 +568,115 @@ mod tests {
 
         std::fs::write(root.join(".nuo/skills/demo/SKILL.md"), "two").unwrap();
         assert_eq!(store.snapshot(root).skills, WorkspaceTrustState::Changed);
+    }
+
+    #[test]
+    fn grant_then_refuse_leaves_each_domain_with_its_own_decision() {
+        // Models the two driver branches (`TrustDecision::Grant` vs `Deny`) at
+        // the store level, so the split is pinned where it is cheap to assert.
+        //
+        // Grant path: trust the selected, deny the rest (candidates \ selected).
+        // Deny path: deny exactly what was named, touching nothing else.
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let store = WorkspaceSecurityStore::load_from(root.join("state/workspace_security.json"));
+
+        std::fs::write(root.join("AGENTS.md"), "agents").unwrap();
+        std::fs::create_dir_all(root.join(".nuo/skills/demo")).unwrap();
+        std::fs::write(root.join(".nuo/skills/demo/SKILL.md"), "skill").unwrap();
+        std::fs::create_dir_all(root.join(".nuo/hooks")).unwrap();
+        std::fs::write(root.join(".nuo/hooks/h.sh"), "#!/bin/sh\n").unwrap();
+
+        // The gate offers all three; the user selects AGENTS.md and skills.
+        let candidates = store.snapshot(root).domains_needing_review();
+        assert_eq!(
+            candidates,
+            vec![
+                TrustDomain::Skills,
+                TrustDomain::Hooks,
+                TrustDomain::Instructions,
+            ]
+        );
+        let selected = vec![TrustDomain::Instructions, TrustDomain::Skills];
+        store.trust_domains(root, &selected).unwrap();
+        let unselected: Vec<TrustDomain> = candidates
+            .into_iter()
+            .filter(|d| !selected.contains(d))
+            .collect();
+        store.deny_domains(root, &unselected).unwrap();
+
+        let snap = store.snapshot(root);
+        assert_eq!(snap.instructions, WorkspaceTrustState::Trusted);
+        assert_eq!(snap.skills, WorkspaceTrustState::Trusted);
+        assert_eq!(snap.hooks, WorkspaceTrustState::Denied, "refused, settled");
+        assert!(
+            !snap.needs_review(),
+            "a fully answered gate must leave nothing awaiting review"
+        );
+
+        // A refusal of an already-decided domain is scoped: it must not disturb
+        // the grants beside it (that is what `/untrust` is for, and it is a
+        // different verb on purpose).
+        store
+            .deny_domains(root, &[TrustDomain::Instructions])
+            .unwrap();
+        let snap = store.snapshot(root);
+        assert_eq!(snap.instructions, WorkspaceTrustState::Denied);
+        assert_eq!(
+            snap.skills,
+            WorkspaceTrustState::Trusted,
+            "refusing one domain must not revoke another's grant"
+        );
+    }
+
+    #[test]
+    fn every_project_rule_file_is_attested_by_the_instructions_domain() {
+        // The regression this pins: the loader read `AGENTS.md`,
+        // `.cursorrules`, and `.windsurfrules` into the system prompt, while the
+        // Instructions digest covered only `AGENTS.md`. A trusted workspace could
+        // therefore have arbitrary prompt text injected through the other two
+        // files — from a clone, a vendored tree, or a dependency's fixture —
+        // with no attestation at all. That is the prompt-injection-by-clone
+        // hazard the trust gate exists to prevent, so the digest must cover
+        // every file the loader reads.
+        for rule_file in nuo_host::PROJECT_RULE_FILES {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path();
+            let store =
+                WorkspaceSecurityStore::load_from(root.join("state/workspace_security.json"));
+
+            std::fs::write(root.join("AGENTS.md"), "agents").unwrap();
+            std::fs::write(root.join(rule_file), "rules v1").unwrap();
+            assert!(
+                store.trust_domain(root, TrustDomain::Instructions).unwrap(),
+                "{rule_file} must be present in the digest"
+            );
+            assert_eq!(
+                store.snapshot(root).instructions,
+                WorkspaceTrustState::Trusted
+            );
+
+            // Editing it must invalidate the grant, exactly like AGENTS.md.
+            std::fs::write(root.join(rule_file), "rules v2").unwrap();
+            assert_eq!(
+                store.snapshot(root).instructions,
+                WorkspaceTrustState::Changed,
+                "editing {rule_file} must revoke trust: it reaches the system prompt"
+            );
+        }
+    }
+
+    #[test]
+    fn the_attested_rule_list_is_the_loaded_rule_list() {
+        // One constant, two consumers. If a future rule file is added, it is
+        // added here and both the loader and the digest pick it up — the failure
+        // mode this replaces was two lists that silently diverged.
+        assert_eq!(
+            INSTRUCTION_PATHS,
+            nuo_host::PROJECT_RULE_FILES,
+            "the Instructions digest and the rules loader must cover the same files"
+        );
+        assert!(INSTRUCTION_PATHS.contains(&"AGENTS.md"));
     }
 
     #[cfg(unix)]

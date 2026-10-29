@@ -48,7 +48,8 @@ pub struct HostedSession {
     /// Durable workspace trust store for the project at
     /// [`HostedSession::workspace_root`]. Surfaced through [`BoundSession`]
     /// so the WS attach path can push the trust decision to a client when
-    /// the workspace contributions are unreviewed (`WorkspaceTrustState::Quarantined`).
+    /// the workspace contributions are unreviewed
+    /// (`WorkspaceTrustState::needs_review`).
     pub security: Arc<nuo_persistence::workspace_security::WorkspaceSecurityStore>,
 
     /// Attach-time state-sync buffer: the startup events an attaching client
@@ -117,7 +118,7 @@ pub struct BoundSession {
     pub command_catalog: nuo_wire::CommandCatalog,
     /// Durable workspace trust store for this session's project. The
     /// WS attach path reads it to detect unreviewed workspace contributions
-    /// (`WorkspaceTrustState::Quarantined`) and push the trust decision
+    /// (`WorkspaceTrustState::needs_review`) and push the trust decision
     /// to the attaching client (see `serve.rs`).
     pub security: Arc<nuo_persistence::workspace_security::WorkspaceSecurityStore>,
 }

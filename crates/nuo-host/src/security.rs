@@ -39,6 +39,30 @@ impl WorkspaceTrustState {
         matches!(self, Self::Expired)
     }
 
+    /// Whether this state is waiting on a human decision before the domain's
+    /// content may be loaded.
+    ///
+    /// This is the **single** definition of "needs review", and it is total on
+    /// purpose: the server (which decides what to push on attach), the
+    /// presentation gate (which decides whether to mount the interstitial), and
+    /// the slash-command layer (which decides what a grant has to cover) all
+    /// read it instead of re-deriving their own list. Two lists is how
+    /// `Changed` came to be excluded from the gate while still being escalated
+    /// as a warning — the highest-risk state with the weakest affordance.
+    ///
+    /// - `Quarantined` — contributions exist, never decided.
+    /// - `Changed` — a decision was made for *different content*; the decision
+    ///   does not transfer, so the new bytes are exactly as unauthorized as
+    ///   never-trusted ones.
+    /// - `Expired` — the lease lapsed; re-attestation is the remedy.
+    ///
+    /// `Absent` (nothing to decide), `Trusted` (decided, content matches) and
+    /// `Denied` (decided, refused) are all settled — re-prompting on `Denied`
+    /// would be the nagging loop the explicit refusal exists to prevent.
+    pub fn needs_review(self) -> bool {
+        matches!(self, Self::Quarantined | Self::Changed | Self::Expired)
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Absent => "absent",
@@ -95,7 +119,39 @@ impl TrustDomain {
             Self::UserAssets => "user-assets",
         }
     }
+
+    /// The path(s) a user recognizes this domain by, for a human-facing prompt
+    /// or escalation.
+    ///
+    /// Domain knowledge, so it lives with the domain rather than in a frontend:
+    /// the server composes the same wording an autonomous attach reads, and it
+    /// cannot depend on the presentation crate to do it (server purity). One
+    /// label per domain keeps the gate, the attach banner, and `/trust status`
+    /// from naming the same asset three different ways.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::UserAssets => "~/.config/nuo/config.toml",
+            Self::ExWorkspace => ".nuo/config.toml",
+            Self::Mcp => ".nuo/mcp.json",
+            Self::Skills => ".nuo/skills/",
+            Self::Hooks => ".nuo/hooks/",
+            Self::Instructions => "AGENTS.md",
+        }
+    }
 }
+
+/// Every file whose contents are injected into the model's system prompt as
+/// "project rules", in load order.
+///
+/// The **single** definition, shared by the loader
+/// (`nuo_server::project::load_project_rules`) and the attestation digest
+/// (`nuo_persistence::workspace_security`). These used to be two independent
+/// lists, and they had drifted: the loader read three files while the digest
+/// covered only `AGENTS.md`, so a trusted workspace could have `.cursorrules` and
+/// `.windsurfrules` injected into the prompt without either ever being
+/// attested — the exact prompt-injection-by-clone hazard the trust gate exists
+/// to prevent. Sharing the constant makes the two impossible to separate.
+pub const PROJECT_RULE_FILES: &[&str] = &["AGENTS.md", ".cursorrules", ".windsurfrules"];
 
 /// First-class security state attached to every harness snapshot.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -148,6 +204,26 @@ impl WorkspaceSecuritySnapshot {
 
     pub fn is_trusted(&self, domain: TrustDomain) -> bool {
         self.state(domain).is_trusted()
+    }
+
+    /// Every present domain awaiting a human decision, in display order.
+    ///
+    /// The one enumeration both the gate and the server's escalation fallback
+    /// consume, so "what needs review" cannot be answered two different ways.
+    /// `Absent` is skipped because there is nothing to decide about a domain the
+    /// workspace does not use.
+    pub fn domains_needing_review(&self) -> Vec<TrustDomain> {
+        TrustDomain::ALL
+            .into_iter()
+            .filter(|domain| self.state(*domain).needs_review())
+            .collect()
+    }
+
+    /// Whether any present domain is waiting on a human decision.
+    pub fn needs_review(&self) -> bool {
+        TrustDomain::ALL
+            .into_iter()
+            .any(|domain| self.state(domain).needs_review())
     }
 
     /// Aggregate state for display only. It never participates in admission.
@@ -388,6 +464,103 @@ impl AttestationStatus {
             Self::Denied => "denied",
             Self::Changed => "changed",
             Self::Expired => "expired",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(states: [WorkspaceTrustState; 6]) -> WorkspaceSecuritySnapshot {
+        WorkspaceSecuritySnapshot {
+            root: "/tmp/proj".to_string(),
+            mcp: states[0],
+            skills: states[1],
+            hooks: states[2],
+            instructions: states[3],
+            ex_workspace: states[4],
+            user_assets: states[5],
+        }
+    }
+
+    #[test]
+    fn needs_review_is_the_single_total_definition() {
+        // Exhaustive on purpose: a new state cannot compile until its review
+        // obligation is chosen deliberately.
+        for (state, expected) in [
+            (WorkspaceTrustState::Absent, false),
+            (WorkspaceTrustState::Quarantined, true),
+            (WorkspaceTrustState::Trusted, false),
+            (WorkspaceTrustState::Denied, false),
+            (WorkspaceTrustState::Changed, true),
+            (WorkspaceTrustState::Expired, true),
+        ] {
+            assert_eq!(
+                state.needs_review(),
+                expected,
+                "{} must{} need review",
+                state.as_str(),
+                if expected { "" } else { " not" }
+            );
+        }
+    }
+
+    #[test]
+    fn changed_content_needs_review_exactly_like_never_trusted_content() {
+        // The regression this pins: `Changed` used to be excluded from the gate
+        // (it escalated to a transient banner instead), so the one state that
+        // means "the bytes you approved are not the bytes on disk" got the
+        // weakest affordance. A decision for different content does not
+        // transfer.
+        assert_eq!(
+            WorkspaceTrustState::Changed.needs_review(),
+            WorkspaceTrustState::Quarantined.needs_review()
+        );
+    }
+
+    #[test]
+    fn denied_is_settled_so_the_gate_cannot_nag() {
+        // `Denied` records a human refusal; re-prompting would be the loop the
+        // refusal exists to stop.
+        assert!(!WorkspaceTrustState::Denied.needs_review());
+    }
+
+    #[test]
+    fn domains_needing_review_skips_absent_and_lists_in_display_order() {
+        let snap = snapshot([
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Quarantined,
+            WorkspaceTrustState::Trusted,
+            WorkspaceTrustState::Changed,
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Expired,
+        ]);
+        assert_eq!(
+            snap.domains_needing_review(),
+            vec![
+                TrustDomain::Skills,
+                TrustDomain::Instructions,
+                TrustDomain::UserAssets,
+            ]
+        );
+        assert!(snap.needs_review());
+    }
+
+    #[test]
+    fn a_fully_settled_workspace_needs_no_review() {
+        for settled in [
+            WorkspaceTrustState::Absent,
+            WorkspaceTrustState::Trusted,
+            WorkspaceTrustState::Denied,
+        ] {
+            let snap = snapshot([settled; 6]);
+            assert!(
+                !snap.needs_review(),
+                "a workspace of all-{} must not gate",
+                settled.as_str()
+            );
+            assert!(snap.domains_needing_review().is_empty());
         }
     }
 }

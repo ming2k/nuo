@@ -1904,13 +1904,34 @@ async fn control_suspend_session_parks_a_contentful_session() {
 // Workspace asset-trust attach flow.
 
 /// Shared harness for the trust attach tests: hosts one session over the
-/// given project root + security store, attaches an interactive client, and
+/// given project root + security store, attaches an **interactive** client, and
 /// returns the WebSocket stream to read attach frames from — plus the server
 /// handle, which the caller must keep alive for the connection to be served.
 #[allow(clippy::type_complexity)]
 async fn attach_trust_workspace(
     tmp: &tempfile::TempDir,
     security_file: &std::path::Path,
+) -> (
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    serve::ServeHandle,
+) {
+    attach_trust_workspace_with_posture(
+        tmp,
+        security_file,
+        nuo_wire::human_request::HumanChannelPosture::Interactive,
+    )
+    .await
+}
+
+/// The same harness with an explicit client posture, so a test can prove what an
+/// autonomous attach receives: it cannot answer a gate, so the server must fall
+/// back to the banner rather than park the security decision on a channel
+/// nobody reads.
+#[allow(clippy::type_complexity)]
+async fn attach_trust_workspace_with_posture(
+    tmp: &tempfile::TempDir,
+    security_file: &std::path::Path,
+    posture: nuo_wire::human_request::HumanChannelPosture,
 ) -> (
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     serve::ServeHandle,
@@ -1963,7 +1984,7 @@ async fn attach_trust_workspace(
             version: None,
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            posture,
             protocol: Some(nuo_wire::PROTOCOL_VERSION),
         })
         .unwrap()
@@ -2096,11 +2117,16 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
     let _ = handle;
 }
 
-/// A previously trusted workspace whose contributions changed on disk keeps
-/// the banner escalation: the user already made a trust decision for this
-/// workspace once, so there is nothing to gate on — only to re-escalate.
+/// A previously trusted workspace whose contributions changed on disk now
+/// gates like a never-trusted one: it carries the real security snapshot in the
+/// pre-view attach sync and does **not** get the passive banner.
+///
+/// The regression this pins: `Changed` used to be the one state excluded from
+/// the gate, so it escalated through a banner instead — a toast that re-fired on
+/// every attach, and which a user could scroll past. The highest-risk posture
+/// (the approved bytes are not the bytes on disk) had the weakest affordance.
 #[tokio::test]
-async fn changed_workspace_keeps_banner_escalation_on_attach() {
+async fn changed_workspace_gates_on_attach_instead_of_bannering() {
     let tmp = tempfile::tempdir().unwrap();
     let security_file = tmp.path().join("workspace_security.json");
     // AGENTS.md written twice: once to hash for the trusted record, once
@@ -2114,6 +2140,71 @@ async fn changed_workspace_keeps_banner_escalation_on_attach() {
         .unwrap();
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
     let (mut ws, _server) = attach_trust_workspace(&tmp, &security_file).await;
+
+    let mut saw_changed_snapshot = false;
+    let mut saw_banner = false;
+    for _ in 0..12 {
+        let raw = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let frame = serde_json::from_str::<Wire>(raw.to_text().unwrap_or("")).unwrap();
+        let Wire::Response { response } = frame else {
+            continue;
+        };
+        let AgentResponse::Round { event, .. } = response else {
+            continue;
+        };
+        match event {
+            RoundEvent::HarnessState(snapshot)
+                if snapshot.workspace_security.instructions
+                    == nuo_wire::WorkspaceTrustState::Changed =>
+            {
+                saw_changed_snapshot = true;
+                // One extra read past the snapshot proves the frame ordering:
+                // the server sends attach-sync before any notice.
+                break;
+            }
+            RoundEvent::Notice(n) if n.kind == nuo_wire::NoticeKind::TrustChanged => {
+                saw_banner = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        saw_changed_snapshot,
+        "attach-sync HarnessState never carried the changed security snapshot"
+    );
+    assert!(
+        !saw_banner,
+        "an interactive attach must gate on the changed snapshot, not receive the passive banner"
+    );
+}
+
+/// An autonomous attach gets the banner instead of the gate: a question pushed
+/// to a channel nobody reads would park the security decision forever.
+///
+/// `HumanChannelPosture` is the authority on "can this client answer?", not a
+/// guess about which client is connected.
+#[tokio::test]
+async fn autonomous_attach_falls_back_to_the_banner() {
+    let tmp = tempfile::tempdir().unwrap();
+    let security_file = tmp.path().join("workspace_security.json");
+    std::fs::write(tmp.path().join("AGENTS.md"), "project instructions").unwrap();
+    let security = nuo_persistence::workspace_security::WorkspaceSecurityStore::load_from(
+        security_file.clone(),
+    );
+    security
+        .trust_domains(tmp.path(), &[nuo_wire::TrustDomain::Instructions])
+        .unwrap();
+    std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
+    let (mut ws, _server) = attach_trust_workspace_with_posture(
+        &tmp,
+        &security_file,
+        nuo_wire::human_request::HumanChannelPosture::Autonomous,
+    )
+    .await;
 
     let mut saw_banner = false;
     for _ in 0..12 {
@@ -2130,16 +2221,16 @@ async fn changed_workspace_keeps_banner_escalation_on_attach() {
             continue;
         };
         if let RoundEvent::Notice(n) = event
-            && n.body
-                .as_deref()
-                .is_some_and(|b| b.contains("changed") || b.contains("trust"))
             && n.kind == nuo_wire::NoticeKind::TrustChanged
         {
             saw_banner = true;
             break;
         }
     }
-    assert!(saw_banner, "changed-workspace banner never pushed");
+    assert!(
+        saw_banner,
+        "an autonomous attach cannot answer a gate, so it must be told in the banner"
+    );
 }
 
 #[tokio::test]

@@ -414,7 +414,7 @@ pub(crate) async fn run_tui_with_input(
         tokio::spawn(async move {
             let project_root =
                 std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let Some(info) = client::discover(&project_root) else {
+            let Some(info) = client::discover(&project_root).await else {
                 return;
             };
             let action = nuo_wire::MonitorAction {
@@ -757,15 +757,19 @@ pub(crate) async fn run_tui_with_input(
                             }
                             RoundEvent::Notice(notice) => {
                                 // While the PreAttach trust gate owns the screen, a
-                                // trust notice is the gate's round-trip outcome
-                                // (e.g. the server could not persist the trust
-                                // grant) — deliver it to the surface so the failure
-                                // renders where the submitting spinner was, instead
-                                // of burying it in a transcript the full-screen
-                                // interstitial hides. The applier drops it when no
-                                // gate is mounted, so in-session trust notices keep
-                                // their normal disclosure below.
-                                if notice.kind == nuo_wire::NoticeKind::TrustChanged {
+                                // trust **failure** is the gate's round-trip outcome
+                                // (the server could not persist the grant) — deliver it
+                                // to the surface so the failure renders where the
+                                // submitting spinner was, instead of burying it in a
+                                // transcript the full-screen interstitial hides. The
+                                // applier drops it when no gate is mounted, so
+                                // in-session failures keep their normal disclosure.
+                                //
+                                // Only `TrustFailure` is intercepted. A
+                                // `TrustChanged` *condition* is what opened the gate in
+                                // the first place; feeding it here would render the
+                                // workspace's own state as if it were an error.
+                                if notice.kind == nuo_wire::NoticeKind::TrustFailure {
                                     mutations
                                         .send(M::PreAttachAttestationError(notice.render_text()))
                                         .await;
@@ -2407,6 +2411,27 @@ pub(crate) async fn run_tui_with_input(
     // Hydrate the prompt history from the server (the SSOT for the shared
     // SQLite store — the TUI never opens the database itself).
     app.send_intent(AgentRequest::QueryInputHistory);
+
+    // Negotiate progressive keyboard enhancement *off* the first-frame path.
+    //
+    // The probe writes `ESC[?u ESC[c` and waits for the terminal to answer,
+    // bounded by a 2 s timeout inside crossterm. A terminal that never answers
+    // (multiplexers, CI ptys, emulators without kitty-protocol support) used to
+    // stall the very first frame for that entire budget — measured at ~2057 ms
+    // versus ~53 ms when the terminal replies. Running it here, after a short
+    // delay that lets the UI paint, makes a silent terminal cost the operator
+    // nothing; the flags then land a few hundred ms into the session.
+    //
+    // Safe against the input reader: crossterm's internal reader does not drop
+    // events that fail this thread's filter — it parks them in `skipped_events`
+    // and re-offers them to the next reader (crossterm `event/read.rs`), so no
+    // keystroke is swallowed. Only the two protocol replies are consumed.
+    std::thread::Builder::new()
+        .name("nuo-kbd-enhance".into())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            crate::shell::terminal::negotiate_keyboard_enhancement(&profile);
+        })?;
 
     // Run app
     let res = event_loop::run_app_loop(

@@ -4355,21 +4355,24 @@ async fn execute_command_by_id(
 
 /// Apply a PreAttach surface decision.
 ///
-/// `TrustCommand` routes through the canonical `/trust` slash command
-/// — the same path the server's `/trust` handler uses, so persistence
-/// AND the live reload stay owned by the one code path. The per-frame
-/// sync observes the subsequent `Trusted` snapshot and clears
-/// `App::pre_attach` on the next frame.
+/// Both outcomes route through the same control-plane request the server's
+/// `/trust` handler uses, so persistence *and* the atomic live reload stay owned
+/// by one code path. The per-frame sync observes the republished snapshot and
+/// clears `App::pre_attach` on the next frame — including for a refusal, which
+/// comes back as `Denied` (settled) rather than as the `Quarantined` that would
+/// re-arm the gate.
 ///
-/// `Quit` flips `should_quit` so the loop terminates on its next
-/// iteration; the cleanup path (EndSession wire message, terminal
-/// restore) runs in the existing `run_tui` epilogue. There is no
-/// chat surface to fall through to — dismissing is
-/// quitting.
+/// A refusal deliberately does **not** quit. While the gate could only open on a
+/// never-trusted workspace, quitting was defensible: nothing could run anyway,
+/// so there was no chat surface to fall through to. Now that `Changed` gates too,
+/// that workspace is mid-session — with a transcript, a task list, and a user who
+/// only wanted to say "no" to a diff. Terminating the terminal is not an answer
+/// to that question, so the refusal records itself and yields to the chat surface
+/// with every affected domain still unloaded.
 async fn apply_pre_attach_decision(
     decision: Option<crate::shell::PreAttachDecision>,
     app: &mut App,
-    _runtime: &UiRuntime,
+    runtime: &UiRuntime,
 ) {
     let Some(decision) = decision else {
         return;
@@ -4380,23 +4383,41 @@ async fn apply_pre_attach_decision(
                 ?domains,
                 "nuo: PreAttach decision — granting workspace trust directly"
             );
-            app.send_intent(AgentRequest::TrustWorkspace { domains });
+            app.send_intent(AgentRequest::TrustWorkspace {
+                domains,
+                decision: nuo_wire::TrustDecision::Grant,
+            });
             // The per-frame sync clears `pre_attach` once the
             // republished snapshot reports Trusted. The PreAttach surface
             // shows a `Trusting workspace...` state while awaiting the snapshot.
         }
-        crate::shell::PreAttachDecision::Quit => {
-            tracing::info!("nuo: PreAttach decision — quitting (keep quarantined)");
-            // Drop the PreAttach state so the listener's
-            // `trust_gate_dismissed` latch (set below) is what stops
-            // a subsequent snapshot from re-mounting within this
-            // terminating run.
-            app.pre_attach = None;
-            // Mark the gate dismissed so any in-flight snapshot the
-            // listener publishes before the loop terminates cannot
-            // re-mount PreAttach on the dying frame.
-            app.should_quit.store(true, Ordering::SeqCst);
-            app.send_intent(AgentRequest::EndSession);
+        crate::shell::PreAttachDecision::Decline { domains } => {
+            tracing::info!(
+                ?domains,
+                "nuo: PreAttach decision — refusing project assets, continuing untrusted"
+            );
+            // Latch immediately so the snapshot the refusal is *about* cannot
+            // re-mount the gate in the window before the server republishes.
+            // The refusal is the decision; re-asking while it is in flight is
+            // exactly the nagging loop this closes.
+            runtime
+                .trust_gate_dismissed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            if domains.is_empty() {
+                // Nothing was offered (or the user selected everything and the
+                // grant is in flight), so there is nothing to refuse. Unmount:
+                // leaving the surface up would block a session with nothing left
+                // to decide.
+                app.pre_attach = None;
+                return;
+            }
+            // `decision: Deny` is what makes this a refusal. Sending the domains
+            // alone would mean "grant these" — the exact inversion this enum
+            // exists to make unrepresentable.
+            app.send_intent(AgentRequest::TrustWorkspace {
+                domains,
+                decision: nuo_wire::TrustDecision::Deny,
+            });
         }
     }
 }

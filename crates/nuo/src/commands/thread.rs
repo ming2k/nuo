@@ -40,7 +40,7 @@ pub async fn run(
     match action {
         ThreadAction::Open(id) => open_thread(id, project_override).await,
         ThreadAction::List { watch, json, all } => {
-            let info = match client::discover(&project_root) {
+            let info = match client::discover(&project_root).await {
                 Some(info) => info,
                 None => {
                     if json {
@@ -95,7 +95,7 @@ pub async fn run(
             Ok(())
         }
         ThreadAction::Delete(id) => {
-            let info = client::discover(&project_root).ok_or_else(|| {
+            let info = client::discover(&project_root).await.ok_or_else(|| {
                 "no server is running. Start or discover one before managing threads.".to_string()
             })?;
             if !client::versions_compatible(&info) {
@@ -140,7 +140,8 @@ struct ThreadRow<'a> {
 /// Order the flat monitor snapshot into a lineage forest, without dropping a
 /// row. `nuo thread ls` and the TUI picker must agree on what a branch is, so
 /// this derives geometry from the same persisted facts and the same two rules:
-/// creation order within a sibling set, and every row emitted exactly once.
+/// newest creation first within a sibling set, and every row emitted exactly
+/// once (ADR-0120, ADR-0128).
 fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
     use std::collections::{HashMap, HashSet};
 
@@ -156,8 +157,11 @@ fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
         }
     }
 
+    // Newest creation first, id as the tiebreak so equal timestamps still form
+    // a total order. `updated_at` is a liveness signal: ordering on it would
+    // move a row every time a model streams (`[INV-LINEAGE-03]`).
     let by_creation = |a: &&MonitoredSession, b: &&MonitoredSession| {
-        (a.created_at, a.id.as_str()).cmp(&(b.created_at, b.id.as_str()))
+        (b.created_at, a.id.as_str()).cmp(&(a.created_at, b.id.as_str()))
     };
     roots.sort_by(by_creation);
     for list in children.values_mut() {
@@ -201,13 +205,18 @@ fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
     }
 
     // Rows unreachable from any root (a `parent_id` cycle) still get listed.
-    for row in sessions {
-        if !visited.contains(row.id.as_str()) {
-            out.push(ThreadRow {
-                row,
-                lane: String::new(),
-            });
-        }
+    // They keep the same total order as every other sibling set rather than
+    // whatever sequence the monitor snapshot happened to arrive in.
+    let mut stranded: Vec<&MonitoredSession> = sessions
+        .iter()
+        .filter(|row| !visited.contains(row.id.as_str()))
+        .collect();
+    stranded.sort_by(by_creation);
+    for row in stranded {
+        out.push(ThreadRow {
+            row,
+            lane: String::new(),
+        });
     }
 
     out
@@ -397,17 +406,76 @@ mod tests {
 
         assert!(formatted.contains("trunk0001"), "{formatted}");
         assert!(
-            formatted.contains("├─ ⑂r1.0 fork00001"),
-            "a non-last branch paints an elbow plus its fork address: {formatted}"
+            formatted.contains("├─ ⑂r1.0 fork00002"),
+            "the newest branch is not the last child, so it keeps the lane open: {formatted}"
         );
         assert!(
-            formatted.contains("└─ ⑂r1.0 fork00002"),
-            "the last branch closes its elbow: {formatted}"
+            formatted.contains("└─ ⑂r1.0 fork00001"),
+            "the oldest branch closes its elbow: {formatted}"
         );
-        // Creation order, not snapshot order.
-        let first = formatted.find("fork00001").unwrap();
-        let second = formatted.find("fork00002").unwrap();
-        assert!(first < second, "siblings are ordered by creation");
+        // Newest creation first, and never snapshot order.
+        let first = formatted.find("fork00002").unwrap();
+        let second = formatted.find("fork00001").unwrap();
+        assert!(
+            first < second,
+            "siblings are ordered by creation, newest first"
+        );
+    }
+
+    /// Root rows lead with the newest thread and descend to the oldest, while a
+    /// branch keeps its trunk's position however much newer it is — the same
+    /// per-sibling-set rule the TUI picker applies (ADR-0128).
+    #[test]
+    fn threads_table_lists_roots_newest_first_without_orphaning_branches() {
+        let row = |id: &str, parent: Option<&str>, created: u64| MonitoredSession {
+            id: id.into(),
+            title: Some(id.into()),
+            overview: id.into(),
+            created_at: created,
+            updated_at: created,
+            message_count: 1,
+            hosting: SessionHosting::Hosted,
+            status: SessionStatus::Idle,
+            round: 0,
+            turn: None,
+            output_tokens: 0,
+            elapsed_ms: 0,
+            current_tool: None,
+            activity: None,
+            context_tokens: None,
+            note: None,
+            project_root: "/data".into(),
+            parent_id: parent.map(str::to_string),
+            fork_kind: if parent.is_some() {
+                SessionForkKind::Fork
+            } else {
+                SessionForkKind::Trunk
+            },
+            fork_point: parent.map(|_| nuo_wire::ForkPoint::at_round(1)),
+            digest: None,
+        };
+
+        let rows = vec![
+            row("trunk-old1", None, 10),
+            row("trunk-mid1", None, 20),
+            // Created after every trunk: still nested, never promoted.
+            row("fork-old1x", Some("trunk-old1"), 30),
+        ];
+        let formatted = format_threads_table(&rows);
+
+        let pos = |needle: &str| formatted.find(needle).unwrap();
+        assert!(
+            pos("trunk-mid1") < pos("trunk-old1"),
+            "roots are newest first: {formatted}"
+        );
+        assert!(
+            pos("trunk-old1") < pos("fork-old1x"),
+            "the newer branch stays under its older trunk: {formatted}"
+        );
+        assert!(
+            formatted.contains("└─ ⑂r1 fork-old1x"),
+            "a single branch closes its elbow: {formatted}"
+        );
     }
 
     /// A branch whose parent is not in the listing (the common case: the parent

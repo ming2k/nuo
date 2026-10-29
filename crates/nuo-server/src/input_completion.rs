@@ -894,7 +894,8 @@ mod tests {
                 "/trust skills",
                 "/trust hooks",
                 "/trust status",
-                "/trust revoke"
+                "/trust revoke",
+                "/trust deny"
             ]
         );
         for item in &items {

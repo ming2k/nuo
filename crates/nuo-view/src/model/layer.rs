@@ -144,7 +144,13 @@ fn preferred_layer(notice: &AgentNotice) -> ContentLayer {
         // until the trust state changes.
         NoticeKind::TrustChanged => ContentLayer::Banner,
         // Receipts and diagnostics: they need a viewport, not a time axis.
-        NoticeKind::CheckpointReplay
+        //
+        // `TrustFailure` is a receipt, not a condition: the failed decision is a
+        // past event with a cause worth re-reading (and pasting), and there is
+        // nothing to keep on screen once the user has seen it. It is a fault, so
+        // the log entry still raises a bubble that names the log.
+        NoticeKind::TrustFailure
+        | NoticeKind::CheckpointReplay
         | NoticeKind::NudgeInjected
         | NoticeKind::ReviewAlert
         | NoticeKind::ImageInputWithheld => ContentLayer::Absorbed,
@@ -214,11 +220,12 @@ mod tests {
     use super::*;
     use nuo_wire::NoticeSeverity;
 
-    const KINDS: [NoticeKind; 6] = [
+    const KINDS: [NoticeKind; 7] = [
         NoticeKind::CheckpointReplay,
         NoticeKind::NudgeInjected,
         NoticeKind::ReviewAlert,
         NoticeKind::TrustChanged,
+        NoticeKind::TrustFailure,
         NoticeKind::CommandAck,
         NoticeKind::ImageInputWithheld,
     ];
@@ -365,5 +372,27 @@ mod tests {
             ContentLayer::SurfaceLog(SurfaceId::NOTICES),
             "not the ambient thread surface, which owns the transcript instead"
         );
+    }
+
+    #[test]
+    fn a_trust_failure_is_a_receipt_while_a_trust_change_is_a_condition() {
+        // The split exists so the client can act on the two differently: a
+        // condition waits for a human decision and must stay on screen, while a
+        // failure is a past event with a cause worth re-reading. Sharing one
+        // kind forced the mounted gate to intercept every `TrustChanged` and
+        // hope none of them was merely an escalation.
+        assert_eq!(
+            layer_for(&notice(NoticeKind::TrustChanged), SurfaceCapabilities::FULL),
+            ContentLayer::Banner,
+        );
+        assert_eq!(
+            layer_for(&notice(NoticeKind::TrustFailure), SHELL),
+            ContentLayer::SurfaceLog(SurfaceId::NOTICES),
+            "a failed decision belongs in the retained log, with its cause"
+        );
+        // It is a fault, so it also bubbles and names the log. A condition does
+        // not: the gate or the banner owns it.
+        assert!(AgentNotice::trust_failure("x").severity == NoticeSeverity::Error);
+        assert!(AgentNotice::trust_changed("x").severity == NoticeSeverity::Warning);
     }
 }

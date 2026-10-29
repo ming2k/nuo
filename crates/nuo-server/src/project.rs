@@ -5,11 +5,22 @@
 
 use std::path::Path;
 
-const PROJECT_RULE_FILES: &[&str] = &["AGENTS.md", ".cursorrules", ".windsurfrules"];
+/// The files whose contents are injected into the system prompt as project
+/// rules.
+///
+/// Bound to [`nuo_host::PROJECT_RULE_FILES`] so this loader and the Instructions
+/// trust digest can never disagree about *which* files are governed by the
+/// domain. They used to be two independent lists, and the loader read one file
+/// more than the digest covered.
+const PROJECT_RULE_FILES: &[&str] = nuo_host::PROJECT_RULE_FILES;
 
 /// Load the trusted project instruction files into one explicitly delimited
 /// system-prompt section. Slash-command templates share the Rules trust domain
 /// but are discovered by `commands` rather than copied into the prompt.
+///
+/// Every file read here is covered by the Instructions domain digest, so this
+/// function is only ever called after that domain is trusted — the two are one
+/// trust boundary, not two.
 pub fn load_project_rules(base: &Path) -> Result<String, String> {
     let mut sections = Vec::new();
     for relative in PROJECT_RULE_FILES {

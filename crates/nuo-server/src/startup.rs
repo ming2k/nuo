@@ -394,8 +394,8 @@ define_builtin_commands! {
         category: Project,
     },
     Trust = "/trust" : {
-        summary: "Trust project-authored asset domains",
-        usage: ["/trust", "/trust [all|instructions|ex-workspace|mcp|skills|hooks|status|revoke]"],
+        summary: "Trust, refuse, or inspect project-authored asset domains",
+        usage: ["/trust", "/trust [all|instructions|ex-workspace|mcp|skills|hooks|status|revoke|deny]"],
         examples: [
             ("/trust", "Trust every present project asset domain"),
             ("/trust instructions", "Trust project instructions and AGENTS.md"),
@@ -405,8 +405,10 @@ define_builtin_commands! {
             ("/trust hooks", "Trust project hooks only"),
             ("/trust status", "Show trust state for every asset domain"),
             ("/trust revoke", "Revoke every asset-domain grant for this workspace"),
+            ("/trust deny", "Refuse the current content of every domain awaiting review"),
+            ("/trust deny instructions", "Refuse AGENTS.md without revoking other grants"),
         ],
-        intent_keywords: ["trust", "authorize", "asset-trust", "project-assets", "security"],
+        intent_keywords: ["trust", "authorize", "deny", "refuse", "asset-trust", "project-assets", "security"],
         category: Project,
         subcommands: [
             ("all", "Trust every present project asset domain"),
@@ -417,13 +419,14 @@ define_builtin_commands! {
             ("hooks", "Trust project hooks only"),
             ("status", "Show trust state for every asset domain"),
             ("revoke", "Revoke every asset-domain grant"),
+            ("deny", "Refuse the current content so it stops being asked about"),
         ],
     },
     Untrust = "/untrust" : {
-        summary: "Revoke project asset trust",
+        summary: "Revoke every project asset grant for this workspace",
         usage: ["/untrust"],
         examples: [("/untrust", "Revoke all project asset trust")],
-        intent_keywords: ["untrust", "revoke", "quarantine", "asset-trust"],
+        intent_keywords: ["untrust", "revoke", "asset-trust"],
         category: Project,
     },
     Export = "/export" : {

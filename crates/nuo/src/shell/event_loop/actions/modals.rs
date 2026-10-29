@@ -817,8 +817,24 @@ pub(crate) mod question_effects {
                     // TRUST_GATE_REQUEST_ID reply.
                     if request_id == nuo_view::trust_gate::TRUST_GATE_REQUEST_ID {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);
-                        let domains = nuo_view::trust_gate::answer_to_domains(answers);
-                        app.send_intent(AgentRequest::TrustWorkspace { domains });
+                        let selected = nuo_view::trust_gate::answer_to_domains(answers);
+                        // A refusal must name what to refuse. The offered set is
+                        // the authority, not the selection: "the user picked
+                        // nothing" means "refuse everything that was asked
+                        // about", and sending an empty list with `Deny` would
+                        // record no refusal at all and let the gate re-open.
+                        let offered = app.workspace_security.domains_needing_review();
+                        let decision = if selected.is_empty() {
+                            nuo_wire::TrustDecision::Deny
+                        } else {
+                            nuo_wire::TrustDecision::Grant
+                        };
+                        let domains = if selected.is_empty() {
+                            offered
+                        } else {
+                            selected
+                        };
+                        app.send_intent(AgentRequest::TrustWorkspace { domains, decision });
                         continue;
                     }
                     let parent_call_id = app.subagent_question_parent.remove(request_id);

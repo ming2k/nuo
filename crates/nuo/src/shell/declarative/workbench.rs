@@ -165,6 +165,11 @@ impl Workbench {
         let profile = nuotc::TerminalProfile::detect();
         crate::shell::terminal::enter_terminal(&profile)?;
         crate::shell::ensure_panic_hook();
+        // Off the first-frame path: the probe can block for up to 2 s on a
+        // terminal that does not answer the kitty-protocol query.
+        std::thread::Builder::new()
+            .name("nuo-kbd-enhance".into())
+            .spawn(move || crate::shell::terminal::negotiate_keyboard_enhancement(&profile))?;
 
         let stdout = io::stdout();
         let backend = nuotc::Backend::new(stdout).with_profile(profile);

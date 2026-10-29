@@ -320,6 +320,12 @@ fn split_authority(s: &str) -> Result<(Option<String>, Option<u16>), String> {
 const LIVENESS_TIMEOUT: Duration = Duration::from_millis(500);
 const SERVER_START_TIMEOUT: Duration = Duration::from_secs(10);
 const SERVER_START_POLL: Duration = Duration::from_millis(100);
+/// How long [`discover`] waits for another client's in-flight spawn to publish
+/// its discovery record, and how often it re-reads it. Ten 20 ms polls: the
+/// record follows the listener binds immediately, so this is slack for
+/// scheduling, not a timeout anyone should normally reach.
+const DISCOVER_SPAWN_POLL: Duration = Duration::from_millis(20);
+const DISCOVER_SPAWN_POLLS: usize = 10;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 const FALLBACK_GRACE: Duration = Duration::from_secs(15);
 
@@ -332,17 +338,30 @@ pub fn env_default_port() -> u16 {
         .unwrap_or(DEFAULT_SERVER_PORT)
 }
 
-pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
+/// Discover a live local server, if one is running.
+///
+/// Async by construction: every wait is a Tokio timer and every liveness probe
+/// is a Tokio socket. The synchronous predecessor parked its calling thread —
+/// `std::thread::sleep` while another client spawned, plus blocking `connect`
+/// calls to test liveness — so any caller inside a runtime stalled a worker
+/// thread (the render loop included) for up to ~700 ms.
+///
+/// Fast path first: a valid discovery record answers in one `read`. Only when
+/// no record is readable *and* the instance lock is held does this wait, and
+/// then only as long as a spawn is plausibly in flight.
+pub async fn discover(_project_root: &Path) -> Option<ServerInfo> {
     let global_path = discovery::global_discovery_path();
-    if let Some(info) = discover_at(&global_path) {
+    if let Some(info) = discover_at(&global_path).await {
         return Some(info);
     }
 
+    // The record is published *after* both listeners bind, so a held lock with
+    // no record means a spawn is in flight: give it a bounded moment.
     let lock_path = discovery::global_lock_path();
     if nuo_host::lock::ProcessLock::is_locked(&lock_path) {
-        for _ in 0..10 {
-            std::thread::sleep(Duration::from_millis(20));
-            if let Some(info) = discover_at(&global_path) {
+        for _ in 0..DISCOVER_SPAWN_POLLS {
+            tokio::time::sleep(DISCOVER_SPAWN_POLL).await;
+            if let Some(info) = discover_at(&global_path).await {
                 return Some(info);
             }
         }
@@ -353,14 +372,17 @@ pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
         && is_process_alive(pid)
     {
         let local_endpoint = discovery::default_local_endpoint().ok();
-        let local_connectable = local_endpoint
-            .as_ref()
-            .is_some_and(|endpoint| nuo_host::ipc::probe(endpoint).connectable);
+        let local_connectable = match local_endpoint.as_ref() {
+            Some(endpoint) => nuo_host::ipc::probe_async(endpoint).await.connectable,
+            None => false,
+        };
 
         let default_port = env_default_port();
         let tcp_addr = std::net::SocketAddr::from(([127, 0, 0, 1], default_port));
         let tcp_connectable =
-            std::net::TcpStream::connect_timeout(&tcp_addr, Duration::from_millis(300)).is_ok();
+            tokio::time::timeout(LIVENESS_TIMEOUT, tokio::net::TcpStream::connect(tcp_addr))
+                .await
+                .is_ok_and(|result| result.is_ok());
 
         if local_connectable || tcp_connectable {
             let recovered = ServerInfo {
@@ -391,13 +413,19 @@ pub fn discover(_project_root: &Path) -> Option<ServerInfo> {
     None
 }
 
-fn discover_at(path: &Path) -> Option<ServerInfo> {
-    let bytes = std::fs::read(path).ok()?;
+/// Read and validate the discovery record at `path`.
+///
+/// Async because liveness is proven by *connecting*, and the blocking form of
+/// that parks the calling thread. This is the hot path — every client start and
+/// every control verb comes through here — so a blocking probe cost a worker
+/// thread up to [`LIVENESS_TIMEOUT`] per call.
+async fn discover_at(path: &Path) -> Option<ServerInfo> {
+    let bytes = tokio::fs::read(path).await.ok()?;
     let info: ServerInfo = serde_json::from_slice(&bytes).ok()?;
     if !server_process_matches(&info) {
         return None;
     }
-    if !is_alive(&info) {
+    if !is_alive(&info).await {
         return None;
     }
     Some(info)
@@ -410,18 +438,23 @@ fn server_process_matches(info: &ServerInfo) -> bool {
     })
 }
 
-fn is_alive(info: &ServerInfo) -> bool {
+/// Whether the advertised server still answers.
+///
+/// A completed connect is the signal; the stream is dropped at once rather
+/// than spoken to.
+async fn is_alive(info: &ServerInfo) -> bool {
     if !server_process_matches(info) {
         return false;
     }
-    if info
-        .effective_local_endpoint()
-        .is_some_and(|endpoint| nuo_host::ipc::probe(&endpoint).connectable)
-    {
-        return true;
+    match info.effective_local_endpoint() {
+        Some(endpoint) if nuo_host::ipc::probe_async(&endpoint).await.connectable => true,
+        _ => {
+            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], info.port));
+            tokio::time::timeout(LIVENESS_TIMEOUT, tokio::net::TcpStream::connect(addr))
+                .await
+                .is_ok_and(|result| result.is_ok())
+        }
     }
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], info.port));
-    std::net::TcpStream::connect_timeout(&addr, LIVENESS_TIMEOUT).is_ok()
 }
 
 pub fn is_process_alive(pid: u32) -> bool {
@@ -555,7 +588,7 @@ pub async fn ensure_server_explicit(
     project_root: &Path,
     explicit_port: Option<u16>,
 ) -> Result<ServerInfo, String> {
-    if let Some(info) = discover(project_root) {
+    if let Some(info) = discover(project_root).await {
         if versions_compatible(&info) && !is_dev_drift(&info) {
             return Ok(info);
         }
@@ -578,7 +611,7 @@ pub async fn ensure_server_explicit(
             let mut acquired = None;
             while tokio::time::Instant::now() < wait_deadline {
                 tokio::time::sleep(SERVER_START_POLL).await;
-                if let Some(info) = discover(project_root) {
+                if let Some(info) = discover(project_root).await {
                     if versions_compatible(&info) && !is_dev_drift(&info) {
                         return Ok(info);
                     }
@@ -592,7 +625,7 @@ pub async fn ensure_server_explicit(
         }
     };
 
-    if let Some(info) = discover(project_root) {
+    if let Some(info) = discover(project_root).await {
         if versions_compatible(&info) && !is_dev_drift(&info) {
             return Ok(info);
         }
@@ -632,7 +665,7 @@ pub async fn ensure_server_explicit(
     let deadline = std::time::Instant::now() + SERVER_START_TIMEOUT;
     loop {
         tokio::time::sleep(SERVER_START_POLL).await;
-        if let Some(info) = discover(project_root) {
+        if let Some(info) = discover(project_root).await {
             if versions_compatible(&info) {
                 return Ok(info);
             } else {
@@ -730,9 +763,9 @@ pub struct ServerDiagnostics {
     pub server_image_current: bool,
 }
 
-pub fn diagnose_server() -> ServerDiagnostics {
+pub async fn diagnose_server() -> ServerDiagnostics {
     let discovery_path = discovery::global_discovery_path();
-    let discovery_record = discover_at(&discovery_path);
+    let discovery_record = discover_at(&discovery_path).await;
     let raw_record: Option<ServerInfo> = std::fs::read(&discovery_path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
@@ -785,7 +818,9 @@ pub fn diagnose_server() -> ServerDiagnostics {
         default_port,
         discovery_path,
         discovery_record,
-        discovery_valid: discover_at(&discovery::global_discovery_path()).is_some(),
+        discovery_valid: discover_at(&discovery::global_discovery_path())
+            .await
+            .is_some(),
         lock_path,
         lock_held,
         lock_holder_pid,
@@ -1240,6 +1275,44 @@ pub fn upsert_task_row(rows: &mut Vec<MonitoredTask>, row: MonitoredTask) {
 mod tests {
     use super::*;
 
+    /// `discover` must not park a Tokio worker.
+    ///
+    /// The synchronous predecessor slept with `std::thread::sleep` while another
+    /// client spawned and tested liveness with blocking `connect` calls. Called
+    /// from inside a runtime — which is where every client-side caller lives —
+    /// that stalled a worker thread, and with it the render loop.
+    ///
+    /// This is a *liveness-under-parking* test: the probe runs while a
+    /// concurrent timer must keep firing. A `discover` that blocks its thread
+    /// stops the single worker, so the timer misses its deadline and the test
+    /// fails. It would have failed against the old implementation because the
+    /// timer and the probe cannot both make progress on one worker otherwise.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn discover_never_parks_the_worker() {
+        let dir = std::env::temp_dir();
+
+        // Drive discovery continuously from the only worker thread. Any
+        // thread-parking implementation stops the timer below from firing.
+        let probe = tokio::spawn(async move {
+            for _ in 0..50 {
+                let _ = discover(&dir).await;
+            }
+        });
+
+        let observed = tokio::time::timeout(Duration::from_secs(5), async {
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+        })
+        .await;
+
+        assert!(
+            observed.is_ok(),
+            "the timer starved for 5 s: `discover` parked the worker thread"
+        );
+        probe.await.unwrap();
+    }
+
     /// `[INV-ATTACH-01]` — an attach refusal must preserve the server's
     /// machine-readable taxonomy on its way to the decision site.
     ///
@@ -1424,8 +1497,8 @@ mod tests {
         1
     }
 
-    #[test]
-    fn discover_at_returns_none_without_racing_to_delete_stale_record() {
+    #[tokio::test]
+    async fn discover_at_returns_none_without_racing_to_delete_stale_record() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("serve.json");
         std::fs::write(
@@ -1433,15 +1506,15 @@ mod tests {
             serde_json::to_vec(&record(dead_port(), None)).unwrap(),
         )
         .unwrap();
-        assert!(discover_at(&path).is_none());
+        assert!(discover_at(&path).await.is_none());
         assert!(
             path.exists(),
             "a reader must leave stale cleanup to the lock-owning lifecycle path"
         );
     }
 
-    #[test]
-    fn discover_at_preserves_record_if_pid_is_still_alive() {
+    #[tokio::test]
+    async fn discover_at_preserves_record_if_pid_is_still_alive() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("serve.json");
         let live_rec = ServerInfo {
@@ -1460,20 +1533,20 @@ mod tests {
             image_len: None,
         };
         std::fs::write(&path, serde_json::to_vec(&live_rec).unwrap()).unwrap();
-        assert!(discover_at(&path).is_none());
+        assert!(discover_at(&path).await.is_none());
         assert!(
             path.exists(),
             "discovery file for living PID must NOT be deleted on transient probe fail"
         );
     }
 
-    #[test]
-    fn discover_at_tolerates_missing_and_corrupt_files() {
+    #[tokio::test]
+    async fn discover_at_tolerates_missing_and_corrupt_files() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("serve.json");
-        assert!(discover_at(&path).is_none());
+        assert!(discover_at(&path).await.is_none());
         std::fs::write(&path, b"not json").unwrap();
-        assert!(discover_at(&path).is_none());
+        assert!(discover_at(&path).await.is_none());
         assert!(path.exists());
     }
 

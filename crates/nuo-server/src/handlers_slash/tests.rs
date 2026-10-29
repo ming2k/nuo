@@ -185,6 +185,64 @@ mod trust_route_tests {
     }
 
     #[test]
+    fn deny_is_a_real_subcommand_with_the_grant_grammar() {
+        // The exit the attach banner used to promise but did not have. `deny`
+        // records a refusal, which is the *only* way to stop the escalation
+        // without revoking every grant (that is `/untrust`).
+        assert_eq!(
+            trust_route("trust", &parts("/trust deny")),
+            Ok(TrustRoute::DenyAll)
+        );
+        assert_eq!(
+            trust_route("trust", &parts("/trust deny all")),
+            Ok(TrustRoute::DenyAll)
+        );
+        assert_eq!(
+            trust_route("trust", &parts("/trust deny instructions")),
+            Ok(TrustRoute::Deny(TrustDomain::Instructions))
+        );
+        assert_eq!(
+            trust_route("trust", &parts("/trust deny AGENTS.md")),
+            Ok(TrustRoute::Deny(TrustDomain::Instructions))
+        );
+        assert_eq!(
+            trust_route("trust", &parts("/trust deny user-assets")),
+            Ok(TrustRoute::Deny(TrustDomain::UserAssets))
+        );
+        // The same domain vocabulary as a grant, so a user cannot learn one
+        // spelling for yes and a different one for no.
+        for domain in [
+            "mcp",
+            "skills",
+            "hooks",
+            "instructions",
+            "ex-workspace",
+            "user-assets",
+        ] {
+            let granted = trust_route("trust", &parts(&format!("/trust {domain}"))).unwrap();
+            let denied = trust_route("trust", &parts(&format!("/trust deny {domain}"))).unwrap();
+            let granted_domain = match granted {
+                TrustRoute::Grant(domain) => domain,
+                other => panic!("expected a grant for {domain}: {other:?}"),
+            };
+            assert_eq!(
+                denied,
+                TrustRoute::Deny(granted_domain),
+                "deny must accept the same domain names as grant ({domain})"
+            );
+        }
+    }
+
+    #[test]
+    fn deny_rejects_an_unknown_domain() {
+        let err = trust_route("trust", &parts("/trust deny frobnicate")).unwrap_err();
+        assert!(
+            err.contains("Unknown trust domain"),
+            "an unknown deny target must name the valid vocabulary: {err}"
+        );
+    }
+
+    #[test]
     fn untrust_takes_no_arguments() {
         assert_eq!(
             trust_route("untrust", &parts("/untrust")),
@@ -192,6 +250,13 @@ mod trust_route_tests {
         );
         assert!(trust_route("untrust", &parts("/untrust all")).is_err());
         assert!(trust_route("untrust", &parts("/untrust mcp")).is_err());
+        // The rejection points at the refusal verb instead of leaving the user
+        // to guess that `/untrust mcp` means something else entirely.
+        let err = trust_route("untrust", &parts("/untrust mcp")).unwrap_err();
+        assert!(
+            err.contains("/trust deny"),
+            "the error must name the per-domain exit: {err}"
+        );
     }
 
     #[test]

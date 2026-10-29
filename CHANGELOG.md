@@ -8,6 +8,157 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **The thread browser listed history backwards (ADR-0128).**
+  - **`/threads` and `nuo thread ls` led with the oldest conversation.** Roots
+    were sorted by `created_at` *ascending*, so the thread you had just started
+    appeared last, below every thread you had already abandoned. Both surfaces
+    now sort each sibling set newest-first (`created_at` descending, id
+    ascending tiebreak), which is the order a reader actually resumes in.
+  - **Stability was never the direction.** ADR-0120 §5 justified ascending order
+    with an argument about rows not moving under the cursor — a property of the
+    *sort key* (`created_at`, never `updated_at`), not of the comparison
+    direction. The descending key keeps every stability guarantee and its test;
+    `[INV-LINEAGE-03]`'s enforcement now additionally pins the direction.
+  - **Lineage still outranks recency.** The direction is applied *within* each
+    sibling set, so a branch created a minute ago stays under the trunk it forked
+    from instead of leaping above it. The `└─` elbow now closes on the oldest
+    member of a set (it is the row emitted last).
+  - **The unreachable (cyclic) tail is sorted too.** Corrupt lineage used to
+    print in whatever order the snapshot arrived; it now uses the same total
+    order as every other row set.
+  - **The dashboard dock keeps its ascending axis on purpose.** Its first field
+    is the `#N` address the console consumes (`@3 retry`, and every receipt
+    already in the log), so `#1` stays the oldest session; reversing the paint
+    while keeping the numbers would make the address axis read backwards. Both
+    directions are now stated where they are defined.
+- **Workspace trust asked the wrong question at the wrong volume, and its answer
+  destroyed the wrong thing (ADR-0127).**
+  - **The escalation ladder was inverted.** `Changed` — *the bytes you approved
+    are not the bytes on disk* — was the one posture that could **not** open the
+    trust gate. It escalated to a banner instead, which in the shell routes to a
+    transient toast, so every launch of a workspace whose `AGENTS.md` had moved
+    since its approval showed a warning for a few seconds that could be scrolled
+    past. `Quarantined` (never trusted, nothing loaded yet) got a blocking
+    full-screen decision. The weakest affordance belonged to the strongest reason
+    to ask.
+  - **One predicate, in the domain layer.** "Needs a human decision" was computed
+    three different ways: the gate accepted `Quarantined | Expired`, the banner
+    fired only on `Changed`, and the grant path accepted
+    `Quarantined | Changed | Expired`. The gate and banner lists were disjoint by
+    construction. It is now `WorkspaceTrustState::needs_review`, read by every
+    consumer, with `WorkspaceSecuritySnapshot::domains_needing_review` as the one
+    enumeration. `TrustDomain::label` moved with it, so the server (which may not
+    link presentation crates) and the gate name the same asset the same way.
+  - **The gate says which decision it is.** A re-review and a first contact have
+    identical options but are different questions: the prompt now names the
+    domains that changed on disk and states that the earlier approval does not
+    carry over, instead of asking a user to "authorize" what they already
+    authorized.
+  - **`/untrust` was never the exit the message named.** The banner said
+    `or /untrust to ignore`, but `/untrust` deletes the entire trust record —
+    re-arming the gate as `Quarantined` and discarding every unrelated grant
+    (MCP, skills, hooks, ex-workspace). The mechanism that does mean "stop asking
+    about *this* content" (`deny_domains`, which records the refused digest and
+    re-arms only when the bytes change) existed but was reachable from exactly one
+    call site and no command. New `/trust deny [domain]` exposes it, with the same
+    domain vocabulary as a grant, and `/untrust`'s rejection now names it.
+  - **Declining no longer quits.** `Esc` on the gate used to terminate the TUI,
+    which was defensible while the gate could only open on a never-trusted
+    workspace. Now that `Changed` gates too, that workspace is mid-session, so a
+    dismissal records a content-bound refusal and yields to the chat surface with
+    every affected domain still unloaded — one keystroke, nothing revoked, and
+    nothing re-asked. While a decision is in flight the surface is inert
+    (including for `Esc`): re-answering it would race the grant already sent.
+  - **The refusal is an explicit wire intent, not an inferred one.** The decision
+    travels as `TrustDecision { Grant, Deny }` alongside the domain list, because
+    a bare `Vec<TrustDomain>` does not say which direction it points — and reading
+    a refusal as a grant is a security inversion in the one path whose purpose is
+    recording refusals. The field has no serde default (every default picks a
+    direction, and the only safe direction for a malformed trust frame is to
+    reject it), so `PROTOCOL_VERSION` moves to 16.
+  - **The banner is now the fallback for clients that cannot answer.** It is gated
+    on the declared `HumanChannelPosture` rather than on the trust state: an
+    interactive client gates, an autonomous one is told. Previously every attach
+    got both, and the state was standing in for a fact about the client.
+- **`NoticeKind::TrustChanged` split into a condition and a failure (ADR-0127).**
+  - A trust *condition* (content awaiting a decision) and a trust *application
+    failure* (the decision could not be persisted) are opposite facts that the
+    client must act on differently, and they shared one kind. Once the gate mounts
+    on `Changed`, the shell could no longer intercept every `TrustChanged` into
+    the gate's error slot — a condition is what opened the gate, so it would have
+    rendered the workspace's own state as an error. `TrustFailure` is `Error`
+    severity and routes to the notice log, which also gives a failed grant the
+    bubble it needs to be visible instead of silent.
+- **The trust gate's own surface had never been render-tested, and two defects
+  had shipped (ADR-0127).**
+  - **The key-hint footer was truncated, so the exit hint never appeared.** It was
+    pushed as a bare `Line`, and a `Line` wider than the panel is clipped rather
+    than wrapped: the rendered footer read `Enter confirm   Es`. On a screen that
+    *is* the whole terminal, a clipped footer is a prompt with no stated exit.
+    It now wraps and fits on one line at the narrowest usable width.
+  - **The panel was 16% of the terminal, not the documented 60%.** The constant
+    was `6` while its comment said "roughly 60%" and the code divided by it, so an
+    80-column terminal got a 13-column panel — which forced mid-word breaks in the
+    security prompt itself (`…different conten` / `t, so…`), the one sentence the
+    decision depends on. Geometry now matches its stated intent, and the question
+    body dropped a redundant indent that was stealing wrap width inside margins
+    the panel already provides.
+  - Five tests now assert the *painted* grid — exit hint present and unclipped at
+    every supported width, re-review vs first-contact wording, and no mid-word
+    breaks — because the gate's state object can be correct while the screen lies.
+- **Two prompt-rule lists had already drifted, leaving an unattested injection
+  path (ADR-0127).**
+  - `load_project_rules` concatenated `AGENTS.md`, `.cursorrules`, and
+    `.windsurfrules` into the system prompt, while the Instructions trust digest
+    covered only `AGENTS.md`. A trusted workspace could therefore have arbitrary
+    prompt text injected through the other two files — from a clone, a vendored
+    tree, or a dependency fixture — with no attestation at all. For an agent
+    holding tools, prompt injection is execution-by-proxy, which is the exact
+    hazard the gate exists to prevent. Both sides now read
+    `nuo_host::PROJECT_RULE_FILES`, so they cannot diverge again.
+- **The thread browser led with the oldest thread, and one corrupt-lineage case
+  led with whatever the wire sent (ADR-0128).**
+  - `created_at` ascending answers "what did I start first in this repo?", which
+    is not what a browser is opened for. ADR-0120's ordering *key* was right and
+    its *direction* was argued from the wrong premise: it rejected "most recent
+    first" because a recency key (`updated_at`) is unstable, but *creation*
+    recency is written once at fork and never revised, so it is as immovable
+    under a streaming token as the ascending order. Roots and each sibling set
+    now sort `created_at` **descending** (id ascending tiebreak) in both the
+    picker and `nuo thread ls`; the stability clause is untouched, and the sort
+    stays per sibling set so a newer branch still paints beneath its trunk.
+  - The rows unreachable from any root (a `parent_id` cycle) were emitted in
+    **snapshot arrival order** — the one place the browser's order depended on
+    how the wire happened to serialize. They are now sorted with the same
+    comparator.
+  - The closing `└─` elbow follows position, so it now belongs to the *oldest*
+    sibling and the newer ones keep the lane open with `├─`. The renderer did not
+    change; the geometry it reads describes the new order.
+  - The dashboard dock's `creation_order` axis is deliberately **not** reversed:
+    its rows carry the `#N` console address a user types, and renumbering `#1` to
+    mean "newest" would invalidate every address already read off the dock.
+- **The first frame cost up to 2 s on a terminal that does not answer, and
+  liveness discovery parked a worker thread.**
+  - `enter_terminal` performed the kitty keyboard-protocol handshake — `ESC[?u
+    ESC[c`, then wait for primary device attributes — before the first paint. A
+    terminal that never replies (many multiplexers, some CI/pty harnesses, any
+    emulator without kitty support) stalled the first frame for crossterm's full
+    timeout: ~2057 ms against ~53 ms on a terminal that answers. The handshake is
+    now a separate `negotiate_keyboard_enhancement`, called once the UI is
+    already on screen and memoised for the process, since a terminal's
+    capabilities cannot change under a running one. Keys arrive in their legacy
+    encoding until the push lands, which the input reader already normalises.
+  - `transport::discover` and `nuo_host::ipc::probe` were synchronous, using
+    `std::thread::sleep` while another client spawned and blocking `connect` to
+    test liveness. Every client start and every control verb goes through them,
+    so an in-runtime caller — the render loop included — stalled a Tokio worker
+    for up to ~700 ms. Both are now async (`probe_async`), with every wait a
+    timer and every probe a Tokio socket.
+
+## [0.0.56] - 2026-10-29
+
 ### Added
 
 - **`/diff` and `/undo` are real, and they refuse rather than lie (ADR-0125).**

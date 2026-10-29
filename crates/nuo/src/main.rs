@@ -192,7 +192,7 @@ async fn run_server_action(
                 zero_tcp,
             };
             if !foreground {
-                return detach_server(&flags);
+                return detach_server(&flags).await;
             }
             run_server_foreground(flags).await
         }
@@ -220,8 +220,9 @@ async fn run_server_action(
         ServerAction::Token => {
             let project_root = project_override
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-            let info =
-                transport::discover(&project_root).ok_or("no local nuo server is running")?;
+            let info = transport::discover(&project_root)
+                .await
+                .ok_or("no local nuo server is running")?;
             match info.token {
                 Some(token) => println!("{token}"),
                 None => eprintln!("nuo: server authentication is disabled."),

@@ -521,6 +521,7 @@ pub fn notice_topic_label(kind: nuo_wire::NoticeKind) -> &'static str {
         nuo_wire::NoticeKind::NudgeInjected => "turn guard",
         nuo_wire::NoticeKind::ReviewAlert => "review",
         nuo_wire::NoticeKind::TrustChanged => "trust",
+        nuo_wire::NoticeKind::TrustFailure => "trust error",
         nuo_wire::NoticeKind::CommandAck => "command",
         nuo_wire::NoticeKind::ImageInputWithheld => "images",
     }
@@ -2788,6 +2789,9 @@ impl TranscriptMessage {
                 topic: SystemNoticeTopic::Review,
             }),
             nuo_wire::NoticeKind::TrustChanged => Some(NoticeOrigin::System {
+                topic: SystemNoticeTopic::Trust,
+            }),
+            nuo_wire::NoticeKind::TrustFailure => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Trust,
             }),
             nuo_wire::NoticeKind::CommandAck => Some(NoticeOrigin::System {

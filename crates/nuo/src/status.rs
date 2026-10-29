@@ -32,19 +32,19 @@ pub async fn run(
     opts: StatusOptions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if opts.diagnostic {
-        let diag = client::diagnose_server();
+        let diag = client::diagnose_server().await;
         render_diagnostics(&diag, opts.json);
         if opts.watch {
             return Err("cannot watch static diagnostic output".into());
         }
-        if client::discover(project_root).is_none() {
+        if client::discover(project_root).await.is_none() {
             return Ok(());
         }
         println!();
     }
 
-    let Some(info) = client::discover(project_root) else {
-        let diag = client::diagnose_server();
+    let Some(info) = client::discover(project_root).await else {
+        let diag = client::diagnose_server().await;
         render_diagnostics(&diag, opts.json);
         return Ok(());
     };

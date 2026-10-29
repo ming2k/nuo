@@ -338,8 +338,8 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
                         .with_body(format!(
                             "Loading {} instead. Project-local skills win by priority; \
                              if this is unexpected, inspect the project's skills directories \
-                             (.nuo/skills, skills) or run \
-                             `/untrust`.",
+                             (.nuo/skills, skills) or run `/trust deny skills` to refuse them \
+                             until they change.",
                             shadow.winner_source.display()
                         )),
                     ),
@@ -1061,14 +1061,7 @@ fn spawn_mcp_config_watcher(
                 .map(|root| workspace_security.snapshot(root).mcp)
                 .unwrap_or(nuo_wire::WorkspaceTrustState::Trusted);
 
-            if is_workspace_event
-                && has_project_mcp
-                && matches!(
-                    mcp_trust,
-                    nuo_wire::WorkspaceTrustState::Quarantined
-                        | nuo_wire::WorkspaceTrustState::Changed
-                )
-            {
+            if is_workspace_event && has_project_mcp && mcp_trust.needs_review() {
                 let _ = resp_tx.send(round_response(
                     &session_id,
                     RoundEvent::Notice(
@@ -1079,7 +1072,9 @@ fn spawn_mcp_config_watcher(
                             nuo_wire::NoticeSource::Harness,
                         )
                         .with_body(
-                            "Untrusted workspace MCP configuration detected. Run `/trust mcp` to review and enable.",
+                            "Untrusted workspace MCP configuration detected. Run `/trust mcp` to \
+                             review and enable, or `/trust deny mcp` to refuse it until the \
+                             configuration changes.",
                         ),
                     ),
                 ));
