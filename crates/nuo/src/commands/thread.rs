@@ -133,7 +133,8 @@ struct ThreadRow<'a> {
     row: &'a MonitoredSession,
     /// `""` at the root lane; otherwise ancestor columns plus an elbow — the
     /// same grammar the TUI picker paints, so a terminal without the TUI still
-    /// sees the tree (ADR-0120).
+    /// sees the tree (ADR-0120). The elbow closes on the last row of a sibling
+    /// set, which is the *oldest* one (ADR-0128).
     lane: String,
 }
 
@@ -407,7 +408,7 @@ mod tests {
         assert!(formatted.contains("trunk0001"), "{formatted}");
         assert!(
             formatted.contains("├─ ⑂r1.0 fork00002"),
-            "the newest branch is not the last child, so it keeps the lane open: {formatted}"
+            "the newest branch is not last in its sibling set, so it keeps the lane open: {formatted}"
         );
         assert!(
             formatted.contains("└─ ⑂r1.0 fork00001"),

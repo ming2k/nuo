@@ -72,8 +72,9 @@ pub struct SessionPickerItem<'a> {
     pub session: &'a nuo_wire::SessionOverview,
     /// Nesting depth: `0` for a root, `1` for a direct child, and so on.
     pub depth: usize,
-    /// Whether this row is the last child of its parent — the `└─` vs `├─`
-    /// decision.
+    /// Whether this row is the last of its sibling set in the emitted order —
+    /// the `└─` vs `├─` decision. Siblings are listed newest first (ADR-0128),
+    /// so the row that closes the elbow is the **oldest** child, not the newest.
     pub is_last: bool,
     /// Per-ancestor continuation flags, outermost first. `true` means that
     /// ancestor still has a following sibling, so its lane column paints `│`;
