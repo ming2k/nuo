@@ -176,6 +176,11 @@ impl Connections {
                 tracing::error!(path = %path.display(), "dropping a connection with no name");
                 continue;
             }
+            if let Some(canonical) =
+                nuo_wire::model_providers::canonical_provider_id(&connection.provider)
+            {
+                connection.provider = canonical;
+            }
             if !is_known_model_provider(&connection.provider)
                 && providers.get_provider(&connection.provider).is_none()
             {
@@ -416,6 +421,16 @@ mod tests {
                 Connection {
                     name: "bad".into(),
                     provider: "nope".into(),
+                    ..Default::default()
+                },
+                Connection {
+                    name: "retired-cc".into(),
+                    provider: "commandcode-plan".into(),
+                    ..Default::default()
+                },
+                Connection {
+                    name: "retired-oc".into(),
+                    provider: "opencode-plan".into(),
                     ..Default::default()
                 },
                 Connection {

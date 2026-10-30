@@ -165,6 +165,7 @@ pub(crate) fn parse_openrouter_key(body: OpenRouterKeyResponse) -> Result<Provid
         }),
         primary_balance: Some(primary_balance),
         metrics,
+        model_rules: Vec::new(),
         updated_at_ms: now_ms,
     })
 }

@@ -29,8 +29,6 @@ pub enum InputAction {
     TabHistoryBack,
     /// Step forward in active tab's navigation history stack (Alt+], ADR-0092 [INV-NAV-03]).
     TabHistoryForward,
-    /// Guardrail notice when a client workspace action is attempted within the thread composer (ADR-0041 [INV-ROUTER-01]).
-    WorkspaceGuardrailNotice(String),
     /// Send a chat message.
     SendChat(String),
     /// Immediate steering intervention (while running).

@@ -136,6 +136,28 @@ pub(crate) fn resolve_modal_key(
                 KeyCode::Esc => return Some(InputAction::CloseModal),
                 _ => return None,
             },
+            OverlaySurface::Dialog(DialogKind::Help) => match key.code {
+                KeyCode::Char('t') | KeyCode::Char('T') => {
+                    return Some(InputAction::CreateNewSession);
+                }
+                KeyCode::Char('w') | KeyCode::Char('W') => {
+                    return Some(InputAction::CloseTab);
+                }
+                KeyCode::Char('d') | KeyCode::Char('D') => {
+                    return Some(InputAction::NavigateDashboard);
+                }
+                KeyCode::Char(',') => {
+                    return Some(InputAction::NavigateSettings);
+                }
+                KeyCode::Char('p') | KeyCode::Char('P') => {
+                    return Some(InputAction::ViewSwitcherToggle);
+                }
+                KeyCode::Char('s') | KeyCode::Char('S') => {
+                    return Some(InputAction::OpenSessions);
+                }
+                KeyCode::Esc => return Some(InputAction::CloseModal),
+                _ => return None,
+            },
             _ => {}
         }
     } else if scene == SceneKind::Dashboard && keys.host_prompting {

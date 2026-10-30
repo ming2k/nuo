@@ -357,8 +357,10 @@ impl Key {
     pub const CTRL_V: Key = Key::ctrl('v');
 
     pub const ALT_S: Key = Key::alt('s');
+    pub const ALT_D: Key = Key::alt('d');
     pub const ALT_W: Key = Key::alt('w');
     pub const ALT_T: Key = Key::alt('t');
+    pub const ALT_O: Key = Key::alt('o');
     pub const ALT_P: Key = Key::alt('p');
     pub const ALT_N: Key = Key::alt('n');
     pub const ALT_H: Key = Key::alt('h');

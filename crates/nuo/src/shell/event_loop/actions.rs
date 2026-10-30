@@ -326,9 +326,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 }
             };
         }
-        input::InputAction::WorkspaceGuardrailNotice(notice) => {
-            show_local_toast(app, notice, false, std::time::Duration::from_millis(3500));
-        }
         input::InputAction::SendSlash(cmd) => {
             return commands::handle_send_slash(app, runtime, session, cmd).await;
         }
@@ -4098,6 +4095,16 @@ async fn execute_command_by_id(
         }
         CommandId::CloseTab => {
             return handle_close_tab(app, runtime, viewed_session_id);
+        }
+        CommandId::NewTab => {
+            app.startup_overlay = crate::shell::StartupOverlay::None;
+            app.dismiss_active_dialog();
+            if app.is_current_thread_empty() {
+                app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
+            } else {
+                app.switch_to_new = true;
+                app.should_quit.store(true, Ordering::SeqCst);
+            }
         }
         CommandId::KillThread => {
             // ADR-0038: Explicit kill terminates the thread on the server.

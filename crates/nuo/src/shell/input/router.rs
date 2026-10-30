@@ -290,7 +290,7 @@ pub fn route_event_motion(
             if dispatch.notice_viewer_open {
                 return match physical_key {
                     crate::shell::keymap::Key::ESC => InputAction::CloseModal,
-                    crate::shell::keymap::Key::CTRL_O => InputAction::OpenNotices,
+                    crate::shell::keymap::Key::ALT_O => InputAction::OpenNotices,
                     crate::shell::keymap::Key::UP => InputAction::NoticesSelect { forward: false },
                     crate::shell::keymap::Key::DOWN => InputAction::NoticesSelect { forward: true },
                     crate::shell::keymap::Key::ENTER => InputAction::NoticesToggleDetail,
@@ -323,6 +323,7 @@ pub fn route_event_motion(
             // Stage 5: Global Hard-Bound Shortcuts
             // Alt+1..9 tab jump (ADR-0040 [INV-KEY-01])
             // Alt+[ / Alt+] symmetric tab navigation history (ADR-0092 [INV-NAV-03])
+            // Alt+w close tab, Alt+t new tab, Alt+o notices, Alt+, settings
             if key.modifiers == KeyModifiers::ALT {
                 match key.code {
                     KeyCode::Char('[') => return InputAction::TabHistoryBack,
@@ -331,29 +332,33 @@ pub fn route_event_motion(
                         let idx = (c as usize) - ('1' as usize);
                         return InputAction::SelectTab(idx);
                     }
+                    KeyCode::Char('w') | KeyCode::Char('W') => return InputAction::CloseTab,
+                    KeyCode::Char('t') | KeyCode::Char('T') => {
+                        return InputAction::CreateNewSession;
+                    }
+                    KeyCode::Char('o') | KeyCode::Char('O') => return InputAction::OpenNotices,
+                    KeyCode::Char(',') => return InputAction::NavigateSettings,
                     _ => {}
                 }
             }
 
             // Ctrl+Q (queue), Ctrl+C (Interrupt/Quit),
-            // CopySelection, and the user-remappable globals. The Command
-            // Palette is deliberately absent from the canonical table: its
-            // canonical entry is the `C-x` scene namespace's switcher verb
-            // (`C-x p`, ADR-0023), resolved above — before any
-            // scene or modal arm — so `C-x p` opens it from every context and
-            // the old `Ctrl-L`-behind-a-modal prohibition is gone.
+            // CopySelection, and the user-remappable globals.
             if let Some(cmd_id) =
                 crate::shell::keymap::resolve_global_key_with(physical_key, &dispatch.key_overrides)
             {
                 match cmd_id {
                     crate::shell::keymap::CommandId::CommandPalette => {
-                        // Only reachable through a user remap of the palette
-                        // command (the canonical chord was retired, ADR-0023).
-                        // Mirror the namespace exactly: open at the top level,
-                        // close while already open, and — with no modal
-                        // prohibition any more — switch to it from behind
-                        // another modal too.
                         return InputAction::ViewSwitcherToggle;
+                    }
+                    crate::shell::keymap::CommandId::NewTab => {
+                        return InputAction::CreateNewSession;
+                    }
+                    crate::shell::keymap::CommandId::NavigateDashboard => {
+                        return InputAction::NavigateDashboard;
+                    }
+                    crate::shell::keymap::CommandId::NavigateSettings => {
+                        return InputAction::NavigateSettings;
                     }
                     crate::shell::keymap::CommandId::OpenThreadStats
                         if dispatch.overlay.is_none() =>

@@ -100,8 +100,6 @@ pub const OPENCODE_GO_MODELS: &[&str] = &[
     "glm-5.3-flash-free",
 ];
 
-pub const OPENCODE_PLAN_MODELS: &[&str] = OPENCODE_GO_MODELS;
-
 pub const OPENCODE_ZEN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",
     "glm-5.3-flash",
@@ -266,13 +264,13 @@ pub fn is_known_model_provider(id: &str) -> bool {
 /// aliases exist **only** to migrate an existing `connections.toml` on load —
 /// nothing serializes them back.
 pub fn canonical_provider_id(id: &str) -> Option<String> {
-    // The OpenCode Console surface (`opencode`) and legacy `zai-code` were
+    // The OpenCode Console surface (`opencode`), legacy `zai-code`,
+    // and retired plan aliases (`commandcode-plan`, `opencode-plan`) were
     // retired outright: their ids deliberately do not canonicalize, so a stale
     // `connections.toml` row fails loudly as an unknown provider.
     let canonical = match id {
         "chatgpt" | "chatgpt-oauth" | "openai-subscription" => "chatgpt-plan",
-        "commandcode" | "command-code" | "commandcode-plan" => "commandcode-goat",
-        "opencode-plan" => "opencode-go",
+        "commandcode" | "command-code" => "commandcode-goat",
         "antigravity-oauth" => "google-antigravity",
         "copilot-oauth" => "github-copilot",
         "xai-oauth" => "xai",
@@ -285,7 +283,9 @@ pub fn canonical_provider_id(id: &str) -> Option<String> {
 
 /// Canonical human-readable display label for a model provider ID.
 pub fn model_provider_label(id: &str) -> &'static str {
-    match id {
+    let canonical = canonical_provider_id(id);
+    let effective = canonical.as_deref().unwrap_or(id);
+    match effective {
         "anthropic" => "Anthropic",
         "chatgpt-plan" => "ChatGPT Plan",
         "codebuddy-cn" => "Tencent CodeBuddy CN",
@@ -341,15 +341,7 @@ mod provider_id_tests {
             Some("chatgpt-plan")
         );
         assert_eq!(
-            canonical_provider_id("opencode-plan").as_deref(),
-            Some("opencode-go")
-        );
-        assert_eq!(
             canonical_provider_id("commandcode").as_deref(),
-            Some("commandcode-goat")
-        );
-        assert_eq!(
-            canonical_provider_id("commandcode-plan").as_deref(),
             Some("commandcode-goat")
         );
         assert_eq!(
@@ -358,6 +350,8 @@ mod provider_id_tests {
         );
         // Retired legacy ids must not resurrect.
         assert!(canonical_provider_id("zai-code").is_none());
+        assert!(canonical_provider_id("commandcode-plan").is_none());
+        assert!(canonical_provider_id("opencode-plan").is_none());
         assert_eq!(
             canonical_provider_id("google-ai-studio").as_deref(),
             Some("google")

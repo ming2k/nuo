@@ -77,3 +77,11 @@ When a component, task, or agent turn is actively executing, user actions are st
 2. **Observational Actions (Unconditionally Open)**: Read-only inspection—toggling disclosure expansion, scrolling log viewports, selecting text ranges, copying stdout diagnostics, and navigating step cards—remains 100% operational with full foreground text contrast.
 3. **Control Actions (Promoted Salience)**: Cancellation and steering affordances (e.g. <kbd>Esc</kbd> interrupts, `Alt+S` steer now) are maintained with high visual and keyboard priority.
 
+---
+
+## 7. Further Reading
+
+- [Terminal Shortcuts, Escape Sequences, and Host Conflicts](../../explanation/terminal-shortcuts-and-conflicts.md): Design trade-offs, POSIX collisions, and emulator setup.
+- [Layout Reference](layout.md): Viewport bands and design tokens.
+- [Modals Reference](modals.md): Overlay sizing presets and modal lifecycles.
+

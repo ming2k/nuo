@@ -191,26 +191,24 @@ fn provider_dialect_protocol_baselines_are_service_scoped() {
 
 #[test]
 fn opencode_go_baselines_route_by_inference_go_surface() {
-    for provider_id in ["opencode-plan", "opencode-go"] {
-        let (wire, endpoint, _) = route_for_model(provider_id, "minimax-m3").unwrap();
-        assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
-        assert_eq!(
-            endpoint,
-            "https://opencode.ai/inference/go/anthropic/v1/messages"
-        );
-        let (wire, endpoint, _) = route_for_model(provider_id, "qwen3.6-plus").unwrap();
-        assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
-        assert_eq!(
-            endpoint,
-            "https://opencode.ai/inference/go/anthropic/v1/messages"
-        );
-        let (wire, endpoint, _) = route_for_model(provider_id, "glm-5.2").unwrap();
-        assert_eq!(
-            wire,
-            nuo_inference_wire::WireProtocol::OpenAiChatCompletions
-        );
-        assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
-    }
+    let (wire, endpoint, _) = route_for_model("opencode-go", "minimax-m3").unwrap();
+    assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
+    assert_eq!(
+        endpoint,
+        "https://opencode.ai/inference/go/anthropic/v1/messages"
+    );
+    let (wire, endpoint, _) = route_for_model("opencode-go", "qwen3.6-plus").unwrap();
+    assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);
+    assert_eq!(
+        endpoint,
+        "https://opencode.ai/inference/go/anthropic/v1/messages"
+    );
+    let (wire, endpoint, _) = route_for_model("opencode-go", "glm-5.2").unwrap();
+    assert_eq!(
+        wire,
+        nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+    );
+    assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
 }
 
 #[test]
@@ -243,7 +241,7 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
             "{id}: the effort ladder is what makes depth adjustable"
         );
         let (wire, endpoint, _) =
-            route_for_model("commandcode-plan", id).unwrap_or_else(|| panic!("{id} routes"));
+            route_for_model("commandcode-goat", id).unwrap_or_else(|| panic!("{id} routes"));
         assert_eq!(wire, nuo_inference_wire::WireProtocol::OpenAiResponses);
         assert_eq!(endpoint, "https://api.commandcode.ai/provider/v1/responses");
     }
@@ -344,13 +342,6 @@ fn opencode_go_resolves_its_allowance_through_the_typed_port() {
     // the provider id or the base URL (`[INV-PROV-08]`).
     let spec = model_provider_spec("opencode-go").expect("opencode-go resolves");
     assert_eq!(spec.quota, Some(QuotaPort::OpencodeGo));
-
-    // The legacy spelling canonicalises onto the same surface and must therefore
-    // resolve the same port — a stored `opencode-plan` connection inherits the
-    // allowance instead of silently reporting `Unsupported`.
-    let legacy = model_provider_spec("opencode-plan").expect("opencode-plan canonicalises");
-    assert_eq!(legacy.quota, Some(QuotaPort::OpencodeGo));
-    assert_eq!(legacy.id, "opencode-go");
 
     // Zen is a different surface with no allowance route of its own; it must not
     // inherit the Go port.
@@ -542,8 +533,8 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
             WireProtocol::OpenAiChatCompletions,
         ),
         (
-            "opencode-plan",
-            nuo_provider::model_providers::OPENCODE_PLAN_MODELS,
+            "opencode-go",
+            nuo_provider::model_providers::OPENCODE_GO_MODELS,
             WireProtocol::OpenAiChatCompletions,
         ),
         (
@@ -602,7 +593,7 @@ fn init_registers_every_vendor_oauth_surface() {
         "github-copilot",
         "qoder",
         "qoder-cn",
-        // `opencode`/`opencode-go`/`opencode-plan` retired as OAuth surfaces
+        // `opencode`/`opencode-go` retired as OAuth surfaces
         // (060956d removed OpenCode OAuth): they key-auth via
         // the generic key lane, so the composition root no longer registers
         // them here.
@@ -686,7 +677,7 @@ fn unstated_responses_storage_replays_the_full_context() {
             nuo_provider::ResponsesState::Stateless,
             nuo_provider::OpenAiResponsesDialect::Standard,
         ),
-        "commandcode-plan",
+        "commandcode-goat",
         None,
     );
     assert_eq!(

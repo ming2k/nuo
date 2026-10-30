@@ -684,7 +684,7 @@ mod tests {
             "glm-5.3-flash-free",
             "nex-agi/nex-n2.5-pro-free",
         ] {
-            let pricing = resolve_model_pricing("opencode-plan", id).unwrap();
+            let pricing = resolve_model_pricing("opencode-go", id).unwrap();
             assert_eq!(
                 pricing.calculate_cost(&usage(), utc_monday(1, 30)).amount,
                 NanoUsd::ZERO,

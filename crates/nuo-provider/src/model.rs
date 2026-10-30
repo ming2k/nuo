@@ -108,11 +108,18 @@ impl Model {
 pub struct Availability {
     /// Whether the account may run the model right now.
     pub usable: bool,
+    /// Short status label for tables/columns (e.g. "disabled: tier", "disabled: 5h limit").
+    /// In table rows, if `!usable`, this is shown in the dedicated STATUS column.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_label: Option<String>,
     /// The provider's own explanation for an unusable verdict, verbatim.
     /// `None` means the provider declared none — never "unknown, assume the
     /// obvious".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Epoch timestamp in milliseconds when the lock/limit expires and resets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at_ms: Option<u64>,
 }
 
 impl Availability {
@@ -120,7 +127,9 @@ impl Availability {
     pub const fn usable() -> Self {
         Self {
             usable: true,
+            status_label: None,
             reason: None,
+            resets_at_ms: None,
         }
     }
 
@@ -129,12 +138,38 @@ impl Availability {
     pub fn locked(reason: Option<String>) -> Self {
         Self {
             usable: false,
+            status_label: None,
             reason,
+            resets_at_ms: None,
+        }
+    }
+
+    /// Explicitly disabled with a compact status label, detailed reason, and optional reset time.
+    pub fn disabled(
+        status_label: impl Into<String>,
+        reason: Option<String>,
+        resets_at_ms: Option<u64>,
+    ) -> Self {
+        Self {
+            usable: false,
+            status_label: Some(status_label.into()),
+            reason,
+            resets_at_ms,
         }
     }
 
     pub const fn is_usable(&self) -> bool {
         self.usable
+    }
+
+    /// Returns the short status label to display in table columns if unusable.
+    /// Defaults to `"disabled"` when `usable == false` and no specific `status_label` was set.
+    pub fn display_status(&self) -> Option<&str> {
+        if self.usable {
+            None
+        } else {
+            self.status_label.as_deref().or(Some("disabled"))
+        }
     }
 }
 
@@ -1223,6 +1258,27 @@ pub fn sanitize_model_id(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn availability_disabled_preserves_status_label_and_resets_at() {
+        let avail = Availability::disabled(
+            "disabled: 5h limit",
+            Some("5h rolling quota exhausted".to_string()),
+            Some(1710000000000),
+        );
+        assert!(!avail.is_usable());
+        assert_eq!(avail.display_status(), Some("disabled: 5h limit"));
+        assert_eq!(avail.reason.as_deref(), Some("5h rolling quota exhausted"));
+        assert_eq!(avail.resets_at_ms, Some(1710000000000));
+
+        let locked = Availability::locked(None);
+        assert!(!locked.is_usable());
+        assert_eq!(locked.display_status(), Some("disabled"));
+
+        let usable = Availability::usable();
+        assert!(usable.is_usable());
+        assert_eq!(usable.display_status(), None);
+    }
 
     #[test]
     fn user_overrides_win_over_remote_and_baseline() {

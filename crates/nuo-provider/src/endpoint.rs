@@ -389,7 +389,7 @@ mod tests {
             "test-key",
             "glm-5.2",
             "https://opencode.ai/inference/openai/v1/chat/completions",
-            "opencode-plan",
+            "opencode-go",
         )
         .with_user_agent("opencode/2.0.32")
         .with_session_id("ses_wire_affinity_999");

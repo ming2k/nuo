@@ -319,41 +319,28 @@ pub(crate) fn model_list_body(
         .unwrap_or(8);
     let conn_width = max_conn_len.clamp(8, 24);
 
-    let max_tag_len = models
+    let max_status_len = models
         .iter()
         .map(|rm| {
-            let tag = match (rm.thinking, rm.effort.as_deref()) {
-                (Some(true), Some(effort)) => format!("think on {effort}"),
-                (Some(true), None) => "think on".to_string(),
-                (None, Some(effort)) => effort.to_string(),
-                _ => String::new(),
-            };
-            let tag = if !rm.usable {
-                if tag.is_empty() {
-                    "locked".to_string()
-                } else {
-                    format!("locked · {tag}")
-                }
+            if !rm.usable {
+                rm.display_status().unwrap_or("disabled").width()
             } else if rm.availability_overridden {
-                if tag.is_empty() {
-                    "overridden".to_string()
-                } else {
-                    format!("overridden · {tag}")
-                }
+                "overridden".width()
+            } else if rm.availability_stale {
+                "stale".width()
             } else {
-                tag
-            };
-            tag.width()
+                0
+            }
         })
         .max()
         .unwrap_or(0);
 
-    let tag_demand = if max_tag_len > 0 {
-        max_tag_len + GROUP_GAP
+    let status_demand = if max_status_len > 0 {
+        max_status_len + GROUP_GAP
     } else {
         0
     };
-    let right_demand = conn_width + tag_demand + GROUP_GAP;
+    let right_demand = conn_width + status_demand + GROUP_GAP;
     let min_conn_col = (GUTTER + 18 + GROUP_GAP).min(body_width);
     let max_conn_col = body_width.saturating_sub(right_demand);
     let target_conn_col = (body_width * 2) / 3;
@@ -371,9 +358,15 @@ pub(crate) fn model_list_body(
         max_label_len.clamp(18, usable_identity)
     };
 
+    // Specs layout: CTX (4) + CAP (3) + EFFORT (5) = 12 + 2 gaps = 14 cols.
+    const SPECS_WIDTH: usize = 14;
+    let can_fit_specs = conn_col >= (GUTTER + label_col_width + GROUP_GAP + SPECS_WIDTH);
+    let specs_col = conn_col.saturating_sub(SPECS_WIDTH + GROUP_GAP);
+
     // Wire ID sits in the secondary column, anchored after the label column + gap.
     let id_col = GUTTER + label_col_width + GROUP_GAP;
-    let id_budget = conn_col.saturating_sub(id_col + GROUP_GAP);
+    let id_budget_end = if can_fit_specs { specs_col } else { conn_col };
+    let id_budget = id_budget_end.saturating_sub(id_col + GROUP_GAP);
     let show_id_column = id_budget >= MIN_ID_COLUMN_WIDTH;
 
     for line in geometry {
@@ -390,44 +383,37 @@ pub(crate) fn model_list_body(
             ModelBodyLine::Row(row) => {
                 let rm = &models[row];
                 let is_selected = row == modal_index;
-                let locked = !rm.usable;
-                let style = choice_style(ChoiceTone::Filled, is_selected && !locked, theme);
+                let disabled = !rm.usable;
+                let style = choice_style(ChoiceTone::Filled, is_selected && !disabled, theme);
 
-                let tag = match (rm.thinking, rm.effort.as_deref()) {
-                    (Some(true), Some(effort)) => format!("think on {effort}"),
-                    (Some(true), None) => "think on".to_string(),
-                    (None, Some(effort)) => effort.to_string(),
-                    _ => String::new(),
-                };
-                // Clean status token leads the tag row so the row stays readable
-                // and never overflows into the identity/connection columns.
-                // Full verbose reasons are inspected via `i` (model detail).
-                let tag = if locked {
-                    let verdict = "locked".to_string();
-                    if tag.is_empty() {
-                        verdict
-                    } else {
-                        format!("{verdict} · {tag}")
-                    }
+                let status_text = if disabled {
+                    rm.display_status().unwrap_or("disabled").to_string()
                 } else if rm.availability_overridden {
-                    if tag.is_empty() {
-                        "overridden".to_string()
-                    } else {
-                        format!("overridden · {tag}")
-                    }
+                    "overridden".to_string()
+                } else if rm.availability_stale {
+                    "stale".to_string()
                 } else {
-                    tag
+                    String::new()
                 };
-                // A verdict observed before a failed refresh is marked as such:
-                // it is still enforced, but it is not freshly confirmed.
-                let tag = if rm.availability_stale {
-                    if tag.is_empty() {
-                        "as last observed · re-check failed".to_string()
-                    } else {
-                        format!("{tag} · as last observed · re-check failed")
+
+                let ctx_text = if rm.context_window > 0 {
+                    rm.format_context_window()
+                } else {
+                    String::new()
+                };
+
+                let cap_text = if rm.vision == Some(true) { "vis" } else { "" };
+
+                let effort_text = if rm.usable {
+                    match (rm.thinking, rm.effort.as_deref()) {
+                        (Some(true), Some(effort)) => effort,
+                        (Some(true), None) => "on",
+                        (Some(false), _) if !rm.effort_levels.is_empty() => "off",
+                        (None, Some(effort)) => effort,
+                        _ => "",
                     }
                 } else {
-                    tag
+                    ""
                 };
 
                 // 1. Provider label — the row's PRIMARY column, always bold.
@@ -453,15 +439,15 @@ pub(crate) fn model_list_body(
                 } else {
                     rm.match_id.as_ref()
                 });
-                let label_fg = if locked { theme.dim() } else { style.fg };
-                let label_match_fg = if locked {
+                let label_fg = if disabled { theme.dim() } else { style.fg };
+                let label_match_fg = if disabled {
                     theme.dim()
                 } else if is_selected {
                     style.fg
                 } else {
                     theme.brand()
                 };
-                let label_modifier = if locked {
+                let label_modifier = if disabled {
                     Modifier::empty()
                 } else {
                     Modifier::BOLD
@@ -493,15 +479,15 @@ pub(crate) fn model_list_body(
                 if distinct_name.is_some() && show_id_column {
                     let id_text = truncate_ellipsis(&rm.model, id_budget);
                     let id_matched = match_set(rm.match_id.as_ref());
-                    let id_fg = if locked { theme.dim() } else { style.dim };
-                    let id_match_fg = if locked {
+                    let id_fg = if disabled { theme.dim() } else { style.dim };
+                    let id_match_fg = if disabled {
                         theme.dim()
                     } else if is_selected {
                         style.fg
                     } else {
                         theme.brand()
                     };
-                    let id_modifier = if locked {
+                    let id_modifier = if disabled {
                         Modifier::empty()
                     } else {
                         Modifier::BOLD
@@ -519,26 +505,50 @@ pub(crate) fn model_list_body(
                     list_row = list_row.group(id_group);
                 }
 
-                // 3. Connection Name: Starts at conn_col, dimmed, with connection match highlighting.
-                let tag_len = if tag.is_empty() {
+                // 3. Model specs: CTX (4) + CAP (3) + EFFORT (5)
+                if can_fit_specs {
+                    let mut specs_group = RowGroup::column(specs_col);
+                    let ctx_fg = if disabled { theme.dim() } else { style.dim };
+                    if !ctx_text.is_empty() {
+                        specs_group = specs_group.text(format!("{ctx_text:>4}"), ctx_fg, 0);
+                    } else {
+                        specs_group = specs_group.text("    ", style.dim, 0);
+                    }
+
+                    let cap_fg = if disabled { theme.dim() } else { theme.ok() };
+                    if !cap_text.is_empty() {
+                        specs_group = specs_group.text(format!("{cap_text:>3}"), cap_fg, 1);
+                    } else {
+                        specs_group = specs_group.text("   ", style.dim, 1);
+                    }
+
+                    let effort_fg = if disabled { theme.dim() } else { theme.info() };
+                    if !effort_text.is_empty() {
+                        specs_group = specs_group.text(format!("{effort_text:<5}"), effort_fg, 1);
+                    }
+                    list_row = list_row.group(specs_group);
+                }
+
+                // 4. Connection Name: Starts at conn_col, dimmed, with connection match highlighting.
+                let status_len = if status_text.is_empty() {
                     0
                 } else {
-                    tag.width() + GROUP_GAP
+                    status_text.width() + GROUP_GAP
                 };
                 let conn_budget = body_width
-                    .saturating_sub(conn_col + tag_len + GROUP_GAP)
+                    .saturating_sub(conn_col + status_len + GROUP_GAP)
                     .max(1);
                 let conn_text = truncate_ellipsis(&rm.provider_label, conn_budget);
                 let conn_matched = match_set(rm.match_connection.as_ref());
-                let conn_fg = if locked { theme.dim() } else { style.dim };
-                let conn_match_fg = if locked {
+                let conn_fg = if disabled { theme.dim() } else { style.dim };
+                let conn_match_fg = if disabled {
                     theme.dim()
                 } else if is_selected {
                     style.fg
                 } else {
                     theme.brand()
                 };
-                let conn_modifier = if locked {
+                let conn_modifier = if disabled {
                     Modifier::empty()
                 } else {
                     Modifier::BOLD
@@ -555,15 +565,16 @@ pub(crate) fn model_list_body(
                 );
                 list_row = list_row.group(conn_group);
 
-                if !tag.is_empty() {
-                    let tag_fg = if locked {
+                // 5. Dedicated STATUS column: right-aligned trailing group, empty for usable models.
+                if !status_text.is_empty() {
+                    let status_fg = if disabled {
                         theme.dim()
                     } else if is_selected {
                         list_row.fill_fg()
                     } else {
-                        theme.info()
+                        theme.ok()
                     };
-                    list_row = list_row.group(RowGroup::trailing().text(tag, tag_fg, 0));
+                    list_row = list_row.group(RowGroup::trailing().text(status_text, status_fg, 0));
                 }
                 body.push(list_row.finish());
             }
@@ -627,9 +638,18 @@ pub(crate) fn model_detail_body(
 
     // 2. Capabilities section
     layout = layout.section("Capabilities");
-    layout = layout.kv("Context Window", format!("{} tokens", rm.context_window));
+    let ctx_formatted = rm.format_context_window();
+    let ctx_display = if ctx_formatted.is_empty() {
+        format!("{} tokens", rm.context_window)
+    } else {
+        format!("{} tokens ({ctx_formatted})", rm.context_window)
+    };
+    layout = layout.kv("Context Window", ctx_display);
+    if let Some(vision) = rm.vision {
+        layout = layout.kv("Vision", if vision { "Supported" } else { "Text only" });
+    }
     if !rm.effort_levels.is_empty() {
-        layout = layout.kv("Reasoning Tiers", rm.effort_levels.join(" · "));
+        layout = layout.kv("Reasoning Tiers", rm.effort_levels.join(", "));
     }
 
     // 3. Pricing section (if declared or recognized)
@@ -661,18 +681,41 @@ pub(crate) fn model_detail_body(
         }
     } else {
         layout = layout.section("Availability");
+        let status_desc = rm.display_status().unwrap_or("Disabled");
         layout = layout.kv_styled(
             "Status",
-            "Locked",
+            status_desc,
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
         );
         let reason_text = rm
-            .locked_reason
+            .reason
             .as_deref()
-            .unwrap_or("Model requires subscription or account entitlement.");
+            .unwrap_or("Model is currently unavailable.");
         layout = layout.kv_muted("Reason", reason_text);
+        if let Some(reset_ms) = rm.resets_at_ms {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            if reset_ms > now_ms {
+                let rem_secs = (reset_ms - now_ms) / 1000;
+                let mins = rem_secs.div_ceil(60);
+                let dt = chrono::DateTime::from_timestamp_millis(reset_ms as i64);
+                let time_str = dt
+                    .map(|d| d.format("%H:%M").to_string())
+                    .unwrap_or_default();
+                let reset_desc = if mins > 60 {
+                    let hrs = mins / 60;
+                    let m = mins % 60;
+                    format!("{time_str} (in {hrs}h {m}m)")
+                } else {
+                    format!("{time_str} (in {mins}m)")
+                };
+                layout = layout.kv("Resets", reset_desc);
+            }
+        }
         if rm.availability_overridden {
             layout = layout.kv_styled(
                 "Scope Override",

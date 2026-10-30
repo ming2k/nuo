@@ -1345,7 +1345,7 @@ async fn oauth_browser_login_validates_oidc_nonce() {
 }
 
 #[tokio::test]
-async fn opencode_plan_wire_request_carries_session_and_client_headers() {
+async fn opencode_go_wire_request_carries_session_and_client_headers() {
     let mut server = Server::new_async().await;
     let url = format!("{}/inference/openai/v1/chat/completions", server.url());
 
@@ -1356,7 +1356,7 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
         .match_header("user-agent", "opencode/2.0.32")
         .with_status(200)
         .with_header("content-type", "application/json")
-        .with_body(r#"{"choices":[{"message":{"content":"response from opencode-plan"}}]}"#)
+        .with_body(r#"{"choices":[{"message":{"content":"response from opencode-go"}}]}"#)
         .create_async()
         .await;
 
@@ -1378,17 +1378,17 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
     };
 
     let provider =
-        build_provider_for_channel(&channel, "opencode-plan", Some("ses_wire_affinity_999"));
+        build_provider_for_channel(&channel, "opencode-go", Some("ses_wire_affinity_999"));
     let msg = provider
         .chat(vec![Message::new(Role::User, "hello")].into())
         .await
-        .expect("opencode-plan provider chat must succeed")
+        .expect("opencode-go provider chat must succeed")
         .message;
-    assert_eq!(msg.content, "response from opencode-plan");
+    assert_eq!(msg.content, "response from opencode-go");
 }
 
 #[tokio::test]
-async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
+async fn opencode_go_anthropic_wire_request_carries_session_headers() {
     let mut server = Server::new_async().await;
     let url = format!("{}/inference/anthropic/v1/messages", server.url());
 
@@ -1421,11 +1421,11 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
     };
 
     let provider =
-        build_provider_for_channel(&channel, "opencode-plan", Some("ses_anthropic_wire_777"));
+        build_provider_for_channel(&channel, "opencode-go", Some("ses_anthropic_wire_777"));
     let msg = provider
         .chat(vec![Message::new(Role::User, "hello")].into())
         .await
-        .expect("opencode-plan anthropic-wire provider chat must succeed")
+        .expect("opencode-go anthropic-wire provider chat must succeed")
         .message;
     assert_eq!(msg.content, "qwen3.6-plus response");
 }

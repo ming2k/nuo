@@ -55,6 +55,14 @@ pub(super) fn active_model_id_for_entry(
 }
 
 pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderPickerSnapshot {
+    build_picker_state_with_rules(config, usage, &std::collections::HashMap::new())
+}
+
+pub fn build_picker_state_with_rules(
+    config: &Config,
+    usage: &ConnectionUsage,
+    dynamic_rules: &std::collections::HashMap<String, Vec<nuo_wire::ModelAvailabilityRule>>,
+) -> ProviderPickerSnapshot {
     let stores = Stores::load();
     let entries = derive_entries(&stores.connections, &stores.inputs());
     let default_id = effective_default_connection_id(config, &stores);
@@ -77,6 +85,10 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                 visible_channels
             };
             let connection = stores.connections.get(&entry.id);
+            let conn_rules = dynamic_rules
+                .get(&entry.id)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
             let model_info = channels_to_show
                 .iter()
                 .copied()
@@ -102,14 +114,16 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                             .iter()
                             .find(|channel| channel.model == info.model)
                             .and_then(|channel| channel.remote.as_ref());
-                        let (effective, overridden) = super::derive::effective_availability(
-                            connection,
-                            &info.model,
-                            remote,
-                            &stores.providers,
-                        );
+                        let (effective, overridden) =
+                            super::derive::effective_availability_with_rules(
+                                connection,
+                                &info.model,
+                                remote,
+                                &stores.providers,
+                                conn_rules,
+                            );
                         info.availability_overridden = overridden;
-                        info.availability = if overridden {
+                        info.availability = if overridden || !effective.usable {
                             Some(effective)
                         } else {
                             info.availability.take()
@@ -571,7 +585,7 @@ mod display_policy_tests {
     #[test]
     fn structural_policy_lifts_bare_relay_ids_into_typography() {
         ensure_init();
-        let spec = nuo_provider::model_provider_spec("opencode-plan").expect("spec");
+        let spec = nuo_provider::model_provider_spec("opencode-go").expect("spec");
         assert_eq!(spec.display_policy, DisplayPolicy::Structural);
         assert_eq!(
             spec.resolve_display_label(None, "deepseek-v4.1-flash"),

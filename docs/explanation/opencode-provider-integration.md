@@ -1,6 +1,6 @@
 # OpenCode Provider Integration
 
-This article explains how the two active OpenCode service surfaces (`opencode-plan` and `opencode-zen`) are modeled as distinct Nuo providers, and why the subscription relay's catalog requires a compiled capability baseline.
+This article explains how the two active OpenCode service surfaces (`opencode-go` and `opencode-zen`) are modeled as distinct Nuo providers, and why the subscription relay's catalog requires a compiled capability baseline.
 
 ---
 
@@ -10,7 +10,7 @@ OpenCode integrations are partitioned into two dedicated channel crates per ADR-
 
 | Provider id | Channel Crate | Surface | Auth | Catalog shape |
 | :--- | :--- | :--- | :--- | :--- |
-| `opencode-plan` | `providers/nuo-provider-opencode-plan/` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
+| `opencode-go` | `providers/nuo-provider-opencode-go/` | Zen Go relay (`opencode.ai/zen/go/v1`) | OpenCode Go API key (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
 | `opencode-zen` | `providers/nuo-provider-opencode-zen/` | Zen relay (`opencode.ai/zen/v1`) | OpenCode API key / Public Keyless (`OPENCODE_API_KEY`) | `CatalogShape::OpenAi` |
 
 The legacy `opencode` Console provider and its `CatalogShape::OpencodeConsole` parser were retired outright (ADR-0079) as part of tech debt elimination, and the umbrella `nuo-provider-opencode` crate was bifurcated into dedicated channel crates.
@@ -36,7 +36,7 @@ Intrinsic capability metadata (context window, reasoning support, tool calling, 
 ### 4.1 Authentication
 
 All OpenCode surfaces authenticate with a plain API key (or public keyless for free models) and serve a public `/models` catalog:
-- `opencode-plan` authenticates with an OpenCode Go subscription API key (`oc_sk_...`) and automatically injects the mandatory `x-opencode-session` header.
+- `opencode-go` authenticates with an OpenCode Go subscription API key (`oc_sk_...`) and automatically injects the mandatory `x-opencode-session` header.
 - `opencode-zen` authenticates with `OPENCODE_API_KEY` (or `Authorization: Bearer public` for promotional free tier models).
 
 OpenCode's legacy Console OAuth device grant (which targeted internal enterprise console SSO organizations rather than personal coding plans) was retired to eliminate broken device authentication flows.
@@ -48,7 +48,7 @@ labels. That single fact determines three separate answers, all of which live in
 catalog boundary (`nuo-model-routing`, ADR-0082):
 
 **Capabilities come from the compiled baseline.** Because the catalog publishes no
-capability fields, the **compiled baseline in `nuo-provider-opencode-plan` is the only
+capability fields, the **compiled baseline in `nuo-provider-opencode-go` is the only
 capability source** for the models Nuo intends to present as first-class:
 
 - **Every id the relay serves that Nuo wants to expose needs a baseline entry here.** An
@@ -72,7 +72,7 @@ vocabulary (`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`/`ultra` — the
 rather than the anonymous fallback. Rows that another provider also declares must match it
 field-for-field: the capability registry is keyed by model id, not by route (ADR-0083).
 
-**Labels are lifted structurally, never dictionary-mapped.** `opencode-plan` and
+**Labels are lifted structurally, never dictionary-mapped.** `opencode-go` and
 `opencode-zen` declare `DisplayPolicy::Structural`, so a bare id becomes polished
 typography by rule — `deepseek-v4.1-flash` → `DeepSeek V4.1 Flash`. A model added upstream
 therefore needs no Nuo release. The mapping runs once in
@@ -84,7 +84,7 @@ surfaces fall back to the id rather than echoing it.
 ephemeral discovery (`-free`, `-preview`, `-contributor`, `alpha-`) out of the *upstream*
 listing, because a relay's catalog is a dumping ground. Two boundaries keep this honest:
 ids the surface itself seeds are never filtered (the compiled baseline and the surface must
-agree — `opencode-plan` deliberately seeds two `-free` tiers), and anything the operator
+agree — `opencode-go` deliberately seeds two `-free` tiers), and anything the operator
 explicitly includes bypasses the valve unconditionally.
 
 A vendor's featured production model is not noise, and there is no per-id exception list —

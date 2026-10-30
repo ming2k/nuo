@@ -2355,10 +2355,9 @@ async fn thread_stats_slash_open_and_unbound_ctrl_o() {
         "OpenThreadStats (/stats) opens ThreadStats dialog"
     );
 
-    // Ctrl+O is no longer bound canonically to OpenThreadStats — it now opens
-    // the notice viewer (ADR-0121), which is a different verb entirely.
+    // Alt+O opens the notice viewer, which is a global verb.
     assert_eq!(
-        crate::shell::keymap::resolve_global_key(crate::shell::keymap::Key::CTRL_O),
+        crate::shell::keymap::resolve_global_key(crate::shell::keymap::Key::ALT_O),
         Some(crate::shell::keymap::CommandId::OpenNotices)
     );
 }

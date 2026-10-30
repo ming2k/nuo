@@ -196,19 +196,21 @@ pub(crate) fn parse_antigravity_quota(
             quota: Some(ProviderQuotaData::Periodic(PeriodicQuota::default())),
             primary_balance: Some("100%".to_string()),
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             updated_at_ms: now_epoch_ms(),
         });
     }
 
     let mut metrics = Vec::new();
     let mut quota_buckets = Vec::new();
+    let mut model_rules = Vec::new();
     let mut min_remaining_fraction: Option<f32> = None;
 
     for (group_name, bucket) in all_grouped_buckets {
         let label = bucket
             .display_name
             .filter(|n| !n.trim().is_empty())
-            .unwrap_or(bucket.bucket_id);
+            .unwrap_or(bucket.bucket_id.clone());
 
         let window_kind = bucket.window.as_deref().map(|w| {
             let upper = w.to_ascii_uppercase();
@@ -237,6 +239,54 @@ pub(crate) fn parse_antigravity_quota(
         } else {
             0.0
         };
+
+        if used_fraction >= 0.999 {
+            let lower_id = bucket.bucket_id.to_ascii_lowercase();
+            let lower_label = label.to_ascii_lowercase();
+            let lower_group = group_name.as_deref().unwrap_or("").to_ascii_lowercase();
+
+            let pattern = if lower_group.contains("claude")
+                || lower_id.contains("claude")
+                || lower_label.contains("claude")
+            {
+                "claude-*"
+            } else if lower_group.contains("gemini")
+                || lower_group.contains("chat")
+                || lower_id.contains("gemini")
+                || lower_label.contains("gemini")
+            {
+                "gemini-*"
+            } else {
+                bucket.bucket_id.as_str()
+            };
+
+            let status_label = match window_kind {
+                Some(QuotaWindowKind::Rolling5Hour) => "disabled: 5h limit",
+                Some(QuotaWindowKind::Daily) => "disabled: daily quota",
+                Some(QuotaWindowKind::Weekly) => "disabled: weekly quota",
+                _ => "disabled: quota",
+            };
+
+            let reason = match window_kind {
+                Some(QuotaWindowKind::Rolling5Hour) => format!(
+                    "5h rolling quota limit reached for {}",
+                    group_name.as_deref().unwrap_or(&label)
+                ),
+                _ => format!(
+                    "Quota limit reached for {}",
+                    group_name.as_deref().unwrap_or(&label)
+                ),
+            };
+
+            model_rules.push(nuo_wire::ModelAvailabilityRule {
+                pattern: pattern.to_string(),
+                availability: nuo_wire::Availability::disabled(
+                    status_label,
+                    Some(reason),
+                    reset_at_ms,
+                ),
+            });
+        }
 
         let value_str = if let Some(frac) = bucket.remaining_fraction {
             let pct = (frac * 100.0).round() as u32;
@@ -304,8 +354,22 @@ pub(crate) fn parse_antigravity_quota(
         })),
         primary_balance,
         metrics,
+        model_rules,
         updated_at_ms: now_epoch_ms(),
     })
+}
+
+/// Evaluate model availability for Google Antigravity based on evaluated quota rules.
+pub fn evaluate_antigravity_quota_availability(
+    usage: &ProviderUsage,
+    model_id: &str,
+) -> Option<nuo_wire::Availability> {
+    for rule in &usage.model_rules {
+        if nuo_wire::simple_glob_matches(&rule.pattern, model_id) {
+            return Some(rule.availability.clone());
+        }
+    }
+    None
 }
 
 fn now_epoch_ms() -> Option<u64> {
@@ -449,5 +513,53 @@ mod tests {
         } else {
             panic!("Expected Periodic quota data");
         }
+    }
+
+    #[test]
+    fn evaluates_quota_availability_for_exhausted_5h_limit() {
+        let resp = AntigravityQuotaSummaryResponse {
+            buckets: vec![
+                AntigravityQuotaBucket {
+                    bucket_id: "claude-5h".to_string(),
+                    display_name: Some("Five Hour Limit Remaining".to_string()),
+                    window: Some("5h".to_string()),
+                    remaining_fraction: Some(0.0),
+                    reset_time: Some("2026-04-07T15:00:00Z".to_string()),
+                    ..Default::default()
+                },
+                AntigravityQuotaBucket {
+                    bucket_id: "gemini-5h".to_string(),
+                    display_name: Some("Five Hour Limit Remaining".to_string()),
+                    window: Some("5h".to_string()),
+                    remaining_fraction: Some(0.8),
+                    reset_time: Some("2026-04-07T16:00:00Z".to_string()),
+                    ..Default::default()
+                },
+            ],
+            groups: vec![],
+            description: None,
+        };
+
+        let usage = parse_antigravity_quota(resp).unwrap();
+        assert_eq!(usage.model_rules.len(), 1);
+        assert_eq!(usage.model_rules[0].pattern, "claude-*");
+
+        // Claude model must be marked disabled with 5h limit
+        let claude_avail =
+            evaluate_antigravity_quota_availability(&usage, "claude-3-7-sonnet").unwrap();
+        assert!(!claude_avail.is_usable());
+        assert_eq!(claude_avail.display_status(), Some("disabled: 5h limit"));
+        assert!(
+            claude_avail
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("5h rolling quota limit reached")
+        );
+        assert!(claude_avail.resets_at_ms.is_some());
+
+        // Gemini model is not exhausted, so availability must be None
+        let gemini_avail = evaluate_antigravity_quota_availability(&usage, "gemini-2.5-pro");
+        assert_eq!(gemini_avail, None);
     }
 }

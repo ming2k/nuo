@@ -391,29 +391,22 @@ fn resolve_enter(
         _ => text,
     };
     if text.starts_with('/') {
-        // Workspace views (Dashboard, Settings) are not thread-scoped slash commands
-        // (ADR-0041 [INV-CMD-01], [INV-ROUTER-01]). Intercept and guide the operator.
         let trimmed = text.trim();
-        if trimmed == "/dashboard" || trimmed.starts_with("/dashboard ") {
-            return Some(InputAction::WorkspaceGuardrailNotice(
-                "💡 Notice: Dashboard is a workspace view. Press 'C-x d' or switch tabs."
-                    .to_string(),
-            ));
-        }
-        if trimmed == "/settings"
-            || trimmed.starts_with("/settings ")
-            || trimmed == "/config"
-            || trimmed.starts_with("/config ")
-        {
-            return Some(InputAction::WorkspaceGuardrailNotice(
-                "💡 Notice: Settings is a workspace view. Press 'C-x ,' or switch tabs."
-                    .to_string(),
-            ));
-        }
+        let cmd = if let Some((cmd, _)) = trimmed.split_once(' ') {
+            cmd
+        } else {
+            trimmed
+        };
 
-        // Match on the trimmed text so a slash command typed with a trailing
-        // space (e.g. `/models `) still hits the exact-match arm.
-        let action = match text.trim() {
+        // Match on the trimmed command name so client workspace routes and slash commands
+        // typed with or without arguments (e.g. `/dashboard`, `/settings`, `/models`, `/models gpt-4o`)
+        // directly dispatch their respective client actions without dead guardrails.
+        let action = match cmd {
+            "/dashboard" => InputAction::NavigateDashboard,
+            "/settings" | "/config" => InputAction::NavigateSettings,
+            "/new" | "/thread" => InputAction::CreateNewSession,
+            "/close" => InputAction::CloseTab,
+            "/commands" | "/palette" => InputAction::ViewSwitcherToggle,
             "/threads" | "/sessions" => InputAction::OpenSessions,
             "/models" => InputAction::OpenModels,
             "/connections" => InputAction::OpenConnections,
@@ -425,8 +418,9 @@ fn resolve_enter(
             "/trace" => InputAction::OpenSessionTrace,
             "/mcp" => InputAction::OpenMcp,
             "/skills" => InputAction::OpenSkills,
-            "/notices" => InputAction::OpenNotices,
+            "/notices" | "/logs" => InputAction::OpenNotices,
             "/port" | "/ports" | "/share" => InputAction::OpenPortPalette,
+            "/help" => InputAction::OpenHelp,
             "/exit" => InputAction::Quit,
             _ => InputAction::SendSlash(text),
         };

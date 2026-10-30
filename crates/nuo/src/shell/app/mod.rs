@@ -30,7 +30,7 @@ use nuo_view::model::layout::InteractiveTarget;
 use nuo_view::model::selection::{SelectionDrag, SelectionState};
 use nuo_view::providers::{
     ConnectionTemplate, CustomField, RankedModel, RankedProvider, edit_fields,
-    models_flat_filtered_from, providers_filtered_from,
+    models_flat_filtered_from_with_quotas, providers_filtered_from,
 };
 
 use std::collections::{HashMap, HashSet, VecDeque};

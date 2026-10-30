@@ -332,6 +332,7 @@ fn parse_go_usage(envelope: GoUsageEnvelope) -> ProviderUsage {
         quota: Some(ProviderQuotaData::Periodic(PeriodicQuota { buckets })),
         primary_balance,
         metrics,
+        model_rules: Vec::new(),
         updated_at_ms: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)

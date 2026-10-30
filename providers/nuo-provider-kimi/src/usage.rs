@@ -121,6 +121,7 @@ pub(crate) fn parse_kimi_balance(body: KimiBalanceResponse) -> Result<ProviderUs
         quota: Some(ProviderQuotaData::Balance(balance_quota)),
         primary_balance: Some(primary_balance),
         metrics,
+        model_rules: Vec::new(),
         updated_at_ms: now_ms,
     })
 }

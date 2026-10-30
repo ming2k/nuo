@@ -171,15 +171,15 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::negotiated_const("chatgpt-plan"),
     },
     ConnectionTemplate {
-        id: "commandcode-plan",
-        label: "CommandCode Plan",
+        id: "commandcode-goat",
+        label: "CommandCode GOAT",
         description: "Command Code Provider API serving Claude, GPT, DeepSeek, and top open models; sign in with your Command Code key.",
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         models: nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS,
         needs_url: false,
-        url_hint: "https://api.commandcode.ai/provider/v1/chat/completions",
+        url_hint: "https://api.commandcode.ai/provider/v1/responses",
         needs_model: false,
-        default_url: Some("https://api.commandcode.ai/provider/v1/chat/completions"),
+        default_url: Some("https://api.commandcode.ai/provider/v1/responses"),
         user_agent: None,
         auth: nuo_wire::ConnectionAuth::Static,
     },
@@ -277,11 +277,11 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
-        id: "opencode-plan",
-        label: "OpenCode Plan",
-        description: "OpenCode Plan subscription for open coding models; sign in with your OpenCode Plan API key.",
+        id: "opencode-go",
+        label: "OpenCode Go",
+        description: "OpenCode Go subscription for open coding models; sign in with your OpenCode Go API key.",
         protocol: WireProtocol::OpenAiChatCompletions,
-        models: nuo_wire::model_providers::OPENCODE_PLAN_MODELS,
+        models: nuo_wire::model_providers::OPENCODE_GO_MODELS,
         needs_url: false,
         url_hint: "https://opencode.ai/zen/go/v1/chat/completions",
         needs_model: false,
@@ -551,10 +551,16 @@ pub struct RankedModel {
     /// `false` renders the row greyed-out and refuses activation. Undeclared
     /// availability — the common case — is always usable.
     pub usable: bool,
+    /// Short status label for the row's STATUS column (e.g. "disabled: tier", "disabled: 5h limit").
+    pub status_label: Option<String>,
+    /// Epoch timestamp in milliseconds when this unusable verdict expires and resets.
+    pub resets_at_ms: Option<u64>,
+    /// Effective vision support for this model route.
+    pub vision: Option<bool>,
     /// The provider's own reason for an unusable verdict, verbatim. `None`
     /// means the provider declared none; the surface then says only that the
     /// model is unavailable rather than guessing a cause. Never parsed.
-    pub locked_reason: Option<String>,
+    pub reason: Option<String>,
     /// The provider declared the model unusable but the user's own scope
     /// overrode it: the row is usable and must disclose the contradiction
     /// (`[INV-AVAIL-05]`).
@@ -582,6 +588,38 @@ impl RankedModel {
     /// The row's list section.
     pub fn section(&self) -> ModelSection {
         self.section
+    }
+
+    /// Formats the context window size as a compact string (e.g. "128k", "200k", "1M").
+    pub fn format_context_window(&self) -> String {
+        format_context_tokens(self.context_window)
+    }
+
+    /// Returns the short status label to display in the STATUS column if unusable.
+    pub fn display_status(&self) -> Option<&str> {
+        if self.usable {
+            None
+        } else {
+            self.status_label.as_deref().or(Some("disabled"))
+        }
+    }
+}
+
+/// Formats raw token count into a clean, compact standard string (e.g. "128k", "200k", "1M").
+pub fn format_context_tokens(tokens: usize) -> String {
+    if tokens == 0 {
+        String::new()
+    } else if tokens >= 1_000_000 {
+        let m = tokens as f64 / 1_000_000.0;
+        if (m.round() - m).abs() < 0.05 {
+            format!("{:.0}M", m.round())
+        } else {
+            format!("{:.1}M", m)
+        }
+    } else if tokens >= 1_000 {
+        format!("{}k", tokens / 1_000)
+    } else {
+        tokens.to_string()
     }
 }
 
@@ -752,6 +790,16 @@ pub fn models_flat_filtered_from(
     current_model: &str,
     query: &str,
 ) -> Vec<RankedModel> {
+    models_flat_filtered_from_with_quotas(picker, current_provider, current_model, query, None)
+}
+
+pub fn models_flat_filtered_from_with_quotas(
+    picker: &ProviderPickerSnapshot,
+    current_provider: &str,
+    current_model: &str,
+    query: &str,
+    quotas: Option<&nuo_wire::ProviderQuotaSnapshot>,
+) -> Vec<RankedModel> {
     let _ = (current_provider, current_model);
     let tokens: Vec<&str> = query
         .split(|c: char| c.is_whitespace() || c == '/' || c == ':' || c == '@' || c == '|')
@@ -863,10 +911,23 @@ pub fn models_flat_filtered_from(
                 favorite: info.map(|i| i.favorite).unwrap_or(false),
                 last_used_ms: info.and_then(|i| i.last_used_ms),
                 context_window: info.map(|i| i.context_window).unwrap_or(128_000),
+                vision: info.and_then(|i| i.vision),
                 usable: info
                     .map(|i| i.availability.as_ref().is_none_or(|a| a.usable))
                     .unwrap_or(true),
-                locked_reason: info.and_then(|i| {
+                status_label: info.and_then(|i| {
+                    i.availability
+                        .as_ref()
+                        .filter(|a| !a.usable)
+                        .and_then(|a| a.status_label.clone())
+                }),
+                resets_at_ms: info.and_then(|i| {
+                    i.availability
+                        .as_ref()
+                        .filter(|a| !a.usable)
+                        .and_then(|a| a.resets_at_ms)
+                }),
+                reason: info.and_then(|i| {
                     i.availability
                         .as_ref()
                         .filter(|a| !a.usable)
@@ -880,6 +941,10 @@ pub fn models_flat_filtered_from(
                 relevance_score,
             });
         }
+    }
+
+    if let Some(quotas) = quotas {
+        apply_quotas_to_candidates(&mut candidates, quotas);
     }
 
     // 1. Favorites section: starred models, sorted by relevance score when searching, else ASCII model id.
@@ -958,6 +1023,103 @@ pub fn models_flat_filtered_from(
     rows.extend(recent);
     rows.extend(all);
     rows
+}
+
+/// Merges live periodic quota snapshots into model candidates.
+///
+/// Dispatches to the provider's own live [`nuo_wire::ModelAvailabilityRule`] declarations carried
+/// on the connection's usage state. If a rule's reset time has already passed, it is ignored.
+pub fn apply_quotas_to_candidates(
+    candidates: &mut [RankedModel],
+    quotas: &nuo_wire::ProviderQuotaSnapshot,
+) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    for candidate in candidates.iter_mut() {
+        if candidate.availability_overridden {
+            continue;
+        }
+
+        // Static entitlement restrictions (e.g. tier required) take precedence over temporary quota limits
+        if !candidate.usable
+            && candidate
+                .status_label
+                .as_deref()
+                .is_some_and(|s| s.contains("tier"))
+        {
+            continue;
+        }
+
+        let Some(entry) = quotas
+            .entries
+            .iter()
+            .find(|e| e.name == candidate.provider_id || e.provider == candidate.provider_id)
+        else {
+            continue;
+        };
+
+        // 1. Check provider-evaluated dynamic model rules
+        if let nuo_wire::ConnectionUsageState::Available(ref usage) = entry.state {
+            let mut rule_applied = false;
+            for rule in &usage.model_rules {
+                if nuo_wire::simple_glob_matches(&rule.pattern, &candidate.model) {
+                    if let Some(reset_ms) = rule.availability.resets_at_ms {
+                        if now_ms >= reset_ms {
+                            continue;
+                        }
+                    }
+
+                    candidate.usable = rule.availability.usable;
+                    candidate.status_label = rule.availability.status_label.clone();
+                    candidate.reason = rule.availability.reason.clone();
+                    candidate.resets_at_ms = rule.availability.resets_at_ms;
+                    rule_applied = true;
+                    break;
+                }
+            }
+            if rule_applied {
+                continue;
+            }
+        }
+
+        // 2. Generic exact-label fallback for simple periodic buckets
+        if let Some(nuo_wire::ProviderQuotaData::Periodic(ref periodic)) = entry.quota {
+            for bucket in &periodic.buckets {
+                if bucket.used_fraction < 0.999 {
+                    continue;
+                }
+                if let Some(reset_ms) = bucket.reset_at_ms {
+                    if now_ms >= reset_ms {
+                        continue;
+                    }
+                }
+
+                if candidate.model == bucket.label
+                    || candidate.model == bucket.unit.as_deref().unwrap_or("")
+                {
+                    let status_label = match bucket.window {
+                        Some(nuo_wire::QuotaWindowKind::Rolling5Hour) => "disabled: 5h limit",
+                        Some(nuo_wire::QuotaWindowKind::Daily) => "disabled: daily quota",
+                        Some(nuo_wire::QuotaWindowKind::Weekly) => "disabled: weekly quota",
+                        _ => "disabled: quota",
+                    };
+                    let reason = format!(
+                        "Quota limit reached for {}",
+                        bucket.group.as_deref().unwrap_or(&bucket.label)
+                    );
+
+                    candidate.usable = false;
+                    candidate.status_label = Some(status_label.to_string());
+                    candidate.reason = Some(reason);
+                    candidate.resets_at_ms = bucket.reset_at_ms;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 /// One **body line** of the flat Models list: either a selectable row or a
@@ -1510,7 +1672,7 @@ mod tests {
             "OpenAI Platform",
             "Anthropic",
             "Google AI Studio",
-            "CommandCode Plan",
+            "CommandCode GOAT",
             "DeepSeek",
             "xAI",
             "ChatGPT Plan",
@@ -1519,7 +1681,7 @@ mod tests {
             "Kimi Code",
             "GLM Coding Plan CN",
             "OpenCode",
-            "OpenCode Plan",
+            "OpenCode Go",
             "OpenCode Zen",
             "OpenRouter",
             "QianwenAI Token Plan",
@@ -1794,9 +1956,7 @@ mod tests {
                 "chatgpt-plan" | "openai-subscription" => {
                     Some(nuo_wire::model_providers::CHATGPT_BUILTIN_MODELS)
                 }
-                "commandcode-plan" | "commandcode" => {
-                    Some(nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS)
-                }
+                "commandcode-goat" => Some(nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS),
                 "deepseek" => Some(nuo_wire::model_providers::DEEPSEEK_BUILTIN_MODELS),
                 "github-copilot" => Some(nuo_wire::model_providers::COPILOT_SEED_MODELS),
                 "google" | "google-ai-studio" | "ai-studio" | "gemini" => {
@@ -1808,9 +1968,7 @@ mod tests {
                 "codebuddy-intl" => Some(nuo_wire::model_providers::CODEBUDDY_INTL_BUILTIN_MODELS),
                 "openai" => Some(nuo_wire::model_providers::OPENAI_BUILTIN_MODELS),
                 "openrouter" => Some(nuo_wire::model_providers::OPENROUTER_BUILTIN_MODELS),
-                "opencode-plan" | "opencode-go" => {
-                    Some(nuo_wire::model_providers::OPENCODE_PLAN_MODELS)
-                }
+                "opencode-go" => Some(nuo_wire::model_providers::OPENCODE_GO_MODELS),
                 "opencode-zen" => Some(nuo_wire::model_providers::OPENCODE_ZEN_MODELS),
                 "glm-cn" => Some(nuo_wire::model_providers::GLM_CN_MODELS),
                 "xai" => Some(nuo_wire::model_providers::XAI_BUILTIN_MODELS),
@@ -1862,18 +2020,33 @@ mod tests {
     fn commandcode_template_uses_provider_route_and_seeds() {
         let cmd = PROVIDER_PRESETS
             .iter()
-            .find(|template| template.id == "commandcode-plan")
+            .find(|template| template.id == "commandcode-goat")
             .unwrap();
-        assert_eq!(cmd.label, "CommandCode Plan");
-        assert_eq!(cmd.protocol, WireProtocol::OpenAiChatCompletions);
+        assert_eq!(cmd.label, "CommandCode GOAT");
+        assert_eq!(cmd.protocol, WireProtocol::OpenAiResponses);
         assert_eq!(
             cmd.default_url,
-            Some("https://api.commandcode.ai/provider/v1/chat/completions")
+            Some("https://api.commandcode.ai/provider/v1/responses")
         );
         assert_eq!(
             cmd.models,
             nuo_wire::model_providers::COMMANDCODE_BUILTIN_MODELS
         );
+    }
+
+    #[test]
+    fn opencode_go_template_uses_go_relay_and_seeds() {
+        let go = PROVIDER_PRESETS
+            .iter()
+            .find(|template| template.id == "opencode-go")
+            .unwrap();
+        assert_eq!(go.label, "OpenCode Go");
+        assert_eq!(go.protocol, WireProtocol::OpenAiChatCompletions);
+        assert_eq!(
+            go.default_url,
+            Some("https://opencode.ai/zen/go/v1/chat/completions")
+        );
+        assert_eq!(go.models, nuo_wire::model_providers::OPENCODE_GO_MODELS);
     }
 
     #[test]
@@ -2123,6 +2296,141 @@ mod tests {
             anthropic_claude
                 .iter()
                 .all(|r| r.relevance_score >= BONUS_CROSS_FIELD)
+        );
+    }
+
+    #[test]
+    fn format_context_tokens_formats_clean_standard_strings() {
+        assert_eq!(format_context_tokens(128_000), "128k");
+        assert_eq!(format_context_tokens(200_000), "200k");
+        assert_eq!(format_context_tokens(1_000_000), "1M");
+        assert_eq!(format_context_tokens(1_048_576), "1M");
+        assert_eq!(format_context_tokens(2_000_000), "2M");
+        assert_eq!(format_context_tokens(0), "");
+    }
+
+    #[test]
+    fn quota_snapshot_dynamically_disables_exhausted_family_models() {
+        let picker = ProviderPickerSnapshot {
+            default_id: "antigravity".to_string(),
+            rows: vec![ProviderPickerRow {
+                id: "antigravity".to_string(),
+                name: "Google Antigravity".to_string(),
+                model: "claude-3-7-sonnet".to_string(),
+                models: vec![
+                    "claude-3-7-sonnet".to_string(),
+                    "gemini-2.5-flash".to_string(),
+                    "gemini-4-argon".to_string(),
+                ],
+                model_info: vec![
+                    ProviderModelInfo {
+                        model: "claude-3-7-sonnet".to_string(),
+                        context_window: 200_000,
+                        vision: Some(true),
+                        effort: Some("high".to_string()),
+                        availability: Some(nuo_wire::Availability::usable()),
+                        ..Default::default()
+                    },
+                    ProviderModelInfo {
+                        model: "gemini-2.5-flash".to_string(),
+                        context_window: 1_048_576,
+                        vision: Some(true),
+                        availability: Some(nuo_wire::Availability::usable()),
+                        ..Default::default()
+                    },
+                    ProviderModelInfo {
+                        model: "gemini-4-argon".to_string(),
+                        context_window: 1_048_576,
+                        vision: Some(false),
+                        availability: Some(nuo_wire::Availability::disabled(
+                            "disabled: tier",
+                            Some("Requires Google CodeAssist paid entitlement".to_string()),
+                            None,
+                        )),
+                        ..Default::default()
+                    },
+                ],
+                builtin: true,
+                protocol: String::new(),
+                base_url: String::new(),
+                key_ready: true,
+                provider: "google-antigravity".to_string(),
+                headers: Default::default(),
+                last_used_ms: None,
+                auth: Default::default(),
+            }],
+        };
+
+        // Quota snapshot where provider usage emitted a dynamic 5h limit rule for Claude
+        let quotas = nuo_wire::ProviderQuotaSnapshot {
+            provider_filter: None,
+            entries: vec![nuo_wire::ConnectionQuotaEntry {
+                name: "antigravity".to_string(),
+                provider: "google-antigravity".to_string(),
+                provider_label: "Google Antigravity".to_string(),
+                account_id: None,
+                is_default: true,
+                state: nuo_wire::ConnectionUsageState::Available(Box::new(
+                    nuo_wire::ProviderUsage {
+                        model_rules: vec![nuo_wire::ModelAvailabilityRule {
+                            pattern: "claude-*".to_string(),
+                            availability: nuo_wire::Availability::disabled(
+                                "disabled: 5h limit",
+                                Some(
+                                    "5h rolling quota limit reached for Claude Models".to_string(),
+                                ),
+                                Some(1999999999000),
+                            ),
+                        }],
+                        ..Default::default()
+                    },
+                )),
+                primary_balance: Some("0% Quota".to_string()),
+                quota: None,
+                plan: None,
+                earliest_reset_ms: None,
+            }],
+            ..Default::default()
+        };
+
+        let ranked = models_flat_filtered_from_with_quotas(
+            &picker,
+            "antigravity",
+            "claude-3-7-sonnet",
+            "",
+            Some(&quotas),
+        );
+
+        let claude = ranked
+            .iter()
+            .find(|r| r.model == "claude-3-7-sonnet")
+            .unwrap();
+        assert!(!claude.usable);
+        assert_eq!(claude.display_status(), Some("disabled: 5h limit"));
+        assert!(
+            claude
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("5h rolling quota limit reached")
+        );
+        assert_eq!(claude.resets_at_ms, Some(1999999999000));
+        assert_eq!(claude.format_context_window(), "200k");
+
+        let gemini_flash = ranked
+            .iter()
+            .find(|r| r.model == "gemini-2.5-flash")
+            .unwrap();
+        assert!(gemini_flash.usable);
+        assert_eq!(gemini_flash.display_status(), None);
+        assert_eq!(gemini_flash.format_context_window(), "1M");
+
+        let argon = ranked.iter().find(|r| r.model == "gemini-4-argon").unwrap();
+        assert!(!argon.usable);
+        assert_eq!(argon.display_status(), Some("disabled: tier"));
+        assert_eq!(
+            argon.reason.as_deref(),
+            Some("Requires Google CodeAssist paid entitlement")
         );
     }
 }

@@ -305,9 +305,11 @@ impl ModelFoldAccumulator {
         };
 
         let availability = if !self.has_usable_variant && self.has_disabled_variant {
-            Some(Availability::locked(Some(
-                "Requires subscription or account entitlement".to_string(),
-            )))
+            Some(Availability::disabled(
+                "disabled: tier",
+                Some("Requires subscription or account entitlement".to_string()),
+                None,
+            ))
         } else {
             None
         };
@@ -655,9 +657,11 @@ mod tests {
         assert_eq!(argon.name.as_deref(), Some("Gemini 4 Argon"));
         assert_eq!(
             argon.availability,
-            Some(Availability::locked(Some(
-                "Requires subscription or account entitlement".to_string()
-            )))
+            Some(Availability::disabled(
+                "disabled: tier",
+                Some("Requires subscription or account entitlement".to_string()),
+                None,
+            ))
         );
         assert_eq!(
             argon.effort_levels,

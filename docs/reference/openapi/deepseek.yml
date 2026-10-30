@@ -908,7 +908,7 @@ x-models:
     default_protocol: Responses
 
 # Relay-only spellings (`deepseek-v4.1-flash`, `deepseek-v4.1-flash-free`) are
-# documented with their relays (`commandcode-plan.yml`, the OpenCode provider
+# documented with their relays (`commandcode-goat.yml`, the OpenCode provider
 # specs); they are NOT `api.deepseek.com` model ids.
 
 x-reasoning-effort-ladder:

@@ -134,9 +134,21 @@ pub struct ProviderUsage {
     /// Structured usage metrics / breakdown.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub metrics: Vec<UsageMetric>,
+    /// Dynamic model availability rules evaluated by the provider itself from live quotas/limits.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_rules: Vec<ModelAvailabilityRule>,
     /// Unix epoch milliseconds of when this usage data was retrieved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at_ms: Option<u64>,
+}
+
+/// Model availability rule declared by a provider from live quota, rate-limit, or entitlement facts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelAvailabilityRule {
+    /// Exact model ID (e.g. "gemini-4-argon") or glob pattern (e.g. "claude-*", "gemini-*").
+    pub pattern: String,
+    /// Availability status and reason for matching models.
+    pub availability: crate::Availability,
 }
 
 /// One named metric in a provider's usage / quota report.

@@ -280,7 +280,7 @@ fn draw_header(
         ));
     }
 
-    let right = Key::CTRL_O.display();
+    let right = Key::ALT_O.display();
     let left_w: usize = spans.iter().map(|s| s.content.width()).sum();
     let pad = (rect.width as usize)
         .saturating_sub(left_w + right.width() + 1)

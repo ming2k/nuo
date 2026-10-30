@@ -98,6 +98,7 @@ pub enum CommandId {
     Quit,
     KillThread,
     CloseTab,
+    NewTab,
     CopySelection,
     CopyFocusedEntry,
     CopyDiagnostic,
@@ -398,7 +399,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Open unified command palette and surface switcher",
+        description: "Open unified command palette and surface switcher (/commands)",
     },
     CommandSpec {
         id: CommandId::CancelOrBack,
@@ -451,6 +452,19 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
         description: "Close active tab (Detaches thread if attached)",
+    },
+    CommandSpec {
+        id: CommandId::NewTab,
+        label: "New Tab",
+        hint: "Alt-t",
+        category: CommandCategory::Global,
+        scope: Scope::Global,
+        bindings: &[Key::ALT_T],
+        slash: Some("/new"),
+        availability: avail_always,
+        disclosure: DisclosurePriority::L2Palette,
+        danger: DangerLevel::Safe,
+        description: "Open a new thread in a new tab (Alt-t / /new)",
     },
     CommandSpec {
         id: CommandId::KillThread,
@@ -529,18 +543,17 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         id: CommandId::OpenNotices,
         label: "Notices",
         // The chord exists because the *bubble* advertises it: a fault bubble
-        // says "Ctrl-o · all notices", so the chord must be one the user can
-        // press without having memorised anything. Ctrl-o is otherwise unused
-        // (it was the open-file chord in editors; nothing here claims it).
-        hint: "Ctrl-o",
+        // says "Alt-o · all notices", so the chord must be one the user can
+        // press without having memorised anything.
+        hint: "Alt-o",
         category: CommandCategory::Session,
         scope: Scope::Session,
-        bindings: &[Key::CTRL_O],
+        bindings: &[Key::ALT_O],
         slash: Some("/notices"),
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Review every notice, warning and error the client has surfaced",
+        description: "Review every notice, warning and error the client has surfaced (Alt-o / /notices)",
     },
     // Session & Composer Controls
     CommandSpec {
@@ -625,28 +638,28 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::NavigateDashboard,
         label: "Session Dashboard",
-        hint: "C-x d",
+        hint: "/dashboard",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
-        slash: None,
+        slash: Some("/dashboard"),
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open server session orchestrator dashboard (C-x d)",
+        description: "Open server session orchestrator dashboard (/dashboard)",
     },
     CommandSpec {
         id: CommandId::NavigateSettings,
         label: "Settings",
-        hint: "C-x ,",
+        hint: "Alt-,",
         category: CommandCategory::Settings,
         scope: Scope::Global,
-        bindings: &[],
-        slash: None,
+        bindings: &[Key::ALT_COMMA],
+        slash: Some("/settings"),
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open application and appearance settings (C-x ,)",
+        description: "Open application and appearance settings (Alt-, / /settings)",
     },
     CommandSpec {
         id: CommandId::OpenQueue,
@@ -846,7 +859,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::OpenSessions,
         label: "Threads",
-        hint: "C-x s",
+        hint: "/threads",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
         bindings: &[],
@@ -854,7 +867,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Switch between saved project threads (C-x s / /threads)",
+        description: "Switch between saved project threads (/threads)",
     },
     // Management Actions
     CommandSpec {
@@ -1406,6 +1419,9 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::CommandPalette => None,
         CommandId::Quit => Some(Key::CTRL_C),
         CommandId::CloseTab => Some(Key::ALT_W),
+        CommandId::NewTab => Some(Key::ALT_T),
+        CommandId::NavigateDashboard => None,
+        CommandId::NavigateSettings => Some(Key::ALT_COMMA),
         CommandId::KillThread => None,
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
         CommandId::OpenThreadStats => None,
@@ -1413,7 +1429,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::OpenActiveConnectionDetail => None,
         CommandId::CancelOrBack => Some(Key::ESC),
         CommandId::OpenQueue => Some(Key::CTRL_Q),
-        CommandId::OpenNotices => Some(Key::CTRL_O),
+        CommandId::OpenNotices => Some(Key::ALT_O),
         CommandId::OpenHelp => Some(Key::F1),
         _ => None,
     }
@@ -1423,13 +1439,13 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 /// Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit,
 /// Ctrl+Shift+C copy), ignoring user overrides. Esc resolves to
 /// [`CommandId::CancelOrBack`], which never navigates between Scenes.
-/// The Command Palette is accessible via `/palette` and `p` in the Help dialog (ADR-0131).
+/// The Command Palette is accessible via `/commands` and user remaps.
 fn canonical_global_key(key: Key) -> Option<CommandId> {
     if key == Key::F1 || key == Key::ALT_H {
         Some(CommandId::OpenHelp)
     } else if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
-    } else if key == Key::CTRL_O {
+    } else if key == Key::ALT_O {
         Some(CommandId::OpenNotices)
     } else if key == Key::ESC {
         Some(CommandId::CancelOrBack)
@@ -1437,6 +1453,10 @@ fn canonical_global_key(key: Key) -> Option<CommandId> {
         Some(CommandId::Quit)
     } else if key == Key::ALT_W {
         Some(CommandId::CloseTab)
+    } else if key == Key::ALT_T {
+        Some(CommandId::NewTab)
+    } else if key == Key::ALT_COMMA {
+        Some(CommandId::NavigateSettings)
     } else if key == Key::CTRL_SHIFT_C || key == Key::CMD_C {
         Some(CommandId::CopySelection)
     } else {
@@ -1451,6 +1471,9 @@ pub fn command_id_from_name(name: &str) -> Option<CommandId> {
         "interrupt" | "interrupt_task" | "interrupt-task" => CommandId::InterruptTask,
         "quit" | "quit_nuo" | "quit-nuo" => CommandId::Quit,
         "close_tab" | "close-tab" | "close" => CommandId::CloseTab,
+        "new_tab" | "new-tab" | "new_thread" | "new" => CommandId::NewTab,
+        "dashboard" | "navigate_dashboard" => CommandId::NavigateDashboard,
+        "settings" | "config" | "navigate_settings" => CommandId::NavigateSettings,
         "kill" | "kill_thread" | "kill-thread" | "kill_conversation" | "kill-conversation" => {
             CommandId::KillThread
         }
@@ -1785,12 +1808,9 @@ mod tests {
         // The Command Palette has no canonical single-stroke chord: it is
         // opened by the `C-x` scene namespace's `p` verb (ADR-0023).
         assert_eq!(resolve_global_key(Key::CTRL_L), None);
-        // Ctrl-o is the notice viewer's chord: the fault bubble advertises it,
+        // Alt-o is the notice viewer's chord: the fault bubble advertises it,
         // so it must resolve to the verb the bubble names.
-        assert_eq!(
-            resolve_global_key(Key::CTRL_O),
-            Some(CommandId::OpenNotices)
-        );
+        assert_eq!(resolve_global_key(Key::ALT_O), Some(CommandId::OpenNotices));
         assert_eq!(resolve_global_key(Key::ESC), Some(CommandId::CancelOrBack));
         assert_eq!(resolve_global_key(Key::CTRL_C), Some(CommandId::Quit));
         assert_eq!(resolve_global_key(Key::CTRL_Q), Some(CommandId::OpenQueue));
@@ -1964,11 +1984,11 @@ mod tests {
             resolve_global_key_with(Key::CTRL_Q, &o),
             Some(CommandId::OpenQueue)
         );
-        // Commands without canonical chords resolve to None. Ctrl-o *has* a
+        // Commands without canonical chords resolve to None. Alt-o *has* a
         // canonical chord (the notice viewer) and is untouched by this override
         // set, so it still fires.
         assert_eq!(
-            resolve_global_key_with(Key::CTRL_O, &o),
+            resolve_global_key_with(Key::ALT_O, &o),
             Some(CommandId::OpenNotices)
         );
         assert_eq!(resolve_global_key_with(Key::CTRL_L, &o), None);
@@ -2109,9 +2129,19 @@ mod tests {
             find_by_slash("/models").map(|c| c.id),
             Some(CommandId::OpenModels)
         );
-        // ADR-0041 [INV-CMD-01]: Workspace views are purged from thread slash triggers
-        assert!(find_by_slash("/settings").is_none());
-        assert!(find_by_slash("/dashboard").is_none());
+        assert_eq!(
+            find_by_slash("/settings").map(|c| c.id),
+            Some(CommandId::NavigateSettings)
+        );
+        assert_eq!(
+            find_by_slash("/dashboard").map(|c| c.id),
+            Some(CommandId::NavigateDashboard)
+        );
+        assert_eq!(find_by_slash("/new").map(|c| c.id), Some(CommandId::NewTab));
+        assert_eq!(
+            find_by_slash("/close").map(|c| c.id),
+            Some(CommandId::CloseTab)
+        );
         assert_eq!(
             find_by_slash("/commands").map(|c| c.id),
             Some(CommandId::CommandPalette)

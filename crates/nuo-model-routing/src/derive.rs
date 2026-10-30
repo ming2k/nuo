@@ -432,11 +432,15 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
         return key.clone();
     }
     // The OpenCode relay surfaces share one key env var (`OPENCODE_API_KEY`):
-    // Zen (`/zen/v1`) and Plan (`/zen/go/v1`) both authenticate with it.
-    if matches!(
-        connection.provider.as_str(),
-        "opencode-plan" | "opencode-zen" | "opencode-go"
-    ) && let Ok(value) = std::env::var("OPENCODE_API_KEY")
+    // Zen (`/zen/v1`) and Go (`/zen/go/v1`) both authenticate with it.
+    if matches!(connection.provider.as_str(), "opencode-go" | "opencode-zen")
+        && let Ok(value) = std::env::var("OPENCODE_API_KEY")
+        && !value.trim().is_empty()
+    {
+        return SecretString::from(value);
+    }
+    if connection.provider == "commandcode-goat"
+        && let Ok(value) = std::env::var("COMMANDCODE_API_KEY")
         && !value.trim().is_empty()
     {
         return SecretString::from(value);
@@ -464,8 +468,80 @@ pub fn effective_availability(
     remote: Option<&nuo_wire::RemoteModelMetadata>,
     providers: &ModelProviders,
 ) -> (nuo_wire::Availability, bool) {
+    effective_availability_with_rules(connection, model, remote, providers, &[])
+}
+
+/// The provider's declaration lives in the model's
+/// [`nuo_wire::RemoteModelMetadata`], layered with live dynamic
+/// [`nuo_wire::ModelAvailabilityRule`] declarations from quota or limit evaluators.
+/// This resolves them against the connection's own scope.
+pub fn effective_availability_with_rules(
+    connection: &Connection,
+    model: &str,
+    remote: Option<&nuo_wire::RemoteModelMetadata>,
+    providers: &ModelProviders,
+    rules: &[nuo_wire::ModelAvailabilityRule],
+) -> (nuo_wire::Availability, bool) {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    // 1. Static entitlement declaration (e.g. tier requirements) takes precedence
     let declared = remote.map(nuo_wire::RemoteModelMetadata::availability_or_usable);
     let declared = declared.unwrap_or_default();
+    if !declared.usable
+        && declared
+            .status_label
+            .as_deref()
+            .is_some_and(|s| s.contains("tier"))
+    {
+        let sovereign = connection
+            .models
+            .included_ids()
+            .iter()
+            .any(|id| id == model)
+            || providers
+                .get(&connection.provider)
+                .is_some_and(|scope| scope.included_ids().iter().any(|id| id == model));
+        if sovereign {
+            return (nuo_wire::Availability::usable(), true);
+        } else {
+            return (declared, false);
+        }
+    }
+
+    // 2. Dynamic live rules from provider quota/rate limits
+    for rule in rules {
+        if nuo_wire::simple_glob_matches(&rule.pattern, model) {
+            if let Some(reset_ms) = rule.availability.resets_at_ms {
+                if now_ms >= reset_ms {
+                    continue;
+                }
+            }
+            if !rule.availability.usable {
+                let sovereign = connection
+                    .models
+                    .included_ids()
+                    .iter()
+                    .any(|id| id == model)
+                    || providers
+                        .get(&connection.provider)
+                        .is_some_and(|scope| scope.included_ids().iter().any(|id| id == model));
+                if sovereign {
+                    tracing::info!(
+                        connection = %connection.name,
+                        model,
+                        "user scope overrides a provider-declared dynamic unavailable model"
+                    );
+                    return (nuo_wire::Availability::usable(), true);
+                } else {
+                    return (rule.availability.clone(), false);
+                }
+            }
+        }
+    }
+
     if declared.usable {
         return (declared, false);
     }
@@ -486,5 +562,41 @@ pub fn effective_availability(
         (nuo_wire::Availability::usable(), true)
     } else {
         (declared, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_availability_with_rules_enforces_dynamic_provider_rule() {
+        let conn = Connection {
+            name: "antigravity".to_string(),
+            provider: "google-antigravity".to_string(),
+            ..Default::default()
+        };
+        let providers = ModelProviders::default();
+        let rules = vec![nuo_wire::ModelAvailabilityRule {
+            pattern: "claude-*".to_string(),
+            availability: nuo_wire::Availability::disabled(
+                "disabled: 5h limit",
+                Some("5h limit reached".to_string()),
+                Some(1999999999000),
+            ),
+        }];
+
+        // claude-3-7-sonnet matches dynamic rule
+        let (avail, overridden) =
+            effective_availability_with_rules(&conn, "claude-3-7-sonnet", None, &providers, &rules);
+        assert!(!avail.usable);
+        assert_eq!(avail.display_status(), Some("disabled: 5h limit"));
+        assert!(!overridden);
+
+        // gemini-2.5-flash does not match rule and has no static lock
+        let (avail, overridden) =
+            effective_availability_with_rules(&conn, "gemini-2.5-flash", None, &providers, &rules);
+        assert!(avail.usable);
+        assert!(!overridden);
     }
 }

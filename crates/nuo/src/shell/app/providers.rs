@@ -430,11 +430,12 @@ impl App {
     /// `models_flat_filtered_from` so the input handler and the renderer
     /// share one filter+sort implementation.
     pub fn models_flat_filtered(&self) -> Vec<RankedModel> {
-        models_flat_filtered_from(
+        models_flat_filtered_from_with_quotas(
             &self.provider_picker,
             &self.current_provider,
             &self.current_model,
             self.picker_query(),
+            self.provider_quotas.as_ref(),
         )
     }
 

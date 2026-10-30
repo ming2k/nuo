@@ -939,8 +939,8 @@ fn deepseek_route_is_the_responses_transport() {
 }
 
 #[test]
-fn opencode_plan_routes_models_by_wire_format() {
-    let go = instance("opencode-plan", Some("opencode-plan"));
+fn opencode_go_routes_models_by_wire_format() {
+    let go = instance("opencode-go", Some("opencode-go"));
     let glm = derive_channel(
         &go,
         "glm-5.2",
@@ -984,7 +984,7 @@ fn opencode_plan_routes_models_by_wire_format() {
         "qwen3.6-plus must route to the Anthropic /messages surface on zen/go relay"
     );
     assert_eq!(
-        route_for_model("opencode-plan", "qwen3.6-plus").map(|(p, b, _)| (p, b)),
+        route_for_model("opencode-go", "qwen3.6-plus").map(|(p, b, _)| (p, b)),
         Some((
             WireProtocol::AnthropicMessages,
             "https://opencode.ai/inference/go/anthropic/v1/messages".to_string()
@@ -2337,7 +2337,7 @@ fn relay_surfaces_default_to_curated_noise_hygiene() {
             "omen-alpha".to_string(),
         ],
     );
-    let connection = instance("my-go", Some("opencode-plan"));
+    let connection = instance("my-go", Some("opencode-go"));
 
     let models = route_models(&connection, &cache, declarations());
     assert!(models.contains(&"deepseek-v4.1-flash".to_string()));
@@ -2392,7 +2392,7 @@ fn relay_labels_and_seeds_survive_the_hygiene_valve() {
         "my-go".to_string(),
         vec!["deepseek-v4.1-flash".to_string(), "beam-free".to_string()],
     );
-    let connection = instance("my-go", Some("opencode-plan"));
+    let connection = instance("my-go", Some("opencode-go"));
     let inputs = inputs_with_cache(&cache);
 
     let ch = derive_channel(&connection, "deepseek-v4.1-flash", &inputs).expect("channel");
@@ -2417,7 +2417,7 @@ fn relay_labels_and_seeds_survive_the_hygiene_valve() {
     assert!(!models.contains(&"beam-free".to_string()));
 
     // ...but an id the surface's own baseline curates is never filtered by that
-    // same valve: `opencode-plan` seeds `*-free` tiers deliberately.
+    // same valve: `opencode-go` seeds `*-free` tiers deliberately.
     let mut seeded_cache = RemoteCatalogCache::default();
     seeded_cache.connection_models.insert(
         "my-go".to_string(),

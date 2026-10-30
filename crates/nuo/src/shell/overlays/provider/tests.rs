@@ -799,7 +799,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     });
     let text = buffer_text(&terminal);
     assert!(text.contains("gmodel"), "locked row is listed");
-    assert!(text.contains("locked"), "lock tag renders");
+    assert!(text.contains("disabled"), "disabled tag renders");
 
     // ADR-0076: verify that locked rows render completely dimmed without bold weight
     let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
@@ -913,7 +913,10 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
         );
     });
     let text = buffer_text(&terminal);
-    assert!(text.contains("locked"), "clean lock badge rendered: {text}");
+    assert!(
+        text.contains("disabled"),
+        "clean disabled badge rendered: {text}"
+    );
     assert!(
         text.contains("overridden"),
         "an override of an upstream lock is disclosed, not silent: {text}"
@@ -1046,8 +1049,11 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         effort_levels: vec![],
         favorite: false,
         usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: None,
         context_window: 128_000,
-        locked_reason: None,
+        reason: None,
         availability_overridden: false,
         availability_stale: false,
         last_used_ms: None,
@@ -1067,8 +1073,11 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         effort_levels: vec![],
         favorite: false,
         usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: None,
         context_window: 128_000,
-        locked_reason: None,
+        reason: None,
         availability_overridden: false,
         availability_stale: false,
         last_used_ms: None,
@@ -1291,7 +1300,10 @@ fn models_modal_leads_with_the_model_name_for_opaque_catalog_keys() {
         locked.find("GLM-5.3").expect("name") < locked.find("gmodel").expect("key"),
         "a locked row is name-first as well: {locked:?}"
     );
-    assert!(locked.contains("locked"), "lock tag renders: {locked:?}");
+    assert!(
+        locked.contains("disabled"),
+        "disabled tag renders: {locked:?}"
+    );
 
     // Searching by the opaque key still finds the row, and by the name too.
     assert!(
@@ -1719,6 +1731,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
                 value: "100.50".to_string(),
                 unit: Some("CNY".to_string()),
             }],
+            model_rules: Vec::new(),
             updated_at_ms: None,
         })),
         budget: Default::default(),
@@ -1857,6 +1870,7 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
             )),
             primary_balance: Some("60% Quota".to_string()),
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             updated_at_ms: None,
         })),
         budget: Default::default(),
@@ -2134,6 +2148,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
             )),
             primary_balance: Some("1% Quota".to_string()),
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             updated_at_ms: None,
         })),
         budget: Default::default(),
@@ -2308,8 +2323,8 @@ fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usag
     let mut terminal = nuotc::TestTerminal::new(80, 30);
     let detail = nuo_wire::ConnectionDetail {
         name: "Command Code".to_string(),
-        provider: "commandcode-plan".to_string(),
-        provider_label: "CommandCode Plan".to_string(),
+        provider: "commandcode-goat".to_string(),
+        provider_label: "CommandCode GOAT".to_string(),
         protocol: "openai".to_string(),
         base_url: "https://api.commandcode.ai/provider/v1".to_string(),
         auth_type: "API Key".to_string(),
@@ -2338,6 +2353,7 @@ fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usag
             )),
             primary_balance: Some("42.50 credits".to_string()),
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             updated_at_ms: None,
         })),
         budget: Default::default(),
@@ -2687,6 +2703,7 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
             )),
             primary_balance: None,
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             updated_at_ms: None,
         })),
         budget: Default::default(),
@@ -2759,14 +2776,14 @@ fn redundant_plan_labels_are_identified_and_suppressed_in_header() {
     assert!(is_redundant_plan_label(
         "Command Code",
         "Command Code",
-        "commandcode-plan",
-        "CommandCode Plan"
+        "commandcode-goat",
+        "CommandCode GOAT"
     ));
     assert!(is_redundant_plan_label(
         "Command Code",
         "Default",
-        "commandcode-plan",
-        "CommandCode Plan"
+        "commandcode-goat",
+        "CommandCode GOAT"
     ));
     assert!(is_redundant_plan_label(
         "Quota",
@@ -2815,8 +2832,11 @@ fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
         effort_levels: vec!["low".to_string(), "high".to_string(), "max".to_string()],
         favorite: false,
         usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: None,
         context_window: 1_000_000,
-        locked_reason: None,
+        reason: None,
         availability_overridden: false,
         availability_stale: false,
         last_used_ms: None,
@@ -2907,6 +2927,7 @@ fn connection_detail_renders_active_model_pricing_and_rates() {
             )),
             primary_balance: Some("¥100.50".to_string()),
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             description: None,
             updated_at_ms: None,
         })),
@@ -2983,6 +3004,7 @@ fn connection_detail_omits_pricing_for_subscription_plans() {
             )),
             primary_balance: None,
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             description: None,
             updated_at_ms: None,
         })),
@@ -3167,6 +3189,7 @@ fn periodic_quota_buckets_redesign_layout_order_and_styling() {
             })),
             primary_balance: None,
             metrics: Vec::new(),
+            model_rules: Vec::new(),
             updated_at_ms: None,
         })),
         ..Default::default()

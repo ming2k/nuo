@@ -275,6 +275,7 @@ pub(crate) async fn add(
         );
         return;
     };
+    let provider = spec.id.to_string();
     let is_open_universe =
         spec.baselines.is_empty() && spec.catalog_source == nuo_provider::RemoteCatalogSource::None;
     let trimmed_key = api_key.expose_secret().trim();
@@ -575,14 +576,14 @@ pub(crate) async fn edit(
     let mut connections = Connections::load();
     let trimmed_key = api_key.expose_secret().trim();
     // The provider must resolve (INV-2).
-    if crate::provider_registry::model_provider_spec(&provider).is_none() {
+    let Some(spec) = crate::provider_registry::model_provider_spec(&provider) else {
         reject(
             resp_tx,
             "Could not edit connection",
             &format!("unknown model provider '{provider}'"),
         );
         return;
-    }
+    };
     let Some(instance) = connections.get_mut(&name) else {
         reject(
             resp_tx,
@@ -591,7 +592,7 @@ pub(crate) async fn edit(
         );
         return;
     };
-    instance.provider = provider;
+    instance.provider = spec.id.to_string();
     if let Some(h) = headers {
         instance.headers = h;
     }
@@ -1591,21 +1592,25 @@ async fn activate(
     refresh_oauth_if_needed(config, &provider_type).await;
 
     let session_id = agent.thread_id();
-    let Some(new_p) = nuo_model_routing::build_provider_for_model(
+    let rules = match crate::usage_cache::shared_usage_cache().get(&provider_type) {
+        Some(nuo_wire::ConnectionUsageState::Available(usage)) => usage.model_rules.clone(),
+        _ => Vec::new(),
+    };
+    let Some(new_p) = nuo_model_routing::build_provider_for_model_with_rules(
         config,
         &provider_type,
         Some(&model),
         session_id.as_deref(),
+        &rules,
     )
     .or_else(|| nuo_model_routing::build_provider_for(config, &provider_type)) else {
         tracing::warn!(
             provider_type = %provider_type,
             model = %model,
-            "activate refused: catalog could not resolve a real provider/channel",
+            "activate refused: catalog or quota rule refused provider/channel",
         );
         let _ = resp_tx.send(AgentResponse::Error(format!(
-            "No connection configured for '{provider_type}'. \
-             Add one with /connections before sending a message."
+            "Model '{model}' on '{provider_type}' is unavailable or unconfigured."
         )));
         // Re-push the picker so the UI reflects that nothing switched.
         let _ = resp_tx.send(AgentResponse::ProviderPicker(
@@ -2204,8 +2209,32 @@ pub async fn query_provider_quotas(
             let _ = resp_tx.send(AgentResponse::ProviderQuotas(
                 build_provider_quota_snapshot(&provider_filter, &entries),
             ));
+
+            let dynamic_rules = collect_cached_dynamic_rules();
+            let usage_store = ConnectionUsage::load();
+            let picker = nuo_model_routing::build_picker_state_with_rules(
+                &config,
+                &usage_store,
+                &dynamic_rules,
+            );
+            let _ = resp_tx.send(AgentResponse::ProviderPicker(picker));
         }
     }
+}
+
+pub(crate) fn collect_cached_dynamic_rules()
+-> std::collections::HashMap<String, Vec<nuo_wire::ModelAvailabilityRule>> {
+    let mut map = std::collections::HashMap::new();
+    let cache = crate::usage_cache::shared_usage_cache();
+    let stores = nuo_model_routing::Stores::load();
+    for conn in &stores.connections.connections {
+        if let Some(nuo_wire::ConnectionUsageState::Available(usage)) = cache.get(&conn.name) {
+            if !usage.model_rules.is_empty() {
+                map.insert(conn.name.clone(), usage.model_rules);
+            }
+        }
+    }
+    map
 }
 
 /// Query all connections' live provider usage concurrently and stream updates.
@@ -2660,6 +2689,86 @@ mod tests {
             Some(nuo_wire::ConnectionFilterPolicy::Named(
                 nuo_wire::NamedFilterPolicy::All
             ))
+        );
+    }
+
+    #[tokio::test]
+    async fn add_connection_persists_commandcode_and_opencode() {
+        let dir = tempfile::tempdir().unwrap();
+        let dirs = nuo_persistence::paths::Dirs {
+            config_dir: dir.path().join("config"),
+            data_dir: dir.path().join("data"),
+            state_dir: dir.path().join("state"),
+            cache_dir: dir.path().join("cache"),
+            runtime_dir: None,
+        };
+        let _sandbox = nuo_persistence::paths::TestDirsGuard::install(dirs);
+        crate::provider_registry::init();
+
+        let mut config = Config::default();
+        let session = SessionStore::for_path(dir.path().join("session.json"));
+        let agent = nuo_harness::Agent::builder(
+            Arc::new(nuo_harness::NoProvider),
+            Vec::new(),
+            nuo_harness::AgentIdentity::default(),
+        )
+        .build();
+        let provider_for_task = Arc::new(std::sync::RwLock::new(agent.provider.clone()));
+        let (resp_tx, _resp_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut usage = ConnectionUsage::default();
+
+        let env = ProviderEnv {
+            config: &mut config,
+            agent: &agent,
+            provider_for_task: &provider_for_task,
+            session: &session,
+            resp_tx: &resp_tx,
+            provider_usage: &mut usage,
+        };
+
+        // Add CommandCode GOAT connection
+        let params = AddConnectionParams {
+            name: "cc-goat".to_string(),
+            provider: "commandcode-goat".to_string(),
+            api_key: SecretString::from("key-cc"),
+            models: vec![],
+            auth: nuo_wire::ConnectionAuth::Static,
+            headers: None,
+            budget: Default::default(),
+            entitlement: None,
+        };
+        add(env, params, None).await;
+
+        let env = ProviderEnv {
+            config: &mut config,
+            agent: &agent,
+            provider_for_task: &provider_for_task,
+            session: &session,
+            resp_tx: &resp_tx,
+            provider_usage: &mut usage,
+        };
+
+        // Add OpenCode Go connection
+        let params = AddConnectionParams {
+            name: "oc-go".to_string(),
+            provider: "opencode-go".to_string(),
+            api_key: SecretString::from("key-oc"),
+            models: vec![],
+            auth: nuo_wire::ConnectionAuth::Static,
+            headers: None,
+            budget: Default::default(),
+            entitlement: None,
+        };
+        add(env, params, None).await;
+
+        let conns = Connections::load();
+        assert_eq!(
+            conns.get("cc-goat").expect("cc-goat saved").provider,
+            "commandcode-goat"
+        );
+        assert_eq!(
+            conns.get("oc-go").expect("oc-go saved").provider,
+            "opencode-go"
         );
     }
 

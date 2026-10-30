@@ -923,10 +923,14 @@ pub(crate) fn is_redundant_plan_label(
     let norm_prov = normalize(provider);
     let norm_prov_lbl = normalize(provider_label);
 
+    fn strip_tier(s: &str) -> &str {
+        s.trim_end_matches("plan").trim_end_matches("goat")
+    }
+
     norm_plan == norm_conn
         || norm_plan == norm_prov
         || norm_plan == norm_prov_lbl
-        || norm_plan.trim_end_matches("plan") == norm_conn.trim_end_matches("plan")
-        || norm_plan.trim_end_matches("plan") == norm_prov.trim_end_matches("plan")
-        || norm_plan.trim_end_matches("plan") == norm_prov_lbl.trim_end_matches("plan")
+        || strip_tier(&norm_plan) == strip_tier(&norm_conn)
+        || strip_tier(&norm_plan) == strip_tier(&norm_prov)
+        || strip_tier(&norm_plan) == strip_tier(&norm_prov_lbl)
 }

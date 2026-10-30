@@ -22,20 +22,14 @@ fn binding_row(key: &str, desc: &str, theme: &Theme) -> Line<'static> {
     ])
 }
 
-/// Section title banner inside the help body.
+/// Section title inside the help body.
 fn section_header(title: &str, theme: &Theme) -> Line<'static> {
-    Line::from(vec![
-        Span::styled(
-            format!("── {} ", title),
-            Style::default()
-                .fg(theme.brand())
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            "─".repeat(50usize.saturating_sub(title.len() + 4)),
-            Style::default().fg(theme.dim()),
-        ),
-    ])
+    Line::from(Span::styled(
+        title.to_string(),
+        Style::default()
+            .fg(theme.brand())
+            .add_modifier(Modifier::BOLD),
+    ))
 }
 
 /// Render the sovereign Help dialog.
@@ -75,14 +69,14 @@ pub fn draw_help_modal(
             } else {
                 "Notices & diagnostic fault log".to_string()
             };
-            body.push(binding_row("Ctrl-O", &notice_desc, theme));
+            body.push(binding_row("Alt-o", &notice_desc, theme));
             body.push(binding_row(
-                "Alt-T",
+                "/stats",
                 "Context window & token telemetry",
                 theme,
             ));
             body.push(binding_row(
-                "Alt-C",
+                "/connections",
                 "Model route & connection details",
                 theme,
             ));
@@ -120,8 +114,8 @@ pub fn draw_help_modal(
 
     // 2. Client Domain: Tabs & Workspaces
     body.push(section_header("Tabs & Workspaces", theme));
-    body.push(binding_row("t", "New thread in a new tab", theme));
-    body.push(binding_row("w", "Close active tab", theme));
+    body.push(binding_row("Alt-t", "New thread in a new tab", theme));
+    body.push(binding_row("Alt-w", "Close active tab", theme));
     body.push(binding_row(
         "Alt-[ / ]",
         "Switch to previous / next tab",
@@ -136,19 +130,19 @@ pub fn draw_help_modal(
 
     // 3. Client Domain: Views & Navigation
     body.push(section_header("Views & Navigation", theme));
-    body.push(binding_row("d", "Navigate to Dashboard", theme));
+    body.push(binding_row("/dashboard", "Navigate to Dashboard", theme));
     body.push(binding_row(
-        "s",
+        "/threads",
         "Open saved threads overview picker",
         theme,
     ));
-    body.push(binding_row(",", "Open Settings & appearance", theme));
+    body.push(binding_row("Alt-,", "Open Settings & appearance", theme));
     body.push(Line::from(""));
 
     // 4. Client Domain: System & Tools
     body.push(section_header("System & Tools", theme));
     body.push(binding_row(
-        "p",
+        "/commands",
         "Open Command Palette (Quick Switcher)",
         theme,
     ));
@@ -181,4 +175,18 @@ pub fn draw_help_modal(
     }
 
     bounds
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn section_header_renders_plain_title_without_dividers() {
+        let theme = Theme::default();
+        let line = section_header("Thread #d445", &theme);
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content, "Thread #d445");
+        assert!(!line.spans[0].content.contains('─'));
+    }
 }

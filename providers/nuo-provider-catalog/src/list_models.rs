@@ -507,7 +507,9 @@ fn parse_codex_models(json: &Value) -> Vec<DiscoveredModel> {
                     .and_then(Value::as_bool)
                     .map(|usable| Availability {
                         usable,
+                        status_label: None,
                         reason: None,
+                        resets_at_ms: None,
                     });
             let vision = entry
                 .get("input_modalities")
@@ -801,12 +803,14 @@ fn copilot_model_from_capabilities(
     {
         Some("disabled") => Some(Availability {
             usable: false,
+            status_label: None,
             reason: entry
                 .get("policy")
                 .and_then(|policy| policy.get("terms"))
                 .and_then(Value::as_str)
                 .filter(|terms| !terms.is_empty())
                 .map(str::to_string),
+            resets_at_ms: None,
         }),
         Some("enabled") => Some(Availability::usable()),
         _ => None,

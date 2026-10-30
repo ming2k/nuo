@@ -439,7 +439,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
 }
 
 #[tokio::test]
-async fn ctrl_o_opens_the_viewer_even_with_a_dialog_up() {
+async fn alt_o_opens_the_viewer_even_with_a_dialog_up() {
     // A fault recorded while a dialog is up is exactly the case the user needs
     // to review, so the chord must not be swallowed by the modal.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
@@ -449,7 +449,7 @@ async fn ctrl_o_opens_the_viewer_even_with_a_dialog_up() {
     let action = crate::shell::input::route_event(
         crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('o'),
-            crossterm::event::KeyModifiers::CONTROL,
+            crossterm::event::KeyModifiers::ALT,
         )),
         &mut String::new(),
         &mut 0,

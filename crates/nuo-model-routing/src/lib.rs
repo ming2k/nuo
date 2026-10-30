@@ -28,12 +28,13 @@ mod picker;
 mod sync;
 
 pub use derive::{
-    DerivationInputs, derive_channel, derive_entries, derive_entry, resolve_credential,
-    route_models,
+    DerivationInputs, derive_channel, derive_entries, derive_entry, effective_availability,
+    effective_availability_with_rules, resolve_credential, route_models,
 };
 use picker::active_model_id_for_entry;
 pub use picker::{
-    build_picker_state, channel_model_info, prune_stale_models, prune_stale_models_on_disk,
+    build_picker_state, build_picker_state_with_rules, channel_model_info, prune_stale_models,
+    prune_stale_models_on_disk,
 };
 pub use sync::{
     ConnectionUpdate, RoutingSyncFailureEntry, RoutingSyncOutcome,
@@ -152,6 +153,16 @@ pub fn build_provider_for_model(
     model_id: Option<&str>,
     session_id: Option<&str>,
 ) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
+    build_provider_for_model_with_rules(config, connection_id, model_id, session_id, &[])
+}
+
+pub fn build_provider_for_model_with_rules(
+    config: &Config,
+    connection_id: &str,
+    model_id: Option<&str>,
+    session_id: Option<&str>,
+    rules: &[nuo_wire::ModelAvailabilityRule],
+) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
     let stores = Stores::load();
     let entry = derive_entries(&stores.connections, &stores.inputs())
         .into_iter()
@@ -166,17 +177,19 @@ pub fn build_provider_for_model(
     let usable = |channel: &&nuo_provider::catalog::Channel| {
         let (availability, overridden) =
             connection.map_or((nuo_wire::Availability::usable(), false), |connection| {
-                derive::effective_availability(
+                derive::effective_availability_with_rules(
                     connection,
                     &channel.model,
                     channel.remote.as_ref(),
                     &stores.providers,
+                    rules,
                 )
             });
         if !availability.usable {
             tracing::warn!(
                 connection = %entry.id,
                 model = %channel.model,
+                status = availability.display_status().unwrap_or("disabled"),
                 reason = availability.reason.as_deref().unwrap_or(""),
                 "refusing to route a model the provider declared unavailable",
             );

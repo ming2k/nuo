@@ -65,12 +65,7 @@ pub struct CommandCodeUsageFetcher;
 
 impl CommandCodeUsageFetcher {
     pub fn matches(&self, provider: &str, base_url: &str) -> bool {
-        // The canonical provider id is `commandcode-goat`; the
-        // legacy `commandcode` and `commandcode-plan` spellings are kept for old stored connections.
-        matches!(
-            provider,
-            "commandcode" | "commandcode-goat" | "commandcode-plan"
-        ) || base_url.contains("commandcode.ai")
+        provider == "commandcode-goat" || base_url.contains("commandcode.ai")
     }
 
     pub async fn fetch_usage(
@@ -241,6 +236,7 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
         quota,
         primary_balance: remaining.map(|r| format!("{r:.2} credits")),
         metrics,
+        model_rules: Vec::new(),
         updated_at_ms: now_ms,
     }
 }
