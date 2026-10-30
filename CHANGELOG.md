@@ -8,6 +8,29 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.59] - 2026-10-30
+
+### Added
+
+- **Dynamic Model Availability Rules and Live Quota Evaluation.**
+  - Added `ModelAvailabilityRule` on `ProviderUsage` to allow providers to dynamically report rate limits and quotas evaluated at runtime.
+  - Extended `Availability` with compact status labels (e.g. `disabled: 5h limit`, `disabled: tier`), detailed explanations, and unix epoch reset timestamps.
+  - Implemented live 5h rolling quota limit tracking for Google Antigravity Claude models with automatic availability de-escalation and reset time formatting.
+  - Displayed model availability status in the connection and model picker overlays, rendering status badges and reset countdowns.
+- **Terminal Shortcuts and Conflicts Documentation.**
+  - Documented keyboard shortcut trade-offs, escape sequences, POSIX terminal collisions, and terminal emulator configurations in `docs/explanation/terminal-shortcuts-and-conflicts.md`.
+
+### Changed
+
+- **Keybinding Harmonization.**
+  - Bound `Alt-t` to open a new tab/session (`CommandId::NewTab`), aligned `Alt-w` for closing tabs, and verified `Alt-o` for opening notices.
+  - Standardized Help Dialog bindings display, advertising canonical chords and slash commands (`/commands`, `/dashboard`, `/threads`, `/stats`, `/connections`).
+  - Cleaned up section header styling in help overlays.
+
+### Removed
+
+- Abolished deprecated `commandcode-plan` and `opencode-plan` provider aliases and removed legacy `docs/reference/openapi/commandcode-plan.yml`.
+
 ## [0.0.58] - 2026-10-30
 
 ### Added
