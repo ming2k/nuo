@@ -46,7 +46,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -59,7 +58,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -72,7 +70,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -85,7 +82,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -110,6 +106,8 @@ fn prompt_cache_for_model(_: &str) -> nuo_provider::PromptCacheSpec {
     }
 }
 
+const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
+
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Standard,
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
@@ -118,15 +116,12 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("kimi-code"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api.kimi.com/coding/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider::OPENCODE_USER_AGENT,
-    )),
+    user_agent: Some(std::borrow::Cow::Borrowed(OPENCODE_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiChatCompletions,
     // The Kimi Code platform exposes a live /models endpoint, so instances
     // created from this preset track the platform's actual model list.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_provider::ClientPreset::Native,
-    client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::KimiBalance),
     display_policy: nuo_provider::DisplayPolicy::Native,
     responses_state: nuo_provider::ResponsesState::Stateless,

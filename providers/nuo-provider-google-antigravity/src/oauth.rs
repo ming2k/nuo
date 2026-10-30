@@ -82,7 +82,7 @@ async fn antigravity_post(
         .header("authorization", format!("Bearer {access_token}"))
         .header(
             "user-agent",
-            nuo_provider::client_identity::ANTIGRAVITY_USER_AGENT,
+            crate::spec_antigravity::ANTIGRAVITY_USER_AGENT,
         )
         .json(body);
     client
@@ -327,7 +327,7 @@ pub fn antigravity_preset() -> OAuthConfig {
         extra_refresh_params: Vec::new(),
         extra_headers: Vec::new(),
         user_agent: Some(Cow::Borrowed(
-            nuo_provider::client_identity::ANTIGRAVITY_USER_AGENT,
+            crate::spec_antigravity::ANTIGRAVITY_USER_AGENT,
         )),
         browser_login: true,
         default_login_method: LoginMethod::Browser,
@@ -518,7 +518,7 @@ mod tests {
             .user_agent
             .expect("antigravity preset declares a User-Agent");
         assert!(ua.starts_with("antigravity/cli/"));
-        assert_eq!(ua, nuo_provider::client_identity::ANTIGRAVITY_USER_AGENT);
+        assert_eq!(ua, crate::spec_antigravity::ANTIGRAVITY_USER_AGENT);
     }
 
     #[test]

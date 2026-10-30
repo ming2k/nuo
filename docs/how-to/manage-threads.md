@@ -27,13 +27,31 @@ new it is, and a trunk's branches are likewise newest first. Positions come from
 creation time only — never from the last time a thread was touched — so the list
 does not shift under the cursor while a model streams (ADR-0128).
 
-The dashboard dock is the exception: its `#N` labels are the addresses the console
-accepts (for example `@3 please retry`), so they keep counting from the oldest
-session upward (ADR-0120, ADR-0128).
+The dashboard fleet table is the exception: its `#N` labels are the addresses the console
+accepts (for example `@3 please retry`), counting from the oldest session upward (ADR-0120, ADR-0128).
 
 ---
 
-## 2. List and Terminate Threads
+## 2. Global Thread Fleet Dashboard
+
+Open the full-screen fleet dashboard (`/dashboard` or `d` via Help `[F1 / Alt-h]`) to monitor and direct every hosted thread across all projects:
+
+- **Fleet Overview**: Live metrics band displaying active thread count, running state, items requiring attention (`NeedsApproval`, `NeedsInput`, `Failed`), and total tokens.
+- **Structured Fleet Table**: Lists threads with authentic titles (`Mission / Intent`), visual status chips, workspace names, active tool execution or turn progress, context token metrics, and age.
+- **Deep-Dive Dossier**: Focused thread details display the cognitive mission, intent, milestone progress, tool execution state, and lineage fork point.
+- **Direct Fleet Controls**:
+  - `Enter` / `a`: Switch to and attach the selected thread.
+  - `i`: Interrupt the active generation or round.
+  - `k`: Terminate the selected thread (two-press confirmation safety).
+  - `s`: Suspend the thread into memory.
+  - `p`: Send an immediate prompt or task to the selected thread.
+  - `n`: Launch a brand-new thread.
+  - `/`: Live substring filter across titles, IDs, statuses, and workspaces.
+  - `u`: Switch between Thread Fleet table and decoupled Model Usage analytics.
+
+---
+
+## 3. List and Terminate Threads
 
 List hosted threads and their state, then terminate one by id:
 
@@ -44,7 +62,7 @@ nuo thread rm <thread_id>
 
 ---
 
-## 3. Drive the Server Lifecycle
+## 4. Drive the Server Lifecycle
 
 Start, stop, reload, restart, and inspect the session server:
 

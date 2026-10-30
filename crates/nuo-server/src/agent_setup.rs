@@ -35,3 +35,41 @@ pub fn reseed_tool_variants(agent: &Agent, config: &Config) {
     let model = agent.provider.model();
     agent.set_variant_selection(config.tool_variants.for_model(&model).clone());
 }
+
+/// Re-seed the model-specific behavioral guidance so the system prompt always
+/// tracks the active route, glob patterns, and model family (ADR-0130). Called at
+/// startup and after every provider/model switch.
+pub fn reseed_model_guidance(agent: &Agent, config: &Config) {
+    let model = agent.provider.model();
+    let provider_id = agent.provider.provider_id();
+    let family = agent.provider.model_capabilities().family;
+    let store = nuo_persistence::route_settings::RouteSettingsStore::load();
+    let route = store.settings_for(&provider_id, &model);
+    let guidance = config.resolve_model_guidance(route, &model, &family);
+    agent.set_model_guidance(guidance);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn reseed_model_guidance_populates_agent_from_config() {
+        let provider = Arc::new(nuo_harness::NoProvider);
+        let agent = Agent::new(provider, Vec::new(), nuo_wire::AgentIdentity::default());
+
+        let mut config = Config::default();
+        config.model_guidance.0.insert(
+            "*none*".to_string(),
+            "Prompt engineering: Speak plain Chinese.".to_string(),
+        );
+
+        assert_eq!(agent.model_guidance(), "");
+        reseed_model_guidance(&agent, &config);
+        assert_eq!(
+            agent.model_guidance(),
+            "Prompt engineering: Speak plain Chinese."
+        );
+    }
+}

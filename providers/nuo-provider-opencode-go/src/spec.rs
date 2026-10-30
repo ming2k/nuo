@@ -1,4 +1,4 @@
-//! The `opencode-plan` provider channel: OpenCode Plan subscription surface
+//! The `opencode-go` provider channel: OpenCode Go subscription surface
 //! (`opencode.ai/zen/go/v1`), authenticated via OpenCode Go API key
 //! (`OPENCODE_API_KEY`).
 
@@ -8,8 +8,8 @@ use nuo_provider::reasoning::ReasoningSupport;
 
 use nuo_provider::*;
 
-/// Curated seed models offered by the OpenCode Plan channel.
-pub use nuo_provider::model_providers::OPENCODE_PLAN_MODELS;
+/// Curated seed models offered by the OpenCode Go channel.
+pub use nuo_provider::model_providers::OPENCODE_GO_MODELS;
 
 /// Baseline capability metadata for the models this provider serves.
 ///
@@ -37,7 +37,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -56,7 +55,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -69,7 +67,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -82,7 +79,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -95,7 +91,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -109,7 +104,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -123,7 +117,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -137,7 +130,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -150,7 +142,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -163,7 +154,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -176,7 +166,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -189,7 +178,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -202,7 +190,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -215,7 +202,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -228,7 +214,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -241,7 +226,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -254,7 +238,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -267,7 +250,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -280,7 +262,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -294,7 +275,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -307,7 +287,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -320,7 +299,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -333,7 +311,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -347,7 +324,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -360,7 +336,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -373,7 +348,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -387,7 +361,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -400,7 +373,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -413,7 +385,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -426,7 +397,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -445,7 +415,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -458,7 +427,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -466,6 +434,8 @@ pub const MODELS: &[Model] = &[
 ];
 
 inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+
+pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Standard,
@@ -481,28 +451,28 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     ]),
     catalog_root_url: Some(std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1")),
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("opencode-plan"),
+    id: std::borrow::Cow::Borrowed("opencode-go"),
     baselines: MODELS,
     // Endpoints are per-model by wire format (see `route_for_model`); the
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider::client_identity::OPENCODE_USER_AGENT,
-    )),
+    user_agent: Some(std::borrow::Cow::Borrowed(OPENCODE_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiChatCompletions,
     // Served models come from the live /zen/go/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_provider::ClientPreset::Native,
-    client_profile_sensitive: false,
-    quota: None,
+    // The subscription meters rolling allowances; the typed port binds the
+    // fetcher so dispatch never sniffs the provider id or base URL
+    // (`[INV-PROV-08]`, ADR-0036).
+    quota: Some(nuo_provider::QuotaPort::OpencodeGo),
     display_policy: nuo_provider::DisplayPolicy::Structural,
     responses_state: nuo_provider::ResponsesState::Stateless,
-    models: OPENCODE_PLAN_MODELS,
+    models: OPENCODE_GO_MODELS,
 };
 
 #[cfg(test)]
 mod tests {
-    use super::{MODELS, OPENCODE_PLAN_MODELS};
+    use super::{MODELS, OPENCODE_GO_MODELS};
     use nuo_provider::effort_ladders;
     use nuo_provider::model::{BaselineModels, resolve};
 
@@ -566,8 +536,8 @@ mod tests {
     /// `builtin_provider_models_resolve_with_expected_wire_formats` test
     /// enforces across all built-ins).
     #[test]
-    fn the_plan_seed_stays_registered() {
-        for id in OPENCODE_PLAN_MODELS {
+    fn the_go_seed_stays_registered() {
+        for id in OPENCODE_GO_MODELS {
             let model = resolve(id);
             assert_eq!(model.id, *id, "seeded id {id} must be registered");
         }
@@ -581,7 +551,7 @@ mod tests {
         let count = ids.len();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), count, "duplicate baseline ids in opencode-plan");
+        assert_eq!(ids.len(), count, "duplicate baseline ids in opencode-go");
         let _ = BaselineModels(MODELS); // keep the import tied to the real type
     }
 }

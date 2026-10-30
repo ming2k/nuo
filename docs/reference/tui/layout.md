@@ -12,7 +12,7 @@ The full-frame entry point is `render::draw_transcript` (`crates/nuo-tui/src/ren
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
-│[Refactor DB]  [Fix Auth]  [dashboard]                      C-x menu│   ◄ 1  TabBar
+│[Refactor DB]  [Fix Auth]  [dashboard]                      F1 help │   ◄ 1  TabBar
 ├────────────────────────────────────────────────────────────────────┤
 │THREAD b3c4  Fix retry logic in auth loop     ‹ thread › subagent(2)│   ◄ 2  SceneBar
 ├────────────────────────────────────────────────────────────────────┤
@@ -54,7 +54,7 @@ The head band carries three tiers (ADR-0060, ADR-0062). It is a sibling of the c
 
 | Tier | Rows | Domain | Background Token | Left content | Right content |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~2.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix | `C-x menu` global client affordance |
+| **TabBar** | 1 | Client | `theme.tabbar_bg()` (~2.8% offset) | Project tabs with clean semantic titles (`Refactor DB`, `dashboard`), no ordinal prefix | Status cluster: optional `[!N]` fault badge + `F1 help` affordance |
 | **SceneBar** | 1 | Scene | `theme.scenebar_bg()` (~5.0% offset) | Scene identity + authentic task title (`THREAD <id_tail> <title>`) | Drill-in breadcrumb stack (`‹ thread › subagent #1 › diff`) |
 | **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge, then safety posture tokens (`auto`, `open`) — omitted entirely when the session sits in the safe default | Tilde-shortened workspace path, right-anchored and shrinkable |
 

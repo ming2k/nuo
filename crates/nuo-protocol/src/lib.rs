@@ -126,16 +126,12 @@ pub mod tool_validation;
 
 pub mod capability;
 pub mod catalog;
-pub mod client_identity;
 pub mod connection_auth;
 pub mod connection_detail;
 pub mod model_providers;
 pub mod provider_state;
 pub mod wire_surface;
-pub use client_identity::{
-    ClientCapabilities, ClientIdentity, ClientPreset, ClientProfile, ClientProfileSpec,
-    NUO_USER_AGENT, OPENCODE_CLIENT_HEADERS, OPENCODE_USER_AGENT, OPENCODE_VERSION,
-};
+pub use nuo_provider::NUO_USER_AGENT;
 pub mod effort;
 pub use effort::{COMMON_LADDER, Effort, EffortLevel};
 pub mod tuning;
@@ -320,14 +316,19 @@ pub use policy_schema::*;
 
 /// Current protocol version.
 ///
+/// 17: `ControlRequest::GetUsageStats` — model usage accounting is queryable
+/// on the session-free control plane (ADR-0129 [INV-USAGE-01]). A server that
+/// predates the verb cannot deserialize the tag, so the frame change is not
+/// additive and the window floor moves with it.
+///
 /// 16: `AgentRequest::TrustWorkspace` carries an explicit `TrustDecision`.
 /// A grant and a refusal were previously indistinguishable in that frame (the
 /// domain list was the only carrier), so a client that sends `Deny` must not be
 /// served by a server that would read it as `Grant` — the frame change is not
 /// additive and the window floor moves with it.
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 16;
+pub const MIN_PROTOCOL_VERSION: u32 = 17;
 
 /// Initial options and postures when creating a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -522,6 +523,22 @@ pub enum ControlRequest {
     CloseTcpListener,
     /// ADR-0045: Query runtime endpoint status (port, token, UDS path).
     GetServerEndpoints,
+    /// ADR-0129 [INV-USAGE-01]: Read the cross-session model usage report on
+    /// the session-free control plane, independent of any active thread.
+    ///
+    /// The report aggregates the durable day-partitioned store under
+    /// `data/usage/`, which outlives every session that ever wrote to it, so
+    /// routing the question through a session's duplex made a global statistic
+    /// look thread-scoped: the answer arrived on whichever thread happened to
+    /// be attached, and no thread at all meant no answer. The reply's
+    /// free-string channel carries the JSON-encoded
+    /// [`crate::usage_stats::UsageStatsReport`], the same convention
+    /// [`ControlRequest::AskArchivist`] and
+    /// [`ControlRequest::GetServerEndpoints`] use for their results.
+    GetUsageStats {
+        /// How many recent terminal requests to include in the event tail.
+        event_cap: usize,
+    },
 }
 
 /// Dynamic server endpoint state report (ADR-0045).

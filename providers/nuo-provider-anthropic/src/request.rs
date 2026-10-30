@@ -209,6 +209,12 @@ pub fn beta_header(
 /// The headers this wire format requires on every request, beyond the
 /// always-present `User-Agent`: the auth header, the version, and the optional
 /// beta header for manual thinking.
+pub const COPILOT_CLIENT_HEADERS: &[(&str, &str)] = &[
+    ("Copilot-Integration-Id", "vscode-chat"),
+    ("Editor-Version", "vscode/1.107.0"),
+    ("Editor-Plugin-Version", "copilot-chat/0.35.0"),
+];
+
 pub fn headers(
     api_key: &str,
     capabilities: &nuo_provider::ModelCapabilities,
@@ -217,7 +223,7 @@ pub fn headers(
 ) -> Vec<(&'static str, String)> {
     if copilot {
         let mut headers = vec![("Authorization", format!("Bearer {api_key}"))];
-        for (name, value) in nuo_provider::COPILOT_CLIENT_HEADERS {
+        for (name, value) in COPILOT_CLIENT_HEADERS {
             headers.push((*name, value.to_string()));
         }
         headers.push(("x-initiator", "user".to_string()));

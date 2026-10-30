@@ -253,20 +253,6 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         app.arm_ctrl_c(None);
     }
 
-    // An armed scene namespace survives exactly one keystroke: any keystroke
-    // other than re-arming it disarms it, so a half-typed chord cannot linger
-    // and change the meaning of a later, unrelated key. Pointer events are
-    // deliberately excluded from this state machine: a `C-x` typed while the
-    // pointer reports motion (or a spontaneous resize lands mid-chord) used to
-    // be cancelled by that non-keystroke event, which is why `C-x w` could
-    // appear to need two attempts.
-    if key_event
-        && app.scene_namespace_armed
-        && !matches!(action, input::InputAction::SetSceneNamespaceArmed(_))
-    {
-        app.scene_namespace_armed = false;
-    }
-
     match action {
         input::InputAction::None => {}
         input::InputAction::TerminalResized { cols, rows } => {
@@ -1228,6 +1214,18 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.host_prompting = false;
             }
         }
+        input::InputAction::HostToggleUsage => {
+            app.dashboard_view_usage = !app.dashboard_view_usage;
+            if app.dashboard_view_usage {
+                host::refresh_usage(app, runtime);
+            }
+        }
+        input::InputAction::HostFilterOpen => {
+            app.dashboard_filtering = !app.dashboard_filtering;
+            if !app.dashboard_filtering {
+                app.dashboard_filter.clear();
+            }
+        }
         input::InputAction::HostFocusToggle => {
             app.host_focus = match app.host_focus {
                 crate::shell::overlays::DashboardFocus::List => {
@@ -1457,14 +1455,15 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::CloseModal => {
             modals::handle_close_modal(app, viewed_session_id);
         }
+        input::InputAction::OpenHelp => {
+            if app.active_dialog() == Some(DialogKind::Help) {
+                app.dismiss_surface();
+            } else {
+                app.open_dialog(DialogKind::Help);
+            }
+        }
         input::InputAction::SceneBack => {
             app.scene_back();
-        }
-        input::InputAction::SetSceneNamespaceArmed(armed) => {
-            app.scene_namespace_armed = armed;
-        }
-        input::InputAction::CancelSceneNamespace => {
-            app.scene_namespace_armed = false;
         }
         input::InputAction::TraceInspectDetail => {
             if app.active_dialog() == Some(DialogKind::SessionTrace) {
@@ -1575,7 +1574,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             scroll_tick(app, true);
         }
         input::InputAction::Wheel { up, x, y } => {
-            handle_wheel(app, up, x, y, viewed_session_id);
+            handle_wheel(app, up, x, y, runtime, viewed_session_id);
         }
         input::InputAction::ScrollPageUp => {
             if let Some(mut ent) = app.surfaces.take_active_view() {
@@ -2610,13 +2609,15 @@ pub(super) fn enter_panel(
         DialogKind::Permissions | DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {
             Some(AgentRequest::QuerySessionContext)
         }
-        // Always re-query. The report is a 400-day historical aggregate and
-        // is no longer pushed at round boundaries (the fold cost sat on the
-        // critical path to the round's idle snapshot), so reusing a cached
-        // copy would show the first snapshot forever. The previous numbers
-        // stay on screen until the fresh reply lands, so reopening does not
-        // flash the loading state.
-        DialogKind::UsageStats => Some(AgentRequest::QueryUsageStats { event_cap: 200 }),
+        // ADR-0129 [INV-USAGE-01]: the usage report is an installation-wide
+        // aggregate, so it is fetched over the session-free control plane rather
+        // than this session's duplex. Always re-query: the report is a 400-day
+        // historical fold, and the previous numbers stay on screen until the
+        // fresh reply lands, so reopening never flashes the loading state.
+        DialogKind::UsageStats => {
+            host::refresh_usage(app, runtime);
+            None
+        }
         DialogKind::Quotas => {
             let filter = app
                 .provider_quotas
@@ -3028,9 +3029,35 @@ pub(crate) fn handle_config_activate(app: &mut App) {
     }
 }
 
-pub(crate) fn handle_wheel(app: &mut App, up: bool, x: u16, y: u16, viewed_session_id: &str) {
+pub(crate) fn handle_wheel(
+    app: &mut App,
+    up: bool,
+    x: u16,
+    y: u16,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+) {
     use crate::shell::ui::UiKey;
     match app.ui.scene().hit_test(x, y).copied() {
+        Some(
+            UiKey::TabBar
+            | UiKey::TabBarItem(_)
+            | UiKey::TabBarPrev
+            | UiKey::TabBarNext
+            | UiKey::TabBarOverview,
+        ) => {
+            let total = app.surfaces.tabs().len().max(1);
+            let target_idx = if up {
+                if app.surfaces.active_tab_index() == 0 {
+                    total - 1
+                } else {
+                    app.surfaces.active_tab_index() - 1
+                }
+            } else {
+                (app.surfaces.active_tab_index() + 1) % total
+            };
+            activate_tab_at_index(app, target_idx, runtime, viewed_session_id);
+        }
         Some(UiKey::Overlay(overlay)) if app.ui.contains(UiKey::Overlay(overlay), x, y) => {
             if let Some(mut ent) = app.surfaces.take_active_view() {
                 let action = if up {
@@ -3177,18 +3204,20 @@ mod transcript_scroll_tests {
         app.permission_max_scroll = 10;
         app.permission_scroll = 2;
 
+        let runtime = UiRuntime::minimal_for_test();
+
         // 1. Wheel over permission sheet (y=16) scrolls details down
-        handle_wheel(&mut app, false, 10, 16, "");
+        handle_wheel(&mut app, false, 10, 16, &runtime, "");
         assert_eq!(app.permission_scroll, 3);
         assert_eq!(app.scroll, 100, "transcript scroll untouched");
 
         // 2. Wheel over permission sheet (y=16) scrolls details up
-        handle_wheel(&mut app, true, 10, 16, "");
+        handle_wheel(&mut app, true, 10, 16, &runtime, "");
         assert_eq!(app.permission_scroll, 2);
         assert_eq!(app.scroll, 100, "transcript scroll untouched");
 
         // 3. Wheel above permission sheet (y=5) scrolls transcript
-        handle_wheel(&mut app, true, 10, 5, "");
+        handle_wheel(&mut app, true, 10, 5, &runtime, "");
         assert_eq!(app.scroll, 96, "transcript scrolled up");
         assert_eq!(app.permission_scroll, 2, "permission scroll untouched");
     }
@@ -3209,8 +3238,10 @@ mod transcript_scroll_tests {
             .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
             .scroll = 5;
 
+        let runtime = UiRuntime::minimal_for_test();
+
         // 1. Wheel on backdrop (x=2, y=2) outside modal_rect: absorbed, neither modal nor transcript scrolls
-        handle_wheel(&mut app, false, 2, 2, "");
+        handle_wheel(&mut app, false, 2, 2, &runtime, "");
         assert_eq!(
             app.surfaces
                 .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
@@ -3221,7 +3252,7 @@ mod transcript_scroll_tests {
         assert_eq!(app.scroll, 100, "transcript scroll untouched on backdrop");
 
         // 2. Wheel inside modal (x=20, y=8): scrolls modal body
-        handle_wheel(&mut app, false, 20, 8, "");
+        handle_wheel(&mut app, false, 20, 8, &runtime, "");
         assert_eq!(
             app.surfaces
                 .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
@@ -3252,9 +3283,11 @@ mod transcript_scroll_tests {
         threads.info_detail = true;
         threads.info_scroll = 0;
 
+        let runtime = UiRuntime::minimal_for_test();
+
         // Wheel inside Threads dialog in info_detail mode:
         // Must increment info_scroll and leave main list scroll untouched! [INV-SURFACE-08]
-        handle_wheel(&mut app, false, 20, 8, "");
+        handle_wheel(&mut app, false, 20, 8, &runtime, "");
         assert_eq!(
             app.surfaces
                 .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
@@ -3270,7 +3303,7 @@ mod transcript_scroll_tests {
             "main list scroll untouched"
         );
 
-        handle_wheel(&mut app, true, 20, 8, "");
+        handle_wheel(&mut app, true, 20, 8, &runtime, "");
         assert_eq!(
             app.surfaces
                 .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
@@ -3306,9 +3339,11 @@ mod transcript_scroll_tests {
         stats.set_keys_open(true);
         *stats.keys_scroll_mut() = 0;
 
+        let runtime = UiRuntime::minimal_for_test();
+
         // Wheel inside UsageStats while dialog_keys is open:
         // Must increment keys_scroll on the dialog entity, not the body scroll!
-        handle_wheel(&mut app, false, 20, 8, "");
+        handle_wheel(&mut app, false, 20, 8, &runtime, "");
         assert_eq!(
             *app.surfaces
                 .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
@@ -3323,6 +3358,46 @@ mod transcript_scroll_tests {
             0,
             "main body scroll untouched"
         );
+    }
+
+    #[test]
+    fn wheel_over_tab_bar_cycles_tabs() {
+        let mut app = scrollable_app();
+        app.surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::thread(
+                "s1",
+                None::<String>,
+            ));
+        app.surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::thread(
+                "s2",
+                None::<String>,
+            ));
+        app.surfaces
+            .open_tab(crate::shell::surfaces::ClientTab::dashboard());
+        app.surfaces.select_tab(0);
+        assert_eq!(app.surfaces.active_tab_index(), 0);
+
+        app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+        app.ui.mount(
+            crate::shell::ui::UiKey::TabBar,
+            nuotc::Rect::new(0, 0, 80, 1),
+        );
+        app.ui.commit();
+
+        let runtime = UiRuntime::minimal_for_test();
+
+        // 1. Wheel down over TabBar cycles to next tab (tab 1)
+        handle_wheel(&mut app, false, 20, 0, &runtime, "s1");
+        assert_eq!(app.surfaces.active_tab_index(), 1);
+
+        // 2. Wheel up over TabBar cycles to previous tab (tab 0)
+        handle_wheel(&mut app, true, 20, 0, &runtime, "s1");
+        assert_eq!(app.surfaces.active_tab_index(), 0);
+
+        // 3. Wheel up at tab 0 wraps around to tab 2
+        handle_wheel(&mut app, true, 20, 0, &runtime, "s1");
+        assert_eq!(app.surfaces.active_tab_index(), 2);
     }
 
     #[tokio::test]
@@ -3341,7 +3416,7 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         // Wheel over menu cycles suggestions
-        handle_wheel(&mut app, false, 5, 8, "");
+        handle_wheel(&mut app, false, 5, 8, &runtime, "");
         assert!(app.suggestion_index.is_some());
 
         // Click on completion item 0 accepts completion

@@ -59,6 +59,12 @@ pub enum CodeBuddyAuthLane {
     ApiKey,
 }
 
+pub const COPILOT_CLIENT_HEADERS: &[(&str, &str)] = &[
+    ("Copilot-Integration-Id", "vscode-chat"),
+    ("Editor-Version", "vscode/1.107.0"),
+    ("Editor-Plugin-Version", "copilot-chat/0.35.0"),
+];
+
 /// Credential lane decision overload of [`headers`].
 pub fn headers_with_lane(
     api_key: &str,
@@ -78,7 +84,7 @@ pub fn headers_with_lane(
         }
     }
     if dialect == OpenAiChatDialect::Copilot {
-        for (name, value) in nuo_provider::COPILOT_CLIENT_HEADERS {
+        for (name, value) in COPILOT_CLIENT_HEADERS {
             h.push((*name, value.to_string()));
         }
         h.push(("x-initiator", "user".to_string()));
@@ -90,7 +96,15 @@ pub fn headers_with_lane(
         // without inventing a project URL for HTTP-Referer.
         h.push(("X-OpenRouter-Title", "Nuo".to_string()));
     } else if dialect == OpenAiChatDialect::CodeBuddy {
-        for (name, value) in nuo_provider::CODEBUDDY_CLIENT_HEADERS {
+        const CODEBUDDY_CLIENT_HEADERS: &[(&str, &str)] = &[
+            ("X-Product", "SaaS"),
+            ("X-IDE-Type", "CLI"),
+            ("X-IDE-Name", "CodeBuddy"),
+            ("X-IDE-Version", "2.172.1"),
+            ("X-Agent-Intent", "craft"),
+            ("X-Agent-Runtime", "local-agent"),
+        ];
+        for (name, value) in CODEBUDDY_CLIENT_HEADERS {
             h.push((*name, value.to_string()));
         }
     }

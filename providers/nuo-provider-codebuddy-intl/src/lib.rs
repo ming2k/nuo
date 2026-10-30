@@ -79,8 +79,7 @@ mod realm_tests {
             "gpt-5.6-sol",
             "https://www.codebuddy.ai/v2/chat/completions",
             PROVIDER_ID,
-        )
-        .with_client_profile(nuo_provider::ClientProfile::CodeBuddy);
+        );
         assert_eq!(
             ep.headers()
                 .iter()
@@ -90,7 +89,7 @@ mod realm_tests {
         );
         // The shared preset itself must never have inherited a realm header.
         assert!(
-            !nuo_provider::client_identity::CODEBUDDY_CLIENT_HEADERS
+            !nuo_provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS
                 .iter()
                 .any(|(k, _)| *k == "X-Domain")
         );

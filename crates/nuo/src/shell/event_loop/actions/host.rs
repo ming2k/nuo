@@ -396,3 +396,41 @@ pub(super) async fn dispatch_console_command(
         }
     }
 }
+
+/// How many recent terminal requests the usage view's event tail carries.
+pub(crate) const USAGE_EVENT_CAP: usize = 200;
+
+/// ADR-0129 [INV-USAGE-01]: fetch the cross-session model usage report over the
+/// session-free control plane.
+///
+/// Usage accounting is a property of the installation, not of a thread: the
+/// store it folds (`data/usage/`) outlives every session that wrote to it and
+/// exists before the first one is created. Fetching it through an attached
+/// session's duplex made a global statistic unusable without a thread, which is
+/// why this path takes no `session_id` at all.
+///
+/// Fire-and-forget: the result lands as [`AppMutation::UsageStats`] and the
+/// event loop repaints. A failure keeps whatever report is already on screen
+/// (re-opening never flashes the loading state) and clears only the flag.
+pub(crate) fn refresh_usage(app: &mut App, runtime: &UiRuntime) {
+    app.usage_loading = true;
+    let mutations = runtime.mutations.clone();
+    let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
+    tokio::spawn(async move {
+        let project_root =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let outcome = match crate::shell::client::discover(&project_root).await {
+            Some(info) => crate::shell::client::get_usage_stats(&info, USAGE_EVENT_CAP).await,
+            None => Err("no server is running".to_string()),
+        };
+        let mutation = match outcome {
+            Ok(report) => crate::shell::event_loop::AppMutation::UsageStats(report),
+            Err(error) => {
+                tracing::warn!(%error, "usage report unavailable");
+                crate::shell::event_loop::AppMutation::UsageFailed(error)
+            }
+        };
+        mutations.send(mutation).await;
+        wake(&dirty);
+    });
+}

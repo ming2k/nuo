@@ -21,8 +21,8 @@ nuo-provider-chatgpt-plan = { workspace = true }
 nuo-provider-deepseek = { workspace = true }
 nuo-provider-kimi = { workspace = true }
 nuo-provider-copilot = { workspace = true }
-nuo-provider-commandcode-plan = { workspace = true }
-nuo-provider-opencode-plan = { workspace = true }
+nuo-provider-commandcode-goat = { workspace = true }
+nuo-provider-opencode-go = { workspace = true }
 nuo-provider-opencode-zen = { workspace = true }
 nuo-provider-openrouter = { workspace = true }
 nuo-provider-xai = { workspace = true }

@@ -386,6 +386,9 @@ pub(crate) enum AppMutation {
     ConnectionDetail(nuo_wire::ConnectionDetail),
     TokenReport(Option<nuo_wire::TokenSourceReport>),
     UsageStats(nuo_wire::usage_stats::UsageStatsReport),
+    /// A usage fetch failed. The report already on screen is kept (a refresh
+    /// must never blank a populated view); only the loading flag clears.
+    UsageFailed(String),
     ProviderQuotas(nuo_wire::ProviderQuotaSnapshot),
     SessionTree(nuo_wire::SessionTree),
     SessionContext(nuo_wire::SessionContextSnapshot),

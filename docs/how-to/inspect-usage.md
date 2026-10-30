@@ -6,11 +6,13 @@ Read cross-session token consumption and per-session context accounting.
 
 ## 1. Cross-Session Usage
 
-Open the usage overlay to view token consumption aggregated across sessions — daily tokens, spend, and per-provider breakdowns:
+View token consumption aggregated across all sessions — daily tokens, spend, and per-provider/model breakdowns:
 
 ```text
 /usage
 ```
+
+Model usage is decoupled from thread lifecycles (ADR-0129): it queries the durable store (`data/usage/`) over the session-free control plane. It can be inspected cold from the dashboard (`u` toggle) or via `/usage` even when zero threads are running.
 
 Usage is a reporting surface only: it never mutates a provider's billing ledger.
 

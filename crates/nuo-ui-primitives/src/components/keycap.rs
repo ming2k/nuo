@@ -138,11 +138,11 @@ impl KeyAffordance {
         Self::with_intent_and_rank(key, label, AffordanceIntent::Warn, 90)
     }
 
-    /// Construct a compact TabBar menu affordance: prominent label on the left,
-    /// dim chord "C-x" on the right (ADR-0043 [INV-UI-02]).
-    pub const fn tabbar_menu(label: &'static str) -> Self {
+    /// Construct a compact TabBar help affordance: prominent shortcut on the left,
+    /// action label on the right (ADR-0131 [INV-AFFORDANCE-01]).
+    pub const fn tabbar_help(label: &'static str) -> Self {
         Self {
-            key: "C-x",
+            key: "F1",
             label,
             intent: AffordanceIntent::Primary,
             rank: 100,
@@ -482,16 +482,16 @@ mod tests {
     }
 
     #[test]
-    fn key_affordance_tabbar_menu_renders_compact_key_first() {
+    fn key_affordance_tabbar_help_renders_compact_key_first() {
         let theme = Theme::default();
-        let affordance = KeyAffordance::tabbar_menu("menu");
-        assert_eq!(affordance.width(), 8); // "C-x" (3) + " " (1) + "menu" (4)
+        let affordance = KeyAffordance::tabbar_help("help");
+        assert_eq!(affordance.width(), 7); // "F1" (2) + " " (1) + "help" (4)
 
         let [key_span, label_span] = affordance.render_tabbar_spans(&theme, theme.body());
-        assert_eq!(key_span.content, "C-x");
+        assert_eq!(key_span.content, "F1");
         assert_eq!(key_span.style.fg, theme.keycap_accent());
         assert!(key_span.style.add.contains(Modifier::BOLD));
-        assert_eq!(label_span.content, " menu");
+        assert_eq!(label_span.content, " help");
         assert_eq!(label_span.style.fg, theme.keycap_label());
         assert!(!label_span.style.add.contains(Modifier::BOLD));
     }

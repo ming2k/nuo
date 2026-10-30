@@ -272,8 +272,8 @@ fn subagent_step_and_view_render_without_panicking() {
     // Row 1 is the Client TabBar (ADR-0062), carrying client C-x menu on the right.
     let tab_row = row_text(0);
     assert!(
-        tab_row.contains("C-x menu"),
-        "the client row offers the namespace pair: {tab_row:?}"
+        tab_row.contains("F1 help"),
+        "the client row offers the help affordance: {tab_row:?}"
     );
     // Row 2 is the Polymorphic SceneBar (ADR-0062): scene name + context.
     let scene_row = row_text(1);
@@ -660,8 +660,8 @@ fn subagent_scene_row_draws_the_scene_name_and_namespace() {
     let terminal = render_full_view(80, 24, &[], Some(hints));
     let row0 = grid_row(&terminal, 0);
     assert!(
-        row0.contains("C-x menu"),
-        "client row carries namespace pair: {row0:?}"
+        row0.contains("F1 help"),
+        "client row carries help affordance: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
     assert!(

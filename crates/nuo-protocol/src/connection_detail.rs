@@ -186,8 +186,9 @@ pub struct ConnectionDetail {
     pub api_key_masked: Option<String>,
     /// Where the credential originates (e.g. "credentials.toml", "Environment (DEEPSEEK_API_KEY)").
     pub api_key_source: String,
-    /// Client identity configuration.
-    pub client_identity: crate::ClientIdentity,
+    /// Custom headers configured for this connection.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
     /// Effective User-Agent string sent with requests.
     pub user_agent: String,
     /// Every model served by this connection.

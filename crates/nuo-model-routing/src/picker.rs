@@ -128,9 +128,7 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                 })
                 .collect();
             let provider = connection.map(|p| p.provider.clone()).unwrap_or_default();
-            let client_identity = connection
-                .map(|p| p.client_identity.clone())
-                .unwrap_or_default();
+            let headers = connection.map(|p| p.headers.clone()).unwrap_or_default();
             let auth = connection.map(|p| p.auth.clone()).unwrap_or_default();
             let recency = usage.recency_of(&entry.id);
             ProviderPickerRow {
@@ -144,7 +142,7 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
                 base_url,
                 key_ready: entry.key_ready(),
                 provider,
-                client_identity,
+                headers,
                 last_used_ms: if recency == 0 { None } else { Some(recency) },
                 auth,
             }
@@ -343,8 +341,9 @@ mod tests {
             id: "default".to_string(),
             transport: Transport::OpenAiChatCompletions {
                 base_url: "https://example.test/v1/chat/completions".to_string(),
-                client_profile: nuo_wire::ClientProfile::Native,
                 dialect: nuo_wire::OpenAiChatDialect::Standard,
+                user_agent: nuo_provider::NUO_USER_AGENT.to_string(),
+                headers: Vec::new(),
             },
             credentials: nuo_wire::static_credential(String::new()),
             model: model.to_string(),

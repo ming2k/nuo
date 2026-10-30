@@ -47,10 +47,6 @@ impl App {
         self.custom_fields = template.fields();
         self.custom_field = 0;
         self.custom_protocol_wire = template.protocol.to_string();
-        self.custom_client_identity = template
-            .user_agent
-            .map(nuo_wire::ClientIdentity::from_user_agent)
-            .unwrap_or(nuo_wire::ClientIdentity::Native);
         self.custom_models = template.models.iter().map(|m| m.to_string()).collect();
         self.custom_url_hint = template.url_hint.to_string();
         self.custom_user_agent = template.user_agent.map(str::to_string);
@@ -275,7 +271,6 @@ impl App {
         base_url: String,
         auth: ConnectionAuth,
         curated: bool,
-        client_identity: nuo_wire::ClientIdentity,
         budget: nuo_wire::ConnectionBudget,
     ) {
         self.surfaces
@@ -284,7 +279,6 @@ impl App {
         self.custom_fields = edit_fields(curated, auth.clone());
         self.custom_field = 0;
         self.custom_protocol_wire = protocol;
-        self.custom_client_identity = client_identity;
         self.custom_budget = budget;
         self.custom_models.clear();
         self.custom_url_hint.clear();
@@ -352,19 +346,6 @@ impl App {
                     (index + PROTOCOLS.len() - 1) % PROTOCOLS.len()
                 };
                 self.custom_protocol_wire = PROTOCOLS[next].to_string();
-            }
-            Some(CustomField::ClientIdentity) => {
-                let choices = nuo_wire::ClientIdentity::PRESETS;
-                let index = choices
-                    .iter()
-                    .position(|value| value == &self.custom_client_identity)
-                    .unwrap_or(0);
-                let next = if forward {
-                    (index + 1) % choices.len()
-                } else {
-                    (index + choices.len() - 1) % choices.len()
-                };
-                self.custom_client_identity = choices[next].clone();
             }
             Some(CustomField::Budget) => {
                 let options = [

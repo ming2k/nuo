@@ -688,34 +688,39 @@ pub enum Transport {
     /// OpenAI-compatible chat-completions endpoint at `base_url`.
     OpenAiChatCompletions {
         base_url: String,
-        client_profile: crate::ClientProfile,
         dialect: OpenAiChatDialect,
+        user_agent: String,
+        headers: Vec<(String, String)>,
     },
     /// Anthropic-compatible `/messages` endpoint at `base_url`.
     AnthropicMessages {
         base_url: String,
-        client_profile: crate::ClientProfile,
         dialect: AnthropicMessagesDialect,
+        user_agent: String,
+        headers: Vec<(String, String)>,
     },
     /// Google native GenerateContent API (`generativelanguage.googleapis.com` or Antigravity).
     GoogleGenerateContent {
         base_url: String,
-        client_profile: crate::ClientProfile,
         dialect: GoogleGenerateContentDialect,
+        user_agent: String,
+        headers: Vec<(String, String)>,
     },
     /// Google native Interactions API (`generativelanguage.googleapis.com/v1beta/interactions`).
     GoogleInteractions {
         base_url: String,
-        client_profile: crate::ClientProfile,
         dialect: GoogleInteractionsDialect,
+        user_agent: String,
+        headers: Vec<(String, String)>,
     },
     /// OpenAI **Responses** API (`/responses` endpoint).
     OpenAiResponses {
         base_url: String,
-        client_profile: crate::ClientProfile,
         dialect: OpenAiResponsesDialect,
         /// Whether this endpoint persists response state (ADR-0114).
         state: ResponsesState,
+        user_agent: String,
+        headers: Vec<(String, String)>,
     },
 }
 
@@ -742,20 +747,26 @@ impl Transport {
         }
     }
 
-    /// The resolved client profile for this transport.
-    pub fn client_profile(&self) -> &crate::ClientProfile {
+    /// The resolved User-Agent for this transport.
+    pub fn user_agent(&self) -> &str {
         match self {
-            Transport::OpenAiChatCompletions { client_profile, .. }
-            | Transport::AnthropicMessages { client_profile, .. }
-            | Transport::GoogleGenerateContent { client_profile, .. }
-            | Transport::GoogleInteractions { client_profile, .. }
-            | Transport::OpenAiResponses { client_profile, .. } => client_profile,
+            Transport::OpenAiChatCompletions { user_agent, .. }
+            | Transport::AnthropicMessages { user_agent, .. }
+            | Transport::GoogleGenerateContent { user_agent, .. }
+            | Transport::GoogleInteractions { user_agent, .. }
+            | Transport::OpenAiResponses { user_agent, .. } => user_agent,
         }
     }
 
-    /// The User-Agent header string for this transport.
-    pub fn user_agent(&self) -> String {
-        self.client_profile().user_agent().to_string()
+    /// The resolved custom HTTP headers for this transport.
+    pub fn headers(&self) -> &[(String, String)] {
+        match self {
+            Transport::OpenAiChatCompletions { headers, .. }
+            | Transport::AnthropicMessages { headers, .. }
+            | Transport::GoogleGenerateContent { headers, .. }
+            | Transport::GoogleInteractions { headers, .. }
+            | Transport::OpenAiResponses { headers, .. } => headers,
+        }
     }
 
     /// Whether this transport needs an API key at all.
@@ -1012,8 +1023,9 @@ mod tests {
                 id: "default".to_string(),
                 transport: Transport::OpenAiChatCompletions {
                     base_url: "https://api.deepseek.com/v1/chat/completions".to_string(),
-                    client_profile: crate::ClientProfile::from("agent"),
                     dialect: Default::default(),
+                    user_agent: "agent".to_string(),
+                    headers: Vec::new(),
                 },
                 credentials: crate::static_credential("k"),
                 model: "deepseek-v4-flash".to_string(),
@@ -1046,8 +1058,9 @@ mod tests {
             id: "default".to_string(),
             transport: Transport::OpenAiChatCompletions {
                 base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-                client_profile: crate::ClientProfile::from("agent"),
                 dialect: Default::default(),
+                user_agent: "agent".to_string(),
+                headers: Vec::new(),
             },
             credentials: crate::static_credential("   "),
             model: "gpt-4o".to_string(),
@@ -1066,8 +1079,9 @@ mod tests {
         // report needing a key, and an empty key must not be "ready".
         let needs_key = Transport::AnthropicMessages {
             base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
-            client_profile: crate::ClientProfile::from("agent"),
             dialect: Default::default(),
+            user_agent: "agent".to_string(),
+            headers: Vec::new(),
         }
         .needs_api_key();
         assert!(needs_key, "Anthropic transport must require an API key");
@@ -1076,8 +1090,9 @@ mod tests {
             id: "default".to_string(),
             transport: Transport::AnthropicMessages {
                 base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
-                client_profile: crate::ClientProfile::from("agent"),
                 dialect: Default::default(),
+                user_agent: "agent".to_string(),
+                headers: Vec::new(),
             },
             credentials: crate::static_credential("  "),
             model: "minimax-m3".to_string(),
@@ -1105,8 +1120,9 @@ mod tests {
                     transport: Transport::OpenAiChatCompletions {
                         base_url: "https://opencode.ai/inference/openai/v1/chat/completions"
                             .to_string(),
-                        client_profile: crate::ClientProfile::from("agent"),
                         dialect: Default::default(),
+                        user_agent: "agent".to_string(),
+                        headers: Vec::new(),
                     },
                     credentials: crate::static_credential("k"),
                     model: "glm-5.2".to_string(),
@@ -1120,8 +1136,9 @@ mod tests {
                     id: "claude-opus-5".to_string(),
                     transport: Transport::AnthropicMessages {
                         base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
-                        client_profile: crate::ClientProfile::from("agent"),
                         dialect: Default::default(),
+                        user_agent: "agent".to_string(),
+                        headers: Vec::new(),
                     },
                     credentials: crate::static_credential("k"),
                     model: "claude-opus-5".to_string(),
@@ -1164,8 +1181,9 @@ mod tests {
                 id: "default".to_string(),
                 transport: Transport::OpenAiChatCompletions {
                     base_url: "https://example.com/v1/chat/completions".to_string(),
-                    client_profile: crate::ClientProfile::from("agent"),
                     dialect: Default::default(),
+                    user_agent: "agent".to_string(),
+                    headers: Vec::new(),
                 },
                 credentials: crate::static_credential("k"),
                 model: "fixture-alpha".to_string(),

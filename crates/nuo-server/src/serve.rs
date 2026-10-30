@@ -1301,6 +1301,20 @@ async fn run_control(
                 (false, None, Some("TCP manager not available".to_string()))
             }
         }
+        ControlRequest::GetUsageStats { event_cap } => {
+            // ADR-0129 [INV-USAGE-01]: session-free model usage query. The
+            // aggregate folds every day blob, so it runs on the blocking pool —
+            // a control connection must never stall the accept loop.
+            let report = tokio::task::spawn_blocking(move || {
+                nuo_persistence::usage_stats::UsageStatsStore::new().report(event_cap)
+            })
+            .await
+            .unwrap_or_default();
+            match serde_json::to_string(&report) {
+                Ok(payload) => (true, None, Some(payload)),
+                Err(e) => (false, None, Some(format!("encode usage report: {e}"))),
+            }
+        }
     };
     let reply = Wire::ControlReply {
         ok,

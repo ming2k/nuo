@@ -39,7 +39,6 @@ pub enum CustomField {
     Token,
     Model,
     Protocol,
-    ClientIdentity,
     Budget,
 }
 
@@ -117,7 +116,6 @@ impl ConnectionTemplate {
                 CustomField::Token,
                 CustomField::Model,
                 CustomField::Protocol,
-                CustomField::ClientIdentity,
             ];
         }
         let mut fields = vec![CustomField::Name];
@@ -208,7 +206,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
         needs_model: false,
         default_url: Some("https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::ZCODE_USER_AGENT),
+        user_agent: Some("ZCode/3.5.3"),
         auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
@@ -247,7 +245,9 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://daily-cloudcode-pa.googleapis.com",
         needs_model: false,
         default_url: Some("https://daily-cloudcode-pa.googleapis.com"),
-        user_agent: Some(nuo_wire::client_identity::ANTIGRAVITY_USER_AGENT),
+        user_agent: Some(
+            "antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)",
+        ),
         auth: nuo_wire::ConnectionAuth::negotiated_const("google-antigravity"),
     },
     ConnectionTemplate {
@@ -260,7 +260,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://api.kimi.com/coding/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://api.kimi.com/coding/v1/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        user_agent: Some("opencode/2.0.32"),
         auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
@@ -286,7 +286,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://opencode.ai/zen/go/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://opencode.ai/zen/go/v1/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        user_agent: Some("opencode/2.0.32"),
         auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
@@ -299,7 +299,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://opencode.ai/zen/v1/chat/completions",
         needs_model: false,
         default_url: Some("https://opencode.ai/zen/v1/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::OPENCODE_USER_AGENT),
+        user_agent: Some("opencode/2.0.32"),
         auth: nuo_wire::ConnectionAuth::Static,
     },
     ConnectionTemplate {
@@ -353,7 +353,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://copilot.tencent.com/v2/chat/completions",
         needs_model: false,
         default_url: Some("https://copilot.tencent.com/v2/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
+        user_agent: Some("CLI/2.172.1 CodeBuddy/2.172.1"),
         auth: nuo_wire::ConnectionAuth::negotiated_const("codebuddy-cn"),
     },
     ConnectionTemplate {
@@ -366,7 +366,7 @@ pub const PROVIDER_PRESETS: &[ConnectionTemplate] = &[
         url_hint: "https://www.codebuddy.ai/v2/chat/completions",
         needs_model: false,
         default_url: Some("https://www.codebuddy.ai/v2/chat/completions"),
-        user_agent: Some(nuo_wire::client_identity::CODEBUDDY_USER_AGENT),
+        user_agent: Some("CLI/2.172.1 CodeBuddy/2.172.1"),
         auth: nuo_wire::ConnectionAuth::negotiated_const("codebuddy-intl"),
     },
     ConnectionTemplate {
@@ -461,7 +461,6 @@ pub fn edit_fields(curated: bool, auth: ConnectionAuth) -> Vec<CustomField> {
             CustomField::BaseUrl,
             CustomField::Token,
             CustomField::Protocol,
-            CustomField::ClientIdentity,
             CustomField::Budget,
         ]
     }
@@ -629,8 +628,6 @@ pub struct RankedProvider {
     /// surfaced so the Connections list can show the provider *type* beside
     /// the connection name.
     pub provider: String,
-    /// Client identity configured for this connection.
-    pub client_identity: nuo_wire::ClientIdentity,
     /// The rendered label — the provider's display name (the instance name).
     pub label: String,
     /// The fuzzy match against `label`, or `None` in browse mode (empty query).
@@ -695,7 +692,6 @@ pub fn providers_filtered_from(
             models: prow.models.clone(),
             builtin: prow.builtin,
             provider: prow.provider.clone(),
-            client_identity: prow.client_identity.clone(),
             label,
             m,
         });
@@ -1027,7 +1023,7 @@ mod tests {
             base_url: String::new(),
             key_ready: true,
             provider: String::new(),
-            client_identity: Default::default(),
+            headers: Default::default(),
             last_used_ms: None,
             auth: Default::default(),
         }
@@ -1940,7 +1936,6 @@ mod tests {
                 CustomField::BaseUrl,
                 CustomField::Token,
                 CustomField::Protocol,
-                CustomField::ClientIdentity,
                 CustomField::Budget,
             ]
         );

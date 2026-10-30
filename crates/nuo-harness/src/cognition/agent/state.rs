@@ -187,6 +187,7 @@ impl Agent {
             title_established: std::sync::Mutex::new(None),
             model_request_assembler,
             variant_selection: Arc::new(std::sync::Mutex::new(nuo_wire::VariantSelection::new())),
+            model_guidance: Arc::new(std::sync::RwLock::new(String::new())),
             tools: std::sync::Mutex::new(tools),
             token_ledger: std::sync::Mutex::new(None),
             token_weights: std::sync::Arc::new(nuo_wire::MessageTokenWeights::new()),
@@ -220,6 +221,32 @@ impl Agent {
             .variant_selection
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = selection;
+    }
+
+    /// Replace the active model-specific prompt guidance (ADR-0130).
+    pub fn set_model_guidance(&self, guidance: impl Into<String>) {
+        *self
+            .model_guidance
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = guidance.into();
+    }
+
+    /// Read the active model-specific prompt guidance.
+    pub fn model_guidance(&self) -> String {
+        self.model_guidance
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+
+    /// Handle for the shared model guidance state, allowing subagents to share live updates.
+    pub fn model_guidance_handle(&self) -> Arc<std::sync::RwLock<String>> {
+        Arc::clone(&self.model_guidance)
+    }
+
+    /// Bind this agent to share an existing model guidance handle (used by subagents).
+    pub fn bind_model_guidance(&mut self, handle: Arc<std::sync::RwLock<String>>) {
+        self.model_guidance = handle;
     }
 
     /// Replace this agent's identity-side selection (capability scope + variant
@@ -296,7 +323,7 @@ impl Agent {
         let mut tool_names: Vec<String> =
             tools.iter().map(|tool| tool.name().to_string()).collect();
         tool_names.sort();
-        let model_guidance = nuo_wire::resolve_model(&self.provider.model()).model_guidance;
+        let model_guidance = self.model_guidance();
         let provider_guidance = self.provider.prompt_hints().system_guidance;
 
         crate::SystemPromptContext {

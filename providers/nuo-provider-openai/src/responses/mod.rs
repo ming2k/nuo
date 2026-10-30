@@ -19,9 +19,10 @@ use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, Prov
 use nuo_provider::{CredentialSource, Effort, ProviderError, ProviderErrorKind, ResolvedAuth};
 use std::sync::{Arc, Mutex};
 
+use crate::chat_completions::request::COPILOT_CLIENT_HEADERS;
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_provider::{COPILOT_CLIENT_HEADERS, ClientProfile, Endpoint, PromptCacheConfig};
+use nuo_provider::{Endpoint, PromptCacheConfig};
 
 fn parse_retry_after_from_message(message: &str) -> Option<u64> {
     let lower = message.to_ascii_lowercase();
@@ -203,13 +204,13 @@ impl OpenAiResponsesProvider {
         Self::new(credentials, model, base_url)
     }
 
-    pub fn with_user_agent(mut self, user_agent: &str) -> Self {
-        self.endpoint.client_profile = ClientProfile::from_user_agent(user_agent);
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.endpoint.set_user_agent(user_agent);
         self
     }
 
-    pub fn with_client_profile(mut self, profile: impl Into<ClientProfile>) -> Self {
-        self.endpoint.client_profile = profile.into();
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.endpoint.headers.extend(headers);
         self
     }
 

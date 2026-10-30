@@ -166,8 +166,8 @@ fn register_mock_provider(
             label: Some(id.to_string()),
             root_url: base_url.to_string(),
             default_protocol: Some(protocol),
-            client_profile: None,
             user_agent: None,
+            headers: None,
             catalog: Some(nuo_provider::RemoteCatalogSource::Endpoint(
                 catalog_protocol,
             )),
@@ -175,7 +175,6 @@ fn register_mock_provider(
             protocol_roots: vec![],
             catalog_root_url: None,
             prompt_cache: None,
-            client_profile_sensitive: false,
         },
     );
     store.get_or_create_mut(id).include = models
@@ -353,13 +352,12 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
             root_url: format!("{}/proxy/team", server.url()),
             default_protocol: Some(WireProtocol::GoogleGenerateContent),
             dialect: Some(ProviderDialect::Antigravity),
-            client_profile: None,
             user_agent: None,
+            headers: None,
             catalog: Some(nuo_wire::RemoteCatalogSource::None),
             protocol_roots: vec![],
             catalog_root_url: None,
             prompt_cache: None,
-            client_profile_sensitive: false,
         },
     );
     nuo_persistence::model_providers::ModelProviders::save(&providers).unwrap();
@@ -477,6 +475,62 @@ fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
             ..
         } if base_url == "https://openrouter.ai/api/v1/chat/completions"
     ));
+}
+
+#[test]
+fn commandcode_flash_fast_effort_ladder_survives_a_live_catalog() {
+    // `deepseek/deepseek-v4.1-flash-fast` reaches the picker through the live
+    // `/models` payload. Commandcode's shaped catalog advertises no effort
+    // tiers (only name/context_length/supported_endpoints), so its discovered
+    // remote_metadata carries `effort_levels: None`. The channel must fall back
+    // to the compiled baseline's `LOW_HIGH_MAX` ladder so the effort
+    // (reasoning-degree) knob stays available after a sync — exactly like its
+    // siblings. Regression guard for the reasoning-effort knob on this model.
+    ensure_test_init();
+    let connection = instance("cmd", Some("commandcode"));
+    let mut cache = RemoteCatalogCache::default();
+    cache.connection_models.insert(
+        "cmd".to_string(),
+        vec!["deepseek/deepseek-v4.1-flash-fast".to_string()],
+    );
+    // A faithful live sync: commandcode's shaped catalog advertises only
+    // name/context_length/supported_endpoints — no effort tiers — so the
+    // discovered remote_metadata carries `effort_levels: None`. The channel
+    // must fall back to the compiled baseline's `LOW_HIGH_MAX` ladder.
+    cache.remote_metadata.insert(
+        "cmd".to_string(),
+        std::collections::BTreeMap::from([(
+            "deepseek/deepseek-v4.1-flash-fast".to_string(),
+            nuo_wire::RemoteModelMetadata {
+                context_window: Some(1_000_000),
+                effort_levels: None,
+                ..Default::default()
+            },
+        )]),
+    );
+    let channel = derive_channel(
+        &connection,
+        "deepseek/deepseek-v4.1-flash-fast",
+        &inputs_of(
+            &cache,
+            &RouteSettingsStore::default(),
+            &Credentials::default(),
+        ),
+    )
+    .expect("flash-fast routes");
+    let caps = channel.capabilities();
+    assert!(
+        !caps.effort_levels.is_empty(),
+        "flash-fast must resolve an effort ladder from the baseline after a \
+         live sync that advertises none: {:?}",
+        caps.effort_levels
+    );
+    let info = channel_model_info(&channel);
+    assert!(
+        !info.effort_levels.is_empty(),
+        "the picker snapshot must expose an effort ladder for flash-fast: {:?}",
+        info.effort_levels
+    );
 }
 
 #[test]
@@ -843,17 +897,17 @@ fn remote_catalog_provider_defaults_to_open_admission() {
 }
 
 #[test]
-fn catalog_cache_identity_tracks_client_emulation() {
+fn catalog_cache_identity_tracks_custom_headers() {
     let cache = RemoteCatalogCache::default();
     let mut connection = instance("chatgpt", Some("openai-subscription"));
     let codex_identity = source_identity_for_connection(&connection, &cache).unwrap();
 
-    connection.client_identity = nuo_wire::ClientProfile::custom(
-        "codex_cli_rs/future",
-        vec![(
-            "openai-intent".to_string(),
-            "conversation-edits".to_string(),
-        )],
+    connection
+        .headers
+        .insert("User-Agent".to_string(), "codex_cli_rs/future".to_string());
+    connection.headers.insert(
+        "openai-intent".to_string(),
+        "conversation-edits".to_string(),
     );
     let future_identity = source_identity_for_connection(&connection, &cache).unwrap();
 
@@ -898,8 +952,8 @@ fn opencode_plan_routes_models_by_wire_format() {
     )
     .unwrap();
     assert!(
-        matches!(&glm.transport, Transport::OpenAiChatCompletions { base_url, client_profile, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && *client_profile == nuo_wire::ClientProfile::OpenCode),
-        "glm-5.2 must route to OpenAI chat-completions on zen/go relay with OpenCode client profile"
+        matches!(&glm.transport, Transport::OpenAiChatCompletions { base_url, user_agent, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && user_agent == "opencode/2.0.32"),
+        "glm-5.2 must route to OpenAI chat-completions on zen/go relay with OpenCode user agent"
     );
     let minimax = derive_channel(
         &go,
@@ -1234,8 +1288,9 @@ fn channel_model_info_effort_ladders_survive() {
         id: "default".to_string(),
         transport: Transport::GoogleGenerateContent {
             base_url: "https://cloudcode-pa.googleapis.com".to_string(),
-            client_profile: nuo_wire::ClientProfile::Antigravity,
             dialect: Default::default(),
+            user_agent: "antigravity/cli".to_string(),
+            headers: Vec::new(),
         },
         credentials: nuo_wire::static_credential(""),
         model: "gemini-3.7-flash".to_string(),

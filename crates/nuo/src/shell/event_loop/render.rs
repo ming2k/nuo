@@ -415,6 +415,11 @@ fn compose_frame(
                 tab_bar: Some(render::TabBarProps {
                     tabs: Some(app.surfaces.tabs()),
                     active_tab: app.surfaces.active_tab_index(),
+                    unread_faults: if app.has_unread_notice_fault() {
+                        app.unread_notices()
+                    } else {
+                        0
+                    },
                 }),
                 thread_id: Some(viewed_session_id),
                 thread_context: Some(render::ThreadContext {
@@ -467,6 +472,21 @@ fn compose_frame(
     }
     for (idx, tab_rect) in &transcript_render.tab_rects {
         ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+    }
+    if let Some(rect) = transcript_render.tab_prev_rect {
+        ui.mount(UiKey::TabBarPrev, rect);
+    }
+    if let Some(rect) = transcript_render.tab_next_rect {
+        ui.mount(UiKey::TabBarNext, rect);
+    }
+    if let Some(rect) = transcript_render.tab_overflow_rect {
+        ui.mount(UiKey::TabBarOverview, rect);
+    }
+    if let Some(rect) = transcript_render.tab_notices_rect {
+        ui.mount(UiKey::NoticesBadge, rect);
+    }
+    if let Some(rect) = transcript_render.tab_help_rect {
+        ui.mount(UiKey::HelpBadge, rect);
     }
     if let Some(rect) = transcript_render.scene_bar_rect {
         ui.mount(UiKey::SceneBar, rect);
@@ -546,15 +566,6 @@ fn compose_frame(
                     reasoning_effort: hint_reasoning,
                     context_tokens: app.context_tokens.map(|snapshot| snapshot.tokens),
                     context_window: app.active_model_context_window(),
-                    // Only *unread faults* light the badge: a retained
-                    // acknowledgement is readable but not news, and a badge
-                    // that fired for "copied to clipboard" would train the
-                    // user to ignore the one that matters.
-                    unread_faults: if app.has_unread_notice_fault() {
-                        app.unread_notices()
-                    } else {
-                        0
-                    },
                 },
                 &app.theme,
                 &app.key_overrides,
@@ -563,7 +574,6 @@ fn compose_frame(
         for (key, rect) in [
             (UiKey::Context, model_bar_rects.context),
             (UiKey::Connection, model_bar_rects.connection),
-            (UiKey::NoticesBadge, model_bar_rects.notices),
         ] {
             if let Some(rect) = rect {
                 ui.mount(key, rect);
@@ -1114,7 +1124,6 @@ fn compose_frame(
                             token_buf: &app.custom_token,
                             model_buf: &app.custom_model,
                             protocol_display,
-                            identity_display: app.custom_client_identity.label(),
                             budget_display: &budget_display,
                             url_hint: &app.custom_url_hint,
                             input: &app.input,
@@ -1130,6 +1139,11 @@ fn compose_frame(
             },
         }
     } else {
+        let scene_unread_faults = if app.has_unread_notice_fault() {
+            app.unread_notices()
+        } else {
+            0
+        };
         match app.current_scene() {
             SceneKind::Dashboard => {
                 let rects = render::draw_dashboard(
@@ -1153,7 +1167,14 @@ fn compose_frame(
                         tab_bar: Some(render::TabBarProps {
                             tabs: Some(app.surfaces.tabs()),
                             active_tab: app.surfaces.active_tab_index(),
+                            unread_faults: scene_unread_faults,
                         }),
+                        filter: &app.dashboard_filter,
+                        filtering: app.dashboard_filtering,
+                        view_usage: app.dashboard_view_usage,
+                        usage_report: app.usage_stats.as_ref(),
+                        usage_loading: app.usage_loading,
+                        usage_scroll: app.usage_scroll,
                     },
                     &app.theme,
                 );
@@ -1163,6 +1184,21 @@ fn compose_frame(
                 }
                 for (idx, tab_rect) in &rects.tab_rects {
                     ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+                }
+                if let Some(rect) = rects.tab_prev_rect {
+                    ui.mount(UiKey::TabBarPrev, rect);
+                }
+                if let Some(rect) = rects.tab_next_rect {
+                    ui.mount(UiKey::TabBarNext, rect);
+                }
+                if let Some(rect) = rects.tab_overflow_rect {
+                    ui.mount(UiKey::TabBarOverview, rect);
+                }
+                if let Some(rect) = rects.tab_notices_rect {
+                    ui.mount(UiKey::NoticesBadge, rect);
+                }
+                if let Some(rect) = rects.tab_help_rect {
+                    ui.mount(UiKey::HelpBadge, rect);
                 }
                 if let Some(preview_id) = &app.host_preview {
                     let row = app.host_sessions.iter().find(|r| &r.id == preview_id);
@@ -1196,6 +1232,7 @@ fn compose_frame(
                         tab_bar: Some(render::TabBarProps {
                             tabs: Some(app.surfaces.tabs()),
                             active_tab: app.surfaces.active_tab_index(),
+                            unread_faults: scene_unread_faults,
                         }),
                     },
                 );
@@ -1205,6 +1242,21 @@ fn compose_frame(
                 }
                 for (idx, tab_rect) in &rects.tab_rects {
                     ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+                }
+                if let Some(rect) = rects.tab_prev_rect {
+                    ui.mount(UiKey::TabBarPrev, rect);
+                }
+                if let Some(rect) = rects.tab_next_rect {
+                    ui.mount(UiKey::TabBarNext, rect);
+                }
+                if let Some(rect) = rects.tab_overflow_rect {
+                    ui.mount(UiKey::TabBarOverview, rect);
+                }
+                if let Some(rect) = rects.tab_notices_rect {
+                    ui.mount(UiKey::NoticesBadge, rect);
+                }
+                if let Some(rect) = rects.tab_help_rect {
+                    ui.mount(UiKey::HelpBadge, rect);
                 }
                 for (index, cat_rect) in rects.category_rects {
                     ui.mount(UiKey::SettingsCategory(index), cat_rect);
@@ -1316,21 +1368,6 @@ fn compose_frame(
             hint.as_deref(),
         );
     }
-
-    // Floating which-key card while the `Ctrl+X` scene namespace is armed. The
-    // leave row spells the *resolved* action for the current surface stack (an
-    // overlay dismiss, a scene exit, or a spent gesture at the home scene)
-    // rather than a fixed promise.
-    let close_label =
-        nuo_ui_primitives::components::which_key::close_label_for(app.active_dialog().is_some());
-    let which_key_items = crate::shell::keymap::scene_namespace::which_key_items(close_label);
-    nuo_ui_primitives::components::which_key::draw_which_key_overlay(
-        f,
-        &app.theme,
-        app.scene_namespace_armed,
-        &which_key_items,
-        f.area(),
-    );
 
     ui.stage_document(layout_map);
 

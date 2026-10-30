@@ -304,7 +304,6 @@ fn custom_connection_opens_as_a_sibling_of_the_template_chooser() {
             crate::CustomField::Token,
             crate::CustomField::Model,
             crate::CustomField::Protocol,
-            crate::CustomField::ClientIdentity,
         ]
     );
 }
@@ -414,21 +413,10 @@ fn custom_provider_cycles_protocol_and_request_identity() {
     );
     app.cycle_custom_choice(true);
     assert_eq!(app.custom_protocol_wire, "openai-responses");
-
-    app.custom_field = 5;
-    assert_eq!(
-        app.current_custom_field(),
-        Some(crate::CustomField::ClientIdentity)
-    );
-    app.cycle_custom_choice(true);
-    assert_eq!(
-        app.custom_client_identity,
-        nuo_wire::ClientIdentity::OpenCode
-    );
 }
 
 #[test]
-fn custom_provider_edit_restores_protocol_and_request_identity() {
+fn custom_provider_edit_restores_protocol_and_budget() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_edit_provider_editor(
         "relay".to_string(),
@@ -437,19 +425,11 @@ fn custom_provider_edit_restores_protocol_and_request_identity() {
         "https://relay.example/v1/messages".to_string(),
         nuo_wire::ConnectionAuth::Static,
         false,
-        nuo_wire::ClientIdentity::ClaudeCode,
         Default::default(),
     );
     assert_eq!(app.custom_protocol_wire, "anthropic-messages");
-    assert_eq!(
-        app.custom_client_identity,
-        nuo_wire::ClientIdentity::ClaudeCode
-    );
     assert!(app.custom_fields.contains(&crate::CustomField::Protocol));
-    assert!(
-        app.custom_fields
-            .contains(&crate::CustomField::ClientIdentity)
-    );
+    assert!(app.custom_fields.contains(&crate::CustomField::Budget));
 }
 
 #[test]
@@ -468,7 +448,6 @@ fn custom_connection_submits_with_the_typed_model_and_url() {
             crate::CustomField::Token,
             crate::CustomField::Model,
             crate::CustomField::Protocol,
-            crate::CustomField::ClientIdentity,
         ]
     );
     app.open_custom_provider_editor(template);
@@ -828,7 +807,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         base_url: "https://relay.example.com/v1".to_string(),
         key_ready: true,
         provider: "custom".to_string(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: nuo_wire::ConnectionAuth::Static,
     });
@@ -839,7 +818,6 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         "https://relay.example.com/v1".to_string(),
         nuo_wire::ConnectionAuth::Static,
         false,
-        nuo_wire::ClientIdentity::Native,
         Default::default(),
     );
     // The Name field owns the composer line; typing a new name renames.
@@ -942,7 +920,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         auth_type: "OAuth (AntigravityOAuth)".to_string(),
         api_key_masked: Some("ya29...".to_string()),
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Antigravity,
+        headers: Default::default(),
         user_agent: "antigravity".to_string(),
         models: vec!["gemini-2.5-pro".to_string()],
         model_info: vec![],
@@ -1015,7 +993,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-...".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo".to_string(),
         models: vec![],
         model_info: vec![],
@@ -1163,7 +1141,6 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         "https://generativelanguage.googleapis.com".to_string(),
         nuo_wire::ConnectionAuth::Static,
         true,
-        nuo_wire::ClientIdentity::Native,
         nuo_wire::ConnectionBudget::Remote,
     );
 
@@ -1299,7 +1276,6 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
             focused_target: false,
             transcript_focused: app.transcript_focused,
             scene_blocked: false,
-            scene_namespace_armed: false,
             notice_viewer_open: false,
         },
         &crate::shell::modal_keys::ModalKeys {

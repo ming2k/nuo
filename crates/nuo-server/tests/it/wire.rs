@@ -658,9 +658,10 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
         id: "deepseek-flash".into(),
         transport: Transport::OpenAiResponses {
             base_url: format!("{}/v1/responses", server.url()),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: nuo_provider::OpenAiResponsesDialect::DeepSeek,
             state: nuo_provider::ResponsesState::Stateless,
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "deepseek-flash".into(),
@@ -722,8 +723,9 @@ async fn factory_publishes_explicit_high_effort() {
         id: "claude-opus-4-8".into(),
         transport: Transport::AnthropicMessages {
             base_url: String::new(), // rewritten by the harness
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: Default::default(),
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-opus-4-8".into(),
@@ -753,8 +755,9 @@ async fn factory_keeps_effort_decoupled_from_thinking_off() {
         id: "claude-opus-4-8".into(),
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: Default::default(),
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-opus-4-8".into(),
@@ -782,8 +785,9 @@ async fn factory_publishes_thinking_without_output_config() {
         id: "claude-opus-4-8".into(),
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: Default::default(),
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-opus-4-8".into(),
@@ -815,8 +819,9 @@ async fn sonnet5_opt_out_emits_explicit_disabled() {
         id: "claude-sonnet-5".into(),
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: Default::default(),
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-sonnet-5".into(),
@@ -849,8 +854,9 @@ async fn sonnet5_opt_in_publishes_adaptive_and_full_effort_range() {
         id: "claude-sonnet-5".into(),
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: Default::default(),
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-sonnet-5".into(),
@@ -884,8 +890,9 @@ async fn fable5_always_on_thinking_ignores_off_override() {
         id: "claude-fable-5".into(),
         transport: Transport::AnthropicMessages {
             base_url: String::new(),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect: Default::default(),
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "claude-fable-5".into(),
@@ -996,7 +1003,7 @@ async fn codex_list_models_sends_subscription_headers_and_preserves_priority() {
         .mock("GET", "/backend-api/codex/models")
         .match_query(Matcher::UrlEncoded(
             "client_version".to_string(),
-            nuo_provider::client_identity::CODEX_VERSION.to_string(),
+            "0.153.4".to_string(),
         ))
         .match_header("authorization", "Bearer chatgpt-access")
         .match_header("originator", "codex_cli_rs")
@@ -1047,7 +1054,7 @@ async fn codex_list_models_supports_etag_revalidation() {
         .mock("GET", "/backend-api/codex/models")
         .match_query(Matcher::UrlEncoded(
             "client_version".to_string(),
-            nuo_provider::client_identity::CODEX_VERSION.to_string(),
+            "0.153.4".to_string(),
         ))
         .match_header("if-none-match", "\"catalog-v2\"")
         .with_status(304)
@@ -1346,10 +1353,7 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
         .mock("POST", "/inference/openai/v1/chat/completions")
         .match_header("x-opencode-session", "ses_wire_affinity_999")
         .match_header("x-opencode-client", "cli")
-        .match_header(
-            "user-agent",
-            nuo_provider::client_identity::OPENCODE_USER_AGENT,
-        )
+        .match_header("user-agent", "opencode/2.0.32")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"choices":[{"message":{"content":"response from opencode-plan"}}]}"#)
@@ -1360,8 +1364,9 @@ async fn opencode_plan_wire_request_carries_session_and_client_headers() {
         id: "glm-5.2".into(),
         transport: Transport::OpenAiChatCompletions {
             base_url: url,
-            client_profile: nuo_provider::ClientProfile::OpenCode,
             dialect: Default::default(),
+            user_agent: "opencode/2.0.32".into(),
+            headers: vec![("x-opencode-client".into(), "cli".into())],
         },
         credentials: nuo_provider::static_credential("opencode-token"),
         model: "glm-5.2".into(),
@@ -1391,10 +1396,7 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
         .mock("POST", "/inference/anthropic/v1/messages")
         .match_header("x-opencode-session", "ses_anthropic_wire_777")
         .match_header("x-opencode-client", "cli")
-        .match_header(
-            "user-agent",
-            nuo_provider::client_identity::OPENCODE_USER_AGENT,
-        )
+        .match_header("user-agent", "opencode/2.0.32")
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(r#"{"content":[{"type":"text","text":"qwen3.6-plus response"}]}"#)
@@ -1405,8 +1407,9 @@ async fn opencode_plan_anthropic_wire_request_carries_session_headers() {
         id: "qwen3.6-plus".into(),
         transport: Transport::AnthropicMessages {
             base_url: url,
-            client_profile: nuo_provider::ClientProfile::OpenCode,
             dialect: Default::default(),
+            user_agent: "opencode/2.0.32".into(),
+            headers: vec![("x-opencode-client".into(), "cli".into())],
         },
         credentials: nuo_provider::static_credential("opencode-token"),
         model: "qwen3.6-plus".into(),

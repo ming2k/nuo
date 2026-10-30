@@ -33,7 +33,8 @@ enum CatalogFetchSource {
     FirstParty {
         protocol: CatalogShape,
         base_url: String,
-        client_profile: nuo_wire::ClientProfile,
+        user_agent: String,
+        headers: Vec<(String, String)>,
         cached_etag: Option<String>,
         /// Whether the shape's catalog authenticates with the dialect's own
         /// request signing (`CatalogAuth::Dialect`). When set, the fetch builds
@@ -56,7 +57,8 @@ impl CatalogFetchSource {
             Self::FirstParty {
                 protocol,
                 base_url,
-                client_profile,
+                user_agent,
+                headers,
                 dimensions,
                 ..
             } => {
@@ -64,15 +66,16 @@ impl CatalogFetchSource {
                 digest.update(catalog_shape_id(*protocol).as_bytes());
                 digest.update(b"\0");
                 if *protocol == CatalogShape::Codex {
-                    digest.update(nuo_wire::client_identity::CODEX_VERSION.as_bytes());
+                    const CODEX_VERSION: &str = "0.153.4";
+                    digest.update(CODEX_VERSION.as_bytes());
                     digest.update(b"\0");
                 }
                 digest.update(base_url.as_bytes());
                 digest.update(b"\0");
-                digest.update(client_profile.user_agent().as_bytes());
-                let mut headers = client_profile.headers();
-                headers.sort_unstable();
-                for (name, value) in headers {
+                digest.update(user_agent.as_bytes());
+                let mut sorted_headers = headers.clone();
+                sorted_headers.sort_unstable();
+                for (name, value) in &sorted_headers {
                     digest.update(b"\0");
                     digest.update(name.as_bytes());
                     digest.update(b"\0");
@@ -132,7 +135,8 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
         CatalogFetchSource::FirstParty {
             protocol,
             base_url,
-            client_profile,
+            user_agent,
+            headers,
             cached_etag,
             needs_dialect_signing,
             dimensions,
@@ -170,7 +174,10 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
             } else {
                 nuo_wire::ResolvedAuth::new(job.api_key)
             };
-            let extra_headers = client_profile.headers();
+            let extra_headers: Vec<(&str, &str)> = headers
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
             // Build the dialect signer with the freshly-resolved bearer, when
             // the shape needs it. The generic fetcher receives it as data and
             // never names a provider.
@@ -201,7 +208,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                             .map(|m| m.project_id.as_str())
                             .filter(|s| !s.trim().is_empty())
                     }),
-                user_agent: Some(client_profile.user_agent()),
+                user_agent: Some(&user_agent),
                 extra_headers: &extra_headers,
                 catalog_signing,
                 dimensions: &dimensions,
@@ -633,15 +640,27 @@ fn build_first_party_source(
     // the compiled spec root — the hook returning `None` is the ordinary path.
     let base_url = nuo_provider::catalog_root_for_connection(credentials, &connection.name)
         .unwrap_or_else(|| spec.catalog_root().to_string());
-    let client_profile = if connection.client_identity != nuo_wire::ClientIdentity::Native {
-        connection.client_identity.clone()
-    } else if spec.default_client_profile != nuo_wire::ClientPreset::Native {
-        nuo_wire::ClientProfile::from(spec.default_client_profile)
-    } else if let Some(user_agent) = spec.user_agent.as_deref() {
-        nuo_wire::ClientProfile::from_user_agent(user_agent)
-    } else {
-        nuo_wire::ClientProfile::Native
-    };
+    let user_agent = connection
+        .headers
+        .get("User-Agent")
+        .or_else(|| connection.headers.get("user-agent"))
+        .cloned()
+        .or_else(|| spec.user_agent.as_ref().map(|s| s.to_string()))
+        .unwrap_or_else(|| nuo_provider::NUO_USER_AGENT.to_string());
+
+    let mut headers: Vec<(String, String)> = spec
+        .default_headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    for (k, v) in &connection.headers {
+        if k.eq_ignore_ascii_case("user-agent") {
+            continue;
+        }
+        headers.retain(|(name, _)| !name.eq_ignore_ascii_case(k));
+        headers.push((k.clone(), v.clone()));
+    }
     let cached_etag = cache
         .model_lists
         .get(&connection.name)
@@ -656,7 +675,8 @@ fn build_first_party_source(
     Some(CatalogFetchSource::FirstParty {
         protocol,
         base_url,
-        client_profile,
+        user_agent,
+        headers,
         cached_etag,
         needs_dialect_signing,
         dimensions,

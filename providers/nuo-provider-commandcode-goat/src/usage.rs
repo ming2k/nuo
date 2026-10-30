@@ -8,7 +8,7 @@
 //! This is the authoritative fetcher (the `nuo-provider-adapters` duplicate was retired by ADR-0027). It is
 //! a pure projection of the control plane's answer (ADR-0014 `[INV-LANE-05]`):
 //! the client renders the reported credits and windows verbatim and never
-//! recomputes either. Response shape: `docs/reference/openapi/commandcode-plan.yml`
+//! recomputes either. Response shape: `docs/reference/openapi/commandcode-goat.yml`
 //! (`/alpha/billing/credits`).
 use nuo_wire::{
     BalanceQuota, PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket,
@@ -65,10 +65,12 @@ pub struct CommandCodeUsageFetcher;
 
 impl CommandCodeUsageFetcher {
     pub fn matches(&self, provider: &str, base_url: &str) -> bool {
-        // The canonical provider id is `commandcode-plan`; the
-        // legacy `commandcode` spelling is kept for old stored connections.
-        matches!(provider, "commandcode" | "commandcode-plan")
-            || base_url.contains("commandcode.ai")
+        // The canonical provider id is `commandcode-goat`; the
+        // legacy `commandcode` and `commandcode-plan` spellings are kept for old stored connections.
+        matches!(
+            provider,
+            "commandcode" | "commandcode-goat" | "commandcode-plan"
+        ) || base_url.contains("commandcode.ai")
     }
 
     pub async fn fetch_usage(

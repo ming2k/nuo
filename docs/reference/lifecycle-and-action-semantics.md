@@ -47,8 +47,8 @@ These actions govern the client's local tab container and apply uniformly across
 
 | Action | Shortcuts / Slash | Semantics | Side Effects |
 | :--- | :--- | :--- | :--- |
-| **`OpenTab`** | `Ctrl+T`, `C-x d`, `C-x ,`, `/new` | Mounts a new tab or focuses an existing singleton tab. | Client-local; requests data stream from Server. |
-| **`CloseTab`** | `C-x w`, `Alt+W`, `/close` | Closes the active tab view (**pure Detach**). | If closed tab was a thread, it continues in Autonomous Mode. Closing last tab exits client process cleanly. |
+| **`OpenTab`** | `Alt+T`, `/new`, `t` in Help (`F1` / `Alt-h`) | Mounts a new tab or focuses an existing singleton tab. | Client-local; requests data stream from Server. |
+| **`CloseTab`** | `Alt+W`, `/close`, `w` in Help (`F1` / `Alt-h`) | Closes the active tab view (**pure Detach**). | If closed tab was a thread, it continues in Autonomous Mode. Closing last tab exits client process cleanly. |
 | **`FocusTab`** | `Alt+1` .. `Alt+9` | Jumps directly to tab at ordinal index. | Repoints Layer 3 content projection instantly. |
 | **`NextTab`** / **`PrevTab`** | `Ctrl+Tab`, `Ctrl+Shift+Tab` | Sequentially cycles through mounted tabs. | Re-anchors viewport. |
 

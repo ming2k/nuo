@@ -5,7 +5,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use crate::shell::keymap::Key;
 
 #[test]
 fn bare_arrows_walk_steps_when_focused() {
@@ -623,12 +622,13 @@ fn resize_event_routes_to_terminal_resized_with_dimensions() {
 }
 
 #[test]
-fn ctrl_x_arms_the_scene_namespace() {
+fn f1_and_alt_h_trigger_open_help() {
     let mut input = String::new();
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
-    let action = route_event(
-        Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL)),
+
+    let action_f1 = route_event(
+        Event::Key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
         &mut input,
         &mut cursor,
         Dispatch::default(),
@@ -637,196 +637,19 @@ fn ctrl_x_arms_the_scene_namespace() {
         &SceneKeys::default(),
         &mut drag,
     );
-    assert_eq!(action, InputAction::SetSceneNamespaceArmed(true));
-}
+    assert_eq!(action_f1, InputAction::OpenHelp);
 
-/// Every second stroke resolves through the namespace's own verb
-/// table (`keymap::scene_namespace`) — the same table the which-key card
-/// renders. Case is folded, because a leader chord is typed blind.
-#[test]
-fn scene_namespace_second_strokes_resolve_through_the_verb_table() {
-    use crate::shell::keymap::scene_namespace::{SceneVerb, strokes_of};
-
-    let armed = Dispatch {
-        scene_namespace_armed: true,
-        notice_viewer_open: false,
-        ..Default::default()
-    };
-    use crate::shell::keymap::{KeyCode as ChordCode, KeyModifiers as ChordMods};
-    let press = |code: ChordCode, mods: ChordMods, dispatch: Dispatch| {
-        let mut input = String::new();
-        let mut cursor = 0;
-        let mut drag = SelectionDrag::default();
-        route_event(
-            Event::Key(crate::shell::input::keystroke::event_from_chord(Key {
-                code,
-                modifiers: mods,
-            })),
-            &mut input,
-            &mut cursor,
-            dispatch,
-            &ModalKeys::default(),
-            &SheetKeys::default(),
-            &SceneKeys::default(),
-            &mut drag,
-        )
-    };
-
-    // Every declared stroke maps to the action its verb names.
-    for stroke in strokes_of() {
-        let verb = SceneVerb::from_stroke(stroke).expect("declared stroke resolves");
-        let expected = match verb {
-            SceneVerb::Leave => InputAction::CloseTab,
-            SceneVerb::Switcher => InputAction::ViewSwitcherToggle,
-            SceneVerb::Threads => InputAction::OpenSessions,
-            SceneVerb::Dashboard => InputAction::NavigateDashboard,
-            SceneVerb::Settings => InputAction::NavigateSettings,
-        };
-        if let ChordCode::Char(c) = stroke.code {
-            // Lowercase spelling.
-            assert_eq!(
-                press(ChordCode::Char(c), stroke.modifiers, armed.clone()),
-                expected,
-                "{verb:?} lowercase"
-            );
-            // Uppercase spelling (`C-x W`) folds to the same verb.
-            if !stroke.modifiers.contains(ChordMods::CONTROL) {
-                assert_eq!(
-                    press(
-                        ChordCode::Char(c.to_ascii_uppercase()),
-                        stroke.modifiers,
-                        armed.clone()
-                    ),
-                    expected,
-                    "{verb:?} uppercase folds"
-                );
-            }
-        }
-    }
-
-    // `Esc` and `C-g` cancel; so does any unclaimed stroke (including `k`, `c`, `C-c`
-    // excised by ADR-0077) — a half-typed chord must never fall through and fire a global.
-    for (code, mods) in [
-        (ChordCode::Esc, ChordMods::NONE),
-        (ChordCode::Char('g'), ChordMods::CONTROL),
-        (ChordCode::Char('k'), ChordMods::NONE),
-        (ChordCode::Char('c'), ChordMods::CONTROL),
-        (ChordCode::Char('c'), ChordMods::NONE),
-        (ChordCode::Char('z'), ChordMods::NONE),
-        (ChordCode::Enter, ChordMods::NONE),
-    ] {
-        assert_eq!(
-            press(code, mods, armed.clone()),
-            InputAction::CancelSceneNamespace,
-            "{code:?}+{mods:?} cancels"
-        );
-    }
-
-    // Re-pressing the opener re-arms rather than cancelling.
-    assert_eq!(
-        press(ChordCode::Char('x'), ChordMods::CONTROL, armed),
-        InputAction::SetSceneNamespaceArmed(true)
-    );
-}
-
-/// ADR-0077 [INV-TUI-SURF-01]: Neither `c`, `C-c`, nor `k` carry any meaning inside the namespace;
-/// they all cancel safely instead of quitting or closing tabs.
-#[test]
-fn scene_namespace_excised_strokes_cancel_safely() {
-    use crate::shell::keymap::{KeyCode as ChordCode, KeyModifiers as ChordMods};
-    for (code, mods) in [
-        (ChordCode::Char('c'), ChordMods::NONE),
-        (ChordCode::Char('c'), ChordMods::CONTROL),
-        (ChordCode::Char('k'), ChordMods::NONE),
-    ] {
-        let mut input = String::new();
-        let mut cursor = 0;
-        let mut drag = SelectionDrag::default();
-        let action = route_event(
-            Event::Key(crate::shell::input::keystroke::event_from_chord(Key {
-                code,
-                modifiers: mods,
-            })),
-            &mut input,
-            &mut cursor,
-            Dispatch {
-                scene_namespace_armed: true,
-                notice_viewer_open: false,
-                ..Default::default()
-            },
-            &ModalKeys::default(),
-            &SheetKeys::default(),
-            &SceneKeys::default(),
-            &mut drag,
-        );
-        assert_eq!(action, InputAction::CancelSceneNamespace);
-    }
-}
-
-#[test]
-fn scene_namespace_s_opens_sessions() {
-    let mut input = String::new();
-    let mut cursor = 0;
-    let mut drag = SelectionDrag::default();
-    let action = route_event(
-        Event::Key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
+    let action_alt_h = route_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
         &mut input,
         &mut cursor,
-        Dispatch {
-            scene_namespace_armed: true,
-            notice_viewer_open: false,
-            ..Default::default()
-        },
+        Dispatch::default(),
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys::default(),
         &mut drag,
     );
-    assert_eq!(action, InputAction::OpenSessions);
-}
-
-#[test]
-fn scene_namespace_d_navigates_to_dashboard() {
-    let mut input = String::new();
-    let mut cursor = 0;
-    let mut drag = SelectionDrag::default();
-    let action = route_event(
-        Event::Key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE)),
-        &mut input,
-        &mut cursor,
-        Dispatch {
-            scene_namespace_armed: true,
-            notice_viewer_open: false,
-            ..Default::default()
-        },
-        &ModalKeys::default(),
-        &SheetKeys::default(),
-        &SceneKeys::default(),
-        &mut drag,
-    );
-    assert_eq!(action, InputAction::NavigateDashboard);
-}
-
-#[test]
-fn scene_namespace_comma_navigates_to_settings() {
-    let mut input = String::new();
-    let mut cursor = 0;
-    let mut drag = SelectionDrag::default();
-    let action = route_event(
-        Event::Key(KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE)),
-        &mut input,
-        &mut cursor,
-        Dispatch {
-            scene_namespace_armed: true,
-            notice_viewer_open: false,
-            ..Default::default()
-        },
-        &ModalKeys::default(),
-        &SheetKeys::default(),
-        &SceneKeys::default(),
-        &mut drag,
-    );
-    assert_eq!(action, InputAction::NavigateSettings);
+    assert_eq!(action_alt_h, InputAction::OpenHelp);
 }
 
 /// The scenes have **no** `q` exit. `q` is an ordinary printable on

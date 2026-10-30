@@ -41,6 +41,7 @@ fn render_full_view_with_context(
     let tab_bar = Some(TabBarProps {
         tabs: None,
         active_tab: 0,
+        unread_faults: 0,
     });
     terminal.draw(|f| {
         let _ = draw_transcript(

@@ -12,11 +12,11 @@ use nuo_provider::capability::{
 };
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_provider::{ClientProfile, Endpoint, PromptCacheConfig};
 use nuo_provider::{
     CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta,
     ProviderError, RequestDelivery,
 };
+use nuo_provider::{Endpoint, PromptCacheConfig};
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::json;
 use std::sync::Arc;
@@ -76,8 +76,13 @@ impl GoogleInteractionsProvider {
         self
     }
 
-    pub fn with_client_profile(mut self, profile: impl Into<ClientProfile>) -> Self {
-        self.endpoint.client_profile = profile.into();
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.endpoint.set_user_agent(user_agent);
+        self
+    }
+
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.endpoint.headers.extend(headers);
         self
     }
 
@@ -139,7 +144,7 @@ impl GoogleInteractionsProvider {
             }
         }
 
-        for (k, v) in self.endpoint.client_profile.headers() {
+        for (k, v) in self.endpoint.headers() {
             if let (Ok(name), Ok(val)) = (k.parse::<http::header::HeaderName>(), v.parse()) {
                 headers.insert(name, val);
             }

@@ -24,7 +24,7 @@ use std::fs;
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::RouteSettings;
+pub use crate::config::RouteSettings;
 use crate::paths;
 
 /// Read the historical `route_settings` map out of a pre-split catalog file.
@@ -400,6 +400,7 @@ mod tests {
                 },
                 capability_overrides: None,
                 prompt_cache: None,
+                model_guidance: None,
             },
             "the user's reasoning override must be rescued from the retired file"
         );

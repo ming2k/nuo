@@ -246,8 +246,8 @@ mod tests {
                 label: Some("Corporate Relay".to_string()),
                 root_url: "https://relay.corp.example/v1".to_string(),
                 default_protocol: Some(nuo_wire::WireProtocol::OpenAiChatCompletions),
-                client_profile: Some(nuo_wire::ClientPreset::Cursor),
-                user_agent: None,
+                user_agent: Some("corp-agent/1.0".to_string()),
+                headers: None,
                 catalog: Some(nuo_wire::RemoteCatalogSource::Endpoint(
                     nuo_wire::CatalogShape::OpenAi,
                 )),
@@ -255,14 +255,13 @@ mod tests {
                 protocol_roots: vec![],
                 catalog_root_url: None,
                 prompt_cache: None,
-                client_profile_sensitive: false,
             },
         );
 
         let text = toml::to_string_pretty(&store).unwrap();
         assert!(text.contains("[providers.corp-relay]"));
         assert!(text.contains("root_url = \"https://relay.corp.example/v1\""));
-        assert!(text.contains("client_profile = \"cursor\""));
+        assert!(text.contains("user_agent = \"corp-agent/1.0\""));
 
         let parsed: ModelProviders = toml::from_str(&text).unwrap();
         assert_eq!(store, parsed);
@@ -272,7 +271,7 @@ mod tests {
             prov.default_protocol,
             Some(nuo_wire::WireProtocol::OpenAiChatCompletions)
         );
-        assert_eq!(prov.client_profile, Some(nuo_wire::ClientPreset::Cursor));
+        assert_eq!(prov.user_agent.as_deref(), Some("corp-agent/1.0"));
         assert_eq!(prov.dialect, Some(nuo_wire::ProviderDialect::DeepSeek));
     }
 }

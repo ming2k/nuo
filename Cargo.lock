@@ -1880,6 +1880,7 @@ dependencies = [
  "crc32c",
  "directories",
  "futures",
+ "glob",
  "hex",
  "inventory",
  "libc",
@@ -2061,7 +2062,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-provider-commandcode-plan"
+name = "nuo-provider-commandcode-goat"
 version = "0.0.57"
 dependencies = [
  "async-trait",
@@ -2174,13 +2175,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "nuo-provider-opencode-plan"
+name = "nuo-provider-opencode-go"
 version = "0.0.57"
 dependencies = [
+ "chrono",
  "inventory",
  "nuo-inference-wire",
+ "nuo-protocol",
  "nuo-provider",
  "nuo-provider-deepseek",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2298,14 +2303,14 @@ dependencies = [
  "nuo-provider-codebuddy-auth",
  "nuo-provider-codebuddy-cn",
  "nuo-provider-codebuddy-intl",
- "nuo-provider-commandcode-plan",
+ "nuo-provider-commandcode-goat",
  "nuo-provider-copilot",
  "nuo-provider-deepseek",
  "nuo-provider-glm-cn",
  "nuo-provider-google-antigravity",
  "nuo-provider-kimi",
  "nuo-provider-openai",
- "nuo-provider-opencode-plan",
+ "nuo-provider-opencode-go",
  "nuo-provider-opencode-zen",
  "nuo-provider-openrouter",
  "nuo-provider-qianwen",

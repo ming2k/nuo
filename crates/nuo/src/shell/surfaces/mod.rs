@@ -28,10 +28,10 @@ mod dialogs;
 
 #[allow(unused_imports)]
 pub use dialogs::{
-    ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HistorySearchDialog,
-    McpDialog, ModelsDialog, PermissionsDialog, PortShareDialog, QueueDialog, QuotasDialog,
-    SessionTraceDialog, SessionTreeDialog, SessionsDialog, SkillsDialog, SwitcherDialog,
-    ThreadStatsDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
+    ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HelpDialog,
+    HistorySearchDialog, McpDialog, ModelsDialog, PermissionsDialog, PortShareDialog, QueueDialog,
+    QuotasDialog, SessionTraceDialog, SessionTreeDialog, SessionsDialog, SkillsDialog,
+    SwitcherDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -104,6 +104,7 @@ pub enum DialogKind {
     SessionTree,
     Switcher,
     PortShare,
+    Help,
 }
 
 impl DialogKind {
@@ -112,7 +113,7 @@ impl DialogKind {
     pub const Sessions: DialogKind = DialogKind::Threads;
 
     /// Every dialog id that appears in the switcher's reference/discovery list.
-    pub const ALL: [DialogKind; 15] = [
+    pub const ALL: [DialogKind; 16] = [
         DialogKind::Tools,
         DialogKind::Mcp,
         DialogKind::Skills,
@@ -128,6 +129,7 @@ impl DialogKind {
         DialogKind::Threads,
         DialogKind::SessionTree,
         DialogKind::PortShare,
+        DialogKind::Help,
     ];
 
     /// The label shown in the quick switcher and used for fuzzy matching.
@@ -149,6 +151,7 @@ impl DialogKind {
             DialogKind::SessionTree => "Session tree",
             DialogKind::Switcher => "Quick switcher",
             DialogKind::PortShare => "Port & sharing",
+            DialogKind::Help => "Help & Shortcuts",
         }
     }
 
@@ -169,8 +172,9 @@ impl DialogKind {
             DialogKind::Queue => "/queue",
             DialogKind::Threads => "/threads",
             DialogKind::SessionTree => "/tree",
-            DialogKind::Switcher => "C-x p",
+            DialogKind::Switcher => "/palette",
             DialogKind::PortShare => "/port",
+            DialogKind::Help => "F1 / Alt-h",
         }
     }
 
@@ -186,7 +190,8 @@ impl DialogKind {
             | DialogKind::Models
             | DialogKind::Connections
             | DialogKind::UsageStats
-            | DialogKind::Quotas => DialogScope::Global,
+            | DialogKind::Quotas
+            | DialogKind::Help => DialogScope::Global,
             // Session: bound to the ambient session; unwound on session change.
             DialogKind::ThreadStats
             | DialogKind::SessionTrace

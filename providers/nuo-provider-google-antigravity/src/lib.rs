@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_provider::{ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig};
+use nuo_provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
 pub mod catalog;
 pub mod interactions;
@@ -147,7 +147,6 @@ impl GoogleProvider {
         credentials: std::sync::Arc<dyn nuo_provider::CredentialSource>,
         model: String,
         base_url: &str,
-        client_profile: impl Into<ClientProfile>,
     ) -> Self {
         let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
         Self {
@@ -156,8 +155,7 @@ impl GoogleProvider {
                 model,
                 base_url.trim_end_matches('/'),
                 "google",
-            )
-            .with_client_profile(client_profile),
+            ),
             client: Client::new(),
             capabilities,
             reasoning_effort: None,
@@ -166,6 +164,18 @@ impl GoogleProvider {
             thinking_rejected: Arc::new(Mutex::new(false)),
             dialect: nuo_provider::dialects::GoogleGenerateContentDialect::GenerativeLanguage,
         }
+    }
+
+    /// Set an explicit User-Agent.
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.endpoint.set_user_agent(user_agent);
+        self
+    }
+
+    /// Attach extra HTTP headers.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.endpoint.headers.extend(headers);
+        self
     }
 
     /// Set the attribution id (provider/solution id) so assistant responses are

@@ -44,10 +44,6 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
     Event::Key(KeyEvent::new(code, modifiers))
 }
 
-fn ctrl_x() -> Event {
-    key(KeyCode::Char('x'), KeyModifiers::CONTROL)
-}
-
 /// Three tabs: thread (x 0..11), dashboard (x 11..23), settings (x 23..33).
 fn seeded_app() -> (crate::shell::App, tempfile::TempDir) {
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
@@ -92,53 +88,39 @@ async fn every_single_click_switches() {
 /// actions between the two strokes and disarm the namespace, which is why
 /// `C-x w` sometimes needed two attempts.
 #[tokio::test]
-async fn pointer_motion_does_not_cancel_the_ctrl_x_chord() {
+async fn f1_and_alt_h_open_help_dialog() {
     let (mut app, _tmp) = seeded_app();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
-    let tabs_before = app.surfaces.tabs().len();
-
-    send(&mut app, &mut terminal, ctrl_x()).await;
-    assert!(app.scene_namespace_armed, "C-x arms the scene namespace");
-
-    send(&mut app, &mut terminal, mouse(MouseEventKind::Moved, 10, 0)).await;
-    assert!(
-        app.scene_namespace_armed,
-        "a pointer motion between strokes must not disarm the chord"
-    );
 
     send(
         &mut app,
         &mut terminal,
-        key(KeyCode::Char('w'), KeyModifiers::NONE),
+        key(KeyCode::F(1), KeyModifiers::NONE),
     )
     .await;
     assert_eq!(
-        app.surfaces.tabs().len(),
-        tabs_before - 1,
-        "C-x w closes one tab on the first press"
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::Help)
     );
-}
 
-/// A keystroke that is *not* a namespace verb still disarms the chord, so a
-/// half-typed leader cannot linger and reinterpret a later key.
-#[tokio::test]
-async fn a_stray_keystroke_still_disarms_the_chord() {
-    let (mut app, _tmp) = seeded_app();
-    let mut terminal = nuotc::TestTerminal::new(80, 24);
-    paint(&mut app, &mut terminal);
-
-    send(&mut app, &mut terminal, ctrl_x()).await;
-    assert!(app.scene_namespace_armed);
     send(
         &mut app,
         &mut terminal,
-        key(KeyCode::F(5), KeyModifiers::NONE),
+        key(KeyCode::Esc, KeyModifiers::NONE),
     )
     .await;
-    assert!(
-        !app.scene_namespace_armed,
-        "an unrecognized keystroke cancels the namespace"
+    assert_eq!(app.active_dialog(), None);
+
+    send(
+        &mut app,
+        &mut terminal,
+        key(KeyCode::Char('h'), KeyModifiers::ALT),
+    )
+    .await;
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::Help)
     );
 }
 

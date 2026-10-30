@@ -79,6 +79,14 @@ pub struct DashboardRects {
     pub tab_rects: Vec<(usize, Rect)>,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
+    /// Bounding rect for left overflow indicator (`‹N`), if present.
+    pub tab_prev_rect: Option<Rect>,
+    /// Bounding rect for right overflow indicator (`N›`), if present.
+    pub tab_next_rect: Option<Rect>,
+    /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
+    pub tab_overflow_rect: Option<Rect>,
+    pub tab_notices_rect: Option<Rect>,
+    pub tab_help_rect: Option<Rect>,
 }
 
 /// A session card's dock position: its 1-based sequence number (creation
@@ -220,6 +228,76 @@ pub struct DashboardProps<'a> {
     /// Client-global TabBar projection (ADR-0039, ADR-0060, ADR-0062).
     /// Tier 1 of the head band, carrying open tabs and active tab selection.
     pub tab_bar: Option<TabBarProps<'a>>,
+    /// Active search filter string for the threads fleet table.
+    pub filter: &'a str,
+    /// Whether the `/` inline filter search input is active.
+    pub filtering: bool,
+    /// Whether the dashboard is displaying the Model Usage view (ADR-0129).
+    pub view_usage: bool,
+    /// Cross-session model usage statistics report, if loaded.
+    pub usage_report: Option<&'a nuo_wire::usage_stats::UsageStatsReport>,
+    /// Whether a model usage report fetch is in flight over the control plane.
+    pub usage_loading: bool,
+    /// Scroll offset for the model usage analytics report view.
+    pub usage_scroll: usize,
+}
+
+/// Resolve the authentic semantic display title for a thread (ADR-0050, ADR-0129).
+pub fn thread_display_title(row: &MonitoredSession) -> &str {
+    if let Some(t) = row.title.as_deref().filter(|s| !s.trim().is_empty()) {
+        t.trim()
+    } else if let Some(digest) = &row.digest
+        && !digest.title.trim().is_empty()
+    {
+        digest.title.trim()
+    } else if !row.overview.trim().is_empty() {
+        row.overview.trim()
+    } else {
+        "untitled thread"
+    }
+}
+
+/// Compact format for token counters (e.g. 842, 12.4k, 1.25M).
+pub fn fmt_tokens_compact(tokens: u64) -> String {
+    if tokens < 1_000 {
+        format!("{tokens}")
+    } else if tokens < 1_000_000 {
+        format!("{:.1}k", tokens as f64 / 1_000.0)
+    } else {
+        format!("{:.2}M", tokens as f64 / 1_000_000.0)
+    }
+}
+
+/// Visual status chip and theme-aligned style for a thread (ADR-0129).
+pub fn status_chip(status: SessionStatus, theme: &Theme) -> (&'static str, Style) {
+    match status {
+        SessionStatus::Running => (
+            "● RUNNING",
+            Style::default()
+                .fg(theme.brand())
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionStatus::NeedsApproval => (
+            "▲ APPROVAL",
+            Style::default()
+                .fg(theme.warn())
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionStatus::NeedsInput => (
+            "? INPUT",
+            Style::default()
+                .fg(theme.warn())
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionStatus::Failed => (
+            "✕ FAILED",
+            Style::default()
+                .fg(theme.err())
+                .add_modifier(Modifier::BOLD),
+        ),
+        SessionStatus::Interrupted => ("■ STOPPED", Style::default().fg(theme.dim())),
+        SessionStatus::Idle => ("○ IDLE", Style::default().fg(theme.muted())),
+    }
 }
 
 /// Draw the full-screen dashboard view.
@@ -243,6 +321,12 @@ pub fn draw_dashboard(
         current_session_id,
         show_caret,
         tab_bar,
+        filter,
+        filtering,
+        view_usage,
+        usage_report,
+        usage_loading,
+        usage_scroll,
     } = props;
     // A true full-screen surface: clear the whole frame and paint our own
     // backdrop.
@@ -266,13 +350,29 @@ pub fn draw_dashboard(
         ..area
     };
 
-    let entries = dock_entries(rows);
+    let all_entries = dock_entries(rows);
+    let entries: Vec<DockEntry<'_>> = if filter.trim().is_empty() {
+        all_entries
+    } else {
+        let q = filter.to_lowercase();
+        all_entries
+            .into_iter()
+            .filter(|e| {
+                e.workspace.to_lowercase().contains(&q)
+                    || thread_display_title(e.row).to_lowercase().contains(&q)
+                    || e.row.id.to_lowercase().contains(&q)
+                    || format!("#{}", e.seq).contains(&q)
+                    || dock_status_label(e.row.status).contains(&q)
+            })
+            .collect()
+    };
     let selected = selected.min(entries.len().saturating_sub(1));
+    let selected_seq = entries.get(selected).map(|e| e.seq).unwrap_or(selected + 1);
 
     // Two-tier responsive layout (evolution):
-    // - Wide (width >= 90): Dual-pane side-by-side (Sessions list left, Cognitive Dossier + Console right).
-    // - Compact (width < 90): Vertical stack (head band, Sessions dock top, Cognitive Dossier + Console bottom, footer).
-    let (header_rect, scene_rect, dock_rect, console_rect, footer_rect, card_columns) =
+    // - Wide (width >= 90): Dual-pane side-by-side (Threads Fleet explorer left, Cognitive Dossier + Console right).
+    // - Compact (width < 90): Vertical stack (head band, Threads Fleet top, Cognitive Dossier + Console bottom, footer).
+    let (header_rect, scene_rect, dock_rect, dossier_rect, console_rect, footer_rect, card_columns) =
         if tier.is_wide() {
             let v_chunks = Layout::default()
                 .direction(Direction::Vertical)
@@ -288,44 +388,54 @@ pub fn draw_dashboard(
             let h_cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Percentage(38), // Sessions pane
+                    Constraint::Percentage(56), // Threads Fleet Explorer
                     Constraint::Length(1),      // gap
-                    Constraint::Percentage(62), // Console & Mission Dossier pane
+                    Constraint::Percentage(44), // Right pane (Dossier + Console)
                 ])
                 .split(main_body);
             let dock = h_cols[0];
-            let console = h_cols[2];
+            let right_pane = h_cols[2];
+
+            let r_rows = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Percentage(62), // Focused Thread Dossier
+                    Constraint::Length(1),      // gap
+                    Constraint::Percentage(38), // Directives & Receipts Console
+                ])
+                .split(right_pane);
+            let dossier = r_rows[0];
+            let console = r_rows[2];
             let cols = dock_columns(dock.width);
             (
                 Rect::new(full.x, full.y, full.width, 1),
                 Rect::new(full.x, full.y.saturating_add(1), full.width, 1),
                 dock,
+                Some(dossier),
                 console,
                 footer,
                 cols,
             )
         } else {
             let cols = dock_columns(body.width);
-            let dock_rows = entries.len().div_ceil(cols);
-            let dock_height = (dock_rows.max(1) as u16 + 1).min(body.height / 2);
-
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(0),              // console (Mission Dossier + Log)
-                    Constraint::Length(1),           // gap
-                    Constraint::Length(dock_height), // sessions dock
-                    Constraint::Length(1),           // gap
-                    Constraint::Length(3),           // footer
+                    Constraint::Percentage(55), // Threads Fleet Table
+                    Constraint::Length(1),      // gap
+                    Constraint::Percentage(45), // Dossier & Console
+                    Constraint::Length(1),      // gap
+                    Constraint::Length(3),      // footer
                 ])
                 .split(body);
-            let console = chunks[0];
-            let dock = chunks[2];
+            let dock = chunks[0];
+            let console = chunks[2];
             let footer = chunks[4];
             (
                 Rect::new(full.x, full.y, full.width, 1),
                 Rect::new(full.x, full.y.saturating_add(1), full.width, 1),
                 dock,
+                None,
                 console,
                 footer,
                 cols,
@@ -338,7 +448,7 @@ pub fn draw_dashboard(
     let tab_rects = if let Some(bar) = tab_bar.as_ref() {
         crate::shell::render::draw_tab_bar(frame, header_rect, bar, theme)
     } else {
-        Vec::new()
+        crate::shell::view_header::TabBarNavRects::default()
     };
     let (summary, needs_attention) = header_content(rows);
     crate::shell::render::draw_scene_bar(
@@ -356,15 +466,54 @@ pub fn draw_dashboard(
         theme,
     );
 
-    let console_body = draw_console(
-        frame,
-        console_rect,
-        log,
-        entries.get(selected).map(|e| e.row),
-        focus == DashboardFocus::Detail,
-        detail_scroll,
-        theme,
-    );
+    if view_usage {
+        let v_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),    // main body
+                Constraint::Length(1), // gap
+                Constraint::Length(3), // footer
+            ])
+            .split(body);
+        let usage_rect = v_chunks[0];
+        let usage_footer_rect = v_chunks[2];
+
+        let usage_body = draw_model_usage_view(
+            frame,
+            usage_rect,
+            usage_report,
+            usage_loading,
+            usage_scroll,
+            theme,
+        );
+
+        render_footer(
+            frame,
+            usage_footer_rect,
+            focus,
+            prompting,
+            prompt_create_new,
+            prompt_text,
+            cursor_position,
+            theme,
+            show_caret,
+            filtering,
+            true,
+        );
+
+        return DashboardRects {
+            area,
+            list_body: usage_body,
+            detail_body: None,
+            tab_rects: tab_rects.tab_rects,
+            tab_bar_rect: Some(header_rect),
+            tab_prev_rect: tab_rects.prev_rect,
+            tab_next_rect: tab_rects.next_rect,
+            tab_overflow_rect: tab_rects.overview_rect,
+            tab_notices_rect: tab_rects.notices_rect,
+            tab_help_rect: tab_rects.help_rect,
+        };
+    }
 
     let dock_body = draw_dock(
         frame,
@@ -379,6 +528,40 @@ pub fn draw_dashboard(
         current_session_id,
     );
 
+    let (list_body, detail_body) = if let Some(dossier) = dossier_rect {
+        let dossier_body = draw_thread_dossier(
+            frame,
+            dossier,
+            entries.get(selected).map(|e| e.row),
+            selected_seq,
+            focus == DashboardFocus::Detail,
+            detail_scroll,
+            theme,
+        );
+        let mut console_scroll = 0usize;
+        let _ = draw_console_log(frame, console_rect, log, false, &mut console_scroll, theme);
+        if focus == DashboardFocus::List {
+            (dock_body, Some(dossier_body))
+        } else {
+            (dossier_body, Some(dock_body))
+        }
+    } else {
+        let console_body = draw_console(
+            frame,
+            console_rect,
+            log,
+            entries.get(selected).map(|e| e.row),
+            focus == DashboardFocus::Detail,
+            detail_scroll,
+            theme,
+        );
+        if focus == DashboardFocus::List {
+            (dock_body, Some(console_body))
+        } else {
+            (console_body, Some(dock_body))
+        }
+    };
+
     render_footer(
         frame,
         footer_rect,
@@ -389,14 +572,21 @@ pub fn draw_dashboard(
         cursor_position,
         theme,
         show_caret,
+        filtering,
+        false,
     );
 
     DashboardRects {
         area,
-        list_body: console_body,
-        detail_body: Some(dock_body),
-        tab_rects,
+        list_body,
+        detail_body,
+        tab_rects: tab_rects.tab_rects,
         tab_bar_rect: Some(header_rect),
+        tab_prev_rect: tab_rects.prev_rect,
+        tab_next_rect: tab_rects.next_rect,
+        tab_overflow_rect: tab_rects.overview_rect,
+        tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
     }
 }
 
@@ -440,11 +630,244 @@ fn header_content(rows: &[MonitoredSession]) -> (String, bool) {
     (summary, needing > 0)
 }
 
-/// Render the session list. Returns the body rect used for rows (the scroll
-/// viewport — but for card *rows*, not individual sessions: scrolling the
-/// dock pages whole card rows at once.
+/// Render the Thread Fleet Table (ADR-0129 [INV-DASH-01]): a structured,
+/// multi-column supervisory table that leads with authentic thread titles,
+/// real-time status chips, workspace identity, active tools/turns, and token
+/// counts.
 #[allow(clippy::too_many_arguments)]
-fn draw_dock(
+fn draw_fleet_table(
+    frame: &mut Frame,
+    area: Rect,
+    entries: &[DockEntry<'_>],
+    selected: usize,
+    focused: bool,
+    scroll: &mut usize,
+    follow: bool,
+    theme: &Theme,
+    current_session_id: &str,
+    now: u64,
+) -> Rect {
+    let title = format!("Threads Fleet ({})", entries.len());
+    let (panel, body) = inset_panel(frame, area, &title, focused, theme);
+    let _ = panel;
+
+    if entries.is_empty() {
+        render_scrollable(
+            frame,
+            body,
+            vec![Line::from(vec![
+                Span::styled(
+                    "No threads hosted on the server yet.".to_string(),
+                    Style::default().fg(theme.muted()),
+                ),
+                Span::styled(
+                    "  Press 'n' to launch one, or 'u' to inspect model usage.".to_string(),
+                    Style::default().fg(theme.dim()),
+                ),
+            ])],
+            scroll,
+            None,
+            theme,
+        );
+        return body;
+    }
+
+    if body.height <= 1 {
+        return body;
+    }
+
+    // Row 0: Column header
+    let header_rect = Rect { height: 1, ..body };
+    let rows_rect = Rect {
+        y: body.y.saturating_add(1),
+        height: body.height.saturating_sub(1),
+        ..body
+    };
+
+    let total_rows = entries.len();
+    let visible_rows = rows_rect.height as usize;
+    let follow_idx = if follow { Some(selected) } else { None };
+    let (start_row, _) = resolve_scroll(
+        scroll,
+        visible_rows,
+        total_rows,
+        follow_idx,
+        SCROLL_EDGE_MARGIN,
+    );
+    let end_row = (start_row + visible_rows).min(total_rows);
+
+    let width = body.width as usize;
+    let dim_style = Style::default()
+        .fg(theme.dim())
+        .add_modifier(Modifier::BOLD);
+
+    let fixed_w = 2 + 4 + 12 + 8 + 6; // 32
+    let has_tool_col = width >= 80;
+    let has_ws_col = width >= 65;
+    let ws_w = if has_ws_col { 12 } else { 0 };
+    let tool_w = if has_tool_col { 16 } else { 0 };
+    let title_w = width.saturating_sub(fixed_w + ws_w + tool_w + 4).max(12);
+
+    let mut header_spans = vec![
+        Span::styled("  ", dim_style),
+        Span::styled(" #  ", dim_style),
+        Span::styled(format!("{:<12}", "STATUS"), dim_style),
+        Span::styled(
+            format!("{:<width$}", "THREAD / MISSION", width = title_w),
+            dim_style,
+        ),
+    ];
+    if has_ws_col {
+        header_spans.push(Span::styled(
+            format!(" {:<width$}", "WORKSPACE", width = ws_w),
+            dim_style,
+        ));
+    }
+    if has_tool_col {
+        header_spans.push(Span::styled(
+            format!(" {:<width$}", "TOOL / PROGRESS", width = tool_w),
+            dim_style,
+        ));
+    }
+    header_spans.push(Span::styled(format!(" {:>7}", "TOKENS"), dim_style));
+    header_spans.push(Span::styled(format!(" {:>6}", "AGE"), dim_style));
+
+    frame.render_widget(&mut Paragraph::new(Line::from(header_spans)), header_rect);
+
+    for (rel, idx) in (start_row..end_row).enumerate() {
+        let Some(entry) = entries.get(idx) else { break };
+        let row = entry.row;
+        let is_selected = idx == selected;
+        let is_current = row.id == current_session_id;
+
+        let cell = Rect {
+            x: rows_rect.x,
+            y: rows_rect.y + rel as u16,
+            width: rows_rect.width,
+            height: 1,
+        };
+
+        if is_selected {
+            frame.render_widget(&mut nuotc::Clear::default(), cell);
+            let style = theme.selection_style(true);
+            frame.render_widget(&mut RtBlock::default().style(style), cell);
+        } else if is_current {
+            frame.render_widget(&mut nuotc::Clear::default(), cell);
+            let style = Style::default().bg(theme.panel());
+            frame.render_widget(&mut RtBlock::default().style(style), cell);
+        }
+
+        let sel_marker = if is_selected { "›" } else { " " };
+        let cur_marker = if is_current { "●" } else { " " };
+        let (status_text, status_st) = status_chip(row.status, theme);
+
+        let lineage = match row.fork_kind {
+            nuo_wire::SessionForkKind::Trunk | nuo_wire::SessionForkKind::Subagent => String::new(),
+            nuo_wire::SessionForkKind::Fork => {
+                let address = entry.fork_point.map(|p| p.label()).unwrap_or_default();
+                match (address.is_empty(), entry.parent_seq) {
+                    (false, Some(parent)) => format!("\u{21b2}{address}#{parent} "),
+                    (false, None) => format!("\u{21b2}{address} "),
+                    (true, Some(parent)) => format!("\u{21b2}#{parent} "),
+                    (true, None) => "\u{21b2} ".to_string(),
+                }
+            }
+        };
+
+        let raw_title = thread_display_title(row);
+        let title_budget = title_w.saturating_sub(lineage.chars().count());
+        let truncated_title = truncate_display(raw_title, title_budget);
+
+        let title_style = if is_selected {
+            Style::default()
+                .fg(theme.heading())
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.fg())
+        };
+
+        let mut row_spans = vec![
+            Span::styled(
+                format!("{sel_marker}{cur_marker}"),
+                Style::default().fg(theme.brand()),
+            ),
+            Span::styled(
+                format!("#{:<3}", entry.seq),
+                Style::default().fg(theme.brand()),
+            ),
+            Span::styled(format!("{:<12}", status_text), status_st),
+        ];
+
+        if !lineage.is_empty() {
+            row_spans.push(Span::styled(lineage, Style::default().fg(theme.brand())));
+        }
+        row_spans.push(Span::styled(
+            format_padded(&truncated_title, title_budget),
+            title_style,
+        ));
+
+        if has_ws_col {
+            let ws_name = truncate_display(&entry.workspace, ws_w);
+            row_spans.push(Span::styled(
+                format!(" {:<width$}", ws_name, width = ws_w),
+                Style::default().fg(theme.muted()),
+            ));
+        }
+
+        if has_tool_col {
+            let tool_str = if let Some(tool) = &row.current_tool {
+                format!("tool: {tool}")
+            } else if let Some(activity) = &row.activity {
+                activity.clone()
+            } else if row.round > 0 {
+                format!("r{} › t{}", row.round, row.turn.unwrap_or(0))
+            } else {
+                "—".to_string()
+            };
+            let tool_disp = truncate_display(&tool_str, tool_w);
+            row_spans.push(Span::styled(
+                format!(" {:<width$}", tool_disp, width = tool_w),
+                Style::default().fg(theme.dim()),
+            ));
+        }
+
+        let tokens_str = if row.output_tokens > 0 {
+            fmt_tokens_compact(row.output_tokens)
+        } else {
+            "—".to_string()
+        };
+        row_spans.push(Span::styled(
+            format!(" {:>7}", tokens_str),
+            Style::default().fg(theme.muted()),
+        ));
+
+        let age_str = format_uptime(now.saturating_sub(row.created_at));
+        row_spans.push(Span::styled(
+            format!(" {:>6}", age_str),
+            Style::default().fg(theme.muted()),
+        ));
+
+        let mut line = Line::from(row_spans);
+        if is_selected && theme.elevation.is_structured() {
+            for span in &mut line.spans {
+                span.style = span.style.add_modifier(Modifier::REVERSE);
+            }
+        }
+        frame.render_widget(&mut Paragraph::new(line), cell);
+    }
+
+    nuo_ui_primitives::primitives::draw_scrollbar(
+        frame,
+        rows_rect,
+        start_row,
+        total_rows.saturating_sub(visible_rows),
+        theme,
+    );
+    body
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_compact_cards(
     frame: &mut Frame,
     area: Rect,
     entries: &[DockEntry<'_>],
@@ -456,7 +879,6 @@ fn draw_dock(
     theme: &Theme,
     current_session_id: &str,
 ) -> Rect {
-    // Panel chrome: a titled band so the dock reads as a pane.
     let (panel, body) = inset_panel(frame, area, "Sessions", focused, theme);
     let _ = panel;
 
@@ -481,8 +903,6 @@ fn draw_dock(
         return body;
     }
 
-    // Card width is an even share of the body; the last column can be wider
-    // (remainder), which only gives its name field more room.
     let total_rows = entries.len().div_ceil(card_columns);
     let visible_rows = body.height as usize;
     let selected_card_row = selected / card_columns;
@@ -546,6 +966,48 @@ fn draw_dock(
         theme,
     );
     body
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_dock(
+    frame: &mut Frame,
+    area: Rect,
+    entries: &[DockEntry<'_>],
+    card_columns: usize,
+    selected: usize,
+    focused: bool,
+    scroll: &mut usize,
+    follow: bool,
+    theme: &Theme,
+    current_session_id: &str,
+) -> Rect {
+    if area.width >= 50 {
+        draw_fleet_table(
+            frame,
+            area,
+            entries,
+            selected,
+            focused,
+            scroll,
+            follow,
+            theme,
+            current_session_id,
+            now_unix_secs(),
+        )
+    } else {
+        draw_compact_cards(
+            frame,
+            area,
+            entries,
+            card_columns,
+            selected,
+            focused,
+            scroll,
+            follow,
+            theme,
+            current_session_id,
+        )
+    }
 }
 
 /// How many card columns the dock's width affords. One column per
@@ -725,6 +1187,106 @@ fn draw_console(
     body
 }
 
+/// Render the focused thread's cognitive mission dossier and live telemetry (ADR-0129).
+fn draw_thread_dossier(
+    frame: &mut Frame,
+    area: Rect,
+    row: Option<&MonitoredSession>,
+    seq: usize,
+    focused: bool,
+    scroll: &mut usize,
+    theme: &Theme,
+) -> Rect {
+    let title = if let Some(r) = row {
+        let name = truncate_display(thread_display_title(r), 24);
+        format!("Thread Dossier #{seq}: {name}")
+    } else {
+        "Thread Dossier".to_string()
+    };
+    let (_, body) = inset_panel(frame, area, &title, focused, theme);
+    let lines = if let Some(r) = row {
+        session_detail_lines(r, body.width as usize, theme)
+    } else {
+        vec![Line::from(Span::styled(
+            "Select a thread from the fleet list to inspect its dossier.",
+            Style::default().fg(theme.muted()),
+        ))]
+    };
+    render_scrollable(frame, body, lines, scroll, None, theme);
+    body
+}
+
+/// Render the directives and receipts cockpit console log (ADR-0116, ADR-0129).
+fn draw_console_log(
+    frame: &mut Frame,
+    area: Rect,
+    log: &[ConsoleLine],
+    focused: bool,
+    scroll: &mut usize,
+    theme: &Theme,
+) -> Rect {
+    let (_, body) = inset_panel(frame, area, "Directives & Receipts", focused, theme);
+    let mut lines = Vec::new();
+    if log.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("Fleet Control: ", Style::default().fg(theme.brand())),
+            Span::styled(
+                "@3 text sends  /kill /interrupt /suspend /new  bare text prompts selection",
+                Style::default().fg(theme.muted()),
+            ),
+        ]));
+    } else {
+        for entry in log {
+            lines.push(entry.to_line(theme));
+        }
+    }
+    render_scrollable(frame, body, lines, scroll, None, theme);
+    body
+}
+
+/// Render the decoupled Model Usage & System Analytics view on the dashboard (ADR-0129 [INV-USAGE-01]).
+fn draw_model_usage_view(
+    frame: &mut Frame,
+    area: Rect,
+    report: Option<&nuo_wire::usage_stats::UsageStatsReport>,
+    loading: bool,
+    scroll: usize,
+    theme: &Theme,
+) -> Rect {
+    let (panel, body) = inset_panel(frame, area, "Model Usage & System Analytics", true, theme);
+    let _ = panel;
+
+    let lines = if loading && report.is_none() {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("   ", Style::default()),
+                Span::styled(
+                    "Loading cross-session model usage statistics from control plane…",
+                    Style::default().fg(theme.muted()),
+                ),
+            ]),
+        ]
+    } else if let Some(rep) = report {
+        crate::shell::overlays::usage_stats::usage_body(rep, body.width as usize, theme)
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("   ", Style::default()),
+                Span::styled(
+                    "No model usage recorded yet — it appears after the first model request.",
+                    Style::default().fg(theme.muted()),
+                ),
+            ]),
+        ]
+    };
+
+    let mut scroll_slot = scroll;
+    render_scrollable(frame, body, lines, &mut scroll_slot, None, theme);
+    body
+}
+
 // shared chrome
 
 /// Paint a panel band with a small title and return (outer, inner-body).
@@ -796,6 +1358,8 @@ fn render_footer(
     // band, so this flag comes from `App::caret_owner() == CaretOwner::Scene`
     // rather than from `prompting` alone.
     show_caret: bool,
+    filtering: bool,
+    view_usage: bool,
 ) {
     if rect.height == 0 || rect.width < 10 {
         return;
@@ -810,7 +1374,7 @@ fn render_footer(
     if prompting {
         // Inline prompt inside the 3-row Subagent-style bar:
         let (label, hint) = if prompt_create_new {
-            ("New session task: ", " (Enter create  Esc cancel)")
+            ("New thread task: ", " (Enter create  Esc cancel)")
         } else {
             ("Send task: ", " (Enter send  Esc cancel)")
         };
@@ -845,11 +1409,6 @@ fn render_footer(
             );
         }
 
-        // The field is append-only (there is no caret motion inside a scene
-        // prompt), so the caret rests flush after the typed text — measured
-        // through the same `unicode_width` pass the spans were painted with,
-        // and clamped to the band so a long task line never spills past the
-        // right edge.
         if show_caret {
             let prefix_cols = "   ".width() + label.width();
             let caret_col = super::common::caret_column(prompt_text, cursor_position) as usize;
@@ -862,31 +1421,85 @@ fn render_footer(
         return;
     }
 
-    // One verb list, no branches: the console's footer advertises the scene's
-    // own verbs plus the namespace's leave entry. (`keymap_page` used to switch
-    // this to a dead `Esc close / ? close` pair — a leftover from the retired
-    // in-dialog keymap sub-page, — whose only caller passed `false`)
-    let pairs: Vec<(&'static str, &'static str)> = match focus {
-        DashboardFocus::List => vec![
-            ("↑/↓", "navigate"),
-            ("Tab", "switch pane"),
-            ("Enter", "preview"),
-            ("a", "attach"),
-            ("p", "prompt"),
-            ("n", "new session"),
-            ("i", "interrupt"),
-            ("k", "kill"),
-            ("s", "suspend"),
-            ("C-x", "menu"),
-        ],
-        DashboardFocus::Detail => vec![
+    if filtering {
+        let prompt_line = Line::from(vec![
+            Span::styled("   ", fill),
+            Span::styled(
+                "Filter threads: ".to_string(),
+                Style::default()
+                    .bg(bg)
+                    .fg(theme.brand())
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                prompt_text.to_string(),
+                Style::default().bg(bg).fg(theme.fg()),
+            ),
+            Span::styled(
+                " (Enter apply · Esc clear)".to_string(),
+                Style::default().bg(bg).fg(theme.dim()),
+            ),
+        ]);
+
+        let mid = rect.y + rect.height / 2;
+        let blank = Line::from(Span::styled(" ".repeat(width), fill));
+        for y in rect.y..rect.y + rect.height {
+            let line = if y == mid {
+                prompt_line.clone()
+            } else {
+                blank.clone()
+            };
+            frame.render_widget(
+                &mut Paragraph::new(line),
+                Rect::new(rect.x, y, rect.width, 1),
+            );
+        }
+
+        if show_caret {
+            let prefix_cols = "   ".width() + "Filter threads: ".width();
+            let caret_col = super::common::caret_column(prompt_text, cursor_position) as usize;
+            let cursor_x = rect
+                .x
+                .saturating_add((prefix_cols + caret_col).min(u16::MAX as usize) as u16)
+                .min(rect.right().saturating_sub(1));
+            frame.set_cursor_position((cursor_x, mid));
+        }
+        return;
+    }
+
+    let pairs: Vec<(&'static str, &'static str)> = if view_usage {
+        vec![
+            ("u", "threads fleet"),
             ("↑/↓", "scroll"),
-            ("Tab", "switch pane"),
-            ("n", "new session"),
-            ("p", "prompt"),
-            ("a", "attach"),
+            ("Esc", "close"),
             ("C-x", "menu"),
-        ],
+        ]
+    } else {
+        match focus {
+            DashboardFocus::List => vec![
+                ("↑/↓", "select"),
+                ("Tab", "switch pane"),
+                ("Enter", "preview"),
+                ("a", "attach"),
+                ("p", "prompt"),
+                ("n", "new thread"),
+                ("i", "interrupt"),
+                ("k", "kill"),
+                ("s", "suspend"),
+                ("u", "model usage"),
+                ("/", "filter"),
+                ("C-x", "menu"),
+            ],
+            DashboardFocus::Detail => vec![
+                ("↑/↓", "scroll"),
+                ("Tab", "switch pane"),
+                ("p", "prompt"),
+                ("n", "new thread"),
+                ("a", "attach"),
+                ("u", "model usage"),
+                ("C-x", "menu"),
+            ],
+        }
     };
 
     const PAIR_GAP: usize = 3;
@@ -1495,6 +2108,12 @@ mod tests {
                     current_session_id: "a-1",
                     show_caret: false,
                     tab_bar: Some(TabBarProps::default()),
+                    filter: "",
+                    filtering: false,
+                    view_usage: false,
+                    usage_report: None,
+                    usage_loading: false,
+                    usage_scroll: 0,
                 },
                 &theme,
             );
@@ -1514,8 +2133,8 @@ mod tests {
         // Row 1: the client TabBar / brand and namespace pair (ADR-0060, ADR-0062).
         let tabbar = row_text(0);
         assert!(
-            tabbar.contains("C-x menu"),
-            "row 1 advertises the scene namespace: {tabbar:?}"
+            tabbar.contains("help") || tabbar.contains("C-x"),
+            "row 1 advertises client affordance: {tabbar:?}"
         );
 
         // Row 2: the polymorphic SceneBar (ADR-0062).
@@ -2043,6 +2662,113 @@ mod tests {
         assert_eq!(
             LayoutTier::from_rect(rect_92, ElevationArchetype::Structured),
             LayoutTier::Wide
+        );
+    }
+
+    #[test]
+    fn thread_display_title_prioritizes_authentic_title_over_digest_and_overview() {
+        let mut r = row("t-1", 100, "/work/test", SessionStatus::Running);
+        r.overview.clear();
+        assert_eq!(thread_display_title(&r), "untitled thread");
+
+        r.overview = "first prompt text".to_string();
+        assert_eq!(thread_display_title(&r), "first prompt text");
+
+        r.digest = Some(nuo_wire::cognitive::SessionDigest {
+            title: "Digest Mission Title".to_string(),
+            intent: "fix bug".to_string(),
+            history: Vec::new(),
+        });
+        assert_eq!(thread_display_title(&r), "Digest Mission Title");
+
+        r.title = Some("Authentic AI Thread Title".to_string());
+        assert_eq!(thread_display_title(&r), "Authentic AI Thread Title");
+    }
+
+    #[test]
+    fn fmt_tokens_compact_formats_correctly() {
+        assert_eq!(fmt_tokens_compact(0), "0");
+        assert_eq!(fmt_tokens_compact(842), "842");
+        assert_eq!(fmt_tokens_compact(1_500), "1.5k");
+        assert_eq!(fmt_tokens_compact(14_200), "14.2k");
+        assert_eq!(fmt_tokens_compact(1_250_000), "1.25M");
+    }
+
+    #[test]
+    fn status_chip_provides_distinct_visual_vocabulary() {
+        let theme = Theme::default();
+        let (label_run, _) = status_chip(SessionStatus::Running, &theme);
+        assert!(label_run.contains("RUNNING"));
+        let (label_app, _) = status_chip(SessionStatus::NeedsApproval, &theme);
+        assert!(label_app.contains("APPROVAL"));
+        let (label_inp, _) = status_chip(SessionStatus::NeedsInput, &theme);
+        assert!(label_inp.contains("INPUT"));
+        let (label_fail, _) = status_chip(SessionStatus::Failed, &theme);
+        assert!(label_fail.contains("FAILED"));
+        let (label_stop, _) = status_chip(SessionStatus::Interrupted, &theme);
+        assert!(label_stop.contains("STOPPED"));
+        let (label_idle, _) = status_chip(SessionStatus::Idle, &theme);
+        assert!(label_idle.contains("IDLE"));
+    }
+
+    #[test]
+    fn draw_fleet_table_renders_structured_headers_and_thread_titles() {
+        let theme = Theme::default();
+        let mut r1 = row("a-1", 100, "/work/repo", SessionStatus::Running);
+        r1.title = Some("Refactor Database Pool".to_string());
+        r1.current_tool = Some("bash".to_string());
+        r1.output_tokens = 14_200;
+
+        let rows = [r1];
+        let entries = dock_entries(&rows);
+        let mut terminal = nuotc::TestTerminal::new(100, 20);
+        let mut scroll = 0usize;
+        terminal.draw(|f| {
+            draw_fleet_table(
+                f,
+                Rect::new(0, 0, 100, 20),
+                &entries,
+                0,
+                true,
+                &mut scroll,
+                true,
+                &theme,
+                "a-1",
+                200,
+            );
+        });
+
+        let text = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect::<String>();
+        assert!(text.contains("Threads Fleet"), "{text}");
+        assert!(text.contains("THREAD / MISSION"), "{text}");
+        assert!(text.contains("Refactor Database Pool"), "{text}");
+        assert!(text.contains("RUNNING"), "{text}");
+        assert!(text.contains("tool: bash"), "{text}");
+        assert!(text.contains("14.2k"), "{text}");
+    }
+
+    #[test]
+    fn draw_model_usage_view_renders_usage_analytics_independently() {
+        let theme = Theme::default();
+        let mut terminal = nuotc::TestTerminal::new(100, 20);
+        terminal.draw(|f| {
+            draw_model_usage_view(f, Rect::new(0, 0, 100, 20), None, true, 0, &theme);
+        });
+        let text = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect::<String>();
+        assert!(text.contains("Model Usage & System Analytics"), "{text}");
+        assert!(
+            text.contains("Loading cross-session model usage statistics"),
+            "{text}"
         );
     }
 }

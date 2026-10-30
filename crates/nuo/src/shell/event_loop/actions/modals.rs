@@ -68,8 +68,8 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                         label: Some(name.clone()),
                         root_url: url,
                         protocol: Some(protocol),
-                        client_profile: None,
                         user_agent: None,
+                        headers: None,
                         catalog_format: None,
                         dialect: None,
                     });
@@ -78,7 +78,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     name,
                     provider,
                     api_key,
-                    client_identity: Some(app.custom_client_identity.clone()),
+                    headers: None,
                     budget: app.custom_budget.clone(),
                     entitlement: None,
                 });
@@ -134,8 +134,8 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                             label: Some(name.clone()),
                             root_url: url,
                             protocol: Some(protocol),
-                            client_profile: None,
                             user_agent: app.custom_user_agent.clone(),
+                            headers: None,
                             catalog_format: None,
                             dialect: None,
                         });
@@ -145,14 +145,13 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     provider
                 };
                 let auth = app.custom_auth.clone();
-                let client_identity = Some(app.custom_client_identity.clone());
                 app.send_intent(AgentRequest::AddConnection {
                     name,
                     provider: provider_id,
                     api_key,
                     models,
                     auth,
-                    client_identity,
+                    headers: None,
                     budget: app.custom_budget.clone(),
                     entitlement: None,
                 });
@@ -273,7 +272,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                     .iter()
                     .find(|r| r.id == id)
                     .cloned();
-                let (name, protocol, base_url, auth, curated, client_identity) = row
+                let (name, protocol, base_url, auth, curated) = row
                     .map(|r| {
                         (
                             r.name,
@@ -281,7 +280,6 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                             r.base_url,
                             r.auth,
                             r.provider != nuo_view::providers::CUSTOM_TEMPLATE.id,
-                            r.client_identity,
                         )
                     })
                     .unwrap_or((
@@ -290,7 +288,6 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                         String::new(),
                         nuo_wire::ConnectionAuth::Static,
                         true,
-                        nuo_wire::ClientIdentity::Native,
                     ));
                 app.surfaces
                     .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
@@ -302,7 +299,6 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                     base_url,
                     auth,
                     curated,
-                    client_identity,
                     app.connection_detail
                         .as_ref()
                         .map(|d| d.budget.clone())

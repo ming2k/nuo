@@ -350,7 +350,7 @@ pub(crate) fn connections_empty_body(theme: &Theme) -> Vec<Line<'static>> {
     ]
 }
 
-/// Format a reset time into human-friendly countdown / clock (e.g. "resets in 2h 15m (14:30)").
+/// Format a reset time into human-friendly countdown (e.g. "resets in 2h 15m").
 pub(crate) fn format_reset_countdown(
     reset_at_ms: Option<u64>,
     reset_time_str: Option<&str>,
@@ -372,17 +372,7 @@ pub(crate) fn format_reset_countdown(
             } else {
                 format!("{secs}s")
             };
-            use chrono::{Local, TimeZone};
-            let clock = Local
-                .timestamp_millis_opt(reset_ms as i64)
-                .single()
-                .map(|dt| dt.format("%H:%M").to_string())
-                .unwrap_or_default();
-            if clock.is_empty() {
-                return Some(format!("resets in {time_str}"));
-            } else {
-                return Some(format!("resets in {time_str} ({clock})"));
-            }
+            return Some(format!("resets in {time_str}"));
         } else {
             return Some("resets soon".to_string());
         }
@@ -390,7 +380,17 @@ pub(crate) fn format_reset_countdown(
     if let Some(raw) = reset_time_str
         && !raw.trim().is_empty()
     {
-        return Some(format!("resets: {raw}"));
+        let raw_stripped = raw.split('(').next().unwrap_or(raw).trim();
+        let trimmed = raw_stripped.trim();
+        if trimmed.starts_with("in ") {
+            return Some(format!("resets {trimmed}"));
+        } else if trimmed.starts_with("resets") {
+            return Some(trimmed.to_string());
+        } else if trimmed.contains('T') {
+            return Some(format!("resets at {trimmed}"));
+        } else {
+            return Some(format!("resets in {trimmed}"));
+        }
     }
     None
 }
@@ -454,18 +454,13 @@ pub(crate) fn connection_detail_body(
         layout = layout.kv_segments("Default Active", segments);
     }
 
-    // Client Profile
+    // Transport & Headers
     layout = layout
-        .section("Client Profile")
-        .kv("Preset", detail.client_identity.label())
+        .section("Transport")
         .kv("User-Agent", &detail.user_agent);
-    let client_headers = detail.client_identity.headers();
-    if !client_headers.is_empty() {
-        layout = layout.raw_row(SelectableRow::styled(
-            format_detail_label("Client Headers"),
-            label,
-        ));
-        for (k, v) in client_headers {
+    if !detail.headers.is_empty() {
+        layout = layout.raw_row(SelectableRow::styled(format_detail_label("Headers"), label));
+        for (k, v) in &detail.headers {
             layout = layout.raw_row(
                 SelectableRow::from_segments(vec![
                     RowSegment::styled(format!("{k}: "), label),
@@ -715,12 +710,112 @@ pub(crate) fn render_balance_quota_block<'a>(
     layout
 }
 
+/// Helper to rank windows by duration (shorter window first, e.g. 5h before daily before weekly).
+fn quota_window_rank(bucket: &nuo_wire::QuotaWindowBucket) -> (u8, u64) {
+    let rank = match bucket.window {
+        Some(nuo_wire::QuotaWindowKind::Rolling5Hour) => 1,
+        Some(nuo_wire::QuotaWindowKind::Daily) => 2,
+        Some(nuo_wire::QuotaWindowKind::Weekly) => 3,
+        Some(nuo_wire::QuotaWindowKind::Monthly) => 4,
+        Some(nuo_wire::QuotaWindowKind::Custom) => 5,
+        None => {
+            let lower = bucket.label.to_ascii_lowercase();
+            if lower.contains("5h") || lower.contains("5-hour") || lower.contains("five hour") {
+                1
+            } else if lower.contains("daily") || lower.contains("24h") || lower.contains("day") {
+                2
+            } else if lower.contains("weekly") || lower.contains("week") || lower.contains("7d") {
+                3
+            } else if lower.contains("monthly") || lower.contains("month") || lower.contains("30d")
+            {
+                4
+            } else {
+                6
+            }
+        }
+    };
+    (rank, bucket.reset_at_ms.unwrap_or(u64::MAX))
+}
+
+/// Normalize bucket labels to avoid tautology and redundant window tags.
+pub(crate) fn normalize_quota_bucket_label(
+    label: &str,
+    group: Option<&str>,
+    window: Option<nuo_wire::QuotaWindowKind>,
+) -> String {
+    let mut clean = label.trim().to_string();
+
+    // 1. If group is specified and clean starts with group, strip group prefix
+    if let Some(grp) = group {
+        let grp_trim = grp.trim();
+        if !grp_trim.is_empty() {
+            let lower_clean = clean.to_ascii_lowercase();
+            let lower_grp = grp_trim.to_ascii_lowercase();
+            if lower_clean.starts_with(&lower_grp) {
+                let remainder = &clean[lower_grp.len()..];
+                let trimmed = remainder.trim_start_matches([' ', '-', ':', '·']);
+                if !trimmed.is_empty() {
+                    clean = trimmed.to_string();
+                }
+            }
+        }
+    }
+
+    // 2. Strip redundant "Remaining" or "Limit Remaining"
+    let lower = clean.to_ascii_lowercase();
+    if lower.ends_with(" limit remaining") {
+        clean.truncate(clean.len() - " limit remaining".len());
+        clean.push_str(" Limit");
+    } else if lower.ends_with(" remaining") {
+        clean.truncate(clean.len() - " remaining".len());
+    }
+
+    // Convert "Five Hour" or "Five-Hour" to "5-Hour"
+    if clean.starts_with("Five Hour") {
+        clean = format!("5-Hour{}", &clean["Five Hour".len()..]);
+    } else if clean.starts_with("Five-Hour") {
+        clean = format!("5-Hour{}", &clean["Five-Hour".len()..]);
+    } else if clean.eq_ignore_ascii_case("five hour") {
+        clean = "5-Hour Limit".to_string();
+    }
+
+    // 3. Append window tag only if not already specified in the clean label
+    let lower = clean.to_ascii_lowercase();
+    let contains_window = match window {
+        Some(nuo_wire::QuotaWindowKind::Rolling5Hour) => {
+            lower.contains("5h")
+                || lower.contains("5-hour")
+                || lower.contains("5 hour")
+                || lower.contains("five hour")
+        }
+        Some(nuo_wire::QuotaWindowKind::Daily) => {
+            lower.contains("daily") || lower.contains("24h") || lower.contains("day")
+        }
+        Some(nuo_wire::QuotaWindowKind::Weekly) => {
+            lower.contains("weekly") || lower.contains("week") || lower.contains("7d")
+        }
+        Some(nuo_wire::QuotaWindowKind::Monthly) => {
+            lower.contains("monthly") || lower.contains("month") || lower.contains("30d")
+        }
+        Some(nuo_wire::QuotaWindowKind::Custom) => lower.contains("custom"),
+        None => true,
+    };
+
+    if !contains_window {
+        if let Some(w) = window {
+            clean.push_str(&format!(" · {}", w.label()));
+        }
+    }
+
+    clean
+}
+
 pub(crate) fn render_periodic_quota_buckets<'a>(
     buckets: &[nuo_wire::QuotaWindowBucket],
     mut layout: DetailLayout<'a>,
     value: Style,
     muted: Style,
-    highlight: Style,
+    _highlight: Style,
     theme: &'a Theme,
 ) -> DetailLayout<'a> {
     if buckets.is_empty() {
@@ -730,36 +825,50 @@ pub(crate) fn render_periodic_quota_buckets<'a>(
         ));
     }
 
+    // Preserve the first-encountered group ordering, and sort buckets within each group
+    // by window duration ascending (shorter windows like 5h before weekly).
+    let mut group_order: Vec<Option<String>> = Vec::new();
+    for b in buckets {
+        if !group_order.contains(&b.group) {
+            group_order.push(b.group.clone());
+        }
+    }
+
+    let mut sorted_buckets: Vec<&nuo_wire::QuotaWindowBucket> = buckets.iter().collect();
+    sorted_buckets.sort_by_key(|b| {
+        let grp_idx = group_order
+            .iter()
+            .position(|g| g == &b.group)
+            .unwrap_or(usize::MAX);
+        (grp_idx, quota_window_rank(b))
+    });
+
     let mut last_group: Option<&str> = None;
-    for bucket in buckets {
+    for bucket in sorted_buckets {
         let current_group = bucket.group.as_deref();
         if current_group != last_group {
             if let Some(grp) = current_group {
-                if last_group.is_some() {
-                    layout = layout.empty_row();
-                }
                 layout = layout.raw_row(SelectableRow::styled(
-                    format!("▸ {grp}"),
-                    highlight.add_modifier(Modifier::BOLD),
+                    grp.to_string(),
+                    value.add_modifier(Modifier::BOLD),
                 ));
             }
             last_group = current_group;
         }
 
-        let has_group = bucket.group.is_some();
-        let bar_indent = if has_group { "    " } else { "  " };
+        let bucket_label =
+            normalize_quota_bucket_label(&bucket.label, current_group, bucket.window);
 
-        let window_tag = bucket
-            .window
-            .map(|w| format!(" · {}", w.label()))
-            .unwrap_or_default();
-        let bucket_label = format!("{}{}", bucket.label, window_tag);
+        let reset_str =
+            format_reset_countdown(bucket.reset_at_ms, bucket.reset_time_str.as_deref());
 
-        let title_row = if has_group {
-            SelectableRow::styled(bucket_label, value.add_modifier(Modifier::BOLD))
-                .with_prefix(RowSegment::styled("  ", muted))
+        let title_row = if let Some(reset) = reset_str {
+            SelectableRow::from_segments(vec![
+                RowSegment::styled(bucket_label, value),
+                RowSegment::styled(format!("  ·  {reset}"), muted),
+            ])
         } else {
-            SelectableRow::styled(bucket_label, value.add_modifier(Modifier::BOLD))
+            SelectableRow::styled(bucket_label, value)
         };
         layout = layout.raw_row(title_row);
 
@@ -770,17 +879,8 @@ pub(crate) fn render_periodic_quota_buckets<'a>(
             .into_iter()
             .map(|s| RowSegment::styled(s.content.into_owned(), s.style))
             .collect();
-        let bar_row = SelectableRow::from_segments(segments)
-            .with_prefix(RowSegment::styled(bar_indent, muted));
+        let bar_row = SelectableRow::from_segments(segments);
         layout = layout.raw_row(bar_row);
-
-        if let Some(reset_str) =
-            format_reset_countdown(bucket.reset_at_ms, bucket.reset_time_str.as_deref())
-        {
-            let reset_row = SelectableRow::styled(reset_str, muted)
-                .with_prefix(RowSegment::styled(bar_indent, muted));
-            layout = layout.raw_row(reset_row);
-        }
     }
     layout
 }

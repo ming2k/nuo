@@ -105,6 +105,8 @@ pub enum CommandId {
     /// Open the notice log viewer: every disclosure this client surfaced,
     /// retained after its bubble faded.
     OpenNotices,
+    /// Open the sovereign Help & Keybindings modal dialog (F1 / Alt-h, ADR-0131).
+    OpenHelp,
 
     // Session & Composer
     SendPrompt,
@@ -388,15 +390,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::CommandPalette,
         label: "Command Palette",
-        // Advertised as `C-x p` — the scene namespace's switcher verb
-        // ([`scene_namespace::SceneVerb::Switcher`]), which is the palette's
-        // sole canonical entry point (ADR-0023). There is **no**
-        // single-stroke default binding: the namespace resolves *before* modal
-        // dispatch, so `C-x p` reaches the palette from every context, and the
-        // former `Ctrl-L` chord (whose modal prohibition the namespace makes
-        // redundant) was retired rather than kept as a shadow path. The command
-        // stays user-remappable through `[keybindings]`.
-        hint: "C-x p",
+        hint: "/commands",
         category: CommandCategory::Global,
         scope: Scope::Global,
         bindings: &[],
@@ -404,7 +398,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Open unified command palette and surface switcher (C-x p)",
+        description: "Open unified command palette and surface switcher",
     },
     CommandSpec {
         id: CommandId::CancelOrBack,
@@ -1406,199 +1400,9 @@ impl LiveHint {
     }
 }
 
-/// The `Ctrl+X` **scene namespace**: a two-stroke chord whose second stroke is
-/// a scene-lifecycle verb.
-///
-/// This table is the single owner of the namespace. The router resolves the
-/// second stroke through [`SceneVerb::from_second_stroke`](scene_namespace::SceneVerb::from_second_stroke) and the which-key card renders
-/// rows straight from [`SceneVerb::ALL`](scene_namespace::SceneVerb::ALL) — so a verb cannot be dispatchable
-/// without being advertised, nor advertised without being dispatchable (the
-/// defect class exists to prevent: the queue bar once rendered a
-/// `Ctrl-q` that resolved to nothing).
-pub mod scene_namespace {
-    use super::{KeyCode, KeyModifiers};
-
-    use super::Key;
-
-    /// The namespace's opening stroke.
-    pub const OPEN: Key = Key::CTRL_X;
-
-    /// One scene-lifecycle verb reachable as `C-x <stroke>`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub enum SceneVerb {
-        /// Open (or close) the Command Palette / surface switcher (`C-x p`).
-        Switcher,
-        /// Navigate directly to the server session orchestrator dashboard (`/dashboard`, `C-x d`).
-        Dashboard,
-        /// Open application and appearance settings (`/settings`, `C-x ,`, ADR-0043).
-        Settings,
-        /// Open the saved threads overview picker dialog (`/threads`, `C-x s`, ADR-0043).
-        Threads,
-        /// Close active tab (or dismiss a foreground dialog first, `C-x w`, ADR-0077).
-        Leave,
-    }
-
-    impl SceneVerb {
-        /// Every verb, in advertisement order. The which-key card renders this
-        /// slice; the router resolves against it. One list, two consumers.
-        pub const ALL: &'static [SceneVerb] = &[
-            SceneVerb::Switcher,
-            SceneVerb::Dashboard,
-            SceneVerb::Settings,
-            SceneVerb::Threads,
-            SceneVerb::Leave,
-        ];
-
-        /// The second-stroke chords that fire this verb.
-        /// Under ADR-0077, `Leave` binds exclusively to `w`, and `Quit` is excised.
-        pub const fn strokes(self) -> &'static [Key] {
-            match self {
-                // `p` (command palette canonical entry, ADR-0023).
-                SceneVerb::Switcher => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('p'),
-                }],
-                // `d` (dashboard — opens server session orchestrator dashboard).
-                SceneVerb::Dashboard => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('d'),
-                }],
-                // `,` (settings — opens application and appearance settings, ADR-0043).
-                SceneVerb::Settings => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char(','),
-                }],
-                // `s` (threads — opens the saved threads overview picker, ADR-0043).
-                SceneVerb::Threads => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('s'),
-                }],
-                // `w` (the close-window / close-tab convention, ADR-0077). Case-insensitive:
-                // the router folds the second stroke, since a leader chord is typed blind.
-                SceneVerb::Leave => &[Key {
-                    modifiers: KeyModifiers::NONE,
-                    code: KeyCode::Char('w'),
-                }],
-            }
-        }
-
-        /// The chord the which-key card advertises for this verb.
-        pub const fn advertised_stroke(self) -> Key {
-            self.strokes()[0]
-        }
-
-        /// The card's label for this verb. The leave verb's wording is
-        /// state-dependent and is supplied by the caller
-        /// (`components::which_key::close_label_for`); this is its fallback.
-        pub const fn label(self) -> &'static str {
-            match self {
-                SceneVerb::Switcher => "command palette",
-                SceneVerb::Dashboard => "dashboard",
-                SceneVerb::Settings => "settings",
-                SceneVerb::Threads => "threads",
-                SceneVerb::Leave => "close tab",
-            }
-        }
-
-        /// The chord the which-key card prints for this verb, in the card's own
-        /// two-stroke notation: a plain letter prints bare (`w`).
-        pub const fn advertised_stroke_display(self) -> &'static str {
-            match self.advertised_stroke().modifiers {
-                KeyModifiers::NONE => match self.advertised_stroke().code {
-                    KeyCode::Char('w') => "w",
-                    KeyCode::Char('p') => "p",
-                    KeyCode::Char('b') => "b",
-                    KeyCode::Char('s') => "s",
-                    KeyCode::Char('d') => "d",
-                    KeyCode::Char(',') => ",",
-                    _ => "?",
-                },
-                _ => "?",
-            }
-        }
-
-        /// Resolve a second stroke to its verb. `stroke` is the *folded* key
-        /// (the router lowercases a shifted letter before calling): a leader
-        /// chord is typed without looking, so case carries no meaning here.
-        pub fn from_stroke(stroke: Key) -> Option<Self> {
-            Self::ALL
-                .iter()
-                .copied()
-                .find(|verb| verb.strokes().contains(&stroke))
-        }
-
-        /// Resolve a raw second-stroke keypress. Terminals deliver `C-x W` as
-        /// `Char('W')` (the shift bit is folded into the character), so the
-        /// case is normalized here rather than at each call site — the
-        /// namespace is case-insensitive by design.
-        pub fn from_second_stroke(key: Key) -> Option<Self> {
-            let folded = match key.code {
-                KeyCode::Char(c) => Key {
-                    modifiers: key.modifiers,
-                    code: KeyCode::Char(c.to_ascii_lowercase()),
-                },
-                _ => key,
-            };
-            Self::from_stroke(folded)
-        }
-    }
-
-    /// Whether `key` is the namespace's opening stroke.
-    pub fn opens(key: Key) -> bool {
-        key == OPEN
-    }
-
-    /// Every second-stroke chord the namespace resolves, across all verbs. Used
-    /// by tests to assert the table is internally consistent.
-    pub fn strokes_of() -> Vec<Key> {
-        SceneVerb::ALL
-            .iter()
-            .flat_map(|verb| verb.strokes().iter().copied())
-            .collect()
-    }
-
-    /// Formats the namespace verbs into which-key card items for pure presentation rendering.
-    pub fn which_key_items(
-        close_label: &'static str,
-    ) -> Vec<nuo_ui_primitives::components::which_key::WhichKeyItem> {
-        let mut items: Vec<nuo_ui_primitives::components::which_key::WhichKeyItem> = SceneVerb::ALL
-            .iter()
-            .copied()
-            .map(|verb| {
-                let label = match verb {
-                    SceneVerb::Leave => close_label,
-                    other => other.label(),
-                };
-                nuo_ui_primitives::components::which_key::WhichKeyItem::new(
-                    verb.advertised_stroke_display().to_string(),
-                    label,
-                    true,
-                )
-            })
-            .collect();
-        items.push(nuo_ui_primitives::components::which_key::WhichKeyItem::new(
-            "Esc".to_string(),
-            "cancel",
-            false,
-        ));
-        items
-    }
-}
-
-/// The canonical global chords a user may remap via the `[keybindings]`
-/// config. `Ctrl+X` is deliberately
-/// absent: it is the two-stroke *scene namespace*'s opening stroke
-/// ([`scene_namespace`]), resolved in the router before this table, so it has
-/// no single-stroke `CommandId` to name. The Command Palette has
-/// **no** canonical single-stroke chord either: it is opened by that
-/// namespace's `p` verb (`C-x p`, ADR-0023) and remains remappable here.
+/// The canonical global chords a user may remap via the `[keybindings]` config.
 fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
     match cmd {
-        // No canonical single-stroke chord: the palette is opened by the
-        // `C-x` scene namespace's switcher verb (ADR-0023),
-        // which the router resolves before the global table. This keeps the
-        // keycap/footer display path honest — chrome renders no
-        // keycap for a chord the global layer does not own.
         CommandId::CommandPalette => None,
         CommandId::Quit => Some(Key::CTRL_C),
         CommandId::CloseTab => Some(Key::ALT_W),
@@ -1607,16 +1411,10 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::OpenThreadStats => None,
         CommandId::OpenSessionTrace => None,
         CommandId::OpenActiveConnectionDetail => None,
-        // `Esc` is a real chord, not a placeholder: it is the registry's
-        // declared binding for CancelOrBack and it resolves there. (It is also
-        // the value the display path used to fall back to for *every* chordless
-        // command, which is what made an unbound command look bound.)
         CommandId::CancelOrBack => Some(Key::ESC),
-        // The queue bar's expand affordance (Ctrl row). Raw mode
-        // clears `IXON` on both the direct and the multiplexer path, so the
-        // chord reaches the app (scopes the same reasoning).
         CommandId::OpenQueue => Some(Key::CTRL_Q),
         CommandId::OpenNotices => Some(Key::CTRL_O),
+        CommandId::OpenHelp => Some(Key::F1),
         _ => None,
     }
 }
@@ -1625,10 +1423,11 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 /// Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit,
 /// Ctrl+Shift+C copy), ignoring user overrides. Esc resolves to
 /// [`CommandId::CancelOrBack`], which never navigates between Scenes.
-/// The Command Palette has **no** single-stroke global chord — it
-/// is opened by the `C-x` scene namespace (ADR-0023).
+/// The Command Palette is accessible via `/palette` and `p` in the Help dialog (ADR-0131).
 fn canonical_global_key(key: Key) -> Option<CommandId> {
-    if key == Key::CTRL_Q {
+    if key == Key::F1 || key == Key::ALT_H {
+        Some(CommandId::OpenHelp)
+    } else if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
     } else if key == Key::CTRL_O {
         Some(CommandId::OpenNotices)
@@ -2317,88 +2116,5 @@ mod tests {
             find_by_slash("/commands").map(|c| c.id),
             Some(CommandId::CommandPalette)
         );
-    }
-
-    /// The `Ctrl+X` namespace's verb table is the single owner of
-    /// both dispatch and advertisement. This is the guard that would have caught
-    /// the queue bar's hardcoded `Ctrl-q` had the namespace been
-    /// written the same way — a stroke that renders but resolves to nothing, or
-    /// resolves but is never advertised.
-    #[test]
-    fn scene_namespace_is_internally_consistent() {
-        use scene_namespace::{SceneVerb, strokes_of};
-
-        // Every declared stroke resolves back to the verb that declares it,
-        // under both case spellings a terminal can deliver.
-        for verb in SceneVerb::ALL {
-            for stroke in verb.strokes() {
-                assert_eq!(
-                    SceneVerb::from_stroke(*stroke),
-                    Some(*verb),
-                    "declared stroke {stroke:?} of {verb:?} does not resolve"
-                );
-                assert_eq!(
-                    SceneVerb::from_second_stroke(*stroke),
-                    Some(*verb),
-                    "declared stroke {stroke:?} of {verb:?} fails case-folding"
-                );
-                if let KeyCode::Char(c) = stroke.code {
-                    let upper = Key {
-                        modifiers: stroke.modifiers,
-                        code: KeyCode::Char(c.to_ascii_uppercase()),
-                    };
-                    assert_eq!(
-                        SceneVerb::from_second_stroke(upper),
-                        Some(*verb),
-                        "the uppercase spelling of {stroke:?} must fold"
-                    );
-                }
-            }
-        }
-
-        // No stroke is claimed by two verbs: a colliding table would make
-        // `from_stroke` order-dependent and the card ambiguous.
-        let mut seen: Vec<Key> = Vec::new();
-        for stroke in strokes_of() {
-            assert!(
-                !seen.contains(&stroke),
-                "stroke {stroke:?} is claimed by more than one scene verb"
-            );
-            seen.push(stroke);
-        }
-
-        // The advertised stroke is always one of the verb's real strokes — the
-        // card can never print a key the dispatcher does not honour.
-        for verb in SceneVerb::ALL {
-            assert!(
-                verb.strokes().contains(&verb.advertised_stroke()),
-                "{verb:?} advertises a stroke it does not declare"
-            );
-        }
-
-        // ADR-0077 [INV-TUI-SURF-01]: Bare `c`, `C-c`, and `k` must never resolve as a scene verb.
-        assert_eq!(SceneVerb::from_second_stroke(Key::plain('k')), None);
-        assert_eq!(SceneVerb::from_second_stroke(Key::plain('c')), None);
-        assert_eq!(SceneVerb::from_second_stroke(Key::CTRL_C), None);
-
-        // The opening stroke is not itself a verb stroke (it re-arms).
-        assert!(
-            !strokes_of().contains(&scene_namespace::OPEN),
-            "the opening stroke must not double as a verb stroke"
-        );
-    }
-
-    /// Every verb the card can print has a label, and the leave verb's label is
-    /// only a fallback — the caller supplies the state-dependent wording.
-    #[test]
-    fn scene_namespace_verbs_all_carry_labels() {
-        for verb in scene_namespace::SceneVerb::ALL {
-            assert!(!verb.label().is_empty(), "{verb:?} has no label");
-            assert!(
-                !verb.advertised_stroke_display().is_empty()
-                    && !verb.advertised_stroke_display().contains('?'),
-                "{verb:?} prints an unrenderable stroke"
-            );
-        }
     }
 }

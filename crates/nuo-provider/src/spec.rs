@@ -1,7 +1,6 @@
 //! Provider static specifications, route resolutions, and prompt-cache policies (ADR-0015).
 
 use crate::cache::{PromptCacheCapabilities, PromptCacheSpec};
-use crate::client_identity::ClientPreset;
 use crate::dialects::{
     ProviderDialect, ResponsesState, clean_model_display_name, format_model_display_name,
 };
@@ -35,10 +34,8 @@ pub struct ModelProviderSpec {
     pub models: &'static [&'static str],
     /// Remote model-catalog source layered on top of the compiled baseline.
     pub catalog_source: RemoteCatalogSource,
-    /// Factory-recommended client emulation profile.
-    pub default_client_profile: ClientPreset,
-    /// Whether this provider strictly requires its recommended client profile.
-    pub client_profile_sensitive: bool,
+    /// Static transport headers required by this provider's ingress gateway.
+    pub default_headers: Cow<'static, [(&'static str, &'static str)]>,
     /// Resolve prompt-cache behavior for one exact preset route and model.
     pub prompt_cache: PromptCachePolicy,
     /// Typed binding to the quota/balance implementation this surface uses
@@ -89,6 +86,23 @@ pub enum QuotaPort {
     OpenRouterKey,
     Antigravity,
     Qoder,
+    /// OpenCode Go subscription allowances (`/zen/go/v1/usage`): the 5-hour
+    /// rolling, weekly, and monthly windows the plan meters.
+    OpencodeGo,
+}
+
+impl QuotaPort {
+    /// Every declared port, so coverage tests can assert the vocabulary and the
+    /// dispatch stay in step in both directions.
+    pub const ALL: &'static [Self] = &[
+        Self::DeepSeekBalance,
+        Self::KimiBalance,
+        Self::CommandCodeCredits,
+        Self::OpenRouterKey,
+        Self::Antigravity,
+        Self::Qoder,
+        Self::OpencodeGo,
+    ];
 }
 
 #[derive(Clone)]
@@ -310,8 +324,7 @@ pub fn sync_user_declared_providers(
             catalog_root_url: provider.catalog_root_url.clone().map(Cow::Owned),
             models: &[],
             catalog_source,
-            default_client_profile: provider.client_profile.unwrap_or(ClientPreset::Native),
-            client_profile_sensitive: provider.client_profile_sensitive,
+            default_headers: Cow::Borrowed(&[]),
             prompt_cache: PromptCachePolicy::Declared(
                 provider.prompt_cache.clone().unwrap_or_default(),
             ),

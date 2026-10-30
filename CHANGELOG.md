@@ -8,6 +8,84 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Thread Orchestration Dashboard and Decoupled Model Usage (ADR-0129).**
+  - **The session dashboard is refactored into a high-visibility fleet management workstation (`[INV-DASH-01]`).** Leads with authentic semantic thread titles, live task digests, attention flags (`NeedsApproval`, `NeedsInput`, `Failed`), and real-time execution activities across a multi-column table instead of opaque directory basenames and cards.
+  - **Direct, orthogonal fleet actions (`[INV-DASH-02]`).** Single-keystroke operations (`Enter`/`a` attach, `i` interrupt, `k` terminate, `s` suspend, `n` new thread, `p` prompt, `/` filter) execute immediately against the active selection.
+  - **Model usage accounting is decoupled from active thread sessions (`[INV-USAGE-01]`).** Shifted from an in-thread slash command to a session-free control plane request (`ControlRequest::GetUsageStats`). Token consumption and spend analytics are queryable cold prior to thread creation via `u` / tab toggle, `C-x u`, or the command palette. Wire protocol advances to version 17.
+
+- **Model Guidance: Dynamic Prompt Engineering and Pure Cognitive Demarcation (ADR-0130).**
+  - **Abolished static `Model.model_guidance: &'static str` scaffolding.** Behavioral prompt guidance is decoupled from provider transport instances and compiled binary metadata (`[INV-GUIDE-01]`).
+  - **Hierarchical resolution cascade (`[INV-GUIDE-02]`).** Model guidance resolves across user `config.toml` via `Route Override > Exact Model ID > Glob Pattern > Model Family > Baseline Default`, handling relay prefixes (e.g. OpenRouter, SiliconFlow) and local backends (Ollama) cleanly.
+  - **Base tier placement and subagent inheritance (`[INV-GUIDE-03..04]`).** Injected into `InstructionTier::Base` directly following identity tone to maximize prefix cache hit ratios, and automatically inherited by delegated subagents.
+
+- **Help Dialog Architecture, TabBar Status Cluster, and Model Bar Purification (ADR-0131).**
+  - **Purified `model_bar` of diagnostic notice clutter (`[INV-AFFORDANCE-01]`).** The model bar is dedicated strictly to inference route identity and context token telemetry.
+  - **Standardized TabBar status cluster.** Persistent unread fault notice indicators (`[!N]`) are relocated to the TabBar right cluster alongside the persistent `F1 help` affordance.
+  - **Sovereign Help Dialog (`DialogKind::Help`, `[INV-HELP-01..03]`).** Accessible via non-printable chords `F1` and `Alt-h`, partitioned into active scene context and client functional domains with single-stroke accelerator execution. The legacy `C-x` leader chord and arming state machine are abolished.
+
+- **Client Identity Abolition and Provider-Private Transport Encapsulation (ADR-0132).**
+  - **Abolished centralized `client_identity` monolith and global `ClientPreset` enum (`[INV-PROV-ENCAP-01]`).** Platform-specific transport headers (Google Antigravity, CodeBuddy, Codex, Copilot, ZCode) are encapsulated privately within their respective provider crates.
+  - **Purified connection schema (`[INV-CONN-PURITY-01]`).** `Connection` removes `client_identity` and gains `headers: BTreeMap<String, String>` for custom proxy/relay endpoints, eliminating fake IDE identity selectors from presentation.
+
+- **OpenCode Go now reports its subscription allowance (ADR-0036).** The Go plan
+  is a subscription, but it is not unmetered: it enforces request quotas across
+  rolling windows (20% of the monthly allowance per 5 hours, 50% per week, 100%
+  per month), and `GET /zen/go/v1/usage` is the only surface that publishes those
+  counters.
+  - **The capability is bound by declaration, not by string.** `opencode-go` now
+    declares `QuotaPort::OpencodeGo`, so dispatch reaches the fetcher through the
+    provider's own spec (`[INV-PROV-08]`) — no provider-id or base-URL substring
+    matching. A stored `opencode-plan` connection canonicalises onto the same
+    surface and inherits the allowance instead of silently reporting
+    `Unsupported`; `opencode-zen` publishes no allowance route and stays
+    unbound.
+  - **The projection reports what upstream measured, and nothing more.** Each
+    window becomes a periodic bucket carrying the used fraction, the RFC 3339
+    reset (as both epoch and raw string), and the percent upstream stated. The
+    ambient badge names the window that runs out *first* — the number that
+    actually constrains the account — rather than the lowest usage figure.
+  - **`status` is the exhaustion signal, not `percent`.** Upstream floors
+    `percent`, so an exhausted window can legitimately read `99`; a
+    `rate-limited` window is reported as fully spent whatever its floored
+    percentage says.
+  - **Nothing unpublished is invented.** A window absent from the response is
+    omitted rather than rendered as `0% used`, and a window with no reading is
+    labelled `not reported` rather than producing a fabricated `100%`. Out-of-range
+    percentages are clamped, since the upstream contract is a statement about its
+    own arithmetic, not about bytes relayed by a proxy.
+  - **The endpoint is derived structurally from the connection's own origin**,
+    which matters more than it looks: the caller passes the *default channel's*
+    `base_url`, and that differs per model — `/zen/go/v1/chat/completions` for an
+    OpenAI model, `inference/go/anthropic/v1/messages` for a Claude model on the
+    same connection, `inference/go/google/v1beta` for a Gemini one. Anchoring on
+    the origin collapses all of them onto the single allowance route, because the
+    allowance is billed per account, not per protocol. No host constant can
+    drift, and mirrors (`dev.opencode.ai`, a local proxy) resolve too.
+  - **The projection carries only what the surfaces render.** Buckets publish the
+    used fraction (bar), the reset (countdown), and the window kind (ranking and
+    label); `used_amount` / `total_limit` / `unit` stay empty because no surface
+    reads them and the plan meters a percentage rather than an amount.
+  - **Failure modes stay distinguishable.** `401` is a rejected key, `403` is an
+    `EntitlementError` (valid key, no Go subscription), and `404` is route drift
+    — each worded as what it means, so an operator is never left guessing which
+    of the three they are looking at. The retired pre-release proposal shape
+    (`rollingUsage` / `usagePercent`) is rejected rather than aliased: a second
+    contract with no producer would turn drift into a silently-empty allowance.
+  - Wire reference: [`docs/reference/openapi/opencode-go.yml`](docs/reference/openapi/opencode-go.yml).
+
+### Fixed
+
+- **The CommandCode `deepseek/deepseek-v4.1-flash-fast` model exposed no
+  reasoning-effort ("推理程度") knob.** It was present as a registered DeepSeek
+  baseline (with the `LOW_HIGH_MAX` effort ladder) but was the **only**
+  CommandCode DeepSeek sibling missing from `COMMANDCODE_BUILTIN_MODELS`. The
+  seed list is what exposes a model's depth control in the picker offline,
+  before a live catalog sync — so `flash-fast` had no effort editor until a
+  sync happened to advertise it, while `v4-flash`, `v4.1-flash`, and `v4-pro`
+  all did. It is now seeded alongside its siblings.
+
 ## [0.0.57] - 2026-10-29
 
 ### Fixed

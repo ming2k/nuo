@@ -29,8 +29,7 @@ use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
 use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
 use nuo_wire::model::CapabilityOverrides;
 use nuo_wire::{
-    ClientProfile, ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString,
-    WireProtocol,
+    ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString, WireProtocol,
 };
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
@@ -248,8 +247,7 @@ pub fn derive_channel(
         .map(|settings| settings.tunings.clone())
         .unwrap_or_default();
 
-    let (protocol, base_url, client_profile, dialect, responses_state) =
-        base_route(connection, model, remote.as_ref())?;
+    let route = base_route(connection, model, remote.as_ref())?;
 
     let api_key = resolve_credential(connection, creds);
     let credentialed = nuo_provider::build_credential_source(
@@ -258,7 +256,7 @@ pub fn derive_channel(
         &connection.name,
         &connection.auth,
         api_key,
-        dialect,
+        route.dialect,
     )
     .ok_or_else(|| {
         nuo_wire::ProviderError::invalid_request(
@@ -267,21 +265,24 @@ pub fn derive_channel(
         )
     })?;
 
-    let transport = match protocol {
+    let transport = match route.protocol {
         WireProtocol::GoogleGenerateContent => Transport::GoogleGenerateContent {
-            base_url,
-            client_profile,
-            dialect: dialect.google(),
+            base_url: route.base_url,
+            dialect: route.dialect.google(),
+            user_agent: route.user_agent,
+            headers: route.headers,
         },
         WireProtocol::GoogleInteractions => Transport::GoogleInteractions {
-            base_url,
-            client_profile,
-            dialect: dialect.google_interactions(),
+            base_url: route.base_url,
+            dialect: route.dialect.google_interactions(),
+            user_agent: route.user_agent,
+            headers: route.headers,
         },
         WireProtocol::AnthropicMessages => Transport::AnthropicMessages {
-            base_url,
-            client_profile,
-            dialect: dialect.anthropic(),
+            base_url: route.base_url,
+            dialect: route.dialect.anthropic(),
+            user_agent: route.user_agent,
+            headers: route.headers,
         },
         WireProtocol::OpenAiResponses => {
             // The Responses dialect is a property of the *endpoint*, declared by
@@ -299,16 +300,18 @@ pub fn derive_channel(
             // `previous_response_id` reached DeepSeek as a lone `tool` message
             // and was rejected (ADR-0114).
             Transport::OpenAiResponses {
-                base_url,
-                client_profile,
-                dialect: dialect.openai_responses(),
-                state: responses_state,
+                base_url: route.base_url,
+                dialect: route.dialect.openai_responses(),
+                state: route.responses_state,
+                user_agent: route.user_agent,
+                headers: route.headers,
             }
         }
         WireProtocol::OpenAiChatCompletions => Transport::OpenAiChatCompletions {
-            base_url,
-            client_profile,
-            dialect: dialect.openai_chat(),
+            base_url: route.base_url,
+            dialect: route.dialect.openai_chat(),
+            user_agent: route.user_agent,
+            headers: route.headers,
         },
     };
 
@@ -325,6 +328,15 @@ pub fn derive_channel(
     })
 }
 
+struct BaseRoute {
+    protocol: WireProtocol,
+    base_url: String,
+    user_agent: String,
+    headers: Vec<(String, String)>,
+    dialect: ProviderDialect,
+    responses_state: nuo_provider::ResponsesState,
+}
+
 /// Model protocol metadata overrides the provider-scoped baseline and default,
 /// and a catalog-advertised root override replaces the spec's route for that
 /// protocol (ADR-0015). Dialect and credentials remain provider-owned.
@@ -332,16 +344,7 @@ fn base_route(
     connection: &Connection,
     model: &str,
     remote: Option<&nuo_wire::RemoteModelMetadata>,
-) -> Result<
-    (
-        WireProtocol,
-        String,
-        ClientProfile,
-        ProviderDialect,
-        nuo_provider::ResponsesState,
-    ),
-    nuo_wire::ProviderError,
-> {
+) -> Result<BaseRoute, nuo_wire::ProviderError> {
     let spec = model_provider_spec(&connection.provider).ok_or_else(|| {
         nuo_wire::ProviderError::invalid_request(&connection.provider, "unknown model provider")
     })?;
@@ -358,15 +361,27 @@ fn base_route(
             ),
         ));
     }
-    let client_profile = if connection.client_identity != ClientProfile::Native
-        || spec.default_client_profile != nuo_wire::ClientPreset::Native
-    {
-        effective_client_profile(connection)
-    } else if let Some(pua) = spec.user_agent.as_deref() {
-        ClientProfile::from_user_agent(pua)
-    } else {
-        ClientProfile::Native
-    };
+    let user_agent = connection
+        .headers
+        .get("User-Agent")
+        .or_else(|| connection.headers.get("user-agent"))
+        .cloned()
+        .or_else(|| spec.user_agent.as_ref().map(|s| s.to_string()))
+        .unwrap_or_else(|| nuo_provider::NUO_USER_AGENT.to_string());
+
+    let mut headers: Vec<(String, String)> = spec
+        .default_headers
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    for (k, v) in &connection.headers {
+        if k.eq_ignore_ascii_case("user-agent") {
+            continue;
+        }
+        headers.retain(|(name, _)| !name.eq_ignore_ascii_case(k));
+        headers.push((k.clone(), v.clone()));
+    }
 
     // The advertised root is an **API root**, not a full endpoint: the suffix
     // is appended by the same ADR-0015 algebra the compiled spec uses.
@@ -385,24 +400,14 @@ fn base_route(
         })?,
     };
 
-    Ok((
+    Ok(BaseRoute {
         protocol,
         base_url,
-        client_profile,
-        spec.dialect,
-        spec.responses_state,
-    ))
-}
-
-/// Resolve the sparse connection override over the provider's recommended
-/// client profile.
-fn effective_client_profile(connection: &Connection) -> ClientProfile {
-    if connection.client_identity != ClientProfile::Native {
-        return connection.client_identity.clone();
-    }
-    model_provider_spec(&connection.provider)
-        .map(|spec| ClientProfile::from(spec.default_client_profile))
-        .unwrap_or(ClientProfile::Native)
+        user_agent,
+        headers,
+        dialect: spec.dialect,
+        responses_state: spec.responses_state,
+    })
 }
 
 /// The **statically configured** credential for a connection: env var

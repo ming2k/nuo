@@ -10,7 +10,7 @@ use futures::StreamExt as _;
 use nuo_host::SecretString;
 use nuo_provider::capability::{Provider, ProviderStreamEvent};
 use nuo_provider_catalog::{CatalogShape, RemoteCatalogRequest, list_models};
-use nuo_provider_commandcode_plan::CommandCodeUsageFetcher;
+use nuo_provider_commandcode_goat::CommandCodeUsageFetcher;
 use nuo_tool::{Message, Role};
 use std::sync::Arc;
 
@@ -86,7 +86,6 @@ async fn main() {
         cred_source,
         "claude-sonnet-5-5".to_string(),
         "https://api.commandcode.ai/provider/v1/messages",
-        nuo_wire::ClientProfile::Native,
     )
     .with_id("cmd-smoke-anthropic".to_string());
 

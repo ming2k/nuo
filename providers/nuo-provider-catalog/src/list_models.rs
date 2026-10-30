@@ -180,13 +180,8 @@ pub async fn fetch_remote_catalog(
         CatalogShape::Codex => {
             // ChatGPT Codex models catalog: requires client_version query param,
             // originator header, and optional ChatGPT-Account-Id header.
-            let endpoint = append_query(
-                &endpoint,
-                &[(
-                    "client_version",
-                    nuo_provider::client_identity::CODEX_VERSION,
-                )],
-            );
+            const CODEX_VERSION: &str = "0.153.4";
+            let endpoint = append_query(&endpoint, &[("client_version", CODEX_VERSION)]);
             let mut request = nuo_provider::transport::Request::new(netune::Method::GET, &endpoint)
                 .header("user-agent", user_agent)
                 .header("originator", "codex_cli_rs");

@@ -327,6 +327,10 @@ impl Key {
         modifiers: KeyModifiers::NONE,
         code: KeyCode::End,
     };
+    pub const F1: Key = Key {
+        modifiers: KeyModifiers::NONE,
+        code: KeyCode::F(1),
+    };
     pub const F5: Key = Key {
         modifiers: KeyModifiers::NONE,
         code: KeyCode::F(5),
@@ -354,8 +358,12 @@ impl Key {
 
     pub const ALT_S: Key = Key::alt('s');
     pub const ALT_W: Key = Key::alt('w');
+    pub const ALT_T: Key = Key::alt('t');
     pub const ALT_P: Key = Key::alt('p');
     pub const ALT_N: Key = Key::alt('n');
+    pub const ALT_H: Key = Key::alt('h');
+    pub const ALT_COMMA: Key = Key::alt(',');
+    pub const ALT_DOT: Key = Key::alt('.');
     pub const ALT_UP: Key = Key {
         modifiers: KeyModifiers::ALT,
         code: KeyCode::Up,

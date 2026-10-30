@@ -209,9 +209,9 @@ pub enum AgentRequest {
         #[serde(default)]
         protocol: Option<crate::WireProtocol>,
         #[serde(default)]
-        client_profile: Option<crate::ClientPreset>,
-        #[serde(default)]
         user_agent: Option<String>,
+        #[serde(default)]
+        headers: Option<std::collections::BTreeMap<String, String>>,
         #[serde(default)]
         catalog_format: Option<String>,
         #[serde(default)]
@@ -232,9 +232,9 @@ pub enum AgentRequest {
         /// How the connection authenticates. OAuth credentials are owned by
         /// this exact connection name.
         auth: crate::ConnectionAuth,
-        /// Client identity (impersonation/headers). Defaults to Native when unset.
-        #[serde(default)]
-        client_identity: Option<crate::ClientIdentity>,
+        /// Custom HTTP headers configured for this connection.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        headers: Option<std::collections::BTreeMap<String, String>>,
         /// Budget policy and circuit breaker posture (ADR-0065).
         #[serde(default)]
         budget: crate::ConnectionBudget,
@@ -265,8 +265,8 @@ pub enum AgentRequest {
         name: String,
         provider: String,
         api_key: crate::SecretString,
-        #[serde(default)]
-        client_identity: Option<crate::ClientIdentity>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        headers: Option<std::collections::BTreeMap<String, String>>,
         /// Budget policy and circuit breaker posture (ADR-0065).
         #[serde(default)]
         budget: crate::ConnectionBudget,
@@ -1713,9 +1713,9 @@ pub struct ProviderPickerRow {
     /// `"anthropic"`, `"deepseek"`, …).
     #[serde(default)]
     pub provider: String,
-    /// Client identity configured for this connection.
-    #[serde(default)]
-    pub client_identity: crate::ClientIdentity,
+    /// Custom headers configured for this connection.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
     /// Unix epoch milliseconds of the last activation. `None` if never activated.
     pub last_used_ms: Option<u64>,
     /// How the connection authenticates.

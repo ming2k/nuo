@@ -200,9 +200,10 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::Skills => ContentModalSpec::SKILLS.modal_spec(),
         // The history panel is a composer-anchored dropdown and the switcher
         // is a command palette: neither uses a centered modal footprint.
-        DialogKind::HistorySearch | DialogKind::Switcher | DialogKind::PortShare => {
-            ContentModalSpec::TOOLS.modal_spec()
-        }
+        DialogKind::HistorySearch
+        | DialogKind::Switcher
+        | DialogKind::PortShare
+        | DialogKind::Help => ContentModalSpec::TOOLS.modal_spec(),
     }
 }
 
@@ -627,6 +628,26 @@ fn render_dialog(
                 ctx.theme,
             ))
         }
+        DialogKind::Help => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<HelpDialog>()
+                .expect("kind");
+            let unread_faults = if app.has_unread_notice_fault() {
+                app.unread_notices()
+            } else {
+                0
+            };
+            Some(crate::shell::overlays::draw_help_modal(
+                frame,
+                area,
+                app.current_scene(),
+                Some(ctx.viewed_session_id),
+                unread_faults,
+                &mut d.scroll,
+                ctx.theme,
+            ))
+        }
     }
 }
 
@@ -825,6 +846,7 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             DialogOutcome::Consumed
         }
         DialogKind::PortShare => DialogOutcome::Consumed,
+        DialogKind::Help => DialogOutcome::Consumed,
     }
 }
 
@@ -837,6 +859,10 @@ fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u16) {
         DialogKind::Switcher => (
             modal_rect.y + 5,
             modal_rect.y + modal_rect.height.saturating_sub(3),
+        ),
+        DialogKind::Help => (
+            modal_rect.y + 2,
+            modal_rect.y + modal_rect.height.saturating_sub(2),
         ),
         _ => (
             modal_rect.y + 3,
@@ -1497,7 +1523,7 @@ fn input_dialog(
             e.selected = rotate(e.selected, count, forward);
             DialogOutcome::Consumed
         }
-        DialogKind::PortShare => DialogOutcome::Consumed,
+        DialogKind::PortShare | DialogKind::Help => DialogOutcome::Consumed,
     }
 }
 
@@ -1765,6 +1791,8 @@ impl PortShareDialog {
     }
 }
 
+dialog_entity!(HelpDialog, Help, {});
+
 /// A snapshot of every session-scoped dialog entity, archived under a
 /// [`SessionId`](crate::shell::surfaces) so returning to a session reinstates exactly
 /// the modal state the user left behind (`[INV-SURFACE-05]`).
@@ -1803,6 +1831,7 @@ pub struct Dialogs {
     pub session_tree: SessionTreeDialog,
     pub switcher: SwitcherDialog,
     pub port_share: PortShareDialog,
+    pub help: HelpDialog,
     /// Per-session archives of the session-scoped entities.
     session_archive: std::collections::HashMap<String, SessionSnapshot>,
     /// The session whose live state the session-scoped entities currently
@@ -1889,6 +1918,7 @@ impl Dialogs {
             DialogKind::SessionTree => &self.session_tree,
             DialogKind::Switcher => &self.switcher,
             DialogKind::PortShare => &self.port_share,
+            DialogKind::Help => &self.help,
         }
     }
 
@@ -1911,6 +1941,7 @@ impl Dialogs {
             DialogKind::SessionTree => &mut self.session_tree,
             DialogKind::Switcher => &mut self.switcher,
             DialogKind::PortShare => &mut self.port_share,
+            DialogKind::Help => &mut self.help,
         }
     }
 
@@ -1940,6 +1971,7 @@ impl Dialogs {
             DialogKind::SessionTree => Box::new(std::mem::take(&mut self.session_tree)),
             DialogKind::Switcher => Box::new(std::mem::take(&mut self.switcher)),
             DialogKind::PortShare => Box::new(std::mem::take(&mut self.port_share)),
+            DialogKind::Help => Box::new(std::mem::take(&mut self.help)),
         }
     }
 
@@ -2014,6 +2046,9 @@ impl Dialogs {
             DialogKind::PortShare => {
                 self.port_share = *view.into_any().downcast::<PortShareDialog>().expect("kind")
             }
+            DialogKind::Help => {
+                self.help = *view.into_any().downcast::<HelpDialog>().expect("kind")
+            }
         }
     }
 
@@ -2036,6 +2071,7 @@ impl Dialogs {
             DialogKind::SessionTree => self.session_tree.index,
             DialogKind::Switcher => self.switcher.selected,
             DialogKind::PortShare => 0,
+            DialogKind::Help => 0,
         }
     }
 
@@ -2058,6 +2094,7 @@ impl Dialogs {
             DialogKind::SessionTree => self.session_tree.index = value,
             DialogKind::Switcher => self.switcher.selected = value,
             DialogKind::PortShare => {}
+            DialogKind::Help => {}
         }
     }
 
@@ -2080,6 +2117,7 @@ impl Dialogs {
             DialogKind::SessionTree => self.session_tree.follow,
             DialogKind::Switcher => self.switcher.follow,
             DialogKind::PortShare => false,
+            DialogKind::Help => false,
         }
     }
 
@@ -2102,6 +2140,7 @@ impl Dialogs {
             DialogKind::SessionTree => self.session_tree.keys_open,
             DialogKind::Switcher => self.switcher.keys_open,
             DialogKind::PortShare => false,
+            DialogKind::Help => false,
         }
     }
 
@@ -2125,6 +2164,7 @@ impl Dialogs {
             DialogKind::SessionTree => self.session_tree.keys_open = open,
             DialogKind::Switcher => self.switcher.keys_open = open,
             DialogKind::PortShare => {}
+            DialogKind::Help => {}
         }
         if !open {
             *self.keys_scroll_mut(kind) = 0;
@@ -2150,6 +2190,7 @@ impl Dialogs {
             DialogKind::SessionTree => &mut self.session_tree.keys_scroll,
             DialogKind::Switcher => &mut self.switcher.keys_scroll,
             DialogKind::PortShare => &mut self.port_share.scroll,
+            DialogKind::Help => &mut self.help.scroll,
         }
     }
 

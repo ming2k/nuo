@@ -55,6 +55,38 @@ pub(super) async fn handle_selection_start(
             app.ui.runtime.release_pointer();
             return;
         }
+        Some(UiKey::TabBarPrev) => {
+            let total = app.surfaces.tabs().len().max(1);
+            let prev_idx = if app.surfaces.active_tab_index() == 0 {
+                total - 1
+            } else {
+                app.surfaces.active_tab_index() - 1
+            };
+            super::activate_tab_at_index(app, prev_idx, runtime, viewed_session_id);
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
+        Some(UiKey::TabBarNext) => {
+            let next_idx = (app.surfaces.active_tab_index() + 1) % app.surfaces.tabs().len().max(1);
+            super::activate_tab_at_index(app, next_idx, runtime, viewed_session_id);
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
+        Some(UiKey::TabBarOverview) => {
+            if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Switcher) {
+                app.dismiss_surface();
+            } else if app.can_open_switcher() {
+                app.open_dialog(crate::shell::surfaces::DialogKind::Switcher);
+                app.surfaces
+                    .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
+                    .begin();
+            }
+            app.drag.cancel();
+            app.ui.runtime.release_pointer();
+            return;
+        }
         Some(UiKey::SceneHistoryBack) => {
             app.tab_history_back();
             app.drag.cancel();

@@ -295,9 +295,10 @@ fn the_viewer_paints_over_the_transcript_when_opened() {
 }
 
 #[test]
-fn the_unread_fault_badge_paints_on_the_model_bar() {
-    // A retained record with no visible entry point is the old side channel. The
-    // badge is what makes the log discoverable without knowing the chord.
+fn the_unread_fault_badge_paints_on_the_tabbar() {
+    // A retained record with no visible entry point is the old side channel.
+    // Under ADR-0131, the badge paints in the TabBar right cluster ([!N]),
+    // leaving the model bar 100% pure telemetry.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
     disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
@@ -308,12 +309,12 @@ fn the_unread_fault_badge_paints_on_the_model_bar() {
     });
     let text = frame_text(&terminal);
     assert!(
-        text.contains("!1 notices"),
-        "the badge counts unseen faults: {text}"
+        text.contains("[!1]"),
+        "the badge counts unseen faults in the TabBar: {text}"
     );
     assert!(
-        text.contains("Ctrl-o"),
-        "and names the chord that opens it: {text}"
+        !text.contains("!1 notices"),
+        "model bar must not contain notices: {text}"
     );
 }
 
@@ -337,7 +338,7 @@ fn the_badge_is_absent_when_only_acknowledgements_are_unread() {
     });
     let text = frame_text(&terminal);
     assert!(
-        !text.contains("notices"),
+        !text.contains("[!"),
         "no badge for an unread acknowledgement: {text}"
     );
 }
@@ -355,7 +356,7 @@ fn the_badge_clears_once_the_viewer_has_been_opened() {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
     let text = frame_text(&terminal);
-    assert!(!text.contains("!1 notices"), "read is read: {text}");
+    assert!(!text.contains("[!1]"), "read is read: {text}");
 }
 
 /// The frame as one string, so assertions can look for text anywhere on it.
@@ -461,7 +462,6 @@ async fn ctrl_o_opens_the_viewer_even_with_a_dialog_up() {
             focused_target: false,
             transcript_focused: false,
             scene_blocked: false,
-            scene_namespace_armed: false,
             notice_viewer_open: false,
         },
         &crate::shell::modal_keys::ModalKeys::default(),
@@ -506,7 +506,6 @@ async fn the_viewer_owns_its_keys_while_open() {
                 focused_target: false,
                 transcript_focused: false,
                 scene_blocked: false,
-                scene_namespace_armed: false,
                 notice_viewer_open: true,
             },
             &crate::shell::modal_keys::ModalKeys::default(),

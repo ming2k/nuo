@@ -15,6 +15,8 @@ pub enum InputAction {
     None,
     /// Quit the application.
     Quit,
+    /// Open the sovereign Help & Keybindings modal dialog (F1 / Alt-h, ADR-0131).
+    OpenHelp,
     /// Jump to tab by 0-based ordinal index (Alt+1..9, ADR-0040 [INV-KEY-01]).
     SelectTab(usize),
     /// Cycle to next tab.
@@ -102,7 +104,7 @@ pub enum InputAction {
         forward: bool,
     },
     /// Cycle the focused custom provider selector (`Protocol` or
-    /// `ClientIdentity`) with `←` / `→`.
+    /// `Budget`) with `←` / `→`.
     CycleCustomProviderChoice {
         forward: bool,
     },
@@ -194,13 +196,13 @@ pub enum InputAction {
     /// command (intercepted locally, never sent to the backend). The request is
     /// never forwarded — it only opens the overlay.
     OpenTools,
-    /// Open the usage-statistics overlay (`/usage`): daily token
-    /// totals, per-model breakdown, and the recent request event log, from
-    /// the durable cross-session store. Intercepted locally; the handler
-    /// issues `AgentRequest::QueryUsageStats` on every open, so the overlay
-    /// always reflects the server-side store (the report is fetched on demand,
-    /// never pushed — 2026-09-11 addendum). While the reply is
-    /// in flight the previously rendered numbers stay on screen.
+    /// Open the usage-statistics view (`/usage`): daily token totals,
+    /// per-model breakdown, and the recent request event log, from the durable
+    /// cross-session store. Intercepted locally; the handler fetches the report
+    /// over the **session-free control plane** (`ControlRequest::GetUsageStats`,
+    /// ADR-0129 [INV-USAGE-01]) on every open, so it never borrows a thread's
+    /// duplex and works with no thread attached at all. While the reply is in
+    /// flight the previously rendered numbers stay on screen.
     OpenUsage,
     /// Open the provider quota dashboard (`/quota`, ADR-0036): type-scoped
     /// batch inspection of provider allowances, sliding-window limits, and
@@ -299,6 +301,11 @@ pub enum InputAction {
     HostPromptSeed(char),
     /// Dashboard inline-prompt submit (Enter while `p`/`n` is open).
     HostPromptSubmit,
+    /// Dashboard `u`: toggle between the Threads Fleet view and the Model Usage
+    /// analytics view (ADR-0129).
+    HostToggleUsage,
+    /// Dashboard `/`: toggle the inline thread-fleet filter input.
+    HostFilterOpen,
     /// Drill into the selected round or turn in the Session Trace modal. Bound to `Enter`.
     TraceInspectDetail,
     /// Open the Session Trace modal from Thread Stats. Bound to `t`.
@@ -582,12 +589,6 @@ pub enum InputAction {
     DialogKeysScroll {
         delta: i8,
     },
-    /// Arm the `Ctrl+X` scene namespace, awaiting its second stroke. The router
-    /// emits this for the opening stroke; re-arming is idempotent.
-    SetSceneNamespaceArmed(bool),
-    /// Cancel an armed scene namespace without acting (`Esc`, `C-g`, or an
-    /// unrecognized second stroke).
-    CancelSceneNamespace,
     /// Step back one level inside the active Scene — a dropdown, a drill-in
     /// pane, the dashboard's preview or inline prompt. Esc on a scene produces
     /// this. It never leaves the Scene: tab closure is

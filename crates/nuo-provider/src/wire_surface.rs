@@ -7,8 +7,7 @@
 //! chat-completions body in, the slots that carry the model identity, and the
 //! live catalog endpoint it discovers models from — lives here as data.
 //!
-//! This mirrors [`ClientProfileSpec`](crate::ClientProfileSpec) exactly: a
-//! struct of `&'static` scalars and `&'static [(&str, _)]` tables, with small
+//! A static specification of `&'static` scalars and `&'static [(&str, _)]` tables, with small
 //! enums where a *kind* must be distinguished. The executor reads the table; it
 //! never branches on a provider name. That is the invariant — the
 //! derivation and request paths contain no provider-name or dialect branches.

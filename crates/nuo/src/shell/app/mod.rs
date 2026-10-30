@@ -364,12 +364,14 @@ pub struct App {
     /// The effective TUI config (the applier's disclosure defaults read it;
     /// the translator no longer carries config clones).
     pub tui_config: crate::shell::config::TuiConfig,
-    /// Cross-session usage-statistics report fetched on demand from the
-    /// harness (`QueryUsageStats`). Session-independent: it
-    /// aggregates the durable store under `data/usage/`, which survives
-    /// session cleanup. `None` while the round-trip is in flight (the
-    /// overlay renders a loading placeholder).
+    /// Cross-session usage-statistics report (ADR-0129 [INV-USAGE-01]).
+    /// Session-independent: it aggregates the durable store under `data/usage/`,
+    /// which survives session cleanup.
     pub usage_stats: Option<nuo_wire::usage_stats::UsageStatsReport>,
+    /// Whether an on-demand usage report fetch is currently in flight.
+    pub usage_loading: bool,
+    /// Scroll offset for the model usage statistics report view.
+    pub usage_scroll: usize,
     /// Provider quota pool snapshot (`QueryProviderQuotas`, ADR-0036).
     pub provider_quotas: Option<nuo_wire::ProviderQuotaSnapshot>,
     /// Cached connection usage states for ambient indicators.
@@ -612,9 +614,16 @@ pub struct App {
     pub sessions_overview: Vec<SessionOverview>,
     /// When switching sessions, holds the short id of the target session being loaded.
     pub switching_session: Option<String>,
-    /// Live monitor snapshot for the `/host` server control panel
+    /// Live monitor snapshot for the thread fleet orchestrator dashboard
     /// mirrored from `UiRuntime::host_sessions` each frame.
     pub host_sessions: Vec<nuo_wire::MonitoredSession>,
+    /// Live search filter substring for the dashboard thread fleet table.
+    pub dashboard_filter: String,
+    /// Whether the `/` inline filter search input is open on the dashboard.
+    pub dashboard_filtering: bool,
+    /// Whether the dashboard is currently displaying the Model Usage & Analytics view
+    /// (`true`) or the Threads Fleet Orchestration view (`false`, default) (ADR-0129).
+    pub dashboard_view_usage: bool,
     /// Scroll slot + selection-follow for the `/host` panel body.
     pub host_scroll: usize,
     pub host_modal_follow: bool,
@@ -766,11 +775,6 @@ pub struct App {
     pub pending_dispatch: VecDeque<QueuedDispatch>,
     /// Target queue mode for the live composer while a round is running.
     pub composer_send_mode: ComposerSendMode,
-    /// Whether the `Ctrl+X` scene namespace is armed, awaiting its second
-    /// stroke. A plain flag: the namespace has exactly one opening
-    /// stroke, so an enum with a single non-`None` variant was a two-state
-    /// type wearing three.
-    pub scene_namespace_armed: bool,
     /// Sessions whose outbox is hard-blocked by the user. While a session is
     /// blocked, no queued message auto-drains — not even after its round
     /// reaches natural completion and the harness goes idle. The queue modal
@@ -976,9 +980,6 @@ pub struct App {
     /// carry their fixed wire; the `custom` provider exposes this as an inline
     /// selector.
     pub custom_protocol_wire: String,
-    /// Client identity (User-Agent and impersonation headers) selected for a
-    /// connection. Curated providers keep their provider-defined identity.
-    pub custom_client_identity: nuo_wire::ClientIdentity,
     /// Connection budget policy configured in create/edit modal (ADR-0065).
     pub custom_budget: nuo_wire::ConnectionBudget,
     /// Models seeded by the active template (create mode). Submitted as the

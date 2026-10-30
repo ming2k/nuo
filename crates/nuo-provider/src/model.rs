@@ -46,14 +46,6 @@ pub struct Model {
     pub vision: bool,
     /// Baseline wire protocol used to reach this model.
     pub protocol: WireProtocol,
-    /// Model-specific prompt guidance injected into the system prompt as a
-    /// `ModelGuidance` section. Because each model behaves differently,
-    /// this is the per-model hook for any behavioral nudge a model needs.
-    /// Empty for all known models today; a model entry is free to carry
-    /// non-empty guidance when it needs one. The model entry is the single
-    /// source of truth; the prompt engine just renders whatever the resolved
-    /// model carries.
-    pub model_guidance: &'static str,
     /// The reasoning-effort levels this model honors, ascending.
     ///
     /// This is the model's depth **ladder** and the single declaration of it —
@@ -1026,7 +1018,6 @@ pub fn fallback_model(_id: &str) -> Model {
         tool_call: false,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,
@@ -1198,7 +1189,6 @@ pub fn register_fitted_models(models: impl IntoIterator<Item = FittedModel>) {
                     // `declared_vision` below keeps what was actually said.
                     vision: fitted.vision.unwrap_or(true),
                     protocol: fitted.protocol,
-                    model_guidance: "",
                     effort_levels: Box::leak(levels.into_boxed_slice()),
                     default_effort: Some(crate::effort::Effort::High),
                     wire_entities: None,
@@ -1320,7 +1310,6 @@ mod tests {
             tool_call: true,
             vision: true,
             protocol: WireProtocol::OpenAiChatCompletions,
-            model_guidance: "",
             effort_levels: crate::effort::COMMON_LADDER,
             default_effort: Some(crate::effort::Effort::High),
             wire_entities: None,
@@ -1333,7 +1322,6 @@ mod tests {
             tool_call: true,
             vision: false,
             protocol: WireProtocol::AnthropicMessages,
-            model_guidance: "",
             effort_levels: &[],
             default_effort: Some(crate::effort::Effort::High),
             wire_entities: None,
@@ -1347,7 +1335,6 @@ mod tests {
         tool_call: false,
         vision: false,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(crate::effort::Effort::High),
         wire_entities: None,

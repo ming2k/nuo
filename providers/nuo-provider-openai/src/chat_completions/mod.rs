@@ -21,14 +21,13 @@ use std::sync::Mutex;
 
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_provider::{
-    COPILOT_CLIENT_HEADERS, ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig,
-    TransportPipeline,
-};
+use nuo_provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig, TransportPipeline};
 
 pub mod echo;
 pub mod request;
 pub mod response;
+
+use crate::chat_completions::request::COPILOT_CLIENT_HEADERS;
 
 /// OpenAI-compatible chat-completions provider.
 ///
@@ -91,12 +90,10 @@ impl OpenAiChatCompletionsProvider {
         credentials: std::sync::Arc<dyn CredentialSource>,
         model: String,
         base_url: &str,
-        client_profile: impl Into<ClientProfile>,
     ) -> Self {
         let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
         Self {
-            endpoint: Endpoint::with_credentials(credentials, model, base_url, "openai")
-                .with_client_profile(client_profile),
+            endpoint: Endpoint::with_credentials(credentials, model, base_url, "openai"),
             client: Client::new(),
             reasoning_effort: None,
             prompt_cache: PromptCacheConfig::default(),
@@ -104,6 +101,18 @@ impl OpenAiChatCompletionsProvider {
             dialect: nuo_provider::OpenAiChatDialect::Standard,
             pipeline: Arc::new(TransportPipeline::default()),
         }
+    }
+
+    /// Set an explicit User-Agent.
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.endpoint.set_user_agent(user_agent);
+        self
+    }
+
+    /// Attach extra HTTP headers.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.endpoint.headers.extend(headers);
+        self
     }
 
     /// Stamp the attribution id (the registry does this with the channel entry
@@ -707,7 +716,7 @@ mod tests {
 
     #[test]
     fn opencode_go_request_carries_session_and_client_headers() {
-        use nuo_provider::OPENCODE_USER_AGENT;
+        const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
         let provider = OpenAiChatCompletionsProvider::with_base_url_and_user_agent(
             "test-key".to_string(),
             "glm-5.2".to_string(),

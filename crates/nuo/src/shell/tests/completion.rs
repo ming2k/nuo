@@ -456,7 +456,7 @@ fn delete_provider_stages_overlay_without_deleting() {
         base_url: String::new(),
         key_ready: true,
         provider: String::new(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: Default::default(),
     };
@@ -499,7 +499,7 @@ fn delete_provider_ignores_builtin() {
         base_url: String::new(),
         key_ready: true,
         provider: String::new(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: Default::default(),
     };

@@ -232,7 +232,8 @@ impl App {
                 | DialogKind::ThreadStats
                 | DialogKind::SessionTrace
                 | DialogKind::PortShare
-                | DialogKind::Switcher => {}
+                | DialogKind::Switcher
+                | DialogKind::Help => {}
             }
         }
     }
@@ -768,7 +769,6 @@ impl App {
 
     /// Actively leave the current surface: close active tab, or leave scene if no tabs exist.
     pub(crate) fn close_scene(&mut self) -> bool {
-        self.scene_namespace_armed = false;
         let active_idx = self.surfaces.active_tab_index();
         if self.surfaces.tabs().get(active_idx).is_some() {
             self.close_tab(active_idx).is_some()

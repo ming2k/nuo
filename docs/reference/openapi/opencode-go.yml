@@ -1,0 +1,239 @@
+# OpenAPI 3.1 reference for the OpenCode Go subscription allowance surface
+# (opencode.ai/zen/go/v1), transcribed from the server route that implements it
+# (anomalyco/opencode PR #16513, merged 2026-08-11) and probed live on 2026-10-30.
+#
+# Consumers: the implementer maintaining the quota port in
+# `providers/nuo-provider-opencode-go`. This file never encodes code decisions —
+# it states the contract exactly as the endpoint enforces it, and marks every
+# fact by how it was established.
+#
+# Route reality (probed 2026-10-30, no credential):
+#   GET /zen/go/v1/usage          -> 401 (route exists; authentication is the gate)
+#   GET /zen/v1/usage             -> 404 (the Zen relay publishes no allowance route)
+#   GET /zen/go/v1/models         -> 401 (the sibling catalog route, for comparison)
+#
+# Vendor extensions used (x-…):
+#   x-provenance          route | implementation | probe (how the fact was established)
+#   x-error-semantics     what a non-2xx status means to a client
+#   x-metering            the plan's allowance arithmetic, which the client never recomputes
+openapi: 3.1.0
+info:
+  title: OpenCode Go Allowance API
+  version: 1.0.0
+  summary: >-
+    The OpenCode Go subscription meters three rolling allowances — a 5-hour
+    rolling window, a calendar week, and the billing month. This endpoint is the
+    only surface that publishes those counters; the OpenCode Console dashboard's
+    dollar figures are a separate, cookie-authenticated surface.
+  description: |
+    Authentication is the same OpenCode API key the Go inference lane uses
+    (`OPENCODE_API_KEY`, `oc_sk_…`, or `Authorization: Bearer public` for the
+    promotional free tier), sent as a bearer token. No workspace header is
+    required: the key resolves to its own workspace server-side.
+
+    Allowance arithmetic (`x-metering`): the Go plan enforces request quotas
+    across rolling windows — 20% of the monthly allowance per 5 hours, 50% per
+    week, and 100% per month. Model-specific allowances may differ, so the
+    reported percentage for a window is authoritative for that window and is
+    never derived from another window's reading.
+
+    | Environment | Base URL |
+    | --- | --- |
+    | Production | `https://opencode.ai/zen/go/v1` |
+
+    Endpoint derivation note: the allowance is billed per *account*, not per
+    protocol, so a client must resolve this single route regardless of which
+    inference channel it happens to be using. A Go connection's default channel
+    varies by model — `/zen/go/v1/chat/completions` (OpenAI models),
+    `inference/go/anthropic/v1/messages` (Claude models),
+    `inference/go/google/v1beta` (Gemini models) — and all of them must collapse
+    onto `<origin>/zen/go/v1/usage`.
+servers:
+  - url: https://opencode.ai/zen/go/v1
+    description: Production
+paths:
+  /usage:
+    get:
+      operationId: getGoUsage
+      summary: Read the metered Go allowances
+      description: |
+        Returns the three metered windows for the workspace that owns the
+        presented key.
+
+        Every window field is independently optional. A window absent from
+        `usage` was not published for this account; it is omitted from the
+        projection rather than rendered as untouched, because an unpublished
+        measurement is not a zero reading.
+
+        `percent` is the fraction **already spent**, floored to a whole number
+        server-side. A floored percentage alone is therefore not sufficient to
+        decide whether a window still has room: an exhausted window can
+        legitimately report `99`. `status` carries that absolute judgement.
+      tags: [allowance]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: The account's metered allowances.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageEnvelope"
+              examples:
+                allWindows:
+                  summary: All three windows published, none exhausted
+                  value:
+                    usage:
+                      rolling:
+                        status: ok
+                        percent: 42
+                        resetsAt: "2026-10-24T17:00:00.000Z"
+                      weekly:
+                        status: ok
+                        percent: 18
+                        resetsAt: "2026-10-26T00:00:00.000Z"
+                      monthly:
+                        status: ok
+                        percent: 7
+                        resetsAt: "2026-11-01T00:00:00.000Z"
+                exhaustedWindow:
+                  summary: >-
+                    The monthly window is exhausted while its floored percentage
+                    still reads 99; `status` is the truth.
+                  value:
+                    usage:
+                      monthly:
+                        status: rate-limited
+                        percent: 99
+                        resetsAt: "2026-11-01T00:00:00.000Z"
+                partial:
+                  summary: Only one window published
+                  value:
+                    usage:
+                      rolling:
+                        status: ok
+                        percent: 10
+                        resetsAt: "2026-10-24T17:00:00.000Z"
+        "401":
+          description: >-
+            The key is missing or was rejected (`AuthError`). `{"type":"error",
+            "error":{"type":"AuthError","message":…}}`
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                unauthorized:
+                  value:
+                    type: error
+                    error:
+                      type: AuthError
+                      message: Unauthorized
+                missingKey:
+                  value:
+                    type: error
+                    error:
+                      type: AuthError
+                      message: Missing API key.
+        "403":
+          description: |
+            The key is valid but its workspace holds no OpenCode Go
+            subscription (`EntitlementError`). This is an entitlement answer,
+            not an authentication failure: the credential is fine, there is
+            simply no allowance to report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+              examples:
+                noSubscription:
+                  value:
+                    type: error
+                    error:
+                      type: EntitlementError
+                      message: OpenCode Go subscription required.
+        "404":
+          description: >-
+            No such route. Drift, not an outage: the allowance endpoint moved and
+            the client's recorded path is stale.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: The OpenCode Go API key (`oc_sk_…`).
+  schemas:
+    UsageEnvelope:
+      type: object
+      required: [usage]
+      properties:
+        usage:
+          $ref: "#/components/schemas/UsageWindows"
+      x-provenance: implementation
+    UsageWindows:
+      type: object
+      description: >-
+        The metered windows. Each is independently optional; an absent window was
+        not published for this account.
+      properties:
+        rolling:
+          $ref: "#/components/schemas/Window"
+        weekly:
+          $ref: "#/components/schemas/Window"
+        monthly:
+          $ref: "#/components/schemas/Window"
+      additionalProperties: true
+      x-provenance: implementation
+    Window:
+      type: object
+      description: One metered allowance window.
+      properties:
+        status:
+          type: string
+          enum: [ok, rate-limited]
+          description: >-
+            `rate-limited` means the window refuses requests, whatever `percent`
+            reports. Treat any unrecognized value as unclassified rather than as
+            availability.
+        percent:
+          type: number
+          minimum: 0
+          maximum: 100
+          description: >-
+            Fraction **already spent**, floored to a whole number server-side.
+            Absent when the server published no reading.
+        resetsAt:
+          type: string
+          format: date-time
+          description: RFC 3339 instant at which the window resets.
+      additionalProperties: true
+      x-provenance: implementation
+      x-metering:
+        interpretation: used-fraction
+        exhaustion-signal: status
+        floor-note: >-
+          `percent` is floored, so an exhausted window may read 99; `status` is
+          the only reliable exhaustion signal.
+    ErrorEnvelope:
+      type: object
+      required: [type, error]
+      properties:
+        type:
+          type: string
+          enum: [error]
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              description: >-
+                `AuthError` (401) or `EntitlementError` (403).
+            message:
+              type: string
+      additionalProperties: true
+      x-provenance: implementation
+      x-error-semantics:
+        "401": rejected or missing credential
+        "403": valid credential, no Go subscription
+        "404": route drift

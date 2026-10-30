@@ -506,3 +506,111 @@ async fn terminal_resize_action_clears_height_cache_and_marks_scroll_settle() {
     // Scroll settle must be pending to re-clamp scroll offset
     assert!(app.scroll_settle_pending);
 }
+
+/// ADR-0129 [INV-USAGE-01]: the usage view is decoupled from threads.
+///
+/// Opening `/usage` must go through the session-free control plane
+/// (`ControlRequest::GetUsageStats`) rather than the attached session's duplex.
+/// The observable proof at this layer is that the dispatch marks a control-plane
+/// fetch in flight (`usage_loading`) instead of enqueueing an
+/// `AgentRequest::QueryUsageStats` on the session. If the report were still
+/// thread-scoped, the flag would stay false and nothing would be fetched when no
+/// thread exists.
+#[tokio::test]
+async fn open_usage_fetches_over_the_control_plane_not_the_session() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    // No usage report yet, and no fetch in flight.
+    assert!(app.usage_stats.is_none());
+    assert!(!app.usage_loading);
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::OpenUsage,
+        "session-1",
+    )
+    .await;
+
+    // The control-plane fetch was kicked: the view is in its loading state.
+    // A thread-scoped request would leave this false (nothing was fetched).
+    assert!(
+        app.usage_loading,
+        "opening /usage must start a session-free control-plane fetch"
+    );
+    // The usage dialog is up (the view itself is unchanged by the decoupling).
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::UsageStats)
+    );
+}
+
+/// ADR-0129 [INV-DASH-01]: the dashboard's `u` key toggles the Model Usage view
+/// and kicks the same session-free fetch, so usage is reachable from the fleet
+/// console without ever leaving it.
+#[tokio::test]
+async fn dashboard_u_toggles_the_model_usage_view_and_fetches() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    crate::shell::tests::console_host_rows(&mut app);
+
+    assert!(!app.dashboard_view_usage);
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::HostToggleUsage,
+        "session-1",
+    )
+    .await;
+    assert!(app.dashboard_view_usage, "u switches to the usage view");
+    assert!(
+        app.usage_loading,
+        "the usage view fetches over the control plane"
+    );
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::HostToggleUsage,
+        "session-1",
+    )
+    .await;
+    assert!(
+        !app.dashboard_view_usage,
+        "u switches back to the fleet view"
+    );
+}
+
+/// ADR-0129 [INV-DASH-01]: `/` opens the live thread-fleet filter and closing it
+/// clears the query, so a filter can never linger invisibly and hide threads.
+#[tokio::test]
+async fn dashboard_filter_opens_and_clears_on_close() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    crate::shell::tests::console_host_rows(&mut app);
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::HostFilterOpen,
+        "session-1",
+    )
+    .await;
+    assert!(app.dashboard_filtering);
+    app.dashboard_filter = "bbb".to_string();
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::HostFilterOpen,
+        "session-1",
+    )
+    .await;
+    assert!(!app.dashboard_filtering);
+    assert!(
+        app.dashboard_filter.is_empty(),
+        "closing the filter clears the query so no thread stays hidden"
+    );
+}

@@ -865,7 +865,6 @@ async fn process_one_event<W: io::Write>(
                         | crate::shell::ui::UiKey::ProviderDelete
                 )
             ),
-            scene_namespace_armed: app.scene_namespace_armed,
             notice_viewer_open: app.notice_viewer.is_some(),
         };
         let modal_keys = crate::shell::modal_keys::ModalKeys {

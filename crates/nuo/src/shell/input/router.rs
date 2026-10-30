@@ -1,6 +1,5 @@
 //! Terminal event normalization and cross-layer routing (M2).
 use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
-use nuo_ui_primitives::chord::KeyCode as ChordCode;
 
 use nuo_view::model::layout::{LayoutMap, SemanticCursor};
 use nuo_view::model::selection::SelectionDrag;
@@ -46,9 +45,6 @@ pub struct Dispatch {
     /// A scene component above the application surfaces owns the event. Its
     /// component handler declined the key, so only global chords may run.
     pub scene_blocked: bool,
-    /// Whether the `Ctrl+X` scene namespace is armed, awaiting its second
-    /// stroke.
-    pub scene_namespace_armed: bool,
     /// Whether the notice log viewer is open. The viewer is not an
     /// `OverlaySurface` (its content is client-global, so it is not a
     /// session-scoped dialog), which means the router has to be told about it
@@ -278,36 +274,14 @@ pub fn route_event_motion(
 
             let physical_key = crate::shell::keymap::key_from_event(key);
 
-            // The `Ctrl+X` scene namespace's second stroke. The
-            // verb table is `keymap::scene_namespace` — the same table the
-            // which-key card renders, so dispatch and advertisement cannot
-            // drift. A second stroke is typed without looking, so
-            // case is folded before resolution; `Esc` and `C-g` cancel, and
-            // anything unrecognized cancels rather than falling through (a
-            // half-typed chord must never fire a global).
-            if dispatch.scene_namespace_armed {
-                use crate::shell::keymap::scene_namespace::{SceneVerb, opens};
-                // `C-x C-x` re-arms rather than cancelling: the namespace's own
-                // opening stroke is idempotent, matching how a repeated prefix
-                // behaves in every leader-chord editor.
-                if opens(physical_key) {
-                    return InputAction::SetSceneNamespaceArmed(true);
-                }
-                return match SceneVerb::from_second_stroke(physical_key) {
-                    Some(SceneVerb::Leave) => InputAction::CloseTab,
-                    Some(SceneVerb::Switcher) => InputAction::ViewSwitcherToggle,
-                    Some(SceneVerb::Threads) => InputAction::OpenSessions,
-                    Some(SceneVerb::Dashboard) => InputAction::NavigateDashboard,
-                    Some(SceneVerb::Settings) => InputAction::NavigateSettings,
-                    // ADR-0077: `Esc` / `C-g` / `k` / `c` / `C-c` / anything unrecognized cancels.
-                    // A half-typed chord must never fall through to a global.
-                    None => InputAction::CancelSceneNamespace,
-                };
-            }
-
-            // Open the `Ctrl+X` scene namespace.
-            if crate::shell::keymap::scene_namespace::opens(physical_key) {
-                return InputAction::SetSceneNamespaceArmed(true);
+            // F1 / Alt-h opens the sovereign Help dialog (ADR-0131 [INV-HELP-03]).
+            // When an overlay is active, F1 flows down to modal dispatch for in-dialog key guidance.
+            if (physical_key == crate::shell::keymap::Key::F1
+                || physical_key == crate::shell::keymap::Key::ALT_H)
+                && dispatch.overlay.is_none()
+                && !dispatch.pre_attach
+            {
+                return InputAction::OpenHelp;
             }
 
             // The notice viewer owns its keys while it is open. It is painted
@@ -420,16 +394,6 @@ pub fn route_event_motion(
                     }
                     _ => {}
                 }
-            }
-
-            // Stage 5b: Modeless universal help reference F1 / Alt+? / Alt+/ (ADR-0054)
-            // On top-level chat surface, F1 toggles the Command Palette / Action Reference.
-            // When an overlay is active, F1 flows down to modal dispatch for in-dialog key guidance.
-            let is_help_trigger = physical_key.code == ChordCode::F(1)
-                || (key.modifiers.contains(KeyModifiers::ALT)
-                    && (key.code == KeyCode::Char('?') || key.code == KeyCode::Char('/')));
-            if is_help_trigger && dispatch.overlay.is_none() && !dispatch.pre_attach {
-                return InputAction::ViewSwitcherToggle;
             }
 
             if dispatch.scene_blocked {

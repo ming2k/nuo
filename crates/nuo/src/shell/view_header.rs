@@ -86,6 +86,8 @@ impl<'a> ViewHints<'a> {
 pub struct TabBarProps<'a> {
     pub tabs: Option<&'a [crate::shell::surfaces::ClientTab]>,
     pub active_tab: usize,
+    /// Unread fault notices requiring persistent attention (ADR-0131).
+    pub unread_faults: usize,
 }
 
 /// Canonical thread execution governance context (ADR-0043, ADR-0060, ADR-0062 [INV-HEAD-05, INV-HEAD-07, INV-HEAD-08]).
@@ -104,9 +106,147 @@ pub struct ThreadContext<'a> {
     pub confined: bool,
 }
 
+/// Interactive hit-test rects produced by Tier 1 TabBar rendering.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TabBarNavRects {
+    /// Bounding rects for each rendered tab in the top tab bar: `(tab_index, rect)`.
+    pub tab_rects: Vec<(usize, Rect)>,
+    /// Bounding rect for left overflow indicator (`‹N`), if present.
+    pub prev_rect: Option<Rect>,
+    /// Bounding rect for right overflow indicator (`N›`), if present.
+    pub next_rect: Option<Rect>,
+    /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
+    pub overview_rect: Option<Rect>,
+    /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
+    pub notices_rect: Option<Rect>,
+    /// Bounding rect for help affordance button (`F1 help`), if present (ADR-0131).
+    pub help_rect: Option<Rect>,
+}
+
+impl std::ops::Deref for TabBarNavRects {
+    type Target = [(usize, Rect)];
+    fn deref(&self) -> &Self::Target {
+        &self.tab_rects
+    }
+}
+
+impl<'a> IntoIterator for &'a TabBarNavRects {
+    type Item = &'a (usize, Rect);
+    type IntoIter = std::slice::Iter<'a, (usize, Rect)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.tab_rects.iter()
+    }
+}
+
+impl From<Vec<(usize, Rect)>> for TabBarNavRects {
+    fn from(tab_rects: Vec<(usize, Rect)>) -> Self {
+        Self {
+            tab_rects,
+            prev_rect: None,
+            next_rect: None,
+            overview_rect: None,
+            notices_rect: None,
+            help_rect: None,
+        }
+    }
+}
+
+/// Compute adaptive maximum display width for tab titles based on open tab count.
+pub(crate) fn adaptive_tab_title_width(tab_count: usize) -> usize {
+    match tab_count {
+        0..=3 => MAX_TAB_TITLE_WIDTH, // 20
+        4..=6 => 14,
+        _ => 10,
+    }
+}
+
+fn overflow_indicators_width(hidden_left: usize, hidden_right: usize) -> (usize, usize, usize) {
+    let left_w = if hidden_left > 0 {
+        2 + hidden_left.to_string().len()
+    } else {
+        0
+    };
+    let right_w = if hidden_right > 0 {
+        2 + hidden_right.to_string().len()
+    } else {
+        0
+    };
+    let overview_w = if hidden_left > 0 || hidden_right > 0 {
+        4
+    } else {
+        0
+    };
+    (left_w, right_w, overview_w)
+}
+
+fn window_total_width(tab_widths: &[usize], start: usize, end: usize, total_tabs: usize) -> usize {
+    let tabs_w: usize = tab_widths[start..=end].iter().sum::<usize>() + (end - start);
+    let (left_w, right_w, overview_w) = overflow_indicators_width(start, total_tabs - 1 - end);
+    tabs_w + left_w + right_w + overview_w
+}
+
+/// Determine the sliding window `[start..=end]` of tabs visible on the TabBar
+/// such that `active` tab is guaranteed to be within the visible range.
+pub(crate) fn compute_tab_window(
+    tab_widths: &[usize],
+    active: usize,
+    available_w: usize,
+) -> (usize, usize) {
+    let total = tab_widths.len();
+    if total == 0 {
+        return (0, 0);
+    }
+    let active = active.min(total - 1);
+
+    // If all tabs fit without overflow indicators:
+    let all_w: usize = tab_widths.iter().sum::<usize>() + (total - 1);
+    if all_w <= available_w {
+        return (0, total - 1);
+    }
+
+    let mut start = active;
+    let mut end = active;
+
+    loop {
+        let mut expanded = false;
+
+        let dist_left = active.saturating_sub(start);
+        let dist_right = end.saturating_sub(active);
+        let try_left_first = dist_left < dist_right;
+
+        let order = if try_left_first {
+            [(true, start > 0), (false, end + 1 < total)]
+        } else {
+            [(false, end + 1 < total), (true, start > 0)]
+        };
+
+        for (is_left, can_expand) in order {
+            if !can_expand {
+                continue;
+            }
+            let next_start = if is_left { start - 1 } else { start };
+            let next_end = if !is_left { end + 1 } else { end };
+
+            if window_total_width(tab_widths, next_start, next_end, total) <= available_w {
+                start = next_start;
+                end = next_end;
+                expanded = true;
+                break;
+            }
+        }
+
+        if !expanded {
+            break;
+        }
+    }
+
+    (start, end)
+}
+
 /// Draw Tier 1: Client Global TabBar (ADR-0039, ADR-0040, ADR-0060 [INV-TAB-09], ADR-0062).
 ///
 /// Projects open tabs with clean semantic titles without ordinal prefixes (`1:`),
+/// sliding viewport auto-centering the active tab with bilateral overflow guidance,
 /// with the client command namespace (`C-x menu`) anchored to the right edge.
 /// Returns bounding rects for mouse click hit-testing.
 pub(crate) fn draw_tab_bar(
@@ -114,10 +254,10 @@ pub(crate) fn draw_tab_bar(
     rect: Rect,
     tab_bar: &TabBarProps<'_>,
     theme: &Theme,
-) -> Vec<(usize, Rect)> {
+) -> TabBarNavRects {
     let full_width = rect.width as usize;
     if full_width < STEP_MIN_WIDTH || rect.height == 0 {
-        return Vec::new();
+        return TabBarNavRects::default();
     }
 
     let bg = theme.tabbar_bg();
@@ -125,41 +265,83 @@ pub(crate) fn draw_tab_bar(
     let pad = TRANSCRIPT_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
 
-    // C-x affordance belongs to the client-level TabBar / Header (ADR-0043 [INV-UI-02])
-    let affordance =
-        nuo_ui_primitives::components::keycap::KeyAffordance::tabbar_menu(SCENE_NAMESPACE_LABEL);
-    let right_width = affordance.width();
+    // Status Cluster (ADR-0131 [INV-AFFORDANCE-01]):
+    // 1. Unread fault notice badge (`[!N]`), if unread_faults > 0
+    // 2. Sovereign Help affordance (`F1 help`)
+    let notice_badge_text =
+        (tab_bar.unread_faults > 0).then(|| format!("!{}", tab_bar.unread_faults));
+    let notice_badge_w = notice_badge_text.as_ref().map_or(0, |t| t.width() + 2 + 1); // "[!N]" + " "
+    let help_affordance = nuo_ui_primitives::components::keycap::KeyAffordance::tabbar_help("help");
+    let help_w = help_affordance.width();
+    let right_width = notice_badge_w + help_w;
 
     // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01], ADR-0060 [INV-TAB-09])
     if let Some(tabs) = tab_bar.tabs.filter(|t| !t.is_empty()) {
-        let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
-        let mut tab_rects = Vec::with_capacity(tabs.len());
-        let mut current_x = rect.x.saturating_add(pad as u16);
         let available_for_tabs = text_width.saturating_sub(right_width);
+        let title_budget = adaptive_tab_title_width(tabs.len());
+
+        let tab_texts: Vec<String> = tabs
+            .iter()
+            .map(|tab| {
+                let label = match &tab.kind {
+                    crate::shell::surfaces::TabKind::Thread(id) => {
+                        if let Some(title) = tab.display_title() {
+                            let truncated = truncate_to_width(title, title_budget);
+                            truncated.to_string()
+                        } else {
+                            format!("thread#{}", id_tail(id))
+                        }
+                    }
+                    crate::shell::surfaces::TabKind::Dashboard => "dashboard".to_string(),
+                    crate::shell::surfaces::TabKind::Settings => "settings".to_string(),
+                };
+                format!(" {label} ")
+            })
+            .collect();
+
+        let tab_widths: Vec<usize> = tab_texts.iter().map(|t| t.width()).collect();
+        let (start, end) = compute_tab_window(&tab_widths, tab_bar.active_tab, available_for_tabs);
+
+        let mut spans = vec![Span::styled(" ".repeat(pad), fill)];
+        let mut tab_rects = Vec::with_capacity(end - start + 1);
+        let mut prev_rect = None;
+        let mut next_rect = None;
+        let mut overview_rect = None;
+
+        let mut current_x = rect.x.saturating_add(pad as u16);
         let mut used_tab_w = 0usize;
 
-        for (i, tab) in tabs.iter().enumerate() {
-            let active = i == tab_bar.active_tab;
-            let label = match &tab.kind {
-                crate::shell::surfaces::TabKind::Thread(id) => {
-                    if let Some(title) = tab.display_title() {
-                        let truncated = truncate_to_width(title, MAX_TAB_TITLE_WIDTH);
-                        truncated.to_string()
-                    } else {
-                        format!("thread#{}", id_tail(id))
-                    }
+        // Left overflow indicator: ‹N
+        if start > 0 {
+            let left_text = format!("‹{} ", start);
+            let ind_w = left_text.width();
+            let ind_style = Style::default()
+                .fg(theme.brand())
+                .add_modifier(Modifier::BOLD);
+
+            let hit_start = rect.x;
+            let hit_end = current_x.saturating_add(ind_w as u16);
+            if hit_start < rect.right() {
+                let w = hit_end.min(rect.right()).saturating_sub(hit_start);
+                if w > 0 {
+                    prev_rect = Some(Rect::new(hit_start, rect.y, w, 1));
                 }
-                crate::shell::surfaces::TabKind::Dashboard => "dashboard".to_string(),
-                crate::shell::surfaces::TabKind::Settings => "settings".to_string(),
-            };
-
-            let text = format!(" {label} ");
-            let tab_w = text.width();
-            let separator_w = if i + 1 < tabs.len() { 1 } else { 0 };
-
-            if used_tab_w + tab_w > available_for_tabs && i > 0 {
-                break;
             }
+
+            spans.push(Span::styled(left_text, ind_style));
+            used_tab_w += ind_w;
+            current_x = current_x.saturating_add(ind_w as u16);
+        }
+
+        for (i, (text, &tab_w)) in tab_texts
+            .iter()
+            .zip(tab_widths.iter())
+            .enumerate()
+            .skip(start)
+            .take(end - start + 1)
+        {
+            let active = i == tab_bar.active_tab;
+            let separator_w = if i < end { 1 } else { 0 };
 
             let tab_style = if theme.elevation
                 == nuo_ui_primitives::elevation::ElevationArchetype::Structured
@@ -183,9 +365,11 @@ pub(crate) fn draw_tab_bar(
                 Style::default().bg(inactive_bg).fg(theme.text_muted)
             };
 
-            // Contiguous hit target: tab 0 subsumes leading padding, and every tab
-            // includes its trailing separator, eliminating dead gaps between tabs.
-            let hit_start = if i == 0 { rect.x } else { current_x };
+            let hit_start = if i == 0 && start == 0 {
+                rect.x
+            } else {
+                current_x
+            };
             let hit_end = current_x.saturating_add((tab_w + separator_w) as u16);
             if hit_start < rect.right() {
                 let w = hit_end.min(rect.right()).saturating_sub(hit_start);
@@ -194,29 +378,100 @@ pub(crate) fn draw_tab_bar(
                 }
             }
 
-            spans.push(Span::styled(text, tab_style));
+            spans.push(Span::styled(text.clone(), tab_style));
             used_tab_w += tab_w;
             current_x = current_x.saturating_add(tab_w as u16);
 
-            if i + 1 < tabs.len() && used_tab_w + separator_w <= available_for_tabs {
+            if i < end {
                 spans.push(Span::styled(" ", fill));
                 used_tab_w += separator_w;
                 current_x = current_x.saturating_add(separator_w as u16);
             }
         }
 
+        // Right overflow indicator: N›
+        if end + 1 < tabs.len() {
+            let hidden_right = tabs.len() - 1 - end;
+            let right_text = format!(" {}›", hidden_right);
+            let ind_w = right_text.width();
+            let ind_style = Style::default()
+                .fg(theme.brand())
+                .add_modifier(Modifier::BOLD);
+
+            let hit_start = current_x;
+            let hit_end = current_x.saturating_add(ind_w as u16);
+            if hit_start < rect.right() {
+                let w = hit_end.min(rect.right()).saturating_sub(hit_start);
+                if w > 0 {
+                    next_rect = Some(Rect::new(hit_start, rect.y, w, 1));
+                }
+            }
+
+            spans.push(Span::styled(right_text, ind_style));
+            used_tab_w += ind_w;
+            current_x = current_x.saturating_add(ind_w as u16);
+        }
+
+        // Overflow overview dropdown button: [▾]
+        if start > 0 || end + 1 < tabs.len() {
+            let overview_text = " [▾]";
+            let ind_w = overview_text.width();
+            let overview_style = Style::default()
+                .fg(theme.heading())
+                .add_modifier(Modifier::DIM);
+
+            let hit_start = current_x;
+            let hit_end = current_x.saturating_add(ind_w as u16);
+            if hit_start < rect.right() {
+                let w = hit_end.min(rect.right()).saturating_sub(hit_start);
+                if w > 0 {
+                    overview_rect = Some(Rect::new(hit_start, rect.y, w, 1));
+                }
+            }
+
+            spans.push(Span::styled(overview_text, overview_style));
+            used_tab_w += ind_w;
+        }
+
         let gap = text_width.saturating_sub(used_tab_w + right_width);
         spans.push(Span::styled(" ".repeat(gap), fill));
 
-        // Right-aligned C-x affordance
-        spans.extend(affordance.render_tabbar_spans(theme, bg));
+        // Right-aligned status cluster: [!N] + F1 help
+        let mut notices_rect = None;
+        let right_x = rect.x + pad as u16 + (used_tab_w + gap) as u16;
+        let mut cur_x = right_x;
+
+        if let Some(ref text) = notice_badge_text {
+            let label = format!("[{text}]");
+            let lw = label.width() as u16;
+            notices_rect = Some(Rect::new(cur_x, rect.y, lw, 1));
+            spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(theme.err())
+                    .add_modifier(Modifier::BOLD)
+                    .bg(bg),
+            ));
+            spans.push(Span::styled(" ", fill));
+            cur_x += lw + 1;
+        }
+
+        let help_rect = Some(Rect::new(cur_x, rect.y, help_w as u16, 1));
+        spans.extend(help_affordance.render_tabbar_spans(theme, bg));
         spans.push(Span::styled(" ".repeat(pad), fill));
 
         frame.render_widget(&mut Paragraph::new(Line::from(spans)), rect);
-        return tab_rects;
+        return TabBarNavRects {
+            tab_rects,
+            prev_rect,
+            next_rect,
+            overview_rect,
+            notices_rect,
+            help_rect,
+        };
     }
 
-    // Fallback: Brand mark + C-x affordance
+    // Fallback: Brand mark + Status Cluster
     let brand = "nuo";
     let left_w = brand.width();
     let gap = text_width.saturating_sub(left_w + right_width);
@@ -227,11 +482,38 @@ pub(crate) fn draw_tab_bar(
         Span::styled(" ".repeat(gap), fill),
     ];
 
-    spans.extend(affordance.render_tabbar_spans(theme, bg));
+    let mut notices_rect = None;
+    let right_x = rect.x + pad as u16 + (left_w + gap) as u16;
+    let mut cur_x = right_x;
+
+    if let Some(ref text) = notice_badge_text {
+        let label = format!("[{text}]");
+        let lw = label.width() as u16;
+        notices_rect = Some(Rect::new(cur_x, rect.y, lw, 1));
+        spans.push(Span::styled(
+            label,
+            Style::default()
+                .fg(theme.err())
+                .add_modifier(Modifier::BOLD)
+                .bg(bg),
+        ));
+        spans.push(Span::styled(" ", fill));
+        cur_x += lw + 1;
+    }
+
+    let help_rect = Some(Rect::new(cur_x, rect.y, help_w as u16, 1));
+    spans.extend(help_affordance.render_tabbar_spans(theme, bg));
     spans.push(Span::styled(" ".repeat(pad), fill));
 
     frame.render_widget(&mut Paragraph::new(Line::from(spans)), rect);
-    Vec::new()
+    TabBarNavRects {
+        tab_rects: Vec::new(),
+        prev_rect: None,
+        next_rect: None,
+        overview_rect: None,
+        notices_rect,
+        help_rect,
+    }
 }
 
 /// Interactive bounding boxes for Tier 2 SceneBar navigation elements (ADR-0092 [INV-INTERACT-01]).
@@ -681,9 +963,6 @@ fn workspace_spans(
         .collect()
 }
 
-/// The scene row's name for the `C-x` scene namespace (ADR-0023, ADR-0043).
-const SCENE_NAMESPACE_LABEL: &str = "menu";
-
 /// Disambiguate thread ids by taking their last four characters.
 fn id_tail(id: &str) -> &str {
     let len = id.len();
@@ -799,6 +1078,7 @@ mod tests {
         let tab_bar = TabBarProps {
             tabs: Some(&tabs),
             active_tab: 0,
+            unread_faults: 0,
         };
         let row = render_row1(80, tab_bar);
         assert!(row.contains("thread#b3c4"), "{row}");
@@ -812,8 +1092,8 @@ mod tests {
             "tabs must not use ordinal prefix: {row}"
         );
         assert!(
-            row.contains("C-x menu"),
-            "compact client menu on TabBar: {row}"
+            row.contains("F1 help"),
+            "compact help affordance on TabBar: {row}"
         );
     }
 
@@ -830,6 +1110,7 @@ mod tests {
         let tab_bar = TabBarProps {
             tabs: Some(&tabs),
             active_tab: 0,
+            unread_faults: 0,
         };
         let row = render_row1(80, tab_bar);
         assert!(
@@ -854,13 +1135,15 @@ mod tests {
         let tab_bar = TabBarProps {
             tabs: Some(&tabs),
             active_tab: 0,
+            unread_faults: 0,
         };
         let mut terminal = nuotc::TestTerminal::new(80, 1);
         let theme = Theme::default();
-        let mut tab_rects = Vec::new();
+        let mut tab_nav = TabBarNavRects::default();
         terminal.draw(|frame| {
-            tab_rects = draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
+            tab_nav = draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
         });
+        let tab_rects = tab_nav.tab_rects;
         assert_eq!(tab_rects.len(), 3);
         assert_eq!(tab_rects[0].0, 0);
         assert_eq!(tab_rects[1].0, 1);
@@ -886,7 +1169,7 @@ mod tests {
         let tab_bar = TabBarProps::default();
         let row = render_row1(80, tab_bar);
         assert!(row.contains("nuo"), "brand shown: {row}");
-        assert!(row.contains("C-x menu"), "client menu shown: {row}");
+        assert!(row.contains("F1 help"), "client menu shown: {row}");
     }
 
     #[test]
@@ -1431,6 +1714,118 @@ mod tests {
             theme.tabbar_bg(),
             theme.contextbar_bg(),
             "tier 1 tabbar background must differ from tier 3 contextbar"
+        );
+    }
+
+    #[test]
+    fn adaptive_tab_title_budget_scales_with_tab_count() {
+        assert_eq!(adaptive_tab_title_width(1), 20);
+        assert_eq!(adaptive_tab_title_width(3), 20);
+        assert_eq!(adaptive_tab_title_width(4), 14);
+        assert_eq!(adaptive_tab_title_width(6), 14);
+        assert_eq!(adaptive_tab_title_width(7), 10);
+        assert_eq!(adaptive_tab_title_width(15), 10);
+    }
+
+    #[test]
+    fn compute_tab_window_anchors_active_and_computes_overflow() {
+        let widths = vec![8; 10];
+
+        // 1. All fit if available width is large
+        let (s, e) = compute_tab_window(&widths, 0, 120);
+        assert_eq!((s, e), (0, 9));
+
+        // 2. Active at 0 with narrow width: start stays at 0, active is visible
+        let (s, e) = compute_tab_window(&widths, 0, 35);
+        assert_eq!(s, 0);
+        assert!(e < 9);
+        assert!(e >= 1);
+
+        // 3. Active in middle (tab 5): active is guaranteed in [s..=e]
+        let (s, e) = compute_tab_window(&widths, 5, 35);
+        assert!(s <= 5 && 5 <= e, "active tab 5 must be visible: {s}..={e}");
+        assert!(s > 0, "should have left overflow: {s}");
+        assert!(e < 9, "should have right overflow: {e}");
+
+        // 4. Active at end (tab 9): end reaches 9, active is visible
+        let (s, e) = compute_tab_window(&widths, 9, 35);
+        assert_eq!(e, 9);
+        assert!(s <= 9);
+        assert!(s > 0, "should have left overflow: {s}");
+    }
+
+    #[test]
+    fn row1_renders_overflow_indicators_when_tabs_exceed_available_width() {
+        let tabs: Vec<_> = (0..10)
+            .map(|i| {
+                crate::shell::surfaces::ClientTab::thread(
+                    format!("session-{i}"),
+                    Some(format!("Task {i}")),
+                )
+            })
+            .collect();
+        let tab_bar = TabBarProps {
+            tabs: Some(&tabs),
+            active_tab: 5,
+            unread_faults: 0,
+        };
+        let row = render_row1(60, tab_bar);
+        assert!(
+            row.contains('‹'),
+            "must display left overflow indicator: {row}"
+        );
+        assert!(
+            row.contains('›'),
+            "must display right overflow indicator: {row}"
+        );
+        assert!(
+            row.contains("[▾]"),
+            "must display overview switcher button: {row}"
+        );
+        assert!(
+            row.contains("Task 5"),
+            "active tab 5 must be rendered: {row}"
+        );
+        assert!(row.contains("F1 help"), "client menu preserved: {row}");
+    }
+
+    #[test]
+    fn row1_overflow_rects_mounted_for_hit_testing() {
+        let tabs: Vec<_> = (0..8)
+            .map(|i| {
+                crate::shell::surfaces::ClientTab::thread(
+                    format!("session-{i}"),
+                    Some(format!("Tab {i}")),
+                )
+            })
+            .collect();
+        let tab_bar = TabBarProps {
+            tabs: Some(&tabs),
+            active_tab: 4,
+            unread_faults: 0,
+        };
+        let mut terminal = nuotc::TestTerminal::new(50, 1);
+        let theme = Theme::default();
+        let mut nav = TabBarNavRects::default();
+        terminal.draw(|frame| {
+            nav = draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
+        });
+
+        assert!(
+            nav.prev_rect.is_some(),
+            "must have prev_rect for left indicator"
+        );
+        assert!(
+            nav.next_rect.is_some(),
+            "must have next_rect for right indicator"
+        );
+        assert!(
+            nav.overview_rect.is_some(),
+            "must have overview_rect for switcher button"
+        );
+        assert!(
+            nav.tab_rects.iter().any(|(idx, _)| *idx == 4),
+            "active tab 4 must have rect"
         );
     }
 }

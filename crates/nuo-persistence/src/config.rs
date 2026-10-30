@@ -314,6 +314,9 @@ pub struct RouteSettings {
     /// mode and retention must be advertised by the resolved route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<nuo_wire::PromptCachePreference>,
+    /// Optional route-specific model guidance override (instance + model, ADR-0130).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_guidance: Option<String>,
 }
 
 impl RouteSettings {
@@ -326,6 +329,7 @@ impl RouteSettings {
                 .as_ref()
                 .is_none_or(nuo_wire::CapabilityOverrides::is_empty)
             && self.prompt_cache.is_none()
+            && self.model_guidance.is_none()
     }
 }
 
@@ -886,6 +890,11 @@ pub struct Config {
     /// [`ToolVariantsConfig`].
     #[serde(default)]
     pub tool_variants: ToolVariantsConfig,
+    /// Per-model or model-pattern prompt engineering guidance rules (`[model_guidance]`
+    /// table, ADR-0130). Maps exact model ids, glob patterns, or family names to
+    /// custom system prompt guidance text.
+    #[serde(default)]
+    pub model_guidance: ModelGuidanceConfig,
     /// Server lifecycle knobs: the `[server]` (or legacy `[server]`) table of
     /// `config.toml`. Controls how the session server exits — its shutdown
     /// grace budget and its idle-empty auto-exit.
@@ -973,6 +982,80 @@ impl ToolVariantsConfig {
     }
 }
 
+/// User-configured model guidance mappings: exact model id, pattern, or family -> prompt string (ADR-0130).
+///
+/// Deserialized from the `[model_guidance]` table in `config.toml` / `agent.toml`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct ModelGuidanceConfig(pub BTreeMap<String, String>);
+
+impl ModelGuidanceConfig {
+    /// Whether any guidance entries are configured.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Resolve prompt guidance for a concrete model invocation.
+    ///
+    /// Resolution order:
+    /// 1. Exact model id match (e.g. `"deepseek-flash"`)
+    /// 2. Glob pattern match on model id (e.g. `"*deepseek*"` or `"deepseek/*"`)
+    /// 3. Family exact match (e.g. `"deepseek"`)
+    /// 4. Glob pattern match on family (e.g. `"*deepseek*"`)
+    pub fn resolve(&self, model_id: &str, family: &str) -> Option<&str> {
+        // 1. Exact match on model_id
+        if let Some(text) = self.0.get(model_id) {
+            return Some(text.as_str());
+        }
+
+        let model_lower = model_id.to_ascii_lowercase();
+
+        // 2. Glob pattern matches on model_id
+        for (pattern, text) in &self.0 {
+            if (pattern.contains('*') || pattern.contains('?'))
+                && let Ok(glob) = glob::Pattern::new(pattern)
+                && glob.matches_with(
+                    &model_lower,
+                    glob::MatchOptions {
+                        case_sensitive: false,
+                        require_literal_separator: false,
+                        require_literal_leading_dot: false,
+                    },
+                )
+            {
+                return Some(text.as_str());
+            }
+        }
+
+        // 3. Family exact match
+        if !family.is_empty() {
+            if let Some(text) = self.0.get(family) {
+                return Some(text.as_str());
+            }
+
+            let family_lower = family.to_ascii_lowercase();
+            // 4. Glob pattern match on family
+            for (pattern, text) in &self.0 {
+                if (pattern.contains('*') || pattern.contains('?'))
+                    && let Ok(glob) = glob::Pattern::new(pattern)
+                    && glob.matches_with(
+                        &family_lower,
+                        glob::MatchOptions {
+                            case_sensitive: false,
+                            require_literal_separator: false,
+                            require_literal_leading_dot: false,
+                        },
+                    )
+                {
+                    return Some(text.as_str());
+                }
+            }
+        }
+
+        None
+    }
+}
+
 /// One lifecycle event hook entry (ADR-0025). Deserialized from a `[[hooks]]`
 /// table in `config.toml`:
 ///
@@ -1050,6 +1133,8 @@ struct RawConfig {
     #[serde(default)]
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(default)]
+    model_guidance: Option<ModelGuidanceConfig>,
+    #[serde(default)]
     server: Option<ServerConfig>,
 }
 
@@ -1122,6 +1207,9 @@ impl<'de> Deserialize<'de> for Config {
         if let Some(tv) = raw.tool_variants {
             cfg.tool_variants = tv;
         }
+        if let Some(mg) = raw.model_guidance {
+            cfg.model_guidance = mg;
+        }
         if let Some(d) = raw.server {
             cfg.server = d;
         }
@@ -1149,6 +1237,7 @@ impl Default for Config {
             agent: AgentConfig::default(),
             hooks: Vec::new(),
             tool_variants: ToolVariantsConfig::default(),
+            model_guidance: ModelGuidanceConfig::default(),
             server: ServerConfig::default(),
         }
     }
@@ -1244,6 +1333,8 @@ struct DomainAgentFile {
     hooks: Option<Vec<HookSpec>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_variants: Option<ToolVariantsConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_guidance: Option<ModelGuidanceConfig>,
 }
 
 /// Fail-fast boundary for the configuration matrix (`[INV-CONF-04]`).
@@ -1431,6 +1522,9 @@ impl Config {
             if let Some(tv) = agent_doc.tool_variants {
                 cfg.tool_variants = tv;
             }
+            if let Some(mg) = agent_doc.model_guidance {
+                cfg.model_guidance = mg;
+            }
             if let Some(ws) = agent_doc.workspace {
                 cfg.workspace = ws;
             }
@@ -1488,6 +1582,11 @@ impl Config {
             mcp: Some(self.mcp.clone()),
             hooks: Some(self.hooks.clone()),
             tool_variants: Some(self.tool_variants.clone()),
+            model_guidance: if self.model_guidance.is_empty() {
+                None
+            } else {
+                Some(self.model_guidance.clone())
+            },
         };
         fsutil::atomic_write_bytes(
             &Self::agent_config_file_path(),
@@ -1744,6 +1843,31 @@ impl Config {
                 Vec::new()
             }
         }
+    }
+
+    /// Resolve the effective model guidance for a concrete route (ADR-0130).
+    ///
+    /// Resolution order:
+    /// 1. Route-specific override in [`RouteSettings::model_guidance`]
+    /// 2. Exact model id match in [`ModelGuidanceConfig`]
+    /// 3. Glob pattern match in [`ModelGuidanceConfig`] (e.g. `"*deepseek*"`)
+    /// 4. Family exact match in [`ModelGuidanceConfig`]
+    /// 5. Glob pattern match against family
+    pub fn resolve_model_guidance(
+        &self,
+        route_settings: Option<&RouteSettings>,
+        model_id: &str,
+        family: &str,
+    ) -> String {
+        if let Some(route) = route_settings
+            && let Some(override_text) = &route.model_guidance
+        {
+            return override_text.clone();
+        }
+        self.model_guidance
+            .resolve(model_id, family)
+            .map(|s| s.to_string())
+            .unwrap_or_default()
     }
 
     /// Append project-local `[workspace].additional_roots` to this config's additional roots.
@@ -2086,6 +2210,59 @@ pub(crate) mod tests {
         let resolved = parsed.tool_variants.for_model("kimi-k2.7-code");
         assert_eq!(resolved.get("read_text").map(String::as_str), Some("terse"));
         assert_eq!(resolved.get("bash").map(String::as_str), Some("strict"));
+    }
+
+    #[test]
+    fn model_guidance_table_parses_and_resolves_hierarchically() {
+        let toml_src = r#"
+            [model_guidance]
+            "*deepseek*" = "General deepseek rule: Speak naturally."
+            "deepseek-flash" = "Specific flash rule: Be ultra concise."
+            "glm" = "Family rule: Output plain text."
+        "#;
+        let cfg: Config = toml::from_str(toml_src).unwrap();
+
+        // 1. Exact model id match wins over glob pattern
+        let flash = cfg.resolve_model_guidance(None, "deepseek-flash", "deepseek");
+        assert_eq!(flash, "Specific flash rule: Be ultra concise.");
+
+        // 2. Glob pattern matches model ids with relay prefixes
+        let relay = cfg.resolve_model_guidance(None, "openrouter/deepseek-chat:free", "deepseek");
+        assert_eq!(relay, "General deepseek rule: Speak naturally.");
+
+        let local = cfg.resolve_model_guidance(None, "deepseek-r1:14b", "deepseek");
+        assert_eq!(local, "General deepseek rule: Speak naturally.");
+
+        // 3. Family match when model id doesn't match
+        let glm = cfg.resolve_model_guidance(None, "custom-chat-v1", "glm");
+        assert_eq!(glm, "Family rule: Output plain text.");
+
+        // 4. RouteSettings override takes absolute precedence
+        let route = RouteSettings {
+            model_guidance: Some("Route override: Custom system rule.".into()),
+            ..Default::default()
+        };
+        let overridden = cfg.resolve_model_guidance(Some(&route), "deepseek-flash", "deepseek");
+        assert_eq!(overridden, "Route override: Custom system rule.");
+
+        // 5. Unmatched model returns empty string
+        let unknown = cfg.resolve_model_guidance(None, "gpt-4o", "openai");
+        assert_eq!(unknown, "");
+    }
+
+    #[test]
+    fn model_guidance_round_trips_through_serialize() {
+        let mut cfg = Config::default();
+        cfg.model_guidance.0.insert(
+            "*deepseek*".to_string(),
+            "Speak natural Chinese.".to_string(),
+        );
+        let serialised = toml::to_string(&cfg).unwrap();
+        let parsed: Config = toml::from_str(&serialised).unwrap();
+        assert_eq!(
+            parsed.model_guidance.resolve("deepseek-v4", "deepseek"),
+            Some("Speak natural Chinese.")
+        );
     }
 
     /// A sandboxed config root: a fresh throwaway directory with the

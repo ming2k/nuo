@@ -69,7 +69,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         // Opus 4.8 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
         default_effort: Some(nuo_provider::Effort::High),
@@ -83,7 +82,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         // Sonnet 4.6 honors `max` but NOT `xhigh` (xhigh is Opus 4.8/4.7 only).
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
@@ -102,7 +100,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         // Fable 5 honors the full effort range including `xhigh`/`max`.
         effort_levels: effort_ladders::CLAUDE_FULL,
         default_effort: Some(nuo_provider::Effort::High),
@@ -121,7 +118,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         // Sonnet 5 honors the full range INCLUDING `xhigh` — the key difference
         // from Sonnet 4.6, which rejects `xhigh` (see CLAUDE_NO_XHIGH).
         effort_levels: effort_ladders::CLAUDE_FULL,
@@ -139,7 +135,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -179,11 +174,10 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api.anthropic.com/v1"),
     user_agent: None,
+    default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::AnthropicMessages,
     models: ANTHROPIC_BUILTIN_MODELS,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::Anthropic),
-    default_client_profile: nuo_provider::ClientPreset::Native,
-    client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
     responses_state: nuo_provider::ResponsesState::Stateless,

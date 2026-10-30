@@ -26,11 +26,10 @@ use futures::stream::BoxStream;
 use nuo_provider::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
 use nuo_provider::{CredentialSource, ProviderError, ResolvedAuth};
 
+use crate::request::COPILOT_CLIENT_HEADERS;
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_provider::{
-    COPILOT_CLIENT_HEADERS, ClientProfile, Endpoint, NUO_USER_AGENT, PromptCacheConfig,
-};
+use nuo_provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
 pub mod request;
 pub mod response;
@@ -110,13 +109,11 @@ impl AnthropicMessagesProvider {
         credentials: std::sync::Arc<dyn CredentialSource>,
         model: String,
         base_url: &str,
-        client_profile: impl Into<ClientProfile>,
     ) -> Self {
         let thinking = ThinkingConfig::for_model(&nuo_provider::model::resolve(&model));
         let capabilities = nuo_provider::ModelCapabilities::for_channel(&model, None);
         Self {
-            endpoint: Endpoint::with_credentials(credentials, model, base_url, "anthropic")
-                .with_client_profile(client_profile),
+            endpoint: Endpoint::with_credentials(credentials, model, base_url, "anthropic"),
             client: Client::new(),
             max_tokens: 8192,
             thinking,
@@ -124,6 +121,18 @@ impl AnthropicMessagesProvider {
             dialect: nuo_provider::AnthropicMessagesDialect::Standard,
             prompt_cache: PromptCacheConfig::default(),
         }
+    }
+
+    /// Set an explicit User-Agent.
+    pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
+        self.endpoint.set_user_agent(user_agent);
+        self
+    }
+
+    /// Attach extra HTTP headers.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.endpoint.headers.extend(headers);
+        self
     }
 
     /// Set the `max_tokens` sent on every `/messages` request.

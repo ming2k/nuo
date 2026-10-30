@@ -450,6 +450,11 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::UsageStats(report) => {
             app.usage_stats = Some(report);
+            app.usage_loading = false;
+            true
+        }
+        AppMutation::UsageFailed(_error) => {
+            app.usage_loading = false;
             true
         }
         AppMutation::ProviderQuotas(snapshot) => {

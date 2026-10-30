@@ -621,7 +621,7 @@ fn sectioned_snapshot() -> nuo_wire::ProviderPickerSnapshot {
             base_url: String::new(),
             key_ready: true,
             provider: String::new(),
-            client_identity: Default::default(),
+            headers: Default::default(),
             last_used_ms: None,
             auth: Default::default(),
         }
@@ -759,7 +759,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
         base_url: String::new(),
         key_ready: true,
         provider: String::new(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: Default::default(),
     });
@@ -879,7 +879,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
         base_url: String::new(),
         key_ready: true,
         provider: String::new(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: Default::default(),
     });
@@ -1225,7 +1225,7 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
             base_url: String::new(),
             key_ready: true,
             provider: String::new(),
-            client_identity: Default::default(),
+            headers: Default::default(),
             last_used_ms: None,
             auth: Default::default(),
         }],
@@ -1692,7 +1692,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-12...abcd".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.37.21".to_string(),
         models: vec!["deepseek-chat".to_string(), "deepseek-reasoner".to_string()],
         model_info: Vec::new(),
@@ -1761,7 +1761,7 @@ fn connections_modal_detail_view_renders_info_and_usage() {
     assert!(text.contains("deepseek"));
     assert!(text.contains("https://api.deepseek.com"));
     assert!(text.contains("sk-12...abcd"));
-    assert!(text.contains("Client Profile"));
+    assert!(text.contains("Transport"));
     assert!(text.contains("Served Models (2)"));
     assert!(text.contains("2 discovered"));
     assert!(text.contains("Browse & filter in /models"));
@@ -1817,7 +1817,7 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.37.25".to_string(),
         models: vec!["gemini-3.7-flash".to_string(), "gemini-3.1-pro".to_string()],
         model_info: Vec::new(),
@@ -1914,7 +1914,7 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-12...abcd".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.37.21".to_string(),
         models: vec!["deepseek-chat".to_string()],
         model_info: Vec::new(),
@@ -2008,7 +2008,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.37.25".to_string(),
         models: vec![
             "gemini-3.7-flash".to_string(),
@@ -2212,12 +2212,28 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
     let scrolled_text = buffer_text(&terminal);
     assert!(scrolled_text.contains("Provider Usage & Quota"));
     assert!(!scrolled_text.contains("[ Antigravity Quota ]"));
-    assert!(scrolled_text.contains("▸ Claude Models"));
-    assert!(scrolled_text.contains("Weekly Limit Remaining · Weekly"));
-    assert!(scrolled_text.contains("99% used"));
-    assert!(scrolled_text.contains("Five Hour Limit Remaining · 5h Window"));
+    // ADR-0111: No obscure symbols like `▸`, clean group header
+    assert!(scrolled_text.contains("Claude Models"));
+    assert!(!scrolled_text.contains('▸'));
+    // 5-Hour limit displayed before Weekly limit
+    let pos_5h = scrolled_text
+        .find("5-Hour Limit")
+        .expect("5-Hour Limit should exist");
+    let pos_weekly = scrolled_text
+        .find("Weekly Limit")
+        .expect("Weekly Limit should exist");
+    assert!(
+        pos_5h < pos_weekly,
+        "5-Hour limit must be displayed before Weekly limit"
+    );
+    // Clean label merged with reset countdown on the same line, no redundant tautology
+    assert!(scrolled_text.contains("5-Hour Limit  ·  resets in 3h 16m"));
     assert!(scrolled_text.contains("46% used"));
-    assert!(scrolled_text.contains("▸ Chat Models (Gemini)"));
+    assert!(scrolled_text.contains("Weekly Limit  ·  resets in 80h 6m"));
+    assert!(scrolled_text.contains("99% used"));
+    assert!(!scrolled_text.contains("Five Hour Limit Remaining · 5h Window"));
+    assert!(!scrolled_text.contains("Weekly Limit Remaining · Weekly"));
+    assert!(scrolled_text.contains("Chat Models (Gemini)"));
     assert!(scrolled_text.contains("0% used"));
     assert!(scrolled_text.contains("Within each group, models share a weekly limit"));
 }
@@ -2235,7 +2251,7 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
         auth_type: "API Key".to_string(),
         api_key_masked: Some("sk-ant-...1234".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.37.21".to_string(),
         models: vec!["claude-3-7-sonnet".to_string()],
         model_info: Vec::new(),
@@ -2299,7 +2315,7 @@ fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usag
         auth_type: "API Key".to_string(),
         api_key_masked: Some("cmd-...9999".to_string()),
         api_key_source: "credentials.toml".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.38.0".to_string(),
         models: vec!["claude-3-7-sonnet".to_string()],
         model_info: Vec::new(),
@@ -2443,7 +2459,7 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
         auth_type: "OAuth (AntigravityOAuth)".to_string(),
         api_key_masked: Some("ya29...0213".to_string()),
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "antigravity/1.23.2".to_string(),
         models: vec![
             "claude-opus-4-6".to_string(),
@@ -2580,7 +2596,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "antigravity/1.0.0".to_string(),
         models: models.clone(),
         model_info: Vec::new(),
@@ -2644,7 +2660,7 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
         auth_type: "OAuth".to_string(),
         api_key_masked: None,
         api_key_source: "OAuth".to_string(),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "antigravity/1.0.0".to_string(),
         models: vec!["gemini-2.5-pro".to_string()],
         model_info: Vec::new(),
@@ -2709,8 +2725,7 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
     let text = buffer_text(&terminal);
     assert!(text.contains("72% used"));
     assert!(!text.contains("remaining"));
-    assert!(!text.contains(" ·  resets"));
-    assert!(text.contains("resets: in 3h 25m"));
+    assert!(text.contains(" ·  resets in 3h 25m"));
 }
 
 #[test]
@@ -2874,7 +2889,7 @@ fn connection_detail_renders_active_model_pricing_and_rates() {
         active_model: Some("deepseek-v4.1-flash".to_string()),
         active_model_effort: Some("high".to_string()),
         active_model_thinking: Some(true),
-        client_identity: nuo_wire::ClientIdentity::Native,
+        headers: Default::default(),
         user_agent: "nuo/0.0.41".to_string(),
         models: vec!["deepseek-v4.1-flash".to_string()],
         usage: nuo_wire::ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
@@ -3002,5 +3017,236 @@ fn connection_detail_omits_pricing_for_subscription_plans() {
     assert!(
         rendered.contains("gemini-3.8-flash"),
         "must render periodic bucket: {rendered}"
+    );
+}
+
+#[test]
+fn periodic_quota_label_normalization_and_deduplication() {
+    use crate::shell::overlays::provider::connections::normalize_quota_bucket_label;
+    use nuo_wire::QuotaWindowKind;
+
+    // "Five Hour Limit Remaining" normalized to "5-Hour Limit" without redundant window tag
+    assert_eq!(
+        normalize_quota_bucket_label(
+            "Five Hour Limit Remaining",
+            Some("Gemini Models"),
+            Some(QuotaWindowKind::Rolling5Hour)
+        ),
+        "5-Hour Limit"
+    );
+
+    // "Weekly Limit Remaining" normalized to "Weekly Limit" without redundant window tag
+    assert_eq!(
+        normalize_quota_bucket_label(
+            "Weekly Limit Remaining",
+            Some("Gemini Models"),
+            Some(QuotaWindowKind::Weekly)
+        ),
+        "Weekly Limit"
+    );
+
+    // Group prefix stripped: "Gemini 4 Argon Weekly Limit" with group "Gemini 4 Argon" -> "Weekly Limit"
+    assert_eq!(
+        normalize_quota_bucket_label(
+            "Gemini 4 Argon Weekly Limit",
+            Some("Gemini 4 Argon"),
+            Some(QuotaWindowKind::Weekly)
+        ),
+        "Weekly Limit"
+    );
+
+    // Non-redundant window label is preserved: "Gemini Pro Agent" with window Daily -> "Gemini Pro Agent · Daily"
+    assert_eq!(
+        normalize_quota_bucket_label("Gemini Pro Agent", None, Some(QuotaWindowKind::Daily)),
+        "Gemini Pro Agent · Daily"
+    );
+
+    // Window already named in label: "5h Window" with window Rolling5Hour does not duplicate
+    assert_eq!(
+        normalize_quota_bucket_label("5h Window", None, Some(QuotaWindowKind::Rolling5Hour)),
+        "5h Window"
+    );
+}
+
+#[test]
+fn reset_countdown_formatting_omits_redundant_clock_and_parentheses() {
+    use crate::shell::overlays::provider::connections::format_reset_countdown;
+
+    // Reset countdown from timestamp in future: "resets in Xh Ym", NEVER "(HH:MM)"
+    let future_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+        + 4 * 3600 * 1000
+        + 52 * 60 * 1000;
+    let cd = format_reset_countdown(Some(future_ms), None).unwrap();
+    assert!(cd.starts_with("resets in 4h 5"), "got: {cd}");
+    assert!(
+        !cd.contains('('),
+        "must not contain redundant clock parentheses: {cd}"
+    );
+    assert!(
+        !cd.contains(')'),
+        "must not contain redundant clock parentheses: {cd}"
+    );
+
+    // Reset countdown from duration string: "resets in 4h 52m", never "resets: in 4h 52m"
+    assert_eq!(
+        format_reset_countdown(None, Some("4h 52m")).as_deref(),
+        Some("resets in 4h 52m")
+    );
+    assert_eq!(
+        format_reset_countdown(None, Some("in 4h 52m")).as_deref(),
+        Some("resets in 4h 52m")
+    );
+}
+
+#[test]
+fn periodic_quota_buckets_redesign_layout_order_and_styling() {
+    use nuo_wire::{
+        PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
+    };
+
+    let theme = Theme::default();
+    let detail = nuo_wire::ConnectionDetail {
+        name: "Google Antigravity".to_string(),
+        provider: "google-antigravity".to_string(),
+        provider_label: "Google Antigravity".to_string(),
+        protocol: "google".to_string(),
+        base_url: "https://cloudcode-pa.googleapis.com".to_string(),
+        auth_type: "OAuth".to_string(),
+        usage: nuo_wire::ConnectionUsageState::Available(Box::new(ProviderUsage {
+            plan: None,
+            description: None,
+            quota: Some(ProviderQuotaData::Periodic(PeriodicQuota {
+                buckets: vec![
+                    // Gemini Models: API returned Weekly first, then 5h
+                    QuotaWindowBucket {
+                        window: Some(QuotaWindowKind::Weekly),
+                        label: "Weekly Limit Remaining".to_string(),
+                        group: Some("Gemini Models".to_string()),
+                        used_fraction: 0.08,
+                        reset_time_str: Some("142h 4m".to_string()),
+                        ..Default::default()
+                    },
+                    QuotaWindowBucket {
+                        window: Some(QuotaWindowKind::Rolling5Hour),
+                        label: "Five Hour Limit Remaining".to_string(),
+                        group: Some("Gemini Models".to_string()),
+                        used_fraction: 0.02,
+                        reset_time_str: Some("4h 54m".to_string()),
+                        ..Default::default()
+                    },
+                    // Claude and GPT models: API returned Weekly first, then 5h
+                    QuotaWindowBucket {
+                        window: Some(QuotaWindowKind::Weekly),
+                        label: "Weekly Limit Remaining".to_string(),
+                        group: Some("Claude and GPT models".to_string()),
+                        used_fraction: 0.10,
+                        reset_time_str: Some("90h 2m".to_string()),
+                        ..Default::default()
+                    },
+                    QuotaWindowBucket {
+                        window: Some(QuotaWindowKind::Rolling5Hour),
+                        label: "Five Hour Limit Remaining".to_string(),
+                        group: Some("Claude and GPT models".to_string()),
+                        used_fraction: 0.0,
+                        reset_time_str: Some("4h 59m".to_string()),
+                        ..Default::default()
+                    },
+                    // Gemini 4 Argon: single bucket repeating group name
+                    QuotaWindowBucket {
+                        window: Some(QuotaWindowKind::Weekly),
+                        label: "Gemini 4 Argon Weekly Limit".to_string(),
+                        group: Some("Gemini 4 Argon".to_string()),
+                        used_fraction: 0.97,
+                        reset_time_str: Some("36h 45m".to_string()),
+                        ..Default::default()
+                    },
+                ],
+            })),
+            primary_balance: None,
+            metrics: Vec::new(),
+            updated_at_ms: None,
+        })),
+        ..Default::default()
+    };
+
+    let rows =
+        crate::shell::overlays::provider::connections::connection_detail_body(&detail, 0, &theme);
+    let rendered_lines: Vec<String> = rows
+        .into_iter()
+        .map(|r| {
+            let mut s = String::new();
+            if let Some(p) = r.prefix {
+                s.push_str(&p.text);
+            }
+            for seg in r.segments {
+                s.push_str(&seg.text);
+            }
+            s
+        })
+        .collect();
+    let text = rendered_lines.join("\n");
+
+    // 1. Obscure symbol `▸` is NEVER rendered
+    assert!(
+        !text.contains('▸'),
+        "must not contain obscure arrow symbol: {text}"
+    );
+
+    // 2. 5h limit is displayed before Weekly limit within each group
+    let gemini_5h = text
+        .find("5-Hour Limit  ·  resets in 4h 54m")
+        .expect("Gemini 5h line");
+    let gemini_weekly = text
+        .find("Weekly Limit  ·  resets in 142h 4m")
+        .expect("Gemini weekly line");
+    assert!(
+        gemini_5h < gemini_weekly,
+        "5-Hour limit must appear before Weekly limit in Gemini Models"
+    );
+
+    let claude_5h = text
+        .find("5-Hour Limit  ·  resets in 4h 59m")
+        .expect("Claude 5h line");
+    let claude_weekly = text
+        .find("Weekly Limit  ·  resets in 90h 2m")
+        .expect("Claude weekly line");
+    assert!(
+        claude_5h < claude_weekly,
+        "5-Hour limit must appear before Weekly limit in Claude models"
+    );
+
+    // 3. Tautology is removed: no "Five Hour Limit Remaining · 5h Window", no "Weekly Limit Remaining · Weekly"
+    assert!(!text.contains("Five Hour Limit Remaining"));
+    assert!(!text.contains("5h Window"));
+    assert!(!text.contains("Weekly Limit Remaining"));
+    assert!(!text.contains("Gemini 4 Argon Weekly Limit · Weekly"));
+
+    // 4. Gemini 4 Argon bucket label has group prefix stripped
+    assert!(text.contains("Gemini 4 Argon\nWeekly Limit  ·  resets in 36h 45m"));
+
+    // 5. Title and reset countdown merged to one line without redundant clock in parentheses
+    let p_quota = rendered_lines
+        .iter()
+        .position(|l| l.contains("Provider Usage & Quota"))
+        .unwrap();
+    let quota_slice = &rendered_lines[p_quota..];
+    let quota_text = quota_slice.join("\n");
+    assert!(
+        !quota_text.contains('('),
+        "quota text must not contain redundant clock parentheses: {quota_text}"
+    );
+    assert!(
+        !quota_text.contains(')'),
+        "quota text must not contain redundant clock parentheses: {quota_text}"
+    );
+
+    // 6. Groups are contiguous without blank spacer lines between them
+    let empty_in_quota = quota_slice.iter().take(12).any(|l| l.trim().is_empty());
+    assert!(
+        !empty_in_quota,
+        "quota groups must be contiguous without artificial blank lines: {text}"
     );
 }

@@ -448,6 +448,12 @@ fn format_tools(
 ///   (whether an `input_image` part is present), so it is injected by the
 ///   provider's request builder (see [`has_input_image`]) rather than this
 ///   header list.
+const COPILOT_CLIENT_HEADERS: &[(&str, &str)] = &[
+    ("Copilot-Integration-Id", "vscode-chat"),
+    ("Editor-Version", "vscode/1.107.0"),
+    ("Editor-Plugin-Version", "copilot-chat/0.35.0"),
+];
+
 pub fn headers(
     access_token: &str,
     account_id: Option<&str>,
@@ -456,7 +462,7 @@ pub fn headers(
 ) -> Vec<(&'static str, String)> {
     let mut h = vec![("Authorization", format!("Bearer {access_token}"))];
     if copilot {
-        for (name, value) in nuo_provider::COPILOT_CLIENT_HEADERS {
+        for (name, value) in COPILOT_CLIENT_HEADERS {
             h.push((*name, value.to_string()));
         }
         h.push(("x-initiator", "user".to_string()));

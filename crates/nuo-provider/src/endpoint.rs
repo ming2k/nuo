@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use crate::auth::{CredentialSource, ResolvedAuth, static_credential};
-pub use crate::client_identity::*;
 use nuo_host::SecretString;
 
 /// The connection fields every provider shares.
@@ -27,8 +26,10 @@ pub struct Endpoint {
     /// `/messages` path; for Google it is the versioned base
     /// (`.../v1beta`) to which the per-call model path is appended.
     pub base_url: String,
-    /// Client profile specifying the User-Agent and client identity headers.
-    pub client_profile: ClientProfile,
+    /// Resolved User-Agent header value sent with requests.
+    pub user_agent: String,
+    /// Resolved custom HTTP headers sent with requests.
+    pub headers: Vec<(String, String)>,
     /// Stable attribution id (`provider_id()`).
     pub id: String,
     /// Optional session identifier for sticky routing / session affinity.
@@ -61,7 +62,8 @@ impl Endpoint {
             credentials,
             model: model.into(),
             base_url: base_url.into(),
-            client_profile: ClientProfile::Native,
+            user_agent: crate::NUO_USER_AGENT.to_string(),
+            headers: Vec::new(),
             id: id.into(),
             session_id: None,
             fallback_session_id: Arc::new(std::sync::OnceLock::new()),
@@ -129,21 +131,26 @@ impl Endpoint {
         self.credentials.is_negotiated()
     }
 
-    /// Stamp the user-agent header value, updating the client profile.
+    /// Set the User-Agent header value.
     pub fn with_user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.client_profile = ClientProfile::from_user_agent(&user_agent.into());
+        self.user_agent = user_agent.into();
         self
     }
 
-    /// Stamp a client profile directly onto this endpoint.
-    pub fn with_client_profile(mut self, profile: impl Into<ClientProfile>) -> Self {
-        self.client_profile = profile.into();
+    /// Set the User-Agent in place.
+    pub fn set_user_agent(&mut self, user_agent: impl Into<String>) {
+        self.user_agent = user_agent.into();
+    }
+
+    /// Attach an extra HTTP header to this endpoint.
+    pub fn with_header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((name.into(), value.into()));
         self
     }
 
-    /// Stamp a client identity directly onto this endpoint.
-    pub fn with_client_identity(mut self, identity: &ClientIdentity) -> Self {
-        self.client_profile = identity.clone();
+    /// Attach extra HTTP headers to this endpoint.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.headers.extend(headers);
         self
     }
 
@@ -193,8 +200,7 @@ impl Endpoint {
     ) -> Vec<(&'static str, String)> {
         let is_opencode_relay =
             self.id.starts_with("opencode") || self.base_url.contains("opencode.ai");
-        let is_opencode_client = matches!(self.client_profile, ClientProfile::OpenCode)
-            || self.client_profile.user_agent().starts_with("opencode/");
+        let is_opencode_client = self.user_agent.starts_with("opencode/");
 
         if !is_opencode_relay && !is_opencode_client {
             return Vec::new();
@@ -207,9 +213,7 @@ impl Endpoint {
         let mut headers = Vec::new();
         if is_opencode_relay {
             headers.push(("x-opencode-session", sid.to_string()));
-            if !is_opencode_client {
-                headers.push(("x-opencode-client", "cli".to_string()));
-            }
+            headers.push(("x-opencode-client", "cli".to_string()));
             headers.push((
                 "x-opencode-request",
                 format!("req_{}", uuid::Uuid::new_v4().simple()),
@@ -260,20 +264,10 @@ impl Endpoint {
     }
 
     pub fn user_agent(&self) -> &str {
-        self.client_profile.user_agent()
+        &self.user_agent
     }
 
-    /// Return the resolved [`ClientProfile`] for this endpoint.
-    pub fn client_profile(&self) -> &ClientProfile {
-        &self.client_profile
-    }
-
-    /// Return the resolved [`ClientIdentity`] for this endpoint.
-    pub fn client_identity(&self) -> &ClientIdentity {
-        &self.client_profile
-    }
-
-    /// Return the client-identity headers to attach to every request.
+    /// Return the headers to attach to every request.
     ///
     /// For the CodeBuddy dialect this additionally stamps `X-Domain` from
     /// **this endpoint's own ingress host** ([INV-PROV-REALM-01] by
@@ -283,12 +277,11 @@ impl Endpoint {
     /// origin would produce a different `X-Domain` with zero coordination.
     pub fn headers(&self) -> Vec<(&str, String)> {
         let mut headers: Vec<(&str, String)> = self
-            .client_profile
-            .headers()
-            .into_iter()
-            .map(|(name, value)| (name, value.to_string()))
+            .headers
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.clone()))
             .collect();
-        if self.client_profile.id() == "codebuddy" {
+        if self.id == "codebuddy" || self.id.starts_with("codebuddy") {
             // The realm header is derived from *this endpoint's own ingress
             // host* — structurally incapable of disagreeing with the host the
             // request is sent to ([INV-PROV-REALM-01]).
@@ -327,38 +320,6 @@ impl Endpoint {
 mod tests {
     use super::*;
 
-    #[test]
-    fn client_profile_presets_have_matching_user_agents_and_headers() {
-        for preset in ClientProfile::PRESETS {
-            assert!(!preset.id().is_empty());
-            assert!(!preset.label().is_empty());
-            assert!(!preset.user_agent().is_empty());
-
-            let parsed = ClientProfile::from_id(preset.id()).expect("parses from canonical id");
-            assert_eq!(&parsed, preset);
-
-            if *preset != ClientProfile::Copilot {
-                let detected = ClientProfile::from_user_agent(preset.user_agent());
-                assert_eq!(
-                    &detected,
-                    preset,
-                    "detected from UA: {}",
-                    preset.user_agent()
-                );
-            }
-
-            // The shared CodeBuddy preset must stay realm-free: its header
-            // block must never carry an `X-Domain` (each endpoint derives the
-            // realm from its own ingress host, INV-PROV-REALM-01).
-            if *preset == ClientProfile::CodeBuddy {
-                assert!(
-                    !preset.headers().iter().any(|(k, _)| *k == "X-Domain"),
-                    "shared CodeBuddy preset must not pin a realm host header"
-                );
-            }
-        }
-    }
-
     /// `X-Domain` is derived from the endpoint's own ingress host: a
     /// domestic-built endpoint rides `copilot.tencent.com`, an
     /// international-built one rides `www.codebuddy.ai` — the header cannot
@@ -370,8 +331,7 @@ mod tests {
             "hy4-preview",
             "https://copilot.tencent.com/v2/chat/completions",
             "codebuddy-cn",
-        )
-        .with_client_profile(ClientProfile::CodeBuddy);
+        );
         assert_eq!(
             domestic
                 .headers()
@@ -386,8 +346,7 @@ mod tests {
             "gpt-5.6-sol",
             "https://www.codebuddy.ai/v2/chat/completions",
             "codebuddy-intl",
-        )
-        .with_client_profile(ClientProfile::CodeBuddy);
+        );
         assert_eq!(
             international
                 .headers()
@@ -399,7 +358,7 @@ mod tests {
     }
 
     /// Non-RFC-3986 shapes are still parsed deterministically: ports are
-    /// stripped, case is normalized, and non-CodeBuddy profiles are untouched.
+    /// stripped, case is normalized, and non-CodeBuddy endpoints are untouched.
     #[test]
     fn ingress_host_parsing_is_deterministic_and_scoped() {
         let ep = Endpoint::from_static_key(
@@ -407,8 +366,7 @@ mod tests {
             "m",
             "https://COPilot.Tencent.com:443/v2/chat/completions",
             "codebuddy-cn",
-        )
-        .with_client_profile(ClientProfile::CodeBuddy);
+        );
         assert_eq!(
             ep.headers()
                 .iter()
@@ -417,9 +375,8 @@ mod tests {
             Some("copilot.tencent.com")
         );
 
-        // A non-CodeBuddy profile must not gain the header.
-        let openai = Endpoint::from_static_key("k", "m", "https://api.openai.com/v1", "openai")
-            .with_client_profile(ClientProfile::Native);
+        // A non-CodeBuddy endpoint must not gain the header.
+        let openai = Endpoint::from_static_key("k", "m", "https://api.openai.com/v1", "openai");
         assert!(
             !openai.headers().iter().any(|(k, _)| *k == "X-Domain"),
             "X-Domain is a CodeBuddy-only contract"
@@ -434,10 +391,10 @@ mod tests {
             "https://opencode.ai/inference/openai/v1/chat/completions",
             "opencode-plan",
         )
-        .with_client_profile(ClientProfile::OpenCode)
+        .with_user_agent("opencode/2.0.32")
         .with_session_id("ses_wire_affinity_999");
 
-        assert_eq!(ep.user_agent(), OPENCODE_USER_AGENT);
+        assert_eq!(ep.user_agent(), "opencode/2.0.32");
         assert_eq!(ep.effective_session_id(), "ses_wire_affinity_999");
 
         let headers = ep.session_affinity_headers(None);

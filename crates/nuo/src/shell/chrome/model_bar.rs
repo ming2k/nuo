@@ -23,13 +23,6 @@ pub struct ModelBarProps<'a> {
     pub reasoning_effort: Option<&'a str>,
     pub context_tokens: Option<usize>,
     pub context_window: usize,
-    /// How many *unread faults* the notice log holds (`app::receipts`).
-    ///
-    /// The badge exists because a retained record nobody can find is no better
-    /// than a bubble nobody saw: the log needs a persistent, always-visible
-    /// entry point, and this row is the one piece of chrome that is on screen
-    /// whenever a session is. Zero hides the badge entirely.
-    pub unread_faults: usize,
 }
 
 impl<'a> Default for ModelBarProps<'a> {
@@ -42,7 +35,6 @@ impl<'a> Default for ModelBarProps<'a> {
             reasoning_effort: None,
             context_tokens: None,
             context_window: 0,
-            unread_faults: 0,
         }
     }
 }
@@ -52,10 +44,6 @@ impl<'a> Default for ModelBarProps<'a> {
 pub struct ModelBarRects {
     pub context: Option<Rect>,
     pub connection: Option<Rect>,
-    /// The unread-notice badge, when it is painted. Clicking it opens the
-    /// viewer — the badge is the log's persistent affordance, so it has to be
-    /// a target and not just a decoration.
-    pub notices: Option<Rect>,
 }
 
 /// Format token count into SI abbreviation (e.g. `120k`, `1.2M`, `3.2B`).
@@ -120,7 +108,6 @@ pub fn draw_model_bar(
         reasoning_effort,
         context_tokens,
         context_window,
-        unread_faults,
     } = props;
 
     let bg = theme.surface();
@@ -231,19 +218,10 @@ pub fn draw_model_bar(
         }
         width
     };
-    // The unread-fault badge: measured *before* the shrink ladder so it takes
-    // part in the width budget, and dropped *last* — when a fault is unseen it
-    // is the most important thing on the row.
-    let notices_key = key_overrides.effective_binding(crate::shell::keymap::CommandId::OpenNotices);
-    let notices_label = (unread_faults > 0).then(|| format!("!{unread_faults} notices"));
-    let notices_badge_w: usize = notices_label.as_ref().map_or(0, |label| {
-        label.width() + notices_key.map_or(0, |k| k.display().width() + 1)
-    });
-
     let gauges_width_for = |context: bool, show_keycap: bool| {
-        let mut width = notices_badge_w;
+        let mut width = 0;
         if context {
-            width += context_seg_width + usize::from(notices_badge_w > 0);
+            width += context_seg_width;
         }
         if context && show_keycap {
             width += telemetry_keycap_width;
@@ -306,25 +284,6 @@ pub fn draw_model_bar(
     }
 
     let mut left_spans: Vec<Span<'static>> = Vec::new();
-    if let Some(label) = notices_label {
-        // The badge names the chord that clears it. It counts *faults* only: an
-        // unread acknowledgement is not news, and a badge that lights up for
-        // "copied to clipboard" trains the user to ignore it.
-        left_spans.push(Span::styled(
-            label,
-            Style::default()
-                .fg(theme.err())
-                .add_modifier(Modifier::BOLD)
-                .bg(bg),
-        ));
-        if let Some(key) = notices_key {
-            left_spans.push(Span::styled(" ", Style::default().bg(bg)));
-            left_spans.push(keycap_badge(key.display()));
-        }
-        if show_context {
-            left_spans.push(Span::styled(" ", Style::default().bg(bg)));
-        }
-    }
     if show_context {
         left_spans.extend(context_spans);
     }
@@ -404,19 +363,8 @@ pub fn draw_model_bar(
             rect.height,
         ));
     }
-    // The badge occupies the very start of the left cluster, so its rect is the
-    // first `notices_badge_w` cells after the inner padding.
-    let notices_rect = (notices_badge_w > 0).then(|| {
-        Rect::new(
-            rect.x + inner as u16,
-            rect.y,
-            notices_badge_w as u16,
-            rect.height,
-        )
-    });
     ModelBarRects {
         context: context_rect,
         connection: connection_rect,
-        notices: notices_rect,
     }
 }

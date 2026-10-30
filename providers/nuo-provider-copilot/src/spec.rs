@@ -27,13 +27,18 @@ pub const MODELS: &[Model] = &[Model {
     tool_call: true,
     vision: true,
     protocol: WireProtocol::OpenAiChatCompletions,
-    model_guidance: "",
     effort_levels: &[],
     default_effort: Some(nuo_provider::Effort::Medium),
     wire_entities: None,
 }];
 
 inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+
+pub const COPILOT_CLIENT_HEADERS: &[(&str, &str)] = &[
+    ("Copilot-Integration-Id", "vscode-chat"),
+    ("Editor-Version", "vscode/1.107.0"),
+    ("Editor-Plugin-Version", "copilot-chat/0.35.0"),
+];
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Copilot,
@@ -47,6 +52,7 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api.githubcopilot.com"),
     user_agent: None,
+    default_headers: std::borrow::Cow::Borrowed(COPILOT_CLIENT_HEADERS),
     // Copilot speaks the OpenAI chat-completions wire family against
     // api.githubcopilot.com. The endpoint is the preset's remote-catalog
     // source, so the instance tracks the user's actual plan-unlocked model
@@ -56,8 +62,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // advertised capability metadata, mirroring the kimi-code flow.
     protocol: WireProtocol::OpenAiChatCompletions,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_provider::ClientPreset::Copilot,
-    client_profile_sensitive: true,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
     responses_state: nuo_provider::ResponsesState::Stateless,

@@ -24,7 +24,7 @@
 //! struct, so a field can never be emitted by the writer yet rejected by the
 //! reader (the failure mode that silently empties the whole store).
 use nuo_wire::model_providers::is_known_model_provider;
-use nuo_wire::{ClientIdentity, ConnectionAuth, ConnectionBudget};
+use nuo_wire::{ConnectionAuth, ConnectionBudget};
 use serde::{Deserialize, Serialize};
 
 use crate::fsutil;
@@ -61,10 +61,19 @@ pub struct Connection {
     /// `credentials.toml`. Declared once per connection, never per route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_env: Option<String>,
-    /// Client profile specifying User-Agent and client identity headers (Native/nuo, OpenCode, ZCode, Claude Code, etc.).
-    /// Defaults to [`nuo_wire::ClientProfile::Native`].
-    #[serde(default, alias = "client_profile")]
-    pub client_identity: ClientIdentity,
+    /// Legacy client identity field, silently tolerated on load and pruned on save.
+    #[serde(
+        default,
+        skip_serializing,
+        alias = "client_identity",
+        alias = "client_profile"
+    )]
+    pub _legacy_client_identity: Option<serde_json::Value>,
+    /// Optional HTTP headers to attach to requests for this connection.
+    /// Used primarily by custom/proxy endpoints that require specific headers
+    /// (e.g. User-Agent, X-Title, or gateway routing keys).
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub headers: std::collections::BTreeMap<String, String>,
     /// Model scope configuration: this connection's
     /// include / exclude / override delta over the provider's universe.
     #[serde(default, skip_serializing_if = "ModelScopeConfig::is_empty")]
@@ -91,7 +100,8 @@ impl Default for Connection {
             provider: String::new(),
             auth: ConnectionAuth::Static,
             api_key_env: None,
-            client_identity: ClientIdentity::Native,
+            _legacy_client_identity: None,
+            headers: std::collections::BTreeMap::new(),
             models: ModelScopeConfig::default(),
             catalog_dimensions: std::collections::BTreeMap::new(),
             budget: ConnectionBudget::default(),
@@ -351,7 +361,11 @@ mod tests {
             provider: "anthropic".into(),
             auth: ConnectionAuth::Static,
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
-            client_identity: nuo_wire::ClientIdentity::ClaudeCode,
+            _legacy_client_identity: None,
+            headers: std::collections::BTreeMap::from([(
+                "User-Agent".to_string(),
+                "custom-agent/1.0".to_string(),
+            )]),
             models: ModelScopeConfig {
                 filter: Some(ConnectionFilterPolicy::Named(NamedFilterPolicy::All)),
                 include: vec![DeclaredModel {
@@ -508,5 +522,23 @@ period = "session"
         assert!(serialized.contains("mode = \"local\""));
         let round_tripped: Connections = toml::from_str(&serialized).unwrap();
         assert_eq!(connections, round_tripped);
+    }
+
+    #[test]
+    fn legacy_client_identity_is_tolerated_on_load_and_pruned_on_save() {
+        let legacy_toml = r#"
+[[connections]]
+name = "legacy-conn"
+provider = "openai"
+client_identity = "claude-code"
+"#;
+        let connections: Connections = toml::from_str(legacy_toml).unwrap();
+        assert_eq!(connections.connections.len(), 1);
+        let conn = &connections.connections[0];
+        assert_eq!(conn.name, "legacy-conn");
+
+        let serialized = toml::to_string(&connections).unwrap();
+        assert!(!serialized.contains("client_identity"));
+        assert!(!serialized.contains("client_profile"));
     }
 }

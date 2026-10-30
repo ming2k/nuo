@@ -508,6 +508,16 @@ pub async fn get_server_endpoints(info: &ServerInfo) -> Result<ServerEndpointsRe
     serde_json::from_str(&reply).map_err(|e| format!("invalid server endpoints reply: {e}"))
 }
 
+/// ADR-0129 [INV-USAGE-01]: Read the cross-session model usage report over the
+/// session-free control plane, independent of any active thread.
+pub async fn get_usage_stats(
+    info: &ServerInfo,
+    event_cap: usize,
+) -> Result<nuo_wire::usage_stats::UsageStatsReport, String> {
+    let reply = control_with_reply(info, ControlRequest::GetUsageStats { event_cap }).await?;
+    serde_json::from_str(&reply).map_err(|e| format!("invalid usage stats reply: {e}"))
+}
+
 pub async fn stop(info: &ServerInfo) -> Result<(), String> {
     let grace = info
         .grace_secs

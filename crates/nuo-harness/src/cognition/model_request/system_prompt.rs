@@ -36,7 +36,8 @@ pub struct SystemPromptContext {
     /// dispatch tool needs no prompt-policy change.
     pub has_subagent_tool: bool,
     /// Model-specific guidance from the resolved model.
-    pub model_guidance: &'static str,
+    /// Model-specific behavioral guidance resolved for the active route (ADR-0130).
+    pub model_guidance: String,
     /// Provider/protocol-specific prompt guidance from the active provider.
     pub provider_guidance: &'static str,
     /// Content-attested project instructions (e.g. AGENTS.md).

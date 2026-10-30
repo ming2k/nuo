@@ -78,15 +78,16 @@ pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
     "gpt-5.6-sol",
     "deepseek/deepseek-v4-flash",
     "deepseek/deepseek-v4.1-flash",
+    "deepseek/deepseek-v4.1-flash-fast",
     "deepseek/deepseek-v4-pro",
 ];
 
-/// Seed models for the OpenCode Plan subscription surface, in activation order.
+/// Seed models for the OpenCode Go subscription surface, in activation order.
 ///
 /// The surface speaks the `zen/go` endpoint family and publishes ids only, so
 /// these seeds are what the picker shows before the first catalog refresh; the
 /// live `/models` payload remains authoritative for what the account may run.
-pub const OPENCODE_PLAN_MODELS: &[&str] = &[
+pub const OPENCODE_GO_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",
     "deepseek-v4-pro",
     "glm-5.3-flash",
@@ -98,6 +99,8 @@ pub const OPENCODE_PLAN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash-free",
     "glm-5.3-flash-free",
 ];
+
+pub const OPENCODE_PLAN_MODELS: &[&str] = OPENCODE_GO_MODELS;
 
 pub const OPENCODE_ZEN_MODELS: &[&str] = &[
     "deepseek-v4.1-flash",
@@ -155,12 +158,12 @@ pub struct UserDeclaredProvider {
     /// Default wire transport protocol (e.g. `chat-completions`, `responses`, `anthropic-messages`, `google-gemini`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_protocol: Option<nuo_inference_wire::WireProtocol>,
-    /// Default client profile preset for User-Agent / client headers emulation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_profile: Option<crate::ClientPreset>,
     /// Optional User-Agent override.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_agent: Option<String>,
+    /// Optional custom headers to send on requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::BTreeMap<String, String>>,
     /// Catalog discovery format: `openai`, `anthropic`, `google`, `none`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog: Option<crate::surface::RemoteCatalogSource>,
@@ -174,8 +177,6 @@ pub struct UserDeclaredProvider {
     pub catalog_root_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<crate::surface::ProviderPromptCache>,
-    #[serde(default)]
-    pub client_profile_sensitive: bool,
 }
 
 impl UserDeclaredProvider {
@@ -245,10 +246,10 @@ pub const MODEL_PROVIDER_IDS: &[&str] = &[
     "kimi-code",
     "openrouter",
     "opencode-zen",
-    "opencode-plan",
+    "opencode-go",
     "qoder",
     "qianwen",
-    "commandcode-plan",
+    "commandcode-goat",
     "codebuddy-cn",
     "codebuddy-intl",
 ];
@@ -270,8 +271,8 @@ pub fn canonical_provider_id(id: &str) -> Option<String> {
     // `connections.toml` row fails loudly as an unknown provider.
     let canonical = match id {
         "chatgpt" | "chatgpt-oauth" | "openai-subscription" => "chatgpt-plan",
-        "commandcode" | "command-code" => "commandcode-plan",
-        "opencode-go" => "opencode-plan",
+        "commandcode" | "command-code" | "commandcode-plan" => "commandcode-goat",
+        "opencode-plan" => "opencode-go",
         "antigravity-oauth" => "google-antigravity",
         "copilot-oauth" => "github-copilot",
         "xai-oauth" => "xai",
@@ -289,7 +290,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
         "chatgpt-plan" => "ChatGPT Plan",
         "codebuddy-cn" => "Tencent CodeBuddy CN",
         "codebuddy-intl" => "Tencent CodeBuddy Global",
-        "commandcode-plan" => "CommandCode Plan",
+        "commandcode-goat" => "CommandCode GOAT",
         "deepseek" => "DeepSeek",
         "github-copilot" => "GitHub Copilot",
         "google" => "Google AI Studio",
@@ -297,7 +298,7 @@ pub fn model_provider_label(id: &str) -> &'static str {
         "kimi-code" => "Kimi Code",
         "openai" => "OpenAI Platform",
         "opencode-zen" => "OpenCode Zen",
-        "opencode-plan" => "OpenCode Plan",
+        "opencode-go" => "OpenCode Go",
         "openrouter" => "OpenRouter",
         "glm-cn" => "GLM Coding Plan CN",
         "qoder" => "Qoder",
@@ -340,12 +341,16 @@ mod provider_id_tests {
             Some("chatgpt-plan")
         );
         assert_eq!(
-            canonical_provider_id("opencode-go").as_deref(),
-            Some("opencode-plan")
+            canonical_provider_id("opencode-plan").as_deref(),
+            Some("opencode-go")
         );
         assert_eq!(
             canonical_provider_id("commandcode").as_deref(),
-            Some("commandcode-plan")
+            Some("commandcode-goat")
+        );
+        assert_eq!(
+            canonical_provider_id("commandcode-plan").as_deref(),
+            Some("commandcode-goat")
         );
         assert_eq!(
             canonical_provider_id("deepseek").as_deref(),
@@ -379,7 +384,7 @@ mod provider_id_tests {
             "Google Antigravity"
         );
         assert_eq!(model_provider_label("chatgpt-plan"), "ChatGPT Plan");
-        assert_eq!(model_provider_label("commandcode-plan"), "CommandCode Plan");
-        assert_eq!(model_provider_label("opencode-plan"), "OpenCode Plan");
+        assert_eq!(model_provider_label("commandcode-goat"), "CommandCode GOAT");
+        assert_eq!(model_provider_label("opencode-go"), "OpenCode Go");
     }
 }

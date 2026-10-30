@@ -40,7 +40,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -59,7 +58,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -72,7 +70,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -85,7 +82,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -98,7 +94,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -111,7 +106,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -124,7 +118,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -137,7 +130,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -145,6 +137,10 @@ pub const MODELS: &[Model] = &[
 ];
 
 inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+
+pub const ZCODE_USER_AGENT: &str = "ZCode/3.5.3";
+pub const ZCODE_CLIENT_HEADERS: &[(&str, &str)] =
+    &[("X-Title", "Z Code"), ("X-ZCode-Agent", "glm")];
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Standard,
@@ -154,7 +150,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("glm-cn"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://open.bigmodel.cn/api/coding/paas/v4"),
-    user_agent: Some(std::borrow::Cow::Borrowed(nuo_provider::ZCODE_USER_AGENT)),
+    user_agent: Some(std::borrow::Cow::Borrowed(ZCODE_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(ZCODE_CLIENT_HEADERS),
     protocol: WireProtocol::OpenAiChatCompletions,
     // Live-verified (2026-08): the coding endpoint serves GET /models and
     // returns the plan's current model ids (OpenAI list shape, ids only — no
@@ -164,8 +161,6 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // the picker. Baselines stay the single source of capability truth either
     // way (capability overlay is unavailable here).
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_provider::ClientPreset::ZCode,
-    client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
     responses_state: nuo_provider::ResponsesState::Stateless,
@@ -213,8 +208,12 @@ mod tests {
             WireProtocol::OpenAiChatCompletions
         );
         assert_eq!(
-            MODEL_PROVIDER_SPEC.default_client_profile,
-            nuo_provider::ClientPreset::ZCode
+            MODEL_PROVIDER_SPEC.user_agent.as_deref(),
+            Some(ZCODE_USER_AGENT)
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.default_headers.as_ref(),
+            ZCODE_CLIENT_HEADERS
         );
     }
 }

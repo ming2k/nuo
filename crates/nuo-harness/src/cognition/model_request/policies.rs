@@ -81,6 +81,10 @@ impl SystemPromptSection for ToneGuidance {
 /// model's `Model::model_guidance` is the per-model hook for whatever
 /// behavioral nudge it needs. Renders it verbatim when non-empty — the model
 /// entry is the single source of truth. Empty for all known models today.
+/// Model-specific behavioral guidance (ADR-0130). Resolved dynamically per turn
+/// from route overrides, model identifiers, glob patterns, or family rules.
+/// Placed in [`InstructionTier::Base`] after `"system.tone"`, so models supporting
+/// prefix prompt caching (e.g. DeepSeek, Anthropic) retain cache fidelity.
 struct ModelGuidance;
 
 impl SystemPromptSection for ModelGuidance {
@@ -94,13 +98,14 @@ impl SystemPromptSection for ModelGuidance {
         InstructionOrder::After("system.tone")
     }
     fn is_active(&self, ctx: &SystemPromptContext) -> bool {
-        !ctx.model_guidance.is_empty()
+        !ctx.model_guidance.trim().is_empty()
     }
     fn render(&self, ctx: &SystemPromptContext) -> Option<String> {
-        if ctx.model_guidance.is_empty() {
+        let trimmed = ctx.model_guidance.trim();
+        if trimmed.is_empty() {
             None
         } else {
-            Some(format!("\n{}", ctx.model_guidance))
+            Some(format!("\n{trimmed}"))
         }
     }
 }

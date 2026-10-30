@@ -20,8 +20,8 @@ pub use crate::shell::overlays::*;
 use crate::shell::view_header;
 #[allow(unused_imports)]
 pub(crate) use crate::shell::view_header::{
-    SceneNavRects, TabBarProps, ThreadContext, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
-    draw_thread_context_bar,
+    SceneNavRects, TabBarNavRects, TabBarProps, ThreadContext, ViewHints, ViewKind, draw_scene_bar,
+    draw_tab_bar, draw_thread_context_bar,
 };
 #[allow(unused_imports)]
 pub use crate::shell::views::settings::*;
@@ -343,6 +343,16 @@ pub struct TranscriptRender {
     pub tab_rects: Vec<(usize, Rect)>,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
+    /// Bounding rect for left overflow indicator (`‹N`), if present.
+    pub tab_prev_rect: Option<Rect>,
+    /// Bounding rect for right overflow indicator (`N›`), if present.
+    pub tab_next_rect: Option<Rect>,
+    /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
+    pub tab_overflow_rect: Option<Rect>,
+    /// Bounding rect for unread fault notice badge (`[!N]`), if present (ADR-0131).
+    pub tab_notices_rect: Option<Rect>,
+    /// Bounding rect for help affordance button (`F1 help`), if present (ADR-0131).
+    pub tab_help_rect: Option<Rect>,
     /// Full bounding rect for the Tier 2 SceneBar row.
     pub scene_bar_rect: Option<Rect>,
     /// Interactive navigation bounding rects on Tier 2 SceneBar (ADR-0092 [INV-INTERACT-01]).
@@ -555,6 +565,11 @@ pub fn draw_transcript(
             sticky: None,
             tab_rects: Vec::new(),
             tab_bar_rect: None,
+            tab_prev_rect: None,
+            tab_next_rect: None,
+            tab_overflow_rect: None,
+            tab_notices_rect: None,
+            tab_help_rect: None,
             scene_bar_rect: None,
             scene_nav_rects: SceneNavRects::default(),
         };
@@ -719,7 +734,7 @@ pub fn draw_transcript(
     let tab_rects = if let (Some(bar), Some(rect)) = (tab_bar.as_ref(), tab_rect) {
         draw_tab_bar(frame, rect, bar, theme)
     } else {
-        Vec::new()
+        TabBarNavRects::default()
     };
     let scene_nav_rects = if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), scene_rect)
     {
@@ -972,8 +987,13 @@ pub fn draw_transcript(
         content_lines,
         view_height: transcript_area.height,
         sticky: sticky_info,
-        tab_rects,
+        tab_rects: tab_rects.tab_rects,
         tab_bar_rect: tab_rect,
+        tab_prev_rect: tab_rects.prev_rect,
+        tab_next_rect: tab_rects.next_rect,
+        tab_overflow_rect: tab_rects.overview_rect,
+        tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
         scene_bar_rect: scene_rect,
         scene_nav_rects,
     }

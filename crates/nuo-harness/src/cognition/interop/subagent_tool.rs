@@ -208,6 +208,8 @@ pub struct SubagentTool {
     /// this, so a subagent — an agent on the same model — inherits the parent's
     /// overrides. `None` (the default, e.g. in tests) means default variants.
     parent_variants: std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_wire::VariantSelection>>>>,
+    /// Model guidance handle inherited from the parent (ADR-0130).
+    parent_model_guidance: std::sync::Mutex<Option<Arc<std::sync::RwLock<String>>>>,
     /// Live workspace authority inherited from the parent. Delegation may
     /// narrow this through the subagent's operation scope, never widen it.
     parent_workspace_security:
@@ -313,6 +315,7 @@ impl SubagentTool {
             tool_name,
             tool_description,
             parent_variants: std::sync::Mutex::new(None),
+            parent_model_guidance: std::sync::Mutex::new(None),
             parent_workspace_security: std::sync::Mutex::new(None),
             parent_human_channel: std::sync::Mutex::new(None),
             registry: Arc::new(SubagentRegistry::default()),
@@ -343,6 +346,7 @@ impl SubagentTool {
             tool_name,
             tool_description,
             parent_variants: std::sync::Mutex::new(None),
+            parent_model_guidance: std::sync::Mutex::new(None),
             parent_workspace_security: std::sync::Mutex::new(None),
             parent_human_channel: std::sync::Mutex::new(None),
             registry,
@@ -410,6 +414,14 @@ impl SubagentTool {
     ) {
         *self
             .parent_variants
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(handle);
+    }
+
+    /// Bind the parent agent's model guidance handle so subagents inherit prompt guidance.
+    pub fn bind_model_guidance(&self, handle: Arc<std::sync::RwLock<String>>) {
+        *self
+            .parent_model_guidance
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(handle);
     }
@@ -734,6 +746,15 @@ impl SubagentTool {
         let identity = crate::AgentIdentity::from_directive(profile.system_prompt);
         let mut subagent = Agent::new(self.provider.clone(), sub_tools, identity);
         subagent.set_kind(nuo_wire::AgentKind::Subagent);
+
+        if let Some(handle) = self
+            .parent_model_guidance
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            subagent.bind_model_guidance(Arc::clone(handle));
+        }
 
         // Bind instance-scoped extensions according to the child's mission.
         match profile.name {

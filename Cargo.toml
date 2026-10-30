@@ -101,8 +101,8 @@ nuo-provider-chatgpt-plan = { version = "0.0.57", path = "providers/nuo-provider
 nuo-provider-deepseek = { version = "0.0.57", path = "providers/nuo-provider-deepseek" }
 nuo-provider-kimi = { version = "0.0.57", path = "providers/nuo-provider-kimi" }
 nuo-provider-copilot = { version = "0.0.57", path = "providers/nuo-provider-copilot" }
-nuo-provider-commandcode-plan = { version = "0.0.57", path = "providers/nuo-provider-commandcode-plan" }
-nuo-provider-opencode-plan = { version = "0.0.57", path = "providers/nuo-provider-opencode-plan" }
+nuo-provider-commandcode-goat = { version = "0.0.57", path = "providers/nuo-provider-commandcode-goat" }
+nuo-provider-opencode-go = { version = "0.0.57", path = "providers/nuo-provider-opencode-go" }
 nuo-provider-opencode-zen = { version = "0.0.57", path = "providers/nuo-provider-opencode-zen" }
 nuo-provider-openrouter = { version = "0.0.57", path = "providers/nuo-provider-openrouter" }
 nuo-provider-xai = { version = "0.0.57", path = "providers/nuo-provider-xai" }

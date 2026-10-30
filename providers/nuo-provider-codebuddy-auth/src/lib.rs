@@ -51,6 +51,22 @@ pub mod auth_file;
 pub mod envelope;
 pub mod handoff;
 
+/// Tencent AI CodeBuddy application version emulated by nuo.
+pub const CODEBUDDY_VERSION: &str = "2.172.1";
+
+/// User-Agent header value sent for Tencent AI CodeBuddy client profile.
+pub const CODEBUDDY_USER_AGENT: &str = "CLI/2.172.1 CodeBuddy/2.172.1";
+
+/// The realm-agnostic share of the CodeBuddy client-identity block.
+pub const CODEBUDDY_CLIENT_HEADERS: &[(&str, &str)] = &[
+    ("X-Product", "SaaS"),
+    ("X-IDE-Type", "CLI"),
+    ("X-IDE-Name", "CodeBuddy"),
+    ("X-IDE-Version", "2.172.1"),
+    ("X-Agent-Intent", "craft"),
+    ("X-Agent-Runtime", "local-agent"),
+];
+
 pub use auth_file::*;
 pub use envelope::*;
 pub use handoff::*;

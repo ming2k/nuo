@@ -26,7 +26,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -39,7 +38,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -52,7 +50,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -65,7 +62,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -78,7 +74,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -91,7 +86,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT,
         default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
@@ -104,7 +98,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -117,7 +110,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: effort_ladders::GEMINI_LEVEL,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -130,7 +122,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -143,7 +134,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -156,7 +146,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::GoogleGenerateContent,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -164,6 +153,11 @@ pub const MODELS: &[Model] = &[
 ];
 
 inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+
+pub const ANTIGRAVITY_VERSION: &str = "1.3.6";
+pub const ANTIGRAVITY_BUILD_NUMBER: &str = "999748552";
+pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.3.6 \
+     (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Antigravity,
@@ -173,13 +167,10 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("google-antigravity"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://daily-cloudcode-pa.googleapis.com"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider::client_identity::ANTIGRAVITY_USER_AGENT,
-    )),
+    user_agent: Some(std::borrow::Cow::Borrowed(ANTIGRAVITY_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::GoogleGenerateContent,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::GoogleCloudCode),
-    default_client_profile: nuo_provider::ClientPreset::Antigravity,
-    client_profile_sensitive: true,
     quota: Some(nuo_provider::QuotaPort::Antigravity),
     display_policy: nuo_provider::DisplayPolicy::Native,
     responses_state: nuo_provider::ResponsesState::Stateless,

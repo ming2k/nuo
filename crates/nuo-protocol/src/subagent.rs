@@ -516,7 +516,6 @@ mod tests {
             tool_call: true,
             vision: true,
             protocol: crate::WireProtocol::OpenAiChatCompletions,
-            model_guidance: "",
             effort_levels: &[],
             default_effort: Some(nuo_provider::Effort::High),
             wire_entities: None,

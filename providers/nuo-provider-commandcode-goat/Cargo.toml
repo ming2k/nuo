@@ -1,10 +1,10 @@
 [package]
-name = "nuo-provider-commandcode-plan"
+name = "nuo-provider-commandcode-goat"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "CommandCode Plan SSPL provider channel for Nuo"
+description = "CommandCode GOAT provider channel for Nuo"
 
 [dependencies]
 nuo-provider = { workspace = true }

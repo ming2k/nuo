@@ -80,7 +80,7 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
             base_url: "https://example.test/v1".to_string(),
             key_ready: true,
             provider: "mock".to_string(),
-            client_identity: Default::default(),
+            headers: Default::default(),
             last_used_ms: None,
             auth: Default::default(),
             model_info: vec![nuo_wire::ProviderModelInfo {
@@ -269,7 +269,7 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
         base_url: String::new(),
         key_ready: true,
         provider: "opencode-go".to_string(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: nuo_wire::ConnectionAuth::Static,
     });
@@ -331,7 +331,7 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
         base_url: String::new(),
         key_ready: true,
         provider: "opencode-go".to_string(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: nuo_wire::ConnectionAuth::Static,
     });
@@ -381,7 +381,7 @@ fn composer_image_paste_snapshot_override_forces_off() {
         base_url: String::new(),
         key_ready: true,
         provider: String::new(),
-        client_identity: Default::default(),
+        headers: Default::default(),
         last_used_ms: None,
         auth: nuo_wire::ConnectionAuth::Static,
     });

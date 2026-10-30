@@ -49,9 +49,10 @@ pub enum UiKey {
     /// The notice viewer's panel (ADR-0121). Its own component so a click in
     /// it is not mistaken for a click on the transcript beneath.
     Notices,
-    /// The unread-fault badge in the model bar: the log's persistent entry
-    /// point, and therefore a click target.
+    /// The unread-fault badge in the TabBar right cluster (ADR-0131).
     NoticesBadge,
+    /// The persistent help affordance (`F1 help`) in the TabBar right cluster (ADR-0131).
+    HelpBadge,
     PreAttach,
     SettingsCategory(usize),
     SettingsOption(usize),
@@ -62,6 +63,12 @@ pub enum UiKey {
     TabBar,
     /// An interactive Tab Bar item at the top of the viewport (ADR-0039, ADR-0040).
     TabBarItem(usize),
+    /// Tier 1: Interactive Tab Bar previous overflow button (`‹N`).
+    TabBarPrev,
+    /// Tier 1: Interactive Tab Bar next overflow button (`N›`).
+    TabBarNext,
+    /// Tier 1: Interactive Tab Bar overview switcher button (`[▾]`).
+    TabBarOverview,
     /// Tier 2: Polymorphic SceneBar container background (ADR-0062, ADR-0092).
     SceneBar,
     /// Tier 2: SceneBar Back button affordance (`‹ Alt+[`) (ADR-0092).
@@ -217,13 +224,6 @@ impl ComponentTree {
                 InputPolicy::None,
                 false,
             ),
-            UiKey::NoticesBadge => (
-                Some(UiKey::Footer),
-                4,
-                PointerPolicy::Target,
-                InputPolicy::None,
-                false,
-            ),
             UiKey::Sticky => (
                 Some(UiKey::Transcript),
                 5,
@@ -354,6 +354,11 @@ impl ComponentTree {
                 false,
             ),
             UiKey::TabBarItem(_)
+            | UiKey::TabBarPrev
+            | UiKey::TabBarNext
+            | UiKey::TabBarOverview
+            | UiKey::NoticesBadge
+            | UiKey::HelpBadge
             | UiKey::SceneHistoryBack
             | UiKey::SceneHistoryForward
             | UiKey::SceneBreadcrumb(_) => (

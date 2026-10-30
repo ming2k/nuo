@@ -317,6 +317,10 @@ pub struct Agent {
     /// [`Agent::variant_selection_handle`]); the agent decides scope, the
     /// model decides variant.
     variant_selection: Arc<std::sync::Mutex<nuo_wire::VariantSelection>>,
+    /// Resolved model-specific prompt guidance (ADR-0130). Held behind an Arc
+    /// and RwLock so spawned subagents inherit the live handle, and runtime
+    /// model switches update the active guidance string in place.
+    model_guidance: Arc<std::sync::RwLock<String>>,
     /// This agent's **identity-side selection** of the pool (the agent half of
     /// the two-selector model): the capability scope it admits plus any variant
     /// pins it forces. The master agent is
@@ -1070,6 +1074,7 @@ pub struct AgentBuilder {
     identity: AgentIdentity,
     model_request_assembler: crate::cognition::model_request::ModelRequestAssembler,
     extensions: Vec<Arc<dyn nuo_wire::Extension>>,
+    model_guidance: Option<String>,
 }
 
 impl AgentBuilder {
@@ -1088,6 +1093,7 @@ impl AgentBuilder {
                 crate::cognition::model_request::default_system_prompt_registry(),
             ),
             extensions: Vec::new(),
+            model_guidance: None,
         }
     }
 
@@ -1188,6 +1194,12 @@ impl AgentBuilder {
         self
     }
 
+    /// Set initial model-specific behavioral guidance (ADR-0130).
+    pub fn with_model_guidance(mut self, guidance: impl Into<String>) -> Self {
+        self.model_guidance = Some(guidance.into());
+        self
+    }
+
     /// Freeze the configuration and construct the agent.
     pub fn build(self) -> Agent {
         let mut agent = Agent::from_toolset_with_model_request_assembler(
@@ -1200,6 +1212,9 @@ impl AgentBuilder {
         agent.host = self.host;
         if !self.extensions.is_empty() {
             *agent.extensions.write().unwrap_or_else(|e| e.into_inner()) = self.extensions;
+        }
+        if let Some(guidance) = self.model_guidance {
+            agent.set_model_guidance(guidance);
         }
         agent
     }

@@ -8,7 +8,7 @@
 
 use nuo_host::SecretString;
 use nuo_provider::Provider;
-use nuo_provider::{ClientPreset, ResolvedAuth};
+use nuo_provider::ResolvedAuth;
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 use nuo_tool::{Message, Role};
@@ -76,7 +76,6 @@ async fn main() {
         }),
         "qfmodel".to_string(),
         "https://api3.qoder.sh",
-        ClientPreset::Native,
     )
     .with_dialect(nuo_provider::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline());

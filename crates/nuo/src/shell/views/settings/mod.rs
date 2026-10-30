@@ -27,7 +27,9 @@ use nuotc::{
 };
 
 use crate::shell::render::Theme;
-use crate::shell::view_header::{TabBarProps, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar};
+use crate::shell::view_header::{
+    TabBarNavRects, TabBarProps, ViewHints, ViewKind, draw_scene_bar, draw_tab_bar,
+};
 use nuo_ui_primitives::primitives::{
     ElevationContainer, SCROLL_EDGE_MARGIN, draw_scrollbar, resolve_scroll,
 };
@@ -178,6 +180,14 @@ pub struct ConfigRects {
     pub tab_rects: Vec<(usize, Rect)>,
     /// Full bounding rect for the top tab bar row.
     pub tab_bar_rect: Option<Rect>,
+    /// Bounding rect for left overflow indicator (`‹N`), if present.
+    pub tab_prev_rect: Option<Rect>,
+    /// Bounding rect for right overflow indicator (`N›`), if present.
+    pub tab_next_rect: Option<Rect>,
+    /// Bounding rect for overflow overview / switcher button (`[▾]`), if present.
+    pub tab_overflow_rect: Option<Rect>,
+    pub tab_notices_rect: Option<Rect>,
+    pub tab_help_rect: Option<Rect>,
 }
 
 /// Properties passed to render the complete Settings View.
@@ -236,7 +246,7 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
     let tab_rects = if let Some(bar) = props.tab_bar.as_ref() {
         draw_tab_bar(frame, header_rect, bar, props.theme)
     } else {
-        Vec::new()
+        TabBarNavRects::default()
     };
 
     // 2. Tier 2: Polymorphic SceneBar (ADR-0062)
@@ -330,8 +340,13 @@ pub fn draw_settings_view(frame: &mut Frame, mut props: SettingsProps<'_>) -> Co
         selected_row_rect: detail.selected_row,
         category_rects,
         row_rects: detail.rows,
-        tab_rects,
+        tab_rects: tab_rects.tab_rects,
         tab_bar_rect: Some(header_rect),
+        tab_prev_rect: tab_rects.prev_rect,
+        tab_next_rect: tab_rects.next_rect,
+        tab_overflow_rect: tab_rects.overview_rect,
+        tab_notices_rect: tab_rects.notices_rect,
+        tab_help_rect: tab_rects.help_rect,
     }
 }
 

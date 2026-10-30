@@ -19,7 +19,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -32,7 +31,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
-        model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
@@ -45,7 +43,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
-        model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -65,7 +62,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
-        model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -78,7 +74,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiResponses,
-        model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -91,7 +86,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiResponses,
-        model_guidance: "",
         effort_levels: effort_ladders::LOW_HIGH_MAX,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -105,14 +99,13 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     protocol_roots: std::borrow::Cow::Borrowed(&[]),
     catalog_root_url: None,
     prompt_cache: nuo_provider::PromptCachePolicy::Compiled(nuo_provider::unsupported_prompt_cache),
-    id: std::borrow::Cow::Borrowed("commandcode-plan"),
+    id: std::borrow::Cow::Borrowed("commandcode-goat"),
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://api.commandcode.ai/provider/v1"),
     user_agent: None,
+    default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiResponses,
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_provider::ClientPreset::Native,
-    client_profile_sensitive: false,
     quota: Some(nuo_provider::QuotaPort::CommandCodeCredits),
     display_policy: nuo_provider::DisplayPolicy::Structural,
     responses_state: nuo_provider::ResponsesState::Stateless,
@@ -194,5 +187,45 @@ mod tests {
             .find(|m| m.id == "deepseek/deepseek-v4-pro")
             .expect("seeded model");
         assert!(!pro.vision, "deepseek-v4-pro must remain text-only");
+    }
+
+    #[test]
+    fn deepseek_baselines_resolve_an_effort_ladder() {
+        // The compiled baseline must carry an effort ladder for every DeepSeek
+        // lane so the per-model effort editor (the "reasoning degree" control)
+        // is available offline, before any catalog sync.
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+            "deepseek/deepseek-v4-pro",
+        ] {
+            let resolved = nuo_provider::model::resolve(id);
+            assert!(
+                !resolved.effort_levels.is_empty(),
+                "{id} must resolve a reasoning-effort ladder, got empty"
+            );
+        }
+    }
+
+    #[test]
+    fn every_deepseek_baseline_is_seeded_for_offline_depth_control() {
+        // Every registered DeepSeek lane must be in the CommandCode seed list:
+        // the seed list is what exposes the picker's reasoning-effort ("深度")
+        // control offline, before a live catalog sync. `flash-fast` was once
+        // omitted — present as a baseline, absent from the seed — so it had no
+        // depth knob until a sync happened to advertise it.
+        for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-fast",
+            "deepseek/deepseek-v4-pro",
+        ] {
+            assert!(
+                COMMANDCODE_BUILTIN_MODELS.contains(&id),
+                "{id} is a registered deepseek baseline but is missing from the \
+                 CommandCode seed list, so its offline depth control is unreachable"
+            );
+        }
     }
 }

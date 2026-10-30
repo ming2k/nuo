@@ -14,9 +14,8 @@
 # solely as per-level ids + `defaultAgentModelId`, so argon's wire effort
 # surface is the entity suffix itself.
 #
-# Consumers: the implementer maintaining the `antigravity` client-identity profile in
-# Nuo (nuo-provider::client_identity) and the
-# providers/nuo-provider-google-antigravity crate. This file never encodes code
+# Consumers: the implementer maintaining the `antigravity` channel in
+# Nuo (providers/nuo-provider-google-antigravity crate). This file never encodes code
 # decisions — it states the contract exactly as the endpoint enforces it.
 #
 # Method note: `agy` was run under an intercepting HTTPS proxy with a locally

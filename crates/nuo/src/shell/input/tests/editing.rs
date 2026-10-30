@@ -812,9 +812,9 @@ fn ctrl_backspace_deletes_previous_word() {
 }
 
 #[test]
-fn f1_toggles_view_switcher_on_chat_surface() {
-    // ADR-0054: F1 is the modeless universal help key. On the top-level chat surface,
-    // it toggles the ViewSwitcher (command palette & shortcut reference).
+fn f1_toggles_help_dialog_on_chat_surface() {
+    // ADR-0131: F1 is the universal help key. On the top-level chat surface,
+    // it toggles the sovereign Help & Keybindings modal.
     let mut input = String::new();
     let mut cursor = 0;
     let action = run_key(
@@ -825,7 +825,7 @@ fn f1_toggles_view_switcher_on_chat_surface() {
         SurfaceFixture::None,
         false,
     );
-    assert_eq!(action, InputAction::ViewSwitcherToggle);
+    assert_eq!(action, InputAction::OpenHelp);
 }
 
 #[test]

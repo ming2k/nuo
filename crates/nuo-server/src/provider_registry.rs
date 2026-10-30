@@ -33,7 +33,7 @@ use nuo_provider_qoder as qoder;
 pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_openai::MODEL_PROVIDER_SPEC,
     nuo_provider_openrouter::MODEL_PROVIDER_SPEC,
-    nuo_provider_commandcode_plan::MODEL_PROVIDER_SPEC,
+    nuo_provider_commandcode_goat::MODEL_PROVIDER_SPEC,
     nuo_provider_anthropic::MODEL_PROVIDER_SPEC,
     nuo_provider_google_antigravity::GOOGLE_MODEL_PROVIDER_SPEC,
     nuo_provider_deepseek::MODEL_PROVIDER_SPEC,
@@ -46,7 +46,7 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_qoder::MODEL_PROVIDER_SPEC,
     nuo_provider_codebuddy_cn::MODEL_PROVIDER_SPEC,
     nuo_provider_codebuddy_intl::INTL_MODEL_PROVIDER_SPEC,
-    nuo_provider_opencode_plan::MODEL_PROVIDER_SPEC,
+    nuo_provider_opencode_go::MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_zen::MODEL_PROVIDER_SPEC,
     nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
 ];
@@ -110,22 +110,21 @@ pub fn build_provider_for_channel(
     match &channel.transport {
         Transport::GoogleGenerateContent {
             base_url,
-            client_profile,
             dialect,
+            user_agent,
+            headers,
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = channel.effective_effort(&capabilities);
-            let mut provider = GoogleProvider::with_credentials(
-                credentials,
-                channel.model.clone(),
-                base_url,
-                client_profile.clone(),
-            )
-            .with_reasoning_effort(effective_effort)
-            .with_model_capabilities(capabilities)
-            .with_prompt_cache(prompt_cache)
-            .with_dialect(*dialect)
-            .with_id(entry_id.to_string());
+            let mut provider =
+                GoogleProvider::with_credentials(credentials, channel.model.clone(), base_url)
+                    .with_user_agent(user_agent)
+                    .with_headers(headers.clone())
+                    .with_reasoning_effort(effective_effort)
+                    .with_model_capabilities(capabilities)
+                    .with_prompt_cache(prompt_cache)
+                    .with_dialect(*dialect)
+                    .with_id(entry_id.to_string());
             if let Some(sid) = session_id {
                 provider = provider.with_session_id(sid);
             }
@@ -133,8 +132,9 @@ pub fn build_provider_for_channel(
         }
         Transport::GoogleInteractions {
             base_url,
-            client_profile,
             dialect: _,
+            user_agent,
+            headers,
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = channel.effective_effort(&capabilities);
@@ -143,7 +143,8 @@ pub fn build_provider_for_channel(
                 channel.model.clone(),
                 base_url,
             )
-            .with_client_profile(client_profile.clone())
+            .with_user_agent(user_agent)
+            .with_headers(headers.clone())
             .with_reasoning_effort(effective_effort)
             .with_model_capabilities(capabilities)
             .with_prompt_cache(prompt_cache)
@@ -155,15 +156,17 @@ pub fn build_provider_for_channel(
         }
         Transport::AnthropicMessages {
             base_url,
-            client_profile,
             dialect,
+            user_agent,
+            headers,
         } => {
             let mut provider = AnthropicMessagesProvider::with_credentials(
                 credentials,
                 channel.model.clone(),
                 base_url,
-                client_profile.clone(),
             )
+            .with_user_agent(user_agent)
+            .with_headers(headers.clone())
             .with_id(entry_id.to_string());
             if let Some(sid) = session_id {
                 provider = provider.with_session_id(sid);
@@ -194,8 +197,9 @@ pub fn build_provider_for_channel(
         }
         Transport::OpenAiChatCompletions {
             base_url,
-            client_profile,
             dialect,
+            user_agent,
+            headers,
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = channel.effective_effort(&capabilities);
@@ -204,8 +208,9 @@ pub fn build_provider_for_channel(
                 credentials,
                 channel.model.clone(),
                 base_url,
-                client_profile.clone(),
             )
+            .with_user_agent(user_agent)
+            .with_headers(headers.clone())
             .with_reasoning_effort(effective_effort)
             .with_prompt_cache(prompt_cache)
             .with_model_capabilities(capabilities)
@@ -222,9 +227,10 @@ pub fn build_provider_for_channel(
         }
         Transport::OpenAiResponses {
             base_url,
-            client_profile,
             dialect,
             state,
+            user_agent,
+            headers,
         } => {
             let capabilities = channel.capabilities();
             let effective_effort = channel.effective_effort(&capabilities);
@@ -237,7 +243,8 @@ pub fn build_provider_for_channel(
                 channel.model.clone(),
                 base_url,
             )
-            .with_client_profile(client_profile.clone())
+            .with_user_agent(user_agent)
+            .with_headers(headers.clone())
             .with_reasoning_effort(effective_effort)
             .with_model_capabilities(capabilities)
             .with_prompt_cache(prompt_cache)
@@ -438,7 +445,7 @@ pub async fn fetch_provider_usage_with_client_ext(
                 .await
         }
         QuotaPort::CommandCodeCredits => {
-            nuo_provider_commandcode_plan::CommandCodeUsageFetcher
+            nuo_provider_commandcode_goat::CommandCodeUsageFetcher
                 .fetch_usage(client, base_url, api_key)
                 .await
         }
@@ -454,6 +461,11 @@ pub async fn fetch_provider_usage_with_client_ext(
         }
         QuotaPort::Qoder => {
             nuo_provider_qoder::QoderUsageFetcher
+                .fetch_usage(client, base_url, api_key)
+                .await
+        }
+        QuotaPort::OpencodeGo => {
+            nuo_provider_opencode_go::OpencodeGoUsageFetcher
                 .fetch_usage(client, base_url, api_key)
                 .await
         }

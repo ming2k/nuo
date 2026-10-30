@@ -20,6 +20,7 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 directories = { workspace = true }
+glob = { workspace = true }
 libc = { workspace = true }
 crc32c = "0.6"
 hex = "0.4"

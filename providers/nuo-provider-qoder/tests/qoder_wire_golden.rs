@@ -15,7 +15,7 @@
 // field is the most useful failure mode here.
 
 use nuo_host::SecretString;
-use nuo_provider::{ClientPreset, ResolvedAuth, TransportTelemetry};
+use nuo_provider::{ResolvedAuth, TransportTelemetry};
 use nuo_provider_openai::OpenAiChatCompletionsProvider;
 use nuo_provider_qoder::{QoderRequestIdentity, build_qoder_pipeline};
 
@@ -59,7 +59,6 @@ fn qoder_wire_provider() -> OpenAiChatCompletionsProvider {
         }),
         "qfmodel".to_string(),
         "https://api2.qoder.sh",
-        ClientPreset::Native,
     )
     .with_dialect(nuo_provider::OpenAiChatDialect::Qoder)
     .with_pipeline(build_qoder_pipeline())

@@ -8,7 +8,7 @@ use nuo_wire::{
 };
 use serde::{Deserialize, Serialize};
 
-use nuo_provider::client_identity::ANTIGRAVITY_USER_AGENT;
+use crate::spec_antigravity::ANTIGRAVITY_USER_AGENT;
 
 use crate::oauth::ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL;
 

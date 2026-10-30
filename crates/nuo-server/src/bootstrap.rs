@@ -556,6 +556,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // inherit the parent's tool-variant selection. The profile still owns the
     // orthogonal scope axis.
     subagent_tool_handle.bind_variant_selection(agent.variant_selection_handle());
+    subagent_tool_handle.bind_model_guidance(agent.model_guidance_handle());
     subagent_tool_handle.bind_workspace_security(agent.workspace_security_handle());
     subagent_tool_handle.bind_execution_policy(agent.execution_policy());
     // Subagents inherit the session's live human channel.
@@ -751,6 +752,7 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // capability is realized by its chosen variant in the schemas sent to the
     // provider; re-seeded on provider/model switch.
     crate::agent_setup::reseed_tool_variants(&agent, &config);
+    crate::agent_setup::reseed_model_guidance(&agent, &config);
 
     // Bind the caller-supplied agent preset (ADR-0053). Identity was
     // supplied to the constructor above (immutable past build); this applies

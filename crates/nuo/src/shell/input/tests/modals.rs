@@ -329,7 +329,7 @@ fn f1_when_dialog_keys_open_toggles_off() {
 }
 
 #[test]
-fn f1_on_chat_surface_toggles_view_switcher() {
+fn f1_on_chat_surface_triggers_open_help() {
     let mut input = String::new();
     let mut cursor = 0;
     let mut drag = SelectionDrag::default();
@@ -346,7 +346,7 @@ fn f1_on_chat_surface_toggles_view_switcher() {
         &SceneKeys::default(),
         &mut drag,
     );
-    assert_eq!(action, InputAction::ViewSwitcherToggle);
+    assert_eq!(action, InputAction::OpenHelp);
 }
 
 #[test]

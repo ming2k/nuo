@@ -16,13 +16,13 @@ use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_persistence::session::{ProviderSelection, SessionStore};
 use nuo_wire::model::ModelTargetScope;
 use nuo_wire::{
-    AgentNotice, AgentResponse, ClientIdentity, CommandRecord, CommandResult, Provider, RoundEvent,
-    SecretString, WireProtocol,
+    AgentNotice, AgentResponse, CommandRecord, CommandResult, Provider, RoundEvent, SecretString,
+    WireProtocol,
 };
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
-use crate::agent_setup::{reseed_prune_threshold, reseed_tool_variants};
+use crate::agent_setup::{reseed_model_guidance, reseed_prune_threshold, reseed_tool_variants};
 use crate::session_view::provider_key_status;
 
 /// `AgentRequest::SwitchConnection` — persist the chosen key/url/model/default,
@@ -55,7 +55,7 @@ pub(crate) struct AddConnectionParams {
     pub api_key: SecretString,
     pub models: Vec<String>,
     pub auth: nuo_wire::ConnectionAuth,
-    pub client_identity: Option<ClientIdentity>,
+    pub headers: Option<std::collections::BTreeMap<String, String>>,
     pub budget: nuo_wire::ConnectionBudget,
     pub entitlement: Option<nuo_wire::Entitlement>,
 }
@@ -68,8 +68,8 @@ pub(crate) struct RegisterProviderParams {
     pub label: Option<String>,
     pub root_url: String,
     pub protocol: Option<WireProtocol>,
-    pub client_profile: Option<nuo_wire::ClientPreset>,
     pub user_agent: Option<String>,
+    pub headers: Option<std::collections::BTreeMap<String, String>>,
     pub catalog_format: Option<String>,
     pub dialect: Option<String>,
 }
@@ -80,8 +80,8 @@ pub(crate) fn register_provider(params: RegisterProviderParams) -> Result<(), St
         label,
         root_url,
         protocol,
-        client_profile,
         user_agent,
+        headers,
         catalog_format,
         dialect,
     } = params;
@@ -97,8 +97,8 @@ pub(crate) fn register_provider(params: RegisterProviderParams) -> Result<(), St
             label,
             root_url,
             default_protocol: protocol,
-            client_profile,
             user_agent,
+            headers,
             catalog: catalog_format
                 .map(|format| {
                     if matches!(format.as_str(), "none" | "static") {
@@ -114,9 +114,6 @@ pub(crate) fn register_provider(params: RegisterProviderParams) -> Result<(), St
             protocol_roots,
             catalog_root_url: existing.as_ref().and_then(|p| p.catalog_root_url.clone()),
             prompt_cache: existing.as_ref().and_then(|p| p.prompt_cache.clone()),
-            client_profile_sensitive: existing
-                .as_ref()
-                .is_some_and(|p| p.client_profile_sensitive),
         },
     );
     ModelProviders::save(&store).map_err(|e| e.to_string())?;
@@ -254,7 +251,7 @@ pub(crate) async fn add(
         api_key,
         models,
         auth,
-        client_identity,
+        headers,
         budget,
         entitlement: explicit_entitlement,
     } = params;
@@ -307,17 +304,6 @@ pub(crate) async fn add(
         .cloned()
         .or_else(|| spec.models.first().map(|m| (*m).to_string()))
         .unwrap_or_default();
-
-    let client_identity = client_identity.unwrap_or_else(|| {
-        if auth.negotiated_provider() == Some("google-antigravity") {
-            ClientIdentity::Antigravity
-        } else {
-            spec.user_agent
-                .as_deref()
-                .map(ClientIdentity::from_user_agent)
-                .unwrap_or_default()
-        }
-    });
 
     // Pre-connection authorization is a single-use, session-local value. It
     // never enters the global store under a generic provider namespace.
@@ -436,7 +422,8 @@ pub(crate) async fn add(
         provider: provider.clone(),
         auth: auth.clone(),
         api_key_env: None,
-        client_identity,
+        _legacy_client_identity: None,
+        headers: headers.unwrap_or_default(),
         models: model_rules,
         catalog_dimensions: Default::default(),
         budget,
@@ -581,7 +568,7 @@ pub(crate) async fn edit(
     name: String,
     provider: String,
     api_key: SecretString,
-    client_identity: Option<ClientIdentity>,
+    headers: Option<std::collections::BTreeMap<String, String>>,
     budget: Option<nuo_wire::ConnectionBudget>,
     entitlement: Option<nuo_wire::Entitlement>,
 ) {
@@ -605,8 +592,8 @@ pub(crate) async fn edit(
         return;
     };
     instance.provider = provider;
-    if let Some(ci) = client_identity {
-        instance.client_identity = ci;
+    if let Some(h) = headers {
+        instance.headers = h;
     }
     if let Some(b) = budget {
         instance.budget = b;
@@ -1632,6 +1619,7 @@ async fn activate(
 
     reseed_prune_threshold(agent, config);
     reseed_tool_variants(agent, config);
+    reseed_model_guidance(agent, config);
 
     let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
     provider_usage.record(&provider_type);
@@ -1873,7 +1861,7 @@ pub(crate) async fn query_connection_detail(
         .default_channel()
         .map(|c| c.transport.user_agent().to_string())
         .filter(|ua| !ua.is_empty())
-        .unwrap_or_else(|| connection.client_identity.user_agent().to_string());
+        .unwrap_or_else(|| nuo_provider::NUO_USER_AGENT.to_string());
 
     let models = entry
         .channels
@@ -1920,15 +1908,7 @@ pub(crate) async fn query_connection_detail(
         auth_type,
         api_key_masked,
         api_key_source,
-        client_identity: if connection.client_identity != ClientIdentity::Native {
-            connection.client_identity.clone()
-        } else if connection.auth.negotiated_provider() == Some("google-antigravity")
-            || connection.provider == "google-antigravity"
-        {
-            ClientIdentity::Antigravity
-        } else {
-            connection.client_identity.clone()
-        },
+        headers: connection.headers.clone(),
         user_agent,
         models,
         model_info,
@@ -2400,7 +2380,7 @@ mod tests {
             api_key: "".into(),
             models: vec!["gpt-5.6".to_string()],
             auth: nuo_wire::ConnectionAuth::negotiated("chatgpt"),
-            client_identity: None,
+            headers: None,
             budget: Default::default(),
             entitlement: None,
         };
@@ -2446,14 +2426,13 @@ mod tests {
                 label: Some("Test Relay".to_string()),
                 root_url: "https://example.com".to_string(),
                 default_protocol: Some(WireProtocol::OpenAiChatCompletions),
-                client_profile: None,
                 user_agent: None,
+                headers: None,
                 catalog: None,
                 dialect: None,
                 protocol_roots: vec![],
                 catalog_root_url: None,
                 prompt_cache: None,
-                client_profile_sensitive: false,
             },
         );
         ModelProviders::save(&store).unwrap();
@@ -2662,7 +2641,7 @@ mod tests {
             api_key: SecretString::from("sk-test"),
             models: vec!["gpt-4o".to_string(), "gpt-4o-mini".to_string()],
             auth: nuo_wire::ConnectionAuth::Static,
-            client_identity: None,
+            headers: None,
             budget: Default::default(),
             entitlement: None,
         };
@@ -2854,7 +2833,7 @@ mod tests {
             api_key: SecretString::from("sk-test"),
             models: vec!["gpt-4o".to_string()],
             auth: nuo_wire::ConnectionAuth::Static,
-            client_identity: None,
+            headers: None,
             budget: Default::default(),
             entitlement: None,
         };

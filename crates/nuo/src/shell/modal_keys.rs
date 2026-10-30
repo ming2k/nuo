@@ -660,6 +660,8 @@ fn resolve_host_key(c: char) -> Option<InputAction> {
         's' => Some(InputAction::HostSuspendSelected),
         'p' => Some(InputAction::HostPromptOpen),
         'n' => Some(InputAction::HostNewSession),
+        'u' => Some(InputAction::HostToggleUsage),
+        '/' => Some(InputAction::HostFilterOpen),
         _ => Some(InputAction::HostPromptSeed(c)),
     }
 }

@@ -21,7 +21,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::AnthropicMessages,
-        model_guidance: "",
         effort_levels: effort_ladders::CLAUDE_NO_XHIGH,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -30,7 +29,7 @@ pub const MODELS: &[Model] = &[
         // Retired V4 Flash generation, served upstream by V4.1-Flash-1017; the
         // row is therefore the serving model's (1M, multimodal) with the
         // platform's accepted effort vocabulary (ADR-0083). Byte-identical to
-        // the `nuo-provider-deepseek` and `opencode-plan` rows.
+        // the `nuo-provider-deepseek` and `opencode-go` rows.
         id: "deepseek-v4-flash",
         family: "deepseek",
         context_window: 1_000_000,
@@ -38,7 +37,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -51,7 +49,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -64,7 +61,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -77,7 +73,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -96,7 +91,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -109,7 +103,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -117,6 +110,8 @@ pub const MODELS: &[Model] = &[
 ];
 
 inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
+
+pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Standard,
@@ -137,14 +132,11 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // Endpoints are per-model by wire format (see `route_for_model`); the
     // instance-level default is the OpenAI chat-completions surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/v1"),
-    user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider::client_identity::OPENCODE_USER_AGENT,
-    )),
+    user_agent: Some(std::borrow::Cow::Borrowed(OPENCODE_USER_AGENT)),
+    default_headers: std::borrow::Cow::Borrowed(&[]),
     protocol: WireProtocol::OpenAiChatCompletions,
     // Served models come from the live /zen/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
-    default_client_profile: nuo_provider::ClientPreset::Native,
-    client_profile_sensitive: false,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Structural,
     responses_state: nuo_provider::ResponsesState::Stateless,

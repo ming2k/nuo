@@ -16,6 +16,7 @@ pub mod command_palette;
 pub mod common;
 pub mod dashboard;
 pub mod dialog_keys;
+pub mod help;
 pub mod history;
 pub mod mcp;
 pub mod notices;
@@ -49,6 +50,7 @@ pub(crate) use command_palette::draw_command_palette;
 #[allow(unused_imports)]
 pub use dashboard::DashboardRects;
 pub use dialog_keys::draw_dialog_keys;
+pub use help::draw_help_modal;
 pub use history::draw_history_panel;
 pub use mcp::draw_mcp_modal;
 pub use notices::draw_notice_dock;

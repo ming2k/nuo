@@ -32,7 +32,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: true,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: effort_ladders::OPENAI_GPT_5_6,
         default_effort: Some(nuo_provider::Effort::Medium),
         wire_entities: None,
@@ -45,7 +44,6 @@ pub const MODELS: &[Model] = &[
         tool_call: true,
         vision: false,
         protocol: WireProtocol::OpenAiChatCompletions,
-        model_guidance: "",
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -79,12 +77,13 @@ pub const INTL_MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     baselines: MODELS,
     root_url: std::borrow::Cow::Borrowed("https://www.codebuddy.ai/v2"),
     user_agent: Some(std::borrow::Cow::Borrowed(
-        nuo_provider::client_identity::CODEBUDDY_USER_AGENT,
+        nuo_provider_codebuddy_auth::CODEBUDDY_USER_AGENT,
     )),
+    default_headers: std::borrow::Cow::Borrowed(
+        nuo_provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS,
+    ),
     protocol: WireProtocol::OpenAiChatCompletions,
     catalog_source: RemoteCatalogSource::None,
-    default_client_profile: nuo_provider::ClientPreset::CodeBuddy,
-    client_profile_sensitive: true,
     quota: None,
     display_policy: nuo_provider::DisplayPolicy::Native,
     responses_state: nuo_provider::ResponsesState::Stateless,
@@ -111,10 +110,13 @@ mod tests {
             nuo_provider::ProviderDialect::CodeBuddy
         );
         assert_eq!(
-            INTL_MODEL_PROVIDER_SPEC.default_client_profile,
-            nuo_provider::ClientPreset::CodeBuddy
+            INTL_MODEL_PROVIDER_SPEC.user_agent.as_deref(),
+            Some(nuo_provider_codebuddy_auth::CODEBUDDY_USER_AGENT)
         );
-        const { assert!(INTL_MODEL_PROVIDER_SPEC.client_profile_sensitive) };
+        assert_eq!(
+            INTL_MODEL_PROVIDER_SPEC.default_headers.as_ref(),
+            nuo_provider_codebuddy_auth::CODEBUDDY_CLIENT_HEADERS
+        );
     }
 
     #[test]

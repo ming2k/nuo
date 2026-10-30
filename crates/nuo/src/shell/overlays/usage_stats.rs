@@ -33,10 +33,10 @@ use nuo_view::model::selection::SelectionState;
 /// How many daily rows the bar chart covers (two weeks, newest at the right).
 const CHART_DAYS: usize = 14;
 
-/// Draw the overlay. `loading` marks the `QueryUsageStats` round-trip in
-/// flight. Returns the painted panel rectangle (for outside-click dismiss).
-/// The body is a selectable document: every visual row registers a
-/// `MODAL_DOC` region, so the numbers can be drag-selected and copied.
+/// Draw the overlay. `loading` marks a control-plane usage fetch in flight.
+/// Returns the painted panel rectangle (for outside-click dismiss). The body is
+/// a selectable document: every visual row registers a `MODAL_DOC` region, so
+/// the numbers can be drag-selected and copied.
 pub fn draw_usage_stats_modal(
     frame: &mut Frame,
     report: &UsageStatsReport,
@@ -90,7 +90,11 @@ pub fn draw_usage_stats_modal(
 
 /// The full overlay body: summary KV block, daily chart + table, model
 /// breakdown, event log.
-fn usage_body(report: &UsageStatsReport, body_width: usize, theme: &Theme) -> Vec<Line<'static>> {
+pub(crate) fn usage_body(
+    report: &UsageStatsReport,
+    body_width: usize,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let mut body = Vec::new();
     if report.days.is_empty() {
         body.push(placeholder(

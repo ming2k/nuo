@@ -12,6 +12,7 @@ fn test_tab_bar() -> TabBarProps<'static> {
     TabBarProps {
         tabs: None,
         active_tab: 0,
+        unread_faults: 0,
     }
 }
 
@@ -217,7 +218,6 @@ fn redesigned_components_render_without_panicking() {
                     CustomField::Token,
                     CustomField::Model,
                     CustomField::Protocol,
-                    CustomField::ClientIdentity,
                 ],
                 field: 3,
                 editing: false,
@@ -228,7 +228,6 @@ fn redesigned_components_render_without_panicking() {
                 token_buf: "tok",
                 model_buf: "GPT-4o",
                 protocol_display: "Chat Completions",
-                identity_display: "nuo (Native)",
                 budget_display: "Remote (Upstream)",
                 url_hint: "https://relay.example.com/v1/chat/completions",
                 input: "gpt",
@@ -404,7 +403,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
         );
     });
     // Row 1 is Client TabBar; Row 2 is SceneBar (settings) (ADR-0062).
-    assert!(grid_row(&terminal, 0).contains("C-x menu"));
+    assert!(grid_row(&terminal, 0).contains("F1 help"));
     let scene_row = grid_row(&terminal, 1);
     assert!(
         scene_row.contains("settings"),
@@ -1320,8 +1319,8 @@ fn main_view_shows_the_thread_scene_row() {
     );
     let row0 = grid_row(&terminal, 0);
     assert!(
-        row0.contains("C-x menu"),
-        "client top bar offers the C-x menu namespace: {row0:?}"
+        row0.contains("F1 help"),
+        "client top bar offers the help affordance: {row0:?}"
     );
     let row1 = grid_row(&terminal, 1);
     assert!(
@@ -1342,8 +1341,8 @@ fn main_view_shows_the_thread_scene_row() {
         "thread context row omits redundant 'thread' label: {row2:?}"
     );
     assert!(
-        !row2.contains("C-x menu") && !row2.contains("C-x"),
-        "context row does not carry C-x: {row2:?}"
+        !row2.contains("F1 help") && !row2.contains("C-x"),
+        "context row does not carry help: {row2:?}"
     );
 }
 
@@ -1373,7 +1372,7 @@ fn main_view_thread_governance_row_carries_posture_tokens() {
         Some(context),
     );
     let row0 = grid_row(&terminal, 0);
-    assert!(row0.contains("C-x menu"), "client menu on row 0: {row0:?}");
+    assert!(row0.contains("F1 help"), "client menu on row 0: {row0:?}");
     let row1 = grid_row(&terminal, 1);
     assert!(
         row1.contains("THREAD"),

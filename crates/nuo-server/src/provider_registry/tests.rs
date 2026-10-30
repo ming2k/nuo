@@ -43,8 +43,7 @@ fn user_declared_provider_can_be_registered_and_resolved() {
         protocol: nuo_inference_wire::WireProtocol::OpenAiChatCompletions,
         models: &[],
         catalog_source: RemoteCatalogSource::None,
-        default_client_profile: nuo_provider::ClientPreset::Cursor,
-        client_profile_sensitive: false,
+        default_headers: Cow::Borrowed(&[]),
         quota: None,
         display_policy: nuo_provider::DisplayPolicy::Native,
         responses_state: nuo_provider::ResponsesState::Stateless,
@@ -53,10 +52,6 @@ fn user_declared_provider_can_be_registered_and_resolved() {
     let resolved = model_provider_spec(test_id).expect("dynamic spec resolves");
     assert_eq!(resolved.id, test_id);
     assert_eq!(resolved.root_url, "https://relay.example.com/v1");
-    assert_eq!(
-        resolved.default_client_profile,
-        nuo_provider::ClientPreset::Cursor
-    );
 }
 
 #[test]
@@ -78,8 +73,7 @@ fn user_declared_provider_uses_the_shared_registry() {
         dialect: nuo_provider::ProviderDialect::Standard,
         models: &[],
         catalog_source: RemoteCatalogSource::None,
-        default_client_profile: nuo_provider::ClientPreset::Native,
-        client_profile_sensitive: false,
+        default_headers: Cow::Borrowed(&[]),
         quota: None,
         display_policy: nuo_provider::DisplayPolicy::Native,
         responses_state: nuo_provider::ResponsesState::Stateless,
@@ -127,8 +121,8 @@ fn shared_baseline_ids_are_identical_across_provider_tables() {
 
     fn signature(m: &nuo_provider::Model) -> String {
         format!(
-            "{:?}|{:?}|{}|{}|{:?}|{:?}",
-            m.context_window, m.thinking, m.tool_call, m.vision, m.model_guidance, m.effort_levels,
+            "{:?}|{:?}|{}|{}|{:?}",
+            m.context_window, m.thinking, m.tool_call, m.vision, m.effort_levels,
         )
     }
 
@@ -141,7 +135,7 @@ fn shared_baseline_ids_are_identical_across_provider_tables() {
                     first_sig,
                     seen[&m.id].1,
                     "{id}: baseline declared by {first_provider} and {} disagree \
-                     (context_window/thinking/tool_call/vision/format/guidance/effort)",
+                     (context_window/thinking/tool_call/vision/format/effort)",
                     spec.id,
                     id = m.id
                 );
@@ -308,22 +302,63 @@ fn kimi_code_connection_resolves_a_quota_port() {
 
 #[test]
 fn every_declared_quota_port_is_reachable_from_the_dispatch() {
-    // Guards `[INV-PROV-07]` for `QuotaPort`: each declared built-in port is
-    // used by at least one spec (the dispatch match handles all variants).
+    // Guards `[INV-PROV-07]`/`[INV-PROV-08]` for `QuotaPort` in both
+    // directions, because either half alone is satisfiable while the feature is
+    // broken:
+    //
+    //   * a port declared by a spec but absent from the dispatch is dead data —
+    //     the connection advertises quota and can never answer it;
+    //   * a port in the dispatch that no spec declares is dead code (and the
+    //     `QuotaPort::ALL` match below stops the vocabulary drifting out of
+    //     sight of this test when a variant is added).
     let declared: Vec<QuotaPort> = MODEL_PROVIDER_SPECS
         .iter()
-        .filter_map(|s| s.quota)
+        .filter_map(|spec| spec.quota)
         .collect();
-    for port in declared {
-        match port {
-            QuotaPort::DeepSeekBalance
-            | QuotaPort::KimiBalance
-            | QuotaPort::CommandCodeCredits
-            | QuotaPort::OpenRouterKey
-            | QuotaPort::Antigravity
-            | QuotaPort::Qoder => {}
-        }
+
+    for port in QuotaPort::ALL {
+        let specs: Vec<&str> = MODEL_PROVIDER_SPECS
+            .iter()
+            .filter(|spec| spec.quota == Some(*port))
+            .map(|spec| spec.id.as_ref())
+            .collect();
+        assert!(
+            !specs.is_empty(),
+            "`QuotaPort::{port:?}` is dispatched but no provider spec declares it"
+        );
     }
+
+    for port in declared {
+        assert!(
+            QuotaPort::ALL.contains(&port),
+            "`QuotaPort::{port:?}` is declared by a spec but has no dispatch arm"
+        );
+    }
+}
+
+#[test]
+fn opencode_go_resolves_its_allowance_through_the_typed_port() {
+    // OpenCode Go meters rolling allowances (`/zen/go/v1/usage`). The binding is
+    // the spec's own declaration, so the `/quotas` dashboard, the connection
+    // detail block, and the batch inspection all reach it without matching on
+    // the provider id or the base URL (`[INV-PROV-08]`).
+    let spec = model_provider_spec("opencode-go").expect("opencode-go resolves");
+    assert_eq!(spec.quota, Some(QuotaPort::OpencodeGo));
+
+    // The legacy spelling canonicalises onto the same surface and must therefore
+    // resolve the same port — a stored `opencode-plan` connection inherits the
+    // allowance instead of silently reporting `Unsupported`.
+    let legacy = model_provider_spec("opencode-plan").expect("opencode-plan canonicalises");
+    assert_eq!(legacy.quota, Some(QuotaPort::OpencodeGo));
+    assert_eq!(legacy.id, "opencode-go");
+
+    // Zen is a different surface with no allowance route of its own; it must not
+    // inherit the Go port.
+    let zen = model_provider_spec("opencode-zen").expect("opencode-zen resolves");
+    assert_eq!(
+        zen.quota, None,
+        "the Zen relay publishes no allowance endpoint"
+    );
 }
 
 // ── Factory dispatch ────────────────────────────────────────────────────────
@@ -334,8 +369,9 @@ fn build_provider_stamps_entry_id_on_openai_compat() {
         id: "default".to_string(),
         transport: Transport::OpenAiChatCompletions {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-            client_profile: nuo_provider::ClientProfile::from("agent"),
             dialect: Default::default(),
+            user_agent: "agent".to_string(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "gpt-4o".to_string(),
@@ -356,8 +392,9 @@ fn openai_channel_without_override_defaults_effort_on_the_wire() {
         id: "default".to_string(),
         transport: Transport::OpenAiChatCompletions {
             base_url: "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions".to_string(),
-            client_profile: nuo_provider::ClientProfile::from("agent"),
             dialect: Default::default(),
+            user_agent: "agent".to_string(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "glm-5.3".to_string(),
@@ -384,8 +421,9 @@ fn ladderless_model_keeps_absent_effort_on_the_wire() {
         id: "default".to_string(),
         transport: Transport::OpenAiChatCompletions {
             base_url: "https://api.openai.com/v1/chat/completions".to_string(),
-            client_profile: nuo_provider::ClientProfile::from("agent"),
             dialect: Default::default(),
+            user_agent: "agent".to_string(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "gpt-4o".to_string(),
@@ -405,8 +443,9 @@ fn build_provider_dispatches_anthropic_transport() {
         id: "qwen3.6-plus".to_string(),
         transport: Transport::AnthropicMessages {
             base_url: "https://opencode.ai/inference/anthropic/v1/messages".to_string(),
-            client_profile: nuo_provider::ClientProfile::from("agent"),
             dialect: Default::default(),
+            user_agent: "agent".to_string(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("go-key"),
         model: "qwen3.6-plus".to_string(),
@@ -427,8 +466,9 @@ fn build_provider_dispatches_google_interactions_transport() {
         id: "gemini-3.8-flash".to_string(),
         transport: Transport::GoogleInteractions {
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
-            client_profile: nuo_provider::ClientProfile::Native,
             dialect: Default::default(),
+            user_agent: nuo_provider::NUO_USER_AGENT.to_string(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("goog-key"),
         model: "gemini-3.8-flash".to_string(),
@@ -627,9 +667,10 @@ fn unstated_responses_storage_replays_the_full_context() {
         id: "default".into(),
         transport: Transport::OpenAiResponses {
             base_url: "https://relay.example.com/v1/responses".into(),
-            client_profile: nuo_provider::ClientProfile::from("ua"),
             dialect,
             state,
+            user_agent: "ua".into(),
+            headers: Vec::new(),
         },
         credentials: nuo_provider::static_credential("k"),
         model: "deepseek/deepseek-v4.1-flash".into(),

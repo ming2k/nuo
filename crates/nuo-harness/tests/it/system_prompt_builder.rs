@@ -168,3 +168,53 @@ fn embedding_can_order_sections_semantically() {
         "first section must appear before second section"
     );
 }
+
+#[test]
+fn model_guidance_is_rendered_dynamically_in_base_tier() {
+    let agent = builder()
+        .with_model_guidance("Speak natural plain Chinese, avoiding bureaucratic cliches.")
+        .build();
+
+    let mut messages = vec![Message::new(Role::User, "test")];
+    agent.prepare_request_messages_debug(&mut messages);
+
+    let content = &messages[0].content;
+    assert!(
+        content.contains("Speak natural plain Chinese, avoiding bureaucratic cliches."),
+        "system prompt must render model guidance: {content}"
+    );
+
+    // Dynamic runtime update (e.g. on model switch)
+    agent.set_model_guidance("Updated model prompt: Ultra-concise mode.");
+    let mut messages2 = vec![Message::new(Role::User, "test2")];
+    agent.prepare_request_messages_debug(&mut messages2);
+
+    let content2 = &messages2[0].content;
+    assert!(
+        content2.contains("Updated model prompt: Ultra-concise mode."),
+        "system prompt must reflect dynamic update: {content2}"
+    );
+    assert!(!content2.contains("avoiding bureaucratic cliches."));
+}
+
+#[test]
+fn subagent_inherits_parent_model_guidance() {
+    let parent = builder()
+        .with_model_guidance("Inherited guidance from parent.")
+        .build();
+
+    let tool = nuo_harness::SubagentTool::new(
+        Arc::new(IdleProvider),
+        nuo_wire::ToolSet::from_tools(Vec::new()),
+        &nuo_wire::SubAgentProfile::EXPLORE,
+    );
+    tool.bind_model_guidance(parent.model_guidance_handle());
+
+    // When the subagent runs, it receives the parent's guidance handle
+    let handle = parent.model_guidance_handle();
+    let subagent = builder().build();
+    let mut sub = subagent;
+    sub.bind_model_guidance(handle);
+
+    assert_eq!(sub.model_guidance(), "Inherited guidance from parent.");
+}
