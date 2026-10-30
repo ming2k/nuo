@@ -8,6 +8,30 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.61] - 2026-10-30
+
+### Added
+
+- **Two-Track Notice Architecture and Sovereign Notice Center Dialog (ADR-0134).**
+  - Added sovereign `DialogKind::Notices` (`NoticesDialog`) with `DialogScope::Global`,
+    presenting retained system notices in reverse-chronological card-stack layout with
+    severity indicators (`ℹ`, `▲`, `✕`), topic pills, timestamps, and expandable details.
+  - Added full keyboard navigation for the notice center (`j`/`k`, `Enter`/`Space`
+    expansion toggle, `c` to copy focused notice or diagnostic payload, `d`/`x` to clear history,
+    `Esc` to dismiss).
+  - Connected the TabBar status cluster badge `[!N]` and `Alt-o` / `Ctrl-o` shortcuts
+    directly to open the notice center dialog, automatically clearing unread fault badges
+    while preserving history for review.
+
+### Removed
+
+- **Eradicated Footer Notice Dock (`[INV-NOTICE-02]`).**
+  - Permanently removed `FooterRowId::NoticeDock` and associated dock sizing logic
+    (`notice_dock_rows`, `notice_dock_ceiling`, `expanded_detail_rows`) from `nuo-ui-primitives`
+    and `nuo-view`, guaranteeing 100% spatial immobility for the composer area.
+  - Purged `RetryResolution` and `RetryResolved` event types from the protocol and
+    transcript, avoiding operational retry noise pollution in the conversation document.
+
 ## [0.0.60] - 2026-10-30
 
 ### Added
