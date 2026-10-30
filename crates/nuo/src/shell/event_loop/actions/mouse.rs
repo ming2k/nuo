@@ -322,25 +322,8 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::NoticesBadge) => {
             // The badge is the notice log's persistent entry point: clicking it
-            // opens the dock, exactly as the chord it advertises does.
+            // opens the notice center dialog, exactly as the chord it advertises does.
             app.open_notice_viewer();
-        }
-        Some(UiKey::Notices) => {
-            // A click inside the dock must not fall through to the transcript
-            // above it. Clicking a row selects it; clicking the selected row
-            // toggles its detail — the pointer mirror of `↑`/`↓` then `Enter`.
-            if let Some(row) = notice_row_at_pointer(app, y) {
-                let count = app.notice_count();
-                if let Some(viewer) = app.notice_viewer.as_mut() {
-                    if viewer.index == row {
-                        viewer.toggle_detail(count);
-                    } else {
-                        viewer.index = row;
-                        viewer.follow = false;
-                        viewer.detail = false;
-                    }
-                }
-            }
         }
         Some(UiKey::Sticky) => {
             if let Some(mi) = app.sticky_step {
@@ -667,28 +650,8 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     }
 }
 
-/// Map a pointer row to the notice it landed on.
-///
-/// Resolves through the geometry the dock *recorded* when it painted
-/// (`NoticeViewer::body_origin` / `body_width`), not by recomputing the footer
-/// stack here. Recomputing would be a second layout path: the dock's height comes
-/// from `notice_dock_rows(viewport, desired)`, and a click handler that guessed at
-/// it would go wrong the moment the panel resized.
-fn notice_row_at_pointer(app: &crate::shell::App, pointer_y: u16) -> Option<usize> {
-    let viewer = app.notice_viewer.as_ref()?;
-    let body_origin = viewer.body_origin?;
-    let row = pointer_y.checked_sub(body_origin)? as usize;
-    if row >= viewer.body_height as usize {
-        return None;
-    }
-    let lines: Vec<nuo_view::model::log::SurfaceLine> =
-        app.notice_lines().iter().cloned().collect();
-    // The pointer row is relative to the *scroll offset* the dock painted with.
-    let body_row = viewer.scroll.checked_add(row)?;
-    crate::shell::overlays::notices::notice_at_body_row(&lines, viewer, body_row, viewer.body_width)
-}
-
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) async fn click_at_for_test(app: &mut App, x: u16, y: u16, viewed_session_id: &str) {
     let runtime = UiRuntime::minimal_for_test();
     handle_selection_start(app, &runtime, viewed_session_id, x, y).await;

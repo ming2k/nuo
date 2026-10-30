@@ -343,21 +343,6 @@ pub async fn run_headless(
                         io::stderr().flush()?;
                     }
                 }
-                RoundEvent::RetryResolved(resolution) => {
-                    // The success-side twin: a machine reader learns the round
-                    // recovered and what it survived.
-                    if json {
-                        let event_obj = serde_json::json!({
-                            "type": "retry_resolved",
-                            "attempts": resolution.attempts,
-                            "faults": resolution.faults,
-                            "at_ms": resolution.at_ms,
-                            "round": resolution.round,
-                        });
-                        println!("{}", serde_json::to_string(&event_obj)?);
-                        io::stdout().flush()?;
-                    }
-                }
                 RoundEvent::Error(err) => {
                     if json {
                         let event_obj = serde_json::json!({

@@ -190,7 +190,6 @@ pub(crate) async fn switch_or_start_session_with_role(
                         messages: transcript,
                         commands: session.commands().await,
                         round_interrupts: session.round_interrupts().await,
-                        retry_resolutions: session.retry_resolutions().await,
                     });
                     crate::handlers_provider::reapply_session_selection(
                         config,

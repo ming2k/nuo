@@ -360,26 +360,8 @@ fn one_retry_episode_feeds_the_clause_and_the_recovered_anchor_from_one_state() 
         Some(3)
     );
 
-    // Attempt 3 succeeds: `RoundCompleted` mints the anchor from *that same*
-    // state, so the count and the fault list cannot differ between the surfaces.
-    let record = nuo_wire::RetryResolution {
-        attempts: progress.retries() as u32,
-        faults: progress.faults().to_vec(),
-        at_ms: 1_000,
-        round: Some(2),
-    };
-    let anchor = nuo_view::model::document::TranscriptMessage::retry_recovered(&record);
-    crate::shell::event_loop::apply::apply(
-        &mut app,
-        &runtime,
-        crate::shell::event_loop::AppMutation::Transcript {
-            edit: crate::shell::event_loop::TranscriptEdit::RetrySettled {
-                recovered: Some(anchor),
-            },
-        },
-    );
-
-    // The round is over, so the clause is retired by the phase write.
+    // Attempt 3 succeeds: the round completes and the clause is retired by the phase write.
+    // Transient transport retries leave no recovered row in the transcript.
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
@@ -389,19 +371,8 @@ fn one_retry_episode_feeds_the_clause_and_the_recovered_anchor_from_one_state() 
         !app.has_live_transport_setback(),
         "a completed round leaves no countdown on the bar"
     );
-
-    // And the transcript holds exactly one anchor, whose title agrees with the
-    // clause the user was watching.
-    assert_eq!(app.messages.len(), 1);
-    let parts = app.messages[0].notice_parts().expect("anchor has parts");
-    assert_eq!(parts.topic.as_deref(), Some("recovered"));
-    assert_eq!(parts.title, "Recovered after 2 provider retries (round 2)");
-    assert_eq!(
-        parts.detail.as_deref(),
-        Some("Google HTTP 503 Service Unavailable\nGoogle HTTP 429 Too Many Requests")
-    );
     assert!(
-        !app.messages[0].raw.contains('{'),
-        "no transport payload reaches the conversation"
+        app.messages.is_empty(),
+        "a recovered round leaves no retry row in the transcript"
     );
 }

@@ -53,7 +53,7 @@ pub use dialog_keys::draw_dialog_keys;
 pub use help::draw_help_modal;
 pub use history::draw_history_panel;
 pub use mcp::draw_mcp_modal;
-pub use notices::draw_notice_dock;
+pub use notices::draw_notices_modal;
 #[allow(unused_imports)]
 pub use permission::{
     draw_input_injection, draw_permission_sheet, draw_question_modal, permission_action_count,

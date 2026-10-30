@@ -223,18 +223,6 @@ fn compose_frame(
     let scene_prompt_owns_caret =
         app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Scene;
 
-    // The dock's payload, snapshotted *before* the transcript's own borrows
-    // begin: `notice_lines` reads `app`, and the viewer is moved out so the
-    // renderer can write its scroll offset back. Both live outside the paint
-    // closure so the props struct can borrow them.
-    let dock_open = app.notice_viewer.is_some();
-    let notice_dock_lines: Vec<nuo_view::model::log::SurfaceLine> = if dock_open {
-        app.notice_lines().iter().cloned().collect()
-    } else {
-        Vec::new()
-    };
-    let mut notice_dock_viewer = app.notice_viewer.take();
-
     // When zoomed into a Subagent, render its child messages and
     // show a contextual first-row header; otherwise render the
     // root thread.
@@ -397,19 +385,6 @@ fn compose_frame(
                 tasks_bar: render::TasksBarProps {
                     tasks: &app.background_tasks,
                 },
-                // The dock's payload travels through the same props struct as
-                // every other footer row, so its height is part of the footer
-                // stack's split. The lines are snapshotted because the viewer is
-                // borrowed mutably for its scroll write-back while the log is
-                // read: two borrows of `app` that the renderer cannot hold at
-                // once, and a snapshot is also what makes the frame consistent
-                // (a notice arriving mid-paint cannot shift the rows under it).
-                notice_dock: notice_dock_viewer
-                    .as_mut()
-                    .map(|viewer| render::NoticeDockProps {
-                        lines: &notice_dock_lines,
-                        viewer,
-                    }),
                 subagent_bar,
                 page_hints: Some(page_hints),
                 tab_bar: Some(render::TabBarProps {
@@ -445,10 +420,6 @@ fn compose_frame(
             },
         )
     });
-    // Put the viewer back: it was moved out only so the paint closure could hold
-    // it mutably beside the transcript's own borrows. A frame that forgot to
-    // restore it would silently close the dock on the next one.
-    app.notice_viewer = notice_dock_viewer;
     let input_rect = transcript_render.input_rect;
     let hint_rect = transcript_render.hint_rect;
     let content_lines = transcript_render.content_lines;
@@ -460,10 +431,6 @@ fn compose_frame(
             render::FooterRowId::ActivityStrip => UiKey::Activity,
             render::FooterRowId::Composer => UiKey::Composer,
             render::FooterRowId::ModelBar => UiKey::ModelBar,
-            // Mounted here so a click anywhere in the dock lands on it rather
-            // than on the transcript above it; the dock's own draw then refines
-            // the panel inside that rect.
-            render::FooterRowId::NoticeDock => UiKey::Notices,
         };
         ui.mount(key, *rect);
     }
@@ -1318,26 +1285,6 @@ fn compose_frame(
             &app.theme,
         );
         ui.mount(UiKey::ProviderDelete, rect);
-    }
-
-    // The notice dock (ADR-0121): a footer row, painted at the rect the footer
-    // stack placed for it. It sits above the activity strip, keeps the composer
-    // live beneath it, and leaves the conversation visible above — which is the
-    // whole reason it is docked rather than floated or modally centred.
-    if let Some(rect) =
-        nuo_view::footer_stack::rect_of(&transcript_render.footer, render::FooterRowId::NoticeDock)
-    {
-        // Snapshot before borrowing the viewer mutably: the log lives in `app`
-        // and the dock writes its scroll offset back through the viewer.
-        let lines: Vec<nuo_view::model::log::SurfaceLine> =
-            app.notice_lines().iter().cloned().collect();
-        let theme = app.theme.clone();
-        if let Some(viewer) = app.notice_viewer.as_mut() {
-            ui.paint(f, UiKey::Notices, |f| {
-                render::draw_notice_dock(f, rect, &lines, viewer, &theme);
-                rect
-            });
-        }
     }
 
     // Urgent confirmation toasts (Esc interrupt confirmation or Ctrl+C quit confirmation)

@@ -565,7 +565,6 @@ pub async fn run_attached(
                 initial_round_count: 0,
                 command_catalog: nuo_wire::CommandCatalog::default(),
                 initial_round_interrupts: Vec::new(),
-                initial_retry_resolutions: Vec::new(),
                 initial_phase,
                 initial_prompt: launch_prompt,
                 tui_config,

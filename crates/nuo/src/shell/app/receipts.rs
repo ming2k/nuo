@@ -187,9 +187,9 @@ impl App {
     /// Forget every retained notice (the viewer's clear verb).
     pub(crate) fn clear_notices(&mut self) {
         self.logs.entry(Self::notice_surface()).clear();
-        if let Some(viewer) = self.notice_viewer.as_mut() {
-            *viewer = crate::shell::app::notices::NoticeViewer::open_at_newest(0);
-        }
+        *self
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::NoticesDialog>() = Default::default();
     }
 
     /// The retained notices as a paste-ready diagnostic block.

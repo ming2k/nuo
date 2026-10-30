@@ -542,7 +542,6 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                             messages: transcript,
                             commands: session.commands().await,
                             round_interrupts: session.round_interrupts().await,
-                            retry_resolutions: session.retry_resolutions().await,
                         });
                         // The live provider tracks the opened session's
                         // own provider pin (or the global default).

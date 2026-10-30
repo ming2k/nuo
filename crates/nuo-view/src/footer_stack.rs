@@ -61,25 +61,6 @@ pub enum FooterRowId {
     /// context-meter segment has its own finer hit rect recorded by
     /// `draw_model_bar`.
     ModelBar,
-    /// The notice dock (ADR-0121): the retained-disclosure panel, docked above
-    /// the activity strip while it is open.
-    ///
-    /// A footer row rather than a float or a modal. The three reasons:
-    ///
-    /// - **It must not cover the conversation.** Reading a fault and the turn it
-    ///   interrupted is one task; a centred panel makes it two, and the fault
-    ///   usually *explains* what is on screen behind it.
-    /// - **The composer must stay live.** The most common reaction to "the
-    ///   backend is down" is to retype or retry, which a modal barrier forbids.
-    /// - **The footer stack is already the one authority for chrome geometry.**
-    ///   Docking makes the dock's rect a first-class product of [`place`], so its
-    ///   height participates in the transcript split with no bespoke plumbing and
-    ///   no second layout path to keep in sync.
-    ///
-    /// Declared *above* the activity strip because a fault outranks a status
-    /// summary: the row the user must read comes first, and the transient strip
-    /// sits closer to the composer it describes.
-    NoticeDock,
 }
 
 /// The result of placing a footer stack: every placed row's rect, plus the

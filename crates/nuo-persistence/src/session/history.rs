@@ -195,52 +195,6 @@ impl SessionStore {
         Ok(())
     }
 
-    /// The durable retry-resolution records: one per round that recovered
-    /// from transient provider faults via the harness retry loop, newest
-    /// last. Pure projection state — never part of the transcript.
-    pub async fn retry_resolutions(&self) -> Vec<nuo_wire::RetryResolution> {
-        self.state.lock().await.data.retry_resolutions.clone()
-    }
-
-    /// Append one retry-resolution record. Duplicate guard: a record for the
-    /// same round is not appended twice (the live `RetryResolved` event and
-    /// the durable commit can race on the same round).
-    pub async fn record_retry_resolution(
-        &self,
-        record: nuo_wire::RetryResolution,
-    ) -> Result<(), String> {
-        let (path, data, should_persist) = {
-            let mut state = self.state.lock().await;
-            let already = record.round.is_some_and(|round| {
-                state
-                    .data
-                    .retry_resolutions
-                    .iter()
-                    .any(|existing| existing.round == Some(round))
-            }) || (record.round.is_none()
-                && state
-                    .data
-                    .retry_resolutions
-                    .iter()
-                    .any(|existing| existing.round.is_none()));
-            if already {
-                return Ok(());
-            }
-            state.data.retry_resolutions.push(record);
-            state.data.updated_at = unix_timestamp();
-            let empty_unpersisted = Self::should_skip_persist(&state);
-            if !empty_unpersisted {
-                state.defer_persist = false;
-            }
-            (state.path.clone(), state.data.clone(), !empty_unpersisted)
-        };
-        if should_persist {
-            self.persist_off_runtime(path, data, self.blob_store.clone())
-                .await?;
-        }
-        Ok(())
-    }
-
     /// The durable `/retry` resume point (C12).
     pub async fn retry_pending(&self) -> Option<nuo_wire::RetryPoint> {
         self.state.lock().await.data.retry_pending.clone()

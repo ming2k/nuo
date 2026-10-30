@@ -646,7 +646,7 @@ async fn process_one_event<W: io::Write>(
         app.copy_toast_until = None;
         if app.notice_toast_severity.is_fault() {
             if dismisses_notice_bubble(event)
-                && app.notice_viewer.is_none()
+                && !app.notice_viewer_open()
                 && app.surfaces.active_overlay().is_none()
                 && app.surfaces.active_sheet().is_none()
             {
@@ -865,7 +865,7 @@ async fn process_one_event<W: io::Write>(
                         | crate::shell::ui::UiKey::ProviderDelete
                 )
             ),
-            notice_viewer_open: app.notice_viewer.is_some(),
+            notice_viewer_open: app.notice_viewer_open(),
         };
         let modal_keys = crate::shell::modal_keys::ModalKeys {
             model_searching,

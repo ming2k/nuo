@@ -46,9 +46,6 @@ pub enum UiKey {
     OauthUrl,
     OauthCode,
     Toast,
-    /// The notice viewer's panel (ADR-0121). Its own component so a click in
-    /// it is not mistaken for a click on the transcript beneath.
-    Notices,
     /// The unread-fault badge in the TabBar right cluster (ADR-0131).
     NoticesBadge,
     /// The persistent help affordance (`F1 help`) in the TabBar right cluster (ADR-0131).
@@ -313,17 +310,6 @@ impl ComponentTree {
                 PointerPolicy::Barrier,
                 InputPolicy::Modal,
                 true,
-            ),
-            // The notice dock is a footer row (ADR-0121), not an overlay: it
-            // docks above the composer, so it parents to the footer and does not
-            // claim modality. Keys reach it through the explicit
-            // `Dispatch::notice_viewer_open` arm instead.
-            UiKey::Notices => (
-                Some(UiKey::Footer),
-                4,
-                PointerPolicy::Target,
-                InputPolicy::None,
-                false,
             ),
             UiKey::Toast => (
                 Some(UiKey::Root),

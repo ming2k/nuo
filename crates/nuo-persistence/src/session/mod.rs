@@ -141,12 +141,6 @@ pub struct SessionData {
     /// the transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) round_interrupts: Vec<nuo_wire::RoundInterrupt>,
-    /// Durable retry-resolution records: the success-side mirror of
-    /// `round_interrupts` — one per round that recovered from transient
-    /// provider faults via the harness retry loop. Projection state, never
-    /// part of the transcript.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) retry_resolutions: Vec<nuo_wire::RetryResolution>,
     /// The durable `/retry` resume point (C12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) retry_pending: Option<nuo_wire::RetryPoint>,
@@ -205,7 +199,6 @@ impl SessionData {
             request_usage_records: Vec::new(),
             commands: self.commands.clone(),
             round_interrupts: self.round_interrupts.clone(),
-            retry_resolutions: self.retry_resolutions.clone(),
             retry_pending: self.retry_pending.clone(),
             unknown_entries: Vec::new(),
             unknown_directives: Vec::new(),
@@ -270,7 +263,6 @@ impl Default for SessionData {
             request_usage_records: Vec::new(),
             commands: Vec::new(),
             round_interrupts: Vec::new(),
-            retry_resolutions: Vec::new(),
             retry_pending: None,
             unattended: false,
             tree: nuo_wire::SessionTree::default(),

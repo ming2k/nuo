@@ -188,21 +188,6 @@ pub(crate) enum TranscriptEdit {
     Interrupted { record: nuo_wire::RoundInterrupt },
     /// The newest user prompt is marked cancelled (transport-level retraction).
     CancelLastUserPrompt,
-    /// Record the round's recovered-retry outcome as a turn anchor, then evict
-    /// any transient retry state.
-    ///
-    /// A provider retry owns **no transcript row while it runs** (see
-    /// `nuo_view::retry`): the live countdown is chrome and a receipt-log line.
-    /// What reaches the transcript is the settled *turn outcome*, and it arrives
-    /// through [`TranscriptEdit::Append`] with `EventClass::TurnOutcome` like
-    /// every other anchor. This variant therefore carries nothing but the
-    /// disposition: whether a recovery anchor should be minted at all.
-    RetrySettled {
-        /// `Some` when the round recovered after at least one retry: the
-        /// anchor to admit. `None` for a plain success (nothing to report) or a
-        /// round that never retried.
-        recovered: Option<TranscriptMessage>,
-    },
     /// Append a fully-built message (assistant text, notices, projections).
     Append {
         /// The event class this row was produced by. Admission is gated on it

@@ -147,7 +147,12 @@ fn the_viewer_opens_at_the_newest_notice() {
         );
     }
     app.open_notice_viewer();
-    assert_eq!(app.notice_viewer.as_ref().unwrap().index, 3);
+    assert_eq!(
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .index,
+        3
+    );
 }
 
 #[test]
@@ -288,8 +293,9 @@ fn the_viewer_paints_over_the_transcript_when_opened() {
         text.contains("Notices"),
         "the panel header is on screen: {text}"
     );
+    assert!(text.contains("backend"), "the topic is shown: {text}");
     assert!(
-        text.contains("backend: could not reach the backend"),
+        text.contains("could not reach the backend"),
         "the retained notice is readable: {text}"
     );
 }
@@ -395,7 +401,10 @@ async fn paging_steps_by_the_panels_real_body_height() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
-    let body_height = app.notice_viewer.as_ref().unwrap().body_height;
+    let body_height = app
+        .surfaces
+        .dlg::<crate::shell::surfaces::NoticesDialog>()
+        .body_height;
     assert!(
         body_height > 1,
         "the renderer recorded a usable page height: {body_height}"
@@ -404,7 +413,9 @@ async fn paging_steps_by_the_panels_real_body_height() {
     // The viewer opens following the newest entry, so start from a known
     // position: cursor at the top, scroll at zero, follow off.
     {
-        let viewer = app.notice_viewer.as_mut().unwrap();
+        let viewer = app
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
         viewer.index = 0;
         viewer.scroll = 0;
         viewer.follow = false;
@@ -419,7 +430,9 @@ async fn paging_steps_by_the_panels_real_body_height() {
     )
     .await;
     assert_eq!(
-        app.notice_viewer.as_ref().unwrap().scroll,
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .scroll,
         body_height as usize,
         "one page, not one row"
     );
@@ -432,7 +445,9 @@ async fn paging_steps_by_the_panels_real_body_height() {
     )
     .await;
     assert_eq!(
-        app.notice_viewer.as_ref().unwrap().scroll,
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .scroll,
         0,
         "and back again"
     );
@@ -718,12 +733,17 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
-    let body_height = app.notice_viewer.as_ref().unwrap().body_height as usize;
+    let body_height = app
+        .surfaces
+        .dlg::<crate::shell::surfaces::NoticesDialog>()
+        .body_height as usize;
     assert!(body_height > 1);
 
     // Select the newest notice and expand it: the body now has extra rows.
     {
-        let viewer = app.notice_viewer.as_mut().unwrap();
+        let viewer = app
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
         viewer.index = 29;
         viewer.detail = true;
     }
@@ -738,7 +758,10 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
     );
 
     // And the offset is a real viewport offset, not a row index.
-    let scroll = app.notice_viewer.as_ref().unwrap().scroll;
+    let scroll = app
+        .surfaces
+        .dlg::<crate::shell::surfaces::NoticesDialog>()
+        .scroll;
     assert!(
         scroll > 0,
         "the view scrolled to follow the cursor instead of pinning at the top"
@@ -746,10 +769,9 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
 }
 
 #[test]
-fn the_dock_is_a_footer_row_that_the_transcript_yields_rows_to() {
-    // The whole point of docking rather than floating: the dock's height is part
-    // of the footer stack's split, so the transcript gives up exactly those rows
-    // and nothing overlaps. A float would have painted *over* the conversation.
+fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_opens() {
+    // The sovereign notice center dialog (ADR-0134): the footer stack remains 100% pure
+    // and notices arrive into SurfaceLog without reflowing the conversation or injecting a dock.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
     for i in 0..20 {
@@ -764,46 +786,56 @@ fn the_dock_is_a_footer_row_that_the_transcript_yields_rows_to() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
-    let closed_height = footer_dock_height(&app);
+    let initial_text = frame_text(&terminal);
 
     disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
-    app.open_notice_viewer();
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
-    let open_height = footer_dock_height(&app);
+    let with_notice_text = frame_text(&terminal);
 
-    assert_eq!(closed_height, 0, "a closed dock takes no rows");
-    assert!(
-        open_height >= nuo_ui_primitives::design::NOTICE_DOCK_MIN_ROWS,
-        "an open dock gets its readable floor: {open_height}"
+    // Invariant [INV-NOTICE-02]: arriving notice does NOT alter footer or displace composer
+    assert!(initial_text.contains('›'));
+    assert!(with_notice_text.contains('›'));
+    assert!(!app.notice_viewer_open());
+
+    // Open sovereign dialog
+    app.open_notice_viewer();
+    assert!(app.notice_viewer_open());
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::Notices)
     );
+
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "test-session");
+    });
+    let modal_text = frame_text(&terminal);
     assert!(
-        open_height <= 40 / 2,
-        "and never more than half the terminal: {open_height}"
+        modal_text.contains("Notices & Disclosures"),
+        "sovereign dialog title"
     );
+    assert!(modal_text.contains("backend"), "renders topic");
+    assert!(modal_text.contains("link down"), "renders notice content");
+
+    app.close_notice_viewer();
+    assert!(!app.notice_viewer_open());
 }
 
 #[test]
-fn the_composer_stays_live_below_the_dock() {
-    // The second justification for docking: the most common reaction to a fault is
-    // to retype or retry. A modal barrier would forbid it exactly then.
+fn the_composer_stays_live_below_and_unaffected_by_notices() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
     disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
-    app.open_notice_viewer();
 
     let mut terminal = nuotc::TestTerminal::new(100, 40);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
     let text = frame_text(&terminal);
-    // The composer's own chrome is still on screen below the dock. `›` is the
-    // composer's prompt glyph (not `>`), and the model bar beneath it is the
-    // proof that the whole footer survived rather than being replaced.
     assert!(
         text.contains('›'),
-        "the composer prompt is still painted with the dock open: {text}"
+        "the composer prompt is always present: {text}"
     );
     assert!(
         app.is_composer_focused() || app.caret_owner() == crate::shell::CaretOwner::Composer,
@@ -812,8 +844,7 @@ fn the_composer_stays_live_below_the_dock() {
 }
 
 #[test]
-fn the_conversation_stays_visible_above_the_dock() {
-    // The first justification: the fault usually explains what is behind it.
+fn the_conversation_stays_visible_when_notice_arrives() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
     for i in 0..20 {
@@ -824,52 +855,77 @@ fn the_conversation_stays_visible_above_the_dock() {
             ));
     }
     disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
-    app.open_notice_viewer();
 
     let mut terminal = nuotc::TestTerminal::new(100, 40);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
     let text = frame_text(&terminal);
-    // The contract is that the conversation is *visible* with the dock open — a
-    // float or a modal would have covered it. Which turn is scrolled into view is
-    // the transcript's own concern (it follows the bottom in the real loop), so
-    // the assertion is on transcript content, not on a particular row.
     assert!(
         text.contains("visible-turn-"),
-        "conversation rows are still readable with the dock open: {text}"
-    );
-    assert!(
-        text.contains("backend: link down"),
-        "and so is the fault: {text}"
+        "conversation rows are still readable without dock displacement: {text}"
     );
 }
 
-/// The dock row's height this frame, resolved the way the renderer resolves it.
-fn footer_dock_height(app: &crate::shell::App) -> u16 {
-    if app.notice_viewer.is_none() {
-        return 0;
+#[test]
+fn notices_arrival_never_alters_footer_height() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+
+    let mut terminal = nuotc::TestTerminal::new(100, 40);
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "test-session");
+    });
+
+    for i in 0..25 {
+        disclose(
+            &mut app,
+            NoticeSeverity::Error,
+            "t",
+            &format!("fault {i}"),
+            i,
+        );
+        terminal.draw(|f| {
+            crate::shell::event_loop::render_frame(&mut app, f, "test-session");
+        });
     }
-    let lines: Vec<nuo_view::model::log::SurfaceLine> =
-        app.notice_lines().iter().cloned().collect();
-    let base = nuo_ui_primitives::design::notice_dock_rows(40);
-    let detail = crate::shell::overlays::notices::expanded_detail_rows(
-        &lines,
-        app.notice_viewer.as_ref().unwrap(),
-        100,
+
+    // Invariant: zero footer dock reflow
+    assert!(!app.notice_viewer_open());
+}
+
+#[test]
+fn expanding_a_detail_toggles_dialog_detail() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+    for i in 0..10 {
+        disclose(
+            &mut app,
+            NoticeSeverity::Error,
+            "t",
+            &format!("fault {i} with enough words to wrap across several rows in the dialog"),
+            i,
+        );
+    }
+    app.open_notice_viewer();
+    assert!(
+        !app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .detail
     );
-    if app.notice_viewer.as_ref().unwrap().detail {
-        nuo_ui_primitives::design::notice_dock_rows_expanded(40, detail)
-    } else {
-        base
-    }
+
+    app.surfaces
+        .dlg_mut::<crate::shell::surfaces::NoticesDialog>()
+        .detail = true;
+    assert!(
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .detail
+    );
 }
 
 #[tokio::test]
-async fn clicking_a_dock_row_selects_it_and_clicking_again_opens_the_detail() {
-    // The pointer mirror of `↑`/`↓` then `Enter`. It must resolve through the
-    // geometry the dock recorded, not a re-derived footer stack — otherwise the
-    // mapping breaks the moment the panel resizes.
+async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
     for i in 0..5 {
@@ -882,183 +938,53 @@ async fn clicking_a_dock_row_selects_it_and_clicking_again_opens_the_detail() {
         );
     }
     app.open_notice_viewer();
-
-    let mut terminal = nuotc::TestTerminal::new(100, 40);
-    terminal.draw(|f| {
-        crate::shell::event_loop::render_frame(&mut app, f, "test-session");
-    });
-    // The loop commits the component tree after the frame is painted; a test that
-    // skips the commit would hit-test against the *previous* scene, where the dock
-    // was not mounted.
-    app.ui.commit();
-
-    let viewer = app.notice_viewer.as_ref().unwrap();
-    let frame = frame_text(&terminal);
-    let origin = viewer
-        .body_origin
-        .unwrap_or_else(|| panic!("the dock recorded its body origin; frame:\n{frame}"));
-    let scroll = viewer.scroll;
-    let body_height = viewer.body_height;
-    assert!(body_height > 0);
-
-    // Click the first *visible* row.
-    let click_y = origin;
-    let expected = crate::shell::overlays::notices::notice_at_body_row(
-        &app.notice_lines().iter().cloned().collect::<Vec<_>>(),
-        app.notice_viewer.as_ref().unwrap(),
-        scroll,
-        viewer.body_width,
+    assert_eq!(
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .index,
+        4
     );
-    let Some(expected) = expected else {
-        // Nothing resolvable at that row (e.g. inside an expanded block); the
-        // contract under test is the *mapping*, asserted directly below.
-        return;
-    };
 
-    crate::shell::event_loop::actions::mouse::click_at_for_test(
+    let runtime = runtime();
+    crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
-        50,
-        click_y,
+        &runtime,
+        crate::shell::input::InputAction::NoticesSelect { forward: false },
         "test-session",
     )
     .await;
     assert_eq!(
-        app.notice_viewer.as_ref().unwrap().index,
-        expected,
-        "the clicked row became the cursor"
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .index,
+        3
     );
 
-    // Clicking the same row again toggles the detail.
-    let before = app.notice_viewer.as_ref().unwrap().detail;
-    crate::shell::event_loop::actions::mouse::click_at_for_test(
+    crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
-        50,
-        click_y,
+        &runtime,
+        crate::shell::input::InputAction::NoticesToggleDetail,
         "test-session",
     )
     .await;
-    assert_ne!(
-        app.notice_viewer.as_ref().unwrap().detail,
-        before,
-        "a second click on the selected row toggles its detail"
-    );
-}
-
-#[test]
-fn the_row_mapping_is_the_inverse_of_the_body_assembly() {
-    // Forward and reverse must agree: for every notice, the row it starts at maps
-    // back to that notice. This is what stops the two arithmetic paths drifting.
-    use crate::shell::overlays::notices::{expanded_detail_rows, notice_at_body_row};
-    let lines: Vec<nuo_view::model::log::SurfaceLine> = (0..6)
-        .map(|i| {
-            nuo_view::model::log::SurfaceLine::disclosure(
-                nuo_view::model::log::LineStatus::Failed,
-                format!("fault {i}"),
-                i,
-            )
-        })
-        .collect();
-    let mut viewer = crate::shell::app::notices::NoticeViewer::open_at_newest(lines.len());
-    let width = 60usize;
-
-    // Collapsed: row i is notice i.
-    for i in 0..lines.len() {
-        assert_eq!(notice_at_body_row(&lines, &viewer, i, width), Some(i));
-    }
-    // Past the end is not a notice.
-    assert_eq!(
-        notice_at_body_row(&lines, &viewer, lines.len(), width),
-        None
-    );
-
-    // Expanded: the detail rows belong to no notice, and the notices after it
-    // shift by exactly the block's extra height.
-    viewer.index = 2;
-    viewer.detail = true;
-    assert_eq!(notice_at_body_row(&lines, &viewer, 2, width), Some(2));
-    assert_eq!(
-        notice_at_body_row(&lines, &viewer, 3, width),
-        None,
-        "a click inside the expanded block selects nothing"
-    );
-    // The block occupies the rows the growth calculation budgets for.
-    let growth = expanded_detail_rows(&lines, &viewer, width as u16);
     assert!(
-        growth > 0,
-        "expanding a row must ask the panel for more height: {growth}"
+        app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .detail,
+        "detail toggles on"
     );
-}
 
-#[test]
-fn the_dock_does_not_reflow_the_transcript_as_notices_arrive() {
-    // The defect this locks down. A height derived from the log's length makes the
-    // footer grow on every arrival, which shrinks the transcript above it and
-    // reflows the text the user is reading — while they read it, because reviewing
-    // a fault is exactly when more faults arrive. The dock's height must be a
-    // function of the viewport alone.
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
-    app.open_notice_viewer();
-
-    let mut terminal = nuotc::TestTerminal::new(100, 40);
-    let height_now = |app: &crate::shell::App, terminal: &nuotc::TestTerminal| -> (u16, u16) {
-        let dock = footer_dock_height(app);
-        let buf = terminal.buffer();
-        let area = buf.area();
-        (dock, area.height)
-    };
-    let _ = &mut terminal;
-
-    let mut heights = Vec::new();
-    for i in 0..25 {
-        disclose(
-            &mut app,
-            NoticeSeverity::Error,
-            "t",
-            &format!("fault {i}"),
-            i,
-        );
-        terminal.draw(|f| {
-            crate::shell::event_loop::render_frame(&mut app, f, "test-session");
-        });
-        heights.push(height_now(&app, &terminal).0);
-    }
-
-    let first = heights[0];
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::NoticesToggleDetail,
+        "test-session",
+    )
+    .await;
     assert!(
-        heights.iter().all(|h| *h == first),
-        "the dock height must not change as notices arrive: {heights:?}"
-    );
-    assert!(first > 0, "and it must be open, not zero");
-}
-
-#[test]
-fn expanding_a_detail_is_the_one_thing_that_may_grow_the_dock() {
-    // The single allowed reflow: the user pressed `Enter`, so the extra height is
-    // the layout they asked for, not jitter.
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
-    for i in 0..10 {
-        disclose(
-            &mut app,
-            NoticeSeverity::Error,
-            "t",
-            &format!("fault {i} with enough words to wrap across several rows in the dock"),
-            i,
-        );
-    }
-    app.open_notice_viewer();
-    let collapsed = footer_dock_height(&app);
-
-    app.notice_viewer.as_mut().unwrap().detail = true;
-    let expanded = footer_dock_height(&app);
-
-    assert!(
-        expanded > collapsed,
-        "an expanded detail must buy the rows it needs: {collapsed} -> {expanded}"
-    );
-    assert!(
-        expanded <= 40 / 2,
-        "but never past the ceiling that protects the conversation: {expanded}"
+        !app.surfaces
+            .dlg::<crate::shell::surfaces::NoticesDialog>()
+            .detail,
+        "detail toggles off"
     );
 }

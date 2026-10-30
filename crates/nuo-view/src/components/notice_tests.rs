@@ -226,31 +226,6 @@ fn a_notice_head_carries_only_settled_facts_never_a_ticking_counter() {
 }
 
 #[test]
-fn a_recovered_anchor_paints_its_fault_list_as_detail() {
-    let record = nuo_wire::RetryResolution {
-        attempts: 2,
-        faults: vec!["Google HTTP 503".to_string(), "Google HTTP 429".to_string()],
-        at_ms: 1_700_000_000_000,
-        round: Some(2),
-    };
-    let msg = TranscriptMessage::retry_recovered(&record);
-    let painted = paint(&msg, 80, 20, SelectionState::None);
-
-    let head = painted.row(0, 80);
-    assert!(head.starts_with("ℹ recovered"), "head: {head:?}");
-
-    let body = painted.rows()[2..].join("\n");
-    assert!(
-        body.contains("Recovered after 2 provider retries (round 2)"),
-        "the lead states the outcome: {body:?}"
-    );
-    assert!(
-        body.contains("Google HTTP 503") && body.contains("Google HTTP 429"),
-        "every survived fault is readable: {body:?}"
-    );
-}
-
-#[test]
 fn dragging_over_the_body_copies_exactly_what_is_painted() {
     let msg = TranscriptMessage::notice(
         NoticeSeverity::Error,

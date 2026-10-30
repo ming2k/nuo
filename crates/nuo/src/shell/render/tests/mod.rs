@@ -68,7 +68,6 @@ fn render_full_view_with_context(
                 subagent_bar: None,
                 page_hints: hints,
                 tab_bar,
-                notice_dock: None,
                 thread_id: Some("sess-01a2b3c4"),
                 thread_context: context,
                 round_started_at: None,

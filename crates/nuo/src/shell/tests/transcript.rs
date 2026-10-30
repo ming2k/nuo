@@ -621,58 +621,6 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
 }
 
 #[tokio::test]
-async fn a_recovered_round_admits_one_anchor_through_the_settle_edit() {
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-
-    let record = nuo_wire::RetryResolution {
-        attempts: 2,
-        faults: vec!["Google HTTP 503".to_string(), "Google HTTP 429".to_string()],
-        at_ms: 42,
-        round: Some(2),
-    };
-    let anchor = nuo_view::model::document::TranscriptMessage::retry_recovered(&record);
-
-    crate::shell::event_loop::apply::apply(
-        &mut app,
-        &runtime,
-        crate::shell::event_loop::AppMutation::Transcript {
-            edit: crate::shell::event_loop::TranscriptEdit::RetrySettled {
-                recovered: Some(anchor),
-            },
-        },
-    );
-
-    assert_eq!(app.messages.len(), 1, "one anchor for one recovery");
-    let entry = &app.messages[0];
-    assert!(entry.is_notice());
-    let parts = entry.notice_parts().expect("parts");
-    assert_eq!(parts.topic.as_deref(), Some("recovered"));
-    assert_eq!(parts.title, "Recovered after 2 provider retries (round 2)");
-    assert_eq!(
-        parts.detail.as_deref(),
-        Some("Google HTTP 503\nGoogle HTTP 429")
-    );
-}
-
-#[tokio::test]
-async fn a_plain_success_admits_no_retry_row_at_all() {
-    // A round that never retried says nothing about retries: the settle edit
-    // with no recovery must be a no-op, not an empty notice.
-    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-
-    crate::shell::event_loop::apply::apply(
-        &mut app,
-        &runtime,
-        crate::shell::event_loop::AppMutation::Transcript {
-            edit: crate::shell::event_loop::TranscriptEdit::RetrySettled { recovered: None },
-        },
-    );
-    assert!(app.messages.is_empty());
-}
-
-#[tokio::test]
 async fn tool_result_does_not_forge_reasoning_phase() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();

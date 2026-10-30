@@ -1100,6 +1100,7 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         .iter()
         .find(|l| {
             let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+            eprintln!("CHECKING: {text:?}");
             text.contains("DeepSeek V4.1 Flash Fast (latest)")
         })
         .expect("row1 line rendered");
@@ -1131,6 +1132,162 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         "label and connection column must have at least GROUP_GAP separation: gap = {}, text1={text1:?}",
         cc_main_idx - label1_end
     );
+}
+
+#[test]
+fn models_modal_omits_context_size_from_list_rows_but_keeps_specs_tags() {
+    let theme = Theme::default();
+    let row = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
+        provider_id: "anthropic".to_string(),
+        model: "claude-3-7-sonnet".to_string(),
+        name: Some("Claude 3.7 Sonnet".to_string()),
+        provider_label: "Anthropic".to_string(),
+        effort: Some("high".to_string()),
+        thinking: Some(true),
+        effort_levels: vec!["low".into(), "medium".into(), "high".into()],
+        favorite: false,
+        usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: Some(true),
+        context_window: 200_000,
+        reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+        relevance_score: 0,
+    };
+    let ranked = vec![row];
+    let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
+        &ranked,
+        "anthropic",
+        "claude-3-7-sonnet",
+        0,
+        &theme,
+        90,
+    );
+    let line = lines
+        .iter()
+        .find(|l| {
+            let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+            text.contains("Claude 3.7 Sonnet")
+        })
+        .expect("model row renders");
+
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // 1. Context size (200k / tokens) MUST NOT be present in the model list row
+    assert!(
+        !text.contains("200k") && !text.contains("200K") && !text.contains("tokens"),
+        "context size column must be removed from model list row: {text:?}"
+    );
+
+    // 2. Vision and reasoning effort tags MUST remain present in specs
+    assert!(
+        text.contains("vis"),
+        "vision capability tag must be preserved in specs: {text:?}"
+    );
+    assert!(
+        text.contains("high"),
+        "effort capability tag must be preserved in specs: {text:?}"
+    );
+
+    // 3. Provider/connection column must render
+    assert!(
+        text.contains("Anthropic"),
+        "provider column must render: {text:?}"
+    );
+}
+
+#[test]
+fn models_modal_column_widths_respect_percentage_caps_and_demand() {
+    let theme = Theme::default();
+    let row1 = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
+        provider_id: "openai".to_string(),
+        model: "gpt-4o-2024-11-20".to_string(),
+        name: Some("GPT-4o Omnimodel High Throughput Production Version".to_string()),
+        provider_label: "OpenAI Platform Direct".to_string(), // 22 chars
+        effort: None,
+        thinking: None,
+        effort_levels: vec![],
+        favorite: false,
+        usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: Some(true),
+        context_window: 128_000,
+        reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+        relevance_score: 0,
+    };
+    let row2 = nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
+        provider_id: "openai".to_string(),
+        model: "o3-mini".to_string(),
+        name: Some("o3 Mini".to_string()),
+        provider_label: "OpenAI Platform Direct".to_string(),
+        effort: Some("high".to_string()),
+        thinking: Some(true),
+        effort_levels: vec!["low".into(), "medium".into(), "high".into()],
+        favorite: false,
+        usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: None,
+        context_window: 200_000,
+        reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+        relevance_score: 0,
+    };
+    let ranked = vec![row1, row2];
+
+    // On body_width = 100:
+    // Connection cap is 20% (20 cols), status is 0, specs cap is 12% (12 cols).
+    // Primary label cap is 60% (60 cols).
+    let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
+        &ranked,
+        "openai",
+        "gpt-4o-2024-11-20",
+        0,
+        &theme,
+        100,
+    );
+
+    let text1: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+    let text2: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
+
+    // 1. Connection column should start at the same column index in both rows
+    let conn1_byte = text1.find("OpenAI Platform").expect("row1 conn rendered");
+    let conn2_byte = text2.find("OpenAI Platform").expect("row2 conn rendered");
+    let conn1_col = unicode_width::UnicodeWidthStr::width(&text1[..conn1_byte]);
+    let conn2_col = unicode_width::UnicodeWidthStr::width(&text2[..conn2_byte]);
+    assert_eq!(
+        conn1_col, conn2_col,
+        "connection columns must align in display width"
+    );
+
+    // 2. Neither row should show context size tokens
+    assert!(!text1.contains("128k") && !text1.contains("128K"));
+    assert!(!text2.contains("200k") && !text2.contains("200K"));
+
+    // 3. Row 1 has vision, Row 2 has effort - specs aligns
+    assert!(text1.contains("vis"), "row 1 has vision");
+    assert!(text2.contains("high"), "row 2 has effort");
 }
 
 /// Render the Models modal with one provider-published model label at a given

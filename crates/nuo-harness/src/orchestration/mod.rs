@@ -1271,10 +1271,6 @@ pub async fn execute_round(
     // actually composed is what surfaces. No vendor text is consulted at any
     // point — the probe's outcome is the evidence.
     let mut image_probe = false;
-    // Faults the retry loop recovered from, in order. Fed the durable
-    // `RetryResolution` (and the live `RetryResolved` event) when the round
-    // ultimately completes — the success-side mirror of a round interrupt.
-    let mut retry_faults: Vec<String> = Vec::new();
     // Keep the ReAct turn alive across network attempts. Completed prior turns
     // are already durably checkpointed above; retaining this state means a
     // retry resumes the pending provider request with the same history, guard
@@ -1471,7 +1467,6 @@ pub async fn execute_round(
         if attempt >= retry_limit {
             break Err(HarnessError::Other(message));
         }
-        retry_faults.push(message.clone());
         if streamed_text.swap(false, Ordering::SeqCst) {
             let _ = tx.send(round_response(&session_id, RoundEvent::StreamDiscard));
         }
@@ -1697,42 +1692,6 @@ pub async fn execute_round(
         && let Err(err) = session.set_round_counter(agent_round).await
     {
         tracing::warn!(error = %err, "could not persist round counter");
-    }
-
-    // The round recovered from transient provider faults. This is a durable
-    // turn outcome, not an in-flight detail: the transcript shows
-    // `Recovered after N provider retries` for it, and a resumed session must
-    // show the same row ([INV-TRANSCRIPT-04], live equals resume). So the
-    // record is written here — the one place that knows the round completed
-    // after retrying — and the *live* anchor the frontend mints is rebuilt on
-    // attach from this record, never from client-side state.
-    //
-    // The write is idempotent per round (`record_retry_resolution` refuses a
-    // duplicate round), so a replayed tail cannot mint a second row.
-    if !retry_faults.is_empty() {
-        let at_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        let record = nuo_wire::RetryResolution {
-            attempts: retry_faults.len() as u32,
-            faults: retry_faults.clone(),
-            at_ms,
-            round: Some(agent_round),
-        };
-        if let Err(err) = session.record_retry_resolution(record.clone()).await {
-            tracing::warn!(error = %err, "could not persist retry resolution");
-        }
-        let _ = tx.send(round_response(
-            &session_id,
-            RoundEvent::RetryResolved(record),
-        ));
-        tracing::info!(
-            session = %session_id,
-            round = agent_round,
-            attempts = retry_faults.len(),
-            "round recovered after transient provider retries"
-        );
     }
 
     // Phase 5: Round EOL Aspect Hook

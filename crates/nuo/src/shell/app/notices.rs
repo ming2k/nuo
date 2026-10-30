@@ -80,92 +80,6 @@ pub(crate) fn fault_dwell_ms(text: &str) -> u64 {
     (FAULT_BUBBLE_FLOOR_MS + words * READING_MS_PER_WORD).min(FAULT_BUBBLE_CEILING_MS)
 }
 
-/// The viewer's own presentation state.
-///
-/// Deliberately *not* a `DialogView` entity: the viewer must be reachable from
-/// every scene (a fault is a fact about the client, not about the conversation),
-/// so its state lives on `App` beside the log it reads rather than inside the
-/// session-scoped dialog registry.
-///
-/// The cursor is an index into the retained log, oldest-first. It is kept in
-/// bounds by [`Self::clamp`] after every mutation, so a notice evicted by the
-/// cap can never leave the cursor pointing past the end.
-#[derive(Debug, Clone, Default)]
-pub struct NoticeViewer {
-    /// The selected notice, oldest-first.
-    pub index: usize,
-    /// Body scroll offset of the viewer.
-    pub scroll: usize,
-    /// Whether the body follows the selection.
-    pub follow: bool,
-    /// Whether the selected row is expanded to its wrapped detail.
-    pub detail: bool,
-    /// Scroll offset of the expanded row's detail.
-    pub detail_scroll: usize,
-    /// The body height the last paint produced. Written by the renderer so
-    /// `PgUp`/`PgDn` step by a real page instead of a guess.
-    pub body_height: u16,
-    /// The screen row the body's first visible line was painted at.
-    ///
-    /// Recorded by the dock and read by the click handler, so pointer
-    /// hit-testing resolves through the geometry that actually painted rather
-    /// than by recomputing the footer stack. `None` until the dock has painted
-    /// once.
-    pub body_origin: Option<u16>,
-    /// The body's width in columns at that paint, so a click maps back to a
-    /// notice through the same wrap arithmetic that laid the rows out.
-    pub body_width: usize,
-}
-
-impl NoticeViewer {
-    /// A viewer that opens at the newest notice, which is what a user reaching
-    /// for it after a missed bubble is looking for.
-    pub fn open_at_newest(count: usize) -> Self {
-        Self {
-            index: count.saturating_sub(1),
-            scroll: 0,
-            follow: true,
-            detail: false,
-            detail_scroll: 0,
-            body_height: 0,
-            body_origin: None,
-            body_width: 0,
-        }
-    }
-
-    /// Keep the cursor inside `[0, count)`.
-    pub fn clamp(&mut self, count: usize) {
-        if count == 0 {
-            self.index = 0;
-            self.detail = false;
-        } else if self.index >= count {
-            self.index = count - 1;
-        }
-    }
-
-    /// Move the cursor by one row and stop following the newest entry.
-    pub fn step(&mut self, forward: bool, count: usize) {
-        self.clamp(count);
-        if forward {
-            self.index = (self.index + 1).min(count.saturating_sub(1));
-        } else {
-            self.index = self.index.saturating_sub(1);
-        }
-        // A deliberate move means the user is reading, not watching: pin the
-        // scroll so a notice arriving mid-read cannot yank the view.
-        self.follow = false;
-        self.detail = false;
-        self.detail_scroll = 0;
-    }
-
-    /// Toggle the selected row's detail block.
-    pub fn toggle_detail(&mut self, count: usize) {
-        self.clamp(count);
-        self.detail = !self.detail && count > 0;
-        self.detail_scroll = 0;
-    }
-}
-
 impl App {
     /// Record one disclosure and paint its bubble.
     ///
@@ -262,7 +176,7 @@ impl App {
 
     /// Whether the notice viewer is open.
     pub(crate) fn notice_viewer_open(&self) -> bool {
-        self.notice_viewer.is_some()
+        self.active_dialog() == Some(crate::shell::surfaces::DialogKind::Notices)
     }
 
     /// Open the notice viewer at the newest notice and acknowledge the log.
@@ -272,13 +186,21 @@ impl App {
     /// instead would leave the badge lit for as long as the viewer is open,
     /// which is a lie the user can see.
     pub(crate) fn open_notice_viewer(&mut self) {
-        self.notice_viewer = Some(NoticeViewer::open_at_newest(self.notice_count()));
+        let count = self.notice_count();
+        self.open_dialog(crate::shell::surfaces::DialogKind::Notices);
+        let notices_dlg = self
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
+        notices_dlg.index = count.saturating_sub(1);
+        notices_dlg.detail = false;
         self.mark_notices_read();
     }
 
     /// Close the viewer, keeping the scroll position for the next open.
     pub(crate) fn close_notice_viewer(&mut self) {
-        self.notice_viewer = None;
+        if self.active_dialog() == Some(crate::shell::surfaces::DialogKind::Notices) {
+            self.close_dialog(crate::shell::surfaces::DialogKind::Notices);
+        }
     }
 
     /// Toggle the viewer.
@@ -425,10 +347,17 @@ mod tests {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
         app.record_notice(NoticeSeverity::Error, "backend", "link down", 1);
         app.open_notice_viewer();
-        app.notice_viewer.as_mut().expect("open").scroll = 4;
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::NoticesDialog>()
+            .scroll = 4;
         app.clear_notices();
         assert!(!app.has_notices());
-        assert_eq!(app.notice_viewer.as_ref().expect("open").scroll, 0);
+        assert_eq!(
+            app.surfaces
+                .dlg::<crate::shell::surfaces::NoticesDialog>()
+                .scroll,
+            0
+        );
     }
 
     #[test]

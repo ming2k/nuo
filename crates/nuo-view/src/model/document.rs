@@ -81,34 +81,6 @@ pub struct ToolInvocation {
     pub children: Vec<TranscriptMessage>,
 }
 
-/// A subagent's provider-retry episode: the live setback *and* the faults it
-/// recovered from.
-///
-/// Both facts belong to one episode, so they live in one type rather than as
-/// two parallel fields on [`MessageKind::ToolStep`] that a future caller could
-/// update independently (and thereby report a recovered fault list beside a
-/// live countdown). The step holds `Option<Box<Self>>`: `None` is the normal
-/// state of a subagent that never retried.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubagentRetry {
-    /// The live setback, or `None` once the loop recovered.
-    pub progress: Option<crate::retry::RetryProgress>,
-    /// The faults the loop recovered from, oldest first. Non-empty only after a
-    /// recovery, so the step's outcome row can report what the subagent
-    /// survived.
-    pub recovered: Vec<String>,
-}
-
-impl SubagentRetry {
-    /// A fresh episode carrying its first scheduled setback.
-    pub fn scheduled(progress: crate::retry::RetryProgress) -> Self {
-        Self {
-            progress: Some(progress),
-            recovered: Vec::new(),
-        }
-    }
-}
-
 /// Detailed execution phase of an autonomous tool slot (ADR-0046).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolExecutionPhase {
@@ -190,10 +162,6 @@ pub enum SystemNoticeTopic {
     /// Image attachments were withheld from a request because the route cannot
     /// take them.
     Images,
-    /// The round survived transient provider faults and completed. The
-    /// success-side twin of [`Self::Interrupted`]: one anchor per recovered
-    /// round, carrying the fault list as its detail.
-    Recovered,
     Custom(String),
 }
 
@@ -203,9 +171,9 @@ pub enum SystemNoticeTopic {
 /// retry attempt pair. Both fields became dead ends once the live retry stopped
 /// being a notice: the attempt count lives in `nuo_view::retry::RetryProgress`,
 /// and a provider fault that reaches the transcript is a *round outcome*
-/// (`round_interrupted` / `retry_recovered`), which is a system topic. Keeping
-/// the variant would have left a field that is always `None` — the exact shape
-/// that invites a future producer to fill it with a second, disagreeing count.
+/// (`round_interrupted`), which is a system topic. Keeping the variant would
+/// have left a field that is always `None` — the exact shape that invites a
+/// future producer to fill it with a second, disagreeing count.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NoticeOrigin {
     System { topic: SystemNoticeTopic },
@@ -276,8 +244,8 @@ pub enum MessageKind {
         /// `starting`. Not serialized — restored sessions render terminal
         /// steps, which never show a peek.
         activity: Option<String>,
-        /// The subagent's provider-retry episode, from
-        /// [`nuo_wire::SubagentEvent::RetryScheduled`] / `RetryResolved`.
+        /// The subagent's provider-retry progress, from
+        /// [`nuo_wire::SubagentEvent::RetryScheduled`].
         ///
         /// A subagent's setback is real state with a real countdown, so it gets
         /// the same typed treatment as the principal round's
@@ -285,7 +253,7 @@ pub enum MessageKind {
         /// string the renderer would have to parse. Boxed because almost every
         /// step in a transcript has never retried, and `ToolStep` is already the
         /// largest `MessageKind` variant.
-        retry: Option<Box<SubagentRetry>>,
+        retry: Option<Box<crate::retry::RetryProgress>>,
         /// ADR-0026: argument bytes received so far while this call's
         /// arguments are still streaming (count-only, `[INV-STREAM-TOOL-03]`).
         /// `None` once the call dispatches (the count stops being meaningful)
@@ -1705,10 +1673,10 @@ impl TranscriptMessage {
             | SubagentEvent::StreamEnd(_)
             | SubagentEvent::StreamReasoningStart { .. }
             | SubagentEvent::StreamReasoningDelta(_)
-            | SubagentEvent::StreamReasoningEnd(_) => *awaiting = false,
-            // A scheduled retry is a pause, not progress: it clears nothing.
-            // A resolved retry means the child is running again.
-            SubagentEvent::RetryResolved { .. } => *awaiting = false,
+            | SubagentEvent::StreamReasoningEnd(_) => {
+                *awaiting = false;
+                *retry = None;
+            }
             _ => {}
         }
         match event {
@@ -1870,20 +1838,12 @@ impl TranscriptMessage {
                 let retry_at =
                     std::time::Instant::now() + std::time::Duration::from_millis(*delay_ms);
                 let next = match retry.take() {
-                    Some(episode) => match episode.progress {
-                        Some(progress) => progress.with_next_attempt(
-                            *attempt,
-                            *max_attempts,
-                            retry_at,
-                            message.clone(),
-                        ),
-                        None => crate::retry::RetryProgress::scheduled(
-                            *attempt,
-                            *max_attempts,
-                            retry_at,
-                            message.clone(),
-                        ),
-                    },
+                    Some(progress) => progress.with_next_attempt(
+                        *attempt,
+                        *max_attempts,
+                        retry_at,
+                        message.clone(),
+                    ),
                     None => crate::retry::RetryProgress::scheduled(
                         *attempt,
                         *max_attempts,
@@ -1891,21 +1851,7 @@ impl TranscriptMessage {
                         message.clone(),
                     ),
                 };
-                *retry = Some(Box::new(SubagentRetry::scheduled(next)));
-            }
-            // The child recovered: the setback retires and the fault list
-            // becomes part of the step's outcome, so a user who scrolled away
-            // still learns the subagent had to fight for its answer.
-            SubagentEvent::RetryResolved { attempts, faults } => {
-                let _ = attempts;
-                *activity = None;
-                // The setback retires and the fault list becomes the episode's
-                // record: one type, so a recovered list can never sit beside a
-                // live countdown.
-                *retry = Some(Box::new(SubagentRetry {
-                    progress: None,
-                    recovered: faults.clone(),
-                }));
+                *retry = Some(Box::new(next));
             }
             // Full-duplex (ADR-0029): a subagent surfaced a permission /
             // ask_user request up through the subagent tool. The down-direction
@@ -2455,7 +2401,7 @@ impl TranscriptMessage {
                 None => "awaiting approval".to_string(),
             });
         }
-        if let Some(progress) = retry.as_ref().and_then(|episode| episode.progress.as_ref()) {
+        if let Some(progress) = retry.as_ref() {
             return Some(progress.label(std::time::Instant::now()));
         }
         let current = match children.last() {
@@ -2484,8 +2430,7 @@ impl TranscriptMessage {
             // that precedes the first child event.
             _ => activity.clone(),
         };
-        // A transport wait that is not a live setback (a restored step, or one
-        // whose RetryResolved never landed) is still a pause, not progress:
+        // A transport wait that is not a live setback is still a pause, not progress:
         // bare phrase, same rule as `awaiting approval` above — `running` would
         // falsely claim forward motion.
         let activity = match current {
@@ -2514,7 +2459,6 @@ impl TranscriptMessage {
             status,
             output,
             structured,
-            retry,
             ..
         } = &self.kind
         else {
@@ -2532,18 +2476,7 @@ impl TranscriptMessage {
             .map(str::trim)
             .find(|line| !line.is_empty())
             .map(str::to_string)?;
-        // A subagent that had to fight for its answer says so. Without this the
-        // recovered fault list the episode records would be write-only state
-        // nobody could ever read — and the user would have no way to know a
-        // child task survived four backoffs before concluding.
-        let recovered = retry.as_ref().map_or(0, |episode| episode.recovered.len());
-        if recovered == 0 {
-            return Some(conclusion);
-        }
-        Some(format!(
-            "{conclusion}  (recovered after {recovered} provider {})",
-            if recovered == 1 { "retry" } else { "retries" }
-        ))
+        Some(conclusion)
     }
 
     pub fn reasoning(content: impl Into<String>) -> Self {
@@ -2863,48 +2796,6 @@ impl TranscriptMessage {
     /// paste, so callers surface "nothing to copy" instead.
     pub fn diagnostic(&self) -> Option<crate::model::diagnostic::DiagnosticRecord> {
         crate::model::diagnostic::DiagnosticRecord::from_message(self)
-    }
-
-    /// Construct the **recovered-round anchor**: the success-side twin of
-    /// [`Self::round_interrupted`], and the only transcript row a provider
-    /// retry ever produces.
-    ///
-    /// The live retry itself owns no row — it is chrome (`crate::retry`) and a
-    /// receipt-log line. What survives into the conversation is the *turn
-    /// outcome*: this round hit N transient faults and then completed. Per
-    /// ADR-0117 a turn outcome is an anchor — a short label plus a pointer to
-    /// its durable record — so the label is one line and the fault list is the
-    /// expandable detail, never a transport payload dumped into the timeline.
-    ///
-    /// Built from [`nuo_wire::RetryResolution`] — the **durable** record — on
-    /// both paths: the live one (the harness emits `RetryResolved` after
-    /// persisting it) and the resumed one (`transcript_retry_resolutions_from_records`).
-    /// That is what makes a reloaded session show the same row
-    /// ([INV-TRANSCRIPT-04]).
-    pub fn retry_recovered(record: &nuo_wire::RetryResolution) -> Self {
-        let retries = record.attempts as usize;
-        let mut title = format!(
-            "Recovered after {} provider {}",
-            retries,
-            if retries == 1 { "retry" } else { "retries" }
-        );
-        if let Some(round) = record.round {
-            title.push_str(&format!(" (round {round})"));
-        }
-        Self::notice(NoticeSeverity::Info, title.clone())
-            .with_notice_parts(NoticeParts {
-                origin: Some(NoticeOrigin::System {
-                    topic: SystemNoticeTopic::Recovered,
-                }),
-                topic: Some("recovered".to_string()),
-                title,
-                detail: if record.faults.is_empty() {
-                    None
-                } else {
-                    Some(record.faults.join("\n"))
-                },
-            })
-            .with_sent_at_ms(record.at_ms)
     }
 
     /// A reasoning trace that has not yet been stamped with a duration — i.e.

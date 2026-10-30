@@ -742,7 +742,6 @@ mod readiness_protocol_tests {
             provider_keys: None,
             commands: Vec::new(),
             round_interrupts: Vec::new(),
-            retry_resolutions: Vec::new(),
             command_catalog: Some(CommandCatalog::default()),
             watermark_seq: 0,
         };

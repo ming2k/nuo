@@ -231,7 +231,6 @@ fn paint_transcript(
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
-                notice_dock: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,

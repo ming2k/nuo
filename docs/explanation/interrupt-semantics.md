@@ -46,8 +46,6 @@ Two stop paths differ in whether the round's own cleanup runs:
 - The plain **interrupt** path (`User`) does not bump the generation, so the round unwinds and emits its own cleanup.
 - The **superseded** path's stale round has its cleanup generation-suppressed — before the record existed, this left no trace at all, which is precisely why the record was introduced.
 
-The success-side mirror is `RetryResolution`: where an interrupt records "this round stopped", a retry-resolution records "this round hit N retryable faults and then completed", written once when the round reaches its natural terminal path after at least one retry.
-
 ---
 
 ## 5. Related

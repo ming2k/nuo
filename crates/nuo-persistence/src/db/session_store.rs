@@ -321,8 +321,7 @@ pub(crate) fn save_session_inner(
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                 serde_json::to_string(&data.round_interrupts)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                serde_json::to_string(&data.retry_resolutions)
-                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                "[]",
                 data.retry_pending
                     .as_ref()
                     .and_then(|s| serde_json::to_string(s).ok()),
@@ -747,7 +746,7 @@ pub(crate) fn load_session_full(
         disabled_tools,
         commands,
         round_interrupts,
-        retry_resolutions,
+        _retry_resolutions,
         retry_pending,
         checksum,
         schema_version,
@@ -965,10 +964,6 @@ pub(crate) fn load_session_full(
         }),
         round_interrupts: serde_json::from_str(&round_interrupts).unwrap_or_else(|error| {
             tracing::warn!(session = %session_id, error = %error, "round_interrupts column undecodable; treated as empty");
-            Default::default()
-        }),
-        retry_resolutions: serde_json::from_str(&retry_resolutions).unwrap_or_else(|error| {
-            tracing::warn!(session = %session_id, error = %error, "retry_resolutions column undecodable; treated as empty");
             Default::default()
         }),
         retry_pending: retry_pending

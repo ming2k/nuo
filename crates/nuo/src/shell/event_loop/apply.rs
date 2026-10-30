@@ -1048,16 +1048,6 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     user_msg.cancel_prompt();
                 }
             }
-            TranscriptEdit::RetrySettled { recovered } => {
-                // The round's retry episode is over. If it recovered, admit the
-                // anchor through the same gate as any other turn outcome; if
-                // not, there is nothing to say — the interrupt or error anchor
-                // already owns the record. Either way the live countdown is
-                // chrome and is retired by the phase write, not here.
-                if let Some(message) = recovered {
-                    messages.push(message);
-                }
-            }
             TranscriptEdit::Append { class, message } => {
                 // The single admission gate. A row whose class is not dialogue
                 // or turn structure is refused here rather than silently

@@ -881,10 +881,6 @@ pub struct App {
     /// the bubble names the same topic the viewer will show.
     pub notice_toast_topic: String,
     pub notice_toast_severity: NoticeSeverity,
-    /// The notice viewer's presentation state, when it is open (`app::notices`).
-    /// Not a dialog entity: a fault is a fact about this client, so the viewer
-    /// is reachable from every scene rather than being session-scoped.
-    pub(crate) notice_viewer: Option<notices::NoticeViewer>,
     /// When set (e.g. via `NUO_DEV_TOAST`), keeps the toast pinned during keypresses for visual dev inspection.
     pub dev_toast_pinned: bool,
     /// Deadline until which a second Ctrl+C quits. Wall-clock based (like

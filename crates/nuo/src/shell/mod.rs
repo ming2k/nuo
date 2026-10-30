@@ -111,7 +111,6 @@ pub use transcript::{finalize_streaming_reasoning, rebase_transcript_rounds};
 use transcript::{
     merge_command_rows, merge_round_interrupt_rows, transcript_commands_from_ledger,
     transcript_interrupts_from_records, transcript_messages_from_core,
-    transcript_retry_resolutions_from_records,
 };
 
 /// Where the session this TUI drives lives. All sessions in the unified
@@ -253,7 +252,6 @@ pub struct TuiLaunchConfig {
     pub initial_round_count: u64,
     pub command_catalog: nuo_wire::CommandCatalog,
     pub initial_round_interrupts: Vec<nuo_wire::RoundInterrupt>,
-    pub initial_retry_resolutions: Vec<nuo_wire::RetryResolution>,
     pub tui_config: config::TuiConfig,
     pub input_history_config: config::InputHistoryConfig,
     pub session: SessionSource,
@@ -347,7 +345,6 @@ pub(crate) async fn run_tui_with_input(
         initial_round_count,
         command_catalog,
         initial_round_interrupts,
-        initial_retry_resolutions,
         tui_config,
         input_history_config,
         session,
@@ -376,10 +373,6 @@ pub(crate) async fn run_tui_with_input(
     restored = merge_round_interrupt_rows(
         restored,
         transcript_interrupts_from_records(initial_round_interrupts),
-    );
-    restored = merge_round_interrupt_rows(
-        restored,
-        transcript_retry_resolutions_from_records(initial_retry_resolutions),
     );
     rebase_transcript_rounds(&mut restored, initial_round_count);
     // M1: the response translator and the monitor client own **no**
@@ -733,16 +726,8 @@ pub(crate) async fn run_tui_with_input(
                                     .await;
                             }
                             RoundEvent::RoundCompleted(_summary) => {
-                                // The retry episode is over. The *anchor* is not
-                                // minted here: the harness emits
-                                // `RetryResolved` with the durable record it
-                                // just persisted, and that is the single
-                                // source for the row (so a resumed session and
-                                // a live one render the same bytes —
-                                // `[INV-TRANSCRIPT-04]`). This arm only retires
-                                // the transient state.
+                                // The retry episode is over; retire any transient state.
                                 retry_progress = None;
-                                transcript!(E::RetrySettled { recovered: None });
                             }
                             RoundEvent::RoundInterrupted(record) => {
                                 // C11: the durable twin of the live stop.
@@ -893,21 +878,6 @@ pub(crate) async fn run_tui_with_input(
                                     mutations.send(M::SetResponding(false)).await;
                                     mutations.send(M::SetPhase(None)).await;
                                 }
-                            }
-                            RoundEvent::RetryResolved(resolution) => {
-                                // The round recovered after N transient faults.
-                                // This event carries the record the harness just
-                                // persisted, so the row is built from exactly the
-                                // bytes a resumed session will rebuild it from —
-                                // one constructor, one seam, no live/resume
-                                // split. The transient countdown is already
-                                // retired by the phase write that follows.
-                                retry_progress = None;
-                                transcript!(E::RetrySettled {
-                                    recovered: Some(TranscriptMessage::retry_recovered(
-                                        &resolution
-                                    )),
-                                });
                             }
                             RoundEvent::Activity(status) => {
                                 // View-scoped chrome: record this session's own
@@ -1578,7 +1548,6 @@ pub(crate) async fn run_tui_with_input(
                                     .as_ref()
                                     .map_or(0, nuo_view::retry::RetryProgress::retries);
                                 retry_progress = None;
-                                transcript!(E::RetrySettled { recovered: None });
                                 // A terminal round error may still carry the raw
                                 // retryable-envelope encoding: strip it so the
                                 // user sees the message, never the wire framing.
@@ -1795,7 +1764,6 @@ pub(crate) async fn run_tui_with_input(
                         messages,
                         commands,
                         round_interrupts,
-                        retry_resolutions,
                     } => {
                         mutations.send(M::ClearSwitchingSession).await;
                         let mut rebuilt =
@@ -1805,10 +1773,6 @@ pub(crate) async fn run_tui_with_input(
                         rebuilt = merge_round_interrupt_rows(
                             rebuilt,
                             transcript_interrupts_from_records(round_interrupts),
-                        );
-                        rebuilt = merge_round_interrupt_rows(
-                            rebuilt,
-                            transcript_retry_resolutions_from_records(retry_resolutions),
                         );
                         mutations
                             .send(M::Transcript {
@@ -2083,10 +2047,6 @@ pub(crate) async fn run_tui_with_input(
                             rebuilt,
                             transcript_interrupts_from_records(snapshot.round_interrupts),
                         );
-                        rebuilt = merge_round_interrupt_rows(
-                            rebuilt,
-                            transcript_retry_resolutions_from_records(snapshot.retry_resolutions),
-                        );
                         mutations
                             .send(M::Transcript {
                                 edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
@@ -2358,7 +2318,6 @@ pub(crate) async fn run_tui_with_input(
         notice_toast_until: None,
         notice_toast_message: String::new(),
         notice_toast_topic: String::new(),
-        notice_viewer: None,
         notice_toast_severity: nuo_view::model::document::NoticeSeverity::Info,
         ctrl_c_armed_until: None,
         esc_armed_until: None,

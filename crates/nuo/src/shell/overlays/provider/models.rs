@@ -301,24 +301,23 @@ pub(crate) fn model_list_body(
         ))
     };
 
-    // Identity column width, shared by every row so the list stays tabular.
-    // Sizing keys on the *rendered label* — the provider's own name when it
-    // publishes one, else the wire id — because that is what leads the row.
-    // The label owns this region; the wire id it names is anchored in the
-    // column beside it, and that column drops for the whole list when the
-    // region cannot fund a readable id (docs/reference/tui/modals.md:
-    // name-first, id-fallback).
-    // Connection column positioning: allocate ~67% (2/3) to the primary
-    // identity region (label + wire id) so modern descriptive model names
-    // (25-35 columns) have ample room, while ensuring the right side funds
-    // the connection name and trailing status badge without overflowing.
+    // ------------------------------------------------------------------
+    // Column layout: demand-driven with percentage width caps.
+    // Each column has a percentage cap based on dialog width (rounded to integer
+    // for the terminal TUI grid).
+    // Context size column is removed; specs only houses vision and reasoning effort tags.
+    // ------------------------------------------------------------------
+
+    // 1. Connection Column: provider label, capped at ~20% of dialog width (min 8).
     let max_conn_len = models
         .iter()
         .map(|m| m.provider_label.width())
         .max()
         .unwrap_or(8);
-    let conn_width = max_conn_len.clamp(8, 24);
+    let conn_cap = ((body_width * 20 + 50) / 100).max(8);
+    let conn_width = max_conn_len.clamp(8, conn_cap).min(body_width);
 
+    // 2. Status Column: trailing status badge ("disabled", "stale", etc.), capped at ~15%.
     let max_status_len = models
         .iter()
         .map(|rm| {
@@ -335,39 +334,130 @@ pub(crate) fn model_list_body(
         .max()
         .unwrap_or(0);
 
-    let status_demand = if max_status_len > 0 {
-        max_status_len + GROUP_GAP
+    let status_cap = (body_width * 15 + 50) / 100;
+    let status_width = if max_status_len > 0 {
+        max_status_len.min(status_cap).max(6)
     } else {
         0
     };
-    let right_demand = conn_width + status_demand + GROUP_GAP;
-    let min_conn_col = (GUTTER + 18 + GROUP_GAP).min(body_width);
-    let max_conn_col = body_width.saturating_sub(right_demand);
-    let target_conn_col = (body_width * 2) / 3;
-    let conn_col = target_conn_col.clamp(min_conn_col, max_conn_col.max(min_conn_col));
-
-    // Usable width for the identity region (before conn_col, minus gutter and gap).
-    let usable_identity = conn_col.saturating_sub(GUTTER + GROUP_GAP);
-    let label_width = |m: &RankedModel| m.name.as_deref().unwrap_or(m.model.as_str()).width();
-    let max_label_len = models.iter().map(label_width).max().unwrap_or(20);
-    // Never below 18 (so a short-label list still reads as a column) and never
-    // above usable_identity (so the label cannot push or touch the connection column).
-    let label_col_width = if usable_identity < 18 {
-        usable_identity
+    let status_demand = if status_width > 0 {
+        status_width + GROUP_GAP
     } else {
-        max_label_len.clamp(18, usable_identity)
+        0
     };
 
-    // Specs layout: CTX (4) + CAP (3) + EFFORT (5) = 12 + 2 gaps = 14 cols.
-    const SPECS_WIDTH: usize = 14;
-    let can_fit_specs = conn_col >= (GUTTER + label_col_width + GROUP_GAP + SPECS_WIDTH);
-    let specs_col = conn_col.saturating_sub(SPECS_WIDTH + GROUP_GAP);
+    // 3. Specs Column: CAP (vision, 3 cols) + EFFORT (e.g. "high", up to max_effort_len).
+    // Context size is completely removed from the model list row.
+    let any_vision = models.iter().any(|m| m.vision == Some(true));
+    fn model_effort_tag(rm: &RankedModel) -> &str {
+        if rm.usable {
+            match (rm.thinking, rm.effort.as_deref()) {
+                (Some(true), Some(effort)) => effort,
+                (Some(true), None) => "on",
+                (Some(false), _) if !rm.effort_levels.is_empty() => "off",
+                (None, Some(effort)) => effort,
+                _ => "",
+            }
+        } else {
+            ""
+        }
+    }
+    let max_effort_len = models
+        .iter()
+        .map(|m| model_effort_tag(m).width())
+        .max()
+        .unwrap_or(0);
+    let any_effort = max_effort_len > 0;
+    let specs_demand = match (any_vision, any_effort) {
+        (true, true) => 3 + 1 + max_effort_len,
+        (true, false) => 3,
+        (false, true) => max_effort_len,
+        (false, false) => 0,
+    };
+    let specs_cap = (body_width * 12 + 50) / 100;
+    let specs_width = specs_demand.min(specs_cap);
+    let specs_space = if specs_width > 0 {
+        specs_width + GROUP_GAP
+    } else {
+        0
+    };
 
-    // Wire ID sits in the secondary column, anchored after the label column + gap.
-    let id_col = GUTTER + label_col_width + GROUP_GAP;
-    let id_budget_end = if can_fit_specs { specs_col } else { conn_col };
-    let id_budget = id_budget_end.saturating_sub(id_col + GROUP_GAP);
-    let show_id_column = id_budget >= MIN_ID_COLUMN_WIDTH;
+    // 4. Primary Identity (Model Label) & Secondary Wire ID:
+    let has_distinct_id = models.iter().any(|m| {
+        m.name
+            .as_deref()
+            .is_some_and(|name| name != m.model.as_str())
+    });
+    let label_width = |m: &RankedModel| m.name.as_deref().unwrap_or(m.model.as_str()).width();
+    let max_label_len = models.iter().map(label_width).max().unwrap_or(20);
+    let label_cap = (body_width * 60 + 50) / 100;
+    let preferred_label_len = max_label_len.clamp(18, label_cap);
+
+    // 5. Connection Column Positioning:
+    // Sized on-demand and aligned across rows. Allocate ~70% to identity + specs,
+    // adapting on-demand if the primary label needs more room within bounds.
+    let right_demand = conn_width + status_demand + GROUP_GAP;
+    let max_conn_col = body_width.saturating_sub(right_demand);
+    let min_conn_col = (GUTTER + preferred_label_len + specs_space + GROUP_GAP).clamp(
+        (GUTTER + 18 + GROUP_GAP).min(body_width),
+        max_conn_col.max(GUTTER + 18 + GROUP_GAP),
+    );
+    let target_conn_col = (body_width * 70 + 50) / 100;
+    let conn_col = target_conn_col.clamp(min_conn_col, max_conn_col.max(min_conn_col));
+
+    // Space available for identity before specs/connection:
+    let id_region_limit = conn_col.saturating_sub(specs_space);
+    let net_id_space = id_region_limit.saturating_sub(GUTTER + GROUP_GAP);
+    let id_cap = ((body_width * 30 + 50) / 100).max(MIN_ID_COLUMN_WIDTH);
+
+    // Demand-driven identity allocation:
+    let shared_label_cap = (body_width * 45 + 50) / 100;
+    let label_demand = max_label_len.clamp(18, shared_label_cap);
+    let id_avail = net_id_space.saturating_sub(label_demand + GROUP_GAP);
+    let can_fit_id = has_distinct_id && id_avail >= MIN_ID_COLUMN_WIDTH;
+
+    let (label_col_width, show_id_column, id_col, id_budget) = if can_fit_id {
+        let max_id_len = models
+            .iter()
+            .filter(|m| m.name.as_deref().is_some_and(|n| n != m.model.as_str()))
+            .map(|m| m.model.width())
+            .max()
+            .unwrap_or(MIN_ID_COLUMN_WIDTH);
+        let id_needed = max_id_len.clamp(MIN_ID_COLUMN_WIDTH, id_cap);
+        let mut l_width = label_demand;
+
+        // If wire id doesn't need all available room, let label expand to satisfy demand:
+        if id_avail > id_needed && max_label_len > l_width {
+            let spare = id_avail - id_needed;
+            l_width += (max_label_len - l_width).min(spare);
+        }
+
+        let id_col = GUTTER + l_width + GROUP_GAP;
+        let id_budget = id_region_limit
+            .saturating_sub(id_col + GROUP_GAP)
+            .min(id_cap);
+        (l_width, true, id_col, id_budget)
+    } else {
+        let w = if net_id_space < 18 {
+            net_id_space
+        } else {
+            max_label_len.clamp(18, label_cap.min(net_id_space))
+        };
+        (w, false, 0, 0)
+    };
+
+    let can_fit_specs = specs_width > 0
+        && conn_col
+            >= (GUTTER
+                + label_col_width
+                + (if show_id_column {
+                    id_budget + GROUP_GAP
+                } else {
+                    0
+                })
+                + GROUP_GAP
+                + specs_space);
+    let specs_col = conn_col.saturating_sub(specs_width + GROUP_GAP);
 
     for line in geometry {
         match line {
@@ -396,25 +486,8 @@ pub(crate) fn model_list_body(
                     String::new()
                 };
 
-                let ctx_text = if rm.context_window > 0 {
-                    rm.format_context_window()
-                } else {
-                    String::new()
-                };
-
                 let cap_text = if rm.vision == Some(true) { "vis" } else { "" };
-
-                let effort_text = if rm.usable {
-                    match (rm.thinking, rm.effort.as_deref()) {
-                        (Some(true), Some(effort)) => effort,
-                        (Some(true), None) => "on",
-                        (Some(false), _) if !rm.effort_levels.is_empty() => "off",
-                        (None, Some(effort)) => effort,
-                        _ => "",
-                    }
-                } else {
-                    ""
-                };
+                let effort_text = model_effort_tag(rm);
 
                 // 1. Provider label — the row's PRIMARY column, always bold.
                 // The provider's own name for the model (`Qwen3.8-Flash`) is
@@ -505,26 +578,24 @@ pub(crate) fn model_list_body(
                     list_row = list_row.group(id_group);
                 }
 
-                // 3. Model specs: CTX (4) + CAP (3) + EFFORT (5)
+                // 3. Capabilities: vision ("vis", 3) + reasoning effort
                 if can_fit_specs {
                     let mut specs_group = RowGroup::column(specs_col);
-                    let ctx_fg = if disabled { theme.dim() } else { style.dim };
-                    if !ctx_text.is_empty() {
-                        specs_group = specs_group.text(format!("{ctx_text:>4}"), ctx_fg, 0);
-                    } else {
-                        specs_group = specs_group.text("    ", style.dim, 0);
+                    if any_vision {
+                        let cap_fg = if disabled { theme.dim() } else { theme.ok() };
+                        if !cap_text.is_empty() {
+                            specs_group = specs_group.text(format!("{cap_text:>3}"), cap_fg, 0);
+                        } else {
+                            specs_group = specs_group.text("   ", style.dim, 0);
+                        }
                     }
 
-                    let cap_fg = if disabled { theme.dim() } else { theme.ok() };
-                    if !cap_text.is_empty() {
-                        specs_group = specs_group.text(format!("{cap_text:>3}"), cap_fg, 1);
-                    } else {
-                        specs_group = specs_group.text("   ", style.dim, 1);
-                    }
-
-                    let effort_fg = if disabled { theme.dim() } else { theme.info() };
-                    if !effort_text.is_empty() {
-                        specs_group = specs_group.text(format!("{effort_text:<5}"), effort_fg, 1);
+                    if any_effort {
+                        let effort_fg = if disabled { theme.dim() } else { theme.info() };
+                        let gap = if any_vision { 1 } else { 0 };
+                        if !effort_text.is_empty() {
+                            specs_group = specs_group.text(effort_text, effort_fg, gap);
+                        }
                     }
                     list_row = list_row.group(specs_group);
                 }

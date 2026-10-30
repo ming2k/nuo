@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0121. Notice Log Residency: The Retained Disclosure Record, Its Viewer, and the Bubble as a Pointer
 
-- Status: Accepted
+- Status: Accepted (Amended by [ADR-0134](0134-two-track-notice-architecture-sovereign-notice-center-dialog-and-footer-dock-eradication.md) §2 — Footer dock replaced by Sovereign Notice Center Dialog)
 - Date: 2026-12-11
 - Deciders: Nuo Architecture Working Group
 - Consulted: Interface Architecture, Presentation Substrate

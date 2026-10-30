@@ -203,7 +203,8 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         DialogKind::HistorySearch
         | DialogKind::Switcher
         | DialogKind::PortShare
-        | DialogKind::Help => ContentModalSpec::TOOLS.modal_spec(),
+        | DialogKind::Help
+        | DialogKind::Notices => ContentModalSpec::TOOLS.modal_spec(),
     }
 }
 
@@ -648,6 +649,19 @@ fn render_dialog(
                 ctx.theme,
             ))
         }
+        DialogKind::Notices => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<NoticesDialog>()
+                .expect("kind");
+            Some(crate::shell::overlays::draw_notices_modal(
+                frame,
+                area,
+                &app.notice_lines().iter().cloned().collect::<Vec<_>>(),
+                d,
+                ctx.theme,
+            ))
+        }
     }
 }
 
@@ -847,6 +861,14 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
         }
         DialogKind::PortShare => DialogOutcome::Consumed,
         DialogKind::Help => DialogOutcome::Consumed,
+        DialogKind::Notices => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<NoticesDialog>()
+                .expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
     }
 }
 
@@ -860,7 +882,7 @@ fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u16) {
             modal_rect.y + 5,
             modal_rect.y + modal_rect.height.saturating_sub(3),
         ),
-        DialogKind::Help => (
+        DialogKind::Help | DialogKind::Notices => (
             modal_rect.y + 2,
             modal_rect.y + modal_rect.height.saturating_sub(2),
         ),
@@ -1524,6 +1546,19 @@ fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::PortShare | DialogKind::Help => DialogOutcome::Consumed,
+        DialogKind::Notices => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<NoticesDialog>()
+                .expect("kind");
+            let count = app.notice_count();
+            if count == 0 {
+                return DialogOutcome::Unhandled;
+            }
+            e.index = rotate(e.index, count, forward);
+            e.follow = true;
+            DialogOutcome::Consumed
+        }
     }
 }
 
@@ -1793,6 +1828,13 @@ impl PortShareDialog {
 
 dialog_entity!(HelpDialog, Help, {});
 
+dialog_entity!(NoticesDialog, Notices, {
+    /// Whether the focused notice's detail view is expanded.
+    detail: bool = false,
+    /// Body height of the modal list.
+    body_height: u16 = 0,
+});
+
 /// A snapshot of every session-scoped dialog entity, archived under a
 /// [`SessionId`](crate::shell::surfaces) so returning to a session reinstates exactly
 /// the modal state the user left behind (`[INV-SURFACE-05]`).
@@ -1832,6 +1874,7 @@ pub struct Dialogs {
     pub switcher: SwitcherDialog,
     pub port_share: PortShareDialog,
     pub help: HelpDialog,
+    pub notices: NoticesDialog,
     /// Per-session archives of the session-scoped entities.
     session_archive: std::collections::HashMap<String, SessionSnapshot>,
     /// The session whose live state the session-scoped entities currently
@@ -1919,6 +1962,7 @@ impl Dialogs {
             DialogKind::Switcher => &self.switcher,
             DialogKind::PortShare => &self.port_share,
             DialogKind::Help => &self.help,
+            DialogKind::Notices => &self.notices,
         }
     }
 
@@ -1942,6 +1986,7 @@ impl Dialogs {
             DialogKind::Switcher => &mut self.switcher,
             DialogKind::PortShare => &mut self.port_share,
             DialogKind::Help => &mut self.help,
+            DialogKind::Notices => &mut self.notices,
         }
     }
 
@@ -1972,6 +2017,7 @@ impl Dialogs {
             DialogKind::Switcher => Box::new(std::mem::take(&mut self.switcher)),
             DialogKind::PortShare => Box::new(std::mem::take(&mut self.port_share)),
             DialogKind::Help => Box::new(std::mem::take(&mut self.help)),
+            DialogKind::Notices => Box::new(std::mem::take(&mut self.notices)),
         }
     }
 
@@ -2049,6 +2095,9 @@ impl Dialogs {
             DialogKind::Help => {
                 self.help = *view.into_any().downcast::<HelpDialog>().expect("kind")
             }
+            DialogKind::Notices => {
+                self.notices = *view.into_any().downcast::<NoticesDialog>().expect("kind")
+            }
         }
     }
 
@@ -2072,6 +2121,7 @@ impl Dialogs {
             DialogKind::Switcher => self.switcher.selected,
             DialogKind::PortShare => 0,
             DialogKind::Help => 0,
+            DialogKind::Notices => self.notices.index,
         }
     }
 
@@ -2095,6 +2145,7 @@ impl Dialogs {
             DialogKind::Switcher => self.switcher.selected = value,
             DialogKind::PortShare => {}
             DialogKind::Help => {}
+            DialogKind::Notices => self.notices.index = value,
         }
     }
 
@@ -2118,6 +2169,7 @@ impl Dialogs {
             DialogKind::Switcher => self.switcher.follow,
             DialogKind::PortShare => false,
             DialogKind::Help => false,
+            DialogKind::Notices => self.notices.follow,
         }
     }
 
@@ -2141,6 +2193,7 @@ impl Dialogs {
             DialogKind::Switcher => self.switcher.keys_open,
             DialogKind::PortShare => false,
             DialogKind::Help => false,
+            DialogKind::Notices => self.notices.keys_open,
         }
     }
 
@@ -2165,6 +2218,7 @@ impl Dialogs {
             DialogKind::Switcher => self.switcher.keys_open = open,
             DialogKind::PortShare => {}
             DialogKind::Help => {}
+            DialogKind::Notices => self.notices.keys_open = open,
         }
         if !open {
             *self.keys_scroll_mut(kind) = 0;
@@ -2191,6 +2245,7 @@ impl Dialogs {
             DialogKind::Switcher => &mut self.switcher.keys_scroll,
             DialogKind::PortShare => &mut self.port_share.scroll,
             DialogKind::Help => &mut self.help.scroll,
+            DialogKind::Notices => &mut self.notices.keys_scroll,
         }
     }
 

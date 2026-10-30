@@ -261,7 +261,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         notice_toast_until: None,
         notice_toast_message: String::new(),
         notice_toast_topic: String::new(),
-        notice_viewer: None,
         notice_toast_severity: NoticeSeverity::Info,
         dev_toast_pinned: false,
         ctrl_c_armed_until: None,

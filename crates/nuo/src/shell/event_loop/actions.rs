@@ -1706,31 +1706,44 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         }
         input::InputAction::NoticesSelect { forward } => {
             let count = app.notice_count();
-            if let Some(viewer) = app.notice_viewer.as_mut() {
-                viewer.step(forward, count);
+            if count > 0 && app.notice_viewer_open() {
+                let dlg = app
+                    .surfaces
+                    .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
+                if forward {
+                    dlg.index = (dlg.index + 1).min(count - 1);
+                } else {
+                    dlg.index = dlg.index.saturating_sub(1);
+                }
+                dlg.follow = false;
+                dlg.detail = false;
             }
         }
         input::InputAction::NoticesPage { forward } => {
-            // One page is the panel's own body height, which its renderer wrote
-            // back this frame; the fallback keeps the verb usable on the very
-            // first keypress, before any paint has happened.
-            let page = app
-                .notice_viewer
-                .as_ref()
-                .map_or(1, |v| v.body_height.max(1)) as usize;
-            if let Some(viewer) = app.notice_viewer.as_mut() {
-                viewer.scroll = if forward {
-                    viewer.scroll.saturating_add(page)
+            if app.notice_viewer_open() {
+                let page = app
+                    .surfaces
+                    .dlg::<crate::shell::surfaces::NoticesDialog>()
+                    .body_height
+                    .max(1) as usize;
+                let dlg = app
+                    .surfaces
+                    .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
+                dlg.scroll = if forward {
+                    dlg.scroll.saturating_add(page)
                 } else {
-                    viewer.scroll.saturating_sub(page)
+                    dlg.scroll.saturating_sub(page)
                 };
-                viewer.follow = false;
+                dlg.follow = false;
             }
         }
         input::InputAction::NoticesToggleDetail => {
             let count = app.notice_count();
-            if let Some(viewer) = app.notice_viewer.as_mut() {
-                viewer.toggle_detail(count);
+            if count > 0 && app.notice_viewer_open() {
+                let dlg = app
+                    .surfaces
+                    .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
+                dlg.detail = !dlg.detail;
             }
         }
         input::InputAction::NoticesClear => {

@@ -29,9 +29,10 @@ mod dialogs;
 #[allow(unused_imports)]
 pub use dialogs::{
     ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HelpDialog,
-    HistorySearchDialog, McpDialog, ModelsDialog, PermissionsDialog, PortShareDialog, QueueDialog,
-    QuotasDialog, SessionTraceDialog, SessionTreeDialog, SessionsDialog, SkillsDialog,
-    SwitcherDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog, UsageStatsDialog,
+    HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PermissionsDialog,
+    PortShareDialog, QueueDialog, QuotasDialog, SessionTraceDialog, SessionTreeDialog,
+    SessionsDialog, SkillsDialog, SwitcherDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog,
+    UsageStatsDialog,
 };
 
 /// Root full-screen scene identifier (closed set of destinations).
@@ -105,6 +106,7 @@ pub enum DialogKind {
     Switcher,
     PortShare,
     Help,
+    Notices,
 }
 
 impl DialogKind {
@@ -113,7 +115,7 @@ impl DialogKind {
     pub const Sessions: DialogKind = DialogKind::Threads;
 
     /// Every dialog id that appears in the switcher's reference/discovery list.
-    pub const ALL: [DialogKind; 16] = [
+    pub const ALL: [DialogKind; 17] = [
         DialogKind::Tools,
         DialogKind::Mcp,
         DialogKind::Skills,
@@ -130,6 +132,7 @@ impl DialogKind {
         DialogKind::SessionTree,
         DialogKind::PortShare,
         DialogKind::Help,
+        DialogKind::Notices,
     ];
 
     /// The label shown in the quick switcher and used for fuzzy matching.
@@ -152,6 +155,7 @@ impl DialogKind {
             DialogKind::Switcher => "Quick switcher",
             DialogKind::PortShare => "Port & sharing",
             DialogKind::Help => "Help & Shortcuts",
+            DialogKind::Notices => "Notices & Disclosures",
         }
     }
 
@@ -175,6 +179,7 @@ impl DialogKind {
             DialogKind::Switcher => "/palette",
             DialogKind::PortShare => "/port",
             DialogKind::Help => "F1 / Alt-h",
+            DialogKind::Notices => "Alt-o / /notices",
         }
     }
 
@@ -191,7 +196,8 @@ impl DialogKind {
             | DialogKind::Connections
             | DialogKind::UsageStats
             | DialogKind::Quotas
-            | DialogKind::Help => DialogScope::Global,
+            | DialogKind::Help
+            | DialogKind::Notices => DialogScope::Global,
             // Session: bound to the ambient session; unwound on session change.
             DialogKind::ThreadStats
             | DialogKind::SessionTrace

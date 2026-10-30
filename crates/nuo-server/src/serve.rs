@@ -190,7 +190,6 @@ impl AttachSyncBuffer {
             provider_keys,
             commands: Vec::new(),
             round_interrupts: Vec::new(),
-            retry_resolutions: Vec::new(),
             command_catalog: None,
             watermark_seq: 0,
         }
@@ -217,7 +216,6 @@ pub(crate) async fn build_full_session_snapshot(
     snapshot.todos = session.todos().await.items;
     snapshot.commands = session.commands().await;
     snapshot.round_interrupts = session.round_interrupts().await;
-    snapshot.retry_resolutions = session.retry_resolutions().await;
     if let Some(selection) = session.provider_selection().await {
         snapshot.provider = selection.connection;
         snapshot.model = selection.model.unwrap_or_default();

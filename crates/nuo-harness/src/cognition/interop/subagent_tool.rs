@@ -928,10 +928,6 @@ impl SubagentTool {
 
         let mut round = subagent.begin_streaming_round();
         let mut attempt: usize = 0;
-        // Faults the child's retry loop recovered from, in order. Reported once
-        // via `RetryResolved` when the sub-task finally completes, so the
-        // parent step's outcome can say the child had to fight for its answer.
-        let mut retry_faults: Vec<String> = Vec::new();
         let result = loop {
             attempt += 1;
             let run = subagent
@@ -974,13 +970,7 @@ impl SubagentTool {
                         "subagent hit a transient provider error; retrying"
                     );
                     // The child's setback is typed state, not prose: the
-                    // parent renders `retry N/M (next in Xs)` from these
-                    // numbers, and the fault list accumulates so the recovered
-                    // event can report what the subagent survived. Publishing
-                    // it as a Notice *and* an Activity string (as this used to)
-                    // meant the same fact arrived twice, in two formats, and
-                    // the renderer had to parse one of them.
-                    retry_faults.push(crate::runtime::retry::public_retry_reason(message));
+                    // parent renders `retry N/M (next in Xs)` from these numbers.
                     on_event(nuo_wire::SubagentEvent::RetryScheduled {
                         attempt,
                         max_attempts: retry_limit,
@@ -1009,17 +999,6 @@ impl SubagentTool {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(id);
-        }
-        // The child's retry loop recovered: one typed event carrying the whole
-        // fault list, mirroring the principal round's `RetryResolved`. Emitted
-        // only on the success path — an interrupted or failed sub-task reports
-        // its faults through the error arm's own text, and a "recovered" claim
-        // over a failed task would be false.
-        if result.is_ok() && !retry_faults.is_empty() {
-            on_event(nuo_wire::SubagentEvent::RetryResolved {
-                attempts: retry_faults.len(),
-                faults: retry_faults.clone(),
-            });
         }
         match result {
             Ok(result) => {

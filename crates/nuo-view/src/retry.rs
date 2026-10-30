@@ -125,10 +125,7 @@ impl RetryProgress {
         self.retry_at = retry_at;
         // Every attempt contributes exactly one fault, including a repeat of
         // the previous one. De-duplicating here would make `faults().len()`
-        // disagree with `retries()` — and the recovered anchor is rebuilt on
-        // resume from the persisted fault list alone (`RetryResolution`), so a
-        // live count that the resume path cannot reproduce is exactly the
-        // live/resume split ADR-0117 `[INV-TRANSCRIPT-04]` forbids.
+        // disagree with `retries()`.
         self.faults.push(fault.into());
         self
     }

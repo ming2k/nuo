@@ -46,7 +46,6 @@ fn transcript_content_rect_spans_band_and_gap_rows() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
-                notice_dock: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,

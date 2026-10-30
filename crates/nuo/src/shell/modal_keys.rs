@@ -158,6 +158,26 @@ pub(crate) fn resolve_modal_key(
                 KeyCode::Esc => return Some(InputAction::CloseModal),
                 _ => return None,
             },
+            OverlaySurface::Dialog(DialogKind::Notices) => match key.code {
+                KeyCode::Char('y') | KeyCode::Char('c') | KeyCode::Char('C') => {
+                    return Some(InputAction::NoticesCopy);
+                }
+                KeyCode::Char('x') | KeyCode::Char('d') | KeyCode::Char('D') => {
+                    return Some(InputAction::NoticesClear);
+                }
+                KeyCode::Char(' ') => return Some(InputAction::NoticesToggleDetail),
+                KeyCode::Enter => return Some(InputAction::NoticesToggleDetail),
+                KeyCode::Up | KeyCode::Char('k') => {
+                    return Some(InputAction::NoticesSelect { forward: false });
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    return Some(InputAction::NoticesSelect { forward: true });
+                }
+                KeyCode::PageUp => return Some(InputAction::NoticesPage { forward: false }),
+                KeyCode::PageDown => return Some(InputAction::NoticesPage { forward: true }),
+                KeyCode::Esc => return Some(InputAction::CloseModal),
+                _ => return None,
+            },
             _ => {}
         }
     } else if scene == SceneKind::Dashboard && keys.host_prompting {

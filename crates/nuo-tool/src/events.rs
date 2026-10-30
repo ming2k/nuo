@@ -183,13 +183,6 @@ pub enum SubagentEvent {
         delay_ms: u64,
         message: String,
     },
-    /// The subagent's retry loop recovered: the fault list rides here so the
-    /// parent can report what the child survived, exactly as the principal
-    /// round reports its own recovery.
-    RetryResolved {
-        attempts: usize,
-        faults: Vec<String>,
-    },
     /// The subagent's permission broker surfaced a write/execute tool call
     /// that needs a human decision. Full-duplex (ADR-0029): this carries the
     /// request *up* to the parent harness so the user can answer it; the
