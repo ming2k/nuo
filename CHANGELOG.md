@@ -8,6 +8,48 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.60] - 2026-10-30
+
+### Added
+
+- **Typed Attach Readiness (ADR-0133).**
+  - Added `SessionPhase` / `PrepareStage` / `SessionPhaseUpdate` and
+    `AgentResponse::SessionPhase`, so a claimed session reports
+    `Binding -> Loading -> Preparing -> Ready` (or a typed `Failed`) instead of
+    silently waiting for assembly.
+  - Extended `SessionSnapshot` with the durable command ledger, round
+    interrupts, retry resolutions, and command catalog, making it the complete
+    authoritative hydration payload.
+
+### Changed
+
+- **The attach handshake is now bounded and network-free
+  (`[INV-ATTACH-03]`, `[INV-ATTACH-04]`).**
+  - `Wire::Welcome` carries only `session_id` + `SessionPhase`; protocol
+    `PROTOCOL_VERSION`/`MIN_PROTOCOL_VERSION` advance to 18.
+  - The server claims an identity and acknowledges before opening the session
+    store, building the harness, scanning skills, running hooks, or resolving
+    provider credentials. Assembly runs in a background build task with a
+    request buffer and a build budget.
+  - Eager OAuth refresh is removed from bootstrap and provider activation;
+    credentials resolve lazily and single-flight on the first request. Remote
+    skill repositories load after `Ready`; SessionStart hooks run inside a
+    bounded `Preparing` phase. This fixes the reported
+    `timed out waiting for handshake from server` failure when a provider's
+    OAuth endpoint is unreachable.
+  - The client mounts immediately on Welcome, hydrates from `SessionSnapshot`,
+    gates prompt submission on `Ready`, queues pre-`Ready` input, and treats
+    post-Welcome failures as retained notices. Attach/control/monitor now use
+    separate liveness deadlines.
+  - Registry reads no longer hold the sessions lock across SQLite overview
+    reads; durable binding lookups and the bounded store open run on the
+    blocking pool.
+
+### Removed
+
+- Removed the dead `attach_smoke` example and the duplicated transcript read in
+  bootstrap.
+
 ## [0.0.59] - 2026-10-30
 
 ### Added
