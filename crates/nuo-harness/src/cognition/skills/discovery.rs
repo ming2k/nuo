@@ -51,10 +51,21 @@ pub struct DiscoveryResult {
 /// and `enabled: false`, surfaced in TUI and CLI with actionable `/trust skills` guidance
 /// without being injected into model context.
 pub async fn discover_all(config: &SkillsConfig) -> DiscoveryResult {
+    discover_all_with(config, true).await
+}
+
+/// Discover every source, optionally skipping network-backed remote
+/// repositories.
+///
+/// `include_remote == false` is the readiness-critical mode (ADR-0133): local,
+/// role, project, and configured paths are scanned; remote repositories are
+/// left to a later [`super::SkillRegistry::reload`]. The trust state is still
+/// resolved so project-local admission rules are identical in both modes.
+pub async fn discover_all_with(config: &SkillsConfig, include_remote: bool) -> DiscoveryResult {
     let trust_state = WorkspaceSecurityStore::load()
         .snapshot(&resolve_project_root(config))
         .skills;
-    discover_all_with_trust_state(config, trust_state).await
+    discover_all_with_trust_state_and_remote(config, trust_state, include_remote).await
 }
 
 /// Discovery with an explicit skills-domain trust state. Production code uses
@@ -65,13 +76,21 @@ pub async fn discover_all_with_trust_state(
     config: &SkillsConfig,
     trust_state: WorkspaceTrustState,
 ) -> DiscoveryResult {
+    discover_all_with_trust_state_and_remote(config, trust_state, true).await
+}
+
+async fn discover_all_with_trust_state_and_remote(
+    config: &SkillsConfig,
+    trust_state: WorkspaceTrustState,
+    include_remote: bool,
+) -> DiscoveryResult {
     let mut result = DiscoveryResult::default();
     // name -> position in `result.skills`. Scanning runs lowest- to
     // highest-priority; `upsert_skill` makes the last claimant of a name win
     // while preserving the first-seen position for stable catalog ordering.
     let mut index: HashMap<String, usize> = HashMap::new();
 
-    for source in skill_sources(config, trust_state).await {
+    for source in skill_sources(config, trust_state, include_remote).await {
         match source {
             SkillSource::Local {
                 root,
@@ -112,6 +131,7 @@ enum SkillSource {
 async fn skill_sources(
     config: &SkillsConfig,
     trust_state: WorkspaceTrustState,
+    include_remote: bool,
 ) -> Vec<SkillSource> {
     let mut sources: Vec<SkillSource> = Vec::new();
     let dirs = paths::get();
@@ -120,24 +140,32 @@ async fn skill_sources(
     //    When a fetch fails (network down, server error), fall back to the
     //    last successful download's cache so a transient outage never silently
     //    removes skills — the cache-as-fallback pattern every remote catalog
-    //    in nuo uses.
+    //    in nuo uses. `include_remote == false` skips the fetch entirely and
+    //    uses only the cache, keeping startup off the network (ADR-0133).
     for url in &config.urls {
-        match fetch_remote_repo(url).await {
-            Ok(roots) if !roots.is_empty() => {
-                sources.push(SkillSource::Remote { roots });
-            }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!(
-                    "failed to fetch remote skill repo '{}': {}; falling back to cache",
-                    url,
-                    e
-                );
-                let cached = cached_remote_roots(url);
-                if !cached.is_empty() {
-                    tracing::info!("using {} cached skills from '{}'", cached.len(), url);
-                    sources.push(SkillSource::Remote { roots: cached });
+        if include_remote {
+            match fetch_remote_repo(url).await {
+                Ok(roots) if !roots.is_empty() => {
+                    sources.push(SkillSource::Remote { roots });
                 }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        "failed to fetch remote skill repo '{}': {}; falling back to cache",
+                        url,
+                        e
+                    );
+                    let cached = cached_remote_roots(url);
+                    if !cached.is_empty() {
+                        tracing::info!("using {} cached skills from '{}'", cached.len(), url);
+                        sources.push(SkillSource::Remote { roots: cached });
+                    }
+                }
+            }
+        } else {
+            let cached = cached_remote_roots(url);
+            if !cached.is_empty() {
+                sources.push(SkillSource::Remote { roots: cached });
             }
         }
     }

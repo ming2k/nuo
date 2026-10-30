@@ -613,6 +613,62 @@ pub struct QueuedMessage {
     pub sent_at_ms: Option<u64>,
 }
 
+/// Which piece of local work a warming session is currently performing.
+///
+/// Display-oriented but closed: a frontend renders one line per stage, and an
+/// unknown stage must not be invented by a peer. The set is the assembly work
+/// that is allowed to delay `SessionPhase::Ready` (ADR-0133); network work is
+/// deliberately absent because it never gates readiness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrepareStage {
+    /// Opening or resuming the durable session store.
+    Session,
+    /// Discovering local skill sources.
+    Skills,
+    /// Running SessionStart hooks (bounded).
+    Hooks,
+    /// Materialising the provider/model route (no credential I/O).
+    Provider,
+}
+
+/// The lifecycle of a claimed session: existence is not readiness.
+///
+/// `[INV-ATTACH-04]` (ADR-0133): a client MUST NOT submit a turn before
+/// [`Self::Ready`], and the authoritative snapshot (plus the workspace-trust
+/// snapshot it carries) MUST arrive before `Ready`. Failure after Welcome is a
+/// phase — not a disconnect — and MUST NOT terminate the client (extends
+/// `[INV-ATTACH-02]` to post-handshake assembly).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub enum SessionPhase {
+    /// Identity claimed; no store or harness exists yet. The server sends this
+    /// in the Welcome frame.
+    Binding,
+    /// The durable session store is being opened or resumed.
+    Loading,
+    /// Local harness assembly is in progress.
+    Preparing { stage: PrepareStage },
+    /// The session is usable: snapshot delivered, local harness assembled.
+    /// Network work (OAuth, remote skills, MCP, catalog) may still be running
+    /// and MUST NOT be a prerequisite of this state.
+    Ready,
+    /// Assembly failed after the handshake. `code` carries the machine-readable
+    /// taxonomy (`[INV-ATTACH-01]`), e.g. `session_unresumable`.
+    Failed {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        message: String,
+    },
+}
+
+/// A readiness transition for one claimed session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPhaseUpdate {
+    pub session_id: String,
+    pub phase: SessionPhase,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentResponse {
     /// A per-round event tagged with the session it belongs to. The
@@ -797,6 +853,10 @@ pub enum AgentResponse {
     ServerEndpointsStatus(crate::ServerEndpointsReport),
     /// Full authoritative declarative session snapshot upon attachment (ADR-0049).
     SessionSnapshot(Box<SessionSnapshot>),
+    /// Readiness transition for the attached session (ADR-0133
+    /// `[INV-ATTACH-04]`). Sent after Welcome; `Ready` always follows the
+    /// authoritative snapshot on the same connection.
+    SessionPhase(SessionPhaseUpdate),
     /// Incremental state delta update (ADR-0049).
     StateDelta(StateDelta),
 }
@@ -1888,6 +1948,12 @@ pub struct ProviderPickerSnapshot {
 pub type ConnectionPickerSnapshot = ProviderPickerSnapshot;
 
 /// Complete state snapshot of a live or persisted session for client hydration (ADR-0049).
+///
+/// Since ADR-0133 this is the *only* hydration payload: `Wire::Welcome` carries
+/// identity and phase, and this snapshot follows it on the same connection
+/// before `SessionPhase::Ready`. The fields below therefore duplicate nothing
+/// from the handshake — a late attacher can rebuild the entire visible session
+/// from this frame alone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub session_id: String,
@@ -1907,6 +1973,18 @@ pub struct SessionSnapshot {
     pub provider_picker: Option<ProviderPickerSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_keys: Option<Vec<(String, bool)>>,
+    /// The durable command ledger, projected into the transcript by the client.
+    #[serde(default)]
+    pub commands: Vec<crate::command::CommandRecord>,
+    /// Round-interrupt records at their timestamp seams.
+    #[serde(default)]
+    pub round_interrupts: Vec<RoundInterrupt>,
+    /// Retry-resolution records at their timestamp seams.
+    #[serde(default)]
+    pub retry_resolutions: Vec<RetryResolution>,
+    /// Server-owned slash-command vocabulary for completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_catalog: Option<crate::CommandCatalog>,
     #[serde(default)]
     pub watermark_seq: u64,
 }

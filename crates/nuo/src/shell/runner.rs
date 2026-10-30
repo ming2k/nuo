@@ -376,6 +376,9 @@ pub async fn run_attached(
                 .clone()
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
             let project_root = nuo_host::paths::find_project_root(&raw_root);
+            // A spawn can take a few seconds; the alternate screen is not up
+            // yet, so one honest line beats a silent blank terminal.
+            eprintln!("nuo: connecting to the session server…");
             let info = client::ensure_server_explicit(&project_root, explicit_port).await?;
             if !client::versions_compatible(&info) {
                 return Err(client::incompatibility_error(&info).into());
@@ -486,83 +489,57 @@ pub async fn run_attached(
             // fatal.
             Err(error) => return Err(error.into()),
         };
-        let (
-            tx,
-            rx,
-            hosted_session_id,
-            round_counter,
-            transcript,
-            round_interrupts,
-            retry_resolutions,
-            provider,
-            model,
-            command_catalog,
-        ) = match handshake {
+        let handshake = match handshake {
+            client::Handshake::Pick(_) => {
+                // A picker carrier is a second attach, not a second chance to
+                // ignore the refusal taxonomy (ADR-0123 `[INV-ATTACH-02]`).
+                match target_server
+                    .connect(client::AttachAction::Picker(Some(init_options.clone())))
+                    .await
+                {
+                    Ok(handshake) => handshake,
+                    Err(error) if error.is_session_gone() => {
+                        if let Some(gone) = target.take() {
+                            retire_preserved_tab(&mut preserved_tabs, &gone);
+                        }
+                        retire_notice = Some((
+                            nuo_view::model::document::NoticeSeverity::Warning,
+                            format!(
+                                "That tab's session no longer exists; it has been removed. ({})",
+                                error.message
+                            ),
+                        ));
+                        pick_pending = true;
+                        continue;
+                    }
+                    Err(error) if error.is_session_unresumable() => {
+                        target = None;
+                        retire_notice = Some((
+                            nuo_view::model::document::NoticeSeverity::Error,
+                            format!("Could not reopen that tab's session: {}", error.message),
+                        ));
+                        pick_pending = true;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            handshake => handshake,
+        };
+        let (tx, rx, hosted_session_id, initial_phase) = match handshake {
             client::Handshake::Attached {
                 req_tx,
                 resp_rx,
                 session_id,
-                round_counter,
-                history,
-                round_interrupts,
-                retry_resolutions,
-                provider,
-                model,
-                command_catalog,
-            } => (
-                req_tx,
-                resp_rx,
-                session_id,
-                round_counter,
-                history,
-                round_interrupts,
-                retry_resolutions,
-                provider,
-                model,
-                command_catalog,
-            ),
+                phase,
+            } => (req_tx, resp_rx, session_id, phase),
             client::Handshake::Pick(_) => {
-                let handshake = target_server
-                    .connect(client::AttachAction::Picker(Some(init_options.clone())))
-                    .await?;
-                match handshake {
-                    client::Handshake::Attached {
-                        req_tx,
-                        resp_rx,
-                        session_id,
-                        round_counter,
-                        history,
-                        round_interrupts,
-                        retry_resolutions,
-                        provider,
-                        model,
-                        command_catalog,
-                    } => (
-                        req_tx,
-                        resp_rx,
-                        session_id,
-                        round_counter,
-                        history,
-                        round_interrupts,
-                        retry_resolutions,
-                        provider,
-                        model,
-                        command_catalog,
-                    ),
-                    client::Handshake::Pick(_) => {
-                        return Err("the server offered no session to pick from".into());
-                    }
-                }
+                return Err("the server offered no session to pick from".into());
             }
         };
-        if let Some(prompt) = initial_prompt.take() {
-            tx.send(nuo_wire::AgentRequest::Prompt {
-                text: prompt,
-                images: Vec::new(),
-                sent_at_ms: None,
-            })
-            .map_err(|error| format!("server link lost before initial prompt: {error}"))?;
-        }
+        // The opening prompt rides the launch config and is flushed only on the
+        // `Ready` transition; a prompt sent here would race the snapshot.
+        let launch_prompt = initial_prompt.take();
         let base_config = crate::shell::config::TuiConfig::load();
         let input_history = Vec::new();
         let tui_config = base_config.clone();
@@ -577,15 +554,20 @@ pub async fn run_attached(
             tx,
             rx,
             crate::shell::TuiLaunchConfig {
-                initial_provider: provider,
-                initial_model: model,
+                // Hydration arrives as an authoritative `SessionSnapshot` after
+                // Welcome (ADR-0133); the handshake carries identity + phase
+                // only.
+                initial_provider: String::new(),
+                initial_model: String::new(),
                 input_history,
-                initial_messages: transcript,
+                initial_messages: Vec::new(),
                 initial_commands: Vec::new(),
-                initial_round_count: round_counter,
-                command_catalog,
-                initial_round_interrupts: round_interrupts,
-                initial_retry_resolutions: retry_resolutions,
+                initial_round_count: 0,
+                command_catalog: nuo_wire::CommandCatalog::default(),
+                initial_round_interrupts: Vec::new(),
+                initial_retry_resolutions: Vec::new(),
+                initial_phase,
+                initial_prompt: launch_prompt,
                 tui_config,
                 input_history_config,
                 session: crate::shell::SessionSource::Remote {

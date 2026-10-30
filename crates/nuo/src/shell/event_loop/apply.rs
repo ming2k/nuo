@@ -101,6 +101,37 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             }
             true
         }
+        AppMutation::SessionPhase(phase) => {
+            let failed = match &phase {
+                nuo_wire::SessionPhase::Failed { message, .. } => Some(message.clone()),
+                _ => None,
+            };
+            let ready = phase == nuo_wire::SessionPhase::Ready;
+            app.session_phase = phase;
+            if ready {
+                app.switching_session = None;
+                let queued: Vec<_> = app.pending_prompts.drain(..).collect();
+                for request in queued {
+                    let _ = app.send_intent(request);
+                }
+            }
+            if let Some(message) = failed {
+                // A post-Welcome failure is a disclosure, not a death
+                // (ADR-0133, extending `[INV-ATTACH-02]`).
+                app.record_notice(
+                    nuo_view::model::document::NoticeSeverity::Error,
+                    "attach",
+                    format!("The session could not be prepared: {message}"),
+                    0,
+                );
+                app.switching_session = None;
+            }
+            true
+        }
+        AppMutation::CommandCatalog(catalog) => {
+            app.command_catalog = catalog;
+            true
+        }
         AppMutation::HarnessUnattended(enabled) => {
             app.unattended = enabled;
             true

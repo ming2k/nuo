@@ -1543,24 +1543,6 @@ async fn run_oauth(
     Some(token_set)
 }
 
-pub(crate) async fn refresh_oauth_if_needed(_config: &Config, provider_id: &str) {
-    let connections = Connections::load();
-    let Some(instance) = connections.get(provider_id) else {
-        return;
-    };
-    if !instance.auth.is_negotiated() {
-        return;
-    }
-    let source = nuo_provider::auth::OAuthCredentialSource::new(
-        &crate::credentials_host::host(),
-        provider_id,
-        instance.auth.clone(),
-    );
-    if let Err(error) = nuo_wire::CredentialSource::resolve_auth(&source).await {
-        tracing::warn!(error = %error, provider = %provider_id, "OAuth token resolution failed");
-    }
-}
-
 /// Record a provider switch's acknowledgment in the durable command ledger.
 async fn record_provider_ack(session: &SessionStore, provider: &str, model: &str, ack: String) {
     let record = CommandRecord::new("models", format!("{provider} {model}")).with_result(
@@ -1589,8 +1571,9 @@ async fn activate(
     provider_type: String,
     model: String,
 ) {
-    refresh_oauth_if_needed(config, &provider_type).await;
-
+    // `[INV-ATTACH-03]` (ADR-0133): credential resolution is lazy and
+    // single-flight at the first request. Eagerly refreshing here made a model
+    // switch wait on the network.
     let session_id = agent.thread_id();
     let rules = match crate::usage_cache::shared_usage_cache().get(&provider_type) {
         Some(nuo_wire::ConnectionUsageState::Available(usage)) => usage.model_rules.clone(),

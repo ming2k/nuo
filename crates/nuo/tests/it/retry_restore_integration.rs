@@ -37,6 +37,7 @@ fn params(project_root: std::path::PathBuf, startup: SessionStart) -> BootstrapP
         teardown_token: None,
         shared_config: None,
         shared_provider_usage: None,
+        phase_sink: None,
     }
 }
 
@@ -131,6 +132,7 @@ async fn workspace_free_scope_assembles_without_a_workspace() {
         teardown_token: None,
         shared_config: None,
         shared_provider_usage: None,
+        phase_sink: None,
     })
     .await
     .expect("workspace-free assemble succeeds");

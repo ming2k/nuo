@@ -157,6 +157,8 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         current_model: "mock".to_string(),
         cwd: cwd.clone(),
         current_session_id: "test-session".to_string(),
+        session_phase: nuo_wire::SessionPhase::Ready,
+        pending_prompts: Vec::new(),
         current_workspace: String::new(),
         current_role: None,
         session_context: None,
@@ -448,6 +450,7 @@ async fn console_dispatch(app: &mut App, line: &str, create_when_bare: bool) {
         .await;
 }
 
+mod attach_readiness;
 mod completion;
 mod elevation_pipeline;
 mod gesture_input;

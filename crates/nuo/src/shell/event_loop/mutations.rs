@@ -269,6 +269,11 @@ pub(crate) enum AppMutation {
 
     // Session lifecycle / harness.
     Harness(nuo_wire::HarnessSnapshot),
+    /// Server-attested readiness transition (ADR-0133 `[INV-ATTACH-04]`).
+    SessionPhase(nuo_wire::SessionPhase),
+    /// Replace the server-owned slash-command vocabulary from an authoritative
+    /// hydration snapshot.
+    CommandCatalog(nuo_wire::CommandCatalog),
     HarnessUnattended(bool),
     HarnessConfined(bool),
     ClearSwitchingSession,

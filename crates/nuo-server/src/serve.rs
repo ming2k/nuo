@@ -141,7 +141,11 @@ impl AttachSyncBuffer {
         count
     }
 
-    /// Produce a declarative SessionSnapshot (ADR-0049).
+    /// Produce a declarative SessionSnapshot from the buffered state.
+    ///
+    /// The attach path uses `build_full_session_snapshot`, which adds the
+    /// durable transcript and ledger; this method covers the live state-sync
+    /// fields that both share.
     pub fn build_session_snapshot(&self, session_id: &str) -> nuo_wire::SessionSnapshot {
         let (provider, model) = match &self.provider_switched {
             Some(AgentResponse::ProviderSwitched { provider, model }) => {
@@ -184,25 +188,67 @@ impl AttachSyncBuffer {
             activity: None,
             provider_picker,
             provider_keys,
+            commands: Vec::new(),
+            round_interrupts: Vec::new(),
+            retry_resolutions: Vec::new(),
+            command_catalog: None,
             watermark_seq: 0,
         }
     }
 }
 
-/// Read-only snapshot of the attach-sync buffer:
-/// every attacher (initial connect, second attacher, or lagging resync)
-/// receives the current state non-destructively.
-pub(crate) async fn snapshot_attach_sync(
-    buffer: &tokio::sync::Mutex<AttachSyncBuffer>,
-) -> Vec<AgentResponse> {
-    buffer.lock().await.snapshot()
-}
-
-pub(crate) async fn build_declarative_snapshot(
-    buffer: &tokio::sync::Mutex<AttachSyncBuffer>,
-    session_id: &str,
+/// Build the authoritative hydration frame for one hosted session.
+///
+/// `[INV-ATTACH-04]` (ADR-0133): this is the complete visible state — durable
+/// transcript and command ledger included — so a late attacher never needs a
+/// second frame to become correct. It is only called *after* Welcome, so its
+/// local reads never delay the handshake.
+pub(crate) async fn build_full_session_snapshot(
+    hosted: &crate::registry::HostedSession,
 ) -> nuo_wire::SessionSnapshot {
-    buffer.lock().await.build_session_snapshot(session_id)
+    let session = &hosted.session;
+    let session_id = session.id().await;
+    let mut snapshot = {
+        let buffer = hosted.sync_buffer.lock().await;
+        buffer.build_session_snapshot(&session_id)
+    };
+    snapshot.messages = session.full_transcript().await;
+    snapshot.round_counter = session.round_counter().await;
+    snapshot.todos = session.todos().await.items;
+    snapshot.commands = session.commands().await;
+    snapshot.round_interrupts = session.round_interrupts().await;
+    snapshot.retry_resolutions = session.retry_resolutions().await;
+    if let Some(selection) = session.provider_selection().await {
+        snapshot.provider = selection.connection;
+        snapshot.model = selection.model.unwrap_or_default();
+    } else if snapshot.provider == "default" {
+        snapshot.provider = hosted.initial_provider.clone();
+        snapshot.model = hosted.initial_model.clone();
+    }
+    let workspace_security = match hosted.workspace_root.as_deref() {
+        Some(root) => hosted.security.snapshot(root),
+        None => nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"),
+    };
+    // The trust snapshot MUST ride in the same frame that precedes `Ready`
+    // (the pre-view gate is mounted from it, ADR-0127).
+    snapshot.harness_state = Some(nuo_wire::HarnessSnapshot {
+        loop_status: snapshot
+            .harness_state
+            .as_ref()
+            .map(|harness| harness.loop_status)
+            .unwrap_or(nuo_wire::LoopStatus::Idle),
+        round_counter: snapshot.round_counter,
+        unattended: session.unattended().await,
+        confined: hosted.shared_confinement.is_confined(),
+        workspace_security,
+        retry_pending: session.retry_pending().await.is_some(),
+        role: session.role(),
+        workspace: session
+            .workspace()
+            .map(|workspace| workspace.root.to_string_lossy().to_string()),
+    });
+    snapshot.command_catalog = Some(hosted.command_catalog.clone());
+    snapshot
 }
 
 /// Inform a newly attached client that project-authored configurations are
@@ -1430,11 +1476,11 @@ async fn handle_wire_stream(
     // only the declared case can know it is cross-project — so the guard
     // applies there, and the legacy path keeps its historical behaviour.
     let declared_project = project.is_some();
-    let bound = match registry
+    let handle = match registry
         .resolve_with_declaration(action, &caller_project, declared_project)
         .await
     {
-        crate::registry::ResolveOutcome::Welcome(s) => s,
+        crate::registry::ResolveOutcome::Welcome(handle) => handle,
         crate::registry::ResolveOutcome::Pick { sessions } => {
             wire_sink
                 .send(Wire::Pick { sessions })
@@ -1449,212 +1495,123 @@ async fn handle_wire_stream(
             return Ok(());
         }
     };
-    // Subscribe to the live broadcast channel FIRST, before taking snapshots or
-    // sending Welcome. Any events produced during transcript collection, initial
-    // state generation, or socket handshakes are held in `rx`'s broadcast buffer
-    // and delivered seamlessly when entering the live event loop, eliminating
-    // the attach event-loss window.
-    let mut rx = bound.events.subscribe();
-    let req_tx = bound.req_tx.clone();
-    let messages = bound.session.full_transcript().await;
-    let round_counter = bound.session.round_counter().await;
-    let session_id = bound.session.id().await;
-    // The session's own provider/model pin when set (C6), otherwise the
-    // config default — the pair the picker and hint bar should boot into.
-    let (provider, model) = match bound.session.provider_selection().await {
-        Some(sel) => (sel.connection.clone(), sel.model.unwrap_or_default()),
-        None => {
-            let config = nuo_persistence::config::Config::load();
-            let provider = nuo_model_routing::default_provider_id(&config).to_string();
-            let model =
-                nuo_model_routing::resolved_model_name(&config, &provider).unwrap_or_default();
-            (provider, model)
-        }
-    };
-    let welcome = Wire::Welcome {
-        session_id,
-        round_counter,
-        messages,
-        provider,
-        model,
-        round_interrupts: bound.session.round_interrupts().await,
-        retry_resolutions: bound.session.retry_resolutions().await,
-        command_catalog: bound.command_catalog.clone(),
-    };
+    // Subscribe before reading any cached state: anything the build task or the
+    // live driver publishes from here on is buffered for this connection.
+    // `[INV-ATTACH-04]` (ADR-0133): the authoritative snapshot precedes `Ready`.
+    let mut rx = handle.events().subscribe();
+    let session_id = handle.session_id().await;
+    let phase = handle.phase();
+
+    // Welcome is an identity acknowledgement, not hydration. It is written
+    // before the store, transcript, skills, hooks, or credentials are touched.
     wire_sink
-        .send(welcome)
+        .send(Wire::Welcome {
+            session_id: session_id.clone(),
+            phase: phase.clone(),
+        })
         .await
         .map_err(|e| format!("send welcome: {e}"))?;
-    // Attach-time state sync: the restored session's task list lives on the
-    // session store, but the TUI's todo panel only fills from a live
-    // `TodosUpdated` event — which a client that was not connected when the
-    // session was (lazily) resumed never saw. Push one right after the
-    // welcome so the sticky panel restores immediately (mirroring what
-    // `restore_session_runtime` does for in-process session switches). An
-    // empty list is the "no active task list" state and clears any stale
-    // panel.
-    let todos = bound.session.todos().await;
-    let todos_frame = Wire::Response {
-        response: AgentResponse::Round {
-            session_id: bound.session.id().await,
-            event: nuo_wire::RoundEvent::TodosUpdated(todos),
-        },
-    };
-    wire_sink
-        .send(todos_frame)
-        .await
-        .map_err(|e| format!("send todos restore: {e}"))?;
-    // Attach-time `/retry` affordance: a session re-hosted after
-    // its round stopped (server restart, lazy resume) carries the durable
-    // resume point in its store, but the attaching client never saw the
-    // idle `HarnessState` that would have published it. Push one now so the
-    // hint bar offers `/retry` from the very first frame — exactly as if the
-    // client had been attached when the round stopped.
-    {
-        // The agent handle does not ride on `BoundSession`, so read the
-        // posture straight from the session store (the store is
-        // the source of truth for the persisted posture). A session that
-        // died delegated re-attaches with `delegated: true` in this very
-        // first snapshot — the badge paints immediately instead of waiting
-        // for the next periodic `HarnessState`.
-        //
-        // `workspace_security` is the freshly attested per-domain state for
-        // the attaching project root: a client that lands in a
-        // never-trusted workspace learns it *in the pre-view attach sync*,
-        // so the trust dialog opens before the first frame becomes
-        // interactive — instead of a passive banner arriving after the
-        // user already started typing into the composer.
-        let snapshot = nuo_wire::HarnessSnapshot {
-            loop_status: nuo_wire::LoopStatus::Idle,
-            round_counter: bound.session.round_counter().await,
-            unattended: bound.session.unattended().await,
-            confined: bound.shared_confinement.is_confined(),
-            workspace_security: bound.security_snapshot(),
-            retry_pending: bound.session.retry_pending().await.is_some(),
-            role: bound.session.role(),
-            workspace: bound
-                .session
-                .workspace()
-                .map(|w| w.root.to_string_lossy().to_string()),
-        };
-        let frame = Wire::Response {
-            response: AgentResponse::Round {
-                session_id: bound.session.id().await,
-                event: nuo_wire::RoundEvent::HarnessState(snapshot),
-            },
-        };
-        wire_sink
-            .send(frame)
-            .await
-            .map_err(|e| format!("send retry-pending restore: {e}"))?;
-        if let Some(performance) =
-            nuo_wire::latest_turn_performance(&bound.session.request_usage_records().await)
-        {
-            let frame = Wire::Response {
-                response: AgentResponse::Round {
-                    session_id: bound.session.id().await,
-                    event: nuo_wire::RoundEvent::TurnPerformance(performance),
-                },
-            };
-            wire_sink
-                .send(frame)
-                .await
-                .map_err(|e| format!("send performance restore: {e}"))?;
-        }
-    }
-    // Fold this client's declared posture into the session's
-    // human channel. First interactive attach flips the session interactive;
-    // this never *removes* interactivity (only a detach can). The trust
-    // prompt below is additionally gated on the client itself being
-    // interactive — pushing a question to a pipe that cannot answer would
-    // park the security decision forever.
-    let after_attach = bound.human_channel.attach(client_posture);
-    let attached_session_id = bound.session.id().await;
+
+    // Fold this client's declared posture into the session's human channel
+    // before publishing the snapshot, so the trust gate sees the effective
+    // posture rather than a per-connection guess.
+    let after_attach = handle.human_channel().attach(client_posture);
     tracing::info!(
-        session_id = %attached_session_id,
+        session_id = %session_id,
         effective = ?after_attach,
         "nuo server: human channel accounted"
     );
-    // ADR-0049: Emit declarative SessionSnapshot for deterministic universal hydration
-    if !bound.sync_buffer.lock().await.is_empty() {
-        let session_snapshot =
-            build_declarative_snapshot(&bound.sync_buffer, &attached_session_id).await;
-        let _ = wire_sink
+
+    // Hydrate, then announce readiness. A hosted session builds the snapshot
+    // on demand (local reads only); a building session returns the snapshot
+    // cached at promotion, or receives it on the phase stream below.
+    let mut last_snapshot = handle.snapshot().await;
+    if let Some(snapshot) = &last_snapshot {
+        wire_sink
             .send(Wire::Response {
-                response: AgentResponse::SessionSnapshot(Box::new(session_snapshot)),
+                response: AgentResponse::SessionSnapshot(Box::new(snapshot.clone())),
             })
-            .await;
+            .await
+            .map_err(|e| format!("send session snapshot: {e}"))?;
+        // A client cannot answer a gate from a pipe; surface the trust posture
+        // passively for non-interactive attaches (ADR-0127).
+        if after_attach != nuo_wire::human_request::HumanChannelPosture::Interactive
+            && let Some(harness) = &snapshot.harness_state
+            && harness.workspace_security.needs_review()
+        {
+            let response = workspace_trust_notice(&session_id, &harness.workspace_security);
+            wire_sink
+                .send(Wire::Response { response })
+                .await
+                .map_err(|e| format!("send trust notice: {e}"))?;
+        }
+        // `Ready` is a *transition* the client gates on; it is deliberately not
+        // inferred from Welcome's phase cell, so the snapshot can never race
+        // past it.
+        wire_sink
+            .send(Wire::Response {
+                response: AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
+                    session_id: session_id.clone(),
+                    phase: nuo_wire::SessionPhase::Ready,
+                }),
+            })
+            .await
+            .map_err(|e| format!("send ready phase: {e}"))?;
+    } else if phase != nuo_wire::SessionPhase::Binding {
+        // A second attacher joining an in-flight build learns where it is.
+        wire_sink
+            .send(Wire::Response {
+                response: AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
+                    session_id: session_id.clone(),
+                    phase,
+                }),
+            })
+            .await
+            .map_err(|e| format!("send session phase: {e}"))?;
     }
 
-    // Replay the buffered attach-sync events so a client that
-    // attached after the session began hydrates its picker/key/context
-    // state immediately, before joining the live broadcast.
-    // Non-destructive snapshot ensures subsequent attachers or resyncs
-    // receive the complete latest-value state without loss.
-    for event in snapshot_attach_sync(&bound.sync_buffer).await {
-        wire_sink
-            .send(Wire::Response { response: event })
-            .await
-            .map_err(|e| format!("wire send: {e}"))?;
-    }
-    // Surface the trust posture after attach, as a *fallback* escalation.
-    //
-    // Trust mutation is intentionally available only through the canonical
-    // `/trust` command path, which also reloads every affected consumer
-    // atomically.
-    //
-    // The primary affordance is the gate: the pre-view `HarnessState` above
-    // already carried the security snapshot through attach-sync, so an
-    // interactive client answers the question before the composer takes input.
-    // Pushing a banner as well would duplicate the dialog the user is looking
-    // at — and this branch used to fire only for `Changed`, which is precisely
-    // the state that *could not* gate, so the highest-risk posture got a
-    // scroll-past toast and nothing else.
-    //
-    // Now both `Quarantined` and `Changed` gate (one predicate:
-    // `WorkspaceTrustState::needs_review`), and the banner is reserved for the
-    // client that cannot answer: an autonomous attach, where a parked question
-    // would freeze the security decision forever. `HumanChannelPosture` is the
-    // authority on that, not a guess about which client is connected.
-    let snap = bound.security_snapshot();
-    let gate_owned = after_attach == nuo_wire::human_request::HumanChannelPosture::Interactive;
-    if snap.needs_review() && !gate_owned {
-        let session_id = bound.session.id().await;
-        let response = workspace_trust_notice(&session_id, &snap);
-        wire_sink
-            .send(Wire::Response { response })
-            .await
-            .map_err(|e| format!("wire send: {e}"))?;
-    }
     loop {
         tokio::select! {
             resp = rx.recv() => match resp {
-                Ok(resp) => {
-                    if let Err(e) = wire_sink.send(Wire::Response { response: resp }).await {
+                Ok(response @ AgentResponse::SessionSnapshot(_)) => {
+                    if let AgentResponse::SessionSnapshot(snapshot) = &response {
+                        last_snapshot = Some((**snapshot).clone());
+                    }
+                    if let Err(e) = wire_sink.send(Wire::Response { response }).await {
+                        return Err(format!("wire send: {e}"));
+                    }
+                }
+                Ok(response) => {
+                    if let Err(e) = wire_sink.send(Wire::Response { response }).await {
                         return Err(format!("wire send: {e}"));
                     }
                 }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
-                    // A slow attach client fell behind the session bus and
-                    // the channel dropped `n` events. Skipping them silently
-                    // used to leave the client's view permanently stale
-                    // (missing transcript deltas read as "the agent hung").
-                    // Re-anchor instead: replay the attach-sync buffer —
-                    // the same idempotent startup state a fresh attach gets
-                    // — so the client resynchronizes instead of drifting.
-                    tracing::warn!(skipped = n, "nuo server: client lagged; resyncing from attach-sync buffer");
-                    if !bound.sync_buffer.lock().await.is_empty() {
-                        let resync_snapshot = build_declarative_snapshot(&bound.sync_buffer, &attached_session_id).await;
+                    // A slow client fell behind and the bus dropped events.
+                    // Re-anchor from the authoritative snapshot instead of
+                    // letting the view drift.
+                    tracing::warn!(skipped = n, "nuo server: client lagged; re-anchoring from snapshot");
+                    if let Some(snapshot) = handle.snapshot().await {
+                        last_snapshot = Some(snapshot.clone());
                         let _ = wire_sink
                             .send(Wire::Response {
-                                response: AgentResponse::SessionSnapshot(Box::new(resync_snapshot)),
+                                response: AgentResponse::SessionSnapshot(Box::new(snapshot)),
                             })
                             .await;
-                    }
-                    for event in snapshot_attach_sync(&bound.sync_buffer).await {
-                        if let Err(e) = wire_sink.send(Wire::Response { response: event }).await {
-                            return Err(format!("wire send: {e}"));
-                        }
+                        let _ = wire_sink
+                            .send(Wire::Response {
+                                response: AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
+                                    session_id: session_id.clone(),
+                                    phase: nuo_wire::SessionPhase::Ready,
+                                }),
+                            })
+                            .await;
+                    } else if let Some(snapshot) = &last_snapshot {
+                        let _ = wire_sink
+                            .send(Wire::Response {
+                                response: AgentResponse::SessionSnapshot(Box::new(snapshot.clone())),
+                            })
+                            .await;
                     }
                     continue;
                 }
@@ -1662,39 +1619,31 @@ async fn handle_wire_stream(
             },
             msg = wire_source.next() => match msg {
                 Some(Ok(Wire::Request { request: AgentRequest::EndSession })) => {
-                    // Client-declared session end (`EndSession`): the
-                    // operator said "I am done with this session", so
-                    // tear it down now through the same path as
-                    // `ControlRequest::KillSession` — cancel the driver,
-                    // fire SessionEnd hooks, drop it from the registry,
-                    // publish `SessionRemoved` — instead of leaving the
-                    // session hosted until an idle reaper notices it.
-                    // This never reaches the driver queue: the driver is
-                    // about to be cancelled, so queueing would race the
-                    // teardown.
-                    let session_id = bound.session.id().await;
+                    // Client-declared session end: tear down the hosted session
+                    // through the same path as `KillSession`, or cancel an
+                    // in-flight build. Never reaches the driver queue.
                     match registry.kill_session(&session_id).await {
                         Ok(()) => tracing::info!(
                             session = %session_id,
                             "nuo server: client declared session end"
                         ),
-                        // Already gone — which is exactly what the
-                        // client asked for (e.g. another client ended it
-                        // first). Nothing to report.
-                        Err(e) => tracing::debug!(
-                            session = %session_id,
-                            error = %e,
-                            "nuo server: session already gone on client end"
-                        ),
+                        Err(e) => {
+                            if registry.cancel_building(&session_id).await {
+                                tracing::info!(
+                                    session = %session_id,
+                                    "nuo server: client cancelled an in-flight session build"
+                                );
+                            } else {
+                                tracing::debug!(
+                                    session = %session_id,
+                                    error = %e,
+                                    "nuo server: session already gone on client end"
+                                );
+                            }
+                        }
                     }
-                    // `kill_session` broadcast the terminal
-                    // `AgentResponse::Exit` on the session bus before
-                    // returning; it is already sitting in this
-                    // connection's buffer. Flush it (and anything
-                    // queued behind it) so the client observes the
-                    // graceful end marker instead of a bare socket
-                    // close. Best-effort and bounded by what is
-                    // buffered right now.
+                    // Flush the terminal `Exit` (and anything behind it) so the
+                    // client observes a graceful end marker.
                     while let Ok(event) = rx.try_recv() {
                         if wire_sink.send(Wire::Response { response: event }).await.is_err() {
                             break;
@@ -1703,6 +1652,7 @@ async fn handle_wire_stream(
                     return Ok(());
                 }
                 Some(Ok(Wire::Request { request })) => {
+                    let req_tx = handle.req_tx();
                     match req_tx.try_send(request) {
                         Ok(()) => {}
                         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
@@ -1728,10 +1678,9 @@ async fn handle_wire_stream(
     // Release this connection's channel hold (Detach). When the last
     // interactive watcher leaves, the session drops to Autonomous and any
     // request parked since resolves by labeled policy instead of hanging.
-    let after_detach = bound.human_channel.detach();
-    let detached_session_id = bound.session.id().await;
+    let after_detach = handle.human_channel().detach();
     tracing::info!(
-        session_id = %detached_session_id,
+        session_id = %session_id,
         effective = ?after_detach,
         "nuo server: human channel released"
     );

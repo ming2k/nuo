@@ -1,5 +1,5 @@
 use crate::UiBridge;
-use crate::bootstrap::{self, BootstrapParams};
+use crate::bootstrap::BootstrapParams;
 use crate::monitor::MonitorTracker;
 use crate::serve::{AttachAction, AttachSyncBuffer, is_attach_sync_event};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile};
@@ -46,9 +46,9 @@ pub struct HostedSession {
     /// and the registry can read rows out for snapshots.
     pub tracker: Arc<Mutex<MonitorTracker>>,
     /// Durable workspace trust store for the project at
-    /// [`HostedSession::workspace_root`]. Surfaced through [`BoundSession`]
-    /// so the WS attach path can push the trust decision to a client when
-    /// the workspace contributions are unreviewed
+    /// [`HostedSession::workspace_root`]. Reachable through
+    /// [`AttachHandle`] so the WS attach path can push the trust decision to a
+    /// client when the workspace contributions are unreviewed
     /// (`WorkspaceTrustState::needs_review`).
     pub security: Arc<nuo_persistence::workspace_security::WorkspaceSecurityStore>,
 
@@ -59,6 +59,11 @@ pub struct HostedSession {
     pub sync_buffer: Arc<Mutex<AttachSyncBuffer>>,
     /// Backend-owned slash-command vocabulary for every attached frontend.
     pub command_catalog: nuo_wire::CommandCatalog,
+    /// Provider/model the session boots into, resolved during assembly. Used
+    /// as the snapshot's fallback when the session has no durable `/models`
+    /// pin yet (ADR-0133 hydration).
+    pub initial_provider: String,
+    pub initial_model: String,
     /// When this hosted session was created (wall-clock, monotonic). Drives
     /// the idle reaper: a session that stays `is_empty_unpersisted` (no real
     /// content, never written to disk) past the idle TTL is reclaimed so
@@ -94,47 +99,91 @@ pub struct HostedSession {
     /// entries, which carry no agent and fire nothing.
     pub agent_for_session_end: Option<Arc<Agent>>,
 }
-#[derive(Clone)]
-pub struct BoundSession {
-    pub workspace_root: Option<std::path::PathBuf>,
-    /// The human-channel accountant for this hosted session.
-    /// The WS attach layer ORs each client's declared posture in (attach /
-    /// detach); the assembled agent's posture gate reads the effective
-    /// value before parking any human request.
-    pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
-    pub session: Arc<SessionStore>,
-    pub shared_confinement: nuo_wire::SharedConfinement,
-    pub req_tx: mpsc::Sender<AgentRequest>,
+/// A claimed session whose local harness is still being assembled.
+///
+/// `[INV-ATTACH-03]` (ADR-0133): this exists so `Wire::Welcome` can be sent
+/// before any store load, harness construction, skill discovery, hook, or
+/// credential work. The client-facing channels are created here; the build
+/// task fills them in.
+pub struct PendingSession {
+    pub id: String,
+    pub workspace_root: Option<PathBuf>,
     pub events: broadcast::Sender<AgentResponse>,
-    /// Attach-time state-sync events buffered for this session (see
-    /// [`HostedSession::sync_buffer`]). Non-destructively snapshotted by the WS
-    /// layer into every attaching client right after it subscribes.
+    pub req_tx: mpsc::Sender<AgentRequest>,
+    /// Current readiness phase. A `watch` channel (not a bare cell) so a
+    /// control-plane caller can await the transition without polling.
+    pub phase: Arc<tokio::sync::watch::Sender<nuo_wire::SessionPhase>>,
+    pub cancel: CancellationToken,
+    pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
     pub sync_buffer: Arc<Mutex<AttachSyncBuffer>>,
-    /// Server-level latest picker snapshot shared across sessions (see the
-    /// registry's `latest_picker` cache). Spliced over the per-session
-    /// buffer's picker at attach time so a new client hydrates the current
-    /// *global* model ordering, not this session's last local one.
-    pub server_picker: Arc<Mutex<Option<AgentResponse>>>,
-    pub command_catalog: nuo_wire::CommandCatalog,
-    /// Durable workspace trust store for this session's project. The
-    /// WS attach path reads it to detect unreviewed workspace contributions
-    /// (`WorkspaceTrustState::needs_review`) and push the trust decision
-    /// to the attaching client (see `serve.rs`).
-    pub security: Arc<nuo_persistence::workspace_security::WorkspaceSecurityStore>,
+    /// Set once, immediately before `Ready` is emitted, so a connection that
+    /// joins in the promotion window still hydrates.
+    pub latest_snapshot: Arc<Mutex<Option<nuo_wire::SessionSnapshot>>>,
+    pub started_at: std::time::Instant,
 }
 
-impl BoundSession {
-    /// The workspace root this session is bound to, when any.
-    pub fn workspace_root(&self) -> Option<&std::path::Path> {
-        self.workspace_root.as_deref()
+/// What an attach resolved to: a building session or a fully hosted one.
+///
+/// Both variants expose the same minimal attach surface (identity, event bus,
+/// request channel, human-channel accountant, phase), which is all
+/// `handle_wire_stream` needs now that hydration happens over the snapshot.
+#[derive(Clone)]
+pub enum AttachHandle {
+    Building(Arc<PendingSession>),
+    Hosted(Arc<HostedSession>),
+}
+
+impl AttachHandle {
+    pub async fn session_id(&self) -> String {
+        match self {
+            Self::Building(p) => p.id.clone(),
+            Self::Hosted(h) => h.session.id().await,
+        }
     }
 
-    /// Current project-asset trust snapshot. An unbound session has no project
-    /// assets, so every domain is `Absent`.
-    pub fn security_snapshot(&self) -> nuo_wire::WorkspaceSecuritySnapshot {
-        match self.workspace_root() {
-            Some(root) => self.security.snapshot(root),
-            None => nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"),
+    pub fn events(&self) -> broadcast::Sender<AgentResponse> {
+        match self {
+            Self::Building(p) => p.events.clone(),
+            Self::Hosted(h) => h.events.clone(),
+        }
+    }
+
+    pub fn req_tx(&self) -> mpsc::Sender<AgentRequest> {
+        match self {
+            Self::Building(p) => p.req_tx.clone(),
+            Self::Hosted(h) => h.req_tx.clone(),
+        }
+    }
+
+    pub fn human_channel(&self) -> Arc<nuo_wire::human_request::HumanChannelAccountant> {
+        match self {
+            Self::Building(p) => p.human_channel.clone(),
+            Self::Hosted(h) => h.human_channel.clone(),
+        }
+    }
+
+    pub fn workspace_root(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Building(p) => p.workspace_root.as_deref(),
+            Self::Hosted(h) => h.workspace_root.as_deref(),
+        }
+    }
+
+    pub fn phase(&self) -> nuo_wire::SessionPhase {
+        match self {
+            Self::Building(p) => p.phase.borrow().clone(),
+            Self::Hosted(_) => nuo_wire::SessionPhase::Ready,
+        }
+    }
+
+    /// The authoritative hydration frame, when it exists yet.
+    ///
+    /// A hosted session builds it on demand (local reads only, after Welcome);
+    /// a building session returns the snapshot cached at promotion, if any.
+    pub async fn snapshot(&self) -> Option<nuo_wire::SessionSnapshot> {
+        match self {
+            Self::Building(p) => p.latest_snapshot.lock().await.clone(),
+            Self::Hosted(h) => Some(crate::serve::build_full_session_snapshot(h).await),
         }
     }
 }
@@ -159,7 +208,7 @@ impl SessionBinding {
     }
 }
 pub enum ResolveOutcome {
-    Welcome(BoundSession),
+    Welcome(AttachHandle),
     Pick {
         sessions: Vec<SessionOverview>,
     },
@@ -214,6 +263,12 @@ pub struct MonitorMeta {
 pub struct SessionRegistry {
     params: Option<HostParams>,
     sessions: Arc<Mutex<HashMap<String, Arc<HostedSession>>>>,
+    /// Sessions whose identity is claimed but whose harness is still being
+    /// assembled (ADR-0133). Kept separate from `sessions` so every existing
+    /// lifecycle/monitor path keeps operating on fully hosted entries only;
+    /// `session_count`/`has_active_work` include this map so a building
+    /// session is never mistaken for an idle server.
+    building: Arc<Mutex<HashMap<String, Arc<PendingSession>>>>,
     monitor: MonitorBus,
     meta: Arc<Mutex<MonitorMeta>>,
     /// Server-level task fabric (D6): rehosted services and other
@@ -274,6 +329,16 @@ const IDLE_REAPER_INTERVAL: std::time::Duration = std::time::Duration::from_secs
 /// (this bound applies to single-session kills; server shutdown sizes the
 /// same budget against its remaining grace).
 const DEFAULT_SESSION_END_HOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Total budget for assembling a claimed session. Hooks, local skill scans and
+/// store loads all have their own bounds; this is the backstop that turns a
+/// wedged build into a visible `SessionPhase::Failed` instead of a session that
+/// stays `Preparing` forever (ADR-0133).
+const BUILD_BUDGET: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Defensive pre-`Ready` request buffer. The client queues until the snapshot
+/// arrives; this bounds what a misbehaving client can enqueue on the server.
+const SESSION_REQUEST_BUFFER: usize = 256;
 /// How long an idle *persisted* hosted session with no attached clients may
 /// stay resident before it is suspended (torn down in memory; the transcript
 /// is durable, so the next attach lazy-resumes it). This is what bounds the
@@ -300,6 +365,7 @@ impl SessionRegistry {
         Self {
             params,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            building: Arc::new(Mutex::new(HashMap::new())),
             monitor,
             meta: Arc::new(Mutex::new(MonitorMeta::default())),
             server_tasks: Arc::new(crate::background_jobs::BackgroundJobManager::new()),
@@ -657,33 +723,17 @@ impl SessionRegistry {
             AttachAction::Picker(init_options) => {
                 let opts = init_options.unwrap_or_default();
                 let role_id = opts.role.clone();
+                // `claim` applies the role's workspace policy (Fixed/Inherit/
+                // None); the picker only needs the one special case where the
+                // carrier has no workspace at all.
                 let ws = if role_id.as_deref() == Some("philosophist") {
                     None
-                } else if let Some(r_id) = role_id.as_deref() {
-                    let roles_cfg = nuo_persistence::roles::RolesConfig::load_for_workspace(Some(
-                        caller_project,
-                    ));
-                    if let Some(role_entry) = roles_cfg.get(r_id) {
-                        match role_entry.resolved_workspace() {
-                            nuo_persistence::roles::RoleWorkspace::None => None,
-                            nuo_persistence::roles::RoleWorkspace::Inherit => Some(
-                                nuo_wire::WorkspaceBinding::new(caller_project.to_path_buf()),
-                            ),
-                            nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
-                                Some(nuo_wire::WorkspaceBinding::new(root))
-                            }
-                        }
-                    } else {
-                        Some(nuo_wire::WorkspaceBinding::new(
-                            caller_project.to_path_buf(),
-                        ))
-                    }
                 } else {
                     Some(nuo_wire::WorkspaceBinding::new(
                         caller_project.to_path_buf(),
                     ))
                 };
-                self.assemble_hosted(
+                self.claim(
                     crate::startup::SessionStart::Picker,
                     SessionBinding {
                         workspace: ws,
@@ -721,13 +771,17 @@ impl SessionRegistry {
     }
 
     /// Control plane: create a session for `project` with explicit initial posture options.
+    ///
+    /// Claims synchronously, then waits for the visible readiness transition.
+    /// The control verb has no Welcome/snapshot stream, so it must not return
+    /// an id whose harness is still assembling.
     pub async fn create_session_with_options(
         &self,
         project: PathBuf,
         options: nuo_wire::SessionInitOptions,
     ) -> Result<String, String> {
-        let bound = self
-            .assemble_hosted(
+        let handle = self
+            .claim(
                 crate::startup::SessionStart::Fresh,
                 SessionBinding::workspace(project),
                 options,
@@ -737,7 +791,28 @@ impl SessionRegistry {
                 AssembleErr::NoHost => "this host cannot create sessions".to_string(),
                 AssembleErr::AssembleFailed(e) => format!("could not start a new session: {e}"),
             })?;
-        Ok(bound.session.id().await)
+        let id = handle.session_id().await;
+        match &handle {
+            AttachHandle::Hosted(_) => Ok(id),
+            AttachHandle::Building(pending) => {
+                let mut rx = pending.phase.subscribe();
+                tokio::time::timeout(BUILD_BUDGET, async {
+                    loop {
+                        let phase = rx.borrow().clone();
+                        match phase {
+                            nuo_wire::SessionPhase::Ready => return Ok(id.clone()),
+                            nuo_wire::SessionPhase::Failed { message, .. } => return Err(message),
+                            _ => {}
+                        }
+                        if rx.changed().await.is_err() {
+                            return Err("session assembly task ended".to_string());
+                        }
+                    }
+                })
+                .await
+                .unwrap_or_else(|_| Err("timed out waiting for session assembly".to_string()))
+            }
+        }
     }
 
     async fn create_session_outcome(
@@ -746,14 +821,14 @@ impl SessionRegistry {
         options: nuo_wire::SessionInitOptions,
     ) -> ResolveOutcome {
         match self
-            .assemble_hosted(
+            .claim(
                 crate::startup::SessionStart::Fresh,
                 SessionBinding::workspace(project),
                 options,
             )
             .await
         {
-            Ok(b) => ResolveOutcome::Welcome(b),
+            Ok(handle) => ResolveOutcome::Welcome(handle),
             Err(AssembleErr::NoHost) => {
                 ResolveOutcome::refused_untaxed("this host cannot create sessions")
             }
@@ -1282,26 +1357,16 @@ impl SessionRegistry {
         });
     }
 
-    pub async fn host(&self, entry: HostedSession) -> BoundSession {
+    pub async fn host(&self, entry: HostedSession) -> AttachHandle {
+        let entry = Arc::new(entry);
         let id = entry.session.id().await;
-        let b = BoundSession {
-            workspace_root: entry.workspace_root.clone(),
-            human_channel: entry.human_channel.clone(),
-            session: entry.session.clone(),
-            shared_confinement: entry.shared_confinement.clone(),
-            req_tx: entry.req_tx.clone(),
-            events: entry.events.clone(),
-            sync_buffer: entry.sync_buffer.clone(),
-            server_picker: self.latest_picker.clone(),
-            command_catalog: entry.command_catalog.clone(),
-            security: entry.security.clone(),
-        };
         let tracker = entry.tracker.clone();
         self.publish(MonitorEvent::SessionAdded(tracker.lock().await.row()))
             .await;
-        self.sessions.lock().await.insert(id, Arc::new(entry));
-        b
+        self.sessions.lock().await.insert(id, entry.clone());
+        AttachHandle::Hosted(entry)
     }
+
     async fn resolve_auto(
         &self,
         caller_project: &std::path::Path,
@@ -1310,62 +1375,69 @@ impl SessionRegistry {
         // Prefer the caller's own project's sessions; only when that project
         // has none do we consider the global set, and only a single global
         // session auto-binds (otherwise the client must choose).
-        let map = self.sessions.lock().await;
-        let mine: Vec<&Arc<HostedSession>> = map
-            .values()
-            .filter(|e| e.workspace_root.as_deref() == Some(caller_project))
-            .collect();
+        //
+        // The lock is released before any overview read: `overview_of` opens a
+        // SQLite summary through `spawn_blocking`, and holding the registry
+        // mutex across it stalled every control verb for the duration.
+        let (mine, total) = {
+            let map = self.sessions.lock().await;
+            let mine: Vec<Arc<HostedSession>> = map
+                .values()
+                .filter(|e| e.workspace_root.as_deref() == Some(caller_project))
+                .cloned()
+                .collect();
+            (mine, map.len())
+        };
         match mine.len() {
-            1 => return ResolveOutcome::Welcome(self.bound_from(mine[0])),
+            1 => return ResolveOutcome::Welcome(AttachHandle::Hosted(mine[0].clone())),
             n if n > 1 => {
                 return ResolveOutcome::Pick {
-                    sessions: self.overview_subset(&mine).await,
+                    sessions: self.overview_arcs(&mine).await,
                 };
             }
             _ => {}
         }
-        match map.len() {
-            0 => {
-                drop(map);
-                self.create_session_outcome(
+        // A build already in flight in the caller's project is joinable: the
+        // second attacher gets the same id and current phase instead of
+        // minting a duplicate session (ADR-0133).
+        if let Some(pending) = {
+            let map = self.building.lock().await;
+            map.values()
+                .find(|p| p.workspace_root.as_deref() == Some(caller_project))
+                .cloned()
+        } {
+            return ResolveOutcome::Welcome(AttachHandle::Building(pending));
+        }
+        if total == 0 {
+            return self
+                .create_session_outcome(
                     caller_project.to_path_buf(),
                     nuo_wire::SessionInitOptions::default(),
                 )
-                .await
-            }
-            1 => {
-                // The one hosted session belongs to a *different* project
-                // than the calling client declared. Auto-binding it would
-                // silently attach this client to another project's session —
-                // the "launched in project A, working in project B" trap —
-                // so a declared-project client gets the picker instead (the
-                // cross-project session is one explicit choice; a fresh
-                // session in the caller's project is created by `New`).
-                // A legacy client that declared no project keeps the
-                // historical auto-bind: the server cannot distinguish a
-                // cross-project attach from a same-project one.
-                if declared {
-                    return ResolveOutcome::Pick {
-                        sessions: self.overview(&map).await,
-                    };
-                }
-                if let Some(e) = map.values().next() {
-                    ResolveOutcome::Welcome(self.bound_from(e))
-                } else {
-                    unreachable!("len==1")
-                }
-            }
-            _ => ResolveOutcome::Pick {
-                sessions: self.overview(&map).await,
-            },
+                .await;
+        }
+        let entries: Vec<Arc<HostedSession>> = {
+            let map = self.sessions.lock().await;
+            map.values().cloned().collect()
+        };
+        if total == 1 && !declared {
+            // A legacy client that declared no project keeps the historical
+            // auto-bind: the server cannot distinguish a cross-project attach
+            // from a same-project one. A declared client gets the picker — the
+            // "launched in project A, working in project B" trap.
+            return ResolveOutcome::Welcome(AttachHandle::Hosted(entries[0].clone()));
+        }
+        ResolveOutcome::Pick {
+            sessions: self.overview_arcs(&entries).await,
         }
     }
+
     async fn resolve_id(&self, id: &str, _caller_project: &std::path::Path) -> ResolveOutcome {
-        {
-            let map = self.sessions.lock().await;
-            if let Some(e) = map.get(id) {
-                return ResolveOutcome::Welcome(self.bound_from(e));
-            }
+        if let Some(entry) = self.sessions.lock().await.get(id).cloned() {
+            return ResolveOutcome::Welcome(AttachHandle::Hosted(entry));
+        }
+        if let Some(pending) = self.building.lock().await.get(id).cloned() {
+            return ResolveOutcome::Welcome(AttachHandle::Building(pending));
         }
         if self.params.is_none() {
             // No host: nothing can ever assemble this id on this server.
@@ -1381,26 +1453,26 @@ impl SessionRegistry {
         // `[INV-ATTACH-01]`: no hosted entry **and** no durable binding is the
         // one case the server can prove is unrecoverable — the session is gone,
         // so the client must retire the tab that names it (ADR-0123).
-        let Some(binding) = lookup_session_workspace(id) else {
+        let Some(binding) = lookup_session_workspace(id).await else {
             return ResolveOutcome::refused(
                 nuo_wire::ERR_SESSION_GONE,
                 format!("session '{id}' no longer exists"),
             );
         };
         match self
-            .assemble_hosted(
+            .claim(
                 crate::startup::SessionStart::Resume(id.to_string()),
                 binding,
                 nuo_wire::SessionInitOptions::default(),
             )
             .await
         {
-            Ok(b) => ResolveOutcome::Welcome(b),
+            Ok(handle) => ResolveOutcome::Welcome(handle),
             Err(AssembleErr::NoHost) => ResolveOutcome::refused(
                 nuo_wire::ERR_SESSION_GONE,
                 format!("session '{id}' is not hosted on this server"),
             ),
-            // The session exists durably but could not be assembled: a retry may
+            // The session exists durably but could not be claimed: a retry may
             // work, so the tab must be *kept* and the failure surfaced
             // (`ERR_SESSION_UNRESUMABLE`).
             Err(AssembleErr::AssembleFailed(e)) => ResolveOutcome::refused(
@@ -1410,12 +1482,19 @@ impl SessionRegistry {
         }
     }
 
-    async fn assemble_hosted(
+    /// Claim a session identity and start its harness assembly in the
+    /// background.
+    ///
+    /// `[INV-ATTACH-03]` (ADR-0133): everything before the returned handle is
+    /// bounded local work — binding resolution, a store open that does not load
+    /// the transcript, channel construction, and spawning the build task. No
+    /// network I/O, no agent, no skills, no hooks, no transcript read.
+    async fn claim(
         &self,
-        startup: crate::startup::SessionStart,
+        mut startup: crate::startup::SessionStart,
         binding: SessionBinding,
         init_options: nuo_wire::SessionInitOptions,
-    ) -> Result<BoundSession, AssembleErr> {
+    ) -> Result<AttachHandle, AssembleErr> {
         let HostParams {
             identity,
             preset,
@@ -1433,7 +1512,6 @@ impl SessionRegistry {
 
         // `--resume`: pick the most recent matching session instead
         // of a fresh one, partitioned truthfully by Workspace or Role.
-        let mut startup = startup;
         if init_options.resume && matches!(startup, crate::startup::SessionStart::Fresh) {
             let partition =
                 nuo_wire::SessionPartition::from_binding(workspace.as_ref(), role_id.as_deref());
@@ -1449,7 +1527,10 @@ impl SessionRegistry {
             crate::startup::SessionStart::Resume(id) => Some(id.as_str()),
             _ => None,
         };
-        let manifest = resumed_session_id.and_then(lookup_session_manifest);
+        let manifest = match resumed_session_id {
+            Some(id) => lookup_session_manifest(id).await,
+            None => None,
+        };
 
         if let Some(manifest) = manifest {
             let role_identity = manifest.identity;
@@ -1512,43 +1593,168 @@ impl SessionRegistry {
             } else {
                 init_options.confined
             };
-        // The session's lifetime token: shared by the driver
-        // select below and the background `/schedule` scheduler inside the
-        // assemble, so one cancel stops the harness *and* its tick loop.
-        // Created before the assemble because the scheduler is spawned
-        // during it and receives the token as a spawn parameter.
+        // The session's lifetime token: shared by the build task and the
+        // background `/schedule` scheduler inside the assemble.
         let cancel = CancellationToken::new();
         // Per-session channel accounting — attach/detach on the
         // WS layer keeps this fresh; the agent reads it live.
         let human_channel = Arc::new(nuo_wire::human_request::HumanChannelAccountant::new());
-        let boot = bootstrap::assemble(BootstrapParams {
+        // The client-facing bus exists before Welcome: a build-phase event is
+        // buffered for every attacher that subscribes during the claim window.
+        let (events_tx, _) = broadcast::channel::<AgentResponse>(1024);
+        // Defensive request buffer: a rogue client may send before `Ready`;
+        // the build task drains this into the agent's inbox once it exists.
+        let (client_tx, client_rx) = mpsc::channel::<AgentRequest>(SESSION_REQUEST_BUFFER);
+        let sync_buffer = Arc::new(Mutex::new(AttachSyncBuffer::new()));
+        let (phase_tx, _) = tokio::sync::watch::channel(nuo_wire::SessionPhase::Binding);
+        // Claiming the store is bounded: `for_workspace` creates the session
+        // directory and pins an id; it does not load the transcript. Resume
+        // does that inside the build task, after Welcome. It runs on the
+        // blocking pool so the async worker is never parked by directory and
+        // role-manifest I/O.
+        let store_workspace = workspace.clone();
+        let store_role = role_id.clone();
+        let store = tokio::task::spawn_blocking(move || {
+            SessionStore::for_workspace(store_workspace, store_role)
+        })
+        .await
+        .map_err(|error| {
+            AssembleErr::AssembleFailed(Box::new(std::io::Error::other(format!(
+                "session store open task failed: {error}"
+            ))))
+        })?;
+        let store = Arc::new(store);
+        let session_id = match &startup {
+            crate::startup::SessionStart::Resume(id) => id.clone(),
+            _ => store.id().await,
+        };
+        let pending = Arc::new(PendingSession {
+            id: session_id.clone(),
+            workspace_root: workspace_root.clone(),
+            events: events_tx,
+            req_tx: client_tx,
+            phase: Arc::new(phase_tx),
+            cancel: cancel.clone(),
+            human_channel: human_channel.clone(),
+            sync_buffer,
+            latest_snapshot: Arc::new(Mutex::new(None)),
+            started_at: std::time::Instant::now(),
+        });
+        let phase_sink: crate::bootstrap::PhaseSink = {
+            let pending = pending.clone();
+            Arc::new(move |stage| {
+                let phase = nuo_wire::SessionPhase::Preparing { stage };
+                pending.phase.send_replace(phase.clone());
+                let _ = pending.events.send(AgentResponse::SessionPhase(
+                    nuo_wire::SessionPhaseUpdate {
+                        session_id: pending.id.clone(),
+                        phase,
+                    },
+                ));
+            })
+        };
+        let params = BootstrapParams {
             identity,
             preset,
             ui,
-            startup,
-            project_root: workspace_root.clone(),
-            role: role_id.clone(),
+            startup: startup.clone(),
+            project_root: workspace_root,
+            role: role_id,
             unattended: init_options.unattended,
             confined: effective_confined,
-            human_channel: Some(Arc::clone(&human_channel)),
-            teardown_token: Some(cancel.clone()),
+            human_channel: Some(human_channel),
+            teardown_token: Some(cancel),
             shared_config: Some(self.shared_config.clone()),
             shared_provider_usage: Some(self.shared_provider_usage.clone()),
+            phase_sink: Some(phase_sink),
+        };
+        self.building
+            .lock()
+            .await
+            .insert(session_id, pending.clone());
+        let resume_code = matches!(startup, crate::startup::SessionStart::Resume(_))
+            .then_some(nuo_wire::ERR_SESSION_UNRESUMABLE);
+        let registry = self.clone();
+        let build_pending = pending.clone();
+        tokio::spawn(async move {
+            registry
+                .build(build_pending, store, params, client_rx, resume_code)
+                .await;
+        });
+        Ok(AttachHandle::Building(pending))
+    }
+
+    async fn build(
+        self,
+        pending: Arc<PendingSession>,
+        store: Arc<SessionStore>,
+        params: BootstrapParams,
+        client_rx: mpsc::Receiver<AgentRequest>,
+        resume_code: Option<&'static str>,
+    ) {
+        let assembled = tokio::time::timeout(BUILD_BUDGET, async {
+            crate::bootstrap::assemble_with_store(store, params)
+                .await
+                .map_err(|error| error.to_string())
         })
-        .await
-        .map_err(AssembleErr::AssembleFailed)?;
+        .await;
+        let boot = match assembled {
+            Ok(Ok(boot)) => boot,
+            Ok(Err(message)) => {
+                self.fail_building(&pending, resume_code, message).await;
+                return;
+            }
+            Err(_) => {
+                self.fail_building(
+                    &pending,
+                    resume_code,
+                    format!("session assembly exceeded {BUILD_BUDGET:?}"),
+                )
+                .await;
+                return;
+            }
+        };
+        if let Err(error) = self.finish_hosted(pending.clone(), boot, client_rx).await {
+            self.fail_building(&pending, resume_code, error).await;
+        }
+    }
+
+    async fn fail_building(
+        &self,
+        pending: &Arc<PendingSession>,
+        code: Option<&'static str>,
+        message: String,
+    ) {
+        let phase = nuo_wire::SessionPhase::Failed {
+            code: code.map(str::to_string),
+            message: message.clone(),
+        };
+        pending.phase.send_replace(phase.clone());
+        let _ = pending
+            .events
+            .send(AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
+                session_id: pending.id.clone(),
+                phase,
+            }));
+        self.building.lock().await.remove(&pending.id);
+        tracing::warn!(session = %pending.id, error = %message, "hosted session assembly failed");
+    }
+
+    async fn finish_hosted(
+        &self,
+        pending: Arc<PendingSession>,
+        boot: crate::bootstrap::Bootstrap,
+        client_rx: mpsc::Receiver<AgentRequest>,
+    ) -> Result<(), String> {
         let session = boot.session.clone();
+        let session_id = session.id().await;
         // Mesh registration: the session's master joins the server
         // mesh at `session/<id>`, parented to the Hypervisor. Failure is not
         // session-fatal (mesh delivery is fail-open observability), so a
         // duplicate registration simply replaces the mailbox.
-        let session_id = session.id().await;
         let mailbox_handle = self.register_session_mailbox(&session_id).await;
         // ADR-0008 step 8 / ADR-0009 §3: wire ACP collaboration tools into the
         // live agent through its dynamic-tool sink (the same seam MCP uses).
-        // Feature-gated (ADR-0005 §5) so lean single-agent builds omit the
-        // whole multi-agent surface. Published after the mailbox exists so the
-        // tools can address peers and channels on the server fabric.
         #[cfg(feature = "collaboration")]
         {
             if let (Ok(addr), Some(mailbox)) = (
@@ -1571,7 +1777,7 @@ impl SessionRegistry {
         }
         let req_tx = boot.req_tx.clone();
         let command_catalog = boot.command_catalog.clone();
-        let (events_tx, _) = broadcast::channel::<AgentResponse>(1024);
+        let events_tx = pending.events.clone();
         let tap = events_tx.clone();
         let mut rr = boot.resp_rx;
 
@@ -1583,23 +1789,15 @@ impl SessionRegistry {
         // catches up from the live stream.
         let base = overview_of(&session, true).await;
         let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
-            base_row(base, workspace_root.as_deref()),
+            base_row(base, pending.workspace_root.as_deref()),
             SessionStatus::Idle,
         )));
         let tracker_for_tap = tracker.clone();
         let monitor_bus = self.monitor.clone();
-        let sync_buffer = Arc::new(Mutex::new(AttachSyncBuffer::new()));
+        let sync_buffer = pending.sync_buffer.clone();
         let sync_buffer_for_tap = sync_buffer.clone();
-        // Cross-session picker fan-out (see `broadcast_picker_to_other_sessions`):
-        // whenever this session's driver rebuilds the model-picker snapshot
-        // (switch, favorite toggle, connection add/delete, startup), every
-        // other hosted session's bus hears it too, and the server-level
-        // latest snapshot is refreshed for future attachers.
         let cross_for_tap = self.clone();
-        let origin_for_tap = session.id().await;
-        // Idle-suspension clock: bumped once per folded event (cheap atomic,
-        // no mutex) so the reaper can distinguish "alive but quiet because
-        // idle" from "hosted but forgotten".
+        let origin_for_tap = session_id.clone();
         let activity_tick = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let tick_for_tap = activity_tick.clone();
         tokio::spawn(async move {
@@ -1607,9 +1805,7 @@ impl SessionRegistry {
             while let Some(r) = rr.recv().await {
                 // Isolate per event (the "isolate" supervision policy): a
                 // poison response costs one dropped frame, not the session's
-                // entire observability path. Before this, a panic anywhere in
-                // the fold killed the tap task; the driver kept running and
-                // burning tokens while every subscriber's stream froze.
+                // entire observability path.
                 let fold = std::panic::AssertUnwindSafe(async {
                     {
                         tick_for_tap.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1620,8 +1816,9 @@ impl SessionRegistry {
                         let _ = monitor_bus.send(MonitorEvent::SessionUpdated(row));
                     }
                     // Buffer the attach-sync events before broadcasting so a
-                    // client that attaches later still hydrates. Latest-value
-                    // semantics retain startup keys/picker state across turns.
+                    // snapshot built after the driver's startup burst sees
+                    // them. Latest-value semantics retain startup keys/picker
+                    // state across turns.
                     if is_attach_sync_event(&r) {
                         let mut buf = sync_buffer_for_tap.lock().await;
                         buf.observe(&r);
@@ -1641,23 +1838,16 @@ impl SessionRegistry {
                 }
             }
         });
-        let cd = cancel.clone();
+        let cd = pending.cancel.clone();
         let driver = boot.driver;
         // Supervised driver spawn (the "evict" policy). The select arm keeps
-        // kill_session's cancel semantics: cancellation drops the driver
-        // future. The catch_unwind wrapper adds the panic leg — before it, a
-        // driver panic left a zombie entry: nobody drained `req_tx` (an
-        // unbounded channel, so clients kept queueing into memory), the
-        // control plane's `let _ = req_tx.send(...)` silently succeeded, and
-        // the only recovery was restarting the server.
-        //
-        // The registry clone is cheap (every field is an Arc), and moving the
-        // spawn after the map insert is required so eviction can find the
-        // entry. `id` is cloned below for the same reason.
+        // kill_session's cancel semantics; the catch_unwind wrapper adds the
+        // panic leg so a driver panic evicts the entry instead of leaving a
+        // zombie that never drains requests.
         let crash_registry = self.clone();
-        let crash_id = session.id().await;
+        let crash_id = session_id.clone();
         let crash_events = events_tx.clone();
-        let cancel_for_crash = cancel.clone();
+        let cancel_for_crash = pending.cancel.clone();
         let agent_for_crash = Some(boot.agent_for_session_end.clone());
         let (driver_done_tx, mut driver_done_rx) = mpsc::channel::<()>(1);
         tokio::spawn(async move {
@@ -1677,12 +1867,6 @@ impl SessionRegistry {
                     panic = %detail,
                     "session driver panicked; evicting the hosted session"
                 );
-
-                // Visible failure instead of silence: attached clients learn
-                // why before the Exit marker, then the entry is torn down
-                // through the standard path (SessionRemoved,
-                // SessionEnd hooks bounded at 2s). The session stays on disk,
-                // so the next attach lazy-resumes it cleanly.
                 let _ = crash_events.send(AgentResponse::Error(format!(
                     "internal error: session driver panicked: {detail}"
                 )));
@@ -1696,71 +1880,102 @@ impl SessionRegistry {
                     .await;
             }
         });
-        let id = session.id().await;
-        let bound = BoundSession {
-            workspace_root: workspace_root.clone(),
-            human_channel: human_channel.clone(),
+        // Forward buffered/pre-Ready client requests into the agent inbox once
+        // the driver exists. The channel is bounded, so an eager client applies
+        // backpressure instead of growing server memory.
+        let forward_tx = req_tx.clone();
+        tokio::spawn(async move {
+            let mut client_rx = client_rx;
+            while let Some(request) = client_rx.recv().await {
+                if forward_tx.send(request).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let hosted = Arc::new(HostedSession {
+            workspace_root: pending.workspace_root.clone(),
+            human_channel: pending.human_channel.clone(),
+            security: boot.security.clone(),
             session: session.clone(),
             shared_confinement: boot.shared_confinement.clone(),
-            req_tx: req_tx.clone(),
-            events: events_tx.clone(),
-            sync_buffer: sync_buffer.clone(),
-            server_picker: self.latest_picker.clone(),
-            command_catalog: command_catalog.clone(),
-            security: boot.security.clone(),
-        };
-        let hosted = Arc::new(HostedSession {
-            workspace_root,
-            human_channel,
-            security: boot.security.clone(),
-            session,
-            shared_confinement: boot.shared_confinement,
             req_tx,
-            events: events_tx,
-            cancel,
+            events: events_tx.clone(),
+            cancel: pending.cancel.clone(),
             tracker,
             sync_buffer,
             command_catalog,
+            initial_provider: boot.initial_provider_name.clone(),
+            initial_model: boot.initial_model_name.clone(),
             created_at: std::time::Instant::now(),
             last_activity: Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
-            activity_tick: activity_tick.clone(),
+            activity_tick,
             agent_for_session_end: Some(boot.agent_for_session_end),
         });
+        // Let the driver emit its startup state before the snapshot is read;
+        // the snapshot remains authoritative for durable data and the client
+        // follows it with live events.
+        tokio::task::yield_now().await;
+        let snapshot = crate::serve::build_full_session_snapshot(&hosted).await;
+        *pending.latest_snapshot.lock().await = Some(snapshot.clone());
         self.publish(MonitorEvent::SessionAdded(
             hosted.tracker.lock().await.row(),
         ))
         .await;
-        self.sessions.lock().await.insert(id, hosted);
-        // Keep the panic-supervision wrapper alive until the driver settles;
-        // dropping this receiver early would let the send above fail
-        // (harmlessly) but the wrapper task would already be parked on it.
+        self.sessions
+            .lock()
+            .await
+            .insert(session_id.clone(), hosted);
+        self.building.lock().await.remove(&session_id);
+        // `[INV-ATTACH-04]`: the authoritative snapshot is on the bus before
+        // `Ready`, and the phase cell flips only after the snapshot is cached.
+        pending.phase.send_replace(nuo_wire::SessionPhase::Ready);
+        let _ = events_tx.send(AgentResponse::SessionSnapshot(Box::new(snapshot)));
+        let _ = events_tx.send(AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
+            session_id,
+            phase: nuo_wire::SessionPhase::Ready,
+        }));
+        // Keep the panic-supervision wrapper alive until the driver settles.
         let _ = &mut driver_done_rx;
-        Ok(bound)
-    }
-    fn bound_from(&self, e: &Arc<HostedSession>) -> BoundSession {
-        BoundSession {
-            workspace_root: e.workspace_root.clone(),
-            human_channel: e.human_channel.clone(),
-            session: e.session.clone(),
-            shared_confinement: e.shared_confinement.clone(),
-            req_tx: e.req_tx.clone(),
-            events: e.events.clone(),
-            sync_buffer: e.sync_buffer.clone(),
-            server_picker: self.latest_picker.clone(),
-            command_catalog: e.command_catalog.clone(),
-            security: e.security.clone(),
-        }
+        Ok(())
     }
 
-    /// Number of currently hosted sessions (the idle-exit probe).
+    async fn overview_arcs(&self, entries: &[Arc<HostedSession>]) -> Vec<SessionOverview> {
+        let mut out = Vec::with_capacity(entries.len());
+        for e in entries {
+            out.push(overview_of(&e.session, true).await);
+        }
+        out.sort_by_key(|i| std::cmp::Reverse(i.updated_at));
+        out
+    }
+
+    /// Number of currently hosted or building sessions (the idle-exit probe).
     pub async fn session_count(&self) -> usize {
-        self.sessions.lock().await.len()
+        let hosted = self.sessions.lock().await.len();
+        let building = self.building.lock().await.len();
+        hosted + building
+    }
+
+    /// Cancel an in-flight build by id. Returns `false` when the id is not
+    /// building (already hosted, already failed, or unknown).
+    pub async fn cancel_building(&self, id: &str) -> bool {
+        let pending = self.building.lock().await.remove(id);
+        match pending {
+            Some(pending) => {
+                pending.cancel.cancel();
+                true
+            }
+            None => false,
+        }
     }
 
     /// Check whether any hosted session has active in-flight work (status != Idle).
     /// Used by client-driven shutdown to prevent killing running background tasks (ADR-0038).
+    /// A building session is active by definition: its harness is not ready yet.
     pub async fn has_active_work(&self) -> bool {
+        if !self.building.lock().await.is_empty() {
+            return true;
+        }
         let map = self.sessions.lock().await;
         for hosted in map.values() {
             let status = hosted.tracker.lock().await.row().status;
@@ -1832,19 +2047,6 @@ impl SessionRegistry {
     #[doc(hidden)]
     pub fn publish_for_test(&self, event: MonitorEvent) {
         let _ = self.monitor.send(event);
-    }
-
-    async fn overview(&self, map: &HashMap<String, Arc<HostedSession>>) -> Vec<SessionOverview> {
-        let hosted: Vec<&Arc<HostedSession>> = map.values().collect();
-        self.overview_subset(&hosted).await
-    }
-    async fn overview_subset(&self, entries: &[&Arc<HostedSession>]) -> Vec<SessionOverview> {
-        let mut out = Vec::new();
-        for e in entries {
-            out.push(overview_of(&e.session, true).await);
-        }
-        out.sort_by_key(|i| std::cmp::Reverse(i.updated_at));
-        out
     }
 }
 enum AssembleErr {
@@ -1947,23 +2149,38 @@ fn lookup_latest_session_in_partition(partition: &nuo_wire::SessionPartition) ->
 
 /// Resolve a session's durable binding (scope + workspace) by exact id,
 /// independent of the caller's workspace (0220).
-fn lookup_session_workspace(id: &str) -> Option<SessionBinding> {
-    let (workspace, role) = nuo_persistence::db::get_persistence_handle()
-        .reader()
-        .ok()?
-        .lookup_session_workspace(id)
-        .ok()
-        .flatten()?;
-    Some(SessionBinding { workspace, role })
+///
+/// Runs on the blocking pool: `[INV-ATTACH-03]` allows only bounded local work
+/// before Welcome, but that work must not park an async worker.
+async fn lookup_session_workspace(id: &str) -> Option<SessionBinding> {
+    let id = id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let (workspace, role) = nuo_persistence::db::get_persistence_handle()
+            .reader()
+            .ok()?
+            .lookup_session_workspace(&id)
+            .ok()
+            .flatten()?;
+        Some(SessionBinding { workspace, role })
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
-fn lookup_session_manifest(id: &str) -> Option<nuo_wire::SessionRoleManifest> {
-    nuo_persistence::db::get_persistence_handle()
-        .reader()
-        .ok()?
-        .lookup_session_manifest(id)
-        .ok()
-        .flatten()
+async fn lookup_session_manifest(id: &str) -> Option<nuo_wire::SessionRoleManifest> {
+    let id = id.to_string();
+    tokio::task::spawn_blocking(move || {
+        nuo_persistence::db::get_persistence_handle()
+            .reader()
+            .ok()?
+            .lookup_session_manifest(&id)
+            .ok()
+            .flatten()
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 #[cfg(test)]
@@ -2031,6 +2248,42 @@ mod attach_refusal_tests {
         };
         assert_eq!(code(&gone), Some(nuo_wire::ERR_SESSION_GONE));
         assert_eq!(code(&unresumable), Some(nuo_wire::ERR_SESSION_UNRESUMABLE));
+    }
+
+    /// `[INV-ATTACH-03]` (ADR-0133): the pre-Welcome claim may do bounded local
+    /// identity work only. This is a source-level contract in the same spirit as
+    /// the terminal's first-paint test: the compiler cannot see "no network
+    /// dependency was introduced into this function", but the text can.
+    #[test]
+    fn claim_path_is_network_free() {
+        let source = include_str!("registry.rs");
+        let start = source.find("    async fn claim(").expect("claim exists");
+        let rest = &source[start..];
+        let end = rest
+            .find("    async fn build(")
+            .expect("build follows claim");
+        let claim = &rest[..end];
+        for forbidden in [
+            "assemble_with_store",
+            "refresh_oauth",
+            "SkillRegistry",
+            "fire_session_start",
+            "full_transcript",
+        ] {
+            assert!(
+                !claim.contains(forbidden),
+                "claim must not perform `{forbidden}` before Welcome"
+            );
+        }
+        assert!(
+            claim.contains("spawn_blocking"),
+            "the bounded store claim must run on the blocking pool"
+        );
+        assert_eq!(
+            claim.matches("SessionStore::for_workspace").count(),
+            1,
+            "claim owns exactly one store open (no transcript load)"
+        );
     }
 
     fn describe(outcome: &ResolveOutcome) -> &'static str {

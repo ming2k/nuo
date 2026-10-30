@@ -20,8 +20,8 @@
 use nuo_harness::orchestration::{ProxyProvider, round_response};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
 use nuo_wire::{
-    AgentNotice, AgentRequest, AgentResponse, Message, NoticeKind, NoticeSeverity, NoticeSource,
-    Provider, RoundEvent, SubAgentProfile, ToolContextBuilder, ToolSet, collect_toolset,
+    AgentNotice, AgentRequest, AgentResponse, NoticeKind, NoticeSeverity, NoticeSource, Provider,
+    RoundEvent, SubAgentProfile, ToolContextBuilder, ToolSet, collect_toolset,
 };
 
 use crate::mcp::{McpCatalog, McpRuntime};
@@ -38,6 +38,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 use tokio::sync::mpsc;
+
+/// Total wall-clock budget for the SessionStart hook group during assembly.
+/// Hooks are external processes with a per-hook timeout of their own; this
+/// outer bound keeps `SessionPhase::Ready` bounded even when several hooks are
+/// configured (ADR-0133).
+const SESSION_START_HOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Everything a frontend binary must supply to assemble a session harness.
 ///
@@ -77,7 +83,16 @@ pub struct BootstrapParams {
     pub shared_config: Option<crate::SharedConfig>,
     /// Server-wide authoritative connection usage shared across all hosted sessions.
     pub shared_provider_usage: Option<crate::SharedConnectionUsage>,
+    /// Optional readiness-stage sink (ADR-0133). The hosted-session builder
+    /// uses it to publish [`nuo_wire::SessionPhase::Preparing`] transitions
+    /// while local assembly runs. Tests and in-process frontends pass `None`.
+    pub phase_sink: Option<PhaseSink>,
 }
+
+/// Callback invoked whenever assembly enters a bounded local preparation
+/// stage. The implementation MUST be non-blocking: it only updates a phase
+/// cell and broadcasts a frame.
+pub type PhaseSink = Arc<dyn Fn(nuo_wire::PrepareStage) + Send + Sync>;
 
 /// The assembled session harness: the driver (ready to `run`), the frontend
 /// ends of the request/response channels, and the values the frontend needs
@@ -103,18 +118,16 @@ pub struct Bootstrap {
     pub initial_provider_name: String,
     /// The model name the UI should display at startup.
     pub initial_model_name: String,
-    /// The session's restored transcript (empty for a fresh session).
-    pub restored_messages: Vec<Message>,
     /// Complete server-owned command/completion vocabulary for this session.
     pub command_catalog: nuo_wire::CommandCatalog,
     /// The primary agent (same `Arc` as `agent_for_session_end`), exposed so
     /// the registry can publish session-scoped tools onto it.
     pub agent: Arc<Agent>,
     /// The workspace-authority store assembled for this session's project
-    /// root. The registry surfaces it on [`crate::registry::BoundSession`]
-    /// so the WS attach path can detect an unconfigured workspace and push
-    /// the trust decision to the attaching client. Bootstrap itself no
-    /// longer emits the trust question over `resp_rx` (see `assemble`): the
+    /// root. The registry carries it on the hosted entry so the WS attach path
+    /// can detect an unconfigured workspace and push the trust decision to the
+    /// attaching client. Bootstrap itself no longer emits the trust question
+    /// over `resp_rx` (see `assemble`): the
     /// broadcast channel does not exist yet at that point, so the event
     /// reached nobody. Attach-time replay in `serve.rs` is the delivery
     /// mechanism instead.
@@ -151,6 +164,29 @@ pub fn ensure_app_roots() {
 /// frame.
 #[allow(clippy::too_many_lines)]
 pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std::error::Error>> {
+    // In-process/one-shot entry point: claim the store exactly as the hosted
+    // path does, then assemble. The hosted path (`registry::claim`) creates
+    // the store *before* the handshake and passes it to
+    // [`assemble_with_store`], so the store open is not on the Welcome path.
+    let workspace = params
+        .project_root
+        .as_ref()
+        .map(nuo_wire::WorkspaceBinding::new);
+    let session = Arc::new(SessionStore::for_workspace(workspace, params.role.clone()));
+    assemble_with_store(session, params).await
+}
+
+/// Assemble a session harness over an already-claimed store.
+///
+/// `[INV-ATTACH-03]` (ADR-0133): this runs *after* `Wire::Welcome` on the
+/// hosted path. Nothing here may be a prerequisite of the handshake. The
+/// `phase_sink` publishes bounded local preparation stages; network work is
+/// either lazy (credentials) or backgrounded (remote skills, MCP, catalog).
+#[allow(clippy::too_many_lines)]
+pub async fn assemble_with_store(
+    session: Arc<SessionStore>,
+    params: BootstrapParams,
+) -> Result<Bootstrap, Box<dyn std::error::Error>> {
     crate::provider_registry::init();
     nuo_persistence::db::get_persistence_handle().ensure_ready()?;
     let BootstrapParams {
@@ -159,14 +195,21 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         ui,
         startup,
         project_root: project_override,
-        role,
+        role: _,
         unattended: unattended_at_start,
         confined: confined_at_start,
         human_channel,
         teardown_token: _,
         shared_config,
         shared_provider_usage,
+        phase_sink,
     } = params;
+    let stage = |stage: nuo_wire::PrepareStage| {
+        if let Some(sink) = &phase_sink {
+            sink(stage);
+        }
+    };
+    stage(nuo_wire::PrepareStage::Session);
     debug_assert!(
         matches!(
             startup,
@@ -228,7 +271,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // `None` for a workspace-free persona. `persona` is recorded on
     // the session as metadata (which principal staffed it), used for `--resume`.
     let workspace_root: Option<PathBuf> = project_override;
-    let workspace = workspace_root.as_ref().map(nuo_wire::WorkspaceBinding::new);
 
     // Initialize Agent logic. The provider is resolved through the model
     // catalog (`build_provider_for`), the single source of truth for the
@@ -240,15 +282,10 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // discarded). Sessions still pin their own `sessions/<id>.{json,jsonl}`
     // (ADR-0018), so concurrency is safe without a project-wide lock.
 
-    // Session loading honors the startup mode. Under ADR-0018
-    // `load_for_project` pins a fresh `sessions/<id>.{json,jsonl}`, so a bare
-    // start always begins a new session; prior sessions stay on disk and are
-    // reachable through the picker or `attach`. `nuo attach <id>` opens
-    // that exact session — a missing target is a hard error (propagated via
-    // `?`) rather than a silent fresh-session fallback, so the operator knows
-    // the attach never happened. `nuo attach` (no id) opens the sessions
-    // picker overlay instead of guessing.
-    let session = Arc::new(SessionStore::for_workspace(workspace, role));
+    // Session loading honors the startup mode. The store was claimed before the
+    // handshake (ADR-0133); only a resume needs to open durable data, and it
+    // does so here — after Welcome, inside the visible `Loading`/`Preparing`
+    // phase.
     let open_picker_on_start = match &startup {
         SessionStart::Fresh | SessionStart::FreshWithPrompt(_) => false,
         SessionStart::Picker => true,
@@ -289,8 +326,11 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // holder type is satisfied; the chat dispatch refuses up-front with a
     // user-facing notification while this sentinel is live.
     let provider_id = nuo_model_routing::default_provider_id(&config);
-    crate::handlers_provider::refresh_oauth_if_needed(&config, provider_id).await;
-
+    // `[INV-ATTACH-03]` (ADR-0133): credentials are lazy. `build_provider_for`
+    // constructs a route, it does not authenticate; the first request resolves
+    // (and single-flights) the token. Eagerly refreshing here put a network
+    // round-trip in front of `Ready` and, before ADR-0133, in front of Welcome.
+    stage(nuo_wire::PrepareStage::Provider);
     let session_id = session.id().await;
     let initial_provider: Arc<dyn Provider> = nuo_model_routing::build_provider_for_model(
         &config,
@@ -317,7 +357,17 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // unified server belongs to whichever client first spawned it.
     let mut skills_config = config.skills.clone();
     skills_config.project_root = workspace_root.clone();
-    let skills_registry = Arc::new(SkillRegistry::load(&skills_config).await);
+    // Readiness is local-only: discover local/role/project skill roots now, and
+    // let the network-backed remote repositories refresh behind the running
+    // session. A remote outage must never delay `Ready` (ADR-0133).
+    stage(nuo_wire::PrepareStage::Skills);
+    let skills_registry = Arc::new(SkillRegistry::load_local(&skills_config).await);
+    {
+        let remote_registry = Arc::clone(&skills_registry);
+        tokio::spawn(async move {
+            remote_registry.reload().await;
+        });
+    }
     // A content-admitted `.nuo/skills/<name>/SKILL.md` wins over a same-named
     // user or remote skill by priority. Surface every newly observed shadow so
     // that prompt injection cannot hide behind normal precedence. Install the
@@ -737,12 +787,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
     // `nuo attach <id>` loads eagerly as before.
     let is_picker = matches!(startup, SessionStart::Picker);
 
-    let restored_messages = if is_picker {
-        Vec::new()
-    } else {
-        session.full_transcript().await
-    };
-
     // Mid-turn context projection: when pruning is enabled, install a gate that
     if config.context.lightweight_degradation_enabled {
         crate::agent_setup::reseed_prune_threshold(&agent, &config);
@@ -834,14 +878,29 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
 
         // SessionStart hooks: inject setup context before the first
         // round. Resume vs fresh start is surfaced so a hook can branch.
+        // A hook is an external process; it runs after Welcome, inside the
+        // visible `Preparing{Hooks}` phase, and is bounded as a startup group so
+        // one hung script cannot hold `Ready` for an unbounded time (ADR-0133).
         {
             let source = match &startup {
                 SessionStart::Resume(_) => nuo_wire::SessionSource::Resume,
                 _ => nuo_wire::SessionSource::Startup,
             };
+            stage(nuo_wire::PrepareStage::Hooks);
             let mut messages = session.model_window().await;
             let before_len = messages.len();
-            agent.fire_session_start(source, &mut messages).await;
+            match tokio::time::timeout(
+                SESSION_START_HOOK_BUDGET,
+                agent.fire_session_start(source, &mut messages),
+            )
+            .await
+            {
+                Ok(()) => {}
+                Err(_) => tracing::warn!(
+                    budget = ?SESSION_START_HOOK_BUDGET,
+                    "SessionStart hooks exceeded the startup budget; continuing without waiting"
+                ),
+            }
             // Persist the hook-injected setup context through the single write
             // path so the session stays the source of truth (ADR-0048).
             if messages.len() > before_len
@@ -928,7 +987,6 @@ pub async fn assemble(params: BootstrapParams) -> Result<Bootstrap, Box<dyn std:
         token_ledger,
         initial_provider_name,
         initial_model_name,
-        restored_messages,
         command_catalog,
         agent: agent_for_session_end.clone(),
         security: workspace_security.clone(),

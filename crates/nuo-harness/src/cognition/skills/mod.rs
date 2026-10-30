@@ -33,7 +33,7 @@ pub mod render;
 pub mod tools;
 
 pub use discovery::{
-    DiscoveryResult, ShadowedSkill, discover_all, discover_all_with_trust_state,
+    DiscoveryResult, ShadowedSkill, discover_all, discover_all_with, discover_all_with_trust_state,
     discoverable_skill_directories, project_skills_present,
 };
 pub use metadata::{Skill, SkillDependency, SkillPolicy, SkillScope};
@@ -113,7 +113,21 @@ impl SkillRegistry {
 
     /// Discover skills from all configured sources.
     pub async fn load(config: &SkillsConfig) -> Self {
-        let result = discover_all(config).await;
+        Self::load_with_remote(config, true).await
+    }
+
+    /// Discover only the local/role/project sources, skipping every remote
+    /// repository fetch.
+    ///
+    /// This is the readiness-critical half of discovery: a network-backed skill
+    /// repository must never gate session startup (ADR-0133). Callers spawn
+    /// [`Self::reload`] afterwards to fill the remote sources in place.
+    pub async fn load_local(config: &SkillsConfig) -> Self {
+        Self::load_with_remote(config, false).await
+    }
+
+    async fn load_with_remote(config: &SkillsConfig, include_remote: bool) -> Self {
+        let result = discover_all_with(config, include_remote).await;
         if !result.errors.is_empty() {
             for err in &result.errors {
                 tracing::warn!("skill discovery error: {}", err);

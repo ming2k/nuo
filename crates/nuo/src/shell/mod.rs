@@ -271,6 +271,13 @@ pub struct TuiLaunchConfig {
     /// replayed through the canonical notice funnel
     /// ([ADR-0121](0121-notice-log-residency-retained-disclosure-record-and-bubble-as-pointer.md)),
     /// so the reason a tab vanished is answerable minutes later.
+    /// Server-attested readiness at attach time (ADR-0133). `Ready` is only
+    /// authoritative when the snapshot has also been applied; the client gates
+    /// input on the transition, not on this initial value.
+    pub initial_phase: nuo_wire::SessionPhase,
+    /// Opening prompt (`-p`) dispatched on the `Ready` transition rather than
+    /// at handshake time (ADR-0133).
+    pub initial_prompt: Option<String>,
     pub startup_notices: Vec<(NoticeSeverity, String)>,
 }
 
@@ -349,7 +356,19 @@ pub(crate) async fn run_tui_with_input(
         initial_tabs,
         initial_tab_history,
         startup_notices,
+        initial_phase,
+        initial_prompt,
     } = config;
+    let session_phase_init = initial_phase.clone();
+    let initial_pending_prompts: Vec<nuo_wire::AgentRequest> = initial_prompt
+        .map(|text| {
+            vec![nuo_wire::AgentRequest::Prompt {
+                text,
+                images: Vec::new(),
+                sent_at_ms: None,
+            }]
+        })
+        .unwrap_or_default();
     let profile = nuotc::TerminalProfile::detect();
     let tui_config = Arc::new(tui_config);
     let mut restored = transcript_messages_from_core(initial_messages, &tui_config);
@@ -2049,6 +2068,37 @@ pub(crate) async fn run_tui_with_input(
                     }
                     AgentResponse::SessionSnapshot(snapshot) => {
                         let sid = snapshot.session_id.clone();
+                        // `[INV-ATTACH-04]` (ADR-0133): this frame is the
+                        // authoritative hydration payload. Rebuild the whole
+                        // visible transcript from it (and the command ledger),
+                        // exactly like `ConversationReplaced`, but addressed to
+                        // the snapshot's own session id.
+                        let mut rebuilt =
+                            transcript_messages_from_core(snapshot.messages, &tui_config_clone);
+                        rebuilt = merge_command_rows(
+                            rebuilt,
+                            transcript_commands_from_ledger(snapshot.commands),
+                        );
+                        rebuilt = merge_round_interrupt_rows(
+                            rebuilt,
+                            transcript_interrupts_from_records(snapshot.round_interrupts),
+                        );
+                        rebuilt = merge_round_interrupt_rows(
+                            rebuilt,
+                            transcript_retry_resolutions_from_records(snapshot.retry_resolutions),
+                        );
+                        mutations
+                            .send(M::Transcript {
+                                edit: event_loop::mutations::TranscriptEdit::ReplaceAll {
+                                    messages: rebuilt,
+                                },
+                            })
+                            .await;
+                        mutations
+                            .send(M::SetRoundCount(snapshot.round_counter))
+                            .await;
+                        mutations.send(M::ClearContextTokens).await;
+                        needs_round_rebase = true;
                         if let Some(picker) = snapshot.provider_picker {
                             mutations.send(M::ProviderPicker(picker)).await;
                         }
@@ -2068,12 +2118,18 @@ pub(crate) async fn run_tui_with_input(
                         if let Some(harness) = snapshot.harness_state {
                             mutations.send(M::Harness(harness)).await;
                         }
+                        if let Some(catalog) = snapshot.command_catalog {
+                            mutations.send(M::CommandCatalog(catalog)).await;
+                        }
                         mutations
                             .send(M::ProviderSwitched {
                                 provider: snapshot.provider,
                                 model: snapshot.model,
                             })
                             .await;
+                    }
+                    AgentResponse::SessionPhase(update) => {
+                        mutations.send(M::SessionPhase(update.phase)).await;
                     }
                     AgentResponse::StateDelta(delta) => {
                         if let (Some(provider), Some(model)) = (delta.provider, delta.model) {
@@ -2193,6 +2249,10 @@ pub(crate) async fn run_tui_with_input(
         current_model: initial_model,
         cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
         current_session_id: "test-session".to_string(),
+        session_phase: session_phase_init.clone(),
+        pending_prompts: initial_pending_prompts,
+        switching_session: (session_phase_init != nuo_wire::SessionPhase::Ready)
+            .then(|| live_session_init.clone()),
         current_workspace: String::new(),
         current_role: None,
         session_context: None,
@@ -2223,7 +2283,6 @@ pub(crate) async fn run_tui_with_input(
         question_scroll: 0,
         question_modal_follow: true,
         sessions_overview: Vec::new(),
-        switching_session: None,
         host_sessions: Vec::new(),
         dashboard_filter: String::new(),
         dashboard_filtering: false,

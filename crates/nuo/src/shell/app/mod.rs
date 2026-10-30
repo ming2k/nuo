@@ -614,6 +614,14 @@ pub struct App {
     pub sessions_overview: Vec<SessionOverview>,
     /// When switching sessions, holds the short id of the target session being loaded.
     pub switching_session: Option<String>,
+    /// Server-attested readiness of the attached session (ADR-0133
+    /// `[INV-ATTACH-04]`). Input is gated on `Ready`; `Failed` is a recoverable
+    /// disclosure, never a reason to exit.
+    pub session_phase: nuo_wire::SessionPhase,
+    /// Requests the operator submitted before the session reached `Ready`.
+    /// Flushed in order on the `Ready` transition; the server also buffers
+    /// defensively, but the client-side queue keeps the UI honest.
+    pub pending_prompts: Vec<nuo_wire::AgentRequest>,
     /// Live monitor snapshot for the thread fleet orchestrator dashboard
     /// mirrored from `UiRuntime::host_sessions` each frame.
     pub host_sessions: Vec<nuo_wire::MonitoredSession>,

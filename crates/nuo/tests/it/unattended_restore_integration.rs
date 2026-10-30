@@ -39,6 +39,7 @@ fn params(project_root: std::path::PathBuf, startup: SessionStart) -> BootstrapP
         teardown_token: None,
         shared_config: None,
         shared_provider_usage: None,
+        phase_sink: None,
     }
 }
 

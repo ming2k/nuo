@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
 use nuo_wire::{
-    AgentRequest, AgentResponse, Message, MonitorAction, MonitorEvent, MonitoredSession,
-    MonitoredTask, SessionOverview,
+    AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitoredSession, MonitoredTask,
+    SessionOverview,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
@@ -326,7 +326,17 @@ const SERVER_START_POLL: Duration = Duration::from_millis(100);
 /// scheduling, not a timeout anyone should normally reach.
 const DISCOVER_SPAWN_POLL: Duration = Duration::from_millis(20);
 const DISCOVER_SPAWN_POLLS: usize = 10;
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Attach first-frame liveness deadline.
+///
+/// `[INV-ATTACH-03]` (ADR-0133): the server acknowledges with `Welcome` before
+/// any store load, harness build, skill scan, hook, or credential work. This is
+/// therefore a liveness deadline, not a completion deadline — a timeout means
+/// the server never spoke, not that a session is slow.
+const ATTACH_ACK_TIMEOUT: Duration = Duration::from_secs(5);
+/// Control verbs may stop/restart a server, so they keep a wider budget.
+const CONTROL_REPLY_TIMEOUT: Duration = Duration::from_secs(10);
+/// The monitor stream's first snapshot is produced by a separate task.
+const MONITOR_FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 const FALLBACK_GRACE: Duration = Duration::from_secs(15);
 
 pub const DEFAULT_SERVER_PORT: u16 = 9800;
@@ -916,13 +926,10 @@ pub enum Handshake {
         req_tx: mpsc::UnboundedSender<AgentRequest>,
         resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
         session_id: String,
-        round_counter: u64,
-        history: Vec<Message>,
-        round_interrupts: Vec<nuo_wire::RoundInterrupt>,
-        retry_resolutions: Vec<nuo_wire::RetryResolution>,
-        provider: String,
-        model: String,
-        command_catalog: nuo_wire::CommandCatalog,
+        /// Readiness at the moment of the handshake. Informational only:
+        /// `[INV-ATTACH-04]` (ADR-0133) makes the *post-snapshot*
+        /// `AgentResponse::SessionPhase(Ready)` the gate for input.
+        phase: nuo_wire::SessionPhase,
     },
     Pick(Vec<SessionOverview>),
 }
@@ -982,56 +989,45 @@ async fn finish_handshake_with_project(
         .await
         .map_err(|e| AttachError::transport(format!("wire send select: {e}")))?;
 
-    let reply = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
-        loop {
-            match wire_source.next().await {
-                Some(Ok(wire)) => match wire {
-                    Wire::Welcome {
-                        session_id,
-                        round_counter,
-                        messages,
-                        provider,
-                        model,
-                        round_interrupts,
-                        retry_resolutions,
-                        command_catalog,
-                    } => {
-                        return Ok(Reply::Welcome(Welcome {
-                            session_id,
-                            round_counter,
-                            messages,
-                            provider,
-                            model,
-                            round_interrupts,
-                            retry_resolutions,
-                            command_catalog,
-                        }));
-                    }
-                    Wire::Pick { sessions } => return Ok(Reply::Pick(sessions)),
-                    Wire::Error { message, code } => {
-                        // `[INV-ATTACH-01]`: the code travels with the message.
-                        // This is the hop that used to discard the taxonomy
-                        // with a `..` and leave the client to sniff prose.
-                        return Err(AttachError {
-                            code,
-                            message: format!("server rejected the attach: {message}"),
-                        });
-                    }
-                    _ => tracing::warn!("attach: unexpected frame during handshake, ignored"),
-                },
-                Some(Err(error)) => {
-                    return Err(AttachError::transport(format!(
-                        "wire recv during handshake: {error}"
-                    )));
+    let reply = tokio::time::timeout(ATTACH_ACK_TIMEOUT, async {
+        match wire_source.next().await {
+            Some(Ok(wire)) => match wire {
+                Wire::Welcome { session_id, phase } => {
+                    Ok(Reply::Welcome(Welcome { session_id, phase }))
                 }
-                None => {
-                    return Err(AttachError::transport("server closed the connection"));
+                Wire::Pick { sessions } => Ok(Reply::Pick(sessions)),
+                Wire::Error { message, code } => {
+                    // `[INV-ATTACH-01]`: the code travels with the message.
+                    // This is the hop that used to discard the taxonomy
+                    // with a `..` and leave the client to sniff prose.
+                    Err(AttachError {
+                        code,
+                        message: format!("server rejected the attach: {message}"),
+                    })
                 }
-            }
+                other => {
+                    // `[INV-ATTACH-03]` (ADR-0133): Welcome is the first
+                    // frame by contract. Silently dropping an earlier state
+                    // frame hid a protocol violation and lost hydration, so
+                    // this is now a hard, diagnosable error.
+                    Err(AttachError::transport(format!(
+                        "unexpected frame before Welcome: {other:?}"
+                    )))
+                }
+            },
+            Some(Err(error)) => Err(AttachError::transport(format!(
+                "wire recv during handshake: {error}"
+            ))),
+            None => Err(AttachError::transport("server closed the connection")),
         }
     })
     .await
-    .map_err(|_| AttachError::transport("timed out waiting for handshake from server"))??;
+    .map_err(|_| {
+        AttachError::transport(
+            "server did not acknowledge the attach within the liveness window \
+             (the server may be starting, wedged, or speaking a different protocol)",
+        )
+    })??;
 
     let welcome = match reply {
         Reply::Welcome(w) => w,
@@ -1083,13 +1079,7 @@ async fn finish_handshake_with_project(
         req_tx: req_out_tx,
         resp_rx: resp_in_rx,
         session_id: welcome.session_id,
-        round_counter: welcome.round_counter,
-        history: welcome.messages,
-        round_interrupts: welcome.round_interrupts,
-        retry_resolutions: welcome.retry_resolutions,
-        provider: welcome.provider,
-        model: welcome.model,
-        command_catalog: welcome.command_catalog,
+        phase: welcome.phase,
     })
 }
 
@@ -1143,7 +1133,7 @@ async fn finish_control(
         .await
         .map_err(|e| format!("wire send control select: {e}"))?;
 
-    tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+    tokio::time::timeout(CONTROL_REPLY_TIMEOUT, async {
         loop {
             match wire_source.next().await {
                 Some(Ok(wire)) => match wire {
@@ -1168,13 +1158,7 @@ async fn finish_control(
 
 struct Welcome {
     session_id: String,
-    round_counter: u64,
-    messages: Vec<Message>,
-    provider: String,
-    model: String,
-    round_interrupts: Vec<nuo_wire::RoundInterrupt>,
-    retry_resolutions: Vec<nuo_wire::RetryResolution>,
-    command_catalog: nuo_wire::CommandCatalog,
+    phase: nuo_wire::SessionPhase,
 }
 
 enum Reply {
@@ -1228,7 +1212,7 @@ async fn finish_monitor(
         .await
         .map_err(|e| format!("wire send select: {e}"))?;
 
-    let first = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+    let first = tokio::time::timeout(MONITOR_FIRST_FRAME_TIMEOUT, async {
         loop {
             match wire_source.next().await {
                 Some(Ok(wire)) => match wire {

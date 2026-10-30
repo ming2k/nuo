@@ -68,6 +68,27 @@ pub(super) async fn handle_send_chat(
     let has_images = !images.is_empty();
 
     if !text.is_empty() || has_images {
+        // `[INV-ATTACH-04]` (ADR-0133): a turn must not be submitted before the
+        // server attests `Ready`. Queue it locally (the server also buffers
+        // defensively) and flush on the transition.
+        if app.session_phase != nuo_wire::SessionPhase::Ready {
+            let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
+            let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
+            app.record_input_history(text.clone(), images.clone(), text_pastes);
+            app.pending_prompts.push(AgentRequest::Prompt {
+                text: expanded,
+                images,
+                sent_at_ms: Some(now_epoch_ms()),
+            });
+            app.clear_history_draft();
+            app.record_notice(
+                nuo_view::model::document::NoticeSeverity::Info,
+                "attach",
+                "Session is still preparing; your message will be sent when it is ready.",
+                now_epoch_ms(),
+            );
+            return;
+        }
         if app.running_sessions.contains(viewed_session_id) {
             match app.composer_send_mode {
                 crate::shell::app::ComposerSendMode::Steer => {

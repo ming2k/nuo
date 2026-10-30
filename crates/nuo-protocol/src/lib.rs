@@ -316,6 +316,14 @@ pub use policy_schema::*;
 
 /// Current protocol version.
 ///
+/// 18: `Wire::Welcome` becomes an identity-only acknowledgement carrying
+/// `session_id` + `SessionPhase`; the hydration payload moves to an
+/// authoritative `SessionSnapshot` sent after Welcome, and
+/// `AgentResponse::SessionPhase` reports readiness transitions (ADR-0133).
+/// This is a deliberate break: keeping the old hydration fields would require
+/// the server to finish session assembly inside the handshake — the exact
+/// coupling the ADR removes.
+///
 /// 17: `ControlRequest::GetUsageStats` — model usage accounting is queryable
 /// on the session-free control plane (ADR-0129 [INV-USAGE-01]). A server that
 /// predates the verb cannot deserialize the tag, so the frame change is not
@@ -326,9 +334,9 @@ pub use policy_schema::*;
 /// domain list was the only carrier), so a client that sends `Deny` must not be
 /// served by a server that would read it as `Grant` — the frame change is not
 /// additive and the window floor moves with it.
-pub const PROTOCOL_VERSION: u32 = 17;
+pub const PROTOCOL_VERSION: u32 = 18;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 17;
+pub const MIN_PROTOCOL_VERSION: u32 = 18;
 
 /// Initial options and postures when creating a session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -567,21 +575,18 @@ pub enum Wire {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         protocol: Option<u32>,
     },
-    /// Server response welcoming an attached connection.
+    /// Server acknowledgement of an attached connection.
+    ///
+    /// `[INV-ATTACH-03]` (ADR-0133): a handle, not a payload. The server sends
+    /// this as soon as it has claimed a session identity — before opening the
+    /// session store, building the agent, loading skills, running hooks, or
+    /// touching any provider credential. Hydration follows on the same
+    /// connection as an authoritative [`crate::AgentResponse::SessionSnapshot`],
+    /// and readiness transitions arrive as
+    /// [`crate::AgentResponse::SessionPhase`].
     Welcome {
         session_id: String,
-        round_counter: u64,
-        messages: Vec<Message>,
-        #[serde(default)]
-        provider: String,
-        #[serde(default)]
-        model: String,
-        #[serde(default)]
-        round_interrupts: Vec<RoundInterrupt>,
-        #[serde(default)]
-        retry_resolutions: Vec<RetryResolution>,
-        #[serde(default)]
-        command_catalog: nuo_tool::completion::CommandCatalog,
+        phase: SessionPhase,
     },
     /// Server response to ambiguous attach / picker.
     Pick { sessions: Vec<SessionOverview> },
@@ -687,5 +692,64 @@ impl Encoder<Wire> for NativeWireCodec {
         dst.put_u32(serialized.len() as u32);
         dst.put_slice(&serialized);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod readiness_protocol_tests {
+    use super::*;
+
+    /// ADR-0133: Welcome is a handle, not a hydration payload.
+    #[test]
+    fn welcome_carries_identity_and_phase_only() {
+        let welcome = Wire::Welcome {
+            session_id: "session-1".to_string(),
+            phase: SessionPhase::Binding,
+        };
+        let json = serde_json::to_string(&welcome).unwrap();
+        assert!(json.contains(r#""type":"Welcome""#));
+        assert!(json.contains(r#""phase":"binding""#));
+        assert!(!json.contains("messages"));
+        assert!(!json.contains("command_catalog"));
+    }
+
+    /// `[INV-ATTACH-01]` survives into the phase taxonomy: a post-Welcome
+    /// failure carries its machine-readable code.
+    #[test]
+    fn session_phase_failure_carries_its_code() {
+        let phase = SessionPhase::Failed {
+            code: Some(ERR_SESSION_UNRESUMABLE.to_string()),
+            message: "could not load".to_string(),
+        };
+        let json = serde_json::to_string(&phase).unwrap();
+        assert!(json.contains(r#""phase":"failed""#));
+        assert!(json.contains(r#""code":"session_unresumable""#));
+    }
+
+    #[test]
+    fn session_snapshot_is_the_complete_hydration_payload() {
+        let snapshot = SessionSnapshot {
+            session_id: "s".into(),
+            round_counter: 3,
+            messages: vec![Message::new(Role::User, "hello")],
+            provider: "p".into(),
+            model: "m".into(),
+            todos: Vec::new(),
+            context_tokens: None,
+            harness_state: None,
+            activity: None,
+            provider_picker: None,
+            provider_keys: None,
+            commands: Vec::new(),
+            round_interrupts: Vec::new(),
+            retry_resolutions: Vec::new(),
+            command_catalog: Some(CommandCatalog::default()),
+            watermark_seq: 0,
+        };
+        let back: SessionSnapshot =
+            serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+        assert_eq!(back.round_counter, 3);
+        assert_eq!(back.messages.len(), 1);
+        assert!(back.command_catalog.is_some());
     }
 }

@@ -76,57 +76,67 @@ pub async fn run_headless(
         Some(init_options)
     });
     let handshake = target.connect(action.clone()).await?;
-    let (tx, mut rx, session_id, _round_counter, _history, provider, model) = match handshake {
+    let (tx, mut rx, session_id, _phase) = match handshake {
         Handshake::Attached {
             req_tx,
             resp_rx,
             session_id,
-            round_counter,
-            history,
-            round_interrupts: _,
-            retry_resolutions: _,
-            provider,
-            model,
-            command_catalog: _,
-        } => (
-            req_tx,
-            resp_rx,
-            session_id,
-            round_counter,
-            history,
-            provider,
-            model,
-        ),
+            phase,
+        } => (req_tx, resp_rx, session_id, phase),
         Handshake::Pick(_) => {
             return Err("unexpected session pick list when creating fresh headless session".into());
         }
     };
 
-    if json {
-        let init_event = serde_json::json!({
-            "type": "session_init",
-            "session_id": session_id,
-            "provider": provider,
-            "model": model,
-        });
-        println!("{}", serde_json::to_string(&init_event)?);
-        io::stdout().flush()?;
-    }
-
-    // Dispatch the prompt
-    send_intent(
-        &tx,
-        AgentRequest::Prompt {
-            text: prompt,
-            images: Vec::new(),
-            sent_at_ms: None,
-        },
-    )?;
+    // `[INV-ATTACH-04]` (ADR-0133): the prompt is dispatched only after the
+    // server attests `Ready`, and the JSON `session_init` line is emitted after
+    // the authoritative snapshot so it reports the real provider/model.
+    let mut prompt_sent = false;
+    let mut provider = String::new();
+    let mut model = String::new();
 
     let is_tty = io::stderr().is_terminal();
     let mut accumulated_text = String::new();
 
     while let Some(resp) = rx.recv().await {
+        match &resp {
+            AgentResponse::SessionSnapshot(snapshot) => {
+                provider = snapshot.provider.clone();
+                model = snapshot.model.clone();
+                continue;
+            }
+            AgentResponse::SessionPhase(update) => {
+                match &update.phase {
+                    nuo_wire::SessionPhase::Ready if !prompt_sent => {
+                        if json {
+                            let init_event = serde_json::json!({
+                                "type": "session_init",
+                                "session_id": session_id,
+                                "provider": provider,
+                                "model": model,
+                            });
+                            println!("{}", serde_json::to_string(&init_event)?);
+                            io::stdout().flush()?;
+                        }
+                        send_intent(
+                            &tx,
+                            AgentRequest::Prompt {
+                                text: prompt.clone(),
+                                images: Vec::new(),
+                                sent_at_ms: None,
+                            },
+                        )?;
+                        prompt_sent = true;
+                    }
+                    nuo_wire::SessionPhase::Failed { message, .. } => {
+                        return Err(message.clone().into());
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            _ => {}
+        }
         match resp {
             AgentResponse::Round {
                 session_id: _,

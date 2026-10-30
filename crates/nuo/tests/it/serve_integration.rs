@@ -118,6 +118,8 @@ async fn prehosted_with_catalog(
             tracker,
             sync_buffer,
             command_catalog,
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -164,25 +166,42 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
     .await
     .unwrap();
 
-    let welcome = tokio::time::timeout(Duration::from_secs(2), ws.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    match serde_json::from_str::<Wire>(welcome.to_text().unwrap_or("")).unwrap() {
-        Wire::Welcome {
-            command_catalog, ..
-        } => assert_eq!(command_catalog, catalog),
-        other => panic!("expected Welcome, got {other:?}"),
-    }
-
-    // Skip the attach-time TodosUpdated and HarnessState snapshots.
-    for _ in 0..2 {
-        tokio::time::timeout(Duration::from_secs(2), ws.next())
+    // Welcome is identity-only (ADR-0133); the command catalog arrives in the
+    // authoritative snapshot that follows it.
+    let mut snapshot_catalog = None;
+    while snapshot_catalog.is_none() {
+        let frame = tokio::time::timeout(Duration::from_secs(2), ws.next())
             .await
             .unwrap()
             .unwrap()
             .unwrap();
+        match serde_json::from_str::<Wire>(frame.to_text().unwrap_or("")).unwrap() {
+            Wire::Welcome { .. } => {}
+            Wire::Response {
+                response: AgentResponse::SessionSnapshot(snapshot),
+            } => snapshot_catalog = snapshot.command_catalog.clone(),
+            Wire::Response {
+                response: AgentResponse::SessionPhase(_),
+            } => {}
+            other => panic!("expected hydration, got {other:?}"),
+        }
+    }
+    assert_eq!(snapshot_catalog.unwrap(), catalog);
+
+    // Consume the readiness transition so the request below has a clean frame.
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if let Wire::Response {
+            response: AgentResponse::SessionPhase(update),
+        } = serde_json::from_str::<Wire>(frame.to_text().unwrap_or("")).unwrap()
+            && update.phase == nuo_wire::SessionPhase::Ready
+        {
+            break;
+        }
     }
 
     let request = AgentRequest::CompleteComposer {
@@ -289,6 +308,8 @@ async fn host_with_project(registry: &SessionRegistry, project: std::path::PathB
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
             command_catalog: nuo_wire::CommandCatalog::default(),
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -337,8 +358,9 @@ async fn test_select_then_attach_round_trip() {
         other => panic!("expected Welcome, got {other:?}"),
     }
 
-    // The frame right after the welcome is the attach-time task-list sync
-    // (empty here: this session has no todos).
+    // The frame right after the welcome is the authoritative hydration
+    // snapshot (ADR-0133). It carries the task list and the harness state in
+    // one frame; there is no separate TodosUpdated/HarnessState prefix.
     let sync_msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -346,30 +368,12 @@ async fn test_select_then_attach_round_trip() {
         .unwrap();
     match serde_json::from_str::<Wire>(sync_msg.to_text().unwrap_or("")).unwrap() {
         Wire::Response {
-            response:
-                AgentResponse::Round {
-                    event: RoundEvent::TodosUpdated(list),
-                    ..
-                },
-        } => assert!(list.items.is_empty()),
-        other => panic!("expected TodosUpdated sync, got {other:?}"),
-    }
-
-    // Followed by the attach-time HarnessState sync.
-    let state_msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    match serde_json::from_str::<Wire>(state_msg.to_text().unwrap_or("")).unwrap() {
-        Wire::Response {
-            response:
-                AgentResponse::Round {
-                    event: RoundEvent::HarnessState(_),
-                    ..
-                },
-        } => {}
-        other => panic!("expected HarnessState sync, got {other:?}"),
+            response: AgentResponse::SessionSnapshot(snapshot),
+        } => {
+            assert!(snapshot.todos.is_empty());
+            assert!(snapshot.harness_state.is_some());
+        }
+        other => panic!("expected SessionSnapshot sync, got {other:?}"),
     }
 
     ws.send(WsMessage::Text(
@@ -392,20 +396,94 @@ async fn test_select_then_attach_round_trip() {
         session_id: session_id.clone(),
         event: RoundEvent::Text("back".into()),
     });
-    let resp_msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
+    // Skip the readiness transition that follows the hydration snapshot.
+    loop {
+        let resp_msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let resp: Wire = serde_json::from_str(resp_msg.to_text().unwrap_or("")).unwrap();
+        match resp {
+            Wire::Response {
+                response: AgentResponse::SessionPhase(_),
+            } => continue,
+            Wire::Response {
+                response: AgentResponse::Round { event, .. },
+            } => match event {
+                RoundEvent::Text(t) => {
+                    assert_eq!(t, "back");
+                    break;
+                }
+                o => panic!("{o:?}"),
+            },
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+/// `[INV-ATTACH-04]` (ADR-0133): Welcome is an identity acknowledgement, the
+/// authoritative snapshot follows it, and only then does the server attest
+/// `Ready`. The client gates input on that transition.
+#[tokio::test]
+async fn welcome_then_snapshot_then_ready_is_the_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
+    let session_id = session.id().await;
+    let (registry, _req_rx, _bc_tx) = prehosted(session).await;
+    let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+    let _ = handle;
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
         .await
-        .unwrap()
-        .unwrap()
         .unwrap();
-    let resp: Wire = serde_json::from_str(resp_msg.to_text().unwrap_or("")).unwrap();
-    match resp {
+    ws.send(WsMessage::Text(
+        serde_json::to_string(&Wire::Select {
+            version: None,
+            action: AttachAction::Attach(Some(session_id.clone())),
+            project: None,
+            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+        })
+        .unwrap()
+        .into(),
+    ))
+    .await
+    .unwrap();
+
+    macro_rules! next_frame {
+        () => {{
+            let raw = tokio::time::timeout(Duration::from_secs(2), ws.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            serde_json::from_str::<Wire>(raw.to_text().unwrap_or("")).unwrap()
+        }};
+    }
+
+    match next_frame!() {
+        Wire::Welcome {
+            session_id: id,
+            phase,
+        } => {
+            assert_eq!(id, session_id);
+            assert!(matches!(phase, nuo_wire::SessionPhase::Ready));
+        }
+        other => panic!("expected Welcome first, got {other:?}"),
+    }
+    match next_frame!() {
         Wire::Response {
-            response: AgentResponse::Round { event, .. },
-        } => match event {
-            RoundEvent::Text(t) => assert_eq!(t, "back"),
-            o => panic!("{o:?}"),
-        },
-        other => panic!("{other:?}"),
+            response: AgentResponse::SessionSnapshot(snapshot),
+        } => assert_eq!(snapshot.session_id, session_id),
+        other => panic!("expected SessionSnapshot second, got {other:?}"),
+    }
+    match next_frame!() {
+        Wire::Response {
+            response: AgentResponse::SessionPhase(update),
+        } => assert_eq!(update.phase, nuo_wire::SessionPhase::Ready),
+        other => panic!("expected SessionPhase(Ready) third, got {other:?}"),
     }
 }
 
@@ -465,7 +543,8 @@ async fn attach_receives_restored_todos_after_welcome() {
         other => panic!("expected Welcome, got {other:?}"),
     }
 
-    // The very next frame must be the restored task list.
+    // The very next frame is the authoritative snapshot carrying the restored
+    // task list (ADR-0133).
     let todos_msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
         .unwrap()
@@ -473,16 +552,12 @@ async fn attach_receives_restored_todos_after_welcome() {
         .unwrap();
     match serde_json::from_str::<Wire>(todos_msg.to_text().unwrap_or("")).unwrap() {
         Wire::Response {
-            response:
-                AgentResponse::Round {
-                    session_id: id,
-                    event: RoundEvent::TodosUpdated(list),
-                },
+            response: AgentResponse::SessionSnapshot(snapshot),
         } => {
-            assert_eq!(id, session_id);
-            assert_eq!(list, todos);
+            assert_eq!(snapshot.session_id, session_id);
+            assert_eq!(snapshot.todos, todos.items);
         }
-        other => panic!("expected TodosUpdated restore, got {other:?}"),
+        other => panic!("expected SessionSnapshot restore, got {other:?}"),
     }
 }
 
@@ -541,27 +616,25 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
         .unwrap()
         .unwrap();
 
-    let mut saw_provider_switched = false;
-    // The attach sync replays buffered provider events; the todos sync rides
-    // the same prefix. Read a few frames and confirm the switch is among them.
+    // The authoritative snapshot carries the buffered provider/model pair.
+    let mut saw_provider = None;
     for _ in 0..4 {
         let msg = match tokio::time::timeout(Duration::from_secs(2), ws.next()).await {
             Ok(Some(Ok(m))) => m,
             _ => break,
         };
-        if let Ok(Wire::Response { response }) =
-            serde_json::from_str::<Wire>(msg.to_text().unwrap_or(""))
-            && let AgentResponse::ProviderSwitched { provider, model } = response
+        if let Ok(Wire::Response {
+            response: AgentResponse::SessionSnapshot(snapshot),
+        }) = serde_json::from_str::<Wire>(msg.to_text().unwrap_or(""))
         {
-            assert_eq!(provider, "111xianyu");
-            assert_eq!(model, "k3");
-            saw_provider_switched = true;
+            saw_provider = Some((snapshot.provider, snapshot.model));
             break;
         }
     }
-    assert!(
-        saw_provider_switched,
-        "attach must replay the buffered ProviderSwitched so the hint bar hydrates"
+    assert_eq!(
+        saw_provider,
+        Some(("111xianyu".to_string(), "k3".to_string())),
+        "the attach snapshot must hydrate the buffered provider/model so the hint bar is correct"
     );
 }
 
@@ -1332,6 +1405,8 @@ async fn host_bare(
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
             command_catalog: nuo_wire::CommandCatalog::default(),
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
             created_at,
             last_activity: tokio::sync::Mutex::new(created_at),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -1874,6 +1949,8 @@ async fn control_suspend_session_parks_a_contentful_session() {
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
             command_catalog: nuo_wire::CommandCatalog::default(),
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -1965,6 +2042,8 @@ async fn attach_trust_workspace_with_posture(
             tracker,
             sync_buffer,
             command_catalog: Default::default(),
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -2036,6 +2115,8 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             tracker,
             sync_buffer,
             command_catalog: Default::default(),
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
             last_activity: tokio::sync::Mutex::new(std::time::Instant::now()),
             last_seen_tick: std::sync::atomic::AtomicU64::new(0),
@@ -2079,20 +2160,22 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         let Wire::Response { response } = frame else {
             continue;
         };
-        let AgentResponse::Round { event, .. } = response else {
-            continue;
-        };
-        match event {
-            RoundEvent::HarnessState(snapshot)
-                if snapshot.workspace_security.instructions
-                    == nuo_wire::WorkspaceTrustState::Quarantined =>
-            {
-                saw_quarantined_snapshot = true;
+        match response {
+            AgentResponse::SessionSnapshot(snapshot) => {
+                if let Some(harness) = &snapshot.harness_state
+                    && harness.workspace_security.instructions
+                        == nuo_wire::WorkspaceTrustState::Quarantined
+                {
+                    saw_quarantined_snapshot = true;
+                }
             }
-            RoundEvent::Notice(n)
-                if n.body
-                    .as_deref()
-                    .is_some_and(|b| b.contains("contributions") || b.contains("trust")) =>
+            AgentResponse::Round {
+                event: RoundEvent::Notice(n),
+                ..
+            } if n
+                .body
+                .as_deref()
+                .is_some_and(|b| b.contains("contributions") || b.contains("trust")) =>
             {
                 saw_banner = true;
             }
@@ -2153,20 +2236,22 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
         let Wire::Response { response } = frame else {
             continue;
         };
-        let AgentResponse::Round { event, .. } = response else {
-            continue;
-        };
-        match event {
-            RoundEvent::HarnessState(snapshot)
-                if snapshot.workspace_security.instructions
-                    == nuo_wire::WorkspaceTrustState::Changed =>
-            {
-                saw_changed_snapshot = true;
-                // One extra read past the snapshot proves the frame ordering:
-                // the server sends attach-sync before any notice.
-                break;
+        match response {
+            AgentResponse::SessionSnapshot(snapshot) => {
+                if let Some(harness) = &snapshot.harness_state
+                    && harness.workspace_security.instructions
+                        == nuo_wire::WorkspaceTrustState::Changed
+                {
+                    saw_changed_snapshot = true;
+                    // The snapshot is the gate; the passive banner must not
+                    // follow for an interactive attach.
+                    break;
+                }
             }
-            RoundEvent::Notice(n) if n.kind == nuo_wire::NoticeKind::TrustChanged => {
+            AgentResponse::Round {
+                event: RoundEvent::Notice(n),
+                ..
+            } if n.kind == nuo_wire::NoticeKind::TrustChanged => {
                 saw_banner = true;
             }
             _ => {}
@@ -2282,9 +2367,12 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             .unwrap();
         let frame: Wire = serde_json::from_str(raw.to_text().unwrap_or("")).unwrap();
         if let Wire::Response {
-            response: AgentResponse::ProviderKeys(keys),
+            response: AgentResponse::SessionSnapshot(snapshot),
         } = frame
-            && keys.iter().any(|(p, _)| p == "test-provider")
+            && snapshot
+                .provider_keys
+                .as_ref()
+                .is_some_and(|keys| keys.iter().any(|(p, _)| p == "test-provider"))
         {
             ws1_saw_keys = true;
             break;
@@ -2319,9 +2407,12 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             .unwrap();
         let frame: Wire = serde_json::from_str(raw.to_text().unwrap_or("")).unwrap();
         if let Wire::Response {
-            response: AgentResponse::ProviderKeys(keys),
+            response: AgentResponse::SessionSnapshot(snapshot),
         } = frame
-            && keys.iter().any(|(p, _)| p == "test-provider")
+            && snapshot
+                .provider_keys
+                .as_ref()
+                .is_some_and(|keys| keys.iter().any(|(p, _)| p == "test-provider"))
         {
             ws2_saw_keys = true;
             break;
