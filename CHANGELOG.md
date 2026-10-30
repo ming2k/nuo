@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.58] - 2026-10-30
+
 ### Added
 
 - **Thread Orchestration Dashboard and Decoupled Model Usage (ADR-0129).**
