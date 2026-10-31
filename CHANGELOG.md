@@ -8,6 +8,15 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.64] - 2026-10-31
+
+### Changed
+
+- **Collapse Command Execution Output by Default.**
+  - Tool step disclosure for `execute_command` now defaults to collapsed so voluminous shell output does not crowd out transcript context.
+  - Failures, denials, and non-zero exit codes continue to auto-expand via the step lifecycle rules.
+  - Configurable via Settings → Components or `[tui.default_expanded] execute_command = true`.
+
 ## [0.0.63] - 2026-10-31
 
 ### Added

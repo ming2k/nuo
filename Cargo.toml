@@ -8,7 +8,7 @@ default-members = ["crates/nuo"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.63"
+version = "0.0.64"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -87,50 +87,50 @@ mockito = "1"
 tempfile = "3"
 
 # ACP & Substrates
-nuo-acp = { version = "0.0.63", path = "crates/nuo-acp" }
-acp = { version = "0.0.63", package = "nuo-acp", path = "crates/nuo-acp" }
-nuo-tool = { version = "0.0.63", path = "crates/nuo-tool" }
-nuo-tool-derive = { version = "0.0.63", path = "crates/nuo-tool-derive" }
-nuo-provider = { version = "0.0.63", path = "crates/nuo-provider" }
-nuo-provider-qoder = { version = "0.0.63", path = "providers/nuo-provider-qoder" }
-nuo-provider-catalog = { version = "0.0.63", path = "providers/nuo-provider-catalog" }
-nuo-provider-anthropic = { version = "0.0.63", path = "providers/nuo-provider-anthropic" }
-nuo-provider-google-antigravity = { version = "0.0.63", path = "providers/nuo-provider-google-antigravity" }
-nuo-provider-openai = { version = "0.0.63", path = "providers/nuo-provider-openai" }
-nuo-provider-chatgpt-plan = { version = "0.0.63", path = "providers/nuo-provider-chatgpt-plan" }
-nuo-provider-deepseek = { version = "0.0.63", path = "providers/nuo-provider-deepseek" }
-nuo-provider-kimi = { version = "0.0.63", path = "providers/nuo-provider-kimi" }
-nuo-provider-copilot = { version = "0.0.63", path = "providers/nuo-provider-copilot" }
-nuo-provider-commandcode-goat = { version = "0.0.63", path = "providers/nuo-provider-commandcode-goat" }
-nuo-provider-opencode-go = { version = "0.0.63", path = "providers/nuo-provider-opencode-go" }
-nuo-provider-opencode-zen = { version = "0.0.63", path = "providers/nuo-provider-opencode-zen" }
-nuo-provider-openrouter = { version = "0.0.63", path = "providers/nuo-provider-openrouter" }
-nuo-provider-xai = { version = "0.0.63", path = "providers/nuo-provider-xai" }
-nuo-provider-qianwen = { version = "0.0.63", path = "providers/nuo-provider-qianwen" }
-nuo-provider-glm-cn = { version = "0.0.63", path = "providers/nuo-provider-glm-cn" }
-nuo-provider-codebuddy-auth = { version = "0.0.63", path = "providers/nuo-provider-codebuddy-auth" }
-nuo-provider-codebuddy-cn = { version = "0.0.63", path = "providers/nuo-provider-codebuddy-cn" }
-nuo-provider-codebuddy-intl = { version = "0.0.63", path = "providers/nuo-provider-codebuddy-intl" }
-nuo-mcp = { version = "0.0.63", path = "crates/nuo-mcp" }
-nuo-inference-wire = { version = "0.0.63", path = "crates/nuo-inference-wire", default-features = false }
+nuo-acp = { version = "0.0.64", path = "crates/nuo-acp" }
+acp = { version = "0.0.64", package = "nuo-acp", path = "crates/nuo-acp" }
+nuo-tool = { version = "0.0.64", path = "crates/nuo-tool" }
+nuo-tool-derive = { version = "0.0.64", path = "crates/nuo-tool-derive" }
+nuo-provider = { version = "0.0.64", path = "crates/nuo-provider" }
+nuo-provider-qoder = { version = "0.0.64", path = "providers/nuo-provider-qoder" }
+nuo-provider-catalog = { version = "0.0.64", path = "providers/nuo-provider-catalog" }
+nuo-provider-anthropic = { version = "0.0.64", path = "providers/nuo-provider-anthropic" }
+nuo-provider-google-antigravity = { version = "0.0.64", path = "providers/nuo-provider-google-antigravity" }
+nuo-provider-openai = { version = "0.0.64", path = "providers/nuo-provider-openai" }
+nuo-provider-chatgpt-plan = { version = "0.0.64", path = "providers/nuo-provider-chatgpt-plan" }
+nuo-provider-deepseek = { version = "0.0.64", path = "providers/nuo-provider-deepseek" }
+nuo-provider-kimi = { version = "0.0.64", path = "providers/nuo-provider-kimi" }
+nuo-provider-copilot = { version = "0.0.64", path = "providers/nuo-provider-copilot" }
+nuo-provider-commandcode-goat = { version = "0.0.64", path = "providers/nuo-provider-commandcode-goat" }
+nuo-provider-opencode-go = { version = "0.0.64", path = "providers/nuo-provider-opencode-go" }
+nuo-provider-opencode-zen = { version = "0.0.64", path = "providers/nuo-provider-opencode-zen" }
+nuo-provider-openrouter = { version = "0.0.64", path = "providers/nuo-provider-openrouter" }
+nuo-provider-xai = { version = "0.0.64", path = "providers/nuo-provider-xai" }
+nuo-provider-qianwen = { version = "0.0.64", path = "providers/nuo-provider-qianwen" }
+nuo-provider-glm-cn = { version = "0.0.64", path = "providers/nuo-provider-glm-cn" }
+nuo-provider-codebuddy-auth = { version = "0.0.64", path = "providers/nuo-provider-codebuddy-auth" }
+nuo-provider-codebuddy-cn = { version = "0.0.64", path = "providers/nuo-provider-codebuddy-cn" }
+nuo-provider-codebuddy-intl = { version = "0.0.64", path = "providers/nuo-provider-codebuddy-intl" }
+nuo-mcp = { version = "0.0.64", path = "crates/nuo-mcp" }
+nuo-inference-wire = { version = "0.0.64", path = "crates/nuo-inference-wire", default-features = false }
 
 # Terminal Substrate (Nuotc)
 nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.6" }
 
 # In-house Nuo crates
-nuo-protocol = { version = "0.0.63", path = "crates/nuo-protocol" }
-nuo = { version = "0.0.63", path = "crates/nuo" }
-nuo-server = { version = "0.0.63", path = "crates/nuo-server" }
-nuo-persistence = { version = "0.0.63", path = "crates/nuo-persistence" }
-nuo-ui-primitives = { version = "0.0.63", path = "crates/nuo-ui-primitives" }
-nuo-view = { version = "0.0.63", path = "crates/nuo-view" }
-nuo-host = { version = "0.0.63", path = "crates/nuo-host" }
-nuo-harness = { version = "0.0.63", path = "crates/nuo-harness" }
-nuo-model-routing = { version = "0.0.63", path = "crates/nuo-model-routing" }
-nuo-tool-fs = { version = "0.0.63", path = "tools/nuo-tool-fs" }
-nuo-tool-exec = { version = "0.0.63", path = "tools/nuo-tool-exec" }
-nuo-tool-web = { version = "0.0.63", path = "tools/nuo-tool-web" }
-nuo-tool-ast = { version = "0.0.63", path = "tools/nuo-tool-ast" }
+nuo-protocol = { version = "0.0.64", path = "crates/nuo-protocol" }
+nuo = { version = "0.0.64", path = "crates/nuo" }
+nuo-server = { version = "0.0.64", path = "crates/nuo-server" }
+nuo-persistence = { version = "0.0.64", path = "crates/nuo-persistence" }
+nuo-ui-primitives = { version = "0.0.64", path = "crates/nuo-ui-primitives" }
+nuo-view = { version = "0.0.64", path = "crates/nuo-view" }
+nuo-host = { version = "0.0.64", path = "crates/nuo-host" }
+nuo-harness = { version = "0.0.64", path = "crates/nuo-harness" }
+nuo-model-routing = { version = "0.0.64", path = "crates/nuo-model-routing" }
+nuo-tool-fs = { version = "0.0.64", path = "tools/nuo-tool-fs" }
+nuo-tool-exec = { version = "0.0.64", path = "tools/nuo-tool-exec" }
+nuo-tool-web = { version = "0.0.64", path = "tools/nuo-tool-web" }
+nuo-tool-ast = { version = "0.0.64", path = "tools/nuo-tool-ast" }
 
 [workspace.lints.rust]
 unsafe_code = "allow"
