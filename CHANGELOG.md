@@ -8,6 +8,21 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.62] - 2026-10-31
+
+### Refactored
+
+- **Decoupled Color Scheme Wire Contract and Presentation Boundary.**
+  - Migrated `ColorSchemeConfig`, `ThemeFile`, and custom color scheme schemas from `nuo-host` and `nuo-protocol` to `nuo-ui-primitives`.
+  - Replaced concrete UI theme types with generic `serde_json::Value` payloads in `AgentRequest::UpdateTuiColorScheme` and `AgentResponse::TuiColorSchemeUpdated`, maintaining headless server purity and eliminating presentation substrate leaks across IPC.
+- **Optional System Clipboard in Headless Runtime.**
+  - Gated `arboard` in `nuo-host` behind an optional `clipboard` feature flag, providing safe fallback stubs when compiling for headless or minimal server profiles.
+- **Dependency Hygiene and Cargo Profile Tuning.**
+  - Pruned unused crate dependencies across workspace crates, providers, and capability tools (`cargo-machete` hygiene).
+  - Configured workspace dev and test build profiles with line-table debuginfo (`debug = 1`), unpacked split debuginfo (`split-debuginfo = "unpacked"`), and optimized external dependencies.
+  - Added `.cargo/config.toml.example` template.
+  - Consolidated standards documentation, removing obsolete workflow documents and redirecting architectural citations to `docs/dev/subsystems.md`.
+
 ## [0.0.61] - 2026-10-30
 
 ### Added
