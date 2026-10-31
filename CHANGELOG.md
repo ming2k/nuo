@@ -8,6 +8,15 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.63] - 2026-10-31
+
+### Added
+
+- **Wire Drift Governance and Canonical Surface Census (ADR-0136).**
+  - Protocol drift surfaces as an explicit typed frame (`Wire::Error(WireError::ProtocolDrift)`) rather than an abrupt transport disconnect.
+  - Checked-in variant census (`crates/nuo/src/dev/wire-census.txt`) and `nuo dev census` tooling prevent silent wire divergence; enforced by `test_inv_wire_census_matches_protocol_version`.
+  - Added link resilience tests verifying reconnects and drift detection across server-client handshakes.
+
 ### Fixed
 
 - **Subagent Disclosure: Live Thinking and Child Steps Now Actually Expand.**
