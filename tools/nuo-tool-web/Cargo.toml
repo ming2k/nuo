@@ -10,16 +10,13 @@ description = "Web search and reader tools for Nuo cognitive agents"
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
-futures = { workspace = true }
 http = "1.4"
 netune = { workspace = true }
 nuo-tool = { workspace = true }
 nuo-wire = { workspace = true }
-regex = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "net"] }
-tracing = { workspace = true }
 sha2 = { workspace = true }
 inventory = { workspace = true }
 
@@ -29,3 +26,6 @@ toml = { workspace = true }
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["inventory"]

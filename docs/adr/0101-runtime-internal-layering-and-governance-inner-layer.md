@@ -28,7 +28,7 @@ unresolved: `nuo-harness/src` was a flat list of **~30 sibling modules** (`agent
 `durability/`, …) with no visible layering. The crate boundary was correct; the *module*
 boundary was not expressed.
 
-The standard that governs this (`docs/dev/standards/architecture.md` §3.2) is explicit: a
+The standard that governs this (`docs/dev/subsystems.md` §"Crate Inclusion Threshold") is explicit: a
 new crate is admitted only when a responsibility "cannot be cleanly modeled as internal
 modules of existing domain crates." Since ADR-0100 established the responsibilities are not
 cleanly separable into crates, the correct instrument is **module structure** — which is a

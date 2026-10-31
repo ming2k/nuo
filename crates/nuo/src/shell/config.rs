@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use nuo_wire::ColorSchemeConfig;
+use nuo_ui_primitives::{ColorSchemeConfig, ThemeFile};
 
 use nuo_view::disclosure_config::{DisclosureSource, reasoning_expanded, tool_expanded};
 
@@ -202,7 +202,7 @@ pub fn candidate_theme_dirs(workspace: Option<&Path>) -> Vec<PathBuf> {
 }
 
 /// Load custom theme files from a single directory.
-pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_wire::ThemeFile> {
+pub fn load_theme_files(themes_dir: &Path) -> Vec<ThemeFile> {
     let mut themes = Vec::new();
     let Ok(entries) = fs::read_dir(themes_dir) else {
         return themes;
@@ -212,7 +212,7 @@ pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_wire::ThemeFile> {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) == Some("toml")
             && let Ok(content) = fs::read_to_string(&path)
-            && let Ok(mut theme) = toml::from_str::<nuo_wire::ThemeFile>(&content)
+            && let Ok(mut theme) = toml::from_str::<ThemeFile>(&content)
         {
             if theme.id.is_empty()
                 && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
@@ -246,14 +246,14 @@ pub fn load_theme_files(themes_dir: &Path) -> Vec<nuo_wire::ThemeFile> {
 }
 
 /// Load all custom theme files from all candidate theme directories, deduplicating by id.
-pub fn load_all_theme_files(workspace: Option<&Path>) -> Vec<nuo_wire::ThemeFile> {
+pub fn load_all_theme_files(workspace: Option<&Path>) -> Vec<ThemeFile> {
     let mut all_themes = Vec::new();
     for dir in candidate_theme_dirs(workspace) {
         let loaded = load_theme_files(&dir);
         for theme in loaded {
             if !all_themes
                 .iter()
-                .any(|t: &nuo_wire::ThemeFile| t.id.eq_ignore_ascii_case(&theme.id))
+                .any(|t: &ThemeFile| t.id.eq_ignore_ascii_case(&theme.id))
             {
                 all_themes.push(theme);
             }
@@ -292,7 +292,7 @@ pub fn color_scheme_label(name: &str, workspace: Option<&Path>) -> String {
 /// Build a renderer theme for a scheme id with workspace theme files.
 pub fn theme_from_color_scheme(
     name: &str,
-    custom: &nuo_wire::ColorSchemeConfig,
+    custom: &ColorSchemeConfig,
     workspace: Option<&Path>,
 ) -> nuo_ui_primitives::theme::Theme {
     nuo_ui_primitives::theme::Theme::from_color_scheme_from(
@@ -305,7 +305,7 @@ pub fn theme_from_color_scheme(
 /// Resolve a theme with adaptive profile fallback and workspace theme files.
 pub fn resolve_theme_with_profile(
     name: &str,
-    custom: &nuo_wire::ColorSchemeConfig,
+    custom: &ColorSchemeConfig,
     workspace: Option<&Path>,
     profile: &nuotc::TerminalProfile,
 ) -> nuo_ui_primitives::theme::Theme {
@@ -478,7 +478,7 @@ accent = "#7aa2f7"
         // Missing custom fields inherit their semantic defaults.
         assert_eq!(
             cfg.custom_color_scheme.text,
-            nuo_wire::ColorSchemeConfig::default().text
+            ColorSchemeConfig::default().text
         );
     }
 

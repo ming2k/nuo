@@ -132,6 +132,7 @@ fn inputs_with_cache(cache: &RemoteCatalogCache) -> DerivationInputs<'static> {
 /// [`nuo_persistence::paths::TestDirsGuard`] holds the shared override lock and
 /// clears the roots on drop.
 fn sandboxed_paths() -> (nuo_persistence::paths::TestDirsGuard, tempfile::TempDir) {
+    ensure_test_init();
     let tmp = tempfile::tempdir().expect("tempdir");
     let dirs = nuo_persistence::paths::Dirs {
         config_dir: tmp.path().join("config"),

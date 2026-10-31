@@ -57,8 +57,8 @@ decision the evidence actually supports.
   architecture; it is CI cost and reader confusion.
 - **The boundary must be a mechanism, not prose.** A responsibility split that exists only
   in a diagram decays; it must be enforced by the compiler or a regression test.
-- **Respect the repository's own crate-admission rule.** `docs/dev/standards/architecture.md`
-  §3.2: a new crate is admitted only if the responsibility "cannot be cleanly modeled as
+- **Respect the repository's own crate-admission rule.** `docs/dev/subsystems.md`
+  §"Crate Inclusion Threshold": a new crate is admitted only if the responsibility "cannot be cleanly modeled as
   internal modules of existing domain crates."
 - **No capability regression.** ACP multi-agent channel/delegation capability must survive.
 

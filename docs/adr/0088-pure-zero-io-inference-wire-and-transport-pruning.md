@@ -89,7 +89,7 @@ Under an uncompromising zero-legacy standard, we complete the modernization and 
 
 ### 1. Retaining `WireClient` in a New Dedicated Crate (`nuo-inference-client`)
 - **Discarded Option**: Creating a standalone crate for `WireClient`.
-- **Failure Mode**: Violates `docs/dev/standards/architecture.md` §3 (Crate Inclusion Threshold). Because `WireProvider` is the sole consumer of this workflow and all other providers already use `nuo-egress` directly, creating a dedicated crate introduces unjustified workspace fragmentation.
+- **Failure Mode**: Violates `docs/dev/subsystems.md` §"Crate Inclusion Threshold". Because `WireProvider` is the sole consumer of this workflow and all other providers already use `nuo-egress` directly, creating a dedicated crate introduces unjustified workspace fragmentation.
 
 ### 2. Discarding Canonical Wire IR (`WireRequest`, `ContentBlock`)
 - **Discarded Option**: Deleting `WireRequest` and forcing raw per-vendor types at the wire boundary.

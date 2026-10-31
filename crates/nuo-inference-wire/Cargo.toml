@@ -7,14 +7,11 @@ license.workspace = true
 description = "Pure wire-level vendor dialect codecs, SSE stream demuxing, and canonical block IR for external model APIs"
 
 [dependencies]
-bytes = { workspace = true }
 http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
-futures = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]

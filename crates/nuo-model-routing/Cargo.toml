@@ -10,7 +10,6 @@ description = "Model routing pipeline: connections x credentials x discovery cac
 nuo-wire = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-provider = { workspace = true }
-nuo-inference-wire = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 futures = { workspace = true }
 sha2 = { workspace = true }

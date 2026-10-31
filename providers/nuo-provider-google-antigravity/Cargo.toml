@@ -20,7 +20,6 @@ tracing = { workspace = true }
 inventory = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
 http = "1.4"
-bytes = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 

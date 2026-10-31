@@ -31,13 +31,6 @@ pub use async_trait::async_trait;
 
 // ── Domain & wire contract modules (consolidated from `nuo-contracts`) ──────
 
-pub mod color_scheme_config;
-pub use color_scheme_config::{
-    ColorSchemeConfig, CommandThemeConfig, ComponentThemesConfig, CrateThemeConfig,
-    DialogThemeConfig, DiffThemeConfig, FeedbackThemeConfig, FeedbackToneConfig, InputThemeConfig,
-    KeycapThemeConfig, OverlayThemeConfig, SheetThemeConfig, SurfacesThemeConfig, ThemeFile,
-    ViewThemeConfig,
-};
 pub mod discovery;
 #[cfg(unix)]
 pub use discovery::default_uds_path;

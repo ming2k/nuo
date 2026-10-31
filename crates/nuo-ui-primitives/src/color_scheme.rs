@@ -1,6 +1,14 @@
-//! Pure-data custom color scheme and theme file schemas shared by persistence and frontends.
+//! Pure-data custom color scheme and theme file schemas for terminal UI presentation.
 
 use serde::{Deserialize, Serialize};
+
+/// Severity level for feedback banners and notice components.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum NoticeSeverity {
+    Info,
+    Warning,
+    Error,
+}
 
 /// User-editable semantic colors for a custom frontend palette.
 ///

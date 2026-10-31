@@ -22,12 +22,9 @@ nuo-provider-qoder = { workspace = true }
 # ADR-0068: Google Antigravity catalog parsing owned by its provider crate
 nuo-provider-google-antigravity = { workspace = true }
 
-async-trait = { workspace = true }
 http = "1.4"
-serde = { workspace = true }
 serde_json = { workspace = true }
 netune = { workspace = true }
-tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

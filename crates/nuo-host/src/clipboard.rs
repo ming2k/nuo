@@ -141,6 +141,7 @@ async fn copy_with_command(command: &str, args: &[&str], text: &str) -> Result<(
     }
 }
 
+#[cfg(feature = "clipboard")]
 async fn copy_system(text: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let text = text.to_string();
     tokio::task::spawn_blocking(move || {
@@ -152,6 +153,12 @@ async fn copy_system(text: &str) -> Result<(), Box<dyn std::error::Error + Send 
     Ok(())
 }
 
+#[cfg(not(feature = "clipboard"))]
+async fn copy_system(_text: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    Err("clipboard feature not enabled in nuo-host".into())
+}
+
+#[cfg(feature = "clipboard")]
 async fn read_text() -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
     tokio::task::spawn_blocking(move || {
         let mut clipboard = match arboard::Clipboard::new() {
@@ -165,6 +172,11 @@ async fn read_text() -> Result<Option<String>, Box<dyn std::error::Error + Send 
         }
     })
     .await?
+}
+
+#[cfg(not(feature = "clipboard"))]
+async fn read_text() -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>> {
+    Ok(None)
 }
 
 async fn read_image_bytes() -> Option<Vec<u8>> {

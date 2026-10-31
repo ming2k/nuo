@@ -512,7 +512,7 @@ pub enum AgentRequest {
     /// palette together so switching away from Custom does not discard it.
     UpdateTuiColorScheme {
         name: String,
-        custom: crate::ColorSchemeConfig,
+        custom: serde_json::Value,
     },
     /// Query the effective singleton `[web]` configuration, readiness, and
     /// provider capability catalog. Secrets never cross the wire. Replied with
@@ -838,7 +838,7 @@ pub enum AgentResponse {
     /// The TUI color scheme and custom palette were persisted successfully.
     TuiColorSchemeUpdated {
         name: String,
-        custom: crate::ColorSchemeConfig,
+        custom: serde_json::Value,
     },
     /// Authoritative singleton web configuration; never contains secret text.
     WebSearchConfigSnapshot(WebConfigView),

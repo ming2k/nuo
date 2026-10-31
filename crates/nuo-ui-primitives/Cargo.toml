@@ -8,10 +8,8 @@ description = "Domain-agnostic terminal UI primitives, design tokens, and compon
 
 [dependencies]
 chrono = { workspace = true }
-nuo-wire = { workspace = true }
 nuotc = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 

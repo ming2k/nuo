@@ -10,6 +10,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod chord;
+pub mod color_scheme;
 pub mod components;
 pub mod design;
 pub mod elevation;
@@ -22,5 +23,6 @@ pub mod text_layout;
 pub mod theme;
 pub mod time;
 
+pub use color_scheme::*;
 pub use components::action::ActionStatus;
 pub use theme::Theme;

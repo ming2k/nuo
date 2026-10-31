@@ -57,7 +57,7 @@ precisely what ADR-0081 §2 forbids for *labels* and what `[INV-PROV-06]` forbid
 - **Layer purity**: the pipeline must not link presentation crates (`nuo-tui`, `nuotc`)
   and must not link any concrete `providers/*` crate (`[INV-PROV-04]`, `[INV-PROV-09]`).
 - **No path shims**: a `pub use nuo_x::y;` alias in a consumer is a passthrough conduit
-  (`docs/dev/standards/architecture.md` §2.3) and hides which crate owns the code.
+  (`docs/dev/subsystems.md` §2) and hides which crate owns the code.
 
 ## Architectural Decisions
 

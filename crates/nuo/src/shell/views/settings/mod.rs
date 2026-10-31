@@ -20,7 +20,7 @@ pub mod web;
 
 pub use web::{build_websearch_provider_dropdown, build_websearch_reader_dropdown};
 
-use nuo_wire::ColorSchemeConfig;
+use nuo_ui_primitives::ColorSchemeConfig;
 use nuotc::{
     Block as RtBlock, Color, Constraint, Direction, Frame, Layout, Line, Modifier, Paragraph, Rect,
     Span, Style, Wrap,

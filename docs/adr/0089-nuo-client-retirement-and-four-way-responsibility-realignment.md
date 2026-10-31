@@ -35,7 +35,7 @@ However, the migration remained incomplete, leaving `crates/nuo-client` in an am
 4. **Junk-Drawer TUI Domain Pollution**:
    `crates/nuo-client/src/lib.rs` accumulated over 1,000 lines of frontend-specific interactive slash command specifications (`command_catalog`), subcommand expansion algorithms (`complete_slash_items`), and file-system directory traversers (`complete_for_frontend_test` for `@file:` and `@skill:`). A headless client transport library was masquerading as a terminal autocomplete engine.
 5. **Absence from Concentric Layer Governance**:
-   In `docs/dev/standards/architecture.md`, `nuo-client` was never positioned in the four-layer topology diagram because in a single-binary architecture, an isolated in-tree client crate with zero external consumers is a superfluous structural layer.
+   In `docs/dev/subsystems.md`, `nuo-client` was never positioned in the four-layer topology diagram because in a single-binary architecture, an isolated in-tree client crate with zero external consumers is a superfluous structural layer.
 
 Under a zero-legacy engineering standard, we make an uncompromising clean break by permanently retiring `crates/nuo-client` and executing a four-way responsibility realignment.
 

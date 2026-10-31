@@ -159,3 +159,23 @@ broken_intra_doc_links = "deny"
 private_intra_doc_links = "deny"
 invalid_html_tags = "deny"
 
+[profile.dev]
+# 1 = line-tables-only: retains source file and line information in panic backtraces
+# without inflating DWARF tables with variable and type scopes.
+debug = 1
+split-debuginfo = "unpacked"
+
+# Optimize external dependencies (crates.io / git) for fast test execution and
+# strip their debug symbols entirely (developers rarely debug 3rd-party internals).
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.test]
+debug = 1
+split-debuginfo = "unpacked"
+
+[profile.test.package."*"]
+opt-level = 2
+debug = false
+

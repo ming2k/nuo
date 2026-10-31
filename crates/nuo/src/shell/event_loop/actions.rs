@@ -2884,7 +2884,8 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                         );
                         app.send_intent(AgentRequest::UpdateTuiColorScheme {
                             name: app.color_scheme.clone(),
-                            custom: app.custom_color_scheme.clone(),
+                            custom: serde_json::to_value(&app.custom_color_scheme)
+                                .unwrap_or_default(),
                         });
                         app.save_tui_config();
                     }

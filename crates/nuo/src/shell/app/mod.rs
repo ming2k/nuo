@@ -829,7 +829,7 @@ pub struct App {
     pub color_scheme: String,
     /// Last persisted custom semantic palette. Retained while a preset is
     /// active so switching schemes never discards the user's colors.
-    pub custom_color_scheme: nuo_wire::ColorSchemeConfig,
+    pub custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig,
 
     /// Whether clicking outside a dismissable modal closes it (mirroring Esc).
     /// From `[tui] click_outside_dismiss` (default `true`): when true, an

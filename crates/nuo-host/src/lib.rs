@@ -11,7 +11,6 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod clipboard;
-pub mod color_scheme;
 pub mod environment;
 pub mod fs;
 pub mod fs_watcher;
@@ -31,7 +30,6 @@ pub mod web_config;
 pub mod workspace;
 pub mod workspace_sandbox;
 
-pub use color_scheme::*;
 pub use environment::{detect_device_fingerprint, detect_runtime_environment, generate_session_id};
 pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
 pub use secret::SecretString;

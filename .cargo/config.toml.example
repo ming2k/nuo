@@ -1,0 +1,21 @@
+# Cargo environment configuration template for local development.
+# Copy to `.cargo/config.toml` to activate local build acceleration.
+#
+# 1. Fast Linker (mold on Linux):
+#    mold reduces Rust binary link times by 5x-10x compared to GNU ld.
+#    Requires `mold` installed on host system (e.g. `apt install mold` or `dnf install mold`).
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# 2. Compiler Cache (sccache):
+#    Caches dependency and build-script C/C++ object outputs across clean builds.
+#    Requires `sccache` binary in PATH (e.g. `cargo install sccache`).
+[build]
+rustc-wrapper = "sccache"
+
+# 3. Optional local path overrides for co-development:
+# [patch."https://github.com/ming2k/nuotc.git"]
+# nuotc = { path = "../nuotc" }
+# [patch."https://github.com/ming2k/netune.git"]
+# netune = { path = "../netune/crates/netune" }
+# netune-trace = { path = "../netune/crates/netune-trace" }

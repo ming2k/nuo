@@ -308,12 +308,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "color_quant"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d7b894f5411737b7867f4827955924d7c254fc9f4d91a6aad6b097804b1018b"
-
-[[package]]
 name = "colored"
 version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -853,16 +847,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gif"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
-dependencies = [
- "color_quant",
- "weezl",
-]
-
-[[package]]
 name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1182,25 +1166,10 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
- "color_quant",
- "gif",
- "image-webp",
  "moxcms",
  "num-traits",
  "png",
  "tiff",
- "zune-core",
- "zune-jpeg",
-]
-
-[[package]]
-name = "image-webp"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
-dependencies = [
- "byteorder-lite",
- "quick-error",
 ]
 
 [[package]]
@@ -1677,39 +1646,26 @@ dependencies = [
 name = "nuo"
 version = "0.0.61"
 dependencies = [
- "arboard",
  "async-trait",
- "base64",
- "bitflags",
- "bytes",
  "chrono",
  "crossterm",
  "dirs",
  "futures",
- "glob",
- "ignore",
  "insta",
  "libc",
  "mockito",
- "netune",
- "nuo-acp",
  "nuo-harness",
  "nuo-host",
- "nuo-mcp",
  "nuo-persistence",
  "nuo-protocol",
- "nuo-provider",
  "nuo-server",
  "nuo-tool",
  "nuo-ui-primitives",
  "nuo-view",
  "nuotc",
  "regex",
- "semver",
  "serde",
  "serde_json",
- "sha2",
- "similar",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
@@ -1722,7 +1678,6 @@ dependencies = [
  "unicode-width",
  "uuid",
  "walkdir",
- "yaml_serde",
 ]
 
 [[package]]
@@ -1731,7 +1686,6 @@ version = "0.0.61"
 dependencies = [
  "async-trait",
  "chrono",
- "futures",
  "hex",
  "hmac",
  "nuo-tool",
@@ -1749,15 +1703,10 @@ name = "nuo-harness"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "base64",
- "bytes",
  "chrono",
  "dirs",
  "fastrand",
  "futures",
- "glob",
- "ignore",
- "image",
  "inventory",
  "mockito",
  "netune",
@@ -1798,21 +1747,16 @@ dependencies = [
  "base64",
  "directories",
  "dirs",
- "glob",
- "ignore",
  "libc",
  "notify",
- "regex",
  "serde",
  "serde_json",
  "sha2",
- "similar",
  "tempfile",
  "tokio",
  "toml",
  "tracing",
  "uuid",
- "walkdir",
  "windows-sys 0.61.2",
 ]
 
@@ -1821,14 +1765,11 @@ name = "nuo-inference-wire"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "bytes",
- "futures",
  "http",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
- "tracing",
  "uuid",
 ]
 
@@ -1837,16 +1778,12 @@ name = "nuo-mcp"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "futures",
- "netune",
  "nuo-tool",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -1858,7 +1795,6 @@ dependencies = [
  "glob",
  "mockito",
  "nuo-host",
- "nuo-inference-wire",
  "nuo-persistence",
  "nuo-protocol",
  "nuo-provider",
@@ -1876,16 +1812,11 @@ version = "0.0.61"
 dependencies = [
  "async-trait",
  "base64",
- "chrono",
  "crc32c",
- "directories",
  "futures",
  "glob",
  "hex",
- "inventory",
- "libc",
  "nuo-host",
- "nuo-inference-wire",
  "nuo-protocol",
  "nuo-tool",
  "rusqlite",
@@ -1912,7 +1843,6 @@ dependencies = [
  "hex",
  "inventory",
  "nuo-host",
- "nuo-inference-wire",
  "nuo-mcp",
  "nuo-provider",
  "nuo-tool",
@@ -1922,7 +1852,6 @@ dependencies = [
  "sha2",
  "tokio-util",
  "toml",
- "url",
  "uuid",
 ]
 
@@ -1933,7 +1862,6 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
- "chrono",
  "futures",
  "http",
  "httpdate",
@@ -1960,14 +1888,12 @@ name = "nuo-provider-anthropic"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "bytes",
  "futures",
  "http",
  "inventory",
  "nuo-inference-wire",
  "nuo-provider",
  "nuo-tool",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -1978,7 +1904,6 @@ dependencies = [
 name = "nuo-provider-catalog"
 version = "0.0.61"
 dependencies = [
- "async-trait",
  "http",
  "netune",
  "nuo-inference-wire",
@@ -1986,10 +1911,8 @@ dependencies = [
  "nuo-provider-anthropic",
  "nuo-provider-google-antigravity",
  "nuo-provider-qoder",
- "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2004,11 +1927,9 @@ dependencies = [
  "nuo-host",
  "nuo-inference-wire",
  "nuo-provider",
- "nuo-provider-openai",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2029,53 +1950,37 @@ dependencies = [
 name = "nuo-provider-codebuddy-cn"
 version = "0.0.61"
 dependencies = [
- "async-trait",
- "futures",
  "inventory",
- "netune",
  "nuo-host",
  "nuo-inference-wire",
  "nuo-provider",
  "nuo-provider-codebuddy-auth",
- "serde",
- "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "nuo-provider-codebuddy-intl"
 version = "0.0.61"
 dependencies = [
- "async-trait",
- "futures",
  "inventory",
- "netune",
  "nuo-host",
  "nuo-inference-wire",
  "nuo-provider",
  "nuo-provider-codebuddy-auth",
- "serde",
- "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "nuo-provider-commandcode-goat"
 version = "0.0.61"
 dependencies = [
- "async-trait",
  "inventory",
- "nuo-host",
  "nuo-inference-wire",
  "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2084,27 +1989,19 @@ version = "0.0.61"
 dependencies = [
  "async-trait",
  "inventory",
- "nuo-host",
  "nuo-inference-wire",
- "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
- "serde",
- "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "nuo-provider-deepseek"
 version = "0.0.61"
 dependencies = [
- "async-trait",
  "inventory",
  "nuo-inference-wire",
  "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
  "serde",
  "serde_json",
 ]
@@ -2123,7 +2020,6 @@ name = "nuo-provider-google-antigravity"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "bytes",
  "chrono",
  "futures",
  "http",
@@ -2144,12 +2040,10 @@ dependencies = [
 name = "nuo-provider-kimi"
 version = "0.0.61"
 dependencies = [
- "async-trait",
  "inventory",
  "nuo-inference-wire",
  "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
  "serde",
  "serde_json",
 ]
@@ -2159,7 +2053,6 @@ name = "nuo-provider-openai"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "bytes",
  "futures",
  "http",
  "inventory",
@@ -2167,7 +2060,6 @@ dependencies = [
  "nuo-inference-wire",
  "nuo-provider",
  "nuo-tool",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -2201,17 +2093,13 @@ dependencies = [
 name = "nuo-provider-openrouter"
 version = "0.0.61"
 dependencies = [
- "async-trait",
  "inventory",
- "nuo-host",
  "nuo-inference-wire",
  "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2230,12 +2118,10 @@ dependencies = [
  "aes",
  "async-trait",
  "base64",
- "bytes",
  "cbc",
  "fastrand",
  "futures",
  "http",
- "httpdate",
  "inventory",
  "md-5",
  "netune",
@@ -2260,15 +2146,9 @@ version = "0.0.61"
 dependencies = [
  "async-trait",
  "inventory",
- "nuo-host",
  "nuo-inference-wire",
- "nuo-protocol",
  "nuo-provider",
- "nuo-provider-openai",
- "serde",
- "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -2281,7 +2161,6 @@ dependencies = [
  "chrono",
  "dirs",
  "futures",
- "glob",
  "http",
  "ignore",
  "inventory",
@@ -2320,21 +2199,16 @@ dependencies = [
  "nuo-tool-ast",
  "nuo-tool-exec",
  "nuo-tool-fs",
- "nuo-tool-web",
- "semver",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
- "toml",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
- "yaml_serde",
 ]
 
 [[package]]
@@ -2351,7 +2225,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml",
- "tracing",
  "uuid",
 ]
 
@@ -2369,7 +2242,6 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
- "tracing",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-cpp",
@@ -2394,7 +2266,6 @@ name = "nuo-tool-exec"
 version = "0.0.61"
 dependencies = [
  "async-trait",
- "nuo-host",
  "nuo-tool",
  "nuo-tool-fs",
  "serde",
@@ -2410,15 +2281,12 @@ dependencies = [
  "async-trait",
  "glob",
  "ignore",
- "nuo-host",
  "nuo-tool",
  "regex",
  "serde",
  "serde_json",
- "similar",
  "tempfile",
  "tokio",
- "walkdir",
 ]
 
 [[package]]
@@ -2428,19 +2296,16 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "futures",
  "http",
  "inventory",
  "netune",
  "nuo-protocol",
  "nuo-tool",
- "regex",
  "serde",
  "serde_json",
  "sha2",
  "tokio",
  "toml",
- "tracing",
 ]
 
 [[package]]
@@ -2448,10 +2313,8 @@ name = "nuo-ui-primitives"
 version = "0.0.61"
 dependencies = [
  "chrono",
- "nuo-protocol",
  "nuotc",
  "serde",
- "serde_json",
  "toml",
  "unicode-segmentation",
  "unicode-width",
@@ -2469,7 +2332,6 @@ dependencies = [
  "nuo-provider-openai",
  "nuo-ui-primitives",
  "nuotc",
- "serde",
  "serde_json",
  "similar",
  "toml",

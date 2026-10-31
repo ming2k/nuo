@@ -8,10 +8,8 @@ description = "Moonshot AI Kimi Code platform provider (K3, always-on reasoning,
 
 [dependencies]
 nuo-provider = { workspace = true }
-nuo-provider-openai = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-wire = { workspace = true }
-async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 inventory = { workspace = true }

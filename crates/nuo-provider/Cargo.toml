@@ -17,7 +17,6 @@ bytes = { workspace = true }
 httpdate = { workspace = true }
 inventory = { workspace = true }
 sha2 = { workspace = true }
-chrono = { workspace = true }
 url = "2"
 http = "1.4"
 serde = { workspace = true }

@@ -155,4 +155,4 @@ CLI as `nuo dev check residency` (and `all`).
 
 - Related ADRs: [ADR-0111](0111-elimination-of-scripts-and-consolidation-of-workspace-governance-into-rust.md) (native Rust governance engine), [ADR-0109](0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md), [ADR-0105](0105-presentation-linkage-mechanism-and-dependency-firewall.md) (the sibling firewall), [ADR-0115](0115-command-output-fold-geometry-closed-compaction-and-disclosure-ladder.md) (the geometry the orphaned baseline silently stopped pinning)
 - Standards: [`docs/dev/standards/invariants.md`](../dev/standards/invariants.md),
-  [`docs/dev/testing.md`](../dev/testing.md), [`docs/dev/standards/architecture.md`](../dev/standards/architecture.md)
+  [`docs/dev/testing.md`](../dev/testing.md)

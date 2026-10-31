@@ -248,7 +248,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         transcript_focused: false,
         transcript_layout: crate::shell::render::layout::Strategy::default(),
         color_scheme: "zen".to_string(),
-        custom_color_scheme: nuo_wire::ColorSchemeConfig::default(),
+        custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig::default(),
 
         click_outside_dismiss: false,
         expand_auto_scroll: false,

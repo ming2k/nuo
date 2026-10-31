@@ -181,7 +181,7 @@ Following this decision, the four-layer concentric architecture is purified:
 ## Migration Roadmap & Milestones
 
 1. **Milestone 1 (Governance & Invariant Ratification)**:
-   Ratify ADR-0103, register it in the ADR catalog, and update architecture standards (`docs/dev/standards/architecture.md`).
+   Ratify ADR-0103, register it in the ADR catalog, and update the architectural blueprint (`docs/dev/subsystems.md`).
 2. **Milestone 2 (Transport Relocation)**:
    Extract `crates/nuo-tui/src/client.rs` into `nuo::transport`. Update `nuo` CLI subcommands (`thread`, `status`, `headless`) to bypass `nuo-tui`.
 3. **Milestone 3 (nuo-ui Extraction)**:

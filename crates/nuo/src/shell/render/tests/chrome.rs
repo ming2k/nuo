@@ -375,7 +375,7 @@ fn redesigned_components_render_without_panicking() {
 #[test]
 fn config_appearance_pages_render_at_minimum_terminal_size() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
@@ -446,7 +446,7 @@ fn config_appearance_pages_render_at_minimum_terminal_size() {
 #[test]
 fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
@@ -533,7 +533,7 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
 #[test]
 fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let web = nuo_wire::WebSearchConfigView {
         revision: 0,
         provider: nuo_wire::WebSearchProvider::Exa,
@@ -587,7 +587,7 @@ fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() 
 
 #[test]
 fn settings_view_adapts_to_terminal_profile_capabilities() {
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
 
     // 1. DirectColor profile: Appearance shows chromatic presets
@@ -675,7 +675,7 @@ fn settings_view_adapts_to_terminal_profile_capabilities() {
 #[test]
 fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
@@ -683,7 +683,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
         terminal: &mut nuotc::TestTerminal,
         hover: Option<usize>,
         theme: &Theme,
-        custom: &nuo_wire::ColorSchemeConfig,
+        custom: &nuo_ui_primitives::ColorSchemeConfig,
         tui_config: &crate::shell::config::TuiConfig,
     ) {
         terminal.draw(|frame| {
@@ -778,7 +778,7 @@ fn appearance_rows_use_text_and_palette_band_not_selection_dots() {
 #[test]
 fn components_rows_use_text_and_band_not_selection_dots_with_description_below() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 
@@ -839,7 +839,7 @@ fn components_rows_use_text_and_band_not_selection_dots_with_description_below()
 #[test]
 fn web_settings_split_search_and_reader_into_clear_panels() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
     let web = nuo_wire::WebSearchConfigView {
         revision: 0,
@@ -893,7 +893,7 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
 #[test]
 fn settings_view_reports_selected_row_rect_for_popover_anchoring() {
     let theme = Theme::default();
-    let custom = nuo_wire::ColorSchemeConfig::default();
+    let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
 

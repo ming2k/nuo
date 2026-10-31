@@ -8,7 +8,6 @@ description = "Sandboxed command and process execution tools for Nuo cognitive a
 
 [dependencies]
 async-trait = { workspace = true }
-nuo-host = { workspace = true }
 nuo-tool = { workspace = true }
 nuo-tool-fs = { workspace = true }
 serde = { workspace = true }
