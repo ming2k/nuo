@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.65] - 2026-10-31
+
 ### Fixed
 
 - **Reasoning effort selection for CommandCode `deepseek/deepseek-v4-flash-fast`.**
@@ -20,7 +22,6 @@ the project adheres to the federated SemVer model described in
   - DeepSeek CoT hygiene: windowed `reasoning_content` replay on OpenAI Chat Completions and Responses protocols so only the active latest assistant turn carries full chain-of-thought, while older turns with tool calls carry empty string placeholders, eliminating context saturation and V-shaped attention collapse.
   - DeepSeek baseline model guidance: implemented ADR-0130 Step 5 default baseline guidance in `Config::resolve_model_guidance` to enforce concise technical language, prohibit conversational pseudo-tool markdown blocks, and require result synthesis over command retry loops.
   - `TrajectoryGuard`: rephrased repeat tool block directives to instruct models to synthesize existing observations rather than encouraging speculative command variations.
-
 
 ## [0.0.64] - 2026-10-31
 
