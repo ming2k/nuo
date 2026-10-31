@@ -4,9 +4,9 @@ use crate::monitor::MonitorTracker;
 use crate::serve::{AttachAction, AttachSyncBuffer, is_attach_sync_event};
 use nuo_harness::{Agent, AgentIdentity, AgentRoleProfile};
 use nuo_persistence::session::SessionStore;
-use nuo_wire::{
-    AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession,
-    PermissionDecision, SessionHosting, SessionOverview, SessionStatus,
+use nuo_protocol::{
+    AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredThread,
+    PermissionDecision, ThreadHosting, ThreadOverview, ThreadStatus,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -30,17 +30,17 @@ pub struct HostParams {
     pub preset: AgentRoleProfile,
     pub ui: Arc<dyn UiBridge>,
 }
-pub struct HostedSession {
+pub struct HostedThread {
     /// The workspace root, when one is bound (a workspace-free
     /// persona has none).
     pub workspace_root: Option<PathBuf>,
     /// Channel accounting shared with the assembled agent.
-    pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
+    pub human_channel: Arc<nuo_protocol::human_request::HumanChannelAccountant>,
     pub session: Arc<SessionStore>,
     pub req_tx: mpsc::Sender<AgentRequest>,
     pub events: broadcast::Sender<AgentResponse>,
     pub cancel: CancellationToken,
-    pub shared_confinement: nuo_wire::SharedConfinement,
+    pub shared_confinement: nuo_protocol::SharedConfinement,
     /// The panel-facing tracker folding this session's event stream
     /// Owned here so the broadcast-tap task can fold events in
     /// and the registry can read rows out for snapshots.
@@ -58,7 +58,7 @@ pub struct HostedSession {
     /// each attaching client so it hydrates immediately.
     pub sync_buffer: Arc<Mutex<AttachSyncBuffer>>,
     /// Backend-owned slash-command vocabulary for every attached frontend.
-    pub command_catalog: nuo_wire::CommandCatalog,
+    pub command_catalog: nuo_protocol::CommandCatalog,
     /// Provider/model the session boots into, resolved during assembly. Used
     /// as the snapshot's fallback when the session has no durable `/models`
     /// pin yet (ADR-0133 hydration).
@@ -99,6 +99,7 @@ pub struct HostedSession {
     /// entries, which carry no agent and fire nothing.
     pub agent_for_session_end: Option<Arc<Agent>>,
 }
+
 /// A claimed session whose local harness is still being assembled.
 ///
 /// `[INV-ATTACH-03]` (ADR-0133): this exists so `Wire::Welcome` can be sent
@@ -112,13 +113,13 @@ pub struct PendingSession {
     pub req_tx: mpsc::Sender<AgentRequest>,
     /// Current readiness phase. A `watch` channel (not a bare cell) so a
     /// control-plane caller can await the transition without polling.
-    pub phase: Arc<tokio::sync::watch::Sender<nuo_wire::SessionPhase>>,
+    pub phase: Arc<tokio::sync::watch::Sender<nuo_protocol::ThreadPhase>>,
     pub cancel: CancellationToken,
-    pub human_channel: Arc<nuo_wire::human_request::HumanChannelAccountant>,
+    pub human_channel: Arc<nuo_protocol::human_request::HumanChannelAccountant>,
     pub sync_buffer: Arc<Mutex<AttachSyncBuffer>>,
     /// Set once, immediately before `Ready` is emitted, so a connection that
     /// joins in the promotion window still hydrates.
-    pub latest_snapshot: Arc<Mutex<Option<nuo_wire::SessionSnapshot>>>,
+    pub latest_snapshot: Arc<Mutex<Option<nuo_protocol::ThreadSnapshot>>>,
     pub started_at: std::time::Instant,
 }
 
@@ -130,7 +131,7 @@ pub struct PendingSession {
 #[derive(Clone)]
 pub enum AttachHandle {
     Building(Arc<PendingSession>),
-    Hosted(Arc<HostedSession>),
+    Hosted(Arc<HostedThread>),
 }
 
 impl AttachHandle {
@@ -155,7 +156,7 @@ impl AttachHandle {
         }
     }
 
-    pub fn human_channel(&self) -> Arc<nuo_wire::human_request::HumanChannelAccountant> {
+    pub fn human_channel(&self) -> Arc<nuo_protocol::human_request::HumanChannelAccountant> {
         match self {
             Self::Building(p) => p.human_channel.clone(),
             Self::Hosted(h) => h.human_channel.clone(),
@@ -169,10 +170,10 @@ impl AttachHandle {
         }
     }
 
-    pub fn phase(&self) -> nuo_wire::SessionPhase {
+    pub fn phase(&self) -> nuo_protocol::ThreadPhase {
         match self {
             Self::Building(p) => p.phase.borrow().clone(),
-            Self::Hosted(_) => nuo_wire::SessionPhase::Ready,
+            Self::Hosted(_) => nuo_protocol::ThreadPhase::Ready,
         }
     }
 
@@ -180,7 +181,7 @@ impl AttachHandle {
     ///
     /// A hosted session builds it on demand (local reads only, after Welcome);
     /// a building session returns the snapshot cached at promotion, if any.
-    pub async fn snapshot(&self) -> Option<nuo_wire::SessionSnapshot> {
+    pub async fn snapshot(&self) -> Option<nuo_protocol::ThreadSnapshot> {
         match self {
             Self::Building(p) => p.latest_snapshot.lock().await.clone(),
             Self::Hosted(h) => Some(crate::serve::build_full_session_snapshot(h).await),
@@ -191,14 +192,14 @@ impl AttachHandle {
 /// A resolved session binding: an optional workspace plus the staffing role.
 #[derive(Clone)]
 pub struct SessionBinding {
-    pub workspace: Option<nuo_wire::WorkspaceBinding>,
+    pub workspace: Option<nuo_protocol::WorkspaceBinding>,
     pub role: Option<String>,
 }
 
 impl SessionBinding {
     pub fn workspace(root: PathBuf) -> Self {
         Self {
-            workspace: Some(nuo_wire::WorkspaceBinding::new(root)),
+            workspace: Some(nuo_protocol::WorkspaceBinding::new(root)),
             role: None,
         }
     }
@@ -210,7 +211,7 @@ impl SessionBinding {
 pub enum ResolveOutcome {
     Welcome(AttachHandle),
     Pick {
-        sessions: Vec<SessionOverview>,
+        sessions: Vec<ThreadOverview>,
     },
     /// A refusal the client is expected to branch on (ADR-0123
     /// `[INV-ATTACH-01]`).
@@ -260,9 +261,9 @@ pub struct MonitorMeta {
 }
 
 #[derive(Clone)]
-pub struct SessionRegistry {
+pub struct ThreadRegistry {
     params: Option<HostParams>,
-    sessions: Arc<Mutex<HashMap<String, Arc<HostedSession>>>>,
+    sessions: Arc<Mutex<HashMap<String, Arc<HostedThread>>>>,
     /// Sessions whose identity is claimed but whose harness is still being
     /// assembled (ADR-0133). Kept separate from `sessions` so every existing
     /// lifecycle/monitor path keeps operating on fully hosted entries only;
@@ -276,11 +277,11 @@ pub struct SessionRegistry {
     /// `TaskUpdated`/`TaskRemoved` diffs and folded into monitor snapshots.
     server_tasks: Arc<crate::background_jobs::BackgroundJobManager>,
     /// The live server-task rows folded for snapshots (id → row).
-    server_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
+    server_task_rows: Arc<std::sync::Mutex<HashMap<String, nuo_protocol::MonitoredTask>>>,
     /// Latest durability-health state (D4): folded from the
     /// persistence supervisor's transitions for monitor snapshots and
     /// published as `PersistenceHealth` diffs. `None` = never degraded.
-    persistence_health: Arc<std::sync::Mutex<Option<nuo_wire::monitor::PersistenceHealth>>>,
+    persistence_health: Arc<std::sync::Mutex<Option<nuo_protocol::monitor::PersistenceHealth>>>,
     /// Server-level latest picker snapshot (cross-session model ordering).
     /// The picker's recency data lives in the shared SQLite `ConnectionUsage`,
     /// so a snapshot built by any one session's driver is global truth — but
@@ -346,7 +347,7 @@ const SESSION_REQUEST_BUFFER: usize = 256;
 /// stayed resident forever (full transcript + agent + MCP runtime + tasks).
 const IDLE_HOSTED_SESSION_TTL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-impl SessionRegistry {
+impl ThreadRegistry {
     pub fn new(params: HostParams) -> Self {
         Self::with_meta(Some(params))
     }
@@ -397,8 +398,8 @@ impl SessionRegistry {
         &self,
         command: String,
         label: Option<String>,
-        kind: nuo_wire::JobKind,
-    ) -> Result<nuo_wire::BackgroundJobInfo, String> {
+        kind: nuo_protocol::JobKind,
+    ) -> Result<nuo_protocol::BackgroundJobInfo, String> {
         let mgr = self.server_tasks.clone();
         let roots: Vec<std::path::PathBuf> = Vec::new();
         let workspace = std::env::temp_dir();
@@ -414,7 +415,7 @@ impl SessionRegistry {
                 owner_session: None,
             },
             kind,
-            Some(nuo_wire::Readiness::FirstOutput),
+            Some(nuo_protocol::Readiness::FirstOutput),
             None,
         )
         .await
@@ -423,7 +424,8 @@ impl SessionRegistry {
     /// Stop a server-level task (the human-side control the TUI panel will
     /// drive).
     pub fn stop_server_task(&self, task_id: &str) -> Result<(), String> {
-        self.server_tasks.kill_job(&nuo_wire::JobId::from(task_id))
+        self.server_tasks
+            .kill_job(&nuo_protocol::JobId::from(task_id))
     }
 
     /// Subscribe the durability-health tap (D4): the persistence
@@ -479,7 +481,7 @@ impl SessionRegistry {
     /// session the round runs on the last-bound channel or refuses via the
     /// `NoProvider` sentinel.
     pub async fn ask_archivist(&self, text: String) -> crate::archivist_service::ArchivistAnswer {
-        let provider: Option<Arc<dyn nuo_wire::Provider>> = {
+        let provider: Option<Arc<dyn nuo_protocol::Provider>> = {
             let map = self.sessions.lock().await;
             map.values()
                 .find_map(|e| e.agent_for_session_end.as_ref())
@@ -587,7 +589,7 @@ impl SessionRegistry {
                         let changed = {
                             let mut guard = rows.lock().unwrap();
                             if let Some(row) = guard.get_mut(&job_id.0) {
-                                row.state = nuo_wire::JobState::Ready {
+                                row.state = nuo_protocol::JobState::Ready {
                                     started_at_ms: row.created_at_ms,
                                     ready_at_ms: crate::registry::unix_epoch_ms(),
                                 };
@@ -622,14 +624,14 @@ impl SessionRegistry {
 
     #[allow(clippy::unwrap_used)] // A poisoned task-row mutex is an unrecoverable registry invariant.
     fn upsert_task_row(
-        rows: &Arc<std::sync::Mutex<HashMap<String, nuo_wire::MonitoredTask>>>,
-        info: &nuo_wire::BackgroundJobInfo,
-        outcome: Option<&nuo_wire::BackgroundJobOutcome>,
+        rows: &Arc<std::sync::Mutex<HashMap<String, nuo_protocol::MonitoredTask>>>,
+        info: &nuo_protocol::BackgroundJobInfo,
+        outcome: Option<&nuo_protocol::BackgroundJobOutcome>,
     ) {
         let mut guard = rows.lock().unwrap();
         let row = guard.entry(info.id.0.clone()).or_insert_with(|| {
             let (label, spec) = match &info.spec {
-                nuo_wire::JobSpec::Process { command, label, .. } => (
+                nuo_protocol::JobSpec::Process { command, label, .. } => (
                     label.clone().unwrap_or_else(|| {
                         command
                             .split_whitespace()
@@ -639,13 +641,13 @@ impl SessionRegistry {
                     }),
                     command.clone(),
                 ),
-                nuo_wire::JobSpec::Timer { label, prompt, .. } => (
+                nuo_protocol::JobSpec::Timer { label, prompt, .. } => (
                     label.clone().unwrap_or_else(|| "timer".to_string()),
                     prompt.clone(),
                 ),
             };
             let log_path = None;
-            nuo_wire::MonitoredTask {
+            nuo_protocol::MonitoredTask {
                 id: info.id.0.clone(),
                 label,
                 spec,
@@ -666,8 +668,8 @@ impl SessionRegistry {
             row.latest_output = Some(o.summary.clone());
         }
     }
-    /// Look up an active hosted session by its ID.
-    pub async fn get(&self, session_id: &str) -> Option<Arc<HostedSession>> {
+    /// Look up an active hosted thread by its ID.
+    pub async fn get(&self, session_id: &str) -> Option<Arc<HostedThread>> {
         self.sessions.lock().await.get(session_id).cloned()
     }
 
@@ -729,7 +731,7 @@ impl SessionRegistry {
                 let ws = if role_id.as_deref() == Some("philosophist") {
                     None
                 } else {
-                    Some(nuo_wire::WorkspaceBinding::new(
+                    Some(nuo_protocol::WorkspaceBinding::new(
                         caller_project.to_path_buf(),
                     ))
                 };
@@ -766,7 +768,7 @@ impl SessionRegistry {
     /// Control plane: create a session for `project` and return
     /// its id. The session is server-held; no client is attached yet.
     pub async fn create_session(&self, project: PathBuf) -> Result<String, String> {
-        self.create_session_with_options(project, nuo_wire::SessionInitOptions::default())
+        self.create_session_with_options(project, nuo_protocol::ThreadInitOptions::default())
             .await
     }
 
@@ -778,7 +780,7 @@ impl SessionRegistry {
     pub async fn create_session_with_options(
         &self,
         project: PathBuf,
-        options: nuo_wire::SessionInitOptions,
+        options: nuo_protocol::ThreadInitOptions,
     ) -> Result<String, String> {
         let handle = self
             .claim(
@@ -800,8 +802,10 @@ impl SessionRegistry {
                     loop {
                         let phase = rx.borrow().clone();
                         match phase {
-                            nuo_wire::SessionPhase::Ready => return Ok(id.clone()),
-                            nuo_wire::SessionPhase::Failed { message, .. } => return Err(message),
+                            nuo_protocol::ThreadPhase::Ready => return Ok(id.clone()),
+                            nuo_protocol::ThreadPhase::Failed { message, .. } => {
+                                return Err(message);
+                            }
                             _ => {}
                         }
                         if rx.changed().await.is_err() {
@@ -818,7 +822,7 @@ impl SessionRegistry {
     async fn create_session_outcome(
         &self,
         project: PathBuf,
-        options: nuo_wire::SessionInitOptions,
+        options: nuo_protocol::ThreadInitOptions,
     ) -> ResolveOutcome {
         match self
             .claim(
@@ -953,8 +957,8 @@ impl SessionRegistry {
                 "crash eviction: SessionEnd hook exceeded 2s; abandoning it"
             );
         }
-        self.publish(MonitorEvent::SessionRemoved {
-            session_id: session_id.to_string(),
+        self.publish(MonitorEvent::ThreadRemoved {
+            thread_id: session_id.to_string(),
         })
         .await;
     }
@@ -985,8 +989,8 @@ impl SessionRegistry {
         // Deliberately NOT sending AgentResponse::Exit and NOT firing
         // SessionEnd: suspension is invisible by design (no receivers exist
         // as a precondition) and the session continues on resume.
-        self.publish(MonitorEvent::SessionRemoved {
-            session_id: session_id.to_string(),
+        self.publish(MonitorEvent::ThreadRemoved {
+            thread_id: session_id.to_string(),
         })
         .await;
         tracing::info!(session = %session_id, "suspended idle hosted session");
@@ -1053,7 +1057,7 @@ impl SessionRegistry {
     pub async fn suspend_idle_sessions_with(&self, ttl: std::time::Duration) -> Vec<String> {
         // Snapshot under the lock; probe + suspend outside it (same pattern
         // as the empty reaper: never hold the map lock across awaits).
-        let candidates: Vec<(String, Arc<HostedSession>)> = self
+        let candidates: Vec<(String, Arc<HostedThread>)> = self
             .sessions
             .lock()
             .await
@@ -1140,8 +1144,8 @@ impl SessionRegistry {
         // driver too).
         let status = e.tracker.lock().await.row().status;
         if status.is_active() {
-            let record = nuo_wire::RoundInterrupt {
-                reason: nuo_wire::RoundInterruptReason::Terminated,
+            let record = nuo_protocol::RoundInterrupt {
+                reason: nuo_protocol::RoundInterruptReason::Terminated,
                 at_ms: unix_epoch_ms(),
                 round: Some(e.session.round_counter().await),
                 detail: None,
@@ -1170,8 +1174,8 @@ impl SessionRegistry {
                 "registry: SessionEnd hook exceeded its budget; abandoning it"
             );
         }
-        self.publish(MonitorEvent::SessionRemoved {
-            session_id: session_id.to_string(),
+        self.publish(MonitorEvent::ThreadRemoved {
+            thread_id: session_id.to_string(),
         })
         .await;
         Ok(())
@@ -1200,14 +1204,14 @@ impl SessionRegistry {
     pub async fn reload_runtime(&self) -> Result<(), String> {
         let config = nuo_persistence::config::Config::load();
         *self.shared_config.write().await = config;
-        let sessions: Vec<Arc<HostedSession>> = {
+        let sessions: Vec<Arc<HostedThread>> = {
             let guard = self.sessions.lock().await;
             guard.values().cloned().collect()
         };
         for session in sessions {
             let _ = session
                 .req_tx
-                .send(nuo_wire::AgentRequest::ReloadRuntime)
+                .send(nuo_protocol::AgentRequest::ReloadRuntime)
                 .await;
         }
         Ok(())
@@ -1257,7 +1261,7 @@ impl SessionRegistry {
     pub async fn reap_idle_empty_sessions_with(&self, ttl: std::time::Duration) -> Vec<String> {
         // Snapshot candidates under the lock, then probe + kill outside it so
         // we never hold the map lock across an `await` on a session's state.
-        let candidates: Vec<(String, Arc<HostedSession>)> = self
+        let candidates: Vec<(String, Arc<HostedThread>)> = self
             .sessions
             .lock()
             .await
@@ -1357,11 +1361,11 @@ impl SessionRegistry {
         });
     }
 
-    pub async fn host(&self, entry: HostedSession) -> AttachHandle {
+    pub async fn host(&self, entry: HostedThread) -> AttachHandle {
         let entry = Arc::new(entry);
         let id = entry.session.id().await;
         let tracker = entry.tracker.clone();
-        self.publish(MonitorEvent::SessionAdded(tracker.lock().await.row()))
+        self.publish(MonitorEvent::ThreadAdded(tracker.lock().await.row()))
             .await;
         self.sessions.lock().await.insert(id, entry.clone());
         AttachHandle::Hosted(entry)
@@ -1381,7 +1385,7 @@ impl SessionRegistry {
         // mutex across it stalled every control verb for the duration.
         let (mine, total) = {
             let map = self.sessions.lock().await;
-            let mine: Vec<Arc<HostedSession>> = map
+            let mine: Vec<Arc<HostedThread>> = map
                 .values()
                 .filter(|e| e.workspace_root.as_deref() == Some(caller_project))
                 .cloned()
@@ -1412,11 +1416,11 @@ impl SessionRegistry {
             return self
                 .create_session_outcome(
                     caller_project.to_path_buf(),
-                    nuo_wire::SessionInitOptions::default(),
+                    nuo_protocol::ThreadInitOptions::default(),
                 )
                 .await;
         }
-        let entries: Vec<Arc<HostedSession>> = {
+        let entries: Vec<Arc<HostedThread>> = {
             let map = self.sessions.lock().await;
             map.values().cloned().collect()
         };
@@ -1442,7 +1446,7 @@ impl SessionRegistry {
         if self.params.is_none() {
             // No host: nothing can ever assemble this id on this server.
             return ResolveOutcome::refused(
-                nuo_wire::ERR_SESSION_GONE,
+                nuo_protocol::ERR_SESSION_GONE,
                 format!("session '{id}' is not hosted on this server"),
             );
         }
@@ -1455,7 +1459,7 @@ impl SessionRegistry {
         // so the client must retire the tab that names it (ADR-0123).
         let Some(binding) = lookup_session_workspace(id).await else {
             return ResolveOutcome::refused(
-                nuo_wire::ERR_SESSION_GONE,
+                nuo_protocol::ERR_SESSION_GONE,
                 format!("session '{id}' no longer exists"),
             );
         };
@@ -1463,20 +1467,20 @@ impl SessionRegistry {
             .claim(
                 crate::startup::SessionStart::Resume(id.to_string()),
                 binding,
-                nuo_wire::SessionInitOptions::default(),
+                nuo_protocol::ThreadInitOptions::default(),
             )
             .await
         {
             Ok(handle) => ResolveOutcome::Welcome(handle),
             Err(AssembleErr::NoHost) => ResolveOutcome::refused(
-                nuo_wire::ERR_SESSION_GONE,
+                nuo_protocol::ERR_SESSION_GONE,
                 format!("session '{id}' is not hosted on this server"),
             ),
             // The session exists durably but could not be claimed: a retry may
             // work, so the tab must be *kept* and the failure surfaced
             // (`ERR_SESSION_UNRESUMABLE`).
             Err(AssembleErr::AssembleFailed(e)) => ResolveOutcome::refused(
-                nuo_wire::ERR_SESSION_UNRESUMABLE,
+                nuo_protocol::ERR_SESSION_UNRESUMABLE,
                 format!("could not resume session {id}: {e}"),
             ),
         }
@@ -1493,7 +1497,7 @@ impl SessionRegistry {
         &self,
         mut startup: crate::startup::SessionStart,
         binding: SessionBinding,
-        init_options: nuo_wire::SessionInitOptions,
+        init_options: nuo_protocol::ThreadInitOptions,
     ) -> Result<AttachHandle, AssembleErr> {
         let HostParams {
             identity,
@@ -1513,8 +1517,10 @@ impl SessionRegistry {
         // `--resume`: pick the most recent matching session instead
         // of a fresh one, partitioned truthfully by Workspace or Role.
         if init_options.resume && matches!(startup, crate::startup::SessionStart::Fresh) {
-            let partition =
-                nuo_wire::SessionPartition::from_binding(workspace.as_ref(), role_id.as_deref());
+            let partition = nuo_protocol::SessionPartition::from_binding(
+                workspace.as_ref(),
+                role_id.as_deref(),
+            );
             if let Some(id) = lookup_latest_session_in_partition(&partition) {
                 startup = crate::startup::SessionStart::Resume(id);
             }
@@ -1534,7 +1540,7 @@ impl SessionRegistry {
 
         if let Some(manifest) = manifest {
             let role_identity = manifest.identity;
-            let mut role = nuo_wire::AgentRoleProfile::with_identity(
+            let mut role = nuo_protocol::AgentRoleProfile::with_identity(
                 manifest.role_id.clone(),
                 role_identity.clone(),
             );
@@ -1542,7 +1548,7 @@ impl SessionRegistry {
             if manifest.role_id == "developer" {
                 admitted_tools.retain(|t| t != "recall_memory");
             }
-            role.tools = nuo_wire::ToolSelection::from_allowlist(&admitted_tools);
+            role.tools = nuo_protocol::ToolSelection::from_allowlist(&admitted_tools);
             role.admit_mcp = manifest.admit_mcp.clone();
             identity = role_identity;
             preset = role;
@@ -1555,24 +1561,24 @@ impl SessionRegistry {
                         nuo_persistence::roles::RoleWorkspace::None => None,
                         nuo_persistence::roles::RoleWorkspace::Inherit => workspace,
                         nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
-                            Some(nuo_wire::WorkspaceBinding::new(root))
+                            Some(nuo_protocol::WorkspaceBinding::new(root))
                         }
                     };
                 }
                 let role_identity = role_entry.identity();
-                let mut role = nuo_wire::AgentRoleProfile::with_identity(
+                let mut role = nuo_protocol::AgentRoleProfile::with_identity(
                     role_id.to_string(),
                     role_identity.clone(),
                 );
-                role.tools = nuo_wire::ToolSelection::from_allowlist(&role_entry.tools);
+                role.tools = nuo_protocol::ToolSelection::from_allowlist(&role_entry.tools);
                 role.admit_mcp = role_entry.admit_mcp.clone();
                 identity = role_identity;
                 preset = role;
-            } else if let Some(builtin) = nuo_wire::MainAgentRole::parse(role_id) {
+            } else if let Some(builtin) = nuo_protocol::MainAgentRole::parse(role_id) {
                 if role_selected.is_some() && !builtin.requires_workspace() {
                     workspace = None;
                 }
-                let role = nuo_wire::AgentRoleProfile::from_role(builtin, &identity);
+                let role = nuo_protocol::AgentRoleProfile::from_role(builtin, &identity);
                 identity = role.identity.clone();
                 preset = role;
             } else {
@@ -1583,22 +1589,24 @@ impl SessionRegistry {
             }
         }
         let workspace_root = workspace.as_ref().map(|binding| binding.root.clone());
-        let effective_confined =
-            if let Some(builtin) = role_id.as_deref().and_then(nuo_wire::MainAgentRole::parse) {
-                if !builtin.requires_workspace() {
-                    builtin.default_confined() && init_options.confined
-                } else {
-                    init_options.confined
-                }
+        let effective_confined = if let Some(builtin) = role_id
+            .as_deref()
+            .and_then(nuo_protocol::MainAgentRole::parse)
+        {
+            if !builtin.requires_workspace() {
+                builtin.default_confined() && init_options.confined
             } else {
                 init_options.confined
-            };
+            }
+        } else {
+            init_options.confined
+        };
         // The session's lifetime token: shared by the build task and the
         // background `/schedule` scheduler inside the assemble.
         let cancel = CancellationToken::new();
         // Per-session channel accounting — attach/detach on the
         // WS layer keeps this fresh; the agent reads it live.
-        let human_channel = Arc::new(nuo_wire::human_request::HumanChannelAccountant::new());
+        let human_channel = Arc::new(nuo_protocol::human_request::HumanChannelAccountant::new());
         // The client-facing bus exists before Welcome: a build-phase event is
         // buffered for every attacher that subscribes during the claim window.
         let (events_tx, _) = broadcast::channel::<AgentResponse>(1024);
@@ -1606,7 +1614,7 @@ impl SessionRegistry {
         // the build task drains this into the agent's inbox once it exists.
         let (client_tx, client_rx) = mpsc::channel::<AgentRequest>(SESSION_REQUEST_BUFFER);
         let sync_buffer = Arc::new(Mutex::new(AttachSyncBuffer::new()));
-        let (phase_tx, _) = tokio::sync::watch::channel(nuo_wire::SessionPhase::Binding);
+        let (phase_tx, _) = tokio::sync::watch::channel(nuo_protocol::ThreadPhase::Binding);
         // Claiming the store is bounded: `for_workspace` creates the session
         // directory and pins an id; it does not load the transcript. Resume
         // does that inside the build task, after Welcome. It runs on the
@@ -1643,11 +1651,11 @@ impl SessionRegistry {
         let phase_sink: crate::bootstrap::PhaseSink = {
             let pending = pending.clone();
             Arc::new(move |stage| {
-                let phase = nuo_wire::SessionPhase::Preparing { stage };
+                let phase = nuo_protocol::ThreadPhase::Preparing { stage };
                 pending.phase.send_replace(phase.clone());
-                let _ = pending.events.send(AgentResponse::SessionPhase(
-                    nuo_wire::SessionPhaseUpdate {
-                        session_id: pending.id.clone(),
+                let _ = pending.events.send(AgentResponse::ThreadPhase(
+                    nuo_protocol::ThreadPhaseUpdate {
+                        thread_id: pending.id.clone(),
                         phase,
                     },
                 ));
@@ -1673,7 +1681,7 @@ impl SessionRegistry {
             .await
             .insert(session_id, pending.clone());
         let resume_code = matches!(startup, crate::startup::SessionStart::Resume(_))
-            .then_some(nuo_wire::ERR_SESSION_UNRESUMABLE);
+            .then_some(nuo_protocol::ERR_SESSION_UNRESUMABLE);
         let registry = self.clone();
         let build_pending = pending.clone();
         tokio::spawn(async move {
@@ -1725,17 +1733,17 @@ impl SessionRegistry {
         code: Option<&'static str>,
         message: String,
     ) {
-        let phase = nuo_wire::SessionPhase::Failed {
+        let phase = nuo_protocol::ThreadPhase::Failed {
             code: code.map(str::to_string),
             message: message.clone(),
         };
         pending.phase.send_replace(phase.clone());
-        let _ = pending
-            .events
-            .send(AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
-                session_id: pending.id.clone(),
+        let _ = pending.events.send(AgentResponse::ThreadPhase(
+            nuo_protocol::ThreadPhaseUpdate {
+                thread_id: pending.id.clone(),
                 phase,
-            }));
+            },
+        ));
         self.building.lock().await.remove(&pending.id);
         tracing::warn!(session = %pending.id, error = %message, "hosted session assembly failed");
     }
@@ -1790,7 +1798,7 @@ impl SessionRegistry {
         let base = overview_of(&session, true).await;
         let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
             base_row(base, pending.workspace_root.as_deref()),
-            SessionStatus::Idle,
+            ThreadStatus::Idle,
         )));
         let tracker_for_tap = tracker.clone();
         let monitor_bus = self.monitor.clone();
@@ -1813,7 +1821,7 @@ impl SessionRegistry {
                         guard.observe(&r);
                         let row = guard.row();
                         drop(guard);
-                        let _ = monitor_bus.send(MonitorEvent::SessionUpdated(row));
+                        let _ = monitor_bus.send(MonitorEvent::ThreadUpdated(row));
                     }
                     // Buffer the attach-sync events before broadcasting so a
                     // snapshot built after the driver's startup burst sees
@@ -1892,7 +1900,7 @@ impl SessionRegistry {
                 }
             }
         });
-        let hosted = Arc::new(HostedSession {
+        let hosted = Arc::new(HostedThread {
             workspace_root: pending.workspace_root.clone(),
             human_channel: pending.human_channel.clone(),
             security: boot.security.clone(),
@@ -1918,10 +1926,8 @@ impl SessionRegistry {
         tokio::task::yield_now().await;
         let snapshot = crate::serve::build_full_session_snapshot(&hosted).await;
         *pending.latest_snapshot.lock().await = Some(snapshot.clone());
-        self.publish(MonitorEvent::SessionAdded(
-            hosted.tracker.lock().await.row(),
-        ))
-        .await;
+        self.publish(MonitorEvent::ThreadAdded(hosted.tracker.lock().await.row()))
+            .await;
         self.sessions
             .lock()
             .await
@@ -1929,18 +1935,20 @@ impl SessionRegistry {
         self.building.lock().await.remove(&session_id);
         // `[INV-ATTACH-04]`: the authoritative snapshot is on the bus before
         // `Ready`, and the phase cell flips only after the snapshot is cached.
-        pending.phase.send_replace(nuo_wire::SessionPhase::Ready);
-        let _ = events_tx.send(AgentResponse::SessionSnapshot(Box::new(snapshot)));
-        let _ = events_tx.send(AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
-            session_id,
-            phase: nuo_wire::SessionPhase::Ready,
-        }));
+        pending.phase.send_replace(nuo_protocol::ThreadPhase::Ready);
+        let _ = events_tx.send(AgentResponse::ThreadSnapshot(Box::new(snapshot)));
+        let _ = events_tx.send(AgentResponse::ThreadPhase(
+            nuo_protocol::ThreadPhaseUpdate {
+                thread_id: session_id,
+                phase: nuo_protocol::ThreadPhase::Ready,
+            },
+        ));
         // Keep the panic-supervision wrapper alive until the driver settles.
         let _ = &mut driver_done_rx;
         Ok(())
     }
 
-    async fn overview_arcs(&self, entries: &[Arc<HostedSession>]) -> Vec<SessionOverview> {
+    async fn overview_arcs(&self, entries: &[Arc<HostedThread>]) -> Vec<ThreadOverview> {
         let mut out = Vec::with_capacity(entries.len());
         for e in entries {
             out.push(overview_of(&e.session, true).await);
@@ -1979,7 +1987,7 @@ impl SessionRegistry {
         let map = self.sessions.lock().await;
         for hosted in map.values() {
             let status = hosted.tracker.lock().await.row().status;
-            if status != nuo_wire::SessionStatus::Idle {
+            if status != nuo_protocol::SessionStatus::Idle {
                 return true;
             }
         }
@@ -2000,7 +2008,7 @@ impl SessionRegistry {
             let map = self.sessions.lock().await;
             for hosted in map.values() {
                 let row = hosted.tracker.lock().await.row();
-                if action.include_idle || row.status != SessionStatus::Idle {
+                if action.include_idle || row.status != ThreadStatus::Idle {
                     sessions.push(row);
                 }
             }
@@ -2017,7 +2025,7 @@ impl SessionRegistry {
         MonitorSnapshot {
             project_root: meta.project_root.unwrap_or_default(),
             server_started_at: meta.started_at,
-            sessions,
+            threads: sessions,
             tasks,
             persistence_health: self.persistence_health.lock().unwrap().clone(),
         }
@@ -2068,19 +2076,16 @@ impl std::fmt::Debug for AssembleErr {
 /// live event stream by the [`MonitorTracker`]. `project_root` rides along
 /// from the registry's two-level index so clients can name the workspace
 /// without a second lookup.
-fn base_row(
-    overview: SessionOverview,
-    workspace_root: Option<&std::path::Path>,
-) -> MonitoredSession {
-    MonitoredSession {
+fn base_row(overview: ThreadOverview, workspace_root: Option<&std::path::Path>) -> MonitoredThread {
+    MonitoredThread {
         id: overview.id,
         title: overview.title,
         overview: overview.overview,
         created_at: overview.created_at,
         updated_at: overview.updated_at,
         message_count: overview.message_count,
-        hosting: SessionHosting::Hosted,
-        status: SessionStatus::Idle,
+        hosting: ThreadHosting::Hosted,
+        status: ThreadStatus::Idle,
         round: 0,
         turn: None,
         output_tokens: 0,
@@ -2101,11 +2106,11 @@ fn base_row(
 }
 
 #[allow(clippy::collapsible_if)]
-async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
+async fn overview_of(session: &SessionStore, active: bool) -> ThreadOverview {
     let id = session.id().await;
     if let Ok(items) = session.list().await {
         if let Some(item) = items.into_iter().find(|i| i.id == id) {
-            return SessionOverview {
+            return ThreadOverview {
                 id: item.id,
                 title: item.title,
                 overview: item.overview,
@@ -2123,7 +2128,7 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
     let mc = session.full_transcript().await.len();
     let digest = session.digest().await.0;
     let (real_title, _) = session.title().await;
-    SessionOverview {
+    ThreadOverview {
         id,
         title: real_title,
         overview: String::new(),
@@ -2133,12 +2138,14 @@ async fn overview_of(session: &SessionStore, active: bool) -> SessionOverview {
         active,
         // Not on disk yet (never persisted or empty): no lineage to report.
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         digest,
     }
 }
-fn lookup_latest_session_in_partition(partition: &nuo_wire::SessionPartition) -> Option<String> {
+fn lookup_latest_session_in_partition(
+    partition: &nuo_protocol::SessionPartition,
+) -> Option<String> {
     nuo_persistence::db::get_persistence_handle()
         .reader()
         .ok()?
@@ -2168,7 +2175,7 @@ async fn lookup_session_workspace(id: &str) -> Option<SessionBinding> {
     .flatten()
 }
 
-async fn lookup_session_manifest(id: &str) -> Option<nuo_wire::SessionRoleManifest> {
+async fn lookup_session_manifest(id: &str) -> Option<nuo_protocol::SessionRoleManifest> {
     let id = id.to_string();
     tokio::task::spawn_blocking(move || {
         nuo_persistence::db::get_persistence_handle()
@@ -2194,7 +2201,7 @@ mod attach_refusal_tests {
     /// client must retire the tab naming it.
     #[tokio::test]
     async fn unknown_session_is_refused_as_gone() {
-        let registry = SessionRegistry::prehost_only();
+        let registry = ThreadRegistry::prehost_only();
         match registry
             .resolve_with_declaration(
                 AttachAction::Attach(Some("no-such-session-anywhere".into())),
@@ -2206,7 +2213,7 @@ mod attach_refusal_tests {
             ResolveOutcome::Refused { code, message } => {
                 assert_eq!(
                     code,
-                    Some(nuo_wire::ERR_SESSION_GONE),
+                    Some(nuo_protocol::ERR_SESSION_GONE),
                     "a session with no durable binding is provably gone"
                 );
                 assert!(message.contains("no-such-session-anywhere"));
@@ -2219,7 +2226,7 @@ mod attach_refusal_tests {
     /// `None` is the contract for "no specific taxonomy".
     #[tokio::test]
     async fn missing_host_refuses_without_taxonomy() {
-        let registry = SessionRegistry::prehost_only();
+        let registry = ThreadRegistry::prehost_only();
         match registry
             .resolve_with_declaration(AttachAction::New(None), std::path::Path::new("/tmp"), true)
             .await
@@ -2237,17 +2244,20 @@ mod attach_refusal_tests {
     #[test]
     fn gone_and_unresumable_are_distinct_codes() {
         assert_ne!(
-            nuo_wire::ERR_SESSION_GONE,
-            nuo_wire::ERR_SESSION_UNRESUMABLE
+            nuo_protocol::ERR_SESSION_GONE,
+            nuo_protocol::ERR_SESSION_UNRESUMABLE
         );
-        let gone = ResolveOutcome::refused(nuo_wire::ERR_SESSION_GONE, "gone");
-        let unresumable = ResolveOutcome::refused(nuo_wire::ERR_SESSION_UNRESUMABLE, "boom");
+        let gone = ResolveOutcome::refused(nuo_protocol::ERR_SESSION_GONE, "gone");
+        let unresumable = ResolveOutcome::refused(nuo_protocol::ERR_SESSION_UNRESUMABLE, "boom");
         let code = |o: &ResolveOutcome| match o {
             ResolveOutcome::Refused { code, .. } => *code,
             _ => None,
         };
-        assert_eq!(code(&gone), Some(nuo_wire::ERR_SESSION_GONE));
-        assert_eq!(code(&unresumable), Some(nuo_wire::ERR_SESSION_UNRESUMABLE));
+        assert_eq!(code(&gone), Some(nuo_protocol::ERR_SESSION_GONE));
+        assert_eq!(
+            code(&unresumable),
+            Some(nuo_protocol::ERR_SESSION_UNRESUMABLE)
+        );
     }
 
     /// `[INV-ATTACH-03]` (ADR-0133): the pre-Welcome claim may do bounded local
@@ -2301,7 +2311,7 @@ mod acp_fabric_tests {
 
     #[tokio::test]
     async fn session_mailbox_registers_and_teardown_unregisters() {
-        let registry = SessionRegistry::prehost_only();
+        let registry = ThreadRegistry::prehost_only();
 
         assert!(registry.hypervisor().await.is_none());
 
@@ -2317,7 +2327,7 @@ mod acp_fabric_tests {
 
     #[tokio::test]
     async fn instruction_routing_is_fail_closed_after_teardown() {
-        let registry = SessionRegistry::prehost_only();
+        let registry = ThreadRegistry::prehost_only();
         registry.register_session_mailbox("s-live").await;
 
         let from = acp::AgentAddress::parse("agent://local/hypervisor").unwrap();
@@ -2341,7 +2351,7 @@ mod acp_fabric_tests {
 
     #[test]
     fn resumed_developer_manifest_strips_legacy_recall_memory() {
-        let mut manifest = nuo_wire::SessionRoleManifest::developer();
+        let mut manifest = nuo_protocol::SessionRoleManifest::developer();
         manifest.tools.push("recall_memory".to_string());
         assert!(manifest.tools.contains(&"recall_memory".to_string()));
 
@@ -2349,7 +2359,7 @@ mod acp_fabric_tests {
         if manifest.role_id == "developer" {
             admitted_tools.retain(|t| t != "recall_memory");
         }
-        let selection = nuo_wire::ToolSelection::from_allowlist(&admitted_tools);
+        let selection = nuo_protocol::ToolSelection::from_allowlist(&admitted_tools);
         assert!(!selection.scope.admits("recall_memory"));
     }
 }

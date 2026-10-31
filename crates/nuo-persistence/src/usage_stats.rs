@@ -1,7 +1,7 @@
 //! Authoritative request-attempt accounting and recoverable usage projections.
 //! No production read imports legacy files, and no settlement rewrites a day bucket.
-use nuo_wire::usage_stats::{UsageStatRecord, UsageStatsReport, day_key_from_epoch_ms};
-use nuo_wire::{RequestUsageKey, RequestUsageRecord};
+use nuo_protocol::usage_stats::{UsageStatRecord, UsageStatsReport, day_key_from_epoch_ms};
+use nuo_protocol::{RequestUsageKey, RequestUsageRecord};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default)]
@@ -99,7 +99,7 @@ pub fn day_key(at: u64) -> String {
 pub fn same_attempt(a: &RequestUsageKey, b: &RequestUsageKey) -> bool {
     a == b
 }
-impl nuo_wire::UsageStatSink for UsageStatsStore {
+impl nuo_protocol::UsageStatSink for UsageStatsStore {
     fn persist_usage<'a>(
         &'a self,
         at: u64,
@@ -113,7 +113,7 @@ impl nuo_wire::UsageStatSink for UsageStatsStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{RequestUsageKey, RequestUsageSource, RequestUsageStatus};
+    use nuo_protocol::{RequestUsageKey, RequestUsageSource, RequestUsageStatus};
 
     fn sample_record(session: &str, attempt: u32, total: i64) -> RequestUsageRecord {
         RequestUsageRecord {
@@ -275,15 +275,15 @@ mod tests {
     /// wiring the server bootstrap performs.
     #[test]
     fn ledger_sink_end_to_end_persists_and_aggregates() {
-        use nuo_wire::TokenUsage;
+        use nuo_protocol::TokenUsage;
         use std::sync::Arc;
 
         let (root, _tmp) = temp_root();
         let store = Arc::new(UsageStatsStore::with_root(root));
-        let ledger = nuo_wire::TokenSourceLedger::new();
-        nuo_wire::TokenSourceLedger::install_usage_sink(
+        let ledger = nuo_protocol::TokenSourceLedger::new();
+        nuo_protocol::TokenSourceLedger::install_usage_sink(
             &ledger,
-            store.clone() as Arc<dyn nuo_wire::UsageStatSink>,
+            store.clone() as Arc<dyn nuo_protocol::UsageStatSink>,
         );
         ledger.set_usage_project("proj-bucket");
 

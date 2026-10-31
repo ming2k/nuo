@@ -8,7 +8,7 @@
 //! `execution` (tool tail + hooks).
 use crate::cognition::skills;
 use crate::*;
-use nuo_wire::human_request::{
+use nuo_protocol::human_request::{
     AutonomousFallbackPolicy, HumanChannelPosture, HumanReply, HumanRequestKind,
 };
 
@@ -92,7 +92,7 @@ pub(crate) type TurnPersistFn =
 /// record to the session's forensic archive. It is synchronous and infallible
 /// by design: forensic persistence must never block or fail request dispatch.
 /// It is `None` on subagents, the review diagnostic, and tests.
-pub(crate) type RequestProjectionFn = Arc<dyn Fn(nuo_wire::RequestProjection) + Send + Sync>;
+pub(crate) type RequestProjectionFn = Arc<dyn Fn(nuo_protocol::RequestProjection) + Send + Sync>;
 
 /// Title-established observer fired by the background session titler
 /// (ADR-0022).
@@ -106,29 +106,29 @@ pub(crate) type RequestProjectionFn = Arc<dyn Fn(nuo_wire::RequestProjection) + 
 /// fires, so the notification is pure presentation.
 pub type TitleEstablishedFn = Arc<dyn Fn(&str) -> BoxFuture<'static, ()> + Send + Sync>;
 
-pub use nuo_wire::RequestTokenEstimate;
+pub use nuo_protocol::RequestTokenEstimate;
 
-// `AgentIdentity` now lives in `nuo-wire` (`identity.rs`) as pure domain
+// `AgentIdentity` now lives in `nuo-protocol` (`identity.rs`) as pure domain
 // vocabulary, alongside the role profiles. It is re-exported by name at the
-// crate root below and via `pub use nuo_wire::*`, so all existing
+// crate root below and via `pub use nuo_protocol::*`, so all existing
 // `nuo_harness::AgentIdentity` / `crate::AgentIdentity` references keep
 // resolving unchanged.
 
 /// Parked oneshots for in-flight interactive-input requests (L3.5 β): a
 /// `bash` command classified interactive blocks here until the operator's
-/// [`InputReply`](nuo_wire::InputReply) arrives (or `None` on cancel/turn-end).
+/// [`InputReply`](nuo_protocol::InputReply) arrives (or `None` on cancel/turn-end).
 pub struct Agent {
     pub host: crate::runtime::host::KernelHost,
     pub provider: Arc<dyn Provider>,
     /// Execution policy governing this agent's runtime posture, delegation limits, and depth.
-    execution_policy: std::sync::RwLock<nuo_wire::ExecutionPolicy>,
+    execution_policy: std::sync::RwLock<nuo_protocol::ExecutionPolicy>,
     /// Global/Session tool pool for declarative tool resolution.
-    pool: Arc<std::sync::RwLock<nuo_wire::ToolPool>>,
+    pool: Arc<std::sync::RwLock<nuo_protocol::ToolPool>>,
     /// The full capability set: every tool keyed by capability, with all its
     /// variants. The single source of truth from which the model-visible
     /// [`resolved_tools`](Self::resolved_tools) view is derived for the active
     /// [`variant_selection`](Self::variant_selection).
-    pub(crate) toolset: nuo_wire::ToolSet,
+    pub(crate) toolset: nuo_protocol::ToolSet,
 
     /// The active resolved view: exactly one variant per capability, for the
     /// current model's [`variant_selection`](Self::variant_selection). Both request
@@ -151,7 +151,7 @@ pub struct Agent {
     /// Hook-installed *temporary* disable mask ([`HookOutcome::ScopeTools`]).
     /// Not persisted: excluded from `disabled_tools_snapshot()` so it never
     /// reaches the session store. Auto-restored at the configured
-    /// [`nuo_wire::RestorePoint`]. See [`ScopedToolDisable`].
+    /// [`nuo_protocol::RestorePoint`]. See [`ScopedToolDisable`].
     scoped_disabled_tools: Arc<std::sync::Mutex<ScopedToolDisable>>,
     /// The unified two-bucket tool manager. The single authority for
     /// classification, per-turn schema (`loop_tools`), and dispatch lookup.
@@ -162,7 +162,7 @@ pub struct Agent {
     /// do." Drives the sticky panel and persists across restarts. Shared
     /// with the concrete `todo` / `todo_update` tools installed by
     /// [`crate::tool_integration`].
-    todos: Arc<std::sync::Mutex<nuo_wire::TodoList>>,
+    todos: Arc<std::sync::Mutex<nuo_protocol::TodoList>>,
     /// Harness round counter, bumped at the start of every `execute_round`.
     /// Shared with the todo tools so they can stamp
     /// `updated_at_round` for the TUI stale detector.
@@ -174,9 +174,9 @@ pub struct Agent {
     additional_workspace_roots: Vec<std::path::PathBuf>,
     /// Workspace authority is orthogonal to interaction posture. Shared with
     /// spawned subagents so delegation cannot silently widen the parent's grant.
-    workspace_security: Arc<std::sync::Mutex<nuo_wire::WorkspaceSecuritySnapshot>>,
+    workspace_security: Arc<std::sync::Mutex<nuo_protocol::WorkspaceSecuritySnapshot>>,
     /// Session-scoped workspace confinement handle.
-    confinement: nuo_wire::SharedConfinement,
+    confinement: nuo_protocol::SharedConfinement,
     /// Content-attested project instructions from the Rules asset domain.
     /// Replaced live when `/trust` or `/untrust` changes admission.
     project_rules: Arc<std::sync::RwLock<String>>,
@@ -212,7 +212,7 @@ pub struct Agent {
     hard_stop_turns: Arc<std::sync::Mutex<usize>>,
     /// Advanced pre-dispatch trajectory loop guard configuration.
     /// Seeded from `[agent.trajectory_guard]` in `config.toml`.
-    trajectory_guard_config: Arc<std::sync::RwLock<nuo_wire::TrajectoryGuardConfig>>,
+    trajectory_guard_config: Arc<std::sync::RwLock<nuo_protocol::TrajectoryGuardConfig>>,
     /// Unified interaction controller governing human posture, stdin policy,
     /// and autonomous fallback behaviors.
     pub(crate) interaction: Arc<crate::interaction::InteractionController>,
@@ -250,8 +250,8 @@ pub struct Agent {
     /// UI an exact answer in the cancellation-vs-admission race. `None` means
     /// the round is not accepting queued messages.
     session_queues: std::sync::Mutex<Option<SessionQueues>>,
-    steering_mode: std::sync::RwLock<nuo_wire::QueueMode>,
-    follow_up_mode: std::sync::RwLock<nuo_wire::QueueMode>,
+    steering_mode: std::sync::RwLock<nuo_protocol::QueueMode>,
+    follow_up_mode: std::sync::RwLock<nuo_protocol::QueueMode>,
     /// Cumulative milliseconds the current round has spent parked on a human
     /// decision (permission prompt or `ask_user`). Reset to 0 at the start of
     /// each user round and added to at every permission/ask_user `await`. Read
@@ -316,7 +316,7 @@ pub struct Agent {
     /// the same overrides by sharing this handle (see
     /// [`Agent::variant_selection_handle`]); the agent decides scope, the
     /// model decides variant.
-    variant_selection: Arc<std::sync::Mutex<nuo_wire::VariantSelection>>,
+    variant_selection: Arc<std::sync::Mutex<nuo_protocol::VariantSelection>>,
     /// Resolved model-specific prompt guidance (ADR-0130). Held behind an Arc
     /// and RwLock so spawned subagents inherit the live handle, and runtime
     /// model switches update the active guidance string in place.
@@ -324,33 +324,33 @@ pub struct Agent {
     /// This agent's **identity-side selection** of the pool (the agent half of
     /// the two-selector model): the capability scope it admits plus any variant
     /// pins it forces. The master agent is
-    /// [`ToolSelection::unrestricted`](nuo_wire::ToolSelection::unrestricted)
+    /// [`ToolSelection::unrestricted`](nuo_protocol::ToolSelection::unrestricted)
     /// — every capability, model-chosen variants. A scoped agent (or a future
     /// role-bound master) narrows this. Composed with the live model's
-    /// selection by [`nuo_wire::ToolSet::resolve_for`] every time the toolset
+    /// selection by [`nuo_protocol::ToolSet::resolve_for`] every time the toolset
     /// is re-resolved: scope by intersection, variants by agent-over-model
     /// precedence, model capability limits applied hard.
-    tools: std::sync::Mutex<nuo_wire::ToolSelection>,
+    tools: std::sync::Mutex<nuo_protocol::ToolSelection>,
     /// Token-source accounting: running tally of how many tokens each
     /// provider+model reported authoritatively (upstream `usage`) vs. how many
     /// were filled in by the local estimator. Shared with the TUI so the
     /// token-source report modal renders live. `None` for subagents/tests that
     /// don't surface the report.
-    token_ledger: std::sync::Mutex<Option<Arc<nuo_wire::TokenSourceLedger>>>,
+    token_ledger: std::sync::Mutex<Option<Arc<nuo_protocol::TokenSourceLedger>>>,
     /// Content-addressed per-message token weights (see
-    /// [`nuo_wire::MessageTokenWeights`]). Every estimate path consults
+    /// [`nuo_protocol::MessageTokenWeights`]). Every estimate path consults
     /// this, so BPE tokenization cost collapses from O(total session bytes)
     /// per pass to O(new bytes since the last pass). Messages are immutable
     /// once written, so the cache never needs invalidation: identical bytes
     /// always yield identical weights. Held behind an `Arc` so off-executor
     /// estimate tasks (spawn_blocking) and the context-projection gates can
     /// share the same cache without borrowing the agent.
-    token_weights: std::sync::Arc<nuo_wire::MessageTokenWeights>,
+    token_weights: std::sync::Arc<nuo_protocol::MessageTokenWeights>,
     /// Content-addressed per-tool-spec BPE weights: a toolset is stable across
     /// turns, so its schema cost is tokenized once, not per estimate pass.
-    tool_schema_weights: std::sync::Arc<nuo_wire::ToolSchemaWeights>,
+    tool_schema_weights: std::sync::Arc<nuo_protocol::ToolSchemaWeights>,
     /// Atomic extensions bound to this agent instance.
-    pub(crate) extensions: Arc<std::sync::RwLock<Vec<Arc<dyn nuo_wire::Extension>>>>,
+    pub(crate) extensions: Arc<std::sync::RwLock<Vec<Arc<dyn nuo_protocol::Extension>>>>,
     /// Active staffing role for this agent (e.g. "developer", "philosophist").
     pub(crate) active_role: std::sync::RwLock<Option<String>>,
 }
@@ -441,7 +441,7 @@ impl SubagentHandle {
     /// parked oneshot resolves as cancelled), so the inbox op is observed
     /// promptly instead of waiting behind a gate that would never clear.
     ///
-    /// [`AgentRequest::InterruptSubagent`]: nuo_wire::AgentRequest::InterruptSubagent
+    /// [`AgentRequest::InterruptSubagent`]: nuo_protocol::AgentRequest::InterruptSubagent
     pub fn interrupt(&self) -> bool {
         if let Some(agent) = self.weak.upgrade() {
             agent.reject_pending_permissions();
@@ -469,7 +469,7 @@ pub(crate) struct RoundState {
     /// `token_usage`: once rates vary by time of day, applying one window to
     /// an aggregate of attempts billed under another silently mis-states the
     /// spend (ADR-0080).
-    spend: nuo_wire::pricing::NanoUsd,
+    spend: nuo_protocol::pricing::NanoUsd,
     /// Accumulated provider *generation* time across every completed request
     /// in this round (sum of each `RequestAccountingGuard`'s sealed span).
     /// Excludes tool execution, hooks, and human-decision pauses — it is the
@@ -504,7 +504,9 @@ impl RoundState {
     /// `Agent::apply_guard_actions` — so the guard state is always present
     /// even when disabled (it just never fires). It lives and dies with this
     /// `RoundState`, so loop state never crosses user rounds.
-    fn guards_default(config: nuo_wire::TrajectoryGuardConfig) -> crate::guard::RoundGuardState {
+    fn guards_default(
+        config: nuo_protocol::TrajectoryGuardConfig,
+    ) -> crate::guard::RoundGuardState {
         crate::guard::RoundGuardState::new()
             .with_trajectory(crate::trajectory_guard::TrajectoryLoopGuard::new(config))
     }
@@ -546,7 +548,7 @@ fn checkpoint_tool_signature(call: &ToolCall) -> String {
 /// request preparation and turn-start hooks so retrying cannot replay work
 /// that already happened at the request boundary.
 pub(crate) struct StreamingRoundState {
-    turn_context: Arc<nuo_wire::ProviderTurnContext>,
+    turn_context: Arc<nuo_protocol::ProviderTurnContext>,
     state: RoundState,
     turn_index: usize,
     /// Number of in-flight stream-loop recoveries already attempted in this
@@ -556,7 +558,7 @@ pub(crate) struct StreamingRoundState {
     stream_loop_recoveries: u8,
     inbox_rx: Option<mpsc::UnboundedReceiver<AgentOp>>,
     started_at: std::time::Instant,
-    pending_request: Option<nuo_wire::ModelRequest>,
+    pending_request: Option<nuo_protocol::ModelRequest>,
     session_queue_generation: Option<u64>,
 }
 
@@ -579,7 +581,7 @@ impl StreamingRoundState {
     /// record; the withholding is reported to the user and the log instead.
     pub(crate) fn project_pending_request(
         &mut self,
-        project: impl FnOnce(&mut nuo_wire::ModelRequest) -> usize,
+        project: impl FnOnce(&mut nuo_protocol::ModelRequest) -> usize,
     ) -> Option<usize> {
         self.pending_request.as_mut().map(project)
     }
@@ -588,34 +590,34 @@ impl StreamingRoundState {
 impl StreamingRoundState {
     /// How many complete ReAct turns this round has committed — the ordinal
     /// the *next* turn would take (0-based `turn_index`). `/retry` captures
-    /// this into a [`nuo_wire::RetryPoint`] so the resumed round
+    /// this into a [`nuo_protocol::RetryPoint`] so the resumed round
     /// keeps numbering turns contiguously instead of restarting at 0.
     pub(crate) fn committed_turns(&self) -> usize {
         self.turn_index
     }
 
     #[cfg(test)]
-    pub(crate) fn set_token_usage_for_test(&mut self, usage: nuo_wire::TokenUsage) {
+    pub(crate) fn set_token_usage_for_test(&mut self, usage: nuo_protocol::TokenUsage) {
         self.state.token_usage = usage;
     }
 }
 
-/// A queue of pending messages controlled by a [`nuo_wire::QueueMode`].
+/// A queue of pending messages controlled by a [`nuo_protocol::QueueMode`].
 #[derive(Debug, Clone)]
 pub struct PendingMessageQueue {
-    messages: std::collections::VecDeque<nuo_wire::QueuedMessage>,
-    pub mode: nuo_wire::QueueMode,
+    messages: std::collections::VecDeque<nuo_protocol::QueuedMessage>,
+    pub mode: nuo_protocol::QueueMode,
 }
 
 impl PendingMessageQueue {
-    pub fn new(mode: nuo_wire::QueueMode) -> Self {
+    pub fn new(mode: nuo_protocol::QueueMode) -> Self {
         Self {
             messages: std::collections::VecDeque::new(),
             mode,
         }
     }
 
-    pub fn enqueue(&mut self, message: nuo_wire::QueuedMessage) {
+    pub fn enqueue(&mut self, message: nuo_protocol::QueuedMessage) {
         self.messages.push_back(message);
     }
 
@@ -631,18 +633,18 @@ impl PendingMessageQueue {
         self.messages.len()
     }
 
-    pub fn drain(&mut self) -> Vec<nuo_wire::QueuedMessage> {
+    pub fn drain(&mut self) -> Vec<nuo_protocol::QueuedMessage> {
         match self.mode {
-            nuo_wire::QueueMode::All => self.messages.drain(..).collect(),
-            nuo_wire::QueueMode::OneAtATime => self.messages.pop_front().into_iter().collect(),
+            nuo_protocol::QueueMode::All => self.messages.drain(..).collect(),
+            nuo_protocol::QueueMode::OneAtATime => self.messages.pop_front().into_iter().collect(),
         }
     }
 
-    pub fn drain_all(&mut self) -> Vec<nuo_wire::QueuedMessage> {
+    pub fn drain_all(&mut self) -> Vec<nuo_protocol::QueuedMessage> {
         self.messages.drain(..).collect()
     }
 
-    pub fn cancel(&mut self, input_id: &str) -> Option<nuo_wire::QueuedMessage> {
+    pub fn cancel(&mut self, input_id: &str) -> Option<nuo_protocol::QueuedMessage> {
         let position = self
             .messages
             .iter()
@@ -695,8 +697,8 @@ pub(crate) struct SingleToolOutcome {
 /// records the attempt; normal completion explicitly settles it with the
 /// provider usage or the local fallback estimate.
 struct RequestAccountingGuard {
-    ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
-    key: Option<nuo_wire::RequestUsageKey>,
+    ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
+    key: Option<nuo_protocol::RequestUsageKey>,
     round: u64,
     turn: u32,
     attempt: u32,
@@ -705,7 +707,7 @@ struct RequestAccountingGuard {
     observed_completion_tokens: i64,
     /// Incremental BPE counter for streamed deltas (exact across delta
     /// boundaries; a per-delta sum would over-count merges that span them).
-    output_counter: nuo_wire::tokenizer::StreamingCounter,
+    output_counter: nuo_protocol::tokenizer::StreamingCounter,
     observed_usage: Option<TokenUsage>,
     error: Option<String>,
     settled: bool,
@@ -734,7 +736,7 @@ struct RequestAccountingGuard {
     /// the request this attempt dispatches, and read back when it settles — so
     /// the transport's timings reach the attempt that caused them, including
     /// when a shared provider is running several attempts at once.
-    transport_telemetry: nuo_wire::TransportTelemetry,
+    transport_telemetry: nuo_protocol::TransportTelemetry,
 }
 
 impl RequestAccountingGuard {
@@ -751,7 +753,7 @@ impl RequestAccountingGuard {
         let key = ledger.as_ref().map(|ledger| {
             let thread_id = agent.thread_id().unwrap_or_default();
             let actor_id = agent.accounting_actor_id();
-            ledger.begin_request_for_actor(nuo_wire::BeginRequestParams {
+            ledger.begin_request_for_actor(nuo_protocol::BeginRequestParams {
                 session_id: &thread_id,
                 actor_id: &actor_id,
                 provider,
@@ -774,7 +776,7 @@ impl RequestAccountingGuard {
             cancel: cancel.clone(),
             projected_prompt_tokens: projected_prompt_tokens as i64,
             observed_completion_tokens: 0,
-            output_counter: nuo_wire::tokenizer::StreamingCounter::new(),
+            output_counter: nuo_protocol::tokenizer::StreamingCounter::new(),
             observed_usage: None,
             error: None,
             settled: false,
@@ -789,13 +791,13 @@ impl RequestAccountingGuard {
             output_events: 0,
             generation_ms: 0,
             first_frame_at: None,
-            transport_telemetry: nuo_wire::TransportTelemetry::new(),
+            transport_telemetry: nuo_protocol::TransportTelemetry::new(),
         }
     }
 
     /// This attempt's telemetry handle, to be stamped onto the request the
     /// attempt dispatches. A retry must take a fresh one.
-    fn transport_telemetry(&self) -> nuo_wire::TransportTelemetry {
+    fn transport_telemetry(&self) -> nuo_protocol::TransportTelemetry {
         self.transport_telemetry.clone()
     }
 
@@ -843,7 +845,7 @@ impl RequestAccountingGuard {
     /// same event timestamp and first-event token bucket.
     fn observe_stream_event(
         &mut self,
-        event: &nuo_wire::ProviderStreamEvent,
+        event: &nuo_protocol::ProviderStreamEvent,
         received_at: std::time::Instant,
     ) {
         let mut fragments: Vec<&str> = Vec::new();
@@ -851,14 +853,14 @@ impl RequestAccountingGuard {
         // proves the server started responding.
         self.first_frame_at.get_or_insert(received_at);
         match event {
-            nuo_wire::ProviderStreamEvent::ModelCatalogEtag(_) => return,
-            nuo_wire::ProviderStreamEvent::TextDelta(delta)
-            | nuo_wire::ProviderStreamEvent::ReasoningDelta(delta) => {
+            nuo_protocol::ProviderStreamEvent::ModelCatalogEtag(_) => return,
+            nuo_protocol::ProviderStreamEvent::TextDelta(delta)
+            | nuo_protocol::ProviderStreamEvent::ReasoningDelta(delta) => {
                 if !delta.is_empty() {
                     fragments.push(delta);
                 }
             }
-            nuo_wire::ProviderStreamEvent::ToolCallDelta {
+            nuo_protocol::ProviderStreamEvent::ToolCallDelta {
                 name, arguments, ..
             } => {
                 if let Some(name) = name.as_deref().filter(|name| !name.is_empty()) {
@@ -868,11 +870,11 @@ impl RequestAccountingGuard {
                     fragments.push(arguments);
                 }
             }
-            nuo_wire::ProviderStreamEvent::Usage(usage) => {
+            nuo_protocol::ProviderStreamEvent::Usage(usage) => {
                 self.observe_usage(*usage);
                 return;
             }
-            nuo_wire::ProviderStreamEvent::Completed(meta) => {
+            nuo_protocol::ProviderStreamEvent::Completed(meta) => {
                 if let Some(usage) = meta.usage {
                     self.observe_usage(usage);
                 }
@@ -927,7 +929,7 @@ impl RequestAccountingGuard {
         }
     }
 
-    fn performance(&self) -> nuo_wire::RequestPerformance {
+    fn performance(&self) -> nuo_protocol::RequestPerformance {
         let offset = |end: Option<std::time::Instant>| {
             Some(end?.saturating_duration_since(self.started_at?).as_micros() as u64)
         };
@@ -955,7 +957,7 @@ impl RequestAccountingGuard {
                 (Some(shift), Some(offset)) => Some(shift.saturating_add(offset)),
                 _ => None,
             };
-        nuo_wire::RequestPerformance {
+        nuo_protocol::RequestPerformance {
             dns_us: transport.dns_us,
             tcp_us: transport.tcp_us,
             tls_us: transport.tls_us,
@@ -971,10 +973,10 @@ impl RequestAccountingGuard {
             tail_us: span(self.last_output_at, self.stream_end_at),
             e2e_us: offset(self.validated_at),
             streamed_output_tokens: self.observed_completion_tokens.max(0) as u64,
-            first_output_tokens: nuo_wire::count_tokens(&self.first_output_fragment) as u64,
+            first_output_tokens: nuo_protocol::count_tokens(&self.first_output_fragment) as u64,
             output_events: self.output_events,
-            timing_source: nuo_wire::PerformanceTimingSource::ClientObserved,
-            stream_token_source: nuo_wire::StreamTokenSource::Cl100k,
+            timing_source: nuo_protocol::PerformanceTimingSource::ClientObserved,
+            stream_token_source: nuo_protocol::StreamTokenSource::Cl100k,
             observation: transport.observation,
             ..Default::default()
         }
@@ -983,9 +985,9 @@ impl RequestAccountingGuard {
     fn performance_snapshot(
         &self,
         completion_tokens: i64,
-        usage_source: nuo_wire::RequestUsageSource,
-    ) -> nuo_wire::TurnPerformanceSnapshot {
-        nuo_wire::TurnPerformanceSnapshot {
+        usage_source: nuo_protocol::RequestUsageSource,
+    ) -> nuo_protocol::TurnPerformanceSnapshot {
+        nuo_protocol::TurnPerformanceSnapshot {
             round: self.round,
             turn: self.turn,
             attempt: self.attempt,
@@ -997,7 +999,7 @@ impl RequestAccountingGuard {
 
     fn settle(
         &mut self,
-        status: nuo_wire::RequestUsageStatus,
+        status: nuo_protocol::RequestUsageStatus,
         usage: Option<TokenUsage>,
         estimated_completion_tokens: i64,
     ) {
@@ -1011,7 +1013,7 @@ impl RequestAccountingGuard {
 
     fn settle_with_error(
         &mut self,
-        status: nuo_wire::RequestUsageStatus,
+        status: nuo_protocol::RequestUsageStatus,
         usage: Option<TokenUsage>,
         estimated_completion_tokens: i64,
         error: Option<String>,
@@ -1047,9 +1049,9 @@ impl Drop for RequestAccountingGuard {
         // `book_turn_usage`, which normally closes the counter).
         self.finish_output();
         let status = if self.cancel.is_cancelled() {
-            nuo_wire::RequestUsageStatus::Interrupted
+            nuo_protocol::RequestUsageStatus::Interrupted
         } else {
-            nuo_wire::RequestUsageStatus::Failed
+            nuo_protocol::RequestUsageStatus::Failed
         };
         self.settle_with_error(
             status,
@@ -1069,18 +1071,18 @@ impl Drop for RequestAccountingGuard {
 pub struct AgentBuilder {
     provider: Arc<dyn Provider>,
     host: crate::runtime::host::KernelHost,
-    toolset: nuo_wire::ToolSet,
+    toolset: nuo_protocol::ToolSet,
     skills_registry: skills::SkillRegistry,
     identity: AgentIdentity,
     model_request_assembler: crate::cognition::model_request::ModelRequestAssembler,
-    extensions: Vec<Arc<dyn nuo_wire::Extension>>,
+    extensions: Vec<Arc<dyn nuo_protocol::Extension>>,
     model_guidance: Option<String>,
 }
 
 impl AgentBuilder {
     fn new(
         provider: Arc<dyn Provider>,
-        toolset: nuo_wire::ToolSet,
+        toolset: nuo_protocol::ToolSet,
         identity: AgentIdentity,
     ) -> Self {
         Self {
@@ -1104,7 +1106,7 @@ impl AgentBuilder {
         self
     }
 
-    pub fn with_extension(mut self, extension: Arc<dyn nuo_wire::Extension>) -> Self {
+    pub fn with_extension(mut self, extension: Arc<dyn nuo_protocol::Extension>) -> Self {
         self.extensions.push(extension);
         self
     }
@@ -1112,7 +1114,7 @@ impl AgentBuilder {
     /// Add atomic extensions to this agent.
     pub fn with_extensions(
         mut self,
-        extensions: impl IntoIterator<Item = Arc<dyn nuo_wire::Extension>>,
+        extensions: impl IntoIterator<Item = Arc<dyn nuo_protocol::Extension>>,
     ) -> Self {
         for extension in extensions {
             self.extensions.push(extension);
@@ -1250,8 +1252,8 @@ pub(crate) use state::strip_images;
 
 /// Render a missing runtime grant without conflating it with project asset
 /// trust. This is returned when no interactive approver is available.
-fn permission_required_output(request: &nuo_wire::PermissionRequest) -> ToolOutput {
-    use nuo_wire::ToolPermissionPayload;
+fn permission_required_output(request: &nuo_protocol::PermissionRequest) -> ToolOutput {
+    use nuo_protocol::ToolPermissionPayload;
 
     let operation = match request.submission.as_ref().map(|s| &s.payload) {
         Some(ToolPermissionPayload::Command { command, .. }) => {
@@ -1296,7 +1298,7 @@ fn valid_assistant_response(message: &Message) -> bool {
 /// diagnose why: whether reasoning came through, whether any tool calls were
 /// parsed, and which provider/model was responsible. The matching per-turn
 /// stream summary (chars fed vs emitted, reasoning/tool-call traffic) is logged
-/// by the provider at `nuo_wire::provider=debug`.
+/// by the provider at `nuo_protocol::provider=debug`.
 ///
 /// The error is classified as a *retryable* upstream fault: an entirely empty
 /// assistant frame is a transient provider glitch (truncated stream, flaky
@@ -1309,7 +1311,7 @@ fn valid_assistant_response(message: &Message) -> bool {
 /// minutes until a human nudged it).
 fn empty_response_error(response: &Message) -> HarnessError {
     tracing::warn!(
-        target: "nuo_wire::agent",
+        target: "nuo_protocol::agent",
         provider = ?response.provider,
         model = ?response.model,
         content_chars = response.content.len(),
@@ -1322,9 +1324,9 @@ fn empty_response_error(response: &Message) -> HarnessError {
         "empty assistant response: provider returned no content and no tool calls",
     );
     HarnessError::Provider(
-        nuo_wire::ProviderError::new(
+        nuo_protocol::ProviderError::new(
             response.provider.as_deref().unwrap_or("harness"),
-            nuo_wire::ProviderErrorKind::Upstream,
+            nuo_protocol::ProviderErrorKind::Upstream,
             "Provider returned an empty assistant response (no content, no tool calls).",
         )
         .retryable(None),
@@ -1361,7 +1363,7 @@ impl crate::permission_policy::PermissionContext for Agent {
             .await
     }
 
-    fn apply_scoped_disables(&self, disables: &[(String, nuo_wire::RestorePoint)]) {
+    fn apply_scoped_disables(&self, disables: &[(String, nuo_protocol::RestorePoint)]) {
         // Delegate to the existing agent method (same signature).
         Agent::apply_scoped_disables(self, disables);
     }
@@ -1413,7 +1415,7 @@ mod tests {
     #[test]
     fn missing_command_authority_has_runtime_only_guidance() {
         let command = "pwd; ls -la".to_string();
-        let request = nuo_wire::PermissionRequest {
+        let request = nuo_protocol::PermissionRequest {
             id: String::new(),
             tool: "execute_command".to_string(),
             label: "run command".to_string(),
@@ -1423,16 +1425,16 @@ mod tests {
             elevation: false,
             one_off: false,
             origin: None,
-            hazard: Some(nuo_wire::HazardLevel::CommandExecution),
-            submission: Some(nuo_wire::ToolPermissionSubmission {
-                hazard_level: nuo_wire::HazardLevel::CommandExecution,
+            hazard: Some(nuo_protocol::HazardLevel::CommandExecution),
+            submission: Some(nuo_protocol::ToolPermissionSubmission {
+                hazard_level: nuo_protocol::HazardLevel::CommandExecution,
                 label: "run command".to_string(),
                 description: String::new(),
                 scope: command.clone(),
-                payload: nuo_wire::ToolPermissionPayload::Command {
+                payload: nuo_protocol::ToolPermissionPayload::Command {
                     command: command.clone(),
                     cwd: None,
-                    kill_spec: nuo_wire::ProcessKillSpec {
+                    kill_spec: nuo_protocol::ProcessKillSpec {
                         command: "pwd".to_string(),
                         process_group_killable: true,
                         pkill_target: "pkill -f pwd".to_string(),
@@ -1451,8 +1453,8 @@ mod tests {
         assert!(!output.contains("/trust"));
     }
 
-    fn tool_call(id: &str, arguments: &str) -> nuo_wire::ToolCall {
-        nuo_wire::ToolCall {
+    fn tool_call(id: &str, arguments: &str) -> nuo_protocol::ToolCall {
+        nuo_protocol::ToolCall {
             id: id.to_string(),
             name: "write_file".to_string(),
             arguments: arguments.to_string(),
@@ -1570,7 +1572,7 @@ mod tests {
         );
     }
 
-    use nuo_wire::RestorePoint;
+    use nuo_protocol::RestorePoint;
 
     /// A scoped disable hides the tool until its restore point fires.
     #[test]
@@ -1634,19 +1636,19 @@ mod tests {
     struct NoopProvider;
 
     #[async_trait::async_trait]
-    impl nuo_wire::Provider for NoopProvider {
+    impl nuo_protocol::Provider for NoopProvider {
         async fn chat(
             &self,
-            _: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("decide_command_stdin must not call the provider")
         }
         async fn stream_chat(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             unreachable!("decide_command_stdin must not call the provider")
         }
@@ -1655,9 +1657,9 @@ mod tests {
     fn stdin_test_agent() -> super::Agent {
         use std::sync::Arc;
         super::Agent::new(
-            Arc::new(NoopProvider) as Arc<dyn nuo_wire::Provider>,
+            Arc::new(NoopProvider) as Arc<dyn nuo_protocol::Provider>,
             vec![],
-            nuo_wire::AgentIdentity::default(),
+            nuo_protocol::AgentIdentity::default(),
         )
     }
 
@@ -1667,7 +1669,7 @@ mod tests {
     /// mirrors the delegated-autonomous path.
     #[tokio::test]
     async fn skip_interactive_input_seals_without_input_request() {
-        use nuo_wire::AgentEvent;
+        use nuo_protocol::AgentEvent;
         use tokio::sync::mpsc;
         let agent = stdin_test_agent();
         agent.set_unattended(false);
@@ -1677,7 +1679,7 @@ mod tests {
         let contract = agent.decide_command_input(r#"{"command":"sudo ls /root"}"#);
         assert_eq!(
             contract,
-            nuo_wire::InputContract::Sealed,
+            nuo_protocol::InputContract::Sealed,
             "input must be sealed under skip_interactive_input"
         );
         assert!(
@@ -1702,7 +1704,7 @@ mod tests {
             == nuo_host::supervised::InputSupervision::Supervised
         {
             match contract {
-                nuo_wire::InputContract::Supervised {
+                nuo_protocol::InputContract::Supervised {
                     expectation: Some(exp),
                 } => {
                     assert!(exp.secret, "sudo expectation must be masked");
@@ -1712,7 +1714,7 @@ mod tests {
         } else {
             // A platform without full supervision must fall back to Sealed —
             // never induce interactivity it cannot service.
-            assert_eq!(contract, nuo_wire::InputContract::Sealed);
+            assert_eq!(contract, nuo_protocol::InputContract::Sealed);
         }
     }
 
@@ -1722,11 +1724,11 @@ mod tests {
     fn apply_preset_seeds_skip_interactive_input() {
         let agent = stdin_test_agent();
         assert!(!agent.skip_interactive_input(), "default off");
-        let profile = nuo_wire::AgentRoleProfile::with_identity(
+        let profile = nuo_protocol::AgentRoleProfile::with_identity(
             "developer",
-            nuo_wire::AgentIdentity::default(),
+            nuo_protocol::AgentIdentity::default(),
         )
-        .with_runtime_config(nuo_wire::AgentRuntimeConfig {
+        .with_runtime_config(nuo_protocol::AgentRuntimeConfig {
             skip_interactive_input: true,
             ..Default::default()
         });
@@ -1757,12 +1759,12 @@ mod tests {
             {
                 assert_eq!(
                     contract,
-                    nuo_wire::InputContract::Sealed,
+                    nuo_protocol::InputContract::Sealed,
                     "non-Supervised platform must seal '{command}'"
                 );
             } else {
                 assert!(
-                    matches!(contract, nuo_wire::InputContract::Supervised { .. }),
+                    matches!(contract, nuo_protocol::InputContract::Supervised { .. }),
                     "Supervised platform must supervise '{command}', got {contract:?}"
                 );
             }

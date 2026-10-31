@@ -2,8 +2,8 @@
 //!
 //! `CodeIntelligenceExtension` retains its identity for existing catalogs but
 //! never gates mutations. Writing tools return post-write syntax diagnostics.
-use nuo_wire::extension::{HookContext, HookOutcome};
-use nuo_wire::{Extension, HookPhase};
+use nuo_protocol::extension::{HookContext, HookOutcome};
+use nuo_protocol::{Extension, HookPhase};
 
 /// Code-intelligence extension (revised by).
 ///
@@ -140,7 +140,10 @@ mod tests {
         );
         agent.set_project_root(Some(dir.path().to_path_buf()));
 
-        let source_messages = vec![nuo_wire::Message::new(nuo_wire::Role::User, "Hello")];
+        let source_messages = vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "Hello",
+        )];
 
         let req = agent.model_request(&source_messages);
 

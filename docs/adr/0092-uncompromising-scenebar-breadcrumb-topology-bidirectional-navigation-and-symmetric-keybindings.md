@@ -70,11 +70,12 @@ A clean break from these legacy burdens is required to establish a mathematicall
 
 ### 1. Canonical Breadcrumb Formatting (`[INV-SCENE-03]`)
 - When intra-tab drill-in depth > 1, the right side of `SceneBar` renders:
-  - If backward navigation is possible (`can_back`): A distinct, muted Back affordance `‹ Alt+[ ` with a dedicated hit target.
+  - If backward navigation is possible (`can_back`): A distinct, muted Back affordance `‹ ` — a **pure chevron**, with a dedicated hit target.
   - The breadcrumb path: Ancestor items rendered in muted tone (`theme.dim()`), joined by canonical single right-pointing angle quotation marks (` › `, `\u{203A}`).
   - Active leaf: The current scene label rendered in bold brand style (`label_style`), without trailing separators.
-  - If forward navigation is possible (`can_forward`): A distinct, muted Forward affordance `  Alt+] ›` with a dedicated hit target.
+  - If forward navigation is possible (`can_forward`): A distinct, muted Forward affordance ` ›` with a dedicated hit target.
 - Pseudo-tag delimiters (`< ... >`) and raw ASCII arrows are permanently abolished.
+- **No chord text on the bar.** The affordances name *where you can go*, not *what to press*: a printed `Alt+[` is a hardcoded copy of a remappable binding and a second discovery surface competing with the Help dialog (ADR-0131 §3). Chords live in `DialogKind::Help`, resolved from the live keymap so a user remap is reflected.
 
 ### 2. Symmetric Modifier Navigation (`[INV-NAV-03]`)
 - Bidirectional intra-tab scene navigation is canonically and exclusively bound to:
@@ -98,9 +99,9 @@ A clean break from these legacy burdens is required to establish a mathematicall
 
 ## Normative Invariants Established
 
-- **`[INV-SCENE-03] Canonical Breadcrumb Hierarchy`**: Drill-in navigation paths on Tier 2 SceneBar MUST render ancestors and leaves separated by ` › ` (`\u{203A}`). The pseudo-tag bracket format (`< thread > subagent`) is strictly prohibited.
+- **`[INV-SCENE-03] Canonical Breadcrumb Hierarchy`**: Drill-in navigation paths on Tier 2 SceneBar MUST render ancestors and leaves separated by ` › ` (`\u{203A}`). The pseudo-tag bracket format (`< thread > subagent`) is strictly prohibited. The bar carries **no chord text**: the back and forward affordances are pure chevrons (`‹` / `›`), because a printed chord is a copy of a binding the user can remap and it duplicates the Help dialog's single discovery surface (ADR-0131 §3).
 - **`[INV-NAV-03] Symmetric Modifier Navigation`**: Bidirectional intra-tab scene stack navigation MUST be canonically and exclusively bound to `Alt+[` (Back) and `Alt+]` (Forward). Legacy arrow shortcuts (`Alt+Left` / `Alt+Right`), raw un-modified bracket shortcuts (`[` / `]`), and ad-hoc single-letter `q` exits are prohibited.
-- **`[INV-INTERACT-01] Interactive Scene Navigation Targets`**: Tier 2 SceneBar navigation affordances (`‹ Alt+[` and `Alt+] ›`) and ancestor breadcrumb items MUST expose interactive hit targets in `ComponentTree`. Clicking them MUST deterministically navigate the active tab's scene stack.
+- **`[INV-INTERACT-01] Interactive Scene Navigation Targets`**: Tier 2 SceneBar navigation affordances (`‹` and `›`) and ancestor breadcrumb items MUST expose interactive hit targets in `ComponentTree`. Clicking them MUST deterministically navigate the active tab's scene stack.
 
 ---
 
@@ -109,10 +110,12 @@ A clean break from these legacy burdens is required to establish a mathematicall
 - **Positive**:
   - Immediate visual clarity: Operators recognize the breadcrumb trail instantly as an authentic hierarchy, eliminating the `< thread >` pseudo-tag illusion.
   - Zero modal guessing: Developers can freely type markdown links `[foo](bar)` or indexing syntax `arr[0]` without accidental viewport navigation.
-  - Seamless mouse interaction: Clicking `‹ Alt+[` or clicking `thread` returns to the parent thread immediately.
+  - Seamless mouse interaction: Clicking `‹` or clicking `thread` returns to the parent thread immediately.
   - macOS & Linux terminal safety: `Alt+[` and `Alt+]` are immune to readline word-skipping (`backward-word`) interception that plagued `Alt+Left`/`Alt+Right`.
+  - Layout honesty: without the chord text the breadcrumb row is 8 columns narrower per affordance, and a remapped `session.scene_back` chord can no longer leave stale `Alt+[` text on screen.
 - **Negative & Trade-offs**:
-  - Operators accustomed to pressing `q` in subagent view must adapt to `Alt+[` (or mouse clicking `‹`). The change is mitigated by prominent, self-describing keycaps (`‹ Alt+[`) rendered directly in the header.
+  - Operators accustomed to pressing `q` in subagent view must adapt to `Alt+[` (or mouse clicking `‹`).
+  - The chords are no longer self-describing from the header. This is a deliberate trade: `F1` / `Alt-h` is a standing TabBar affordance on every row, and the Help dialog's dedicated **Scene Navigation** block documents the chords *resolved from the live keymap* — which the header never could.
 
 ---
 

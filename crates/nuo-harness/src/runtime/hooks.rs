@@ -7,20 +7,21 @@
 //! insertion point needs — so the loop calls a one-liner (`check_pre_tool_use`,
 //! `run_post_tool_use`, `check_stop`, …) instead of reimplementing dispatch.
 //!
-//! The [`Hook`] trait itself and the payload types live in `nuo_wire`; the
+//! The [`Hook`] trait itself and the payload types live in `nuo_protocol`; the
 //! matcher (which needs `regex`) stays here so core stays regex-free.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use nuo_wire::{
+use nuo_protocol::{
     Hook, HookContext, HookEvent, HookEventKind, HookOutcome, InjectionKind, Message,
     PermissionRequest, RestorePoint, SessionSource, UserQuestionRequest,
 };
 
 /// Read-only permission check used before a hook with runtime side effects is
 /// fired. The closure receives the hook's structured hazard submission.
-pub type HookAuthorizer = Arc<dyn Fn(&nuo_wire::ToolPermissionSubmission) -> bool + Send + Sync>;
+pub type HookAuthorizer =
+    Arc<dyn Fn(&nuo_protocol::ToolPermissionSubmission) -> bool + Send + Sync>;
 
 /// Evaluate a Claude-Code-style tool-name matcher against a tool name.
 ///
@@ -584,13 +585,13 @@ mod tests {
         fn permission_submission(
             &self,
             _ctx: &HookContext,
-        ) -> Option<nuo_wire::ToolPermissionSubmission> {
-            Some(nuo_wire::ToolPermissionSubmission {
-                hazard_level: nuo_wire::HazardLevel::CommandExecution,
+        ) -> Option<nuo_protocol::ToolPermissionSubmission> {
+            Some(nuo_protocol::ToolPermissionSubmission {
+                hazard_level: nuo_protocol::HazardLevel::CommandExecution,
                 label: "test hook".to_string(),
                 description: "test command hook".to_string(),
                 scope: "echo gated".to_string(),
-                payload: nuo_wire::ToolPermissionPayload::Generic {
+                payload: nuo_protocol::ToolPermissionPayload::Generic {
                     summary: "test hook".to_string(),
                     details: serde_json::Value::Null,
                 },
@@ -740,7 +741,7 @@ mod tests {
             matcher: None,
             fires: fires.clone(),
         })]);
-        let request = nuo_wire::PermissionRequest {
+        let request = nuo_protocol::PermissionRequest {
             id: "permission_x".into(),
             tool: "execute_command".into(),
             label: "Run command".into(),
@@ -770,7 +771,7 @@ mod tests {
             matcher: Some("execute_command".into()),
             fires: fires.clone(),
         })]);
-        let bash_req = nuo_wire::PermissionRequest {
+        let bash_req = nuo_protocol::PermissionRequest {
             id: "p1".into(),
             tool: "execute_command".into(),
             label: "".into(),
@@ -782,7 +783,7 @@ mod tests {
             origin: None,
             ..Default::default()
         };
-        let edit_req = nuo_wire::PermissionRequest {
+        let edit_req = nuo_protocol::PermissionRequest {
             id: "p2".into(),
             tool: "edit_text".into(),
             label: "".into(),
@@ -813,12 +814,12 @@ mod tests {
             matcher: None,
             fires: fires.clone(),
         })]);
-        let request = nuo_wire::UserQuestionRequest {
+        let request = nuo_protocol::UserQuestionRequest {
             id: "ask_user_x".into(),
-            questions: vec![nuo_wire::UserQuestion {
+            questions: vec![nuo_protocol::UserQuestion {
                 header: Some("Pick one".into()),
                 question: "Which?".into(),
-                options: vec![nuo_wire::UserQuestionOption {
+                options: vec![nuo_protocol::UserQuestionOption {
                     label: "A".into(),
                     description: None,
                 }],

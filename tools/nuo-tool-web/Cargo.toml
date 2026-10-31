@@ -13,7 +13,7 @@ chrono = { workspace = true }
 http = "1.4"
 netune = { workspace = true }
 nuo-tool = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt", "net"] }

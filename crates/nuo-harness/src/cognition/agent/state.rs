@@ -40,20 +40,20 @@ impl Agent {
         tools: Vec<Arc<dyn Tool>>,
         identity: AgentIdentity,
     ) -> AgentBuilder {
-        AgentBuilder::new(provider, nuo_wire::ToolSet::from_tools(tools), identity)
+        AgentBuilder::new(provider, nuo_protocol::ToolSet::from_tools(tools), identity)
     }
 
     /// Start configuring an agent from a full multi-variant tool set.
     pub fn builder_from_toolset(
         provider: Arc<dyn Provider>,
-        toolset: nuo_wire::ToolSet,
+        toolset: nuo_protocol::ToolSet,
         identity: AgentIdentity,
     ) -> AgentBuilder {
         AgentBuilder::new(provider, toolset, identity)
     }
 
     /// Construct an agent from a flat tool list. The tools are grouped into a
-    /// [`nuo_wire::ToolSet`] (one capability per [`Tool::name`], one variant
+    /// [`nuo_protocol::ToolSet`] (one capability per [`Tool::name`], one variant
     /// per [`Tool::variant`]) — the common case for a single-variant toolset or
     /// an already-resolved subagent toolset. Use [`Agent::from_toolset`] to
     /// preserve a multi-variant set so per-model variant selection can switch
@@ -63,15 +63,15 @@ impl Agent {
         tools: Vec<Arc<dyn Tool>>,
         identity: AgentIdentity,
     ) -> Self {
-        Self::from_toolset(provider, nuo_wire::ToolSet::from_tools(tools), identity)
+        Self::from_toolset(provider, nuo_protocol::ToolSet::from_tools(tools), identity)
     }
 
-    /// Construct an agent from a full [`nuo_wire::ToolSet`], preserving every
+    /// Construct an agent from a full [`nuo_protocol::ToolSet`], preserving every
     /// capability's variants so [`Agent::set_variant_selection`] can swap the
     /// model-visible variant at runtime.
     pub fn from_toolset(
         provider: Arc<dyn Provider>,
-        toolset: nuo_wire::ToolSet,
+        toolset: nuo_protocol::ToolSet,
         identity: AgentIdentity,
     ) -> Self {
         Self::builder_from_toolset(provider, toolset, identity).build()
@@ -79,7 +79,7 @@ impl Agent {
 
     pub(super) fn from_toolset_with_model_request_assembler(
         provider: Arc<dyn Provider>,
-        toolset: nuo_wire::ToolSet,
+        toolset: nuo_protocol::ToolSet,
         skills_registry: skills::SkillRegistry,
         identity: AgentIdentity,
         model_request_assembler: crate::cognition::model_request::ModelRequestAssembler,
@@ -88,7 +88,7 @@ impl Agent {
 
         let mut toolset = toolset;
         let round_counter = Arc::new(std::sync::Mutex::new(0u64));
-        let todos = Arc::new(std::sync::Mutex::new(nuo_wire::TodoList::default()));
+        let todos = Arc::new(std::sync::Mutex::new(nuo_protocol::TodoList::default()));
         crate::tool_integration::install_agent_owned_tools(
             &mut toolset,
             Arc::clone(&todos),
@@ -104,16 +104,16 @@ impl Agent {
         // overrides the static registry's vision flag — a fitted relay model
         // the baseline does not know would otherwise lose its vision-gated
         // tools at seed time.
-        let tools = nuo_wire::ToolSelection::unrestricted();
+        let tools = nuo_protocol::ToolSelection::unrestricted();
         let capabilities = provider.model_capabilities();
-        let seed_model = nuo_wire::Model {
+        let seed_model = nuo_protocol::Model {
             vision: capabilities.accepts_images(),
-            ..nuo_wire::resolve_model(&provider.model())
+            ..nuo_protocol::resolve_model(&provider.model())
         };
         let resolved_tools = Arc::new(std::sync::RwLock::new(toolset.resolve_for(
             &seed_model,
             &tools,
-            &nuo_wire::ToolSelection::unrestricted(),
+            &nuo_protocol::ToolSelection::unrestricted(),
         )));
         let dynamic_tools = Arc::new(crate::dynamic_tools::DynamicToolRegistry::default());
         let disabled_tools = Arc::new(std::sync::Mutex::new(HashSet::new()));
@@ -131,14 +131,14 @@ impl Agent {
             Arc::clone(&admit_mcp),
         );
 
-        let pool = Arc::new(std::sync::RwLock::new(nuo_wire::ToolPool::new(
+        let pool = Arc::new(std::sync::RwLock::new(nuo_protocol::ToolPool::new(
             toolset.clone(),
         )));
 
         Self {
             host: crate::runtime::host::KernelHost::none(),
             provider,
-            execution_policy: std::sync::RwLock::new(nuo_wire::ExecutionPolicy::root_default()),
+            execution_policy: std::sync::RwLock::new(nuo_protocol::ExecutionPolicy::root_default()),
             pool,
             toolset,
             resolved_tools,
@@ -152,21 +152,21 @@ impl Agent {
             permissions: Arc::new(crate::permission_store::PermissionStore::new()),
             additional_workspace_roots: Vec::new(),
             workspace_security: Arc::new(std::sync::Mutex::new(
-                nuo_wire::WorkspaceSecuritySnapshot::default(),
+                nuo_protocol::WorkspaceSecuritySnapshot::default(),
             )),
-            confinement: nuo_wire::SharedConfinement::default(),
+            confinement: nuo_protocol::SharedConfinement::default(),
             project_rules: Arc::new(std::sync::RwLock::new(String::new())),
             skills_registry,
             thread_id,
             accounting_actor_id: std::sync::Mutex::new(
-                nuo_wire::token_ledger::ROOT_ACTOR_ID.to_string(),
+                nuo_protocol::token_ledger::ROOT_ACTOR_ID.to_string(),
             ),
             context_prune_threshold_tokens: Arc::new(std::sync::Mutex::new(0)),
             context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
             images_suppressed: Arc::new(std::sync::RwLock::new(None)),
             hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
             trajectory_guard_config: Arc::new(std::sync::RwLock::new(
-                nuo_wire::TrajectoryGuardConfig::default(),
+                nuo_protocol::TrajectoryGuardConfig::default(),
             )),
             interaction: Arc::new(crate::interaction::InteractionController::default()),
             human_broker: crate::human_broker::HumanRequestBroker::new(),
@@ -176,8 +176,8 @@ impl Agent {
             inbox_tx: std::sync::Mutex::new(None),
             inbox_rx: std::sync::Mutex::new(None),
             session_queues: std::sync::Mutex::new(None),
-            steering_mode: std::sync::RwLock::new(nuo_wire::QueueMode::default()),
-            follow_up_mode: std::sync::RwLock::new(nuo_wire::QueueMode::default()),
+            steering_mode: std::sync::RwLock::new(nuo_protocol::QueueMode::default()),
+            follow_up_mode: std::sync::RwLock::new(nuo_protocol::QueueMode::default()),
             round_paused_ms: std::sync::atomic::AtomicU64::new(0),
             identity: std::sync::RwLock::new(identity),
             turn_persist: std::sync::Mutex::new(None),
@@ -186,12 +186,14 @@ impl Agent {
             request_projection_persist: std::sync::Mutex::new(None),
             title_established: std::sync::Mutex::new(None),
             model_request_assembler,
-            variant_selection: Arc::new(std::sync::Mutex::new(nuo_wire::VariantSelection::new())),
+            variant_selection: Arc::new(std::sync::Mutex::new(
+                nuo_protocol::VariantSelection::new(),
+            )),
             model_guidance: Arc::new(std::sync::RwLock::new(String::new())),
             tools: std::sync::Mutex::new(tools),
             token_ledger: std::sync::Mutex::new(None),
-            token_weights: std::sync::Arc::new(nuo_wire::MessageTokenWeights::new()),
-            tool_schema_weights: std::sync::Arc::new(nuo_wire::ToolSchemaWeights::new()),
+            token_weights: std::sync::Arc::new(nuo_protocol::MessageTokenWeights::new()),
+            tool_schema_weights: std::sync::Arc::new(nuo_protocol::ToolSchemaWeights::new()),
             extensions: Arc::new(std::sync::RwLock::new(vec![Arc::new(
                 crate::runtime::extension::CodeIntelligenceExtension,
             )])),
@@ -215,7 +217,7 @@ impl Agent {
     /// live model's hard capability limits (e.g. vision) — always track the
     /// live model. An empty map (the default) realizes every capability with its
     /// model-chosen / default variant.
-    pub fn set_variant_selection(&self, selection: nuo_wire::VariantSelection) {
+    pub fn set_variant_selection(&self, selection: nuo_protocol::VariantSelection) {
         self.reresolve_tools(&selection);
         *self
             .variant_selection
@@ -254,7 +256,7 @@ impl Agent {
     /// unrestricted by default; this narrows it (e.g. confining a role-bound
     /// master to a capability subset). The current per-model variant
     /// selection is preserved and re-composed.
-    pub fn set_tools(&self, selection: nuo_wire::ToolSelection) {
+    pub fn set_tools(&self, selection: nuo_protocol::ToolSelection) {
         *self.tools.lock().unwrap_or_else(|e| e.into_inner()) = selection;
         let model_variants = self
             .variant_selection
@@ -270,7 +272,7 @@ impl Agent {
     /// limits). The single choke point through which both the master seed and
     /// every model/selection switch flow, so the schema sent to the provider and
     /// the dispatch table always reflect `agent_scope ∩ model_caps`.
-    fn reresolve_tools(&self, model_variants: &nuo_wire::VariantSelection) {
+    fn reresolve_tools(&self, model_variants: &nuo_protocol::VariantSelection) {
         // The provider's own capability snapshot is the authority — it is the
         // full route resolution (`Channel::capabilities`: baseline ⊕
         // remote advertisement ⊕ user overrides). Resolving the model id
@@ -278,13 +280,13 @@ impl Agent {
         // and per-route overrides, and silently drop vision-gated tools (e.g.
         // `read_image`) from a relay model that is in fact vision-capable.
         let capabilities = self.provider.model_capabilities();
-        let model = nuo_wire::Model {
+        let model = nuo_protocol::Model {
             vision: capabilities.accepts_images(),
-            ..nuo_wire::resolve_model(&self.provider.model())
+            ..nuo_protocol::resolve_model(&self.provider.model())
         };
         let tools = self.tools.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let model_selection =
-            nuo_wire::ToolSelection::unrestricted().with_variants(model_variants.clone());
+            nuo_protocol::ToolSelection::unrestricted().with_variants(model_variants.clone());
         *self
             .resolved_tools
             .write()
@@ -404,7 +406,7 @@ impl Agent {
     /// harness has already seen reject an image, has its attachments projected
     /// away for this request only. That is what makes switching to a text-only
     /// model mid-session survivable even when the history carries images.
-    pub(crate) fn model_request(&self, messages: &[Message]) -> nuo_wire::ModelRequest {
+    pub(crate) fn model_request(&self, messages: &[Message]) -> nuo_protocol::ModelRequest {
         // One clone of the provider-relevant window: system rows are rare, so
         // filtering first halves the per-turn memcpy of the old
         // clone-then-clone pipeline. Skill injection still sees the
@@ -453,16 +455,16 @@ impl Agent {
         // is never committed to the durable transcript.
         let mut temporary_context: Vec<Message> = Vec::new();
         let ws_root = self.workspace_root();
-        let hook_ctx = nuo_wire::extension::HookContext::temporary_context(ws_root.as_deref());
+        let hook_ctx = nuo_protocol::extension::HookContext::temporary_context(ws_root.as_deref());
         for extension in self.extensions() {
-            if let nuo_wire::extension::HookOutcome::TemporaryContext(projection) =
-                extension.run(nuo_wire::HookPhase::ProjectTemporaryContext, &hook_ctx)
+            if let nuo_protocol::extension::HookOutcome::TemporaryContext(projection) =
+                extension.run(nuo_protocol::HookPhase::ProjectTemporaryContext, &hook_ctx)
             {
                 if projection.is_empty() {
                     continue;
                 }
                 temporary_context.push(crate::runtime::message::hidden_user(
-                    nuo_wire::InjectionKind::SystemReminder,
+                    nuo_protocol::InjectionKind::SystemReminder,
                     bound_temporary_context(projection),
                 ));
             }
@@ -478,22 +480,22 @@ impl Agent {
             )
     }
 
-    /// Compile a [`nuo_wire::ModelRequest`] directly from a canonical [`nuo_wire::SessionIR`]
+    /// Compile a [`nuo_protocol::ModelRequest`] directly from a canonical [`nuo_protocol::SessionIR`]
     /// via the multi-pass compiler pipeline (INV-EXEC-02).
     pub fn model_request_from_ir(
         &self,
-        ir: &nuo_wire::SessionIR,
-    ) -> Result<nuo_wire::CompilationArtifact, nuo_wire::CompilerError> {
+        ir: &nuo_protocol::SessionIR,
+    ) -> Result<nuo_protocol::CompilationArtifact, nuo_protocol::CompilerError> {
         let mut temporary_context: Vec<Message> = Vec::new();
         let ws_root = self.workspace_root();
-        let hook_ctx = nuo_wire::extension::HookContext::temporary_context(ws_root.as_deref());
+        let hook_ctx = nuo_protocol::extension::HookContext::temporary_context(ws_root.as_deref());
         for extension in self.extensions() {
-            if let nuo_wire::extension::HookOutcome::TemporaryContext(projection) =
-                extension.run(nuo_wire::HookPhase::ProjectTemporaryContext, &hook_ctx)
+            if let nuo_protocol::extension::HookOutcome::TemporaryContext(projection) =
+                extension.run(nuo_protocol::HookPhase::ProjectTemporaryContext, &hook_ctx)
                 && !projection.is_empty()
             {
                 temporary_context.push(crate::runtime::message::hidden_user(
-                    nuo_wire::InjectionKind::SystemReminder,
+                    nuo_protocol::InjectionKind::SystemReminder,
                     bound_temporary_context(projection),
                 ));
             }
@@ -563,7 +565,7 @@ impl Agent {
 
     /// Whether a *learned* suppression is armed for the **current** route.
     ///
-    /// The latch is keyed by [`nuo_wire::RouteFingerprint`], so a model or
+    /// The latch is keyed by [`nuo_protocol::RouteFingerprint`], so a model or
     /// endpoint switch disarms it by construction: the correction belongs to the
     /// route that demonstrated it, never to the model id in the abstract
     pub fn images_suppressed_for_current_route(&self) -> bool {
@@ -613,14 +615,18 @@ impl Agent {
     /// scales with *new* bytes, not total session bytes.
     pub(super) fn layered_weights(
         &self,
-        request: &nuo_wire::ModelRequest,
-    ) -> nuo_wire::LayeredRequestWeights {
-        nuo_wire::layered_request_weights(request, &self.token_weights, &self.tool_schema_weights)
+        request: &nuo_protocol::ModelRequest,
+    ) -> nuo_protocol::LayeredRequestWeights {
+        nuo_protocol::layered_request_weights(
+            request,
+            &self.token_weights,
+            &self.tool_schema_weights,
+        )
     }
 
     pub(super) fn estimate_model_request(
         &self,
-        request: &nuo_wire::ModelRequest,
+        request: &nuo_protocol::ModelRequest,
     ) -> RequestTokenEstimate {
         let weights = self.layered_weights(request);
         // Per-message wire weight (not `estimate_tokens`, which intentionally
@@ -657,7 +663,7 @@ impl Agent {
         if !req.instructions.is_empty() {
             debug_messages.push(
                 Message::new(Role::System, req.instructions.render_combined()).with_origin(
-                    nuo_wire::InjectionOrigin::new(nuo_wire::InjectionKind::SystemPrompt),
+                    nuo_protocol::InjectionOrigin::new(nuo_protocol::InjectionKind::SystemPrompt),
                 ),
             );
         }
@@ -670,7 +676,9 @@ impl Agent {
     /// agent on the same model — resolves its admitted capabilities to the same
     /// variants the parent uses, tracking model switches live. The profile still
     /// owns the orthogonal **scope** axis.
-    pub fn variant_selection_handle(&self) -> Arc<std::sync::Mutex<nuo_wire::VariantSelection>> {
+    pub fn variant_selection_handle(
+        &self,
+    ) -> Arc<std::sync::Mutex<nuo_protocol::VariantSelection>> {
         Arc::clone(&self.variant_selection)
     }
 
@@ -699,9 +707,9 @@ impl Agent {
     /// round, if any, keeps its already-built guard state.
     ///
     /// Wired from `[agent.trajectory_guard]` in `config.toml` at startup and forced to
-    /// [`nuo_wire::TrajectoryGuardConfig::disabled`] on subagents and the review
+    /// [`nuo_protocol::TrajectoryGuardConfig::disabled`] on subagents and the review
     /// diagnostic so they run unobstructed regardless of user settings.
-    pub fn set_trajectory_guard_config(&self, config: nuo_wire::TrajectoryGuardConfig) {
+    pub fn set_trajectory_guard_config(&self, config: nuo_protocol::TrajectoryGuardConfig) {
         *self
             .trajectory_guard_config
             .write()
@@ -710,7 +718,7 @@ impl Agent {
 
     /// Snapshot of the live trajectory-guard configuration. The turn boundary reads
     /// `enabled` to gate the pre-dispatch trajectory check.
-    pub fn trajectory_guard_config(&self) -> nuo_wire::TrajectoryGuardConfig {
+    pub fn trajectory_guard_config(&self) -> nuo_protocol::TrajectoryGuardConfig {
         *self
             .trajectory_guard_config
             .read()
@@ -745,7 +753,7 @@ impl Agent {
     }
 
     /// Whether the model may supply stdin for a `bash` call. Read at the
-    /// dispatch site to decide the [`InputContract`](nuo_wire::InputContract)
+    /// dispatch site to decide the [`InputContract`](nuo_protocol::InputContract)
     /// and whether the bash schema exposes a `stdin` parameter.
     pub fn allow_model_stdin(&self) -> bool {
         self.interaction.allow_model_stdin()
@@ -763,7 +771,7 @@ impl Agent {
 
     /// Whether an interactive command should skip operator-input supervision
     /// and run sealed instead. Read at the command dispatch site to decide the
-    /// [`InputContract`](nuo_wire::InputContract).
+    /// [`InputContract`](nuo_protocol::InputContract).
     pub fn skip_interactive_input(&self) -> bool {
         self.interaction.skip_interactive_input()
     }
@@ -781,13 +789,13 @@ impl Agent {
     /// same `Arc` with the TUI so the token-source report modal reads live.
     /// No-op for subagents/tests that never call this (the ledger stays `None`
     /// and booking is skipped).
-    pub fn install_token_ledger(&self, ledger: Arc<nuo_wire::TokenSourceLedger>) {
+    pub fn install_token_ledger(&self, ledger: Arc<nuo_protocol::TokenSourceLedger>) {
         *self.token_ledger.lock().unwrap_or_else(|e| e.into_inner()) = Some(ledger);
     }
 
     /// A handle to the token-source ledger, if one was installed. The TUI uses
     /// this to snapshot the report for the modal.
-    pub fn token_ledger(&self) -> Option<Arc<nuo_wire::TokenSourceLedger>> {
+    pub fn token_ledger(&self) -> Option<Arc<nuo_protocol::TokenSourceLedger>> {
         self.token_ledger
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -798,7 +806,7 @@ impl Agent {
     /// Handed to off-executor estimate tasks and context-projection gates so
     /// every estimate path — wire projection, prune, mid-turn pressure —
     /// pays each message's BPE cost exactly once per session.
-    pub fn token_weights_handle(&self) -> Arc<nuo_wire::MessageTokenWeights> {
+    pub fn token_weights_handle(&self) -> Arc<nuo_protocol::MessageTokenWeights> {
         std::sync::Arc::clone(&self.token_weights)
     }
 
@@ -818,7 +826,7 @@ impl Agent {
         response: &Message,
         reported_usage: Option<TokenUsage>,
         request: &mut RequestAccountingGuard,
-    ) -> nuo_wire::TurnPerformanceSnapshot {
+    ) -> nuo_protocol::TurnPerformanceSnapshot {
         // Seal the generation clock now, while we hold a validated assistant
         // response and before any tool dispatch, so tool execution never
         // inflates the measured generation span.
@@ -838,10 +846,10 @@ impl Agent {
             state.token_usage.cache_creation_input_tokens += usage.cache_creation_input_tokens;
             state.token_usage.cache_read_input_tokens += usage.cache_read_input_tokens;
             state.token_usage.cache_miss_input_tokens += usage.cache_miss_input_tokens;
-            request.settle(nuo_wire::RequestUsageStatus::Completed, Some(usage), 0);
+            request.settle(nuo_protocol::RequestUsageStatus::Completed, Some(usage), 0);
             request.performance_snapshot(
                 usage.completion_tokens,
-                nuo_wire::RequestUsageSource::Reported,
+                nuo_protocol::RequestUsageSource::Reported,
             )
         } else {
             // Estimate both sides of the request. The old fallback counted
@@ -853,8 +861,12 @@ impl Agent {
             state.token_usage.total_tokens += estimated;
             state.token_usage.prompt_tokens += prompt;
             state.token_usage.completion_tokens += completion;
-            request.settle(nuo_wire::RequestUsageStatus::Completed, None, completion);
-            request.performance_snapshot(completion, nuo_wire::RequestUsageSource::Estimated)
+            request.settle(
+                nuo_protocol::RequestUsageStatus::Completed,
+                None,
+                completion,
+            );
+            request.performance_snapshot(completion, nuo_protocol::RequestUsageSource::Estimated)
         }
     }
 
@@ -966,7 +978,10 @@ impl Agent {
     /// Fire the request-projection archive sink if installed. Synchronous and
     /// infallible: the sink only enqueues the record, so request dispatch is
     /// never blocked or failed by forensic persistence.
-    pub(super) fn fire_request_projection_persist(&self, projection: nuo_wire::RequestProjection) {
+    pub(super) fn fire_request_projection_persist(
+        &self,
+        projection: nuo_protocol::RequestProjection,
+    ) {
         let f = self
             .request_projection_persist
             .lock()
@@ -1048,7 +1063,7 @@ impl Agent {
     /// `SessionStart` observers; injected context becomes hidden setup messages.
     pub async fn fire_session_start(
         &self,
-        source: nuo_wire::SessionSource,
+        source: nuo_protocol::SessionSource,
         messages: &mut Vec<Message>,
     ) {
         self.hooks()
@@ -1079,7 +1094,7 @@ impl Agent {
     pub(super) async fn project_context_if_needed(
         &self,
         messages: &mut Vec<Message>,
-        request: &nuo_wire::ModelRequest,
+        request: &nuo_protocol::ModelRequest,
         cancel: &CancellationToken,
     ) -> Result<bool, HarnessError> {
         let budget = *self
@@ -1147,18 +1162,18 @@ impl Agent {
 
     /// Current task list snapshot. Read by the harness to mirror into the
     /// session and by the TUI to render the sticky panel.
-    pub fn todos(&self) -> nuo_wire::TodoList {
+    pub fn todos(&self) -> nuo_protocol::TodoList {
         self.todos.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Replace the task list. Used by session-restore paths on resume.
-    pub fn set_todos(&self, todos: nuo_wire::TodoList) {
+    pub fn set_todos(&self, todos: nuo_protocol::TodoList) {
         *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = todos;
     }
 
     /// Drop the task list.
     pub fn clear_todos(&self) {
-        *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = nuo_wire::TodoList::default();
+        *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = nuo_protocol::TodoList::default();
     }
 
     /// Access the harness internal task pipeline for out-of-band typed execution.
@@ -1177,7 +1192,7 @@ impl Agent {
     }
 
     /// Access the atomic extensions bound to this agent.
-    pub fn extensions(&self) -> Vec<Arc<dyn nuo_wire::Extension>> {
+    pub fn extensions(&self) -> Vec<Arc<dyn nuo_protocol::Extension>> {
         self.extensions
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -1185,7 +1200,7 @@ impl Agent {
     }
 
     /// Add an atomic extension to this agent.
-    pub fn add_extension(&self, extension: Arc<dyn nuo_wire::Extension>) {
+    pub fn add_extension(&self, extension: Arc<dyn nuo_protocol::Extension>) {
         self.extensions
             .write()
             .unwrap_or_else(|e| e.into_inner())
@@ -1249,7 +1264,7 @@ mod budget_tests {
             seen.fetch_add(1, Ordering::SeqCst);
         }));
 
-        agent.fire_request_projection_persist(nuo_wire::RequestProjection {
+        agent.fire_request_projection_persist(nuo_protocol::RequestProjection {
             round: 1,
             turn: 0,
             created_at_ms: 0,

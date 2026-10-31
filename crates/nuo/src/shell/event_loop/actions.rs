@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use nuotc::Terminal;
 use tokio::sync::mpsc;
 
-use nuo_wire::{AgentRequest, PermissionDecision, PermissionRequest};
+use nuo_protocol::{AgentRequest, PermissionDecision, PermissionRequest};
 
 use crate::shell::App;
 use crate::shell::clipboard;
@@ -143,7 +143,7 @@ fn scroll_transcript_to_edge(app: &mut App, bottom: bool) {
     }
 }
 
-fn select_connection_preset(app: &mut App, forced_method: Option<nuo_wire::LoginMethod>) {
+fn select_connection_preset(app: &mut App, forced_method: Option<nuo_protocol::LoginMethod>) {
     if !app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
         return;
     }
@@ -178,10 +178,10 @@ fn select_connection_preset(app: &mut App, forced_method: Option<nuo_wire::Login
         show_local_toast(
             app,
             match method {
-                nuo_wire::LoginMethod::Browser => {
+                nuo_protocol::LoginMethod::Browser => {
                     "Browser PKCE login is not supported by this connection."
                 }
-                nuo_wire::LoginMethod::Device => {
+                nuo_protocol::LoginMethod::Device => {
                     "Device login is not supported by this connection."
                 }
             },
@@ -541,7 +541,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 let ranked = app.models_flat_filtered();
                 if let Some(row) = ranked.get(app.active_index()).or_else(|| ranked.first()) {
                     app.send_intent(AgentRequest::ExcludeModel {
-                        scope: nuo_wire::model::ModelTargetScope::Connection(
+                        scope: nuo_protocol::model::ModelTargetScope::Connection(
                             row.provider_id.clone(),
                         ),
                         model_id: row.model.clone(),
@@ -733,7 +733,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     });
                 if let Some(id) = id {
                     if let Some(detail) = app.connection_detail.as_mut() {
-                        detail.usage = nuo_wire::ConnectionUsageState::Fetching;
+                        detail.usage = nuo_protocol::ConnectionUsageState::Fetching;
                     }
                     show_local_toast(
                         app,
@@ -893,7 +893,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 let idx = app.active_index();
                 if let Some(entry) = snap.entries.get(idx) {
                     let conn_name = entry.name.clone();
-                    app.send_intent(nuo_wire::AgentRequest::SwitchConnection {
+                    app.send_intent(nuo_protocol::AgentRequest::SwitchConnection {
                         provider: conn_name.clone(),
                         model: String::new(),
                         api_key: None,
@@ -919,7 +919,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 .provider_quotas
                 .as_ref()
                 .and_then(|q| q.provider_filter.clone());
-            app.send_intent(nuo_wire::AgentRequest::QueryProviderQuotas {
+            app.send_intent(nuo_protocol::AgentRequest::QueryProviderQuotas {
                 provider: filter,
                 force_refresh: true,
             });
@@ -1113,7 +1113,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     let tab = crate::shell::surfaces::ClientTab::thread(&id, title.as_deref());
                     if is_empty {
                         // Current tab is an empty thread: discard it and overwrite the tab.
-                        app.send_intent(AgentRequest::DeleteSession {
+                        app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
                         });
                         let active_idx = app.surfaces.active_tab_index();
@@ -1180,7 +1180,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                         target_title.as_deref(),
                     );
                     if is_empty {
-                        app.send_intent(AgentRequest::DeleteSession {
+                        app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
                         });
                         let active_idx = app.surfaces.active_tab_index();
@@ -1318,7 +1318,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     ),
                 );
                 app.set_active_index(app.active_index().min(new_rows.len().saturating_sub(1)));
-                app.send_intent(AgentRequest::DeleteSession { id });
+                app.send_intent(AgentRequest::DeleteThread { id });
             }
         }
         input::InputAction::CreateNewSession => {
@@ -1356,7 +1356,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 app.surfaces
                     .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                     .info_scroll = 0;
-                app.send_intent(AgentRequest::QuerySessionDetail {
+                app.send_intent(AgentRequest::QueryThreadDetail {
                     id: session.id.clone(),
                 });
             }
@@ -1907,7 +1907,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>()
                     .loading = true;
                 app.open_dialog(DialogKind::PortShare);
-                app.send_intent(nuo_wire::AgentRequest::QueryServerEndpoints);
+                app.send_intent(nuo_protocol::AgentRequest::QueryServerEndpoints);
             }
         }
         input::InputAction::TogglePortListener => {
@@ -1921,7 +1921,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>();
                 d.loading = true;
                 d.notice = None;
-                app.send_intent(nuo_wire::AgentRequest::ToggleServerPort {
+                app.send_intent(nuo_protocol::AgentRequest::ToggleServerPort {
                     port: None,
                     enable: !current_active,
                 });
@@ -2145,7 +2145,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             let paused = !app.is_queue_blocked(viewed_session_id);
             app.set_queue_blocked(viewed_session_id, paused);
             app.send_intent(AgentRequest::QueuePaused {
-                session_id: viewed_session_id.to_string(),
+                thread_id: viewed_session_id.to_string(),
                 paused,
             });
         }
@@ -2177,7 +2177,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 let idx = app.active_index();
                 if let Some(item) = app.queued_at(viewed_session_id, idx) {
                     app.send_intent(AgentRequest::QueueReorder {
-                        session_id: viewed_session_id.to_string(),
+                        thread_id: viewed_session_id.to_string(),
                         input_id: item.id.clone(),
                         delta,
                     });
@@ -2609,7 +2609,7 @@ pub(super) fn enter_panel(
         // server queue authority (resume on close, via `queue_exit_session`).
         app.set_queue_blocked(viewed_session_id, true);
         app.send_intent(AgentRequest::QueuePaused {
-            session_id: viewed_session_id.to_string(),
+            thread_id: viewed_session_id.to_string(),
             paused: true,
         });
         app.queue_exit_session = Some(viewed_session_id.to_string());
@@ -2617,7 +2617,7 @@ pub(super) fn enter_panel(
 
     let request = match id {
         DialogKind::Permissions | DialogKind::Tools | DialogKind::Mcp | DialogKind::Skills => {
-            Some(AgentRequest::QuerySessionContext)
+            Some(AgentRequest::QueryThreadContext)
         }
         // ADR-0129 [INV-USAGE-01]: the usage report is an installation-wide
         // aggregate, so it is fetched over the session-free control plane rather
@@ -2641,14 +2641,14 @@ pub(super) fn enter_panel(
         DialogKind::ThreadStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
             if app.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
-                    session_id: viewed_session_id.to_string(),
+                    thread_id: viewed_session_id.to_string(),
                 })
             } else {
                 None
             }
         }
-        DialogKind::Threads => Some(AgentRequest::QuerySessionsOverview),
-        DialogKind::SessionTree => Some(AgentRequest::QuerySessionTree),
+        DialogKind::Threads => Some(AgentRequest::QueryThreadsOverview),
+        DialogKind::SessionTree => Some(AgentRequest::QueryThreadTree),
         _ => None,
     };
     if let Some(request) = request
@@ -2985,7 +2985,7 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                             (current + 5).max(5)
                         };
                         app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                            nuo_wire::WebSearchConfigUpdate {
+                            nuo_protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 timeout_secs: Some(next),
                                 ..Default::default()
@@ -3003,13 +3003,13 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                                 capability.id == id
                                     && capability.axis
                                         == if is_search {
-                                            nuo_wire::WebProviderAxis::Search
+                                            nuo_protocol::WebProviderAxis::Search
                                         } else {
-                                            nuo_wire::WebProviderAxis::Reader
+                                            nuo_protocol::WebProviderAxis::Reader
                                         }
                             })?;
                             let endpoint = capability.endpoint
-                                == nuo_wire::WebEndpointRequirement::UserSupplied;
+                                == nuo_protocol::WebEndpointRequirement::UserSupplied;
                             let target = if endpoint {
                                 format!("web_endpoint:{id}")
                             } else {
@@ -3772,15 +3772,15 @@ mod transcript_scroll_tests {
         let runtime = UiRuntime::minimal_for_test();
 
         app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
-        app.websearch_config = Some(nuo_wire::WebSearchConfigView {
+        app.websearch_config = Some(nuo_protocol::WebSearchConfigView {
             revision: 42,
-            provider: nuo_wire::WebSearchProvider::Exa,
-            reader: nuo_wire::WebReaderProvider::Disabled,
+            provider: nuo_protocol::WebSearchProvider::Exa,
+            reader: nuo_protocol::WebReaderProvider::Disabled,
             timeout_secs: 20,
             searxng_url: None,
-            search_credential: nuo_wire::WebCredentialStatus::Stored,
-            reader_credential: nuo_wire::WebCredentialStatus::NotRequired,
-            capabilities: nuo_wire::web_provider_capabilities(),
+            search_credential: nuo_protocol::WebCredentialStatus::Stored,
+            reader_credential: nuo_protocol::WebCredentialStatus::NotRequired,
+            capabilities: nuo_protocol::web_provider_capabilities(),
         });
 
         // 1. Open dropdown
@@ -3915,7 +3915,7 @@ mod transcript_scroll_tests {
             .expect("antigravity preset exists");
 
         app.open_preset_chooser();
-        app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+        app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
         assert!(!app.transcript_focused);
 
         // Mount the OAuth overlay area in UI so pointer target falls within overlay
@@ -3955,7 +3955,7 @@ mod view_entry_tests {
             &runtime,
             "s1"
         ));
-        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QuerySessionTree)));
+        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryThreadTree)));
         app.dismiss_surface();
         assert!(!enter_panel(
             &mut app,
@@ -3963,7 +3963,7 @@ mod view_entry_tests {
             &runtime,
             "s1"
         ));
-        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QuerySessionTree)));
+        assert!(matches!(rx.try_recv(), Ok(AgentRequest::QueryThreadTree)));
     }
 
     #[test]
@@ -3981,7 +3981,7 @@ mod view_entry_tests {
         );
         assert!(matches!(
             rx.try_recv(),
-            Ok(AgentRequest::QuerySessionsOverview)
+            Ok(AgentRequest::QueryThreadsOverview)
         ));
         enter_panel(
             &mut app,
@@ -3991,7 +3991,7 @@ mod view_entry_tests {
         );
         assert!(matches!(
             rx.try_recv(),
-            Ok(AgentRequest::QuerySessionContext)
+            Ok(AgentRequest::QueryThreadContext)
         ));
     }
 }
@@ -4122,7 +4122,7 @@ async fn execute_command_by_id(
         }
         CommandId::KillThread => {
             // ADR-0038: Explicit kill terminates the thread on the server.
-            app.send_intent(AgentRequest::EndSession);
+            app.send_intent(AgentRequest::EndThread);
             return ActionFlow::Exit;
         }
         CommandId::CopyFocusedEntry => {
@@ -4312,7 +4312,7 @@ async fn execute_command_by_id(
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>()
                     .loading = true;
                 app.open_dialog(crate::shell::surfaces::DialogKind::PortShare);
-                app.send_intent(nuo_wire::AgentRequest::QueryServerEndpoints);
+                app.send_intent(nuo_protocol::AgentRequest::QueryServerEndpoints);
             }
         }
         CommandId::OpenTools => {
@@ -4372,7 +4372,9 @@ async fn execute_command_by_id(
             );
         }
         CommandId::ForkThread => {
-            app.send_intent(nuo_wire::AgentRequest::SlashCommand("/fork".to_string()));
+            app.send_intent(nuo_protocol::AgentRequest::SlashCommand(
+                "/fork".to_string(),
+            ));
         }
         CommandId::OpenSessions => {
             enter_panel(
@@ -4481,7 +4483,7 @@ async fn apply_pre_attach_decision(
             );
             app.send_intent(AgentRequest::TrustWorkspace {
                 domains,
-                decision: nuo_wire::TrustDecision::Grant,
+                decision: nuo_protocol::TrustDecision::Grant,
             });
             // The per-frame sync clears `pre_attach` once the
             // republished snapshot reports Trusted. The PreAttach surface
@@ -4512,7 +4514,7 @@ async fn apply_pre_attach_decision(
             // exists to make unrepresentable.
             app.send_intent(AgentRequest::TrustWorkspace {
                 domains,
-                decision: nuo_wire::TrustDecision::Deny,
+                decision: nuo_protocol::TrustDecision::Deny,
             });
         }
     }

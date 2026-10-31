@@ -75,14 +75,16 @@ fn read_legacy_cache_route_settings() -> BTreeMap<String, BTreeMap<String, Route
             };
             let mut settings = RouteSettings::default();
             if let Some(effort) = record.get("effort").and_then(|v| v.as_str()) {
-                settings.tunings.set_effort(nuo_wire::Effort::parse(effort));
+                settings
+                    .tunings
+                    .set_effort(nuo_protocol::Effort::parse(effort));
             }
             if let Some(thinking) = record.get("thinking").and_then(|v| v.as_bool()) {
                 settings.tunings.set_thinking(Some(thinking));
             }
             if let Some(unknown) = record.get("tunings")
                 && let Ok(extra) =
-                    serde_json::from_value::<nuo_wire::TunableSettings>(unknown.clone())
+                    serde_json::from_value::<nuo_protocol::TunableSettings>(unknown.clone())
             {
                 for (id, value) in &extra {
                     settings.tunings.set(id, value.clone());
@@ -90,13 +92,13 @@ fn read_legacy_cache_route_settings() -> BTreeMap<String, BTreeMap<String, Route
             }
             if let Some(overrides) = record.get("capability_overrides")
                 && let Ok(overrides) =
-                    serde_json::from_value::<nuo_wire::CapabilityOverrides>(overrides.clone())
+                    serde_json::from_value::<nuo_protocol::CapabilityOverrides>(overrides.clone())
             {
                 settings.capability_overrides = (!overrides.is_empty()).then_some(overrides);
             }
             if let Some(cache) = record.get("prompt_cache")
                 && let Ok(preference) =
-                    serde_json::from_value::<nuo_wire::PromptCachePreference>(cache.clone())
+                    serde_json::from_value::<nuo_protocol::PromptCachePreference>(cache.clone())
             {
                 settings.prompt_cache = Some(preference);
             }
@@ -251,7 +253,7 @@ mod tests {
         store
             .settings_for_mut(instance, model)
             .tunings
-            .set_effort(nuo_wire::Effort::parse(effort));
+            .set_effort(nuo_protocol::Effort::parse(effort));
         store
     }
 
@@ -265,7 +267,7 @@ mod tests {
         store
             .settings_for_mut("old", "qfmodel")
             .tunings
-            .set_effort(nuo_wire::Effort::parse("xhigh"));
+            .set_effort(nuo_protocol::Effort::parse("xhigh"));
         store.rename_connection("old", "new");
 
         assert_eq!(
@@ -290,7 +292,7 @@ mod tests {
         store
             .settings_for_mut("qod", "qfmodel")
             .tunings
-            .set_effort(nuo_wire::Effort::parse("low"));
+            .set_effort(nuo_protocol::Effort::parse("low"));
         store.rename_connection("qod", "QOD");
         assert_eq!(
             store
@@ -310,7 +312,7 @@ mod tests {
         store
             .settings_for_mut("p", "m")
             .tunings
-            .set_effort(nuo_wire::Effort::parse("high"));
+            .set_effort(nuo_protocol::Effort::parse("high"));
         assert!(!store.is_empty());
         assert_eq!(
             store
@@ -391,8 +393,8 @@ mod tests {
             store.settings_for("kimi", "kimi-k2").unwrap(),
             &RouteSettings {
                 tunings: {
-                    let mut tunings = nuo_wire::TunableSettings::new();
-                    tunings.set_effort(Some(nuo_wire::Effort::Medium));
+                    let mut tunings = nuo_protocol::TunableSettings::new();
+                    tunings.set_effort(Some(nuo_protocol::Effort::Medium));
                     // The retired `thinking: false` is rescued too — both typed
                     // fields became keys in the open map (ADR-0126).
                     tunings.set_thinking(Some(false));

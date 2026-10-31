@@ -330,7 +330,7 @@ pub struct AdoptionInfo {
 }
 
 /// Platform-neutral handle over a live child process, implemented by the
-/// tool/runtime layers so `nuo-wire` (pure domain, ADR-0005) stays
+/// tool/runtime layers so `nuo-protocol` (pure domain, ADR-0005) stays
 /// I/O-free.
 pub trait CrateChildBridge: Send + Sync {
     /// Non-blocking check: `Ok(None)` while running, `Ok(Some(status))` on

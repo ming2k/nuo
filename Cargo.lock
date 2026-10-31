@@ -2267,7 +2267,6 @@ version = "0.0.62"
 dependencies = [
  "async-trait",
  "nuo-tool",
- "nuo-tool-fs",
  "serde",
  "serde_json",
  "tempfile",

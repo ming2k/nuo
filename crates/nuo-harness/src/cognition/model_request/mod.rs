@@ -3,7 +3,7 @@
 //! The assembler is intentionally independent of [`crate::Agent`]. The agent
 //! owns when assembly occurs and supplies a plain state snapshot; this module
 //! owns the pure projection from a live conversation window to one immutable
-//! [`nuo_wire::ModelRequest`].
+//! [`nuo_protocol::ModelRequest`].
 pub mod policies;
 pub(crate) mod system_prompt;
 
@@ -42,7 +42,7 @@ impl ModelRequestAssembler {
         window: &[Message],
         context: &SystemPromptContext,
         tools: &[Arc<dyn Tool>],
-    ) -> nuo_wire::ModelRequest {
+    ) -> nuo_protocol::ModelRequest {
         let mut messages = window.to_vec();
         crate::cognition::agent::remove_empty_assistant_messages(&mut messages);
         messages.retain(|message| message.role != Role::System && !message.is_command_echo());
@@ -62,7 +62,7 @@ impl ModelRequestAssembler {
         temporary_context: Vec<Message>,
         context: &SystemPromptContext,
         tools: &[Arc<dyn Tool>],
-    ) -> nuo_wire::ModelRequest {
+    ) -> nuo_protocol::ModelRequest {
         let instructions = self.system_prompt_registry.build_bundle(context);
         let tool_specs = tools
             .iter()
@@ -70,34 +70,38 @@ impl ModelRequestAssembler {
                 nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
             })
             .collect();
-        nuo_wire::ModelRequest::with_instructions_and_tool_specs(instructions, messages, tool_specs)
-            .with_temporary_context(temporary_context)
+        nuo_protocol::ModelRequest::with_instructions_and_tool_specs(
+            instructions,
+            messages,
+            tool_specs,
+        )
+        .with_temporary_context(temporary_context)
     }
 
-    /// Compile a [`nuo_wire::ModelRequest`] directly from a canonical [`nuo_wire::SessionIR`]
+    /// Compile a [`nuo_protocol::ModelRequest`] directly from a canonical [`nuo_protocol::SessionIR`]
     /// via the 4-pass compiler pipeline (INV-EXEC-02).
     pub fn compile_from_ir(
         &self,
-        ir: &nuo_wire::SessionIR,
+        ir: &nuo_protocol::SessionIR,
         temporary_context: Vec<Message>,
         tools: &[Arc<dyn Tool>],
         dialect: Option<String>,
-        protocol: Option<nuo_wire::WireProtocol>,
-    ) -> Result<nuo_wire::CompilationArtifact, nuo_wire::CompilerError> {
+        protocol: Option<nuo_protocol::WireProtocol>,
+    ) -> Result<nuo_protocol::CompilationArtifact, nuo_protocol::CompilerError> {
         let tool_specs = tools
             .iter()
             .map(|t| {
                 nuo_provider::capability::ToolSpec::new(t.name(), t.description(), t.parameters())
             })
             .collect();
-        let options = nuo_wire::CompilerOptions {
+        let options = nuo_protocol::CompilerOptions {
             tool_specs,
             temporary_context,
             ephemeral_instruction: None,
             target_dialect: dialect,
             target_protocol: protocol,
         };
-        nuo_wire::compile_session_request(ir, options)
+        nuo_protocol::compile_session_request(ir, options)
     }
 }
 
@@ -156,8 +160,8 @@ mod tests {
     fn compile_from_ir_executes_compiler_passes() {
         let tool: Arc<dyn Tool> = Arc::new(TestTool);
         let assembler = ModelRequestAssembler::new(SystemPromptRegistry::new());
-        let policy = nuo_wire::SessionPolicy::default();
-        let mut ir = nuo_wire::SessionIR::new("test-session", policy, 1000);
+        let policy = nuo_protocol::SessionPolicy::default();
+        let mut ir = nuo_protocol::SessionIR::new("test-session", policy, 1000);
         ir.append_message("node-1", 1001, Message::new(Role::User, "compile this"));
 
         let artifact = assembler
@@ -166,7 +170,7 @@ mod tests {
                 vec![],
                 &[tool],
                 Some("anthropic".into()),
-                Some(nuo_wire::WireProtocol::AnthropicMessages),
+                Some(nuo_protocol::WireProtocol::AnthropicMessages),
             )
             .expect("SessionIR compilation must succeed");
 

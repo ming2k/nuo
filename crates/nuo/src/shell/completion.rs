@@ -21,7 +21,7 @@ pub struct CommandDoc {
 }
 
 impl CommandDoc {
-    pub fn from_spec(spec: &nuo_wire::CommandSpec) -> Self {
+    pub fn from_spec(spec: &nuo_protocol::CommandSpec) -> Self {
         Self {
             name: spec.name.clone(),
             summary: spec.summary.clone(),
@@ -87,22 +87,22 @@ impl Completion {
         }
     }
 
-    fn from_backend(input: &str, item: &nuo_wire::InputCompletion) -> Option<Self> {
+    fn from_backend(input: &str, item: &nuo_protocol::InputCompletion) -> Option<Self> {
         let replace_start = char_to_byte(input, item.replace_start)?;
         let replace_end = char_to_byte(input, item.replace_end)?;
         if replace_start > replace_end {
             return None;
         }
         let kind = match item.kind {
-            nuo_wire::InputCompletionKind::Slash => CompletionItemKind::Slash,
-            nuo_wire::InputCompletionKind::SlashAlias => CompletionItemKind::SlashAlias,
-            nuo_wire::InputCompletionKind::Intent => CompletionItemKind::IntentSuggestion {
+            nuo_protocol::InputCompletionKind::Slash => CompletionItemKind::Slash,
+            nuo_protocol::InputCompletionKind::SlashAlias => CompletionItemKind::SlashAlias,
+            nuo_protocol::InputCompletionKind::Intent => CompletionItemKind::IntentSuggestion {
                 matched_intent: String::new(),
                 reason: item.description.clone(),
             },
-            nuo_wire::InputCompletionKind::PathFile => CompletionItemKind::PathFile,
-            nuo_wire::InputCompletionKind::PathDir => CompletionItemKind::PathDir,
-            nuo_wire::InputCompletionKind::PathExplicit => CompletionItemKind::PathExplicit,
+            nuo_protocol::InputCompletionKind::PathFile => CompletionItemKind::PathFile,
+            nuo_protocol::InputCompletionKind::PathDir => CompletionItemKind::PathDir,
+            nuo_protocol::InputCompletionKind::PathExplicit => CompletionItemKind::PathExplicit,
         };
         Some(Self {
             label: item.label.clone(),
@@ -170,7 +170,7 @@ pub fn completion_anchor_x(
 
 pub fn resolved_slash_command_len(
     input: &str,
-    catalog: &nuo_wire::CommandCatalog,
+    catalog: &nuo_protocol::CommandCatalog,
 ) -> Option<usize> {
     if !input.starts_with('/') {
         return None;
@@ -184,7 +184,7 @@ pub fn resolved_slash_command_len(
 }
 
 pub(super) fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize, usize)> {
-    nuo_wire::mention::mention_range_at(input, cursor_byte)
+    nuo_protocol::mention::mention_range_at(input, cursor_byte)
 }
 
 impl App {
@@ -321,7 +321,7 @@ impl App {
         // Only bump generation request ID and send request if dynamic path completion is needed.
         if self.active_mention_range().is_some() {
             self.completion_request_id = self.completion_request_id.wrapping_add(1);
-            self.send_intent(nuo_wire::AgentRequest::CompleteComposer {
+            self.send_intent(nuo_protocol::AgentRequest::CompleteComposer {
                 request_id: self.completion_request_id,
                 text: state.0,
                 cursor,
@@ -334,7 +334,7 @@ impl App {
         request_id: u64,
         input: String,
         cursor: usize,
-        items: Vec<nuo_wire::InputCompletion>,
+        items: Vec<nuo_protocol::InputCompletion>,
     ) {
         if request_id != self.completion_request_id
             || input != self.input

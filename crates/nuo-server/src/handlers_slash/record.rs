@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use nuo_harness::orchestration::round_response;
 use nuo_persistence::session::SessionStore;
-use nuo_wire::{AgentResponse, CommandRecord, CommandResult, RoundEvent};
+use nuo_protocol::{AgentResponse, CommandRecord, CommandResult, RoundEvent};
 
 /// Record a successful slash-command invocation in the ledger and surface its
 /// typed result as a command block.

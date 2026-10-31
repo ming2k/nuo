@@ -10,8 +10,8 @@ use super::{
 use crate::shell::declarative::key::Key;
 use crate::shell::question_model::{QuestionAction, QuestionEffect, QuestionModel};
 use crate::shell::ui::ComponentTree;
+use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 use nuo_ui_primitives::theme::Theme;
-use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 use nuotc::{Frame, Rect};
 
 /// Pure immutable properties for the AskUser component.

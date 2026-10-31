@@ -6,7 +6,7 @@
 //! scheme degrades gracefully when fields are absent (trial accounts report
 //! fewer fields than paid plans).
 
-use nuo_wire::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
+use nuo_protocol::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

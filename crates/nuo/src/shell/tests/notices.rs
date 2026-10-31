@@ -777,7 +777,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     for i in 0..20 {
         app.messages
             .push(nuo_view::model::document::TranscriptMessage::new(
-                nuo_wire::Role::Assistant,
+                nuo_protocol::Role::Assistant,
                 format!("turn {i}"),
             ));
     }
@@ -850,7 +850,7 @@ fn the_conversation_stays_visible_when_notice_arrives() {
     for i in 0..20 {
         app.messages
             .push(nuo_view::model::document::TranscriptMessage::new(
-                nuo_wire::Role::Assistant,
+                nuo_protocol::Role::Assistant,
                 format!("visible-turn-{i}"),
             ));
     }
@@ -986,5 +986,60 @@ async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .detail,
         "detail toggles off"
+    );
+}
+
+/// The retry receipt is a **card**, not a countdown.
+///
+/// The translator writes one notice line per scheduled attempt. That line is
+/// read in the notice center at an arbitrary later moment — long after the
+/// backoff ended — so anything time-relative in it is not merely redundant but
+/// false: `retry 1 in 4s` cannot be ticked back to the truth by a static card.
+/// The countdown belongs to the activity bar, which repaints
+/// (`[INV-RETRY-08]`).
+#[test]
+fn a_retry_receipt_records_the_retry_and_the_budget_but_never_a_countdown() {
+    use crate::shell::app::ProviderRetryState;
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let now = std::time::Instant::now();
+
+    // Compose the line exactly as the `RetryScheduled` arm does: the receipt form
+    // of the ordinal plus the fault's lead line.
+    let progress = ProviderRetryState::scheduled(
+        2,
+        30,
+        now + std::time::Duration::from_millis(800),
+        "Google HTTP 503 Service Unavailable",
+    );
+    let fault = nuo_view::model::notice_text::display_text("Google HTTP 503 Service Unavailable");
+    disclose(
+        &mut app,
+        NoticeSeverity::Warning,
+        "retry",
+        &format!("{} — {fault}", progress.receipt_label()),
+        1_700_000_000_000,
+    );
+
+    let line = app.notice_lines().back().expect("the receipt is retained");
+    assert_eq!(
+        line.text, "retry 1 of 29 — Google HTTP 503 Service Unavailable",
+        "the card states which retry it was and how much budget remained"
+    );
+    for decaying in [" in ", "next", "running", "0.8s"] {
+        assert!(
+            !line.text.contains(decaying),
+            "a static card must not carry a live countdown ({decaying:?}): {}",
+            line.text
+        );
+    }
+    assert_eq!(line.status, LineStatus::Warn);
+    assert_eq!(line.label.as_deref(), Some("retry"));
+
+    // The same state still tells time on the bar — that is the split, not a loss.
+    assert!(
+        progress.label(now).contains("in 1s"),
+        "the live clause keeps its countdown: {}",
+        progress.label(now)
     );
 }

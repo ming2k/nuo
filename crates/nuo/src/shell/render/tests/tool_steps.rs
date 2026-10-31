@@ -21,14 +21,15 @@ fn subagent_view_groups_children_into_turn_bands() {
         "spawn_agent",
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
-    let call = |id: &str, name: &str, round: u64, turn: usize| nuo_wire::SubagentEvent::ToolCall {
-        id: id.into(),
-        name: name.into(),
-        arguments: r#"{"p":"x"}"#.into(),
-        round,
-        turn,
-    };
-    let result = |id: &str, name: &str| nuo_wire::SubagentEvent::ToolResult {
+    let call =
+        |id: &str, name: &str, round: u64, turn: usize| nuo_protocol::SubagentEvent::ToolCall {
+            id: id.into(),
+            name: name.into(),
+            arguments: r#"{"p":"x"}"#.into(),
+            round,
+            turn,
+        };
+    let result = |id: &str, name: &str| nuo_protocol::SubagentEvent::ToolResult {
         id: id.into(),
         name: name.into(),
         output: "done".into(),
@@ -36,13 +37,13 @@ fn subagent_view_groups_children_into_turn_bands() {
     };
     // Turn 1: a 3-call concurrent batch.
     for (id, name) in [("a", "read_text"), ("b", "search_text"), ("c", "list_dir")] {
-        task.push_subagent_event(&call(id, name, 1, 0));
-        task.push_subagent_event(&result(id, name));
+        task.push_subagent_event(&call(id, name, 1, 0), &disclosure());
+        task.push_subagent_event(&result(id, name), &disclosure());
     }
     // Turn 2: a 2-call concurrent batch.
     for (id, name) in [("d", "websearch"), ("e", "webfetch")] {
-        task.push_subagent_event(&call(id, name, 1, 1));
-        task.push_subagent_event(&result(id, name));
+        task.push_subagent_event(&call(id, name, 1, 1), &disclosure());
+        task.push_subagent_event(&result(id, name), &disclosure());
     }
     let children = task.subagent_children().unwrap().to_vec();
     terminal.draw(|f| {
@@ -68,6 +69,7 @@ fn subagent_view_groups_children_into_turn_bands() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: Some(SubagentBarInfo {
                     role: Some("explore".to_string()),
                     label: "the codebase".to_string(),
@@ -136,21 +138,24 @@ fn subagent_step_and_view_render_without_panicking() {
         "spawn_agent",
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
-    task.push_subagent_event(&nuo_wire::SubagentEvent::ToolCall {
-        id: "inner".into(),
-        name: "search_text".into(),
-        arguments: r#"{"pattern":"foo"}"#.into(),
-        round: 1,
-        turn: 0,
-    });
+    task.push_subagent_event(
+        &nuo_protocol::SubagentEvent::ToolCall {
+            id: "inner".into(),
+            name: "search_text".into(),
+            arguments: r#"{"pattern":"foo"}"#.into(),
+            round: 1,
+            turn: 0,
+        },
+        &disclosure(),
+    );
     task.finish_tool_step(
         "task_1",
         "found 3 matches",
-        nuo_wire::ToolOutput::text("found 3 matches"),
+        nuo_protocol::ToolOutput::text("found 3 matches"),
         1200,
     );
     let root_messages = vec![
-        TranscriptMessage::new(nuo_wire::Role::User, "explore please"),
+        TranscriptMessage::new(nuo_protocol::Role::User, "explore please"),
         task,
     ];
 
@@ -177,6 +182,7 @@ fn subagent_step_and_view_render_without_panicking() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -221,6 +227,7 @@ fn subagent_step_and_view_render_without_panicking() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: Some(SubagentBarInfo {
                     role: Some("explore".to_string()),
                     label: "the codebase".to_string(),
@@ -319,7 +326,7 @@ fn height_cache_skip_path_matches_full_layout() {
     let messages: Vec<TranscriptMessage> = (0..40)
         .map(|i| {
             TranscriptMessage::new(
-                nuo_wire::Role::Assistant,
+                nuo_protocol::Role::Assistant,
                 format!(
                     "Message number {i} with enough words to wrap across a \
                          couple of lines in an eighty column terminal so the \
@@ -356,6 +363,7 @@ fn height_cache_skip_path_matches_full_layout() {
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
                     tasks_bar: Default::default(),
+                    interrupt_key: None,
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
@@ -425,9 +433,9 @@ fn expanded_edit_diff_height_is_scroll_independent() {
         "edit_text",
         r#"{"path":"a.rs","old_string":"…","new_string":"…"}"#,
     );
-    let structured = nuo_wire::ToolOutput::Patch {
+    let structured = nuo_protocol::ToolOutput::Patch {
         path: "a.rs".into(),
-        op: nuo_wire::PatchOp::Edit,
+        op: nuo_protocol::PatchOp::Edit,
         old,
         new,
         start_line: 0,
@@ -466,6 +474,7 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
                     tasks_bar: Default::default(),
+                    interrupt_key: None,
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
@@ -534,7 +543,7 @@ fn completed_diff_cache_survives_height_invalidation_and_resize() {
 #[test]
 fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(nuo_wire::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
     let queue_items = [crate::shell::chrome::QueueItemProps {
         queued_at_ms: 1_700_000_000_000,
         text: "next".into(),
@@ -564,6 +573,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -872,7 +882,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
     m.finish_tool_step(
         "todo_call",
         output.to_string(),
-        nuo_wire::ToolOutput::Text(output.to_string()),
+        nuo_protocol::ToolOutput::Text(output.to_string()),
         0,
     );
     if let nuo_view::model::document::MessageKind::ToolStep { expanded, .. } = &mut m.kind {
@@ -906,6 +916,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
                     tasks_bar: Default::default(),
+                    interrupt_key: None,
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,

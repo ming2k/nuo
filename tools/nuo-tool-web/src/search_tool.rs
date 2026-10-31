@@ -1,8 +1,8 @@
 use std::sync::{OnceLock, RwLock};
 
 use async_trait::async_trait;
+use nuo_protocol::{SharedWebConfig, Tool, WebRuntimeConfig, WebSearchProvider};
 use nuo_tool::{BuiltinTool, ToolSchema};
-use nuo_wire::{SharedWebConfig, Tool, WebRuntimeConfig, WebSearchProvider};
 use serde::Deserialize;
 
 use crate::search::SearchProvider;
@@ -131,7 +131,7 @@ impl Tool for WebSearchTool {
             .await
             .map(|out| out.to_text())
     }
-    async fn call_structured(&self, arguments: &str) -> Result<nuo_wire::ToolOutput, String> {
+    async fn call_structured(&self, arguments: &str) -> Result<nuo_protocol::ToolOutput, String> {
         let args: WebSearchArgs =
             serde_json::from_str(arguments).map_err(|e| format!("Invalid JSON: {}", e))?;
         let query = &args.query;
@@ -146,7 +146,7 @@ impl Tool for WebSearchTool {
                 crate::search::blob_to_hits(query, provider.name(), &text)
             }
         };
-        Ok(nuo_wire::ToolOutput::WebSearch {
+        Ok(nuo_protocol::ToolOutput::WebSearch {
             query: query.to_string(),
             provider: provider.name().to_string(),
             results,

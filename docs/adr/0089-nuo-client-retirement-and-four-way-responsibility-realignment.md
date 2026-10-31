@@ -68,8 +68,8 @@ The crate `crates/nuo-client` is permanently removed from the workspace:
 ### 3. Server-Client Anti-Inversion Remediation in `nuo-server`
 
 - `nuo-client = { workspace = true }` is removed from `crates/nuo-server/Cargo.toml`.
-- `nuo-server` imports wire envelopes, control frames, and protocol versions strictly from `nuo_wire::*`.
-- `nuo-server::serve_discovery` re-exports and consumes `nuo_wire::discovery::Discovery`.
+- `nuo-server` imports wire envelopes, control frames, and protocol versions strictly from `nuo_protocol::*`.
+- `nuo-server::serve_discovery` re-exports and consumes `nuo_protocol::discovery::Discovery`.
 - `nuo-server` has zero dependencies on presentation or client crates.
 
 ### 4. Interactive Command Catalog and Completion Relocated to `nuo-tui`

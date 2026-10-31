@@ -36,6 +36,11 @@ pub struct ActivityStripProps<'a> {
     pub tasks_count: usize,
     /// Label of the first active task (for idle preview).
     pub tasks_preview: Option<&'a str>,
+    /// The chord that opens the queue, resolved from the live keymap by the
+    /// caller. `None` means the command has no chord and the strip advertises
+    /// nothing — a keycap is a promise, and this strip has no business minting
+    /// one.
+    pub queue_key: Option<Key>,
 }
 
 pub fn draw_activity_strip(
@@ -43,6 +48,7 @@ pub fn draw_activity_strip(
     rect: Rect,
     round_started_at: Option<Instant>,
     props: ActivityStripProps<'_>,
+    interrupt_key: Option<Key>,
     spinner_phase: usize,
     theme: &Theme,
 ) -> Option<Rect> {
@@ -54,6 +60,7 @@ pub fn draw_activity_strip(
         queued_preview,
         tasks_count,
         tasks_preview,
+        queue_key,
     } = props;
 
     let status_active = !status.is_empty() && status != "idle";
@@ -66,27 +73,37 @@ pub fn draw_activity_strip(
     let available_width = row_width;
     let dim = Style::default().fg(theme.muted());
 
-    // 1. Right-side keyboard affordance
+    // 1. Right-side keyboard affordance.
+    //
+    // Every chord is resolved by the caller from the live keymap; nothing here
+    // is a literal. The strip used to advertise a `C-x q` / `C-x b` namespace
+    // that ADR-0131 retired outright, so both keycaps named key sequences that
+    // dispatch nothing at all — a standing lie on the busiest row in the app.
     let mut right_spans: Vec<Span<'static>> = Vec::new();
     if status_active || awaiting_permission {
-        let full_interrupt_w = UnicodeWidthStr::width("Esc Esc interrupt");
-        let compact_interrupt_w = UnicodeWidthStr::width("Esc Esc");
-        if available_width >= full_interrupt_w + 20 {
-            right_spans.push(keycap_warn_span(theme, Key::ESC.display()));
-            right_spans.push(Span::styled(" ", dim));
-            right_spans.push(keycap_warn_span(theme, Key::ESC.display()));
-            right_spans.push(Span::styled(" interrupt", theme.keycap_label_style()));
-        } else if available_width >= compact_interrupt_w + 12 {
-            right_spans.push(keycap_warn_span(theme, Key::ESC.display()));
-            right_spans.push(Span::styled(" ", dim));
-            right_spans.push(keycap_warn_span(theme, Key::ESC.display()));
+        if let Some(interrupt) = interrupt_key {
+            // The armed interrupt is the chained double-tap
+            // (`handle_esc_interrupt`), so it repeats *the resolved* chord.
+            let key_w = UnicodeWidthStr::width(interrupt.display());
+            let full_interrupt_w = key_w * 2 + 1 + 10;
+            let compact_interrupt_w = key_w * 2 + 1;
+            if available_width >= full_interrupt_w + 20 {
+                right_spans.push(keycap_warn_span(theme, interrupt.display()));
+                right_spans.push(Span::styled(" ", dim));
+                right_spans.push(keycap_warn_span(theme, interrupt.display()));
+                right_spans.push(Span::styled(" interrupt", theme.keycap_label_style()));
+            } else if available_width >= compact_interrupt_w + 12 {
+                right_spans.push(keycap_warn_span(theme, interrupt.display()));
+                right_spans.push(Span::styled(" ", dim));
+                right_spans.push(keycap_warn_span(theme, interrupt.display()));
+            }
         }
     } else if queued_count > 0 {
-        right_spans.push(keycap_span(theme, "C-x"));
-        right_spans.push(Span::styled(" q", theme.keycap_label_style()));
-    } else if tasks_count > 0 {
-        right_spans.push(keycap_span(theme, "C-x"));
-        right_spans.push(Span::styled(" b", theme.keycap_label_style()));
+        // The queue's one real chord, not a retired namespace prefix.
+        if let Some(key) = queue_key {
+            right_spans.push(keycap_span(theme, key.display()));
+            right_spans.push(Span::styled(" queue", theme.keycap_label_style()));
+        }
     }
     let right_w: usize = right_spans.iter().map(|s| s.content.width()).sum();
 
@@ -142,9 +159,13 @@ pub fn draw_activity_strip(
         // budgeted first on a fixed ladder rather than being painted at full
         // width and squeezing the status out:
         //
-        //   full (`retry 6/30 (next in 8s)`) → compact (`(6/30)`) → none
+        //   full (`retry 1 in 4s`) → compact (`retry 1`) → none
         //
-        // The compact form is a *rendering* of the same pair, produced by the
+        // The ladder's steps are deliberately close in width: both forms are
+        // short, so the compact step buys the status verb only a few columns and
+        // the choice never lurches between two shapes a reader has to re-learn.
+        //
+        // The compact form is a *rendering* of the same ordinal, produced by the
         // clause's owner (`RetryProgress::compact_label`) — never by this
         // renderer slicing the sentence, which is how the two vocabularies
         // drifted apart before.
@@ -154,9 +175,9 @@ pub fn draw_activity_strip(
         let status_natural_w = status.width();
         let fixed = prefix_w + right_w + elapsed_w + CLAUSE_GAP;
 
-        // Full sentence, then the attempt pair alone, then nothing. Both forms
-        // come from the same owner (`RetryProgress`); this renderer only
-        // chooses which one fits.
+        // Full sentence, then the ordinal alone, then nothing. Both forms come
+        // from the same owner (`RetryProgress`); this renderer only chooses
+        // which one fits.
         let clause_choice = match backoff {
             None => None,
             Some(progress) => {

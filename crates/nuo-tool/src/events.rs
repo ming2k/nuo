@@ -31,7 +31,7 @@ pub enum NoticeKind {
     ///
     /// This value used to be `ProviderRetry`, which carried the live retry
     /// countdown. That countdown is not a notice: it is chrome with its own wire
-    /// event (`nuo_wire::RoundEvent::RetryScheduled`) and its own typed state
+    /// event (`nuo_protocol::RoundEvent::RetryScheduled`) and its own typed state
     /// machine (`nuo_view::retry`). Keeping a notice kind for it meant every
     /// retry was published twice — once as a receipt the router absorbed and
     /// once as a transcript row — and the two counted attempts differently.
@@ -174,7 +174,7 @@ pub enum SubagentEvent {
     /// The child's retry is the parent's business for one reason: the parent
     /// step is what the user is watching, so it must be able to say *why* the
     /// subagent went quiet. It carries the same typed triple as
-    /// `nuo_wire::RoundEvent::RetryScheduled` (attempt pair, backoff, fault) so
+    /// `nuo_protocol::RoundEvent::RetryScheduled` (attempt pair, backoff, fault) so
     /// the parent renders the child's setback from data instead of parsing the
     /// `waiting to retry (3s)` string back out of [`Self::Activity`].
     RetryScheduled {

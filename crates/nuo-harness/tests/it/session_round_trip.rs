@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use futures::stream::{BoxStream, StreamExt};
-use nuo_wire::{Message, ModelRequest, Provider, Role, async_trait};
+use nuo_protocol::{Message, ModelRequest, Provider, Role, async_trait};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -40,8 +40,8 @@ impl Provider for TestStreamProvider {
     async fn chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             MOCK_REPLY,
         )))
@@ -50,8 +50,10 @@ impl Provider for TestStreamProvider {
     async fn stream_chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         let chunks = [
             "This ",
             "is ",
@@ -89,7 +91,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
             session: session.clone(),
             session_id: session.id().await,
             projection: ContextProjectionSettings {
-                budget: nuo_wire::CompactionPolicy::default().resolve(100_000),
+                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
                 prune: false,

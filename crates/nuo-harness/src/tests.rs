@@ -14,9 +14,9 @@ struct StreamingReadTool(Arc<AtomicUsize>);
 impl Provider for TestProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -24,9 +24,11 @@ impl Provider for TestProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         // The default `stream_chat_events` wraps this into a single
         // `TextDelta("done")`, so the streaming ReAct loop sees the same
         // terminal answer as `chat()`.
@@ -38,9 +40,9 @@ impl Provider for TestProvider {
 impl Provider for HintProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -48,14 +50,16 @@ impl Provider for HintProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::empty()))
     }
 
-    fn prompt_hints(&self) -> nuo_wire::ProviderPromptHints {
-        nuo_wire::ProviderPromptHints {
+    fn prompt_hints(&self) -> nuo_protocol::ProviderPromptHints {
+        nuo_protocol::ProviderPromptHints {
             system_guidance: "Provider protocol hint.",
         }
     }
@@ -65,25 +69,27 @@ impl Provider for HintProvider {
 impl Provider for PermissionTestProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         unreachable!("streaming path should be used")
     }
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         unreachable!("stream_chat_events should be called directly")
     }
 
     async fn stream_chat_events(
         &self,
-        _request: nuo_wire::ModelRequest,
+        _request: nuo_protocol::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let events = if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
             vec![
@@ -94,14 +100,14 @@ impl Provider for PermissionTestProvider {
                     arguments: "{}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_wire::ProviderCompletionMeta::default(),
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ]
         } else {
             vec![
                 Ok(ProviderStreamEvent::TextDelta("done".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_wire::ProviderCompletionMeta::default(),
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ]
         };
@@ -113,29 +119,31 @@ impl Provider for PermissionTestProvider {
 impl Provider for StreamingToolProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Err(nuo_wire::ProviderError::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            nuo_wire::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "non-streaming path should not be used",
         ))
     }
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: nuo_wire::ModelRequest,
+        _request: nuo_protocol::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         let events = if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
             vec![
@@ -152,7 +160,7 @@ impl Provider for StreamingToolProvider {
                     arguments: "1}".to_string(),
                 }),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_wire::ProviderCompletionMeta::default(),
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ]
         } else {
@@ -160,7 +168,7 @@ impl Provider for StreamingToolProvider {
                 Ok(ProviderStreamEvent::TextDelta("do".to_string())),
                 Ok(ProviderStreamEvent::TextDelta("ne".to_string())),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_wire::ProviderCompletionMeta::default(),
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ]
         };
@@ -182,8 +190,8 @@ impl Tool for WriteTestTool {
         serde_json::json!({"type": "object"})
     }
 
-    fn scope_target(&self, _arguments: &str) -> nuo_wire::ScopeTarget {
-        nuo_wire::ScopeTarget::Path(std::path::PathBuf::from("/tmp/test"))
+    fn scope_target(&self, _arguments: &str) -> nuo_protocol::ScopeTarget {
+        nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from("/tmp/test"))
     }
 
     async fn call(&self, _arguments: &str) -> Result<String, String> {
@@ -254,9 +262,9 @@ fn agent_installs_its_stateful_todo_tools() {
 fn todo_state_is_scoped_to_one_agent() {
     let first = agent();
     let second = agent();
-    let mut list = nuo_wire::TodoList::new();
+    let mut list = nuo_protocol::TodoList::new();
     list.reconcile(
-        &[("only first".to_string(), nuo_wire::TodoStatus::Pending)],
+        &[("only first".to_string(), nuo_protocol::TodoStatus::Pending)],
         1,
         1,
     );
@@ -345,8 +353,8 @@ fn static_tool_identity_shadows_a_dynamic_collision() {
     assert_ne!(todos[0].description(), "caller-owned shadow");
 }
 
-fn queued_user(id: &str, text: &str) -> nuo_wire::QueuedMessage {
-    nuo_wire::QueuedMessage {
+fn queued_user(id: &str, text: &str) -> nuo_protocol::QueuedMessage {
+    nuo_protocol::QueuedMessage {
         id: id.to_string(),
         text: text.to_string(),
         display_text: Some(text.to_string()),
@@ -446,8 +454,8 @@ fn apply_preset_switches_identity_into_the_system_prompt() {
         "the shipped baseline must carry no self-description",
     );
 
-    let philosophist = nuo_wire::AgentRoleProfile::from_role(
-        nuo_wire::MainAgentRole::Philosophist,
+    let philosophist = nuo_protocol::AgentRoleProfile::from_role(
+        nuo_protocol::MainAgentRole::Philosophist,
         &crate::AgentIdentity::default(),
     );
     agent.apply_preset(&philosophist);
@@ -465,8 +473,8 @@ fn apply_preset_switches_identity_into_the_system_prompt() {
         "the old identity preamble must be replaced, not appended; got: {prompt}"
     );
 
-    let ops = nuo_wire::AgentRoleProfile::from_role(
-        nuo_wire::MainAgentRole::Ops,
+    let ops = nuo_protocol::AgentRoleProfile::from_role(
+        nuo_protocol::MainAgentRole::Ops,
         &crate::AgentIdentity::default(),
     );
     agent.apply_preset(&ops);
@@ -482,16 +490,16 @@ fn apply_preset_switches_identity_into_the_system_prompt() {
 
 #[test]
 fn retry_metadata_is_data_on_provider_error() {
-    let err = nuo_wire::ProviderError::new(
+    let err = nuo_protocol::ProviderError::new(
         "test",
-        nuo_wire::ProviderErrorKind::RateLimited,
+        nuo_protocol::ProviderErrorKind::RateLimited,
         "rate limited",
     )
     .retryable(Some(500));
     assert_eq!(err.message(), "rate limited");
     assert_eq!(
         err.retry_disposition(),
-        nuo_wire::RetryDisposition::Retry {
+        nuo_protocol::RetryDisposition::Retry {
             retry_after_ms: Some(500)
         }
     );
@@ -502,38 +510,38 @@ async fn provider_turn_context_survives_tools_and_retries_but_not_new_rounds() {
     use std::sync::Mutex;
     struct RecordingProvider {
         inner: StreamingToolProvider,
-        contexts: Mutex<Vec<Arc<nuo_wire::ProviderTurnContext>>>,
+        contexts: Mutex<Vec<Arc<nuo_protocol::ProviderTurnContext>>>,
     }
     #[async_trait]
     impl Provider for RecordingProvider {
         async fn chat(
             &self,
-            request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             self.inner.chat(request).await
         }
         async fn stream_chat(
             &self,
-            request: nuo_wire::ModelRequest,
+            request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             self.inner.stream_chat(request).await
         }
         async fn stream_chat_events(
             &self,
-            request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderEventStream, nuo_wire::ProviderError> {
+            request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderEventStream, nuo_protocol::ProviderError> {
             let first = {
                 let mut contexts = self.contexts.lock().unwrap();
                 contexts.push(Arc::clone(&request.turn_context));
                 contexts.len() == 1
             };
             if first {
-                return Err(nuo_wire::ProviderError::new(
+                return Err(nuo_protocol::ProviderError::new(
                     "mock",
-                    nuo_wire::ProviderErrorKind::Unavailable,
+                    nuo_protocol::ProviderErrorKind::Unavailable,
                     "retry",
                 )
                 .retryable(None));
@@ -750,25 +758,25 @@ async fn stalled_provider_stream_times_out_as_retryable() {
     impl Provider for StalledStreamProvider {
         async fn chat(
             &self,
-            _request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::empty()))
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::pending()))
         }
@@ -786,7 +794,7 @@ async fn stalled_provider_stream_times_out_as_retryable() {
         .await;
 
     assert!(
-        matches!(result, Err(nuo_wire::HarnessError::Provider(ref err)) if matches!(err.retry_disposition(), nuo_wire::RetryDisposition::Retry { .. })),
+        matches!(result, Err(nuo_protocol::HarnessError::Provider(ref err)) if matches!(err.retry_disposition(), nuo_protocol::RetryDisposition::Retry { .. })),
         "a stalled stream should surface as a retryable error, not hang forever; got: {result:?}"
     );
 }
@@ -803,25 +811,25 @@ async fn stream_ending_mid_tool_call_is_retryable() {
     impl Provider for TruncatedToolCallProvider {
         async fn chat(
             &self,
-            _request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::empty()))
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::iter(vec![Ok(
                 ProviderStreamEvent::ToolCallDelta {
@@ -846,10 +854,10 @@ async fn stream_ending_mid_tool_call_is_retryable() {
         .await;
 
     match result {
-        Err(nuo_wire::HarnessError::Provider(err))
+        Err(nuo_protocol::HarnessError::Provider(err))
             if matches!(
                 err.retry_disposition(),
-                nuo_wire::RetryDisposition::Retry { .. }
+                nuo_protocol::RetryDisposition::Retry { .. }
             ) =>
         {
             let message = err.message();
@@ -881,28 +889,28 @@ async fn empty_assistant_response_is_retryable_not_terminal() {
     impl Provider for EmptyFrameProvider {
         async fn chat(
             &self,
-            _request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::empty()))
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::iter(vec![Ok(
-                ProviderStreamEvent::Completed(nuo_wire::ProviderCompletionMeta::default()),
+                ProviderStreamEvent::Completed(nuo_protocol::ProviderCompletionMeta::default()),
             )])))
         }
     }
@@ -919,10 +927,10 @@ async fn empty_assistant_response_is_retryable_not_terminal() {
         .await;
 
     match result {
-        Err(nuo_wire::HarnessError::Provider(err))
+        Err(nuo_protocol::HarnessError::Provider(err))
             if matches!(
                 err.retry_disposition(),
-                nuo_wire::RetryDisposition::Retry { .. }
+                nuo_protocol::RetryDisposition::Retry { .. }
             ) =>
         {
             let message = err.message();
@@ -932,7 +940,7 @@ async fn empty_assistant_response_is_retryable_not_terminal() {
             );
             assert_eq!(
                 err.kind(),
-                nuo_wire::ProviderErrorKind::Upstream,
+                nuo_protocol::ProviderErrorKind::Upstream,
                 "an empty frame is an upstream fault"
             );
         }
@@ -956,25 +964,25 @@ async fn stream_with_truncated_tool_arguments_is_retryable() {
     impl Provider for TruncatedArgumentsProvider {
         async fn chat(
             &self,
-            _request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::empty()))
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::iter(vec![Ok(
                 ProviderStreamEvent::ToolCallDelta {
@@ -999,10 +1007,10 @@ async fn stream_with_truncated_tool_arguments_is_retryable() {
         .await;
 
     match result {
-        Err(nuo_wire::HarnessError::Provider(err))
+        Err(nuo_protocol::HarnessError::Provider(err))
             if matches!(
                 err.retry_disposition(),
-                nuo_wire::RetryDisposition::Retry { .. }
+                nuo_protocol::RetryDisposition::Retry { .. }
             ) =>
         {
             let message = err.message();
@@ -1057,25 +1065,25 @@ async fn interrupt_settles_in_flight_request_with_estimated_prompt() {
     impl Provider for PendingProvider {
         async fn chat(
             &self,
-            _: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::pending()))
         }
         async fn stream_chat_events(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::pending()))
         }
@@ -1088,7 +1096,7 @@ async fn interrupt_settles_in_flight_request_with_estimated_prompt() {
     ));
     agent.set_thread_id("interrupt-session");
     agent.bump_round();
-    let ledger = nuo_wire::TokenSourceLedger::shared();
+    let ledger = nuo_protocol::TokenSourceLedger::shared();
     agent.install_token_ledger(ledger.clone());
     let token = CancellationToken::new();
     let cancel_on_start = token.clone();
@@ -1105,8 +1113,14 @@ async fn interrupt_settles_in_flight_request_with_estimated_prompt() {
     assert!(matches!(result, Err(HarnessError::Interrupted)));
     let records = ledger.records_for_session("interrupt-session");
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].status, nuo_wire::RequestUsageStatus::Interrupted);
-    assert_eq!(records[0].source, nuo_wire::RequestUsageSource::Estimated);
+    assert_eq!(
+        records[0].status,
+        nuo_protocol::RequestUsageStatus::Interrupted
+    );
+    assert_eq!(
+        records[0].source,
+        nuo_protocol::RequestUsageSource::Estimated
+    );
     assert!(records[0].prompt_tokens > 0);
     assert_eq!(records[0].completion_tokens, 0);
 }
@@ -1137,25 +1151,25 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     impl Provider for SlowStreamProvider {
         async fn chat(
             &self,
-            _: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::pending()))
         }
         async fn stream_chat_events(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             let n = self.deltas;
             // Pace the stream like a real model (~9 600 tokens over ≈1.2 s of
@@ -1172,8 +1186,9 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
                 tokio::time::sleep(per_delta).await;
                 Ok(delta)
             });
-            let parked =
-                futures::stream::pending::<Result<ProviderStreamEvent, nuo_wire::ProviderError>>();
+            let parked = futures::stream::pending::<
+                Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
+            >();
             Ok(Box::pin(deltas.chain(parked)))
         }
     }
@@ -1192,7 +1207,7 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     ));
     agent.set_thread_id("interrupt-quadratic");
     agent.bump_round();
-    let ledger = nuo_wire::TokenSourceLedger::shared();
+    let ledger = nuo_protocol::TokenSourceLedger::shared();
     agent.install_token_ledger(ledger.clone());
     let token = CancellationToken::new();
     let cancel_on_start = token.clone();
@@ -1217,7 +1232,7 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     let records = ledger.records_for_session("interrupt-quadratic");
     assert_eq!(records.len(), 1);
     let record = &records[0];
-    assert_eq!(record.status, nuo_wire::RequestUsageStatus::Interrupted);
+    assert_eq!(record.status, nuo_protocol::RequestUsageStatus::Interrupted);
     // The exact expectation: a whole-text tokenization of the very deltas
     // the attempt streamed — the same predictor the implementation uses, so
     // this pins the *arithmetic* (no cumulative summation), not the corpus.
@@ -1225,7 +1240,7 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     for i in 0..DELTAS {
         streamed.push_str(&format!("delta {i} of the interrupted stream. "));
     }
-    let expected = nuo_wire::tokenizer::Tokenizer::new().count(&streamed) as i64;
+    let expected = nuo_protocol::tokenizer::Tokenizer::new().count(&streamed) as i64;
     assert_eq!(
         record.completion_tokens, expected,
         "the estimate must be the exact whole-stream count, not a running-total sum"
@@ -1257,25 +1272,25 @@ async fn stream_request_that_never_resolves_times_out() {
     impl Provider for PendingStreamProvider {
         async fn chat(
             &self,
-            _: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             unreachable!("stream_chat_events should be called directly")
         }
         async fn stream_chat_events(
             &self,
-            _: nuo_wire::ModelRequest,
+            _: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             // Never resolves.
             pending().await
@@ -1294,7 +1309,7 @@ async fn stream_request_that_never_resolves_times_out() {
         .await;
 
     assert!(
-        matches!(result, Err(nuo_wire::HarnessError::Provider(ref err)) if matches!(err.retry_disposition(), nuo_wire::RetryDisposition::Retry { .. })),
+        matches!(result, Err(nuo_protocol::HarnessError::Provider(ref err)) if matches!(err.retry_disposition(), nuo_protocol::RetryDisposition::Retry { .. })),
         "a stream request that never resolves should time out as retryable; got: {result:?}"
     );
 }
@@ -1312,32 +1327,32 @@ async fn reasoning_only_response_is_accepted_not_treated_as_empty() {
     impl Provider for ReasoningOnlyProvider {
         async fn chat(
             &self,
-            _request: nuo_wire::ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::empty()))
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_wire::ModelRequest,
+            _request: nuo_protocol::ModelRequest,
         ) -> Result<
-            BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(stream::iter(vec![
                 Ok(ProviderStreamEvent::ReasoningDelta(
                     "let me think...".to_string(),
                 )),
                 Ok(ProviderStreamEvent::Completed(
-                    nuo_wire::ProviderCompletionMeta::default(),
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ])))
         }
@@ -1348,9 +1363,9 @@ async fn reasoning_only_response_is_accepted_not_treated_as_empty() {
         Vec::new(),
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig {
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
         enabled: true,
-        ..nuo_wire::TrajectoryGuardConfig::default()
+        ..nuo_protocol::TrajectoryGuardConfig::default()
     });
 
     let mut messages = vec![Message::new(Role::User, "go")];
@@ -1585,37 +1600,39 @@ struct GatedSubagentProvider {
 impl Provider for GatedSubagentProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "gated",
         )))
     }
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::empty()))
     }
     async fn stream_chat_events(
         &self,
-        _request: nuo_wire::ModelRequest,
+        _request: nuo_protocol::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<nuo_wire::ProviderStreamEvent, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
+        BoxStream<'static, Result<nuo_protocol::ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         if self.requests.fetch_add(1, Ordering::SeqCst) == 0 {
             Ok(Box::pin(stream::iter(vec![
-                Ok(nuo_wire::ProviderStreamEvent::ToolCallDelta {
+                Ok(nuo_protocol::ProviderStreamEvent::ToolCallDelta {
                     index: 0,
                     id: Some("inner_1".to_string()),
                     name: Some("read_text".to_string()),
                     arguments: "{}".to_string(),
                 }),
-                Ok(nuo_wire::ProviderStreamEvent::Completed(
-                    nuo_wire::ProviderCompletionMeta::default(),
+                Ok(nuo_protocol::ProviderStreamEvent::Completed(
+                    nuo_protocol::ProviderCompletionMeta::default(),
                 )),
             ])))
         } else {
@@ -1637,8 +1654,8 @@ async fn execute_tool_evented_drains_interrupted_subagent() {
             requests: AtomicUsize::new(0),
             gate: gate_tx,
         }),
-        nuo_wire::ToolSet::from_tools(vec![Arc::new(SubagentReadTool) as Arc<dyn Tool>]),
-        &nuo_wire::SubAgentProfile::EXPLORE,
+        nuo_protocol::ToolSet::from_tools(vec![Arc::new(SubagentReadTool) as Arc<dyn Tool>]),
+        &nuo_protocol::SubAgentProfile::EXPLORE,
     ));
     let agent = Arc::new(Agent::new(
         Arc::new(TestProvider),
@@ -1867,7 +1884,7 @@ fn turn(calls: &[(&str, &str, &str)]) -> Vec<ProviderStreamEvent> {
 struct ScriptedProvider {
     turns: std::sync::Mutex<std::collections::VecDeque<Vec<ProviderStreamEvent>>>,
     cognitive_replies: std::sync::Mutex<std::collections::VecDeque<String>>,
-    cognitive_requests: std::sync::Mutex<Vec<nuo_wire::ModelRequest>>,
+    cognitive_requests: std::sync::Mutex<Vec<nuo_protocol::ModelRequest>>,
     /// Pace every stream event with a small gap so the runtime interleaves
     /// spawned cognitive loop consults with stream consumption — the
     /// network cadence an instantly-ready scripted stream omits. Without
@@ -1906,8 +1923,8 @@ impl ScriptedProvider {
 impl Provider for ScriptedProvider {
     async fn chat(
         &self,
-        request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         self.cognitive_requests
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -1918,7 +1935,7 @@ impl Provider for ScriptedProvider {
             .unwrap_or_else(|error| error.into_inner())
             .pop_front()
             .unwrap_or_else(|| "no".to_string());
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             reply,
         )))
@@ -1926,18 +1943,20 @@ impl Provider for ScriptedProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::empty()))
     }
 
     async fn stream_chat_events(
         &self,
-        _request: nuo_wire::ModelRequest,
+        _request: nuo_protocol::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         // A turn that runs past its script gets a terminal "done" so the
         // loop exits rather than hanging on a missing turn.
@@ -1952,7 +1971,7 @@ impl Provider for ScriptedProvider {
             .any(|e| matches!(e, ProviderStreamEvent::Completed(_)))
         {
             turn.push(ProviderStreamEvent::Completed(
-                nuo_wire::ProviderCompletionMeta::default(),
+                nuo_protocol::ProviderCompletionMeta::default(),
             ));
         }
         if self.paced {
@@ -2011,7 +2030,7 @@ impl Tool for RecordingTool {
     fn parameters(&self) -> serde_json::Value {
         serde_json::json!({"type": "object"})
     }
-    fn scope_target(&self, arguments: &str) -> nuo_wire::ScopeTarget {
+    fn scope_target(&self, arguments: &str) -> nuo_protocol::ScopeTarget {
         if self.name == "execute_command" {
             let command = serde_json::from_str::<serde_json::Value>(arguments)
                 .ok()
@@ -2021,7 +2040,7 @@ impl Tool for RecordingTool {
                         .map(str::to_string)
                 })
                 .unwrap_or_else(|| arguments.to_string());
-            nuo_wire::ScopeTarget::Command(command)
+            nuo_protocol::ScopeTarget::Command(command)
         } else if self.declares_target {
             // Pull a path from the args if present, else a fixed sentinel, so
             // the broker fires for the `write` variant.
@@ -2029,9 +2048,9 @@ impl Tool for RecordingTool {
                 .ok()
                 .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(str::to_string))
                 .unwrap_or_else(|| "/tmp/recording".to_string());
-            nuo_wire::ScopeTarget::Path(std::path::PathBuf::from(path))
+            nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from(path))
         } else {
-            nuo_wire::ScopeTarget::Unspecified
+            nuo_protocol::ScopeTarget::Unspecified
         }
     }
     async fn call(&self, arguments: &str) -> Result<String, String> {
@@ -2236,7 +2255,7 @@ async fn golden_repeated_identical_tool_calls_run_without_hard_abort() {
         vec![Arc::new(tool)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig::disabled());
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::disabled());
 
     let (_events, outcome) = run_golden_round(&agent, "go", PermissionDecision::Reject).await;
 
@@ -2265,11 +2284,11 @@ async fn trajectory_guard_blocks_repeating_command_before_execution() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig {
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
         enabled: true,
         threshold: 3,
         cognitive_review: false,
-        ..nuo_wire::TrajectoryGuardConfig::default()
+        ..nuo_protocol::TrajectoryGuardConfig::default()
     });
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
@@ -2340,11 +2359,11 @@ async fn doom_block_is_surgical_across_files() {
         vec![Arc::new(reader), Arc::new(lister)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig {
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
         enabled: true,
         threshold: 3,
         cognitive_review: false,
-        ..nuo_wire::TrajectoryGuardConfig::default()
+        ..nuo_protocol::TrajectoryGuardConfig::default()
     });
 
     let mut messages = vec![Message::new(Role::User, "go")];
@@ -2391,7 +2410,7 @@ async fn trajectory_guard_suppressed_when_disabled() {
         ))],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig::disabled());
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::disabled());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "make test".to_string(),
@@ -2437,7 +2456,7 @@ async fn trajectory_guard_cognitive_arbitration_confirms_loop_and_blocks_surgica
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig::cognitive());
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::cognitive());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "cargo test".to_string(),
@@ -2486,7 +2505,7 @@ async fn trajectory_guard_cognitive_arbitration_acquits_and_escalates_ladder() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig::cognitive());
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::cognitive());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "cargo test".to_string(),
@@ -2536,7 +2555,7 @@ async fn trajectory_guard_fail_open_on_provider_error_and_escalates() {
         vec![Arc::new(command)],
         crate::AgentIdentity::default(),
     ));
-    agent.set_trajectory_guard_config(nuo_wire::TrajectoryGuardConfig::cognitive());
+    agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig::cognitive());
     agent.seed_permissions_from_config(&[nuo_persistence::config::PermissionRuleConfig {
         tool: "execute_command".to_string(),
         scope: "cargo test".to_string(),
@@ -2840,11 +2859,11 @@ async fn execution_policy_blocks_ask_user_for_child_agents() {
     ));
 
     // Configure as a child agent with allow_human_interaction = false
-    let child_policy = nuo_wire::ExecutionPolicy {
+    let child_policy = nuo_protocol::ExecutionPolicy {
         depth: 1,
         max_depth: 1,
         allow_human_interaction: false,
-        lifecycle: nuo_wire::ContextLifecycle::EphemeralScratchpad,
+        lifecycle: nuo_protocol::ContextLifecycle::EphemeralScratchpad,
         tool_policy: None,
         max_children_budget: 0,
     };
@@ -3154,31 +3173,33 @@ struct TwoEventProvider;
 impl Provider for TwoEventProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Err(nuo_wire::ProviderError::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            nuo_wire::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "chat path not used by this test",
         ))
     }
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
-        Err(nuo_wire::ProviderError::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
+        Err(nuo_protocol::ProviderError::new(
             "mock",
-            nuo_wire::ProviderErrorKind::Other,
+            nuo_protocol::ProviderErrorKind::Other,
             "stream_chat path not used by this test",
         ))
     }
     async fn stream_chat_events(
         &self,
-        _request: nuo_wire::ModelRequest,
+        _request: nuo_protocol::ModelRequest,
     ) -> Result<
-        BoxStream<'static, Result<ProviderStreamEvent, nuo_wire::ProviderError>>,
-        nuo_wire::ProviderError,
+        BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
     > {
         Ok(Box::pin(futures::stream::iter([
             Ok(ProviderStreamEvent::TextDelta("hel".to_string())),
@@ -3494,8 +3515,8 @@ async fn interrupted_batch_records_subagent_drain_and_cancels_unproduced_calls()
             requests: AtomicUsize::new(0),
             gate: gate_tx,
         }),
-        nuo_wire::ToolSet::from_tools(vec![Arc::new(SubagentReadTool) as Arc<dyn Tool>]),
-        &nuo_wire::SubAgentProfile::EXPLORE,
+        nuo_protocol::ToolSet::from_tools(vec![Arc::new(SubagentReadTool) as Arc<dyn Tool>]),
+        &nuo_protocol::SubAgentProfile::EXPLORE,
     ));
     let started = Arc::new(tokio::sync::Notify::new());
     let agent = Arc::new(Agent::new(
@@ -3608,12 +3629,12 @@ async fn scheduler_serializes_conflicting_writes() {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({"type": "object"})
         }
-        fn scope_target(&self, arguments: &str) -> nuo_wire::ScopeTarget {
+        fn scope_target(&self, arguments: &str) -> nuo_protocol::ScopeTarget {
             let path = serde_json::from_str::<serde_json::Value>(arguments)
                 .ok()
                 .and_then(|v| v.get("path").and_then(|p| p.as_str()).map(str::to_string))
                 .unwrap_or_else(|| "/tmp/probe".to_string());
-            nuo_wire::ScopeTarget::Path(std::path::PathBuf::from(path))
+            nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from(path))
         }
         async fn call(&self, _arguments: &str) -> Result<String, String> {
             let prev = self.active.fetch_add(1, Ordering::SeqCst);
@@ -3920,8 +3941,8 @@ async fn agent_compiles_request_directly_from_session_ir() {
     let provider: Arc<dyn Provider> = Arc::new(TestProvider);
     let agent = Agent::new(provider, Vec::new(), crate::AgentIdentity::default());
 
-    let policy = nuo_wire::SessionPolicy::default();
-    let mut ir = nuo_wire::SessionIR::new("test-session-agent", policy, 1000);
+    let policy = nuo_protocol::SessionPolicy::default();
+    let mut ir = nuo_protocol::SessionIR::new("test-session-agent", policy, 1000);
     ir.append_message(
         "n1",
         1001,
@@ -3950,9 +3971,9 @@ struct DummyCustomProvider {
 impl Provider for DummyCustomProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "dummy",
         )))
@@ -3960,9 +3981,11 @@ impl Provider for DummyCustomProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::empty()))
     }
 
@@ -4006,7 +4029,10 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
         .push(nuo_persistence::connections::Connection {
             name: conn_name.to_string(),
             provider: "google".to_string(),
-            budget: nuo_wire::ConnectionBudget::local(0.05, nuo_wire::BudgetPeriod::Session),
+            budget: nuo_protocol::ConnectionBudget::local(
+                0.05,
+                nuo_protocol::BudgetPeriod::Session,
+            ),
             ..Default::default()
         });
     conns.save().unwrap();
@@ -4023,7 +4049,7 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
 
     let mut round = agent.begin_streaming_round();
     // 600,000 prompt tokens * $0.10/1M = $0.06 -> exceeds $0.05 limit
-    round.set_token_usage_for_test(nuo_wire::TokenUsage {
+    round.set_token_usage_for_test(nuo_protocol::TokenUsage {
         prompt_tokens: 600_000,
         total_tokens: 600_000,
         ..Default::default()
@@ -4041,7 +4067,7 @@ async fn test_runtime_spend_circuit_breaker_intercepts_over_budget_connection() 
         HarnessError::Provider(provider_err) => {
             assert_eq!(
                 provider_err.kind(),
-                nuo_wire::ProviderErrorKind::QuotaExhausted
+                nuo_protocol::ProviderErrorKind::QuotaExhausted
             );
             assert!(provider_err.message().contains("[SPEND CIRCUIT BREAKER]"));
             assert!(provider_err.message().contains("$0.05"));
@@ -4075,16 +4101,16 @@ impl Tool for PreviewableWriteTool {
     fn risk_profile(&self) -> nuo_tool::RiskProfile {
         nuo_tool::RiskProfile::IdempotentMutation
     }
-    fn scope_target(&self, _arguments: &str) -> nuo_wire::ScopeTarget {
-        nuo_wire::ScopeTarget::Path(std::path::PathBuf::from(self.path))
+    fn scope_target(&self, _arguments: &str) -> nuo_protocol::ScopeTarget {
+        nuo_protocol::ScopeTarget::Path(std::path::PathBuf::from(self.path))
     }
-    fn accesses(&self, _arguments: &str) -> nuo_wire::ToolAccesses {
-        nuo_wire::ToolAccesses::write_file(self.path.to_string())
+    fn accesses(&self, _arguments: &str) -> nuo_protocol::ToolAccesses {
+        nuo_protocol::ToolAccesses::write_file(self.path.to_string())
     }
-    fn preview(&self, _arguments: &serde_json::Value) -> Option<nuo_wire::PreviewResult> {
-        Some(nuo_wire::PreviewResult {
+    fn preview(&self, _arguments: &serde_json::Value) -> Option<nuo_protocol::PreviewResult> {
+        Some(nuo_protocol::PreviewResult {
             path: self.path.to_string(),
-            op: nuo_wire::PatchOp::Edit,
+            op: nuo_protocol::PatchOp::Edit,
             old: self.before.to_string(),
             new: self.after.to_string(),
             start_line: 1,

@@ -1,6 +1,6 @@
 use futures::{SinkExt, StreamExt};
-use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
-use nuo_wire::{
+use nuo_protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
+use nuo_protocol::{
     ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
     protocol_accepts,
 };
@@ -17,11 +17,11 @@ use tokio_tungstenite::tungstenite::http::StatusCode;
 use crate::shutdown::ShutdownGate;
 use crate::wire_channel::{BoxWireSink, BoxWireStream, native_framed_split, websocket_split};
 
-// The transport envelope and its constants live in `nuo-protocol` (nuo-wire) —
+// The transport envelope and its constants live in `nuo-protocol` (nuo-protocol) —
 // one source of truth for the whole wire surface, next to the payload types.
 // Re-exported here so every existing `serve::Wire` / `serve::AttachAction`
 // path keeps working unchanged.
-pub use nuo_wire::{AttachAction, ControlRequest, Wire};
+pub use nuo_protocol::{AttachAction, ControlRequest, Wire, WireFrame};
 
 /// How long a draining server waits, per connection, for the client to
 /// complete the closing handshake after it is sent `Close(1001 GoingAway)`
@@ -71,13 +71,13 @@ impl AttachSyncBuffer {
                 self.provider_picker = Some(response.clone());
             }
             AgentResponse::Round {
-                event: nuo_wire::RoundEvent::ContextTokens(_),
+                event: nuo_protocol::RoundEvent::ContextTokens(_),
                 ..
             } => {
                 self.context_tokens = Some(response.clone());
             }
             AgentResponse::Round {
-                event: nuo_wire::RoundEvent::HarnessState(_),
+                event: nuo_protocol::RoundEvent::HarnessState(_),
                 ..
             } => {
                 self.harness_state = Some(response.clone());
@@ -146,7 +146,7 @@ impl AttachSyncBuffer {
     /// The attach path uses `build_full_session_snapshot`, which adds the
     /// durable transcript and ledger; this method covers the live state-sync
     /// fields that both share.
-    pub fn build_session_snapshot(&self, session_id: &str) -> nuo_wire::SessionSnapshot {
+    pub fn build_session_snapshot(&self, session_id: &str) -> nuo_protocol::ThreadSnapshot {
         let (provider, model) = match &self.provider_switched {
             Some(AgentResponse::ProviderSwitched { provider, model }) => {
                 (provider.clone(), model.clone())
@@ -163,21 +163,21 @@ impl AttachSyncBuffer {
         };
         let context_tokens = match &self.context_tokens {
             Some(AgentResponse::Round {
-                event: nuo_wire::RoundEvent::ContextTokens(ct),
+                event: nuo_protocol::RoundEvent::ContextTokens(ct),
                 ..
             }) => Some(*ct),
             _ => None,
         };
         let harness_state = match &self.harness_state {
             Some(AgentResponse::Round {
-                event: nuo_wire::RoundEvent::HarnessState(hs),
+                event: nuo_protocol::RoundEvent::HarnessState(hs),
                 ..
             }) => Some(hs.clone()),
             _ => None,
         };
 
-        nuo_wire::SessionSnapshot {
-            session_id: session_id.to_string(),
+        nuo_protocol::ThreadSnapshot {
+            thread_id: session_id.to_string(),
             round_counter: 0,
             messages: Vec::new(),
             provider,
@@ -203,8 +203,8 @@ impl AttachSyncBuffer {
 /// second frame to become correct. It is only called *after* Welcome, so its
 /// local reads never delay the handshake.
 pub(crate) async fn build_full_session_snapshot(
-    hosted: &crate::registry::HostedSession,
-) -> nuo_wire::SessionSnapshot {
+    hosted: &crate::registry::HostedThread,
+) -> nuo_protocol::ThreadSnapshot {
     let session = &hosted.session;
     let session_id = session.id().await;
     let mut snapshot = {
@@ -225,16 +225,16 @@ pub(crate) async fn build_full_session_snapshot(
     }
     let workspace_security = match hosted.workspace_root.as_deref() {
         Some(root) => hosted.security.snapshot(root),
-        None => nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"),
+        None => nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free"),
     };
     // The trust snapshot MUST ride in the same frame that precedes `Ready`
     // (the pre-view gate is mounted from it, ADR-0127).
-    snapshot.harness_state = Some(nuo_wire::HarnessSnapshot {
+    snapshot.harness_state = Some(nuo_protocol::HarnessSnapshot {
         loop_status: snapshot
             .harness_state
             .as_ref()
             .map(|harness| harness.loop_status)
-            .unwrap_or(nuo_wire::LoopStatus::Idle),
+            .unwrap_or(nuo_protocol::LoopStatus::Idle),
         round_counter: snapshot.round_counter,
         unattended: session.unattended().await,
         confined: hosted.shared_confinement.is_confined(),
@@ -264,10 +264,10 @@ pub(crate) async fn build_full_session_snapshot(
 /// atomically.
 fn workspace_trust_notice(
     session_id: &str,
-    snapshot: &nuo_wire::WorkspaceSecuritySnapshot,
+    snapshot: &nuo_protocol::WorkspaceSecuritySnapshot,
 ) -> AgentResponse {
-    let round = |event: nuo_wire::RoundEvent| AgentResponse::Round {
-        session_id: session_id.to_string(),
+    let round = |event: nuo_protocol::RoundEvent| AgentResponse::Round {
+        thread_id: session_id.to_string(),
         event,
     };
     let awaiting = snapshot.domains_needing_review();
@@ -281,12 +281,14 @@ fn workspace_trust_notice(
             .join(", ")
     };
 
-    round(nuo_wire::RoundEvent::Notice(
-        nuo_wire::AgentNotice::trust_changed("Workspace configuration changed").with_body(format!(
-            "Awaiting review: {changed_desc}.\n\
+    round(nuo_protocol::RoundEvent::Notice(
+        nuo_protocol::AgentNotice::trust_changed("Workspace configuration changed").with_body(
+            format!(
+                "Awaiting review: {changed_desc}.\n\
              Run `/trust` to approve and reload, `/trust deny` to ignore until the content \
              changes, or `/untrust` to revoke every grant for this workspace.",
-        )),
+            ),
+        ),
     ))
 }
 
@@ -302,7 +304,7 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
         | AgentResponse::ProviderPicker(_) => true,
         AgentResponse::Round { event, .. } => matches!(
             event,
-            nuo_wire::RoundEvent::ContextTokens(_) | nuo_wire::RoundEvent::HarnessState(_)
+            nuo_protocol::RoundEvent::ContextTokens(_) | nuo_protocol::RoundEvent::HarnessState(_)
         ),
         _ => false,
     }
@@ -342,7 +344,7 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
 /// field — a client that declares a protocol number is judged on
 /// the window alone, its product version never enters the decision.
 fn version_mismatch_error(client: &str, server: &str) -> String {
-    use nuo_wire::{VersionRelation, compare_versions};
+    use nuo_protocol::{VersionRelation, compare_versions};
     match compare_versions(client, server) {
         VersionRelation::ClientOlder => format!(
             "client/server version mismatch: client ({client}) is older than server ({server}). \
@@ -630,7 +632,7 @@ pub struct TcpManager {
     cancel: Arc<RwLock<Option<CancellationToken>>>,
     expose: ServeExpose,
     local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
     conns: Arc<ConnTable>,
     gate: Arc<ShutdownGate>,
     tasks: Arc<crate::shutdown::TaskBook>,
@@ -640,7 +642,7 @@ impl TcpManager {
     pub async fn open_tcp(
         &self,
         requested_port: Option<u16>,
-    ) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    ) -> Result<nuo_protocol::ServerEndpointsReport, String> {
         let current_port = self.port.load(Ordering::SeqCst);
         let target_port = requested_port.unwrap_or_else(|| {
             if current_port > 0 {
@@ -737,7 +739,7 @@ impl TcpManager {
         self.port.store(0, Ordering::SeqCst);
     }
 
-    pub async fn close_tcp(&self) -> Result<nuo_wire::ServerEndpointsReport, String> {
+    pub async fn close_tcp(&self) -> Result<nuo_protocol::ServerEndpointsReport, String> {
         self.close_tcp_internal().await;
         if let Some(mut record) = crate::serve_discovery::read() {
             record.port = 0;
@@ -747,12 +749,12 @@ impl TcpManager {
         Ok(self.get_endpoints().await)
     }
 
-    pub async fn get_endpoints(&self) -> nuo_wire::ServerEndpointsReport {
+    pub async fn get_endpoints(&self) -> nuo_protocol::ServerEndpointsReport {
         let port = self.port.load(Ordering::SeqCst);
         let active = port > 0;
         let token = self.token.read().await.clone();
         let local_endpoint = self.local_endpoint.as_ref().map(|e| e.to_string());
-        nuo_wire::ServerEndpointsReport {
+        nuo_protocol::ServerEndpointsReport {
             tcp_port: port,
             tcp_active: active,
             token,
@@ -775,20 +777,20 @@ impl TcpManager {
     }
 }
 
-pub async fn get_current_endpoints() -> nuo_wire::ServerEndpointsReport {
+pub async fn get_current_endpoints() -> nuo_protocol::ServerEndpointsReport {
     let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
     if let Some(mgr) = mgr_opt {
         mgr.get_endpoints().await
     } else if let Some(rec) = crate::serve_discovery::read() {
         let local_endpoint = rec.effective_local_endpoint().map(|e| e.to_string());
-        nuo_wire::ServerEndpointsReport {
+        nuo_protocol::ServerEndpointsReport {
             tcp_port: rec.port,
             tcp_active: rec.port > 0,
             token: rec.token,
             local_endpoint,
         }
     } else {
-        nuo_wire::ServerEndpointsReport {
+        nuo_protocol::ServerEndpointsReport {
             tcp_port: 0,
             tcp_active: false,
             token: None,
@@ -799,7 +801,7 @@ pub async fn get_current_endpoints() -> nuo_wire::ServerEndpointsReport {
 
 pub async fn open_dynamic_tcp(
     port: Option<u16>,
-) -> Result<nuo_wire::ServerEndpointsReport, String> {
+) -> Result<nuo_protocol::ServerEndpointsReport, String> {
     let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
     if let Some(mgr) = mgr_opt {
         mgr.open_tcp(port).await
@@ -808,7 +810,7 @@ pub async fn open_dynamic_tcp(
     }
 }
 
-pub async fn close_dynamic_tcp() -> Result<nuo_wire::ServerEndpointsReport, String> {
+pub async fn close_dynamic_tcp() -> Result<nuo_protocol::ServerEndpointsReport, String> {
     let mgr_opt = TCP_MANAGER.read().ok().and_then(|guard| guard.clone());
     if let Some(mgr) = mgr_opt {
         mgr.close_tcp().await
@@ -819,7 +821,7 @@ pub async fn close_dynamic_tcp() -> Result<nuo_wire::ServerEndpointsReport, Stri
 
 pub fn start_server(
     opts: ServeOptions,
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
 ) -> ServeHandle {
     let (actual_port_tx, actual_port_rx) =
         tokio::sync::oneshot::channel::<Result<u16, std::io::Error>>();
@@ -1083,7 +1085,7 @@ fn spawn_tcp_connection(
 /// per-socket specifics (stream, token, exposure, peer).
 #[derive(Clone)]
 struct ServeCtx {
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
     conns: Arc<ConnTable>,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
@@ -1191,7 +1193,7 @@ impl Drop for ConnGuard {
 /// close or issue another verb.
 async fn run_control(
     mut wire_sink: BoxWireSink,
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
     tcp_manager: Option<Arc<TcpManager>>,
@@ -1205,12 +1207,12 @@ async fn run_control(
             let reply = match registry.reload_runtime().await {
                 Ok(()) => Wire::ControlReply {
                     ok: true,
-                    session_id: None,
+                    thread_id: None,
                     error: None,
                 },
                 Err(error) => Wire::ControlReply {
                     ok: false,
-                    session_id: None,
+                    thread_id: None,
                     error: Some(error),
                 },
             };
@@ -1226,7 +1228,7 @@ async fn run_control(
             // otherwise cancel this very connection before the reply lands.
             let reply = Wire::ControlReply {
                 ok: true,
-                session_id: None,
+                thread_id: None,
                 error: None,
             };
             wire_sink
@@ -1242,7 +1244,7 @@ async fn run_control(
             listeners.cancel();
             return Ok(());
         }
-        ControlRequest::CreateSession {
+        ControlRequest::CreateThread {
             project,
             prompt,
             init_options,
@@ -1258,43 +1260,41 @@ async fn run_control(
                     if let Some(text) = prompt
                         && let Err(e) = registry.send_prompt(&id, text).await
                     {
-                        tracing::warn!(session=%id,error=%e,"nuo server: create-session prompt failed");
+                        tracing::warn!(session=%id,error=%e,"nuo server: create-thread prompt failed");
                     }
                     (true, Some(id), None)
                 }
                 Err(e) => (false, None, Some(e)),
             }
         }
-        ControlRequest::SendPrompt { session_id, text } => {
-            match registry.send_prompt(&session_id, text).await {
-                Ok(()) => (true, Some(session_id), None),
+        ControlRequest::SendPrompt { thread_id, text } => {
+            match registry.send_prompt(&thread_id, text).await {
+                Ok(()) => (true, Some(thread_id), None),
                 Err(e) => (false, None, Some(e)),
             }
         }
-        ControlRequest::Interrupt { session_id } => match registry.interrupt(&session_id).await {
-            Ok(()) => (true, Some(session_id), None),
+        ControlRequest::Interrupt { thread_id } => match registry.interrupt(&thread_id).await {
+            Ok(()) => (true, Some(thread_id), None),
             Err(e) => (false, None, Some(e)),
         },
         ControlRequest::ResolvePermission {
-            session_id,
+            thread_id,
             request_id,
             decision,
         } => match registry
-            .resolve_permission(&session_id, request_id, decision)
+            .resolve_permission(&thread_id, request_id, decision)
             .await
         {
-            Ok(()) => (true, Some(session_id), None),
+            Ok(()) => (true, Some(thread_id), None),
             Err(e) => (false, None, Some(e)),
         },
-        ControlRequest::KillSession { session_id } => {
-            match registry.kill_session(&session_id).await {
-                Ok(()) => (true, Some(session_id), None),
-                Err(e) => (false, None, Some(e)),
-            }
-        }
-        ControlRequest::SuspendSession { session_id } => {
-            match registry.suspend_session_control(&session_id).await {
-                Ok(()) => (true, Some(session_id), None),
+        ControlRequest::KillThread { thread_id } => match registry.kill_session(&thread_id).await {
+            Ok(()) => (true, Some(thread_id), None),
+            Err(e) => (false, None, Some(e)),
+        },
+        ControlRequest::SuspendThread { thread_id } => {
+            match registry.suspend_session_control(&thread_id).await {
+                Ok(()) => (true, Some(thread_id), None),
                 Err(e) => (false, None, Some(e)),
             }
         }
@@ -1362,7 +1362,7 @@ async fn run_control(
     };
     let reply = Wire::ControlReply {
         ok,
-        session_id,
+        thread_id: session_id,
         error,
     };
     wire_sink
@@ -1389,7 +1389,7 @@ fn generate_token() -> String {
 async fn handle_wire_stream(
     mut wire_sink: BoxWireSink,
     mut wire_source: BoxWireStream,
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
     gate: Arc<ShutdownGate>,
     listeners: CancellationToken,
     conns: Arc<ConnTable>,
@@ -1397,14 +1397,31 @@ async fn handle_wire_stream(
 ) -> Result<(), String> {
     let (action, project, client_posture, client_version, client_protocol) =
         match wire_source.next().await {
-            Some(Ok(Wire::Select {
+            Some(Ok(WireFrame::Wire(Wire::Select {
                 action,
                 project,
                 posture,
                 version,
                 protocol,
-            })) => (action, project, posture, version, protocol),
-            Some(Ok(_)) => {
+            }))) => (action, project, posture, version, protocol),
+            // A first frame we cannot model is still a first frame: answer it
+            // with the taxonomy rather than a bare disconnect, so the peer's
+            // disclosure names the skew instead of a transport fault.
+            Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                send_error_with_code(
+                    &mut wire_sink,
+                    &format!(
+                        "could not decode the first frame{}{detail}",
+                        envelope
+                            .map(|tag| format!(" (envelope `{tag}`)"))
+                            .unwrap_or_default()
+                    ),
+                    Some(nuo_protocol::ERR_PROTOCOL_MISMATCH),
+                )
+                .await?;
+                return Ok(());
+            }
+            Some(Ok(WireFrame::Wire(_))) => {
                 send_error(&mut wire_sink, "expected Select as the first frame").await?;
                 return Ok(());
             }
@@ -1481,7 +1498,7 @@ async fn handle_wire_stream(
         crate::registry::ResolveOutcome::Welcome(handle) => handle,
         crate::registry::ResolveOutcome::Pick { sessions } => {
             wire_sink
-                .send(Wire::Pick { sessions })
+                .send(Wire::Pick { threads: sessions })
                 .await
                 .map_err(|e| format!("send pick: {e}"))?;
             return Ok(());
@@ -1504,7 +1521,7 @@ async fn handle_wire_stream(
     // before the store, transcript, skills, hooks, or credentials are touched.
     wire_sink
         .send(Wire::Welcome {
-            session_id: session_id.clone(),
+            thread_id: session_id.clone(),
             phase: phase.clone(),
         })
         .await
@@ -1527,13 +1544,13 @@ async fn handle_wire_stream(
     if let Some(snapshot) = &last_snapshot {
         wire_sink
             .send(Wire::Response {
-                response: AgentResponse::SessionSnapshot(Box::new(snapshot.clone())),
+                response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
             })
             .await
-            .map_err(|e| format!("send session snapshot: {e}"))?;
+            .map_err(|e| format!("send thread snapshot: {e}"))?;
         // A client cannot answer a gate from a pipe; surface the trust posture
         // passively for non-interactive attaches (ADR-0127).
-        if after_attach != nuo_wire::human_request::HumanChannelPosture::Interactive
+        if after_attach != nuo_protocol::human_request::HumanChannelPosture::Interactive
             && let Some(harness) = &snapshot.harness_state
             && harness.workspace_security.needs_review()
         {
@@ -1548,31 +1565,31 @@ async fn handle_wire_stream(
         // past it.
         wire_sink
             .send(Wire::Response {
-                response: AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
-                    session_id: session_id.clone(),
-                    phase: nuo_wire::SessionPhase::Ready,
+                response: AgentResponse::ThreadPhase(nuo_protocol::ThreadPhaseUpdate {
+                    thread_id: session_id.clone(),
+                    phase: nuo_protocol::ThreadPhase::Ready,
                 }),
             })
             .await
             .map_err(|e| format!("send ready phase: {e}"))?;
-    } else if phase != nuo_wire::SessionPhase::Binding {
+    } else if phase != nuo_protocol::ThreadPhase::Binding {
         // A second attacher joining an in-flight build learns where it is.
         wire_sink
             .send(Wire::Response {
-                response: AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
-                    session_id: session_id.clone(),
+                response: AgentResponse::ThreadPhase(nuo_protocol::ThreadPhaseUpdate {
+                    thread_id: session_id.clone(),
                     phase,
                 }),
             })
             .await
-            .map_err(|e| format!("send session phase: {e}"))?;
+            .map_err(|e| format!("send thread phase: {e}"))?;
     }
 
     loop {
         tokio::select! {
             resp = rx.recv() => match resp {
-                Ok(response @ AgentResponse::SessionSnapshot(_)) => {
-                    if let AgentResponse::SessionSnapshot(snapshot) = &response {
+                Ok(response @ AgentResponse::ThreadSnapshot(_)) => {
+                    if let AgentResponse::ThreadSnapshot(snapshot) = &response {
                         last_snapshot = Some((**snapshot).clone());
                     }
                     if let Err(e) = wire_sink.send(Wire::Response { response }).await {
@@ -1593,21 +1610,21 @@ async fn handle_wire_stream(
                         last_snapshot = Some(snapshot.clone());
                         let _ = wire_sink
                             .send(Wire::Response {
-                                response: AgentResponse::SessionSnapshot(Box::new(snapshot)),
+                                response: AgentResponse::ThreadSnapshot(Box::new(snapshot)),
                             })
                             .await;
                         let _ = wire_sink
                             .send(Wire::Response {
-                                response: AgentResponse::SessionPhase(nuo_wire::SessionPhaseUpdate {
-                                    session_id: session_id.clone(),
-                                    phase: nuo_wire::SessionPhase::Ready,
+                                response: AgentResponse::ThreadPhase(nuo_protocol::ThreadPhaseUpdate {
+                                    thread_id: session_id.clone(),
+                                    phase: nuo_protocol::ThreadPhase::Ready,
                                 }),
                             })
                             .await;
                     } else if let Some(snapshot) = &last_snapshot {
                         let _ = wire_sink
                             .send(Wire::Response {
-                                response: AgentResponse::SessionSnapshot(Box::new(snapshot.clone())),
+                                response: AgentResponse::ThreadSnapshot(Box::new(snapshot.clone())),
                             })
                             .await;
                     }
@@ -1616,7 +1633,7 @@ async fn handle_wire_stream(
                 Err(broadcast::error::RecvError::Closed) => break,
             },
             msg = wire_source.next() => match msg {
-                Some(Ok(Wire::Request { request: AgentRequest::EndSession })) => {
+                Some(Ok(WireFrame::Wire(Wire::Request { request: AgentRequest::EndThread }))) => {
                     // Client-declared session end: tear down the hosted session
                     // through the same path as `KillSession`, or cancel an
                     // in-flight build. Never reaches the driver queue.
@@ -1649,7 +1666,7 @@ async fn handle_wire_stream(
                     }
                     return Ok(());
                 }
-                Some(Ok(Wire::Request { request })) => {
+                Some(Ok(WireFrame::Wire(Wire::Request { request }))) => {
                     let req_tx = handle.req_tx();
                     match req_tx.try_send(request) {
                         Ok(()) => {}
@@ -1667,7 +1684,18 @@ async fn handle_wire_stream(
                         }
                     }
                 }
-                Some(Ok(_)) => {}
+                // A frame this build cannot model: report the skew on the
+                // server's own log and keep the connection. The peer still
+                // gets its turn to be understood [ADR-0136].
+                Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                    tracing::warn!(
+                        session = %session_id,
+                        envelope = envelope.as_deref().unwrap_or("<none>"),
+                        %detail,
+                        "nuo server: undecodable frame from client; connection retained"
+                    );
+                }
+                Some(Ok(WireFrame::Wire(_))) => {}
                 Some(Err(e)) => tracing::warn!(error = %e, "nuo server: bad wire request"),
                 None => break,
             },
@@ -1689,7 +1717,7 @@ async fn handle_wire_stream(
 /// the shared services it talks to, and the drain/cancel plumbing that owns it.
 struct ConnectionParams<S> {
     stream: S,
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
     token: Option<String>,
     expose: ServeExpose,
     gate: Arc<ShutdownGate>,
@@ -1763,7 +1791,7 @@ where
 /// updates are idempotent whole-row replacements).
 async fn run_monitor(
     mut wire_sink: BoxWireSink,
-    registry: Arc<crate::registry::SessionRegistry>,
+    registry: Arc<crate::registry::ThreadRegistry>,
     action: MonitorAction,
     gate: Arc<ShutdownGate>,
 ) -> Result<(), String> {
@@ -1803,7 +1831,7 @@ async fn run_monitor(
                     Err(broadcast::error::RecvError::Closed) => return Ok(()),
                 };
                 let filtered = match &event {
-                    MonitorEvent::SessionAdded(row) | MonitorEvent::SessionUpdated(row) => {
+                    MonitorEvent::ThreadAdded(row) | MonitorEvent::ThreadUpdated(row) => {
                         if action.include_idle || row.status.is_active() {
                             Some(event.clone())
                         } else {
@@ -1814,7 +1842,7 @@ async fn run_monitor(
                     | MonitorEvent::TaskUpdated(_)
                     | MonitorEvent::TaskRemoved { .. }
                     | MonitorEvent::PersistenceHealth(_)
-                    | MonitorEvent::SessionRemoved { .. }
+                    | MonitorEvent::ThreadRemoved { .. }
                     | MonitorEvent::ServerDraining => Some(event.clone()),
                 };
                 if let Some(event) = filtered {
@@ -2061,7 +2089,7 @@ mod tests {
 
     #[tokio::test]
     async fn dynamic_tcp_manager_lifecycle() {
-        let registry = Arc::new(crate::registry::SessionRegistry::prehost_only());
+        let registry = Arc::new(crate::registry::ThreadRegistry::prehost_only());
         let conns = Arc::new(ConnTable::new());
         let gate = Arc::new(ShutdownGate::new());
         let tasks = Arc::new(crate::shutdown::TaskBook::new());
@@ -2096,16 +2124,16 @@ mod tests {
         assert!(!closed.tcp_active);
     }
     #[test]
-    fn end_session_serializes_as_flattened_null_unit_variant() {
-        // `EndSession` is a unit variant flattened into the
-        // `Wire::Request` envelope, so it must appear as a key with a `null`
-        // value next to `"type"` — the same shape `Interrupt` uses, and what
-        // the Web app's `requestFrame({ EndSession: null })` sends.
+    fn end_thread_serializes_as_flattened_null_unit_variant() {
+        // `EndThread` is a unit variant flattened into the `Wire::Request`
+        // envelope, so it must appear as a key with a `null` value next to
+        // `"type"` — the same shape `Interrupt` uses, and what the Web app's
+        // `requestFrame({ EndThread: null })` sends.
         let text = serde_json::to_string(&Wire::Request {
-            request: AgentRequest::EndSession,
+            request: AgentRequest::EndThread,
         })
-        .expect("serialize EndSession");
-        assert_eq!(text, r#"{"type":"Request","EndSession":null}"#);
+        .expect("serialize EndThread");
+        assert_eq!(text, r#"{"type":"Request","EndThread":null}"#);
     }
     #[test]
     fn generate_token_is_nonempty_hex() {
@@ -2316,11 +2344,13 @@ mod tests {
         // Observe multiple turns of ContextTokens
         for i in 1..=10 {
             let tokens = AgentResponse::Round {
-                session_id: "s1".to_string(),
-                event: nuo_wire::RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
-                    i * 100,
-                    nuo_wire::ContextTokenSource::Projection,
-                )),
+                thread_id: "s1".to_string(),
+                event: nuo_protocol::RoundEvent::ContextTokens(
+                    nuo_protocol::ContextTokenSnapshot::new(
+                        i * 100,
+                        nuo_protocol::ContextTokenSource::Projection,
+                    ),
+                ),
             };
             buf.observe(&tokens);
         }

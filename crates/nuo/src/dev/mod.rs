@@ -7,6 +7,7 @@ pub mod adr_lineage;
 pub mod doc_links;
 pub mod firewall;
 pub mod residency;
+pub mod wire_census;
 
 use std::path::PathBuf;
 

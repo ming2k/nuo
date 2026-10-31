@@ -157,7 +157,7 @@ impl RoundGuardState {
         &self,
         calls: &[(&str, &str)],
         preceding_context: String,
-    ) -> Option<nuo_wire::TrajectoryLoopReviewInput> {
+    ) -> Option<nuo_protocol::TrajectoryLoopReviewInput> {
         let guard = self.trajectory.as_ref()?;
         let signatures: Vec<String> = calls
             .iter()
@@ -168,7 +168,7 @@ impl RoundGuardState {
             return None;
         }
         let (signature, threshold_tier, recent_signatures) = guard.check_candidate(&signatures)?;
-        Some(nuo_wire::TrajectoryLoopReviewInput {
+        Some(nuo_protocol::TrajectoryLoopReviewInput {
             signature,
             threshold_tier,
             recent_signatures,

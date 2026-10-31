@@ -23,11 +23,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nuo::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
-use nuo::registry::{HostedSession, SessionRegistry};
+use nuo::registry::{HostedThread, ThreadRegistry};
 use nuo::serve::ServeExpose;
 use nuo::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
 use nuo_persistence::session::SessionStore;
-use nuo_wire::MonitorEvent;
+use nuo_protocol::MonitorEvent;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
@@ -83,10 +83,10 @@ fn nuo_home_redirects_the_server_footprint() {
 /// exist.
 fn test_identity() -> HostIdentity {
     HostIdentity {
-        identity: nuo_wire::AgentIdentity::new("probe", "lifecycle probe"),
-        preset: nuo_wire::AgentRoleProfile::with_identity(
+        identity: nuo_protocol::AgentIdentity::new("probe", "lifecycle probe"),
+        preset: nuo_protocol::AgentRoleProfile::with_identity(
             "probe",
-            nuo_wire::AgentIdentity::new("probe", "lifecycle probe"),
+            nuo_protocol::AgentIdentity::new("probe", "lifecycle probe"),
         ),
         ui: Arc::new(HeadlessProbe),
     }
@@ -104,33 +104,33 @@ impl nuo::UiBridge for HeadlessProbe {
 
 /// Host one hand-built session; returns the monitor subscription-friendly
 /// registry (fixtures mirror `serve_integration::prehosted`, minus the tap).
-async fn host_one(registry: &Arc<SessionRegistry>, project: &str) -> String {
+async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
     let session = Arc::new(SessionStore::load_for_project(project.into()));
-    let (req_tx, _req_rx) = mpsc::channel::<nuo_wire::AgentRequest>(512);
-    let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
+    let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(512);
+    let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
     let id = session.id().await;
     let id_ret = id.clone();
     let tracker = Arc::new(Mutex::new(nuo::monitor::MonitorTracker::bootstrap(
-        nuo_wire::MonitoredSession::empty(id),
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::MonitoredThread::empty(id),
+        nuo_protocol::ThreadStatus::Idle,
     )));
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(std::path::PathBuf::from(project)),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_wire::CommandCatalog::default(),
+            command_catalog: nuo_protocol::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
@@ -164,7 +164,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     sandbox_once();
     let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     host_one(&registry, tmp.path().join("proj-a").to_str().unwrap()).await;
     let mut monitor_rx = registry.subscribe_monitor();
 
@@ -206,7 +206,7 @@ async fn control_verb_drain_removes_discovery_and_exits_zero() {
     while let Ok(event) = monitor_rx.try_recv() {
         match event {
             MonitorEvent::ServerDraining => saw_draining = true,
-            MonitorEvent::SessionRemoved { .. } => saw_removed = true,
+            MonitorEvent::ThreadRemoved { .. } => saw_removed = true,
             _ => {}
         }
     }
@@ -225,7 +225,7 @@ async fn idle_exit_triggers_after_the_grace_period() {
     // No sessions, no connections: the idle timer is the only exit path.
     // The probe polls every 5s; a near-zero grace needs one tick, so the
     // test's wall time is bounded by one probe tick.
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let gate = Arc::new(ShutdownGate::new());
     let _ = registry;
     let outcome = nuo::host::run_with_gate(
@@ -252,7 +252,7 @@ async fn escalation_skips_the_graceful_phases() {
     let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("c.sock");
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     host_one(&registry, tmp.path().join("proj-b").to_str().unwrap()).await;
     let mut monitor_rx = registry.subscribe_monitor();
 
@@ -302,7 +302,7 @@ async fn escalation_skips_the_graceful_phases() {
     while let Ok(event) = monitor_rx.try_recv() {
         match event {
             MonitorEvent::ServerDraining => saw_draining = true,
-            MonitorEvent::SessionRemoved { .. } => saw_removed = true,
+            MonitorEvent::ThreadRemoved { .. } => saw_removed = true,
             _ => {}
         }
     }
@@ -322,7 +322,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
     let hog = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let taken = hog.local_addr().unwrap().port();
 
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let _ = registry;
     let outcome = nuo::host::run_with_gate(
         test_identity(),
@@ -353,7 +353,7 @@ async fn port_bind_failure_is_a_readable_startup_failure() {
 async fn idle_suspension_spares_sessions_with_armed_schedules() {
     sandbox_once();
     let tmp = tempfile::tempdir().unwrap();
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
 
     // Two sessions past the TTL: one with an armed job, one without. Both
     // need real content so the store persists them (empty sessions are the
@@ -361,33 +361,33 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     // `SessionStore` it was armed on, so the id the registry sees is the id
     // the schedule belongs to.
     async fn host_with_session(
-        registry: &Arc<SessionRegistry>,
+        registry: &Arc<ThreadRegistry>,
         session: Arc<SessionStore>,
         project_root: &std::path::Path,
     ) {
-        let (req_tx, _req_rx) = mpsc::channel::<nuo_wire::AgentRequest>(512);
-        let (bc_tx, _) = broadcast::channel::<nuo_wire::AgentResponse>(16);
+        let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(512);
+        let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
         let tracker = Arc::new(Mutex::new(nuo::monitor::MonitorTracker::bootstrap(
-            nuo_wire::MonitoredSession::empty(session.id().await),
-            nuo_wire::SessionStatus::Idle,
+            nuo_protocol::MonitoredThread::empty(session.id().await),
+            nuo_protocol::ThreadStatus::Idle,
         )));
         registry
-            .host(HostedSession {
+            .host(HostedThread {
                 workspace_root: Some(project_root.to_path_buf()),
                 human_channel: std::sync::Arc::new(
-                    nuo_wire::human_request::HumanChannelAccountant::new(),
+                    nuo_protocol::human_request::HumanChannelAccountant::new(),
                 ),
                 security: std::sync::Arc::new(
                     nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
                 ),
                 session,
-                shared_confinement: nuo_wire::SharedConfinement::default(),
+                shared_confinement: nuo_protocol::SharedConfinement::default(),
                 req_tx,
                 events: bc_tx,
                 cancel: tokio_util::sync::CancellationToken::new(),
                 tracker,
                 sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-                command_catalog: nuo_wire::CommandCatalog::default(),
+                command_catalog: nuo_protocol::CommandCatalog::default(),
                 initial_provider: "test-provider".into(),
                 initial_model: "test-model".into(),
                 created_at: std::time::Instant::now(),
@@ -402,8 +402,8 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     let plain_project = tmp.path().join("plain-project");
     let plain_session = Arc::new(SessionStore::load_for_project(plain_project.clone()));
     plain_session
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
             "no schedule here",
         )])
         .await
@@ -428,7 +428,7 @@ async fn server_persists_when_interactive_client_disconnects() {
     let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("server_persists.sock");
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let proj_dir = tmp.path().join("proj-cd");
     host_one(&registry, proj_dir.to_str().unwrap()).await;
 
@@ -462,18 +462,21 @@ async fn server_persists_when_interactive_client_disconnects() {
     let (mut sink, mut source) = nuo::transport::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(nuo_wire::Wire::Select {
-        action: nuo_wire::AttachAction::Attach(None),
+    sink.send(nuo_protocol::Wire::Select {
+        action: nuo_protocol::AttachAction::Attach(None),
         project: Some(proj_dir),
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         version: None,
-        protocol: Some(nuo_wire::PROTOCOL_VERSION),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
     })
     .await
     .unwrap();
 
     let welcome = source.next().await.unwrap().unwrap();
-    assert!(matches!(welcome, nuo_wire::Wire::Welcome { .. }));
+    assert!(matches!(
+        welcome,
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::Welcome { .. })
+    ));
 
     // Disconnect (Detach) the interactive client
     drop(sink);
@@ -502,7 +505,7 @@ async fn client_detach_spares_active_autonomous_work() {
     let _lock = LIFECYCLE_TEST_LOCK.lock().await;
     let tmp = tempfile::tempdir().unwrap();
     let sock = tmp.path().join("client_detach_active.sock");
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let proj_dir = tmp.path().join("proj-cd-active");
     let session_id = host_one(&registry, proj_dir.to_str().unwrap()).await;
 
@@ -513,9 +516,9 @@ async fn client_detach_spares_active_autonomous_work() {
             .tracker
             .lock()
             .await
-            .observe(&nuo_wire::AgentResponse::Round {
-                session_id: session_id.clone(),
-                event: nuo_wire::RoundEvent::TurnStarted { round: 1, turn: 1 },
+            .observe(&nuo_protocol::AgentResponse::Round {
+                thread_id: session_id.clone(),
+                event: nuo_protocol::RoundEvent::TurnStarted { round: 1, turn: 1 },
             });
     }
     assert!(registry.has_active_work().await);
@@ -550,18 +553,21 @@ async fn client_detach_spares_active_autonomous_work() {
     let (mut sink, mut source) = nuo::transport::native_framed_split(stream);
 
     use futures::{SinkExt, StreamExt};
-    sink.send(nuo_wire::Wire::Select {
-        action: nuo_wire::AttachAction::Attach(None),
+    sink.send(nuo_protocol::Wire::Select {
+        action: nuo_protocol::AttachAction::Attach(None),
         project: Some(proj_dir),
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         version: None,
-        protocol: Some(nuo_wire::PROTOCOL_VERSION),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
     })
     .await
     .unwrap();
 
     let welcome = source.next().await.unwrap().unwrap();
-    assert!(matches!(welcome, nuo_wire::Wire::Welcome { .. }));
+    assert!(matches!(
+        welcome,
+        nuo_protocol::WireFrame::Wire(nuo_protocol::Wire::Welcome { .. })
+    ));
 
     // Disconnect (Detach) the interactive client
     drop(sink);
@@ -590,7 +596,7 @@ async fn conflicting_stale_socket_is_directly_replaced() {
     std::fs::write(&sock, b"stale socket").unwrap();
     assert!(sock.exists());
 
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let gate = Arc::new(ShutdownGate::new());
     let g1 = gate.clone();
     tokio::spawn(async move {

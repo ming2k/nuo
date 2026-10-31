@@ -1,5 +1,5 @@
-use nuo_wire::MainAgentRole;
-pub use nuo_wire::policy_schema::{CustomRole, RoleWorkspace};
+use nuo_protocol::MainAgentRole;
+pub use nuo_protocol::policy_schema::{CustomRole, RoleWorkspace};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -101,7 +101,7 @@ pub fn is_valid_id(id: &str) -> bool {
 pub fn resolve_role_manifest(
     workspace_root: Option<&std::path::Path>,
     role_id: Option<&str>,
-) -> nuo_wire::SessionRoleManifest {
+) -> nuo_protocol::SessionRoleManifest {
     let role_id = role_id.unwrap_or("developer");
     let roles_cfg = RolesConfig::load_for_workspace(workspace_root);
     if let Some(user_role) = roles_cfg.get(role_id) {
@@ -110,7 +110,7 @@ pub fn resolve_role_manifest(
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        nuo_wire::SessionRoleManifest {
+        nuo_protocol::SessionRoleManifest {
             role_id: role_id.to_string(),
             name: user_role.name.clone(),
             description: user_role.description.clone(),
@@ -122,12 +122,12 @@ pub fn resolve_role_manifest(
         }
     } else if let Some(builtin) = MainAgentRole::parse(role_id) {
         match builtin {
-            MainAgentRole::Developer => nuo_wire::SessionRoleManifest::developer(),
-            MainAgentRole::Philosophist => nuo_wire::SessionRoleManifest::philosophist(),
-            MainAgentRole::Ops => nuo_wire::SessionRoleManifest::ops(),
+            MainAgentRole::Developer => nuo_protocol::SessionRoleManifest::developer(),
+            MainAgentRole::Philosophist => nuo_protocol::SessionRoleManifest::philosophist(),
+            MainAgentRole::Ops => nuo_protocol::SessionRoleManifest::ops(),
         }
     } else {
-        let mut manifest = nuo_wire::SessionRoleManifest::developer();
+        let mut manifest = nuo_protocol::SessionRoleManifest::developer();
         manifest.role_id = role_id.to_string();
         manifest.name = role_id.to_string();
         manifest
@@ -235,7 +235,7 @@ admit_mcp = ["internal_pg"]
         assert!(
             manifest
                 .builtin_tools()
-                .contains(&nuo_wire::BuiltinTool::ExecuteCommand)
+                .contains(&nuo_protocol::BuiltinTool::ExecuteCommand)
         );
         assert!(manifest.tools.contains(&"execute_command".to_string()));
     }

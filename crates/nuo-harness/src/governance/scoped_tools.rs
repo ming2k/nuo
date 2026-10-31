@@ -1,5 +1,5 @@
 //! Scoped tool-disabling state — the in-memory mask a hook applies via a
-//! [`nuo_wire::HookOutcome::ScopeTools`] outcome.
+//! [`nuo_protocol::HookOutcome::ScopeTools`] outcome.
 //!
 //! Lives in the governance layer (`[INV-HARNESS-03]`, ADR-0100): the permission
 //! policy and the dispatch tool manager both consult it to hide a tool from the
@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 /// In-memory only mask of tools a hook has temporarily disabled via a
-/// [`nuo_wire::HookOutcome::ScopeTools`] outcome, partitioned by the
-/// [`nuo_wire::RestorePoint`] at which each should come back.
+/// [`nuo_protocol::HookOutcome::ScopeTools`] outcome, partitioned by the
+/// [`nuo_protocol::RestorePoint`] at which each should come back.
 ///
 /// Deliberately **separate** from the session-level, persisted
 /// `Agent::disabled_tools`: scoped disables never reach the session store
@@ -28,10 +28,10 @@ pub(crate) struct ScopedToolDisable {
 impl ScopedToolDisable {
     /// Record a hook-fired disable for `tool` at `restore`. Increments the
     /// refcount so nested disables compose.
-    pub(crate) fn disable(&mut self, tool: &str, restore: nuo_wire::RestorePoint) {
+    pub(crate) fn disable(&mut self, tool: &str, restore: nuo_protocol::RestorePoint) {
         let bucket = match restore {
-            nuo_wire::RestorePoint::TurnEnd => &mut self.turn_end,
-            nuo_wire::RestorePoint::RoundEnd => &mut self.round_end,
+            nuo_protocol::RestorePoint::TurnEnd => &mut self.turn_end,
+            nuo_protocol::RestorePoint::RoundEnd => &mut self.round_end,
         };
         *bucket.entry(tool.to_string()).or_insert(0) += 1;
     }

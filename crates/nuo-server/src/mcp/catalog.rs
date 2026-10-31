@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_wire::DynamicCatalog;
+use nuo_protocol::DynamicCatalog;
 
 use super::McpRuntime;
 
@@ -43,7 +43,7 @@ impl DynamicCatalog for McpCatalog {
         let statuses = self.runtime.statuses_snapshot();
         let connected = statuses
             .iter()
-            .filter(|(_, s)| matches!(s, nuo_wire::mcp::McpConnectionStatus::Connected { .. }))
+            .filter(|(_, s)| matches!(s, nuo_protocol::mcp::McpConnectionStatus::Connected { .. }))
             .count();
         tracing::info!(servers = statuses.len(), connected, "MCP refresh complete");
         Ok(())

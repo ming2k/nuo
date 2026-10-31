@@ -35,7 +35,7 @@
 //! A failure names the check and the offending fact, because "hydration parity
 //! failed" without a fact id is not actionable.
 use futures::future::BoxFuture;
-use nuo_wire::{
+use nuo_protocol::{
     CausalNode, ExecutionStatus, Message, NodeKind, NodePayload, Role, SessionDelta, StateUpdate,
     SystemNoticePayload,
 };

@@ -7,7 +7,7 @@
 //! state machine* — mounting/dismissing sheets in reaction to request
 //! queues, projecting viewed-session data, and the scroll-relevant
 //! transcript-change bookkeeping — all reading and writing `App` alone.
-use nuo_wire::Role;
+use nuo_protocol::Role;
 
 use crate::shell::app::App;
 use crate::shell::event_loop::runtime::{UiRuntime, now_epoch_ms};

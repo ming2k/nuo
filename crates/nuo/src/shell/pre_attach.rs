@@ -26,7 +26,7 @@
 //! is reused as the navigation/selection state machine, exactly as
 //! the Question sheet does for AI-initiated `ask_user` — its MVU
 //! purity keeps the input path testable without a terminal.
-use nuo_wire::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_protocol::{WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use nuotc::{Alignment, Block, Color, Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 
 use crate::shell::question_model::{QuestionAction, QuestionEffect, QuestionModel};
@@ -89,7 +89,7 @@ pub struct PreAttachState {
     /// The domains this gate offered — every one awaiting a decision when it
     /// mounted. A `Decline` refuses exactly this set, so it is captured at mount
     /// rather than re-derived from a later snapshot that may have moved.
-    domains: Vec<nuo_wire::TrustDomain>,
+    domains: Vec<nuo_protocol::TrustDomain>,
 }
 
 /// The signal the listener task raises when a freshly-arrived
@@ -114,7 +114,9 @@ pub struct PreAttachSignal {
 pub enum PreAttachDecision {
     /// User chose to trust the workspace. Direct control-plane admission
     /// request — does not route through slash commands or pollute the transcript.
-    Trust { domains: Vec<nuo_wire::TrustDomain> },
+    Trust {
+        domains: Vec<nuo_protocol::TrustDomain>,
+    },
     /// User refused the offered domains (`Esc`, or confirming an empty
     /// selection). The refusal is recorded durably, so the workspace stops
     /// asking about *this* content, and the session continues untrusted.
@@ -127,7 +129,9 @@ pub enum PreAttachDecision {
     /// to say "no" to a diff. Quitting the terminal is not an answer to that
     /// question, so the refusal now records itself and yields to the chat
     /// surface with every affected domain still unloaded.
-    Decline { domains: Vec<nuo_wire::TrustDomain> },
+    Decline {
+        domains: Vec<nuo_protocol::TrustDomain>,
+    },
 }
 
 impl PreAttachState {
@@ -558,7 +562,7 @@ fn format_option_row(label: &str, body_width: usize, indent: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+    use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 
     fn quarantined_snapshot() -> WorkspaceSecuritySnapshot {
         WorkspaceSecuritySnapshot {

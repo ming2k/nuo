@@ -4,7 +4,7 @@
 //! - `draw_thread_stats_modal` — Thread Stats (/stats)
 //! - `draw_session_trace_modal` — Session Trace (/trace) with hierarchical drill-in (L1/L2/L3)
 
-use nuo_wire::TokenSourceReport;
+use nuo_protocol::TokenSourceReport;
 use nuotc::{Frame, Rect};
 
 use super::super::common::placeholder;

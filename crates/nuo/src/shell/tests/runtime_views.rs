@@ -303,15 +303,15 @@ async fn console_kill_arm_cancels_on_selection_move() {
 
 #[test]
 fn websearch_provider_dropdown_builds_and_selects() {
-    let ws = nuo_wire::WebSearchConfigView {
+    let ws = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: nuo_wire::WebSearchProvider::Exa,
-        reader: nuo_wire::WebReaderProvider::Disabled,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Disabled,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: nuo_wire::WebCredentialStatus::Stored,
-        reader_credential: nuo_wire::WebCredentialStatus::NotRequired,
-        capabilities: nuo_wire::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::NotRequired,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
     let dropdown = crate::shell::overlays::build_websearch_provider_dropdown("tavily", Some(&ws));
     assert_eq!(dropdown.context.as_deref(), Some("websearch_provider"));
@@ -342,15 +342,15 @@ fn websearch_provider_dropdown_builds_and_selects() {
 
 #[test]
 fn websearch_reader_dropdown_builds_and_selects() {
-    let mut ws = nuo_wire::WebSearchConfigView {
+    let mut ws = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: nuo_wire::WebSearchProvider::Exa,
-        reader: nuo_wire::WebReaderProvider::Jina,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: nuo_wire::WebCredentialStatus::Stored,
-        reader_credential: nuo_wire::WebCredentialStatus::Stored,
-        capabilities: nuo_wire::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::Stored,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
     let dropdown = crate::shell::overlays::build_websearch_reader_dropdown("jina", Some(&ws));
     assert_eq!(dropdown.context.as_deref(), Some("websearch_reader"));
@@ -363,7 +363,7 @@ fn websearch_reader_dropdown_builds_and_selects() {
 
     // A snapshot that advertises no reader capability offers only `disabled`.
     ws.capabilities
-        .retain(|capability| capability.axis == nuo_wire::WebProviderAxis::Search);
+        .retain(|capability| capability.axis == nuo_protocol::WebProviderAxis::Search);
     let empty_dropdown =
         crate::shell::overlays::build_websearch_reader_dropdown("disabled", Some(&ws));
     assert_eq!(empty_dropdown.items.len(), 1);
@@ -379,7 +379,7 @@ fn websearch_reader_dropdown_builds_and_selects() {
 /// palette against the stale `transcript_focused`.
 #[tokio::test]
 async fn sheet_mount_parks_browse_focus_not_just_step_target() {
-    use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
@@ -438,7 +438,7 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
 /// per-frame sync — the park happens at mount only.
 #[tokio::test]
 async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
-    use nuo_wire::PermissionRequest;
+    use nuo_protocol::PermissionRequest;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();

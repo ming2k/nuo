@@ -13,7 +13,7 @@
 //!
 //! Consolidated from the former `nuo-contracts` crate: ADR-0001 mandated that
 //! crate's dismantling (`[INV-ARCH-01]` bans catch-all `contracts`/`common`/
-//! `shared`/`core` crates), and ADR-0005 designated `nuo-wire` as the home for
+//! `shared`/`core` crates), and ADR-0005 designated `nuo-protocol` as the home for
 //! wire envelopes and session communication entities.
 
 // Unit tests assert by panicking: a failed `unwrap`/`expect`/`panic!` *is* the
@@ -157,10 +157,10 @@ pub use agent_role::{
 pub use cognitive::{
     CognitiveModelPreference, CognitiveTask, EnvironmentReminderOutput, EnvironmentSensorInput,
     EnvironmentSensorTask, ExecutionTier, HarnessTask, HarnessTaskModelPreference,
-    PreFlightRouteInput, PreFlightRouteOutput, PreFlightRouterTask, SessionDigest,
-    SessionTitleInput, SessionTitleTask, StreamLoopChannel, StreamLoopReviewInput,
-    StreamLoopReviewerTask, StreamLoopVerdict, TrajectoryLoopReviewInput,
-    TrajectoryLoopReviewerTask, TrajectoryLoopVerdict,
+    PreFlightRouteInput, PreFlightRouteOutput, PreFlightRouterTask, StreamLoopChannel,
+    StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict, ThreadDigest,
+    ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask,
+    TrajectoryLoopVerdict,
 };
 pub use execution_policy::{ContextLifecycle, ExecutionPolicy, PolicyViolation};
 pub mod history;
@@ -218,7 +218,7 @@ pub use session_ir::{
 
 pub mod session_tree;
 pub use session_tree::{
-    CompactionPayload, SessionEntry, SessionEntryId, SessionEntryKind, SessionTree,
+    CompactionPayload, ThreadEntry, ThreadEntryId, ThreadEntryKind, ThreadTree,
 };
 pub mod skills_config;
 pub use shared_roots::{SharedAdditionalRoots, SharedConfinement};
@@ -278,7 +278,7 @@ pub use pressure::{
     layered_request_weights, prune_tool_results,
 };
 pub use secret::SecretString;
-pub use session_title::{SessionTitle, TITLE_MAX_LEN, clean_title};
+pub use session_title::{TITLE_MAX_LEN, ThreadTitle, clean_title};
 pub use skills_config::SkillsConfig;
 /// The BPE token counter ([`crate::tokenizer`]) under the name the
 /// heuristic estimator used to own: token prediction is BPE now, and callers
@@ -309,41 +309,27 @@ pub use policy_schema::*;
 
 /// Current protocol version.
 ///
-/// 18: `Wire::Welcome` becomes an identity-only acknowledgement carrying
-/// `session_id` + `SessionPhase`; the hydration payload moves to an
-/// authoritative `SessionSnapshot` sent after Welcome, and
-/// `AgentResponse::SessionPhase` reports readiness transitions (ADR-0133).
-/// This is a deliberate break: keeping the old hydration fields would require
-/// the server to finish session assembly inside the handshake — the exact
-/// coupling the ADR removes.
-///
-/// 17: `ControlRequest::GetUsageStats` — model usage accounting is queryable
-/// on the session-free control plane (ADR-0129 [INV-USAGE-01]). A server that
-/// predates the verb cannot deserialize the tag, so the frame change is not
-/// additive and the window floor moves with it.
-///
-/// 16: `AgentRequest::TrustWorkspace` carries an explicit `TrustDecision`.
-/// A grant and a refusal were previously indistinguishable in that frame (the
-/// domain list was the only carrier), so a client that sends `Deny` must not be
-/// served by a server that would read it as `Grant` — the frame change is not
-/// additive and the window floor moves with it.
-pub const PROTOCOL_VERSION: u32 = 18;
+/// 19: Full-stack canonical thread nomenclature unification (ADR-0135).
+/// Wire protocol envelopes, phases, and snapshots purified from `session_id` to
+/// `thread_id`; `SessionPhase` -> `ThreadPhase`, `SessionSnapshot` -> `ThreadSnapshot`,
+/// `SessionOverview` -> `ThreadOverview`, `MonitoredSession` -> `MonitoredThread`.
+pub const PROTOCOL_VERSION: u32 = 19;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 18;
+pub const MIN_PROTOCOL_VERSION: u32 = 19;
 
-/// Initial options and postures when creating a session.
+/// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionInitOptions {
+pub struct ThreadInitOptions {
     /// `--unattended` / unattended execution posture.
     #[serde(default)]
     pub unattended: bool,
     /// Whether workspace filesystem confinement is enforced (default true).
     #[serde(default = "default_confined")]
     pub confined: bool,
-    /// Role id to staff this session with. `None` = default workspace coding principal.
+    /// Role id to staff this thread with. `None` = default workspace coding principal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    /// Resume the most recent matching session instead of creating a new one.
+    /// Resume the most recent matching thread instead of creating a new one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
 }
@@ -352,7 +338,7 @@ const fn default_confined() -> bool {
     true
 }
 
-impl Default for SessionInitOptions {
+impl Default for ThreadInitOptions {
     fn default() -> Self {
         Self {
             unattended: false,
@@ -363,7 +349,7 @@ impl Default for SessionInitOptions {
     }
 }
 
-impl SessionInitOptions {
+impl ThreadInitOptions {
     pub fn new(unattended: bool, confined: bool) -> Self {
         Self {
             unattended,
@@ -391,9 +377,9 @@ impl SessionInitOptions {
 /// What role the connection wants to assume.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttachAction {
-    New(Option<SessionInitOptions>),
+    New(Option<ThreadInitOptions>),
     Attach(Option<String>),
-    Picker(Option<SessionInitOptions>),
+    Picker(Option<ThreadInitOptions>),
     Control(ControlRequest),
     Monitor(MonitorAction),
 }
@@ -448,9 +434,9 @@ impl<'de> Deserialize<'de> for AttachAction {
         #[derive(Deserialize)]
         #[serde(rename_all = "snake_case")]
         enum RawAttachAction {
-            New(Option<SessionInitOptions>),
+            New(Option<ThreadInitOptions>),
             Attach(Option<String>),
-            Picker(Option<SessionInitOptions>),
+            Picker(Option<ThreadInitOptions>),
             Control(ControlRequest),
             Monitor(MonitorAction),
         }
@@ -487,30 +473,30 @@ pub enum ControlRequest {
     /// ADR-0034 Level 1: re-read configuration and re-sync MCP + skills
     /// without dropping connections.
     Reload,
-    CreateSession {
+    CreateThread {
         project: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prompt: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        init_options: Option<SessionInitOptions>,
+        init_options: Option<ThreadInitOptions>,
     },
     SendPrompt {
-        session_id: String,
+        thread_id: String,
         text: String,
     },
     Interrupt {
-        session_id: String,
+        thread_id: String,
     },
     ResolvePermission {
-        session_id: String,
+        thread_id: String,
         request_id: String,
         decision: PermissionDecision,
     },
-    KillSession {
-        session_id: String,
+    KillThread {
+        thread_id: String,
     },
-    SuspendSession {
-        session_id: String,
+    SuspendThread {
+        thread_id: String,
     },
     AskArchivist {
         text: String,
@@ -571,23 +557,23 @@ pub enum Wire {
     /// Server acknowledgement of an attached connection.
     ///
     /// `[INV-ATTACH-03]` (ADR-0133): a handle, not a payload. The server sends
-    /// this as soon as it has claimed a session identity — before opening the
-    /// session store, building the agent, loading skills, running hooks, or
+    /// this as soon as it has claimed a thread identity — before opening the
+    /// thread store, building the agent, loading skills, running hooks, or
     /// touching any provider credential. Hydration follows on the same
-    /// connection as an authoritative [`crate::AgentResponse::SessionSnapshot`],
+    /// connection as an authoritative [`crate::AgentResponse::ThreadSnapshot`],
     /// and readiness transitions arrive as
-    /// [`crate::AgentResponse::SessionPhase`].
+    /// [`crate::AgentResponse::ThreadPhase`].
     Welcome {
-        session_id: String,
-        phase: SessionPhase,
+        thread_id: String,
+        phase: ThreadPhase,
     },
     /// Server response to ambiguous attach / picker.
-    Pick { sessions: Vec<SessionOverview> },
+    Pick { threads: Vec<ThreadOverview> },
     /// Reply to single-shot control verb.
     ControlReply {
         ok: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
+        thread_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
@@ -618,12 +604,80 @@ pub enum Wire {
 /// Maximum wire frame payload length: 16 MB.
 pub const MAX_WIRE_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
+/// One successfully de-framed item read off a wire stream.
+///
+/// The distinction this type exists for: **an undecodable payload is a fact
+/// about one frame, not about the connection.**
+///
+/// Both transports are self-delimiting — native IPC carries a 4-byte length
+/// prefix, WebSocket carries message boundaries — so by the time a payload
+/// fails to parse, its bytes have already been consumed and the stream is
+/// still *aligned* on the next frame. A peer one protocol revision away (a
+/// server binary replaced on disk under a running process, a variant deleted
+/// here but still emitted there) sends exactly this: a well-framed envelope
+/// naming a variant this build does not model.
+///
+/// Encoding that as `Err` made it indistinguishable from a dead socket, so
+/// every consumer was forced to treat "I don't know this frame" as "the link
+/// is gone" — and the TUI, lacking any other terminal signal, closed the
+/// window [ADR-0136].
+///
+/// So the decoder reports it here and keeps going. `Err` from the codec now
+/// means *only* that framing itself broke (an impossible length prefix), i.e.
+/// something that genuinely cannot be resynchronized.
+// A `Wire` payload is inherently large; the same exemption the envelope itself
+// carries, for the same reason.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum WireFrame {
+    /// A fully modelled envelope.
+    Wire(Wire),
+    /// A frame whose bytes were consumed but whose payload names something
+    /// this build does not model. The stream stays usable; the caller's job is
+    /// to *disclose* the skew, never to interpret it as a disconnect.
+    Undecodable {
+        /// The envelope's own `type` discriminator, when the payload is
+        /// well-formed JSON (`"Request"`, `"Response"`, …). Named separately
+        /// because serde's message for a `#[serde(flatten)]`ed variant reports
+        /// only the *inner* enum, which leaves an operator unable to tell which
+        /// direction of the connection drifted.
+        envelope: Option<String>,
+        /// The decoder's message, carrying the offending tag and the variants
+        /// this build does expect.
+        detail: String,
+    },
+}
+
+/// Parse one payload (already de-framed) into a [`WireFrame`].
+///
+/// Shared by every transport so the "undecodable is not fatal" rule has
+/// exactly one implementation rather than one per codec.
+pub fn decode_wire_payload(payload: &[u8]) -> WireFrame {
+    match serde_json::from_slice::<Wire>(payload) {
+        Ok(wire) => WireFrame::Wire(wire),
+        Err(error) => WireFrame::Undecodable {
+            // Best effort, and only ever used for the disclosure: the payload
+            // is valid JSON whenever the failure is a *shape* mismatch, which
+            // is the whole case this arm exists for.
+            envelope: serde_json::from_slice::<serde_json::Value>(payload)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("type")
+                        .and_then(|tag| tag.as_str())
+                        .map(str::to_string)
+                }),
+            detail: error.to_string(),
+        },
+    }
+}
+
 /// Length-delimited JSON codec for native IPC streams.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NativeWireCodec;
 
 impl Decoder for NativeWireCodec {
-    type Item = Wire;
+    type Item = WireFrame;
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -636,6 +690,9 @@ impl Decoder for NativeWireCodec {
         let length = u32::from_be_bytes(length_bytes) as usize;
 
         if length > MAX_WIRE_FRAME_SIZE {
+            // Framing itself is unusable: there is no way to resynchronize a
+            // stream whose next length prefix cannot be trusted. This is the
+            // *only* remaining fatal decode outcome.
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Wire frame length {length} exceeds maximum limit {MAX_WIRE_FRAME_SIZE}"),
@@ -650,12 +707,10 @@ impl Decoder for NativeWireCodec {
         src.advance(4);
         let payload = src.split_to(length);
 
-        serde_json::from_slice(&payload).map(Some).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to deserialize Wire payload: {e}"),
-            )
-        })
+        // `split_to` already removed the frame, so the stream is aligned on
+        // the next one whatever the payload contains — an unknown variant is
+        // reported per frame, not as a dead connection.
+        Ok(Some(decode_wire_payload(&payload)))
     }
 }
 
@@ -692,16 +747,94 @@ impl Encoder<Wire> for NativeWireCodec {
 mod readiness_protocol_tests {
     use super::*;
 
-    /// ADR-0133: Welcome is a handle, not a hydration payload.
+    /// ADR-0136 `[INV-WIRE-01]`: an envelope naming a variant this build does
+    /// not model is a *per-frame* fact, never a dead stream.
+    ///
+    /// The regression this pins: `RetryResolved` was deleted from the wire
+    /// enum without a protocol bump, so a still-running server kept emitting
+    /// it. The client's decoder returned `Err`, every consumer read `Err` as
+    /// "the link died", and the TUI closed itself mid-round. Because both
+    /// transports are self-delimiting the frame had already been consumed —
+    /// the stream was still perfectly aligned, and the only thing that broke
+    /// was the *typing* of the outcome.
+    #[test]
+    fn undecodable_frame_is_a_frame_outcome_not_a_stream_error() {
+        // A well-framed payload naming a variant that no longer exists here.
+        let payload = br#"{"type":"Response","RetryResolved":{"attempt":1}}"#;
+        let frame = decode_wire_payload(payload);
+        match frame {
+            WireFrame::Undecodable { envelope, detail } => {
+                assert_eq!(
+                    envelope.as_deref(),
+                    Some("Response"),
+                    "the disclosure must name the envelope direction, got: {detail}"
+                );
+                assert!(
+                    detail.contains("AgentResponse"),
+                    "the disclosure must name the enum that failed, got: {detail}"
+                );
+            }
+            WireFrame::Wire(other) => {
+                panic!("an unknown variant must not decode as a known envelope: {other:?}")
+            }
+        }
+    }
+
+    /// The frame is consumed either way, so the *next* frame on the same
+    /// length-prefixed stream must decode normally. This is what makes
+    /// "continue reading" a sound recovery instead of a desynchronized guess.
+    #[test]
+    fn the_stream_stays_aligned_after_an_undecodable_frame() {
+        let unknown = br#"{"type":"Response","NoSuchVariant":{}}"#;
+        let good = serde_json::to_vec(&Wire::Error {
+            message: "still here".to_string(),
+            code: None,
+        })
+        .unwrap();
+
+        let mut buf = BytesMut::new();
+        NativeWireCodec
+            .encode(
+                Wire::Error {
+                    message: "first".to_string(),
+                    code: None,
+                },
+                &mut buf,
+            )
+            .unwrap();
+        // Hand-frame an undecodable payload exactly as a skewed peer would.
+        buf.extend_from_slice(&(unknown.len() as u32).to_be_bytes());
+        buf.extend_from_slice(unknown);
+        buf.extend_from_slice(&(good.len() as u32).to_be_bytes());
+        buf.extend_from_slice(&good);
+
+        let first = NativeWireCodec.decode(&mut buf).unwrap();
+        assert!(matches!(first, Some(WireFrame::Wire(Wire::Error { .. }))));
+
+        let second = NativeWireCodec.decode(&mut buf).unwrap();
+        assert!(
+            matches!(second, Some(WireFrame::Undecodable { .. })),
+            "the skewed frame reports itself without killing the codec"
+        );
+
+        let third = NativeWireCodec.decode(&mut buf).unwrap();
+        assert!(
+            matches!(third, Some(WireFrame::Wire(Wire::Error { .. }))),
+            "the frame after the skewed one must still decode: alignment survives"
+        );
+    }
+
+    /// ADR-0133 / ADR-0135: Welcome is a handle, not a hydration payload.
     #[test]
     fn welcome_carries_identity_and_phase_only() {
         let welcome = Wire::Welcome {
-            session_id: "session-1".to_string(),
-            phase: SessionPhase::Binding,
+            thread_id: "thread-1".to_string(),
+            phase: ThreadPhase::Binding,
         };
         let json = serde_json::to_string(&welcome).unwrap();
         assert!(json.contains(r#""type":"Welcome""#));
         assert!(json.contains(r#""phase":"binding""#));
+        assert!(json.contains(r#""thread_id":"thread-1""#));
         assert!(!json.contains("messages"));
         assert!(!json.contains("command_catalog"));
     }
@@ -709,8 +842,8 @@ mod readiness_protocol_tests {
     /// `[INV-ATTACH-01]` survives into the phase taxonomy: a post-Welcome
     /// failure carries its machine-readable code.
     #[test]
-    fn session_phase_failure_carries_its_code() {
-        let phase = SessionPhase::Failed {
+    fn thread_phase_failure_carries_its_code() {
+        let phase = ThreadPhase::Failed {
             code: Some(ERR_SESSION_UNRESUMABLE.to_string()),
             message: "could not load".to_string(),
         };
@@ -720,9 +853,9 @@ mod readiness_protocol_tests {
     }
 
     #[test]
-    fn session_snapshot_is_the_complete_hydration_payload() {
-        let snapshot = SessionSnapshot {
-            session_id: "s".into(),
+    fn thread_snapshot_is_the_complete_hydration_payload() {
+        let snapshot = ThreadSnapshot {
+            thread_id: "t".into(),
             round_counter: 3,
             messages: vec![Message::new(Role::User, "hello")],
             provider: "p".into(),
@@ -738,8 +871,9 @@ mod readiness_protocol_tests {
             command_catalog: Some(CommandCatalog::default()),
             watermark_seq: 0,
         };
-        let back: SessionSnapshot =
+        let back: ThreadSnapshot =
             serde_json::from_str(&serde_json::to_string(&snapshot).unwrap()).unwrap();
+        assert_eq!(back.thread_id, "t");
         assert_eq!(back.round_counter, 3);
         assert_eq!(back.messages.len(), 1);
         assert!(back.command_catalog.is_some());

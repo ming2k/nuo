@@ -1,7 +1,7 @@
 //! Substrate MCP Bridge connecting `nous-mcp` to Nuo's dynamic tool registry (ADR-0002).
 
 use nuo_mcp::{McpClient, McpNativeTool, McpToolDefinition};
-use nuo_wire::Tool;
+use nuo_protocol::Tool;
 use std::sync::Arc;
 
 /// Connect to a local stdio MCP server via the `nous-mcp` substrate client and return
@@ -64,7 +64,7 @@ done
         assert_eq!(tool.description(), "A mock tool from substrate");
         assert_eq!(
             tool.hazard_level(),
-            nuo_wire::HazardLevel::NetworkOrExternal
+            nuo_protocol::HazardLevel::NetworkOrExternal
         );
 
         let result = tool.call("{}").await.expect("execute tool");

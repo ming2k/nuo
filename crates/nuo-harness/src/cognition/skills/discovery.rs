@@ -4,7 +4,7 @@ use super::metadata::{Skill, SkillScope, parse_skill_metadata};
 use super::remote::{cached_remote_roots, fetch_remote_repo};
 use nuo_persistence::paths;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
-use nuo_wire::WorkspaceTrustState;
+use nuo_protocol::WorkspaceTrustState;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -425,7 +425,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = nuo_wire::SkillsConfig {
+        let config = nuo_protocol::SkillsConfig {
             project_root: Some(root.to_path_buf()),
             ..Default::default()
         };
@@ -437,7 +437,7 @@ mod tests {
 
         // Without a pinned root the same config discovers nothing here: the
         // process cwd (the test binary's) has no `.nuo/skills/pinned`.
-        let unpinned = nuo_wire::SkillsConfig::default();
+        let unpinned = nuo_protocol::SkillsConfig::default();
         let result = discover_all_with_trust_state(&unpinned, WorkspaceTrustState::Trusted).await;
         assert!(
             !result.skills.iter().any(|skill| skill.name == "pinned"),
@@ -462,7 +462,7 @@ mod tests {
             .unwrap();
         }
 
-        let config = nuo_wire::SkillsConfig {
+        let config = nuo_protocol::SkillsConfig {
             project_root: Some(root.to_path_buf()),
             ..Default::default()
         };
@@ -512,7 +512,7 @@ mod tests {
         )
         .unwrap();
 
-        let config = nuo_wire::SkillsConfig {
+        let config = nuo_protocol::SkillsConfig {
             role: Some("philosophist".to_string()),
             paths: vec![role_dir.to_str().unwrap().to_string()],
             ..Default::default()

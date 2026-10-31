@@ -2,7 +2,7 @@
 //!
 //! Query endpoint: `GET https://api.moonshot.cn/v1/users/me/balance`
 
-use nuo_wire::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
+use nuo_protocol::{BalanceQuota, ProviderQuotaData, ProviderUsage, UsageMetric};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

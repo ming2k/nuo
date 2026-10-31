@@ -40,7 +40,7 @@
 //! not asked about again until the bytes change. The session then continues on
 //! the chat surface — the gate also opens for content that changed mid-session,
 //! where quitting the terminal would be an absurd answer.
-use nuo_wire::{
+use nuo_protocol::{
     TrustDomain, UserQuestion, UserQuestionOption, UserQuestionRequest, WorkspaceSecuritySnapshot,
     WorkspaceTrustState,
 };

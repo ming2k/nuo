@@ -28,7 +28,7 @@ use nuo_ui_primitives::primitives::{ContentModalSpec, FooterHint, keyvocab};
 /// replies with a fresh snapshot that re-renders the list.
 pub fn draw_mcp_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_wire::SessionContextSnapshot>,
+    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,

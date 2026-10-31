@@ -17,7 +17,7 @@ use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_harness::orchestration::round_response;
 use nuo_harness::{Agent, RoundLifecycle, SubagentRegistry};
 use nuo_persistence::{session::SessionStore, workspace_security::WorkspaceSecurityStore};
-use nuo_wire::{AgentRequest, AgentResponse, LoopStatus, Provider};
+use nuo_protocol::{AgentRequest, AgentResponse, LoopStatus, Provider};
 
 pub async fn send_harness_state_for_session(
     tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -32,7 +32,7 @@ pub async fn send_harness_state_for_session(
     let retry_pending = loop_status.is_idle() && session.retry_pending().await.is_some();
     let _ = tx.send(round_response(
         session_id,
-        nuo_wire::RoundEvent::HarnessState(nuo_wire::HarnessSnapshot {
+        nuo_protocol::RoundEvent::HarnessState(nuo_protocol::HarnessSnapshot {
             loop_status,
             round_counter,
             unattended: agent.unattended(),
@@ -53,12 +53,12 @@ pub async fn send_harness_state_for_session(
 }
 
 pub async fn compact_round_history(
-    history: &mut Vec<nuo_wire::Message>,
+    history: &mut Vec<nuo_protocol::Message>,
     session: &SessionStore,
     settings: &nuo_harness::orchestration::ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
-) -> Result<Option<nuo_wire::ContextProjectionCheckpoint>, String> {
+) -> Result<Option<nuo_protocol::ContextProjectionCheckpoint>, String> {
     let mut ir = session.session_ir().await;
     let preserve_rounds = settings.preserve_rounds.max(1);
     let mode =
@@ -74,9 +74,9 @@ pub async fn compact_round_history(
     {
         session.commit_session_ir(&ir).await?;
         let active_msgs = ir.resolve_active_messages();
-        let tokens_after = nuo_wire::pressure::estimate_tokens(&active_msgs);
-        let checkpoint = nuo_wire::ContextProjectionCheckpoint {
-            operation: nuo_wire::ContextProjectionKind::Compact,
+        let tokens_after = nuo_protocol::pressure::estimate_tokens(&active_msgs);
+        let checkpoint = nuo_protocol::ContextProjectionCheckpoint {
+            operation: nuo_protocol::ContextProjectionKind::Compact,
             archived_messages: outcome.nodes_folded,
             active_messages: active_msgs.len(),
             window_tokens_before: outcome.tokens_before,
@@ -120,7 +120,7 @@ pub(crate) struct FollowUpQueue {
 
 pub(crate) struct QueuedFollowUp {
     pub session_id: String,
-    pub message: nuo_wire::QueuedMessage,
+    pub message: nuo_protocol::QueuedMessage,
 }
 
 impl FollowUpQueue {
@@ -143,7 +143,7 @@ impl FollowUpQueue {
         }
     }
 
-    pub(crate) fn enqueue(&mut self, session_id: &str, message: nuo_wire::QueuedMessage) {
+    pub(crate) fn enqueue(&mut self, session_id: &str, message: nuo_protocol::QueuedMessage) {
         self.items.push(QueuedFollowUp {
             session_id: session_id.to_string(),
             message,
@@ -188,7 +188,7 @@ impl FollowUpQueue {
     }
 
     /// The authoritative snapshot for one session.
-    pub(crate) fn snapshot(&self, session_id: &str) -> (Vec<nuo_wire::QueuedMessage>, bool) {
+    pub(crate) fn snapshot(&self, session_id: &str) -> (Vec<nuo_protocol::QueuedMessage>, bool) {
         let items = self
             .items
             .iter()
@@ -199,7 +199,10 @@ impl FollowUpQueue {
     }
 
     /// Dequeue and return the first shippable item for `session_id`, if any.
-    pub(crate) fn dequeue_front(&mut self, session_id: &str) -> Option<nuo_wire::QueuedMessage> {
+    pub(crate) fn dequeue_front(
+        &mut self,
+        session_id: &str,
+    ) -> Option<nuo_protocol::QueuedMessage> {
         let position = self
             .items
             .iter()
@@ -246,12 +249,12 @@ pub struct SessionDriver {
     pub workspace_security: Arc<WorkspaceSecurityStore>,
     /// Live additional-roots handle: trust decisions recompute the admitted
     /// set through it, effective on the next confined tool call.
-    pub shared_additional_roots: nuo_wire::SharedAdditionalRoots,
+    pub shared_additional_roots: nuo_protocol::SharedAdditionalRoots,
     /// Live handle for toggling session-level workspace confinement.
-    pub shared_confinement: nuo_wire::SharedConfinement,
+    pub shared_confinement: nuo_protocol::SharedConfinement,
     /// Backend-owned command vocabulary used by both attach metadata and the
     /// composer completion engine.
-    pub command_catalog: nuo_wire::CommandCatalog,
+    pub command_catalog: nuo_protocol::CommandCatalog,
     /// Primary round lifecycle: at most one active round, superseded by the
     /// next begin (replaces the old token-slot + generation-counter pair).
     pub lifecycle: Arc<RoundLifecycle>,
@@ -269,7 +272,7 @@ pub struct SessionDriver {
     /// Shared token-source ledger (reported vs. estimated token accounting).
     /// Installed into `agent` once at startup; the TUI reads it for the
     /// token-source report modal.
-    pub token_ledger: Arc<nuo_wire::TokenSourceLedger>,
+    pub token_ledger: Arc<nuo_protocol::TokenSourceLedger>,
     /// Application-registered slash command handlers (the extension point for
     /// commands that run Rust logic, e.g. a sibling binary's custom command).
     /// The dispatcher consults this in its unknown-built-in arm
@@ -279,7 +282,7 @@ pub struct SessionDriver {
     /// Shared hot-reloadable resolved `[web]` configuration. The web tools hold
     /// the same handle; `UpdateWebSearchConfig` replaces one versioned snapshot
     /// so changes take effect on the next call without rebuilding the toolset.
-    pub websearch_shared: nuo_wire::SharedWebConfig,
+    pub websearch_shared: nuo_protocol::SharedWebConfig,
     /// Background job manager for asynchronous processes and sub-subagents.
     pub background_jobs: crate::background_jobs::BackgroundJobManager,
 }
@@ -399,9 +402,9 @@ impl SessionDriver {
             .total_tokens;
         let _ = resp_tx.send(round_response(
             &initial_session_id,
-            nuo_wire::RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
+            nuo_protocol::RoundEvent::ContextTokens(nuo_protocol::ContextTokenSnapshot::new(
                 initial_context,
-                nuo_wire::ContextTokenSource::Projection,
+                nuo_protocol::ContextTokenSource::Projection,
             )),
         ));
         // Session-scoped idle snapshot: publishes the `/retry`
@@ -500,13 +503,13 @@ impl SessionDriver {
             }
         }
         if open_picker_on_start {
-            let _ = resp_tx.send(AgentResponse::SessionsOverview(
+            let _ = resp_tx.send(AgentResponse::ThreadsOverview(
                 build_sessions_overview(&session).await,
             ));
         }
         enum OAuthResult {
             Authorize {
-                auth: nuo_wire::ConnectionAuth,
+                auth: nuo_protocol::ConnectionAuth,
                 provider: String,
                 tokens: Option<nuo_provider::TokenSet>,
             },
@@ -604,7 +607,7 @@ impl SessionDriver {
                                 });
                                 if pending_oauth_authorization.is_some() {
                                     let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                                        nuo_wire::ConnectStatus::Done { provider },
+                                        nuo_protocol::ConnectStatus::Done { provider },
                                     ));
                                 }
                             }
@@ -920,7 +923,7 @@ impl SessionDriver {
                     }
                     pending_oauth_authorization = None;
                     let _ = resp_tx.send(AgentResponse::ConnectStatus(
-                        nuo_wire::ConnectStatus::Failed {
+                        nuo_protocol::ConnectStatus::Failed {
                             provider: "oauth".to_string(),
                             message: "cancelled".to_string(),
                         },
@@ -1092,21 +1095,21 @@ impl SessionDriver {
                         }
                     }));
                 }
-                AgentRequest::DeleteSession { id } => {
+                AgentRequest::DeleteThread { id } => {
                     let session = session.clone();
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
                         crate::handlers_session::delete(&session, &resp_tx, id).await;
                     });
                 }
-                AgentRequest::RenameSession { id, title } => {
+                AgentRequest::RenameThread { id, title } => {
                     let session = session.clone();
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
                         crate::handlers_session::rename(&session, &resp_tx, id, title).await;
                     });
                 }
-                AgentRequest::QuerySessionDetail { id } => {
+                AgentRequest::QueryThreadDetail { id } => {
                     let session = session.clone();
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
@@ -1148,26 +1151,26 @@ impl SessionDriver {
                         .await;
                     });
                 }
-                AgentRequest::QuerySessionsOverview => {
+                AgentRequest::QueryThreadsOverview => {
                     let session = session.clone();
                     let resp_tx = resp_tx.clone();
                     tokio::spawn(async move {
                         crate::handlers_session::overview(&session, &resp_tx).await;
                     });
                 }
-                AgentRequest::QuerySessionTree => {
+                AgentRequest::QueryThreadTree => {
                     // Keep id + tree capture ordered with session-switch
                     // requests handled by this driver, so the tagged snapshot
                     // can never pair one session's id with another's DAG.
                     crate::handlers_session::tree(&session, &resp_tx).await;
                 }
-                AgentRequest::QueryTokenUsage { session_id } => {
-                    crate::handlers_session::token_usage(&token_ledger, &resp_tx, session_id);
+                AgentRequest::QueryTokenUsage { thread_id } => {
+                    crate::handlers_session::token_usage(&token_ledger, &resp_tx, thread_id);
                 }
                 AgentRequest::QueryUsageStats { event_cap } => {
                     crate::handlers_session::usage_stats(&resp_tx, event_cap).await;
                 }
-                AgentRequest::QuerySessionContext => {
+                AgentRequest::QueryThreadContext => {
                     crate::handlers_session::query_context(
                         &agent,
                         &skills_registry,
@@ -1278,9 +1281,9 @@ impl SessionDriver {
                     // domain list. `domains` means "these" — granting the refused
                     // set would be a security inversion, so the refusal has its
                     // own arm below and never reaches the grant path.
-                    let granting = decision == nuo_wire::TrustDecision::Grant;
+                    let granting = decision == nuo_protocol::TrustDecision::Grant;
                     if granting {
-                        if domains.contains(&nuo_wire::TrustDomain::UserAssets) {
+                        if domains.contains(&nuo_protocol::TrustDomain::UserAssets) {
                             crate::handlers_slash::security_ops::trust_user_assets();
                         } else if user_assets_needed_review {
                             crate::handlers_slash::security_ops::deny_user_assets();
@@ -1288,15 +1291,15 @@ impl SessionDriver {
                     } else {
                         // A refusal names what to refuse; everything else is
                         // untouched, including grants the user made earlier.
-                        if domains.contains(&nuo_wire::TrustDomain::UserAssets) {
+                        if domains.contains(&nuo_protocol::TrustDomain::UserAssets) {
                             crate::handlers_slash::security_ops::deny_user_assets();
                         }
                     }
                     let effective = if let Some(root) = &project_root_for_side {
-                        let ws_domains: Vec<nuo_wire::TrustDomain> = domains
+                        let ws_domains: Vec<nuo_protocol::TrustDomain> = domains
                             .iter()
                             .copied()
-                            .filter(|d| *d != nuo_wire::TrustDomain::UserAssets)
+                            .filter(|d| *d != nuo_protocol::TrustDomain::UserAssets)
                             .collect();
 
                         // Candidate workspace domains D: every domain awaiting a
@@ -1304,10 +1307,10 @@ impl SessionDriver {
                         // inline is how the gate and the driver came to disagree
                         // about whether `Changed` was a candidate.
                         let pre_snap = workspace_security.snapshot(root);
-                        let candidate_ws: Vec<nuo_wire::TrustDomain> = pre_snap
+                        let candidate_ws: Vec<nuo_protocol::TrustDomain> = pre_snap
                             .domains_needing_review()
                             .into_iter()
-                            .filter(|d| *d != nuo_wire::TrustDomain::UserAssets)
+                            .filter(|d| *d != nuo_protocol::TrustDomain::UserAssets)
                             .collect();
 
                         if granting {
@@ -1318,8 +1321,8 @@ impl SessionDriver {
                                 tracing::error!(?error, "failed to persist workspace trust");
                                 let _ = resp_tx.send(round_response(
                                     &session.id().await,
-                                    nuo_wire::RoundEvent::Notice(
-                                        nuo_wire::AgentNotice::trust_failure(format!(
+                                    nuo_protocol::RoundEvent::Notice(
+                                        nuo_protocol::AgentNotice::trust_failure(format!(
                                             "Workspace trust failed: {error}"
                                         )),
                                     ),
@@ -1327,7 +1330,7 @@ impl SessionDriver {
                             }
 
                             // Explicit negative attestation on unselected candidate domains: D \ S
-                            let unselected_ws: Vec<nuo_wire::TrustDomain> = candidate_ws
+                            let unselected_ws: Vec<nuo_protocol::TrustDomain> = candidate_ws
                                 .into_iter()
                                 .filter(|d| !ws_domains.contains(d))
                                 .collect();
@@ -1339,7 +1342,7 @@ impl SessionDriver {
                             // A refusal records exactly what was named and touches
                             // nothing else: `deny_domains` leaves existing grants
                             // intact, unlike the revoke path.
-                            let refused: Vec<nuo_wire::TrustDomain> = ws_domains
+                            let refused: Vec<nuo_protocol::TrustDomain> = ws_domains
                                 .into_iter()
                                 .filter(|d| candidate_ws.contains(d))
                                 .collect();
@@ -1349,8 +1352,8 @@ impl SessionDriver {
                                 tracing::error!(?error, "failed to persist workspace refusal");
                                 let _ = resp_tx.send(round_response(
                                     &session.id().await,
-                                    nuo_wire::RoundEvent::Notice(
-                                        nuo_wire::AgentNotice::trust_failure(format!(
+                                    nuo_protocol::RoundEvent::Notice(
+                                        nuo_protocol::AgentNotice::trust_failure(format!(
                                             "Workspace trust refusal failed: {error}"
                                         )),
                                     ),
@@ -1399,7 +1402,7 @@ impl SessionDriver {
                     } else {
                         // Workspace-free session: user-level assets only.
                         let mut snapshot =
-                            nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
+                            nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
                         snapshot.user_assets =
                             crate::handlers_slash::security_ops::compute_user_assets_trust();
                         agent.set_workspace_security(snapshot);
@@ -1437,7 +1440,7 @@ impl SessionDriver {
                     });
                     let _ = resp_tx.send(round_response(
                         &session.id().await,
-                        nuo_wire::RoundEvent::Notice(nuo_wire::AgentNotice::command_ack(
+                        nuo_protocol::RoundEvent::Notice(nuo_protocol::AgentNotice::command_ack(
                             "Runtime reloaded: configuration, credentials, MCP servers, and skills.",
                         )),
                     ));
@@ -1469,26 +1472,20 @@ impl SessionDriver {
                     )
                     .await;
                 }
-                AgentRequest::Steer {
-                    session_id,
-                    message,
-                } => {
-                    crate::handlers_chat::steer(&agent, &session, &resp_tx, session_id, message)
+                AgentRequest::Steer { thread_id, message } => {
+                    crate::handlers_chat::steer(&agent, &session, &resp_tx, thread_id, message)
                         .await;
                 }
                 AgentRequest::CancelSteer {
-                    session_id,
+                    thread_id,
                     input_id,
                 } => {
                     crate::handlers_chat::cancel_steer(
-                        &agent, &session, &resp_tx, session_id, input_id,
+                        &agent, &session, &resp_tx, thread_id, input_id,
                     )
                     .await;
                 }
-                AgentRequest::FollowUp {
-                    session_id,
-                    message,
-                } => {
+                AgentRequest::FollowUp { thread_id, message } => {
                     crate::handlers_chat::follow_up(
                         ChatEnv {
                             agent: &agent,
@@ -1499,46 +1496,46 @@ impl SessionDriver {
                         },
                         &mut followup_queue,
                         &followup_wake_tx,
-                        session_id,
+                        thread_id,
                         message,
                     )
                     .await;
                 }
                 AgentRequest::QueueRemove {
-                    session_id,
+                    thread_id,
                     input_id,
                 } => {
                     crate::handlers_chat::queue_remove(
                         &resp_tx,
                         &mut followup_queue,
-                        session_id,
+                        thread_id,
                         input_id,
                     )
                     .await;
                 }
-                AgentRequest::QueueClear { session_id } => {
-                    crate::handlers_chat::queue_clear(&resp_tx, &mut followup_queue, session_id)
+                AgentRequest::QueueClear { thread_id } => {
+                    crate::handlers_chat::queue_clear(&resp_tx, &mut followup_queue, thread_id)
                         .await;
                 }
                 AgentRequest::QueueReorder {
-                    session_id,
+                    thread_id,
                     input_id,
                     delta,
                 } => {
                     crate::handlers_chat::queue_reorder(
                         &resp_tx,
                         &mut followup_queue,
-                        session_id,
+                        thread_id,
                         input_id,
                         delta,
                     )
                     .await;
                 }
-                AgentRequest::QueuePaused { session_id, paused } => {
+                AgentRequest::QueuePaused { thread_id, paused } => {
                     crate::handlers_chat::queue_paused(
                         &resp_tx,
                         &mut followup_queue,
-                        session_id,
+                        thread_id,
                         paused,
                     )
                     .await;
@@ -1588,14 +1585,14 @@ impl SessionDriver {
                     )
                     .await;
                 }
-                AgentRequest::EndSession => {
+                AgentRequest::EndThread => {
                     // Unreachable in the normal topology: the WS attach path
-                    // intercepts `EndSession` at the connection layer
+                    // intercepts `EndThread` at the connection layer
                     // (serve.rs) precisely so it cannot queue behind work
                     // the teardown is about to cancel. This arm exists only
                     // for completeness / future in-process embedders.
                     tracing::warn!(
-                        "session_driver: EndSession reached the driver queue; the \
+                        "session_driver: EndThread reached the driver queue; the \
                          connection layer should have intercepted it"
                     );
                 }
@@ -1655,10 +1652,12 @@ impl SessionDriver {
                     .total_tokens;
                 let _ = resp_tx.send(round_response(
                     &post_session_id,
-                    nuo_wire::RoundEvent::ContextTokens(nuo_wire::ContextTokenSnapshot::new(
-                        post_projection,
-                        nuo_wire::ContextTokenSource::Projection,
-                    )),
+                    nuo_protocol::RoundEvent::ContextTokens(
+                        nuo_protocol::ContextTokenSnapshot::new(
+                            post_projection,
+                            nuo_protocol::ContextTokenSource::Projection,
+                        ),
+                    ),
                 ));
             }
         }
@@ -1735,11 +1734,11 @@ struct CrashResidue {
     /// `Terminated` interrupt records to append (C11), one per distinct
     /// in-flight round, so the resumed transcript explains its dangling
     /// round instead of leaving it unexplained.
-    interrupts: Vec<nuo_wire::RoundInterrupt>,
+    interrupts: Vec<nuo_protocol::RoundInterrupt>,
     /// A `/retry` resume point for the highest in-flight round, so a session
     /// re-hosted after a crash offers `/retry` instead of answering
     /// "Nothing to retry".
-    retry_point: Option<nuo_wire::RetryPoint>,
+    retry_point: Option<nuo_protocol::RetryPoint>,
 }
 
 /// Decide, from durable state alone, what a hard process death left dangling
@@ -1780,10 +1779,10 @@ struct CrashResidue {
 /// interrupts / resume point through the store's normal durable setters.
 async fn recover_crashed_round(
     session: &Arc<SessionStore>,
-    records: Vec<nuo_wire::RequestUsageRecord>,
+    records: Vec<nuo_protocol::RequestUsageRecord>,
     now_ms: u64,
 ) -> CrashResidue {
-    use nuo_wire::{RequestUsageStatus, Role};
+    use nuo_protocol::{RequestUsageStatus, Role};
     let mut residue = CrashResidue::default();
     let Some(latest) = records
         .iter()
@@ -1793,8 +1792,8 @@ async fn recover_crashed_round(
         return residue;
     };
     let round = latest.key.round;
-    residue.interrupts.push(nuo_wire::RoundInterrupt {
-        reason: nuo_wire::RoundInterruptReason::Terminated,
+    residue.interrupts.push(nuo_protocol::RoundInterrupt {
+        reason: nuo_protocol::RoundInterruptReason::Terminated,
         at_ms: now_ms,
         round: Some(round),
         detail: None,
@@ -1831,7 +1830,7 @@ async fn recover_crashed_round(
         .iter()
         .filter(|message| matches!(message.role, Role::Assistant))
         .count();
-    residue.retry_point = Some(nuo_wire::RetryPoint {
+    residue.retry_point = Some(nuo_protocol::RetryPoint {
         round,
         turns_committed,
         history_watermark: window.len(),
@@ -1845,11 +1844,11 @@ async fn recover_crashed_round(
 mod tests {
     use super::*;
     use nuo_harness::RoundLifecycle;
-    use nuo_wire::{Message, RequestUsageStatus, Role};
+    use nuo_protocol::{Message, RequestUsageStatus, Role};
     use std::sync::Arc;
 
-    fn image() -> nuo_wire::ImagePart {
-        nuo_wire::ImagePart {
+    fn image() -> nuo_protocol::ImagePart {
+        nuo_protocol::ImagePart {
             mime: "image/png".to_string(),
             data: "AAAA".to_string(),
         }
@@ -1863,8 +1862,8 @@ mod tests {
             sent_at_ms: Some(1),
         }));
         assert!(round_owned_request(&AgentRequest::FollowUp {
-            session_id: "s".to_string(),
-            message: nuo_wire::QueuedMessage {
+            thread_id: "s".to_string(),
+            message: nuo_protocol::QueuedMessage {
                 id: "i".to_string(),
                 text: "hi".to_string(),
                 display_text: None,
@@ -1873,8 +1872,8 @@ mod tests {
             },
         }));
         assert!(round_owned_request(&AgentRequest::Steer {
-            session_id: "s".to_string(),
-            message: nuo_wire::QueuedMessage {
+            thread_id: "s".to_string(),
+            message: nuo_protocol::QueuedMessage {
                 id: "i".to_string(),
                 text: "hi".to_string(),
                 display_text: None,
@@ -1883,7 +1882,7 @@ mod tests {
             },
         }));
         assert!(round_owned_request(&AgentRequest::CancelSteer {
-            session_id: "s".to_string(),
+            thread_id: "s".to_string(),
             input_id: "i".to_string(),
         }));
     }
@@ -1897,7 +1896,7 @@ mod tests {
         )));
         assert!(!round_owned_request(&AgentRequest::TrustWorkspace {
             domains: Vec::new(),
-            decision: nuo_wire::TrustDecision::Grant,
+            decision: nuo_protocol::TrustDecision::Grant,
         }));
         assert!(!round_owned_request(&AgentRequest::Interrupt));
         assert!(!round_owned_request(&AgentRequest::SwitchConnection {
@@ -1915,10 +1914,10 @@ mod tests {
             enabled: true,
         }));
         assert!(!round_owned_request(&AgentRequest::RefreshProviderModels));
-        assert!(!round_owned_request(&AgentRequest::QuerySessionContext));
+        assert!(!round_owned_request(&AgentRequest::QueryThreadContext));
         assert!(!round_owned_request(&AgentRequest::PermissionReply {
             request_id: "r".to_string(),
-            decision: nuo_wire::PermissionDecision::Always,
+            decision: nuo_protocol::PermissionDecision::Always,
             parent_call_id: None,
         }));
         assert!(!round_owned_request(&AgentRequest::UserQuestionReply {
@@ -1937,14 +1936,14 @@ mod tests {
         assert!(!round_owned_request(&AgentRequest::UpdateTuiLayout(
             "default".to_string()
         )));
-        assert!(!round_owned_request(&AgentRequest::DeleteSession {
+        assert!(!round_owned_request(&AgentRequest::DeleteThread {
             id: "s".to_string(),
         }));
-        assert!(!round_owned_request(&AgentRequest::RenameSession {
+        assert!(!round_owned_request(&AgentRequest::RenameThread {
             id: "s".to_string(),
             title: Some("t".to_string()),
         }));
-        assert!(!round_owned_request(&AgentRequest::QuerySessionDetail {
+        assert!(!round_owned_request(&AgentRequest::QueryThreadDetail {
             id: "s".to_string(),
         }));
     }
@@ -1996,10 +1995,10 @@ mod tests {
         actor: &str,
         round: u64,
         turn: u32,
-        status: nuo_wire::RequestUsageStatus,
-    ) -> nuo_wire::RequestUsageRecord {
-        nuo_wire::RequestUsageRecord {
-            key: nuo_wire::RequestUsageKey {
+        status: nuo_protocol::RequestUsageStatus,
+    ) -> nuo_protocol::RequestUsageRecord {
+        nuo_protocol::RequestUsageRecord {
+            key: nuo_protocol::RequestUsageKey {
                 session_id: session_id.to_string(),
                 actor_id: actor.to_string(),
                 round,
@@ -2072,7 +2071,7 @@ mod tests {
         assert_eq!(residue.interrupts[0].round, Some(2));
         assert_eq!(
             residue.interrupts[0].reason,
-            nuo_wire::RoundInterruptReason::Terminated
+            nuo_protocol::RoundInterruptReason::Terminated
         );
         // The point names the highest in-flight round (not the subagent's key),
         // counts only committed root turns, and watermarks the durable
@@ -2143,8 +2142,8 @@ mod tests {
             .await
             .unwrap();
         store
-            .record_round_interrupt(nuo_wire::RoundInterrupt {
-                reason: nuo_wire::RoundInterruptReason::Terminated,
+            .record_round_interrupt(nuo_protocol::RoundInterrupt {
+                reason: nuo_protocol::RoundInterruptReason::Terminated,
                 at_ms: 1,
                 round: Some(1),
                 detail: None,
@@ -2208,8 +2207,8 @@ mod followup_queue_tests {
     //! The driver-owned follow-up queue authority (M4).
     use super::*;
 
-    fn message(id: &str, text: &str) -> nuo_wire::QueuedMessage {
-        nuo_wire::QueuedMessage {
+    fn message(id: &str, text: &str) -> nuo_protocol::QueuedMessage {
+        nuo_protocol::QueuedMessage {
             id: id.to_string(),
             text: text.to_string(),
             display_text: None,
@@ -2328,7 +2327,7 @@ mod followup_queue_tests {
         assert!(!lifecycle.was_interrupted());
 
         // The operator requests a stop mid-round…
-        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
+        lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
         assert!(lifecycle.was_interrupted());
 
         // …and the round unwinds to its boundary.

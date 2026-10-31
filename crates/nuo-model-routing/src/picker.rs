@@ -6,8 +6,8 @@ use super::derive::derive_entries;
 use super::{Stores, effective_default_connection_id};
 use nuo_persistence::config::Config;
 use nuo_persistence::connection_usage::ConnectionUsage;
+use nuo_protocol::{ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot};
 use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
-use nuo_wire::{ProviderModelInfo, ProviderPickerRow, ProviderPickerSnapshot};
 
 /// Whether a model id matches any pattern in `hidden_patterns` (case-insensitive glob or exact match).
 pub fn model_is_hidden(model: &str, hidden_patterns: &[String]) -> bool {
@@ -61,7 +61,7 @@ pub fn build_picker_state(config: &Config, usage: &ConnectionUsage) -> ProviderP
 pub fn build_picker_state_with_rules(
     config: &Config,
     usage: &ConnectionUsage,
-    dynamic_rules: &std::collections::HashMap<String, Vec<nuo_wire::ModelAvailabilityRule>>,
+    dynamic_rules: &std::collections::HashMap<String, Vec<nuo_protocol::ModelAvailabilityRule>>,
 ) -> ProviderPickerSnapshot {
     let stores = Stores::load();
     let entries = derive_entries(&stores.connections, &stores.inputs());
@@ -248,29 +248,31 @@ pub fn prune_stale_models_on_disk() -> bool {
 pub(super) fn channel_protocol_and_base_url(channel: &Channel) -> (String, String) {
     match &channel.transport {
         Transport::OpenAiChatCompletions { base_url, .. } => (
-            nuo_wire::WireProtocol::OpenAiChatCompletions
+            nuo_protocol::WireProtocol::OpenAiChatCompletions
                 .as_str()
                 .to_string(),
             base_url.clone(),
         ),
         Transport::OpenAiResponses { base_url, .. } => (
-            nuo_wire::WireProtocol::OpenAiResponses.as_str().to_string(),
+            nuo_protocol::WireProtocol::OpenAiResponses
+                .as_str()
+                .to_string(),
             base_url.clone(),
         ),
         Transport::AnthropicMessages { base_url, .. } => (
-            nuo_wire::WireProtocol::AnthropicMessages
+            nuo_protocol::WireProtocol::AnthropicMessages
                 .as_str()
                 .to_string(),
             base_url.clone(),
         ),
         Transport::GoogleGenerateContent { base_url, .. } => (
-            nuo_wire::WireProtocol::GoogleGenerateContent
+            nuo_protocol::WireProtocol::GoogleGenerateContent
                 .as_str()
                 .to_string(),
             base_url.clone(),
         ),
         Transport::GoogleInteractions { base_url, .. } => (
-            nuo_wire::WireProtocol::GoogleInteractions
+            nuo_protocol::WireProtocol::GoogleInteractions
                 .as_str()
                 .to_string(),
             base_url.clone(),
@@ -347,19 +349,19 @@ pub fn channel_model_info(channel: &Channel) -> ProviderModelInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::PromptCacheCapabilities;
+    use nuo_protocol::PromptCacheCapabilities;
 
     /// A minimal OpenAI-transport channel for `channel_model_info` tests.
-    fn openai_channel(model: &str, remote: Option<nuo_wire::RemoteModelMetadata>) -> Channel {
+    fn openai_channel(model: &str, remote: Option<nuo_protocol::RemoteModelMetadata>) -> Channel {
         Channel {
             id: "default".to_string(),
             transport: Transport::OpenAiChatCompletions {
                 base_url: "https://example.test/v1/chat/completions".to_string(),
-                dialect: nuo_wire::OpenAiChatDialect::Standard,
+                dialect: nuo_protocol::OpenAiChatDialect::Standard,
                 user_agent: nuo_provider::NUO_USER_AGENT.to_string(),
                 headers: Vec::new(),
             },
-            credentials: nuo_wire::static_credential(String::new()),
+            credentials: nuo_protocol::static_credential(String::new()),
             model: model.to_string(),
             remote,
             user_overrides: None,
@@ -374,7 +376,7 @@ mod tests {
         // A model the static baseline does not know (a fresh relay model).
         // The remote advertisement says it takes images; the info row must
         // carry that so the frontend's image affordances unlock.
-        let remote = nuo_wire::RemoteModelMetadata {
+        let remote = nuo_protocol::RemoteModelMetadata {
             vision: Some(true),
             ..Default::default()
         };
@@ -402,13 +404,13 @@ mod tests {
         // Qoder catalogs list subscription-locked models with `enable:false`;
         // the row must carry that so pickers render it greyed-out (official
         // `/model` parity) and refuse activation.
-        let locked = nuo_wire::RemoteModelMetadata {
-            availability: Some(nuo_wire::Availability::locked(None)),
+        let locked = nuo_protocol::RemoteModelMetadata {
+            availability: Some(nuo_protocol::Availability::locked(None)),
             ..Default::default()
         };
         assert_eq!(
             channel_model_info(&openai_channel("gmodel", Some(locked))).availability,
-            Some(nuo_wire::Availability::locked(None))
+            Some(nuo_protocol::Availability::locked(None))
         );
         // Undeclared stays undeclared — never coerced to usable *or* locked.
         assert_eq!(
@@ -422,26 +424,29 @@ mod tests {
         // Codex's `visibility != "list"` is a *listing* declaration. An
         // API-supported model is usable whether or not it is advertised, so the
         // two fields must move independently (ADR-0068).
-        let unlisted_but_usable = nuo_wire::RemoteModelMetadata {
-            availability: Some(nuo_wire::Availability::usable()),
+        let unlisted_but_usable = nuo_protocol::RemoteModelMetadata {
+            availability: Some(nuo_protocol::Availability::usable()),
             advertised: Some(false),
             ..Default::default()
         };
         let info = channel_model_info(&openai_channel("hidden-helper", Some(unlisted_but_usable)));
         assert_eq!(info.advertised, Some(false));
-        assert_eq!(info.availability, Some(nuo_wire::Availability::usable()));
+        assert_eq!(
+            info.availability,
+            Some(nuo_protocol::Availability::usable())
+        );
     }
 
     #[test]
     fn channel_model_info_user_override_beats_remote_vision() {
         // ADR-0068 layer 1: the user's explicit `Some(false)` wins over the
         // provider's advertised vision (e.g. a relay that strips images).
-        let remote = nuo_wire::RemoteModelMetadata {
+        let remote = nuo_protocol::RemoteModelMetadata {
             vision: Some(true),
             ..Default::default()
         };
         let mut channel = openai_channel("omen-alpha", Some(remote));
-        channel.user_overrides = Some(nuo_wire::CapabilityOverrides {
+        channel.user_overrides = Some(nuo_protocol::CapabilityOverrides {
             vision: Some(false),
             ..Default::default()
         });
@@ -449,7 +454,7 @@ mod tests {
 
         // And the inverse: a forced-on override over a text-only baseline.
         let mut channel = openai_channel("text-only-model", None);
-        channel.user_overrides = Some(nuo_wire::CapabilityOverrides {
+        channel.user_overrides = Some(nuo_protocol::CapabilityOverrides {
             vision: Some(true),
             ..Default::default()
         });
@@ -461,7 +466,7 @@ mod tests {
         // The relay names `deepseek-flash` "DeepSeek V4.1 Flash": the label
         // rides to the frontend as a presentation-only annotation beside the
         // id, which stays the identity.
-        let remote = nuo_wire::RemoteModelMetadata {
+        let remote = nuo_protocol::RemoteModelMetadata {
             name: Some("DeepSeek V4.1 Flash".to_string()),
             ..Default::default()
         };
@@ -483,7 +488,7 @@ mod tests {
     fn channel_model_info_surfaces_route_context_window_from_remote_metadata() {
         // ADR-0068: Discovered models (like glm-5.3 on opencode-go) carry their
         // remote context_window via ADR-0068 resolution into the picker snapshot.
-        let remote = nuo_wire::RemoteModelMetadata {
+        let remote = nuo_protocol::RemoteModelMetadata {
             context_window: Some(1_000_000),
             max_output_tokens: Some(131_072),
             ..Default::default()
@@ -495,14 +500,14 @@ mod tests {
 
     #[test]
     fn channel_model_info_surfaces_effort_levels_from_remote_metadata() {
-        let remote = nuo_wire::RemoteModelMetadata {
+        let remote = nuo_protocol::RemoteModelMetadata {
             effort_levels: Some(vec![
-                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Low),
-                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Medium),
-                nuo_wire::EffortLevel::Known(nuo_wire::Effort::High),
-                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Xhigh),
-                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Max),
-                nuo_wire::EffortLevel::Known(nuo_wire::Effort::Ultra),
+                nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Low),
+                nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Medium),
+                nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::High),
+                nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Xhigh),
+                nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Max),
+                nuo_protocol::EffortLevel::Known(nuo_protocol::Effort::Ultra),
             ]),
             ..Default::default()
         };
@@ -518,12 +523,12 @@ mod tests {
     #[test]
     fn channel_model_info_user_override_beats_remote_context_window() {
         // ADR-0068 layer 1: user override takes precedence over remote metadata.
-        let remote = nuo_wire::RemoteModelMetadata {
+        let remote = nuo_protocol::RemoteModelMetadata {
             context_window: Some(1_000_000),
             ..Default::default()
         };
         let mut channel = openai_channel("glm-5.3", Some(remote));
-        channel.user_overrides = Some(nuo_wire::CapabilityOverrides {
+        channel.user_overrides = Some(nuo_protocol::CapabilityOverrides {
             context_window: Some(64_000),
             ..Default::default()
         });

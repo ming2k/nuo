@@ -9,8 +9,8 @@ use rusqlite::{Connection, OptionalExtension, Result, Row, params};
 use super::*;
 use crate::blobs::BlobStore;
 
-/// Create or update a session record.
-pub(crate) fn upsert_session(conn: &Connection, session: &SessionRecord) -> Result<()> {
+/// Create or update a thread record.
+pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Result<()> {
     conn.execute(
         r#"
         INSERT INTO threads (
@@ -64,8 +64,8 @@ pub(crate) fn upsert_session(conn: &Connection, session: &SessionRecord) -> Resu
     Ok(())
 }
 
-/// Retrieve a single session by id.
-pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<SessionRecord>> {
+/// Retrieve a single thread by id.
+pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<ThreadRecord>> {
     conn.query_row(
         "SELECT id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest FROM thread_list_view WHERE id = ?1",
         params![session_id],
@@ -74,18 +74,18 @@ pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<
     .optional()
 }
 
-/// List sessions, optionally filtered by a derived grouping,
+/// List threads, optionally filtered by a derived grouping,
 /// sorted by `updated_at_s` descending.
 pub(crate) fn list_sessions(
     conn: &Connection,
-    filter: Option<&nuo_wire::WorkspaceFilter>,
-) -> Result<Vec<SessionRecord>> {
+    filter: Option<&nuo_protocol::WorkspaceFilter>,
+) -> Result<Vec<ThreadRecord>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, \
                         created_at_s, updated_at_s, workspace_root, persona, \
                         msg_count, last_user_prompt, digest";
     let mut sessions = Vec::new();
     match filter {
-        Some(nuo_wire::WorkspaceFilter::Path(path)) => {
+        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view WHERE workspace_root = ?1 ORDER BY updated_at_s DESC"
             );
@@ -95,7 +95,7 @@ pub(crate) fn list_sessions(
                 sessions.push(session?);
             }
         }
-        Some(nuo_wire::WorkspaceFilter::Unbound) => {
+        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view WHERE workspace_root IS NULL OR workspace_root = '' ORDER BY updated_at_s DESC"
             );
@@ -121,7 +121,7 @@ pub(crate) fn list_sessions(
 pub(crate) fn list_subagent_sessions(
     conn: &Connection,
     parent_id: &str,
-) -> Result<Vec<SessionRecord>> {
+) -> Result<Vec<ThreadRecord>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, \
                         created_at_s, updated_at_s, workspace_root, persona, \
                         msg_count, last_user_prompt, digest";
@@ -161,13 +161,13 @@ pub(crate) fn save_session_inner(
     blob_store: Option<&BlobStore>,
     data: &crate::session::SessionData,
     force_full: bool,
-    usage_upserts: &[nuo_wire::RequestUsageRecord],
+    usage_upserts: &[nuo_protocol::RequestUsageRecord],
     guard: &CommitGuard,
 ) -> std::result::Result<u64, SaveError> {
     let fork_str = match data.fork_kind {
-        nuo_wire::SessionForkKind::Trunk => "trunk",
-        nuo_wire::SessionForkKind::Fork => "fork",
-        nuo_wire::SessionForkKind::Subagent => "subagent",
+        nuo_protocol::ThreadForkKind::Trunk => "trunk",
+        nuo_protocol::ThreadForkKind::Fork => "fork",
+        nuo_protocol::ThreadForkKind::Subagent => "subagent",
     };
     let digest_str = data
         .digest
@@ -417,7 +417,7 @@ pub(crate) fn save_session_inner(
             for directive in &data.transcript.directives[directive_start..] {
                 insert_directive(conn, data.id.as_str(), directive)?;
             }
-            let new_entries: Vec<nuo_wire::TranscriptEntry> =
+            let new_entries: Vec<nuo_protocol::TranscriptEntry> =
                 new_entries.into_iter().cloned().collect();
             record_blob_refs(conn, data.id.as_str(), &new_entries, &[])?;
             for record in usage_upserts {
@@ -471,7 +471,7 @@ fn insert_membership(conn: &Connection, session_id: &str, seq: u64, entry_id: &s
 fn insert_directive(
     conn: &Connection,
     session_id: &str,
-    directive: &nuo_wire::ProjectionDirective,
+    directive: &nuo_protocol::ProjectionDirective,
 ) -> Result<()> {
     let payload = serde_json::to_string(&directive.payload)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -512,14 +512,14 @@ fn insert_unknown_directive(
 fn upsert_entry(
     conn: &Connection,
     blob_store: Option<&BlobStore>,
-    entry: &nuo_wire::TranscriptEntry,
+    entry: &nuo_protocol::TranscriptEntry,
 ) -> Result<()> {
     let mut payload = entry.payload.clone();
     let mut content = entry.content.clone();
     if content
         .as_ref()
         .is_some_and(|c| c.len() > CAS_THRESHOLD_BYTES)
-        && let nuo_wire::EntryPayload::Message(message_payload) = &mut payload
+        && let nuo_protocol::EntryPayload::Message(message_payload) = &mut payload
         && message_payload.content_blob.is_none()
         && let Some(blob_store) = blob_store
     {
@@ -533,7 +533,7 @@ fn upsert_entry(
     }
     // Durable CAS publication for multimodal images
     if let Some(blob_store) = blob_store
-        && let nuo_wire::EntryPayload::Message(message_payload) = &payload
+        && let nuo_protocol::EntryPayload::Message(message_payload) = &payload
         && let Some(images) = &message_payload.images
     {
         use base64::{Engine, engine::general_purpose::STANDARD};
@@ -549,7 +549,7 @@ fn upsert_entry(
         conn,
         EntryEnvelope {
             id: entry.id.as_str(),
-            kind: if entry.kind == nuo_wire::EntryKind::State {
+            kind: if entry.kind == nuo_protocol::EntryKind::State {
                 "state"
             } else {
                 "message"
@@ -607,12 +607,12 @@ fn upsert_entry_row(conn: &Connection, row: EntryEnvelope<'_>) -> Result<()> {
 fn record_blob_refs(
     conn: &Connection,
     session_id: &str,
-    entries: &[nuo_wire::TranscriptEntry],
+    entries: &[nuo_protocol::TranscriptEntry],
     unknown: &[crate::session::UnknownEntryRow],
 ) -> Result<()> {
     let mut refs: Vec<String> = Vec::new();
     for entry in entries {
-        if let nuo_wire::EntryPayload::Message(payload) = &entry.payload {
+        if let nuo_protocol::EntryPayload::Message(payload) = &entry.payload {
             if let Some(hash) = &payload.content_blob {
                 refs.push(hash.clone());
             }
@@ -645,7 +645,7 @@ fn record_blob_refs(
 fn load_usage_records(
     conn: &Connection,
     session_id: &str,
-) -> Result<Vec<nuo_wire::RequestUsageRecord>> {
+) -> Result<Vec<nuo_protocol::RequestUsageRecord>> {
     let mut stmt = conn.prepare(
         "SELECT payload FROM usage_records WHERE session_id = ?1
          ORDER BY round ASC, turn ASC, attempt ASC, actor_id ASC",
@@ -779,16 +779,16 @@ pub(crate) fn load_session_full(
         })?;
         for row in rows {
             let (eid, seq, kind, role, content, origin, hidden, created_at_ms, payload) = row?;
-            let decoded = (|| -> Option<nuo_wire::TranscriptEntry> {
+            let decoded = (|| -> Option<nuo_protocol::TranscriptEntry> {
                 let kind = if kind == "state" {
-                    nuo_wire::EntryKind::State
+                    nuo_protocol::EntryKind::State
                 } else {
-                    nuo_wire::EntryKind::Message
+                    nuo_protocol::EntryKind::Message
                 };
                 let role = role.as_deref().and_then(role_from_str);
                 let origin = origin.as_deref().and_then(origin_from_str);
-                let payload: nuo_wire::EntryPayload = serde_json::from_str(&payload).ok()?;
-                Some(nuo_wire::TranscriptEntry {
+                let payload: nuo_protocol::EntryPayload = serde_json::from_str(&payload).ok()?;
+                Some(nuo_protocol::TranscriptEntry {
                     id: eid.clone(),
                     seq: seq.max(0) as u64,
                     kind,
@@ -840,15 +840,16 @@ pub(crate) fn load_session_full(
         })?;
         for row in rows {
             let (seq, kind, up_to_seq, payload) = row?;
-            let decoded = (|| -> Option<nuo_wire::ProjectionDirective> {
+            let decoded = (|| -> Option<nuo_protocol::ProjectionDirective> {
                 let kind = match kind.as_str() {
-                    "prune" => nuo_wire::DirectiveKind::Prune,
-                    "compact" => nuo_wire::DirectiveKind::Compact,
-                    "freeze" => nuo_wire::DirectiveKind::Freeze,
+                    "prune" => nuo_protocol::DirectiveKind::Prune,
+                    "compact" => nuo_protocol::DirectiveKind::Compact,
+                    "freeze" => nuo_protocol::DirectiveKind::Freeze,
                     _ => return None,
                 };
-                let payload: nuo_wire::DirectivePayload = serde_json::from_str(&payload).ok()?;
-                Some(nuo_wire::ProjectionDirective {
+                let payload: nuo_protocol::DirectivePayload =
+                    serde_json::from_str(&payload).ok()?;
+                Some(nuo_protocol::ProjectionDirective {
                     seq: seq.max(0) as u64,
                     kind,
                     up_to_seq: up_to_seq.max(0) as u64,
@@ -873,7 +874,7 @@ pub(crate) fn load_session_full(
         }
     }
 
-    let digest: Option<nuo_wire::SessionDigest> = match digest.as_deref() {
+    let digest: Option<nuo_protocol::ThreadDigest> = match digest.as_deref() {
         Some(raw) => match serde_json::from_str(raw) {
             Ok(parsed) => Some(parsed),
             Err(error) => {
@@ -892,7 +893,7 @@ pub(crate) fn load_session_full(
     };
 
     let data = crate::session::SessionData {
-        transcript: nuo_wire::Transcript {
+        transcript: nuo_protocol::Transcript {
             min_next_seq: entries
                 .iter()
                 .map(|entry| entry.seq + 1)
@@ -916,14 +917,14 @@ pub(crate) fn load_session_full(
         id,
         parent_id,
         fork_kind: match fork_kind.as_str() {
-            "fork" => nuo_wire::SessionForkKind::Fork,
-            "subagent" => nuo_wire::SessionForkKind::Subagent,
-            _ => nuo_wire::SessionForkKind::Trunk,
+            "fork" => nuo_protocol::ThreadForkKind::Fork,
+            "subagent" => nuo_protocol::ThreadForkKind::Subagent,
+            _ => nuo_protocol::ThreadForkKind::Trunk,
         },
         // Provenance (ADR-0120). A partial record (a turn with no round) is
         // not a representable `ForkPoint`, so it degrades to "unrecorded"
         // rather than inventing a round the writer never stamped.
-        fork_point: fork_round.map(|round| nuo_wire::ForkPoint {
+        fork_point: fork_round.map(|round| nuo_protocol::ForkPoint {
             round: round.max(0) as u64,
             turn: fork_turn.map(|t| t.max(0) as u32),
         }),
@@ -939,7 +940,7 @@ pub(crate) fn load_session_full(
         role_manifest: role_manifest
             .as_deref()
             .and_then(|raw| serde_json::from_str(raw).ok()),
-        workspace: workspace_root.map(|root| nuo_wire::WorkspaceBinding {
+        workspace: workspace_root.map(|root| nuo_protocol::WorkspaceBinding {
             root: PathBuf::from(root),
             additional_roots: serde_json::from_str(&additional_roots).unwrap_or_else(|error| {
                 tracing::warn!(session = %session_id, error = %error, "additional_roots column undecodable; treated as empty");
@@ -986,14 +987,14 @@ pub(crate) fn read_session_transcript(
     conn: &Connection,
     session_id: &str,
     tail: usize,
-) -> Result<Option<SessionTranscriptView>> {
+) -> Result<Option<ThreadTranscriptView>> {
     let Some(data) = load_session_full(conn, session_id)? else {
         return Ok(None);
     };
     let projected = data.transcript.project();
     let total = projected.len();
     let start = total.saturating_sub(tail);
-    Ok(Some(SessionTranscriptView {
+    Ok(Some(ThreadTranscriptView {
         id: data.id.clone(),
         title: data.title.clone(),
         digest: data.digest.clone(),
@@ -1017,12 +1018,12 @@ pub(crate) fn read_session_transcript(
 pub(crate) fn resolve_session_prefix(
     conn: &Connection,
     prefix: &str,
-    filter: Option<&nuo_wire::WorkspaceFilter>,
+    filter: Option<&nuo_protocol::WorkspaceFilter>,
 ) -> Result<Vec<String>> {
     let pattern = format!("{prefix}%");
     let mut matches = Vec::new();
     match filter {
-        Some(nuo_wire::WorkspaceFilter::Path(path)) => {
+        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
             let mut stmt = conn.prepare(
                 "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id WHERE t.id LIKE ?1 AND p.workspace_root = ?2 ORDER BY t.updated_at_ms DESC",
             )?;
@@ -1032,7 +1033,7 @@ pub(crate) fn resolve_session_prefix(
                 matches.push(id?);
             }
         }
-        Some(nuo_wire::WorkspaceFilter::Unbound) => {
+        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
             let mut stmt = conn.prepare(
                 "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id WHERE t.id LIKE ?1 AND (p.workspace_root IS NULL OR p.workspace_root = '') ORDER BY t.updated_at_ms DESC",
             )?;
@@ -1060,7 +1061,7 @@ pub(crate) fn resolve_session_prefix(
 pub(crate) fn lookup_session_workspace(
     conn: &Connection,
     session_id: &str,
-) -> Result<Option<(Option<nuo_wire::WorkspaceBinding>, Option<String>)>> {
+) -> Result<Option<(Option<nuo_protocol::WorkspaceBinding>, Option<String>)>> {
     let row = conn
         .query_row(
             "SELECT workspace_root, additional_roots_json, system_role FROM thread_policies WHERE thread_id = ?1",
@@ -1077,7 +1078,7 @@ pub(crate) fn lookup_session_workspace(
     let Some((workspace_root, additional_roots, persona)) = row else {
         return Ok(None);
     };
-    let workspace = workspace_root.map(|root| nuo_wire::WorkspaceBinding {
+    let workspace = workspace_root.map(|root| nuo_protocol::WorkspaceBinding {
         root: PathBuf::from(root),
         additional_roots: serde_json::from_str(&additional_roots).unwrap_or_default(),
     });
@@ -1088,7 +1089,7 @@ pub(crate) fn lookup_session_workspace(
 pub(crate) fn lookup_session_manifest(
     conn: &Connection,
     session_id: &str,
-) -> Result<Option<nuo_wire::SessionRoleManifest>> {
+) -> Result<Option<nuo_protocol::SessionRoleManifest>> {
     let row: Option<Option<String>> = conn
         .query_row(
             "SELECT role_manifest FROM thread_policies WHERE thread_id = ?1",
@@ -1106,14 +1107,14 @@ pub(crate) fn lookup_session_manifest(
 /// excluding the active session.
 pub(crate) fn list_switch_candidates(
     conn: &Connection,
-    partition: &nuo_wire::SessionPartition,
+    partition: &nuo_protocol::SessionPartition,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
                         updated_at_s, msg_count, last_user_prompt, digest";
     let mut summaries = Vec::new();
     match partition {
-        nuo_wire::SessionPartition::Workspace(path) => {
+        nuo_protocol::SessionPartition::Workspace(path) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view \
                  WHERE workspace_root = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
@@ -1126,7 +1127,7 @@ pub(crate) fn list_switch_candidates(
                 push_summary(&mut summaries, item?, active_id);
             }
         }
-        nuo_wire::SessionPartition::Role(role_id) => {
+        nuo_protocol::SessionPartition::Role(role_id) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view \
                  WHERE (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
@@ -1146,14 +1147,14 @@ pub(crate) fn list_switch_candidates(
 /// List session summaries for a domain partition, with active session tagged.
 pub(crate) fn list_session_summaries_in_partition(
     conn: &Connection,
-    partition: &nuo_wire::SessionPartition,
+    partition: &nuo_protocol::SessionPartition,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
                         updated_at_s, msg_count, last_user_prompt, digest";
     let mut summaries = Vec::new();
     match partition {
-        nuo_wire::SessionPartition::Workspace(path) => {
+        nuo_protocol::SessionPartition::Workspace(path) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view \
                  WHERE workspace_root = ?1 AND fork_kind <> 'subagent' \
@@ -1165,7 +1166,7 @@ pub(crate) fn list_session_summaries_in_partition(
                 push_summary(&mut summaries, item?, active_id);
             }
         }
-        nuo_wire::SessionPartition::Role(role_id) => {
+        nuo_protocol::SessionPartition::Role(role_id) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view \
                  WHERE (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 AND fork_kind <> 'subagent' \
@@ -1184,14 +1185,14 @@ pub(crate) fn list_session_summaries_in_partition(
 
 pub(crate) fn list_session_summaries(
     conn: &Connection,
-    filter: Option<&nuo_wire::WorkspaceFilter>,
+    filter: Option<&nuo_protocol::WorkspaceFilter>,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
                         updated_at_s, msg_count, last_user_prompt, digest";
     let mut summaries = Vec::new();
     match filter {
-        Some(nuo_wire::WorkspaceFilter::Path(path)) => {
+        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view WHERE workspace_root = ?1 AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
             );
@@ -1201,7 +1202,7 @@ pub(crate) fn list_session_summaries(
                 push_summary(&mut summaries, item?, active_id);
             }
         }
-        Some(nuo_wire::WorkspaceFilter::Unbound) => {
+        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
             let sql = format!(
                 "SELECT {COLS} FROM thread_list_view WHERE (workspace_root IS NULL OR workspace_root = '') AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
             );
@@ -1230,10 +1231,10 @@ pub(crate) fn list_session_summaries(
 /// restricted to a staffing persona. Backs `--resume`.
 pub(crate) fn latest_session(
     conn: &Connection,
-    filter: &nuo_wire::WorkspaceFilter,
+    filter: &nuo_protocol::WorkspaceFilter,
     persona: Option<&str>,
 ) -> Result<Option<String>> {
-    use nuo_wire::WorkspaceFilter;
+    use nuo_protocol::WorkspaceFilter;
     let base = "SELECT id FROM thread_list_view WHERE fork_kind <> 'subagent'";
     let (sql, bind_path) = match (filter, persona.is_some()) {
         (WorkspaceFilter::Path(_), true) => (
@@ -1291,18 +1292,18 @@ pub(crate) fn latest_session(
 /// The most recent non-subagent session in a partition. Backs `--resume`.
 pub(crate) fn latest_session_in_partition(
     conn: &Connection,
-    partition: &nuo_wire::SessionPartition,
+    partition: &nuo_protocol::SessionPartition,
 ) -> Result<Option<String>> {
     let base = "SELECT id FROM thread_list_view WHERE fork_kind <> 'subagent'";
     let get = |row: &Row| row.get::<_, String>(0);
     let found = match partition {
-        nuo_wire::SessionPartition::Workspace(path) => {
+        nuo_protocol::SessionPartition::Workspace(path) => {
             let sql = format!("{base} AND workspace_root = ?1 ORDER BY updated_at_s DESC LIMIT 1");
             let mut stmt = conn.prepare(&sql)?;
             stmt.query_row(params![path.to_string_lossy()], get)
                 .optional()?
         }
-        nuo_wire::SessionPartition::Role(role_id) => {
+        nuo_protocol::SessionPartition::Role(role_id) => {
             let sql = format!(
                 "{base} AND (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
             );
@@ -1318,10 +1319,10 @@ pub(crate) fn get_session_detail(
     conn: &Connection,
     session_id: &str,
     active_id: &str,
-) -> Result<Option<nuo_wire::SessionDetail>> {
+) -> Result<Option<nuo_protocol::ThreadDetail>> {
     if let Some(data) = load_session_full(conn, session_id)? {
         let last_prompt = crate::session::last_effective_prompt_from_data(&data);
-        Ok(Some(nuo_wire::SessionDetail {
+        Ok(Some(nuo_protocol::ThreadDetail {
             id: data.id.clone(),
             title: data.title.clone(),
             parent_id: data.parent_id.clone(),

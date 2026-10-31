@@ -30,7 +30,7 @@
 //! scribbling in the conversation.
 
 use crate::model::log::SurfaceId;
-use nuo_wire::{AgentNotice, NoticeKind, NoticeSource};
+use nuo_protocol::{AgentNotice, NoticeKind, NoticeSource};
 
 /// The layers a surface can actually host.
 ///
@@ -218,7 +218,7 @@ pub fn is_round_context(notice: &AgentNotice) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::NoticeSeverity;
+    use nuo_protocol::NoticeSeverity;
 
     const KINDS: [NoticeKind; 7] = [
         NoticeKind::CheckpointReplay,

@@ -26,7 +26,7 @@
 //! normal outcome), 1 for fatal startup errors and forced exits.
 use crate::UiBridge;
 use crate::bootstrap;
-use crate::registry::{HostParams, SessionRegistry};
+use crate::registry::{HostParams, ThreadRegistry};
 use crate::serve::{ServeExpose, ServeOptions, StartupParts, start_server};
 use crate::serve_discovery as discovery;
 use crate::shutdown::{DrainProbe, ShutdownGate, ShutdownReason, SignalGuard, TaskBook};
@@ -177,7 +177,7 @@ pub async fn run_with_registry(
     opts: HostOptions,
     gate: Arc<ShutdownGate>,
     lifecycle: LifecycleOptions,
-    registry: Arc<SessionRegistry>,
+    registry: Arc<ThreadRegistry>,
 ) -> RunOutcome {
     run_inner(identity, opts, gate, lifecycle, Some(registry)).await
 }
@@ -187,7 +187,7 @@ async fn run_inner(
     opts: HostOptions,
     gate: Arc<ShutdownGate>,
     lifecycle: LifecycleOptions,
-    registry: Option<Arc<SessionRegistry>>,
+    registry: Option<Arc<ThreadRegistry>>,
 ) -> RunOutcome {
     let HostIdentity {
         identity,
@@ -249,7 +249,7 @@ async fn run_inner(
     };
 
     let registry = registry.unwrap_or_else(|| {
-        Arc::new(SessionRegistry::new(HostParams {
+        Arc::new(ThreadRegistry::new(HostParams {
             identity,
             preset,
             ui,
@@ -349,7 +349,7 @@ async fn run_inner(
         },
         local_endpoint: bound_local.clone(),
         version: Some(crate::serve::server_version().to_string()),
-        protocol: Some(nuo_wire::PROTOCOL_VERSION),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         // ADR-0021: the server's own image identity, so a client can tell a
         // rebuilt binary apart from a live one by content, not just by path.
         image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),
@@ -419,7 +419,7 @@ async fn run_inner(
     // not lost to an unobserved manager. Failures are logged
     // and non-fatal.
     {
-        use nuo_wire::JobSpec;
+        use nuo_protocol::JobSpec;
         let registry_for_rehost = Arc::clone(&registry);
         crate::task_ledger::rehost_all(
             &nuo_persistence::db::get_persistence_handle(),
@@ -439,7 +439,7 @@ async fn run_inner(
                         .spawn_server_task(
                             command,
                             Some(format!("rehost:{}", row.job_id)),
-                            nuo_wire::JobKind::Service,
+                            nuo_protocol::JobKind::Service,
                         )
                         .await
                     {
@@ -478,9 +478,9 @@ async fn run_inner(
 
     // Phase 2 — stop accepting, close live connections, confirm the loops.
     handle.cancel.cancel();
-    registry.publish_host_event(nuo_wire::MonitorEvent::ServerDraining);
+    registry.publish_host_event(nuo_protocol::MonitorEvent::ServerDraining);
     registry
-        .broadcast_all_sessions(nuo_wire::AgentResponse::Exit)
+        .broadcast_all_sessions(nuo_protocol::AgentResponse::Exit)
         .await;
     if !gate.forced() {
         handle.conns.drain().await;
@@ -638,7 +638,7 @@ async fn wait_for_lock(path: &std::path::Path, budget: Duration) -> Result<Proce
 /// prematurely self-terminate simply because client viewports disconnect.
 async fn serve_until_trigger(
     gate: &Arc<ShutdownGate>,
-    registry: &Arc<SessionRegistry>,
+    registry: &Arc<ThreadRegistry>,
     handle: &crate::serve::ServeHandle,
     idle_exit: Option<Duration>,
 ) {
@@ -661,7 +661,7 @@ async fn serve_until_trigger(
 /// Resets its timer on any activity, so spawn/exit flapping between
 /// back-to-back invocations never trips it.
 fn idle_exit_future(
-    registry: &Arc<SessionRegistry>,
+    registry: &Arc<ThreadRegistry>,
     handle: &crate::serve::ServeHandle,
     grace: Duration,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {

@@ -32,7 +32,7 @@
 //! that outlives its source, and a tolerant reader silently masks drift instead
 //! of reporting it. A response this module cannot read is drift, and drift is
 //! surfaced as an error (the `404`/shape-change path), not smoothed over.
-use nuo_wire::{
+use nuo_protocol::{
     PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
     UsageMetric,
 };

@@ -5,7 +5,9 @@
 //! commands, project-file discovery, and explicit-path expansion all live here
 //! so terminal and browser apps cannot drift into separate completion products.
 use ignore::WalkBuilder;
-use nuo_wire::{AgentResponse, CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
+use nuo_protocol::{
+    AgentResponse, CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind,
+};
 use std::path::{Path, PathBuf};
 use tokio::sync::OnceCell;
 
@@ -34,7 +36,7 @@ impl InputCompletionEngine {
     }
 
     /// Produce one race-safe protocol response. `cursor` is a Unicode-scalar
-    /// index, matching the wire contract in `nuo-wire`.
+    /// index, matching the wire contract in `nuo-protocol`.
     pub async fn complete(&self, request_id: u64, input: String, cursor: usize) -> AgentResponse {
         let items = match char_to_byte(&input, cursor) {
             Some(cursor_byte) => self.complete_items(&input, cursor_byte).await,
@@ -397,13 +399,13 @@ fn slash_item(
 }
 
 fn is_skill_query(query: &str) -> bool {
-    nuo_wire::mention::SKILL_NAMESPACES
+    nuo_protocol::mention::SKILL_NAMESPACES
         .iter()
         .any(|ns| query.starts_with(ns))
 }
 
 fn is_file_query(query: &str) -> bool {
-    nuo_wire::mention::FILE_NAMESPACES
+    nuo_protocol::mention::FILE_NAMESPACES
         .iter()
         .any(|ns| query.starts_with(ns))
 }
@@ -422,7 +424,7 @@ fn skill_completion_items(
     // The namespace vocabulary is owned by the grammar kernel; derive the
     // filter and the re-emitted prefix from it rather than re-typing the
     // spellings here.
-    use nuo_wire::mention::SKILL_NAMESPACES;
+    use nuo_protocol::mention::SKILL_NAMESPACES;
     let (filter, explicit_prefix) = SKILL_NAMESPACES
         .iter()
         .find_map(|ns| query.strip_prefix(ns).map(|rest| (rest, *ns)))
@@ -460,7 +462,7 @@ fn file_completion_items(
     cursor_end: usize,
     entries: &[String],
 ) -> Vec<InputCompletion> {
-    let filter = nuo_wire::mention::strip_file_namespace(query).unwrap_or(query);
+    let filter = nuo_protocol::mention::strip_file_namespace(query).unwrap_or(query);
     let mut items = entries
         .iter()
         .filter(|path| path_query_match(path, filter))
@@ -499,7 +501,7 @@ fn namespace_items(
     cursor_end: usize,
     has_skills: bool,
 ) -> Vec<InputCompletion> {
-    use nuo_wire::mention::{FILE_NAMESPACES, SKILL_NAMESPACES};
+    use nuo_protocol::mention::{FILE_NAMESPACES, SKILL_NAMESPACES};
 
     let q_lower = query.to_lowercase();
     let prefixes_namespace =
@@ -653,7 +655,7 @@ fn char_to_byte(input: &str, char_index: usize) -> Option<usize> {
 }
 
 fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize, usize)> {
-    nuo_wire::mention::mention_range_at(input, cursor_byte)
+    nuo_protocol::mention::mention_range_at(input, cursor_byte)
 }
 
 fn path_query_match(path: &str, query: &str) -> bool {

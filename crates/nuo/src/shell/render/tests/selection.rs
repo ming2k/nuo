@@ -9,7 +9,7 @@ use super::*;
 #[test]
 fn virtual_index_selects_only_chunks_intersecting_the_viewport() {
     let messages = (0..4)
-        .map(|i| TranscriptMessage::new(nuo_wire::Role::Assistant, format!("m{i}")))
+        .map(|i| TranscriptMessage::new(nuo_protocol::Role::Assistant, format!("m{i}")))
         .collect::<Vec<_>>();
     let mut cache = HeightCache::default();
     cache.prepare(80);
@@ -59,13 +59,13 @@ fn virtual_index_prefix_skips_settled_history_during_streaming_tail() {
     let mut messages = Vec::new();
     for i in 0..5 {
         messages.push(TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             format!("user prompt {i}"),
         ));
     }
     // 6th message is actively streaming (not in HeightCache)
     let streaming_tail =
-        TranscriptMessage::new(nuo_wire::Role::Assistant, "streaming in progress...");
+        TranscriptMessage::new(nuo_protocol::Role::Assistant, "streaming in progress...");
     messages.push(streaming_tail);
 
     let mut cache = HeightCache::default();
@@ -231,6 +231,7 @@ fn paint_transcript(
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,

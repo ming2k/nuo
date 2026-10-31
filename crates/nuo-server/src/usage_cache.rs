@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use nuo_wire::ConnectionUsageState;
+use nuo_protocol::ConnectionUsageState;
 
 pub const DEFAULT_USAGE_CACHE_TTL: Duration = Duration::from_secs(180);
 

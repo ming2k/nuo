@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 /// hosts sessions for many projects, so the server's process cwd is whatever
 /// directory the first client spawned it from. The assembling bootstrap
 /// therefore registers the session's project root as a
-/// [`WorkspaceRoot`](nuo_wire::WorkspaceRoot) service on the
-/// [`ToolContext`](nuo_wire::ToolContext), and each path-taking tool
+/// [`WorkspaceRoot`](nuo_protocol::WorkspaceRoot) service on the
+/// [`ToolContext`](nuo_protocol::ToolContext), and each path-taking tool
 /// captures it at factory time into its `root` field.
 ///
 /// `None` (unit tests, a context built without the service) means "use the
@@ -19,7 +19,7 @@ pub(crate) type WorkspaceBase = Option<PathBuf>;
 /// Capture the workspace base from a tool-assembly context. Factories call
 /// this once at build time; the returned value is immutable for the tool's
 /// lifetime, matching the session whose bootstrap assembled it.
-pub(crate) fn workspace_base(ctx: &nuo_wire::tool_registry::ToolContext) -> WorkspaceBase {
+pub(crate) fn workspace_base(ctx: &nuo_protocol::tool_registry::ToolContext) -> WorkspaceBase {
     ctx.workspace_root().map(Path::to_path_buf)
 }
 
@@ -27,16 +27,20 @@ pub(crate) fn workspace_base(ctx: &nuo_wire::tool_registry::ToolContext) -> Work
 struct SimpleFsProvider;
 
 #[async_trait::async_trait]
-impl nuo_wire::execution::FsProvider for SimpleFsProvider {
-    async fn read(&self, path: &Path) -> Result<Vec<u8>, nuo_wire::execution::FsError> {
+impl nuo_protocol::execution::FsProvider for SimpleFsProvider {
+    async fn read(&self, path: &Path) -> Result<Vec<u8>, nuo_protocol::execution::FsError> {
         tokio::fs::read(path)
             .await
-            .map_err(nuo_wire::execution::FsError::from)
+            .map_err(nuo_protocol::execution::FsError::from)
     }
-    async fn write(&self, path: &Path, content: &[u8]) -> Result<(), nuo_wire::execution::FsError> {
+    async fn write(
+        &self,
+        path: &Path,
+        content: &[u8],
+    ) -> Result<(), nuo_protocol::execution::FsError> {
         tokio::fs::write(path, content)
             .await
-            .map_err(nuo_wire::execution::FsError::from)
+            .map_err(nuo_protocol::execution::FsError::from)
     }
     async fn exists(&self, path: &Path) -> bool {
         tokio::fs::try_exists(path).await.unwrap_or(false)
@@ -56,27 +60,27 @@ impl nuo_wire::execution::FsProvider for SimpleFsProvider {
     async fn list_dir(
         &self,
         _path: &Path,
-    ) -> Result<Vec<nuo_wire::execution::DirEntry>, nuo_wire::execution::FsError> {
+    ) -> Result<Vec<nuo_protocol::execution::DirEntry>, nuo_protocol::execution::FsError> {
         Ok(Vec::new())
     }
-    async fn create_dir_all(&self, path: &Path) -> Result<(), nuo_wire::execution::FsError> {
+    async fn create_dir_all(&self, path: &Path) -> Result<(), nuo_protocol::execution::FsError> {
         tokio::fs::create_dir_all(path)
             .await
-            .map_err(nuo_wire::execution::FsError::from)
+            .map_err(nuo_protocol::execution::FsError::from)
     }
-    async fn remove_file(&self, path: &Path) -> Result<(), nuo_wire::execution::FsError> {
+    async fn remove_file(&self, path: &Path) -> Result<(), nuo_protocol::execution::FsError> {
         tokio::fs::remove_file(path)
             .await
-            .map_err(nuo_wire::execution::FsError::from)
+            .map_err(nuo_protocol::execution::FsError::from)
     }
     async fn metadata(
         &self,
         path: &Path,
-    ) -> Result<nuo_wire::execution::FsMetadata, nuo_wire::execution::FsError> {
+    ) -> Result<nuo_protocol::execution::FsMetadata, nuo_protocol::execution::FsError> {
         let meta = tokio::fs::metadata(path)
             .await
-            .map_err(nuo_wire::execution::FsError::from)?;
-        Ok(nuo_wire::execution::FsMetadata {
+            .map_err(nuo_protocol::execution::FsError::from)?;
+        Ok(nuo_protocol::execution::FsMetadata {
             is_dir: meta.is_dir(),
             is_file: meta.is_file(),
             is_symlink: meta.is_symlink(),
@@ -89,14 +93,14 @@ impl nuo_wire::execution::FsProvider for SimpleFsProvider {
 struct SimpleProcessRunner;
 
 #[async_trait::async_trait]
-impl nuo_wire::execution::ProcessRunner for SimpleProcessRunner {
+impl nuo_protocol::execution::ProcessRunner for SimpleProcessRunner {
     async fn exec(
         &self,
         _command: &str,
         _cwd: &Path,
         _env: Option<&std::collections::HashMap<String, String>>,
         _timeout: std::time::Duration,
-    ) -> Result<nuo_wire::execution::ProcessOutput, String> {
+    ) -> Result<nuo_protocol::execution::ProcessOutput, String> {
         Err("Process execution not supported in code tools".to_string())
     }
 }
@@ -118,11 +122,11 @@ impl SimpleExecutionEnvironment {
     }
 }
 
-impl nuo_wire::execution::ExecutionEnvironment for SimpleExecutionEnvironment {
-    fn fs(&self) -> &dyn nuo_wire::execution::FsProvider {
+impl nuo_protocol::execution::ExecutionEnvironment for SimpleExecutionEnvironment {
+    fn fs(&self) -> &dyn nuo_protocol::execution::FsProvider {
         &self.fs
     }
-    fn process(&self) -> &dyn nuo_wire::execution::ProcessRunner {
+    fn process(&self) -> &dyn nuo_protocol::execution::ProcessRunner {
         &self.process
     }
     fn workspace_root(&self) -> &Path {
@@ -130,12 +134,14 @@ impl nuo_wire::execution::ExecutionEnvironment for SimpleExecutionEnvironment {
     }
 }
 
-/// Capture or synthesize an [`ExecutionEnvironment`](nuo_wire::execution::ExecutionEnvironment)
+/// Capture or synthesize an [`ExecutionEnvironment`](nuo_protocol::execution::ExecutionEnvironment)
 /// from the tool build context.
 pub(crate) fn execution_environment(
-    ctx: &nuo_wire::tool_registry::ToolContext,
-) -> std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment> {
-    if let Some(env) = ctx.get::<std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment>>() {
+    ctx: &nuo_protocol::tool_registry::ToolContext,
+) -> std::sync::Arc<dyn nuo_protocol::execution::ExecutionEnvironment> {
+    if let Some(env) =
+        ctx.get::<std::sync::Arc<dyn nuo_protocol::execution::ExecutionEnvironment>>()
+    {
         return env.clone();
     }
     let root = ctx
@@ -145,11 +151,11 @@ pub(crate) fn execution_environment(
     std::sync::Arc::new(SimpleExecutionEnvironment::new(root))
 }
 
-/// Synthesize an [`ExecutionEnvironment`](nuo_wire::execution::ExecutionEnvironment)
+/// Synthesize an [`ExecutionEnvironment`](nuo_protocol::execution::ExecutionEnvironment)
 /// from an optional workspace root base.
 pub(crate) fn env_from_root(
     root: &WorkspaceBase,
-) -> std::sync::Arc<dyn nuo_wire::execution::ExecutionEnvironment> {
+) -> std::sync::Arc<dyn nuo_protocol::execution::ExecutionEnvironment> {
     let base = root.clone().unwrap_or_else(|| PathBuf::from("."));
     std::sync::Arc::new(SimpleExecutionEnvironment::new(base))
 }
@@ -163,7 +169,7 @@ pub(crate) fn env_from_root(
 /// through the resolved value, so prompt/UI rendering keeps showing what the
 /// model actually sent.
 pub(crate) fn resolve_workspace_path(base: &WorkspaceBase, path: &str) -> PathBuf {
-    let expanded = nuo_wire::execution::expand_tilde(Path::new(path));
+    let expanded = nuo_protocol::execution::expand_tilde(Path::new(path));
     if expanded.is_absolute() {
         expanded
     } else {

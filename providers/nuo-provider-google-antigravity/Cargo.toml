@@ -10,7 +10,7 @@ description = "Google Gemini API and Google Antigravity (CloudCode) OAuth provid
 nuo-provider = { workspace = true }
 nuo-inference-wire = { workspace = true }
 nuo-tool = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

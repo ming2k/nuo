@@ -146,7 +146,7 @@ pub struct Refusal {
 - `AssembleErr::NoHost` → `ERR_SESSION_GONE` (this host can never serve that id)
 
 `serve.rs` routes through `send_error_with_code`, and both constants are re-exported from
-`nuo_wire` so no downstream crate can re-spell them.
+`nuo_protocol` so no downstream crate can re-spell them.
 
 ### 2. The client preserves the code in a typed attach error
 

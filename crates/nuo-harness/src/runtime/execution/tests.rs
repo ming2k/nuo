@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::tools::{EditTextTool, ListDirTool, ReadTextTool, WriteFileTool};
-use nuo_wire::execution::{ExecutionEnvironment, ToolMiddleware};
-use nuo_wire::{Tool, ToolOutput};
+use nuo_protocol::execution::{ExecutionEnvironment, ToolMiddleware};
+use nuo_protocol::{Tool, ToolOutput};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -49,7 +49,7 @@ async fn mock_process_subagent_scripted_response() {
     subagent
         .register(
             "cargo build",
-            nuo_wire::execution::ProcessOutput {
+            nuo_protocol::execution::ProcessOutput {
                 exit_code: Some(0),
                 stdout: b"Compiling nuo v0.1.0\nFinished dev target(s)".to_vec(),
                 stderr: Vec::new(),
@@ -125,7 +125,7 @@ async fn secret_scrub_middleware_redacts_credentials() {
         exit: Some(0),
         truncated: false,
         truncated_note: None,
-        termination: nuo_wire::ShellTermination::Exited,
+        termination: nuo_protocol::ShellTermination::Exited,
         detached_job_id: None,
     };
 

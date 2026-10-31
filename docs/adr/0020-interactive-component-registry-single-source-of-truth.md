@@ -121,7 +121,24 @@ source of truth for the tool-backed interactive components.**
    glyph *is* its marker vocabulary, and a command entry's invocation/reply
    pair is one component in two lifecycle states. Neither renders `+`/`-`, and
    neither folds. Entries whose body is genuinely foldable (tool steps,
-   reasoning, compaction cards, subagent tasks) render the shared marker.
+   reasoning, compaction cards) render the shared marker.
+
+9. **A disclosure policy is only declared for components that have a body.**
+   `has_inline_body` is a declared property of a `ToolComponent`, and every
+   consumer of the disclosure policy honours it:
+   - `default_expanded()` is `false` for a bodyless component, whatever
+     `expanded_by_default` says;
+   - `tool_step_expanded` therefore never opens one;
+   - the Settings pane filters bodyless components out of its rows, because a
+     switch that cannot change what the transcript paints is a lie about the
+     product rather than a setting.
+
+   Subagent delegations are the motivating case: `draw_subagent_inline_step`
+   paints exactly two fixed rows and reads no `expanded` flag, while activation
+   drills into the task's scene instead of toggling a disclosure. The table used
+   to list them as an expandable component anyway, so the panel offered a switch
+   wired to nothing. The lesson is the general one: **a declared policy needs a
+   consumer, and a settings row needs an effect.**
 
 ## Consequences
 

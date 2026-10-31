@@ -49,6 +49,8 @@ pub enum DevAction {
     Storybook,
     Export(PathBuf),
     Check(CheckTarget),
+    /// Rewrite the wire-surface census at the current protocol number.
+    BlessCensus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +60,8 @@ pub enum CheckTarget {
     Docs,
     Adr,
     Residency,
+    /// `[INV-WIRE-03]`: the wire variant census matches the protocol number.
+    Wire,
 }
 
 /// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061)
@@ -485,22 +489,31 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("target/storybook-snapshots"));
             return ok(Mode::Dev(DevAction::Export(out_dir)));
+        } else if extra[0] == "census" {
+            if extra.iter().any(|arg| arg == "--bless") {
+                return ok(Mode::Dev(DevAction::BlessCensus));
+            }
+            return ok(Mode::Dev(DevAction::Check(CheckTarget::Wire)));
         } else if extra[0] == "check" {
             let target = match extra.get(1).map(|s| s.as_str()) {
                 Some("firewall") | Some("arch") => CheckTarget::Firewall,
                 Some("docs") | Some("links") => CheckTarget::Docs,
                 Some("adr") | Some("lineage") => CheckTarget::Adr,
                 Some("residency") | Some("modules") => CheckTarget::Residency,
+                Some("wire") | Some("protocol") => CheckTarget::Wire,
                 None | Some("all") => CheckTarget::All,
                 Some(other) => {
                     return Err(format!(
-                        "unknown check target '{other}'. Available: `all`, `firewall`, `docs`, `adr`, `residency`"
+                        "unknown check target '{other}'. Available: `all`, `firewall`, `docs`, `adr`, `residency`, `wire`"
                     ));
                 }
             };
             return ok(Mode::Dev(DevAction::Check(target)));
         } else {
-            return Err("unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, `nuo dev export [dir]`, or `nuo dev check [all|firewall|docs|adr]`".into());
+            return Err(
+                "unknown dev command. Available: `nuo dev storybook`, `nuo dev ui`, `nuo dev export [dir]`, `nuo dev check [all|firewall|docs|adr|residency|wire]`, or `nuo dev census [--bless]`"
+                    .into(),
+            );
         }
     }
 

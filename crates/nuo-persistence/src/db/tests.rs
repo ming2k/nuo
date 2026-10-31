@@ -246,7 +246,7 @@ fn migration_catalog_fingerprint_is_stable() {
 /// invariants.
 #[test]
 fn visible_harness_injections_persist_after_origin_hidden_split() {
-    use nuo_wire::{InjectionKind, Message, Role, TranscriptEntry};
+    use nuo_protocol::{InjectionKind, Message, Role, TranscriptEntry};
 
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
@@ -255,14 +255,14 @@ fn visible_harness_injections_persist_after_origin_hidden_split() {
     // The exact repro: a user steering insert and a command echo are both
     // visible (`hidden = false`) yet legitimately carry an `origin`.
     let steer = Message::new(Role::User, "pls reconsider point 3")
-        .with_origin(nuo_wire::InjectionOrigin::new(InjectionKind::UserSteer));
+        .with_origin(nuo_protocol::InjectionOrigin::new(InjectionKind::UserSteer));
     let echo = Message::command_echo("/session list");
     let image = Message::new(Role::User, "Image from screenshot")
-        .with_images(vec![nuo_wire::ImagePart {
+        .with_images(vec![nuo_protocol::ImagePart {
             mime: "image/png".into(),
             data: "bytes".into(),
         }])
-        .with_origin(nuo_wire::InjectionOrigin::new(InjectionKind::ToolImage));
+        .with_origin(nuo_protocol::InjectionOrigin::new(InjectionKind::ToolImage));
 
     assert!(!steer.hidden && steer.origin.is_some());
     assert!(!echo.hidden && echo.origin.is_some());
@@ -300,14 +300,14 @@ fn visible_harness_injections_persist_after_origin_hidden_split() {
 /// impossible and must fail on save.
 #[test]
 fn visible_checkpoint_origin_is_still_rejected() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
 
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     let mut message = Message::new(Role::User, "bogus visible checkpoint");
     message.hidden = false; // checkpoint is never visible dialogue
-    message.origin = Some(nuo_wire::InjectionOrigin::new(
-        nuo_wire::InjectionKind::CompactionCheckpoint,
+    message.origin = Some(nuo_protocol::InjectionOrigin::new(
+        nuo_protocol::InjectionKind::CompactionCheckpoint,
     ));
     data.transcript
         .push(TranscriptEntry::from_message(0, &message));
@@ -323,7 +323,7 @@ fn visible_checkpoint_origin_is_still_rejected() {
 
 #[test]
 fn delta_save_appends_only_rows_above_the_watermark() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
@@ -369,7 +369,7 @@ fn delta_save_appends_only_rows_above_the_watermark() {
 
 #[test]
 fn generation_mismatch_escalates_delta_to_full_rewrite() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     data.transcript.push(TranscriptEntry::from_message(
@@ -439,7 +439,7 @@ fn guarded_save(
 
 #[test]
 fn commit_revision_advances_and_is_durable() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     assert_eq!(session_revision(&engine.conn, &data.id).unwrap(), 0);
@@ -464,7 +464,7 @@ fn commit_revision_advances_and_is_durable() {
 
 #[test]
 fn replayed_operation_returns_its_original_receipt() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     data.transcript.push(TranscriptEntry::from_message(
@@ -491,7 +491,7 @@ fn replayed_operation_returns_its_original_receipt() {
 
 #[test]
 fn reused_operation_id_for_other_content_is_refused() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     data.transcript.push(TranscriptEntry::from_message(
@@ -516,7 +516,7 @@ fn reused_operation_id_for_other_content_is_refused() {
 
 #[test]
 fn stale_expected_revision_fails_closed() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     data.transcript.push(TranscriptEntry::from_message(
@@ -551,7 +551,7 @@ fn stale_expected_revision_fails_closed() {
 
 #[test]
 fn delta_save_offloads_only_newly_inserted_rows() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let blob_store =
         BlobStore::new(std::env::temp_dir().join(format!("nuo-offload-{}", uuid::Uuid::new_v4())));
     let mut data = crate::session::SessionData::default();
@@ -576,7 +576,7 @@ fn delta_save_offloads_only_newly_inserted_rows() {
 #[test]
 fn image_payload_is_saved_to_cas_blob_store() {
     use base64::{Engine, engine::general_purpose::STANDARD};
-    use nuo_wire::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, TranscriptEntry};
+    use nuo_protocol::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, TranscriptEntry};
 
     let tmp = tempfile::tempdir().unwrap();
     let blob_store = BlobStore::new(tmp.path().to_path_buf());
@@ -622,7 +622,7 @@ fn engine_blob_round_trip(
 
 #[test]
 fn unknown_payloads_round_trip_verbatim() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     data.transcript.push(TranscriptEntry::from_message(
@@ -690,7 +690,7 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
     let orphan = blob_store.put(b"orphan body").unwrap();
     session_store::upsert_session(
         &engine.conn,
-        &SessionRecord {
+        &ThreadRecord {
             id: "s1".into(),
             parent_id: None,
             fork_kind: "trunk".into(),
@@ -727,14 +727,14 @@ fn blob_gc_reclaims_only_blobs_absent_from_the_reference_ledger() {
 
 #[test]
 fn entry_gc_reclaims_only_zero_reference_rows() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut session = crate::session::SessionData::default();
     let shared = TranscriptEntry::from_message(0, &Message::new(Role::User, "shared"));
     let mut fork = crate::session::SessionData {
         id: "fork-1".into(),
         parent_id: Some(session.id.clone()),
-        fork_kind: nuo_wire::SessionForkKind::Fork,
+        fork_kind: nuo_protocol::ThreadForkKind::Fork,
         ..Default::default()
     };
     // Both sessions reference the same fact by identity.
@@ -766,10 +766,10 @@ fn entry_gc_reclaims_only_zero_reference_rows() {
 
 #[test]
 fn digest_anchor_tree_and_generation_round_trip() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData {
-        digest: Some(nuo_wire::SessionDigest::default()),
+        digest: Some(nuo_protocol::ThreadDigest::default()),
         digest_anchor: Some(4_242),
         ..Default::default()
     };
@@ -801,7 +801,7 @@ fn newer_database_is_refused() {
 
 #[test]
 fn row_checksum_detects_working_state_corruption_on_load() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
     data.transcript.push(TranscriptEntry::from_message(
@@ -838,7 +838,7 @@ fn working_state_round_trips_through_the_session_row() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
     session_store::upsert_session(
         &engine.conn,
-        &SessionRecord {
+        &ThreadRecord {
             id: "s1".into(),
             parent_id: None,
             fork_kind: "trunk".into(),
@@ -867,7 +867,7 @@ fn working_state_round_trips_through_the_session_row() {
 fn thread_list_view_surfaces_the_persisted_fork_point() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
 
-    let trunk = SessionRecord {
+    let trunk = ThreadRecord {
         id: "trunk".into(),
         parent_id: None,
         fork_kind: "trunk".into(),
@@ -887,7 +887,7 @@ fn thread_list_view_surfaces_the_persisted_fork_point() {
     branch.id = "branch".into();
     branch.parent_id = Some("trunk".into());
     branch.fork_kind = "fork".into();
-    branch.fork_point = Some(nuo_wire::ForkPoint::at_turn(3, 2));
+    branch.fork_point = Some(nuo_protocol::ForkPoint::at_turn(3, 2));
     branch.created_at_s = 2;
     branch.updated_at_s = 2;
     session_store::upsert_session(&engine.conn, &branch).unwrap();
@@ -897,7 +897,10 @@ fn thread_list_view_surfaces_the_persisted_fork_point() {
         .expect("branch row");
     assert_eq!(read.parent_id.as_deref(), Some("trunk"));
     assert_eq!(read.fork_kind, "fork");
-    assert_eq!(read.fork_point, Some(nuo_wire::ForkPoint::at_turn(3, 2)));
+    assert_eq!(
+        read.fork_point,
+        Some(nuo_protocol::ForkPoint::at_turn(3, 2))
+    );
     assert_eq!(read.fork_point.unwrap().label(), "r3.2");
 
     // A trunk is truthfully without provenance, not "forked at r0".
@@ -916,7 +919,7 @@ fn thread_list_view_surfaces_the_persisted_fork_point() {
         .expect("branch row");
     assert_eq!(
         after.fork_point,
-        Some(nuo_wire::ForkPoint::at_turn(3, 2)),
+        Some(nuo_protocol::ForkPoint::at_turn(3, 2)),
         "a metadata upsert must not clear the branch's origin"
     );
     assert_eq!(after.title.as_deref(), Some("Renamed"));
@@ -927,7 +930,7 @@ fn thread_list_view_surfaces_the_persisted_fork_point() {
 #[test]
 fn blank_title_reads_back_as_absent() {
     let engine = DatabaseEngine::open_in_memory().unwrap();
-    let record = SessionRecord {
+    let record = ThreadRecord {
         id: "untitled".into(),
         parent_id: None,
         fork_kind: "trunk".into(),
@@ -1231,7 +1234,7 @@ mod supervision {
     /// transcript or usage.
     #[tokio::test]
     async fn commit_survives_a_lost_acknowledgement_without_duplication() {
-        use nuo_wire::{Message, Role, TranscriptEntry};
+        use nuo_protocol::{Message, Role, TranscriptEntry};
         let (_dir, path) = temp_db();
         let handle = PersistenceHandle::spawn(path, None);
 
@@ -1371,11 +1374,11 @@ mod supervision {
     /// retrieval plane). Also pins the workspace filter.
     #[test]
     fn search_history_finds_persisted_transcripts() {
-        use nuo_wire::{Message, Role, TranscriptEntry};
+        use nuo_protocol::{Message, Role, TranscriptEntry};
 
         let engine = DatabaseEngine::open_in_memory().unwrap();
         let mut data = crate::session::SessionData {
-            workspace: Some(nuo_wire::WorkspaceBinding::new("/tmp/proj-a")),
+            workspace: Some(nuo_protocol::WorkspaceBinding::new("/tmp/proj-a")),
             title: Some("Retry loop debugging".into()),
             ..Default::default()
         };
@@ -1404,7 +1407,7 @@ mod supervision {
             history_search::search_history(
                 &engine.conn,
                 "retry",
-                Some(&nuo_wire::WorkspaceFilter::Path("/tmp/other".into())),
+                Some(&nuo_protocol::WorkspaceFilter::Path("/tmp/other".into())),
                 20,
             )
             .unwrap()
@@ -1414,7 +1417,7 @@ mod supervision {
             history_search::search_history(
                 &engine.conn,
                 "retry",
-                Some(&nuo_wire::WorkspaceFilter::Path("/tmp/proj-a".into())),
+                Some(&nuo_protocol::WorkspaceFilter::Path("/tmp/proj-a".into())),
                 20,
             )
             .unwrap()
@@ -1435,7 +1438,7 @@ mod supervision {
     /// multi-word matches float up.
     #[test]
     fn relaxed_recall_widens_the_net_after_a_strict_miss() {
-        use nuo_wire::{Message, Role, TranscriptEntry};
+        use nuo_protocol::{Message, Role, TranscriptEntry};
 
         let engine = DatabaseEngine::open_in_memory().unwrap();
         for (id, text) in [
@@ -1444,7 +1447,7 @@ mod supervision {
         ] {
             let mut data = crate::session::SessionData {
                 id: id.to_string(),
-                workspace: Some(nuo_wire::WorkspaceBinding::new("/tmp/proj-r")),
+                workspace: Some(nuo_protocol::WorkspaceBinding::new("/tmp/proj-r")),
                 title: Some(id.to_string()),
                 ..Default::default()
             };
@@ -1500,7 +1503,7 @@ mod supervision {
 /// optionally, the staffing persona (backs `--resume`).
 #[test]
 fn latest_session_filters_by_workspace_and_persona() {
-    use nuo_wire::WorkspaceFilter;
+    use nuo_protocol::WorkspaceFilter;
     let engine = DatabaseEngine::open_in_memory().unwrap();
 
     let mut unbound = crate::session::SessionData {
@@ -1514,7 +1517,7 @@ fn latest_session_filters_by_workspace_and_persona() {
         role: Some("philosopher".into()),
         ..Default::default()
     };
-    bound.workspace = Some(nuo_wire::WorkspaceBinding::new("/repo/x"));
+    bound.workspace = Some(nuo_protocol::WorkspaceBinding::new("/repo/x"));
     save_session_full(&engine, &bound).unwrap();
 
     assert_eq!(
@@ -1545,21 +1548,21 @@ fn latest_session_filters_by_workspace_and_persona() {
 
 #[test]
 fn role_anchored_partition_and_switch_candidates_exclude_active() {
-    use nuo_wire::SessionPartition;
+    use nuo_protocol::SessionPartition;
     let engine = DatabaseEngine::open_in_memory().unwrap();
 
     let make_session = |id: &str, role: &str, ws: Option<&str>, time: u64| {
         let mut data = crate::session::SessionData {
             id: id.into(),
             role: Some(role.into()),
-            workspace: ws.map(nuo_wire::WorkspaceBinding::new),
+            workspace: ws.map(nuo_protocol::WorkspaceBinding::new),
             created_at: time,
             updated_at: time,
             ..Default::default()
         };
-        let msg = nuo_wire::Message::new(nuo_wire::Role::User, format!("hello from {id}"));
+        let msg = nuo_protocol::Message::new(nuo_protocol::Role::User, format!("hello from {id}"));
         data.transcript
-            .push(nuo_wire::TranscriptEntry::from_message(0, &msg));
+            .push(nuo_protocol::TranscriptEntry::from_message(0, &msg));
         data
     };
 
@@ -1643,7 +1646,7 @@ async fn create_backup_and_with_reader_roundtrip() {
 
 #[test]
 fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
-    use nuo_wire::{Message, Role, TranscriptEntry};
+    use nuo_protocol::{Message, Role, TranscriptEntry};
 
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::session::SessionData::default();
@@ -1719,7 +1722,7 @@ fn persistence_handle_recovers_after_transient_lock_release() {
 /// could not represent at all.
 #[tokio::test]
 async fn fork_appears_in_the_pickers_partition_query_with_its_lineage() {
-    use nuo_wire::{ForkPoint, Message, Role, SessionForkKind};
+    use nuo_protocol::{ForkPoint, Message, Role, ThreadForkKind};
 
     let dir = std::env::temp_dir().join(format!("nuo-lineage-e2e-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1769,7 +1772,7 @@ async fn fork_appears_in_the_pickers_partition_query_with_its_lineage() {
     // Depth 1 branch: in the snapshot, with its address and origin.
     let first_row = by_id(&first.child_id);
     assert_eq!(first_row.fork_point, Some(ForkPoint::at_round(2)));
-    assert_eq!(first_row.fork_kind, SessionForkKind::Fork);
+    assert_eq!(first_row.fork_kind, ThreadForkKind::Fork);
     assert_eq!(first_row.parent_id.as_deref(), Some(parent_id.as_str()));
 
     // Depth 2 branch: present too — this is the row the old projection dropped.
@@ -1791,7 +1794,7 @@ async fn fork_appears_in_the_pickers_partition_query_with_its_lineage() {
     // The parent is untouched: still a trunk, still without provenance.
     let parent_row = by_id(&parent_id);
     assert_eq!(parent_row.fork_point, None);
-    assert_eq!(parent_row.fork_kind, SessionForkKind::Trunk);
+    assert_eq!(parent_row.fork_kind, ThreadForkKind::Trunk);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

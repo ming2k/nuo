@@ -66,11 +66,11 @@ use nuotc::{
     Style,
 };
 
+#[cfg(test)]
+use nuo_protocol::{PermissionRequest, UserQuestionRequest};
 use nuo_view::model::document::TranscriptMessage;
 use nuo_view::model::layout::{InteractiveTarget, LayoutMap};
 use nuo_view::model::selection::{CellDragInfo, SelectionState};
-#[cfg(test)]
-use nuo_wire::{PermissionRequest, UserQuestionRequest};
 
 /// Inner rect of a transcript-area region after reserving the uniform
 /// [`TRANSCRIPT_H_INSET`] left+right `app_bg` gutters. This is the **single
@@ -166,8 +166,8 @@ pub struct TranscriptProps<'a> {
     pub activity: &'a str,
     /// The live provider-retry setback rendered beside (never inside) the
     /// status label — the typed state, so the renderer can choose the full
-    /// `retry 6/30 (next in 8s)` or the compact `(6/30)` form without
-    /// re-parsing a sentence. First casualty under width pressure.
+    /// `retry 1 in 4s` or the compact `retry 1` form without re-parsing a
+    /// sentence. First casualty under width pressure.
     pub backoff: Option<&'a nuo_view::retry::RetryProgress>,
     /// Whether a tool permission request is awaiting the user's decision. When
     /// true the activity bar is forced visible even if the loop has gone idle,
@@ -192,6 +192,10 @@ pub struct TranscriptProps<'a> {
     pub queue_bar: QueueBarProps<'a>,
     /// The background tasks status bar.
     pub tasks_bar: TasksBarProps<'a>,
+    /// The chord the activity strip repeats for its armed interrupt, resolved by
+    /// the caller from the live keymap. `None` suppresses the hint entirely: the
+    /// strip must never advertise a key nobody bound.
+    pub interrupt_key: Option<crate::shell::keymap::Key>,
     /// When set, the view is zoomed into a subagent task: `messages` is the
     /// focused task's child stream. The head band's scene row names the scene
     /// `subagent` and carries the task's `[ROLE] label (i/n)` context (ADR-0024).
@@ -476,6 +480,7 @@ pub fn draw_transcript(
         chrome_hidden,
         queue_bar,
         tasks_bar,
+        interrupt_key,
         subagent_bar,
         page_hints,
         tab_bar,
@@ -904,7 +909,9 @@ pub fn draw_transcript(
                         .iter()
                         .find(|t| !t.dismissed)
                         .map(|t| t.label.as_str()),
+                    queue_key: queue_bar.expand_key,
                 },
+                interrupt_key,
                 spinner_phase,
                 theme,
             )

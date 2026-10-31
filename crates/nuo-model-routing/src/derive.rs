@@ -25,12 +25,12 @@ use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
-use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
-use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
-use nuo_wire::model::CapabilityOverrides;
-use nuo_wire::{
+use nuo_protocol::model::CapabilityOverrides;
+use nuo_protocol::{
     ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString, WireProtocol,
 };
+use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
+use nuo_provider::{CredentialHost, RemoteCatalogSource, model_provider_spec};
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
 pub struct DerivationInputs<'a> {
@@ -158,7 +158,7 @@ pub fn derive_channel(
     connection: &Connection,
     model: &str,
     inputs: &DerivationInputs<'_>,
-) -> Result<Channel, nuo_wire::ProviderError> {
+) -> Result<Channel, nuo_protocol::ProviderError> {
     let DerivationInputs {
         cache,
         routes,
@@ -231,7 +231,7 @@ pub fn derive_channel(
     }
     let prompt_cache = model_provider_spec(&connection.provider)
         .map(|provider| provider.prompt_cache.resolve(model))
-        .unwrap_or_else(nuo_wire::PromptCacheCapabilities::unsupported);
+        .unwrap_or_else(nuo_protocol::PromptCacheCapabilities::unsupported);
     let prompt_cache_preference = route_settings
         .and_then(|settings| settings.prompt_cache)
         .unwrap_or_default();
@@ -259,7 +259,7 @@ pub fn derive_channel(
         route.dialect,
     )
     .ok_or_else(|| {
-        nuo_wire::ProviderError::invalid_request(
+        nuo_protocol::ProviderError::invalid_request(
             &connection.provider,
             "no credential source builder registered (composition root not initialized)",
         )
@@ -343,17 +343,17 @@ struct BaseRoute {
 fn base_route(
     connection: &Connection,
     model: &str,
-    remote: Option<&nuo_wire::RemoteModelMetadata>,
-) -> Result<BaseRoute, nuo_wire::ProviderError> {
+    remote: Option<&nuo_protocol::RemoteModelMetadata>,
+) -> Result<BaseRoute, nuo_protocol::ProviderError> {
     let spec = model_provider_spec(&connection.provider).ok_or_else(|| {
-        nuo_wire::ProviderError::invalid_request(&connection.provider, "unknown model provider")
+        nuo_protocol::ProviderError::invalid_request(&connection.provider, "unknown model provider")
     })?;
     let protocol = remote
         .and_then(|r| r.protocol)
         .unwrap_or_else(|| spec.model_protocol(model));
 
     if !spec.dialect.supports(protocol) {
-        return Err(nuo_wire::ProviderError::invalid_request(
+        return Err(nuo_protocol::ProviderError::invalid_request(
             &connection.provider,
             format!(
                 "model `{model}` selects {protocol}, which is incompatible with provider dialect {:?}",
@@ -387,8 +387,8 @@ fn base_route(
     // is appended by the same ADR-0015 algebra the compiled spec uses.
     let base_url = match remote.and_then(|r| r.endpoint.as_deref()) {
         Some(root) => {
-            let root = nuo_wire::ApiRoot::parse(root).map_err(|error| {
-                nuo_wire::ProviderError::invalid_request(
+            let root = nuo_protocol::ApiRoot::parse(root).map_err(|error| {
+                nuo_protocol::ProviderError::invalid_request(
                     &connection.provider,
                     format!("catalog-advertised root for model `{model}`: {error}"),
                 )
@@ -396,7 +396,7 @@ fn base_route(
             nuo_provider::endpoint_for(spec.dialect, &root, protocol)
         }
         None => spec.endpoint(protocol).map_err(|error| {
-            nuo_wire::ProviderError::invalid_request(&connection.provider, error)
+            nuo_protocol::ProviderError::invalid_request(&connection.provider, error)
         })?,
     };
 
@@ -414,7 +414,7 @@ fn base_route(
 /// (`api_key_env`) → `credentials.toml` → empty.
 ///
 /// An OAuth connection has no configured key: its bearer is dynamic, resolved
-/// per request by the [`nuo_wire::CredentialSource`] that
+/// per request by the [`nuo_protocol::CredentialSource`] that
 /// [`nuo_provider::build_credential_source`] builds. Snapshotting a stored
 /// access token here would hand callers the exact value that source exists to
 /// refresh, so this function returns nothing for one and the caller says so.
@@ -452,7 +452,7 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
 /// whether a user override is what made it usable (ADR-0068).
 ///
 /// The provider's declaration lives in the model's
-/// [`nuo_wire::RemoteModelMetadata`]; this resolves it against the
+/// [`nuo_protocol::RemoteModelMetadata`]; this resolves it against the
 /// connection's own scope. A model the connection (or the provider scope)
 /// explicitly injected stays usable even when the provider declared otherwise:
 /// [INV-CATALOG-04] gives sovereign injection unconditional
@@ -465,30 +465,30 @@ pub fn resolve_credential(connection: &Connection, creds: &Credentials) -> Secre
 pub fn effective_availability(
     connection: &Connection,
     model: &str,
-    remote: Option<&nuo_wire::RemoteModelMetadata>,
+    remote: Option<&nuo_protocol::RemoteModelMetadata>,
     providers: &ModelProviders,
-) -> (nuo_wire::Availability, bool) {
+) -> (nuo_protocol::Availability, bool) {
     effective_availability_with_rules(connection, model, remote, providers, &[])
 }
 
 /// The provider's declaration lives in the model's
-/// [`nuo_wire::RemoteModelMetadata`], layered with live dynamic
-/// [`nuo_wire::ModelAvailabilityRule`] declarations from quota or limit evaluators.
+/// [`nuo_protocol::RemoteModelMetadata`], layered with live dynamic
+/// [`nuo_protocol::ModelAvailabilityRule`] declarations from quota or limit evaluators.
 /// This resolves them against the connection's own scope.
 pub fn effective_availability_with_rules(
     connection: &Connection,
     model: &str,
-    remote: Option<&nuo_wire::RemoteModelMetadata>,
+    remote: Option<&nuo_protocol::RemoteModelMetadata>,
     providers: &ModelProviders,
-    rules: &[nuo_wire::ModelAvailabilityRule],
-) -> (nuo_wire::Availability, bool) {
+    rules: &[nuo_protocol::ModelAvailabilityRule],
+) -> (nuo_protocol::Availability, bool) {
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
 
     // 1. Static entitlement declaration (e.g. tier requirements) takes precedence
-    let declared = remote.map(nuo_wire::RemoteModelMetadata::availability_or_usable);
+    let declared = remote.map(nuo_protocol::RemoteModelMetadata::availability_or_usable);
     let declared = declared.unwrap_or_default();
     if !declared.usable
         && declared
@@ -505,7 +505,7 @@ pub fn effective_availability_with_rules(
                 .get(&connection.provider)
                 .is_some_and(|scope| scope.included_ids().iter().any(|id| id == model));
         if sovereign {
-            return (nuo_wire::Availability::usable(), true);
+            return (nuo_protocol::Availability::usable(), true);
         } else {
             return (declared, false);
         }
@@ -513,7 +513,7 @@ pub fn effective_availability_with_rules(
 
     // 2. Dynamic live rules from provider quota/rate limits
     for rule in rules {
-        if nuo_wire::simple_glob_matches(&rule.pattern, model) {
+        if nuo_protocol::simple_glob_matches(&rule.pattern, model) {
             if let Some(reset_ms) = rule.availability.resets_at_ms {
                 if now_ms >= reset_ms {
                     continue;
@@ -534,7 +534,7 @@ pub fn effective_availability_with_rules(
                         model,
                         "user scope overrides a provider-declared dynamic unavailable model"
                     );
-                    return (nuo_wire::Availability::usable(), true);
+                    return (nuo_protocol::Availability::usable(), true);
                 } else {
                     return (rule.availability.clone(), false);
                 }
@@ -559,7 +559,7 @@ pub fn effective_availability_with_rules(
             model,
             "user scope overrides a provider-declared unavailable model"
         );
-        (nuo_wire::Availability::usable(), true)
+        (nuo_protocol::Availability::usable(), true)
     } else {
         (declared, false)
     }
@@ -577,9 +577,9 @@ mod tests {
             ..Default::default()
         };
         let providers = ModelProviders::default();
-        let rules = vec![nuo_wire::ModelAvailabilityRule {
+        let rules = vec![nuo_protocol::ModelAvailabilityRule {
             pattern: "claude-*".to_string(),
-            availability: nuo_wire::Availability::disabled(
+            availability: nuo_protocol::Availability::disabled(
                 "disabled: 5h limit",
                 Some("5h limit reached".to_string()),
                 Some(1999999999000),

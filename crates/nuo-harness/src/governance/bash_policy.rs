@@ -103,8 +103,8 @@ impl BashPolicyMatch {
 
     /// A hard refusal (built-in/user `Deny`). Same wording in the interactive
     /// full check and the chain's non-interactive check.
-    pub(crate) fn blocked_output(&self, command: &str) -> nuo_wire::ToolOutput {
-        nuo_wire::ToolOutput::Error {
+    pub(crate) fn blocked_output(&self, command: &str) -> nuo_protocol::ToolOutput {
+        nuo_protocol::ToolOutput::Error {
             message: format!("[bash policy] Blocked dangerous command: {command}"),
             detail: Some(self.detail()),
         }

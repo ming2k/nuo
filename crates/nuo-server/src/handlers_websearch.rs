@@ -1,7 +1,7 @@
 //! Authoritative query/update boundary for the singleton web-tool configuration.
 
 use nuo_persistence::config::{Config, Credentials, resolve_web_config};
-use nuo_wire::{
+use nuo_protocol::{
     AgentResponse, SecretString, SharedWebConfig, WebConfigUpdate, WebConfigView,
     WebEndpointRequirement, WebProviderAxis, web_provider_capabilities,
 };
@@ -161,7 +161,7 @@ pub async fn update(
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use nuo_wire::{
+    use nuo_protocol::{
         AgentResponse, WebCredentialStatus, WebCredentialUpdate, WebReaderProvider,
         WebSearchProvider,
     };

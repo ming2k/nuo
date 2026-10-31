@@ -11,7 +11,7 @@ async fn save_retrying(
     writer: &crate::db::PersistenceHandle,
     data: crate::session::SessionData,
     full: bool,
-    usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
+    usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
     mut guard: crate::db::CommitGuard,
 ) -> Result<u64, crate::db::PersistenceError> {
     const MAX_ATTEMPTS: u32 = 5;
@@ -51,7 +51,7 @@ impl SessionStore {
     /// all session state is stored authoritatively in SQLite (`nuo.db`).
     pub fn load_for_project(project_root: PathBuf) -> Self {
         let project_root = project_root.canonicalize().unwrap_or(project_root);
-        let workspace = Some(nuo_wire::WorkspaceBinding::new(project_root));
+        let workspace = Some(nuo_protocol::WorkspaceBinding::new(project_root));
         Self::for_workspace(workspace, None)
     }
 
@@ -59,7 +59,7 @@ impl SessionStore {
     /// `None` is the workspace-free (unbound) set. `persona` is the staffing
     /// persona recorded on a fresh session, if any.
     pub fn for_workspace(
-        workspace: Option<nuo_wire::WorkspaceBinding>,
+        workspace: Option<nuo_protocol::WorkspaceBinding>,
         role: Option<String>,
     ) -> Self {
         let dirs = paths::get();
@@ -85,7 +85,7 @@ impl SessionStore {
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        let workspace = Some(nuo_wire::WorkspaceBinding::new(sessions_dir.clone()));
+        let workspace = Some(nuo_protocol::WorkspaceBinding::new(sessions_dir.clone()));
         let db_path = sessions_dir.join("nuo.db");
         let blob_store = BlobStore::new(sessions_dir.join("blobs"));
         let writer = if db_path == paths::get().db_file() {
@@ -125,7 +125,7 @@ impl SessionStore {
     /// real content, so a `nuo` that starts and exits without a round
     /// leaves no empty-file litter behind.
     fn pin_fresh(
-        workspace: Option<nuo_wire::WorkspaceBinding>,
+        workspace: Option<nuo_protocol::WorkspaceBinding>,
         role: Option<String>,
         sessions_dir: PathBuf,
         db_path: PathBuf,
@@ -163,7 +163,7 @@ impl SessionStore {
     }
 
     /// The optional workspace binding this store carries.
-    pub fn workspace(&self) -> Option<nuo_wire::WorkspaceBinding> {
+    pub fn workspace(&self) -> Option<nuo_protocol::WorkspaceBinding> {
         self.workspace
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -172,8 +172,8 @@ impl SessionStore {
 
     /// The history filter for this store's sessions: its workspace path, or
     /// unbound when there is no workspace.
-    pub fn workspace_filter(&self) -> nuo_wire::WorkspaceFilter {
-        nuo_wire::WorkspaceFilter::from_binding(
+    pub fn workspace_filter(&self) -> nuo_protocol::WorkspaceFilter {
+        nuo_protocol::WorkspaceFilter::from_binding(
             self.workspace
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
@@ -182,8 +182,8 @@ impl SessionStore {
     }
 
     /// Canonical domain partition for this session.
-    pub fn partition(&self) -> nuo_wire::SessionPartition {
-        nuo_wire::SessionPartition::from_binding(
+    pub fn partition(&self) -> nuo_protocol::SessionPartition {
+        nuo_protocol::SessionPartition::from_binding(
             self.workspace
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
@@ -297,7 +297,7 @@ impl SessionStore {
     /// Start a brand-new session with explicit workspace and role.
     pub async fn reset_with(
         &self,
-        workspace: Option<nuo_wire::WorkspaceBinding>,
+        workspace: Option<nuo_protocol::WorkspaceBinding>,
         role: Option<String>,
     ) -> Result<String, String> {
         let role = role.or_else(|| Some("developer".to_string()));
@@ -326,7 +326,7 @@ impl SessionStore {
     }
 
     /// The immutable role manifest snapshot captured for this session, if any.
-    pub async fn role_manifest(&self) -> Option<nuo_wire::SessionRoleManifest> {
+    pub async fn role_manifest(&self) -> Option<nuo_protocol::SessionRoleManifest> {
         self.state.lock().await.data.role_manifest.clone()
     }
 
@@ -453,7 +453,7 @@ impl SessionStore {
                 .project()
                 .into_iter()
                 .rev()
-                .find(|(_, m)| m.role == nuo_wire::Role::User && !m.hidden)
+                .find(|(_, m)| m.role == nuo_protocol::Role::User && !m.hidden)
                 .map(|(_, m)| truncate_preview(&m.content, 64))
                 .unwrap_or_else(|| "(empty session)".to_string()),
         };
@@ -486,8 +486,8 @@ impl SessionStore {
         .map_err(|e| format!("session list task failed: {e}"))?
     }
 
-    /// Full detail for one session, requested on demand by the session-info sub-view.
-    pub async fn detail(&self, id: &str) -> Result<SessionDetail, String> {
+    /// Full detail for one thread, requested on demand by the thread-info sub-view.
+    pub async fn detail(&self, id: &str) -> Result<ThreadDetail, String> {
         let active_id = self.state.lock().await.data.id.clone();
         let (resolved, _) = {
             let state = self.state.lock().await;
@@ -532,7 +532,7 @@ impl SessionStore {
         &self,
         path: PathBuf,
         data: SessionData,
-        usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
+        usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
     ) -> Result<(), String> {
         self.persist_with_usage_guarded(
             path,
@@ -550,7 +550,7 @@ impl SessionStore {
         &self,
         _path: PathBuf,
         mut data: SessionData,
-        usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
+        usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
         guard: crate::db::CommitGuard,
     ) -> Result<u64, String> {
         let started = std::time::Instant::now();

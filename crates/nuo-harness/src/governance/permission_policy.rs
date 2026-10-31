@@ -42,7 +42,7 @@
 //!    [`PolicyDecision::MissingAuthority`]; the caller may park once, emit one prompt, and
 //!    await one decision. A bash command is never prompted twice (the old
 //!    chain-external re-evaluation is gone). A missing-authority
-//!    [`nuo_wire::PermissionRequest`]
+//!    [`nuo_protocol::PermissionRequest`]
 //!    carries `elevation` (out-of-scope, ADR-0028) and `one_off` (the bash
 //!    dangerous-command confirm: an `Always` reply is honoured but not
 //!    persisted) so the caller and the TUI handle both uniformly.
@@ -50,7 +50,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use nuo_wire::{RestorePoint, ScopeTarget, Tool, ToolOutput};
+use nuo_protocol::{RestorePoint, ScopeTarget, Tool, ToolOutput};
 
 use super::scoped_tools::ScopedToolDisable;
 use crate::bash_policy::BashPolicyMatch;
@@ -101,7 +101,7 @@ pub enum PolicyDecision {
     /// `Always` reply (the bash dangerous-command confirm is one-off); its
     /// `elevation` flag tells the TUI the call is out-of-scope (ADR-0028).
     MissingAuthority {
-        request: Box<nuo_wire::PermissionRequest>,
+        request: Box<nuo_protocol::PermissionRequest>,
         rule: PermissionRule,
     },
 }
@@ -278,7 +278,7 @@ impl PermissionPolicy for SchemaPolicy {
         "schema"
     }
     async fn evaluate(&self, ctx: &PolicyContext<'_>) -> PolicyDecision {
-        match nuo_wire::tool_validation::validate_tool_arguments(
+        match nuo_protocol::tool_validation::validate_tool_arguments(
             &ctx.tool.parameters(),
             ctx.arguments,
         ) {
@@ -319,7 +319,7 @@ impl PermissionPolicy for BashPolicy {
                 } else {
                     // Build the one-off dangerous-command prompt.
                     PolicyDecision::MissingAuthority {
-                        request: Box::new(nuo_wire::PermissionRequest {
+                        request: Box::new(nuo_protocol::PermissionRequest {
                             id: String::new(),
                             tool: "execute_command".to_string(),
                             label: "Dangerous command".to_string(),
@@ -336,7 +336,7 @@ impl PermissionPolicy for BashPolicy {
                             elevation: false,
                             one_off: true,
                             origin: None,
-                            hazard: Some(nuo_wire::hazard::HazardLevel::CommandExecution),
+                            hazard: Some(nuo_protocol::hazard::HazardLevel::CommandExecution),
                             submission: None,
                             // A shell command's effect cannot be computed without
                             // running it, which is precisely why this prompt asks a
@@ -410,7 +410,7 @@ impl PermissionPolicy for BrokerPolicy {
             .preview(&serde_json::from_str(ctx.arguments).unwrap_or(serde_json::Value::Null));
 
         PolicyDecision::MissingAuthority {
-            request: Box::new(nuo_wire::PermissionRequest {
+            request: Box::new(nuo_protocol::PermissionRequest {
                 id: String::new(), // caller fills the generated id
                 tool: ctx.call_name.to_string(),
                 label,
@@ -446,7 +446,7 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use async_trait::async_trait;
-    use nuo_wire::ToolAccesses;
+    use nuo_protocol::ToolAccesses;
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -833,8 +833,8 @@ mod tests {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({})
         }
-        fn hazard_level(&self) -> nuo_wire::HazardLevel {
-            nuo_wire::HazardLevel::Safe
+        fn hazard_level(&self) -> nuo_protocol::HazardLevel {
+            nuo_protocol::HazardLevel::Safe
         }
         async fn call(&self, _args: &str) -> Result<String, String> {
             Ok("ok".into())
@@ -853,22 +853,25 @@ mod tests {
         fn parameters(&self) -> serde_json::Value {
             serde_json::json!({})
         }
-        fn hazard_level(&self) -> nuo_wire::HazardLevel {
-            nuo_wire::HazardLevel::CommandExecution
+        fn hazard_level(&self) -> nuo_protocol::HazardLevel {
+            nuo_protocol::HazardLevel::CommandExecution
         }
         fn scope_target(&self, args: &str) -> ScopeTarget {
             ScopeTarget::Command(args.to_string())
         }
-        fn permission_submission(&self, args: &str) -> Option<nuo_wire::ToolPermissionSubmission> {
-            Some(nuo_wire::ToolPermissionSubmission {
-                hazard_level: nuo_wire::HazardLevel::CommandExecution,
+        fn permission_submission(
+            &self,
+            args: &str,
+        ) -> Option<nuo_protocol::ToolPermissionSubmission> {
+            Some(nuo_protocol::ToolPermissionSubmission {
+                hazard_level: nuo_protocol::HazardLevel::CommandExecution,
                 label: format!("Execute command: `{args}`"),
                 description: format!("Runs host shell command `{args}`"),
                 scope: args.to_string(),
-                payload: nuo_wire::ToolPermissionPayload::Command {
+                payload: nuo_protocol::ToolPermissionPayload::Command {
                     command: args.to_string(),
                     cwd: None,
-                    kill_spec: nuo_wire::ProcessKillSpec {
+                    kill_spec: nuo_protocol::ProcessKillSpec {
                         command: args.split_whitespace().next().unwrap_or("sh").to_string(),
                         process_group_killable: true,
                         pkill_target: format!("pkill -f '{args}'"),
@@ -927,12 +930,12 @@ mod tests {
             PolicyDecision::MissingAuthority { request, .. } => {
                 assert_eq!(
                     request.hazard,
-                    Some(nuo_wire::HazardLevel::CommandExecution)
+                    Some(nuo_protocol::HazardLevel::CommandExecution)
                 );
                 assert!(request.submission.is_some());
                 let sub = request.submission.unwrap();
                 match sub.payload {
-                    nuo_wire::ToolPermissionPayload::Command { kill_spec, .. } => {
+                    nuo_protocol::ToolPermissionPayload::Command { kill_spec, .. } => {
                         assert!(kill_spec.process_group_killable);
                         assert_eq!(kill_spec.pkill_target, "pkill -f 'cargo test'");
                     }

@@ -101,13 +101,13 @@ pub(crate) fn extract_selection_text(
 
 /// Format the current loop status into human-readable text.
 pub(crate) fn display_status(
-    loop_status: nuo_wire::LoopStatus,
+    loop_status: nuo_protocol::LoopStatus,
     phase: Option<&nuo_view::phase::Phase>,
 ) -> String {
     match (loop_status, phase) {
-        (nuo_wire::LoopStatus::Idle, None) => "idle".to_string(),
-        (nuo_wire::LoopStatus::Running, None) => "preparing".to_string(),
-        (nuo_wire::LoopStatus::Idle, Some(phase))
-        | (nuo_wire::LoopStatus::Running, Some(phase)) => phase.label().into_owned(),
+        (nuo_protocol::LoopStatus::Idle, None) => "idle".to_string(),
+        (nuo_protocol::LoopStatus::Running, None) => "preparing".to_string(),
+        (nuo_protocol::LoopStatus::Idle, Some(phase))
+        | (nuo_protocol::LoopStatus::Running, Some(phase)) => phase.label().into_owned(),
     }
 }

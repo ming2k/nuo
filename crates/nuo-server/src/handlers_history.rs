@@ -10,7 +10,7 @@
 use tokio::sync::mpsc::UnboundedSender;
 
 use nuo_persistence::db::get_persistence_handle;
-use nuo_wire::events::AgentResponse;
+use nuo_protocol::events::AgentResponse;
 
 /// `AgentRequest::QueryInputHistory`: load the persisted prompt history.
 pub fn query_input_history(resp_tx: &UnboundedSender<AgentResponse>) {
@@ -19,7 +19,7 @@ pub fn query_input_history(resp_tx: &UnboundedSender<AgentResponse>) {
         .ok()
         .and_then(|reader| {
             reader
-                .load_input_history(nuo_wire::history::HISTORY_CAP)
+                .load_input_history(nuo_protocol::history::HISTORY_CAP)
                 .ok()
         })
         .unwrap_or_default();
@@ -27,7 +27,7 @@ pub fn query_input_history(resp_tx: &UnboundedSender<AgentResponse>) {
 }
 
 /// `AgentRequest::RecordInputHistory`: merge entries into the shared store.
-pub fn record_input_history(entries: Vec<nuo_wire::HistoryEntry>, dedup: bool) {
+pub fn record_input_history(entries: Vec<nuo_protocol::HistoryEntry>, dedup: bool) {
     let result = get_persistence_handle().save_input_history_blocking(entries, dedup);
     if let Err(error) = result {
         tracing::warn!(%error, "input history record failed");
@@ -78,7 +78,7 @@ pub fn search_history(
     const DEFAULT_LIMIT: usize = 20;
     const MAX_LIMIT: usize = 100;
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let filter = workspace.map(|w| nuo_wire::WorkspaceFilter::Path(w.into()));
+    let filter = workspace.map(|w| nuo_protocol::WorkspaceFilter::Path(w.into()));
     let hits = get_persistence_handle()
         .reader()
         .map_err(|e| format!("could not open sqlite db: {e}"))
@@ -104,7 +104,7 @@ pub fn search_history(
                 .workspace_root
                 .clone()
                 .unwrap_or_else(|| "workspace-free".to_string());
-            nuo_wire::HistorySearchHit {
+            nuo_protocol::HistorySearchHit {
                 entry_id: hit.entry_id,
                 session_id: hit.session_id,
                 workspace,

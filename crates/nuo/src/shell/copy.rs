@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn an_entry_that_cannot_produce_text_is_never_reported_as_copied() {
-        let mut message = TranscriptMessage::new(nuo_wire::Role::Assistant, "text");
+        let mut message = TranscriptMessage::new(nuo_protocol::Role::Assistant, "text");
         message.raw = String::new();
         message.blocks = Vec::new();
         let app = app_with(vec![message]);
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn an_active_selection_wins_over_a_focused_entry() {
-        let app = app_with(vec![TranscriptMessage::new(nuo_wire::Role::User, "hi")]);
+        let app = app_with(vec![TranscriptMessage::new(nuo_protocol::Role::User, "hi")]);
         let mut app = app;
         app.selection = SelectionState::Block {
             message_idx: 0,

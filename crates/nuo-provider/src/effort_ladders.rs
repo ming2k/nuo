@@ -6,7 +6,7 @@
 //! compiled baseline seeds for initial capability resolution and static registration.
 //!
 //! These constants are provider/model capability metadata and belong here in
-//! the provider registry rather than in the core `nuo-wire` domain vocabulary.
+//! the provider registry rather than in the core `nuo-protocol` domain vocabulary.
 use crate::effort::Effort;
 
 /// Universal conservative subset: `low`/`medium`/`high`. Safe fallback for

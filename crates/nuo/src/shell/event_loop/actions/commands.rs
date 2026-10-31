@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
-use nuo_wire::{AgentRequest, Role};
+use nuo_protocol::{AgentRequest, Role};
 
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
 use crate::shell::{App, clipboard, clipboard_ops};
@@ -71,7 +71,7 @@ pub(super) async fn handle_send_chat(
         // `[INV-ATTACH-04]` (ADR-0133): a turn must not be submitted before the
         // server attests `Ready`. Queue it locally (the server also buffers
         // defensively) and flush on the transition.
-        if app.session_phase != nuo_wire::SessionPhase::Ready {
+        if app.session_phase != nuo_protocol::ThreadPhase::Ready {
             let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
             app.record_input_history(text.clone(), images.clone(), text_pastes);
@@ -110,8 +110,8 @@ pub(super) async fn handle_send_chat(
                     app.layout_height_cache.clear();
                     app.transcript_changed_pending = true;
                     app.send_intent(AgentRequest::Steer {
-                        session_id: viewed_session_id.to_string(),
-                        message: nuo_wire::QueuedMessage {
+                        thread_id: viewed_session_id.to_string(),
+                        message: nuo_protocol::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),
@@ -146,8 +146,8 @@ pub(super) async fn handle_send_chat(
                     app.follow_bottom = true;
                     app.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
-                        session_id: viewed_session_id.to_string(),
-                        message: nuo_wire::QueuedMessage {
+                        thread_id: viewed_session_id.to_string(),
+                        message: nuo_protocol::QueuedMessage {
                             id,
                             text: expanded,
                             display_text: Some(text),

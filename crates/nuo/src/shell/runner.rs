@@ -286,7 +286,7 @@ pub async fn run_dashboard(
     }
     let mut rx = client::monitor_stream(
         &info,
-        nuo_wire::MonitorAction {
+        nuo_protocol::MonitorAction {
             watch: false,
             include_idle: true,
         },
@@ -294,13 +294,13 @@ pub async fn run_dashboard(
     .await
     .map_err(|e| format!("could not read the server's session list: {e}"))?;
     let snapshot = match rx.recv().await {
-        Some(nuo_wire::MonitorEvent::Snapshot(snap)) => snap,
+        Some(nuo_protocol::MonitorEvent::Snapshot(snap)) => snap,
         Some(_) => return Err("server monitor stream opened without a snapshot".into()),
         None => return Err("server closed the monitor stream".into()),
     };
     drop(rx);
     let carrier = snapshot
-        .sessions
+        .threads
         .iter()
         .max_by_key(|s| s.updated_at)
         .map(|s| s.id.clone())
@@ -366,7 +366,7 @@ pub async fn run_attached(
     remote: Option<String>,
     token: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let target_server = match remote {
+    let mut target_server = match remote {
         Some(addr) => {
             let remote_server = client::RemoteServer::parse(&addr, token)?;
             client::ClientTarget::Remote(remote_server)
@@ -526,13 +526,14 @@ pub async fn run_attached(
             }
             handshake => handshake,
         };
-        let (tx, rx, hosted_session_id, initial_phase) = match handshake {
+        let (tx, rx, link_lost, hosted_session_id, initial_phase) = match handshake {
             client::Handshake::Attached {
                 req_tx,
                 resp_rx,
+                link_lost,
                 session_id,
                 phase,
-            } => (req_tx, resp_rx, session_id, phase),
+            } => (req_tx, resp_rx, link_lost, session_id, phase),
             client::Handshake::Pick(_) => {
                 return Err("the server offered no session to pick from".into());
             }
@@ -553,6 +554,7 @@ pub async fn run_attached(
             &mut terminal,
             tx,
             rx,
+            link_lost,
             crate::shell::TuiLaunchConfig {
                 // Hydration arrives as an authoritative `SessionSnapshot` after
                 // Welcome (ADR-0133); the handshake carries identity + phase
@@ -563,7 +565,7 @@ pub async fn run_attached(
                 initial_messages: Vec::new(),
                 initial_commands: Vec::new(),
                 initial_round_count: 0,
-                command_catalog: nuo_wire::CommandCatalog::default(),
+                command_catalog: nuo_protocol::CommandCatalog::default(),
                 initial_round_interrupts: Vec::new(),
                 initial_phase,
                 initial_prompt: launch_prompt,
@@ -583,7 +585,7 @@ pub async fn run_attached(
         .await?;
         preserved_tabs = outcome.tabs;
         preserved_tab_history = outcome.tab_history;
-        if let Err(error) = exit_tx.send(nuo_wire::AgentRequest::RecordInputHistory {
+        if let Err(error) = exit_tx.send(nuo_protocol::AgentRequest::RecordInputHistory {
             entries: outcome.history,
             dedup: base_config.input_history.dedup,
         }) {
@@ -593,6 +595,40 @@ pub async fn run_attached(
             target = None;
             fresh_pending = true;
             initial_prompt = outcome.switch_to_new_prompt;
+            continue;
+        }
+        // The link died with the session still hosted (ADR-0136). Re-dial and
+        // re-attach in place: the transcript and tabs ride `TuiOutcome`, so the
+        // operator keeps their view across the gap instead of losing the window.
+        if outcome.relink_requested {
+            tracing::warn!(
+                target = ?target,
+                "attach loop: re-dialing after link loss"
+            );
+            // Re-resolve the server: a link that died because the server was
+            // replaced or restarted is exactly the case where the old
+            // `ServerInfo` is stale, and `ensure_server_explicit` is what
+            // discovers, replaces, or spawns the right one.
+            if let client::ClientTarget::Local(_) = &target_server {
+                let raw_root = project_override.clone().unwrap_or_else(|| {
+                    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                });
+                let project_root = nuo_host::paths::find_project_root(&raw_root);
+                match client::ensure_server_explicit(&project_root, explicit_port).await {
+                    Ok(info) if client::versions_compatible(&info) => {
+                        target_server = client::ClientTarget::Local(info);
+                    }
+                    Ok(info) => {
+                        return Err(client::incompatibility_error(&info).into());
+                    }
+                    Err(error) => {
+                        return Err(format!(
+                            "could not re-dial the server after link loss: {error}"
+                        )
+                        .into());
+                    }
+                }
+            }
             continue;
         }
         match outcome.switch_to {
@@ -609,12 +645,19 @@ pub async fn run_attached(
                 crate::shell::terminal::restore_terminal();
                 match &target_server {
                     client::ClientTarget::Local(info) => {
-                        if info.port > 0 {
-                            eprintln!(
-                                "nuo: detached from hosted server (PID {}, port {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",
-                                info.pid, info.port
-                            );
-                        }
+                        // The `port > 0` gate this replaces silenced the epilogue
+                        // for a UDS-only server — which is the default shape — so
+                        // the one line that tells the operator what just happened
+                        // and how to get back was never printed. The endpoint is
+                        // whichever one the server actually advertises.
+                        let endpoint = info
+                            .effective_local_endpoint()
+                            .map(|endpoint| endpoint.to_string())
+                            .unwrap_or_else(|| format!("port {}", info.port));
+                        eprintln!(
+                            "nuo: detached from hosted server (PID {}, {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",
+                            info.pid, endpoint
+                        );
                     }
                     client::ClientTarget::Remote(rem) => {
                         eprintln!(

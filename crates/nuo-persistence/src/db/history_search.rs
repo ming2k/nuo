@@ -13,7 +13,7 @@ use super::{HistorySearchResult, map_search_row, sanitize_fts_query_joined};
 pub(crate) fn search_history(
     conn: &Connection,
     query: &str,
-    filter: Option<&nuo_wire::WorkspaceFilter>,
+    filter: Option<&nuo_protocol::WorkspaceFilter>,
     limit: usize,
 ) -> Result<Vec<HistorySearchResult>> {
     search_history_inner(conn, query, filter, limit, false)
@@ -23,7 +23,7 @@ pub(crate) fn search_history(
 pub(crate) fn search_history_relaxed(
     conn: &Connection,
     query: &str,
-    filter: Option<&nuo_wire::WorkspaceFilter>,
+    filter: Option<&nuo_protocol::WorkspaceFilter>,
     limit: usize,
 ) -> Result<Vec<HistorySearchResult>> {
     search_history_inner(conn, query, filter, limit, true)
@@ -32,7 +32,7 @@ pub(crate) fn search_history_relaxed(
 fn search_history_inner(
     conn: &Connection,
     query: &str,
-    filter: Option<&nuo_wire::WorkspaceFilter>,
+    filter: Option<&nuo_protocol::WorkspaceFilter>,
     limit: usize,
     match_any: bool,
 ) -> Result<Vec<HistorySearchResult>> {
@@ -46,7 +46,7 @@ fn search_history_inner(
                 bm25(fts_entries) AS score";
     let mut results = Vec::new();
     match filter {
-        Some(nuo_wire::WorkspaceFilter::Path(path)) => {
+        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
             let sql = format!(
                 "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
                  WHERE fts_entries MATCH ?1 AND s.workspace_root = ?2 ORDER BY score ASC LIMIT ?3;"
@@ -60,7 +60,7 @@ fn search_history_inner(
                 results.push(item?);
             }
         }
-        Some(nuo_wire::WorkspaceFilter::Unbound) => {
+        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
             let sql = format!(
                 "SELECT {cols} FROM fts_entries f JOIN thread_list_view s ON f.session_id = s.id \
                  WHERE fts_entries MATCH ?1 AND (s.workspace_root IS NULL OR s.workspace_root = '') ORDER BY score ASC LIMIT ?2;"

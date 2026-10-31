@@ -4,11 +4,11 @@
 //! matching `` `Calling \`<tool>\`` `` formatter used when no display content
 //! is available for a restored assistant turn.
 //!
-//! [`Message`]: nuo_wire::Message
+//! [`Message`]: nuo_protocol::Message
 use std::collections::HashMap;
 use std::collections::VecDeque;
 
-use nuo_wire::{Message, Role};
+use nuo_protocol::{Message, Role};
 
 use crate::shell::step_interaction;
 use nuo_view::disclosure_config::DisclosureSource;
@@ -55,7 +55,7 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
     let is_insert = message
         .origin
         .as_ref()
-        .is_some_and(|origin| origin.kind == nuo_wire::InjectionKind::UserSteer);
+        .is_some_and(|origin| origin.kind == nuo_protocol::InjectionKind::UserSteer);
     let content = if let Some(display_content) = message.display_content {
         display_content
     } else if message.content.is_empty() {
@@ -130,7 +130,7 @@ pub(super) fn transcript_messages_from_core(
 /// message stream is pure dialogue — and each row is stamped with the
 /// record's `at_ms` (via `sent_at_ms`) as its seam anchor.
 pub(super) fn transcript_interrupts_from_records(
-    records: Vec<nuo_wire::RoundInterrupt>,
+    records: Vec<nuo_protocol::RoundInterrupt>,
 ) -> Vec<TranscriptMessage> {
     records
         .into_iter()
@@ -152,7 +152,7 @@ pub(super) fn merge_round_interrupt_rows(
     dialogue: Vec<TranscriptMessage>,
     interrupts: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use nuo_wire::Role;
+    use nuo_protocol::Role;
 
     if interrupts.is_empty() {
         return dialogue;
@@ -191,7 +191,7 @@ pub(super) fn merge_round_interrupt_rows(
 /// `sent_at_ms`) so [`merge_command_rows`] can place it at its turn seam; the
 /// stamp is projection-only state and never reaches the ledger or the model.
 pub(super) fn transcript_commands_from_ledger(
-    commands: Vec<nuo_wire::CommandRecord>,
+    commands: Vec<nuo_protocol::CommandRecord>,
 ) -> Vec<TranscriptMessage> {
     commands
         .into_iter()
@@ -228,7 +228,7 @@ pub(super) fn merge_command_rows(
     dialogue: Vec<TranscriptMessage>,
     commands: Vec<TranscriptMessage>,
 ) -> Vec<TranscriptMessage> {
-    use nuo_wire::Role;
+    use nuo_protocol::Role;
 
     if commands.is_empty() {
         return dialogue;
@@ -303,7 +303,7 @@ fn transcript_from_core_inner(
             let is_insert = message
                 .origin
                 .as_ref()
-                .is_some_and(|origin| origin.kind == nuo_wire::InjectionKind::UserSteer);
+                .is_some_and(|origin| origin.kind == nuo_protocol::InjectionKind::UserSteer);
             let opens_round =
                 message.role == Role::User && !is_insert && !message.is_command_echo();
             if opens_round {
@@ -353,7 +353,7 @@ fn transcript_from_core_inner(
             // gated.
             let chain_disclosed = model
                 .as_deref()
-                .and_then(nuo_wire::model_by_id)
+                .and_then(nuo_protocol::model_by_id)
                 .map(|m| m.thinking.chain_disclosed())
                 .unwrap_or(true);
             if chain_disclosed && let Some(reasoning) = message.reasoning_content.take() {
@@ -425,17 +425,17 @@ fn transcript_from_core_inner(
                 // resume.
                 let (structured, duration_ms) = match &meta {
                     Some(meta) => (
-                        nuo_wire::ToolOutput::Subagent {
+                        nuo_protocol::ToolOutput::Subagent {
                             summary: output.to_string(),
                             messages: Vec::new(),
-                            usage: nuo_wire::TokenUsage::default(),
+                            usage: nuo_protocol::TokenUsage::default(),
                             generation_ms: 0,
                             failed: meta.failed,
                             interrupted: meta.interrupted,
                         },
                         meta.duration_ms.unwrap_or(0),
                     ),
-                    None => (nuo_wire::ToolOutput::text(output), 0),
+                    None => (nuo_protocol::ToolOutput::text(output), 0),
                 };
                 if item.finish_tool_step(name, output, structured, duration_ms) {
                     // Restore the subagent's nested transcript so its partial /
@@ -569,8 +569,8 @@ mod tests {
     use super::{
         merge_round_interrupt_rows, rebase_transcript_rounds, transcript_interrupts_from_records,
     };
+    use nuo_protocol::Role;
     use nuo_view::model::document::TranscriptMessage;
-    use nuo_wire::Role;
 
     #[test]
     fn rebases_a_compacted_relative_tail_to_the_session_round_counter() {
@@ -592,8 +592,8 @@ mod tests {
     #[test]
     fn restores_interrupted_subagent_with_children_and_status() {
         use crate::shell::config::TuiConfig;
-        use nuo_wire::message::SubagentMeta;
-        use nuo_wire::{Message, ToolCall};
+        use nuo_protocol::message::SubagentMeta;
+        use nuo_protocol::{Message, ToolCall};
 
         let call = ToolCall {
             id: "call_9".to_string(),
@@ -661,7 +661,7 @@ mod tests {
     /// every seam lands at the tail (the process died mid-round).
     #[test]
     fn round_interrupt_markers_land_at_their_seams() {
-        use nuo_wire::{RoundInterrupt, RoundInterruptReason};
+        use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
 
         let dialogue = vec![
             TranscriptMessage::new(Role::User, "first").with_sent_at_ms(1_000),
@@ -705,7 +705,7 @@ mod tests {
     /// with the live path.
     #[test]
     fn round_interrupt_marker_text_uses_shared_vocabulary() {
-        use nuo_wire::{RoundInterrupt, RoundInterruptReason};
+        use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
 
         let marker = TranscriptMessage::round_interrupted(RoundInterrupt {
             reason: RoundInterruptReason::User,

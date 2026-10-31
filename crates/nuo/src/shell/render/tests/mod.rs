@@ -11,6 +11,14 @@ use nuo_view::markdown_table::{build_table_render, shrink_column_widths};
 use nuo_view::text_layout::wrap_text;
 use unicode_width::UnicodeWidthStr;
 
+/// The disclosure policy the render fixtures fold against: no overrides, so a
+/// step resolves its declared component default. Threaded through
+/// `push_subagent_event` so a fixture's child steps are laid out by the same
+/// policy the live applier uses.
+fn disclosure() -> std::collections::HashMap<String, bool> {
+    std::collections::HashMap::new()
+}
+
 fn render_full_view(
     width: u16,
     height: u16,
@@ -65,6 +73,7 @@ fn render_full_view_with_context(
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: hints,
                 tab_bar,
@@ -101,6 +110,46 @@ mod selection;
 mod tables;
 mod tool_steps;
 mod turn_headers;
+
+/// End-to-end guard for the disclosure body of a *live* subagent trace.
+///
+/// The model-level test pins that a streaming delta populates `blocks`; this
+/// one pins that the renderer actually paints that body when the trace is
+/// expanded inside the zoomed subagent stream — the user-visible half of
+/// "thinking cannot be expanded".
+#[test]
+fn live_subagent_reasoning_renders_its_body_when_expanded() {
+    use nuo_protocol::SubagentEvent;
+
+    let mut task = TranscriptMessage::tool_step(
+        "task_1",
+        "spawn_agent",
+        r#"{"description":"explore","prompt":"..."}"#,
+    );
+    task.push_subagent_event(
+        &SubagentEvent::StreamReasoningStart { round: 1, turn: 0 },
+        &disclosure(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::StreamReasoningDelta("inspecting the module layout".into()),
+        &disclosure(),
+    );
+    let mut children = task.subagent_children().unwrap().to_vec();
+    // Expand the trace exactly as a click/`Enter` on its summary would.
+    use nuo_view::model::interactive::InteractiveEntry;
+    assert!(
+        children[0].toggle_expanded(),
+        "the reasoning entry must be activatable"
+    );
+
+    let terminal = render_full_view(80, 24, &children, None);
+    let grid: Vec<String> = (0..24).map(|y| grid_row(&terminal, y)).collect();
+    let body = grid.join("\n");
+    assert!(
+        body.contains("inspecting the module layout"),
+        "an expanded live subagent trace must paint its reasoning body:\n{body}"
+    );
+}
 
 /// fresh `wrap_text` / code preparation produces, across widths and content
 /// shapes (including CJK and empty input).

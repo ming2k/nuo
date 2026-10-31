@@ -11,9 +11,9 @@
 //! holds. Renderers attach styles and paint; the model-side projection keeps
 //! its own byte-budgeted folding in `nuo-tool`.
 
+use nuo_protocol::ToolOutput;
+use nuo_protocol::tool_output::{ShellTermination, normalize_carriage_returns};
 use nuo_ui_primitives::design::{BASH_FOLD_HEAD_ROWS, BASH_FOLD_TAIL_ROWS, bash_fold_applies};
-use nuo_wire::ToolOutput;
-use nuo_wire::tool_output::{ShellTermination, normalize_carriage_returns};
 
 use super::ResultKind;
 
@@ -249,7 +249,7 @@ pub fn is_command_body(name: &str, structured: Option<&ToolOutput>) -> bool {
 /// strings for the live-seed window before the final result lands and for
 /// restored sessions recorded without `lines`.
 fn structured_rows(
-    lines: &[nuo_wire::tool_output::ShellLine],
+    lines: &[nuo_protocol::tool_output::ShellLine],
     stdout: &str,
     stderr: &str,
 ) -> Vec<String> {
@@ -341,8 +341,8 @@ fn parse_exit_line(line: &str) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nuo_protocol::tool_output::{ShellLine, ShellStream};
     use nuo_ui_primitives::design::BASH_FOLD_MIN_VERBATIM_ROWS;
-    use nuo_wire::tool_output::{ShellLine, ShellStream};
 
     fn shell(stdout: &str, stderr: &str, lines: Vec<ShellLine>, exit: Option<i32>) -> ToolOutput {
         ToolOutput::Shell {

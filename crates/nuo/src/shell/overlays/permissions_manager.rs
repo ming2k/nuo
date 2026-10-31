@@ -20,7 +20,7 @@ use nuo_ui_primitives::primitives::{
 /// (the same one the `/session` modal used), refreshed after each mutation.
 pub fn draw_permissions_manager(
     frame: &mut Frame,
-    session_context: Option<&nuo_wire::SessionContextSnapshot>,
+    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     theme: &Theme,

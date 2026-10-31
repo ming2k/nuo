@@ -347,10 +347,10 @@ impl PersistenceCommand {
                 ));
             }
             Self::ExecuteInspectDeletion { ack, .. } => {
-                let _ = ack.send(Err(nuo_wire::context_lifecycle::InspectError::Corrupt));
+                let _ = ack.send(Err(nuo_protocol::context_lifecycle::InspectError::Corrupt));
             }
             Self::CollectInspectGarbage { ack, .. } => {
-                let _ = ack.send(Err(nuo_wire::context_lifecycle::InspectError::Corrupt));
+                let _ = ack.send(Err(nuo_protocol::context_lifecycle::InspectError::Corrupt));
             }
             Self::UpsertSession { ack, .. }
             | Self::RecordCommand { ack, .. }

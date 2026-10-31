@@ -116,7 +116,7 @@ pub enum InputAction {
     /// The preset chooser exposes `b` for browser PKCE and `d` for device
     /// authorization when the client registration supports them.
     SelectPresetWithOauthMethod {
-        method: nuo_wire::LoginMethod,
+        method: nuo_protocol::LoginMethod,
     },
     /// Cancel the preset chooser and return to the Connections list.
     CancelPresetChooser,

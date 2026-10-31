@@ -37,7 +37,7 @@ pub use discovery::{
     discoverable_skill_directories, project_skills_present,
 };
 pub use metadata::{Skill, SkillDependency, SkillPolicy, SkillScope};
-pub use nuo_wire::SkillsConfig;
+pub use nuo_protocol::SkillsConfig;
 pub use render::{format_skill_injection, format_skill_list, list_skill_files, resolve_mentions};
 pub use tools::{ListSkillsTool, UseSkillTool};
 

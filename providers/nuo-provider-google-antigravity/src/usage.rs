@@ -2,7 +2,7 @@
 //!
 //! Query endpoint: `POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary`
 
-use nuo_wire::{
+use nuo_protocol::{
     PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket, QuotaWindowKind,
     UsageMetric,
 };
@@ -278,9 +278,9 @@ pub(crate) fn parse_antigravity_quota(
                 ),
             };
 
-            model_rules.push(nuo_wire::ModelAvailabilityRule {
+            model_rules.push(nuo_protocol::ModelAvailabilityRule {
                 pattern: pattern.to_string(),
-                availability: nuo_wire::Availability::disabled(
+                availability: nuo_protocol::Availability::disabled(
                     status_label,
                     Some(reason),
                     reset_at_ms,
@@ -363,9 +363,9 @@ pub(crate) fn parse_antigravity_quota(
 pub fn evaluate_antigravity_quota_availability(
     usage: &ProviderUsage,
     model_id: &str,
-) -> Option<nuo_wire::Availability> {
+) -> Option<nuo_protocol::Availability> {
     for rule in &usage.model_rules {
-        if nuo_wire::simple_glob_matches(&rule.pattern, model_id) {
+        if nuo_protocol::simple_glob_matches(&rule.pattern, model_id) {
             return Some(rule.availability.clone());
         }
     }

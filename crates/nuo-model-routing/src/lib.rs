@@ -143,7 +143,7 @@ pub fn build_routes() -> Vec<ProviderEntry> {
 pub fn build_provider_for(
     config: &Config,
     id: &str,
-) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
+) -> Option<std::sync::Arc<dyn nuo_protocol::Provider>> {
     build_provider_for_model(config, id, config.default_model.as_deref(), None)
 }
 
@@ -152,7 +152,7 @@ pub fn build_provider_for_model(
     connection_id: &str,
     model_id: Option<&str>,
     session_id: Option<&str>,
-) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
+) -> Option<std::sync::Arc<dyn nuo_protocol::Provider>> {
     build_provider_for_model_with_rules(config, connection_id, model_id, session_id, &[])
 }
 
@@ -161,8 +161,8 @@ pub fn build_provider_for_model_with_rules(
     connection_id: &str,
     model_id: Option<&str>,
     session_id: Option<&str>,
-    rules: &[nuo_wire::ModelAvailabilityRule],
-) -> Option<std::sync::Arc<dyn nuo_wire::Provider>> {
+    rules: &[nuo_protocol::ModelAvailabilityRule],
+) -> Option<std::sync::Arc<dyn nuo_protocol::Provider>> {
     let stores = Stores::load();
     let entry = derive_entries(&stores.connections, &stores.inputs())
         .into_iter()
@@ -175,8 +175,9 @@ pub fn build_provider_for_model_with_rules(
     // and session restore all inherit it. `effective_availability` applies the
     // user's sovereign override, so an injected model still resolves.
     let usable = |channel: &&nuo_provider::catalog::Channel| {
-        let (availability, overridden) =
-            connection.map_or((nuo_wire::Availability::usable(), false), |connection| {
+        let (availability, overridden) = connection.map_or(
+            (nuo_protocol::Availability::usable(), false),
+            |connection| {
                 derive::effective_availability_with_rules(
                     connection,
                     &channel.model,
@@ -184,7 +185,8 @@ pub fn build_provider_for_model_with_rules(
                     &stores.providers,
                     rules,
                 )
-            });
+            },
+        );
         if !availability.usable {
             tracing::warn!(
                 connection = %entry.id,

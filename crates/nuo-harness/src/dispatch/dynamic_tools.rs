@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use nuo_wire::{DynamicToolSink, Tool};
+use nuo_protocol::{DynamicToolSink, Tool};
 
 /// A deterministic snapshot entry carrying provenance beside the tool.
 pub(crate) struct DynamicToolEntry {
@@ -164,6 +164,6 @@ mod tests {
         assert!(registry.contains("substrate_calc"));
         let tool = registry.find("substrate_calc").unwrap();
         assert_eq!(tool.name(), "substrate_calc");
-        assert_eq!(tool.hazard_level(), nuo_wire::HazardLevel::Safe);
+        assert_eq!(tool.hazard_level(), nuo_protocol::HazardLevel::Safe);
     }
 }

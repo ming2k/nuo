@@ -2,7 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use nuo_persistence::config::{Config, Credentials, resolve_web_config};
-use nuo_wire::{
+use nuo_protocol::{
     SecretString, WebCredentialStatus, WebProviderAxis, WebReaderProvider, WebSearchProvider,
 };
 

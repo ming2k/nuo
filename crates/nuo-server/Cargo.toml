@@ -8,7 +8,7 @@ description = "Headless session runtime, UDS/WebSocket gateway, and multi-sessio
 
 [dependencies]
 acp = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-provider = { workspace = true }

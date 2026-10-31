@@ -101,10 +101,7 @@ fn the_transport_wait_phase_hosts_the_clause() {
         .transport_setback
         .as_ref()
         .expect("the clause is live while the phase waits on the model");
-    assert_eq!(
-        clause.label(std::time::Instant::now()),
-        "retry 2/16 (next in 4.0s)"
-    );
+    assert_eq!(clause.label(std::time::Instant::now()), "retry 1 in 4s");
     assert!(app.has_live_transport_setback());
 }
 
@@ -295,12 +292,12 @@ fn a_background_thread_phase_progress_retires_its_own_clause() {
 /// translator emits for `RetryScheduled` → … → `RoundCompleted`.
 ///
 /// This is the test the old design could not have: the same retry state is read
-/// by three surfaces (bar clause, receipt line, recovered anchor), and the point
-/// is that they agree. Under the old design the bar and the transcript entry
-/// counted the same event differently (`attempt-1` vs `attempt`), so an
+/// by both live surfaces (bar clause, notice receipt), and the point is that they
+/// agree on which retry it was. Under the old design the bar and the transcript
+/// entry counted the same event differently (`attempt-1` vs `attempt`), so an
 /// assertion like this one had no single expected value.
 #[test]
-fn one_retry_episode_feeds_the_clause_and_the_recovered_anchor_from_one_state() {
+fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let now = std::time::Instant::now();
@@ -330,9 +327,9 @@ fn one_retry_episode_feeds_the_clause_and_the_recovered_anchor_from_one_state() 
         .transport_setback
         .expect("backing off")
         .label(now);
-    assert!(
-        clause.starts_with("retry 2/5 "),
-        "the bar states the attempt pair: {clause}"
+    assert_eq!(
+        clause, "retry 1 in 1s",
+        "the bar states which retry this is and how long until the next attempt"
     );
 
     // Attempt 2 fails too; attempt 3 is scheduled. The fault list accumulates.

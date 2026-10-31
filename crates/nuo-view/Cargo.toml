@@ -9,7 +9,7 @@ description = "Pure, zero-IO domain presentation and agent views for Nuo"
 [dependencies]
 chrono = { workspace = true }
 nuo-ui-primitives = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 nuotc = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }

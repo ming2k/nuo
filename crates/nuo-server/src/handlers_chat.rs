@@ -9,7 +9,7 @@ use nuo_harness::orchestration::{
 use nuo_harness::{Agent, RoundLifecycle};
 use nuo_persistence::config::Config;
 use nuo_persistence::session::SessionStore;
-use nuo_wire::{AgentResponse, LoopStatus, QueuedMessage, RoundEvent};
+use nuo_protocol::{AgentResponse, LoopStatus, QueuedMessage, RoundEvent};
 
 use crate::agent_setup::active_context_window;
 use crate::session_driver::send_harness_state_for_session;
@@ -102,7 +102,7 @@ pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
 pub(crate) async fn chat(
     env: ChatEnv<'_>,
     text: String,
-    images: Vec<nuo_wire::ImagePart>,
+    images: Vec<nuo_protocol::ImagePart>,
     sent_at_ms: Option<u64>,
 ) {
     start_turn(

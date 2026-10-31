@@ -185,11 +185,11 @@ fn latest_visible_user_text(messages: &[Message]) -> String {
 
 /// Extract `@file:{path}` / `@files:{path}` references from `text`, in order,
 /// deduplicated. A thin filter over the shared grammar kernel
-/// ([`nuo_wire::mention::scan_references`]): escaped references are
+/// ([`nuo_protocol::mention::scan_references`]): escaped references are
 /// literal text and skipped here (the canonicalizer, not the injector, consumes
 /// the escape), and only file-namespace references are kept.
 fn parse_file_refs(text: &str) -> Vec<String> {
-    use nuo_wire::mention::{Namespace, scan_references};
+    use nuo_protocol::mention::{Namespace, scan_references};
 
     let mut out = Vec::new();
     let mut seen = HashSet::new();

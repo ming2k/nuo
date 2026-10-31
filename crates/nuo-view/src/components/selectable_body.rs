@@ -107,7 +107,7 @@ pub fn render_selectable_body(
     // skips the decoration.
     let seg_width = |s: &RowSegment| -> u16 { nuotc::str_len(&s.text) as u16 };
     let wrap_budget = |row: &SelectableRow| -> usize {
-        let prefix_w = row.prefix.as_ref().map(&seg_width).unwrap_or(0);
+        let prefix_w = row.prefix.as_ref().map(seg_width).unwrap_or(0);
         width.saturating_sub(prefix_w as usize).max(1)
     };
     // Resolve the effective decoration for visual row `k` (0 = first) of a

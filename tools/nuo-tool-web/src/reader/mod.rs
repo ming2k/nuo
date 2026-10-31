@@ -20,15 +20,15 @@ pub(crate) enum Reader {
     Disabled,
 }
 
-pub(crate) fn build_reader(cfg: &nuo_wire::WebRuntimeConfig) -> Reader {
+pub(crate) fn build_reader(cfg: &nuo_protocol::WebRuntimeConfig) -> Reader {
     match cfg.behavior.reader {
-        nuo_wire::WebReaderProvider::Jina => Reader::Jina(jina::JinaReader {
+        nuo_protocol::WebReaderProvider::Jina => Reader::Jina(jina::JinaReader {
             api_key: cfg
                 .reader_credential
                 .as_ref()
                 .map(|k| k.expose_secret().to_string()),
         }),
-        nuo_wire::WebReaderProvider::Disabled => Reader::Disabled,
+        nuo_protocol::WebReaderProvider::Disabled => Reader::Disabled,
     }
 }
 
@@ -75,9 +75,9 @@ mod tests {
 
     /// The reader field is an enum now: an unknown name fails at parse time,
     /// so `build_reader` can never receive one.
-    fn runtime_from_toml(text: &str) -> nuo_wire::WebRuntimeConfig {
-        let behavior: nuo_wire::WebConfig = toml::from_str(text).expect("reader field parses");
-        nuo_wire::WebRuntimeConfig {
+    fn runtime_from_toml(text: &str) -> nuo_protocol::WebRuntimeConfig {
+        let behavior: nuo_protocol::WebConfig = toml::from_str(text).expect("reader field parses");
+        nuo_protocol::WebRuntimeConfig {
             behavior,
             search_credential: None,
             reader_credential: None,
@@ -86,7 +86,7 @@ mod tests {
 
     #[test]
     fn an_unknown_reader_name_is_rejected_at_parse_time() {
-        let error = toml::from_str::<nuo_wire::WebConfig>("reader = \"totally-bogus\"")
+        let error = toml::from_str::<nuo_protocol::WebConfig>("reader = \"totally-bogus\"")
             .expect_err("unknown reader names must not parse");
         assert!(
             error.to_string().contains("unsupported web reader"),

@@ -308,6 +308,26 @@ impl App {
         self.drag.cancel();
     }
 
+    /// What kind of entry currently holds keyboard focus, for the composer's
+    /// hint row. `None` when nothing is focused (the composer is live).
+    ///
+    /// The distinction is behavioral, not cosmetic: `handle_focused_entry_key`
+    /// turns activation on a subagent task into `EnterSubagent` — it has no
+    /// inline body — while every other focusable kind toggles its disclosure.
+    /// The hint row reads the answer from the focused message itself instead of
+    /// guessing, so it cannot promise an `expand` that never happens.
+    pub(crate) fn focused_entry_kind(
+        &self,
+    ) -> Option<crate::shell::composer_hints::FocusedEntryKind> {
+        let target = self.focused_target?;
+        let message = self.focused_messages().get(target.message_idx)?;
+        Some(if message.is_subagent_task() {
+            crate::shell::composer_hints::FocusedEntryKind::Subagent
+        } else {
+            crate::shell::composer_hints::FocusedEntryKind::Disclosable
+        })
+    }
+
     /// Whether the view is currently zoomed into a subagent task.
     /// Whether the view is currently zoomed into a subagent task. Derived
     /// from the router, not from zoom-stack emptiness: a

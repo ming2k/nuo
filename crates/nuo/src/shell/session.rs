@@ -110,11 +110,19 @@ pub(crate) enum HintState {
     /// (`Esc draft`) so the state is never a dead end.
     Recall,
     /// A transcript entry holds keyboard focus, so the next keypress acts on
-    /// that entry rather than the composer. The row names the verbs that are
-    /// live *only* in this state (`y` copy, `Shift-y` diagnostic, `Space`
-    /// expand, `Esc` back) — the affordances that are otherwise undiscoverable
-    /// because a bare letter pressed with no focus belongs to the composer.
-    EntryFocused,
+    /// that entry rather than the composer.
+    ///
+    /// The advertised verbs are decided by *what kind of entry* is focused, not
+    /// assumed: a collapsible step expands in place, while a subagent task has
+    /// no inline body to reveal — activation drills into its scene. The row
+    /// used to promise `Space expand` for every focused entry, which was simply
+    /// false for a subagent and sent the user looking for a disclosure that the
+    /// renderer never draws.
+    EntryFocused {
+        /// Whether the focused entry is a subagent task (drill-in instead of
+        /// disclose).
+        subagent: bool,
+    },
 }
 
 /// Short session id prefix (up to 8 characters) for compact display.
@@ -160,9 +168,17 @@ pub(crate) fn live_chat_hints(
         // focus here), then the universal toggle, then the way back. Every
         // chord here resolves in `resolve_chat_surface_key`'s focused-target
         // arm (asserted by `focused_entry_hints_are_resolvable`).
-        HintState::EntryFocused => &[
+        HintState::EntryFocused { subagent: false } => &[
             LiveHint::nav(Key::ESC, "back"),
             LiveHint::nav(Key::plain(' '), "expand"),
+            LiveHint::action(Key::plain('y'), "copy"),
+            LiveHint::action(Key::shift_code(KeyCode::Char('Y')), "diagnostic"),
+        ],
+        // A subagent task has no inline body: activation enters its scene. The
+        // row must say `open`, not `expand`.
+        HintState::EntryFocused { subagent: true } => &[
+            LiveHint::nav(Key::ESC, "back"),
+            LiveHint::nav(Key::plain(' '), "open subagent"),
             LiveHint::action(Key::plain('y'), "copy"),
             LiveHint::action(Key::shift_code(KeyCode::Char('Y')), "diagnostic"),
         ],
@@ -1080,27 +1096,61 @@ mod tests {
     /// key the moment the resolver changed.
     #[test]
     fn focused_entry_hints_are_resolvable() {
-        for hint in live_chat_hints(HintState::EntryFocused, crate::shell::keymap::Key::TAB) {
-            let mut input = String::new();
-            let mut cursor = 0;
-            let resolved = resolve_chat_surface_key(
-                hint.key,
-                &ctx(Mode::FocusedTarget, |_| {}),
-                &mut input,
-                &mut cursor,
-            );
-            assert!(
-                resolved.is_some(),
-                "entry-focus hint {key:?} did not resolve while an entry is focused",
-                key = hint.key
-            );
-            assert_eq!(
-                input,
-                "",
-                "hint chord {key:?} leaked into the composer",
-                key = hint.key
-            );
+        for kind in [
+            HintState::EntryFocused { subagent: false },
+            HintState::EntryFocused { subagent: true },
+        ] {
+            for hint in live_chat_hints(kind, crate::shell::keymap::Key::TAB) {
+                let mut input = String::new();
+                let mut cursor = 0;
+                let resolved = resolve_chat_surface_key(
+                    hint.key,
+                    &ctx(Mode::FocusedTarget, |_| {}),
+                    &mut input,
+                    &mut cursor,
+                );
+                assert!(
+                    resolved.is_some(),
+                    "entry-focus hint {key:?} did not resolve while an entry is focused",
+                    key = hint.key
+                );
+                assert_eq!(
+                    input,
+                    "",
+                    "hint chord {key:?} leaked into the composer",
+                    key = hint.key
+                );
+            }
         }
+    }
+
+    /// The entry-focus row must describe what the focused entry actually does.
+    ///
+    /// A subagent task has no inline body — activation returns `EnterSubagent`,
+    /// never a disclosure toggle — so promising `Space expand` there sent the
+    /// user hunting for a body the renderer never draws.
+    #[test]
+    fn focused_entry_hints_name_the_verb_the_entry_supports() {
+        let labels = |subagent: bool| -> Vec<&'static str> {
+            live_chat_hints(HintState::EntryFocused { subagent }, Key::TAB)
+                .iter()
+                .map(|hint| hint.label)
+                .collect()
+        };
+        let disclosable = labels(false);
+        assert!(
+            disclosable.contains(&"expand"),
+            "a collapsible entry expands: {disclosable:?}"
+        );
+        let subagent = labels(true);
+        assert!(
+            !subagent.contains(&"expand"),
+            "a subagent task has no inline body to expand: {subagent:?}"
+        );
+        assert!(
+            subagent.iter().any(|label| label.contains("subagent")),
+            "the row names the drill-in verb instead: {subagent:?}"
+        );
     }
 
     #[test]

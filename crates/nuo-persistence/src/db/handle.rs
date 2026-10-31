@@ -192,7 +192,7 @@ impl PersistenceHandle {
         &self,
         data: crate::session::SessionData,
         full: bool,
-        usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
+        usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
         guard: CommitGuard,
     ) -> Result<u64, PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
@@ -230,7 +230,7 @@ impl PersistenceHandle {
     }
 
     /// Asynchronously upsert a session record.
-    pub async fn upsert_session(&self, record: SessionRecord) -> Result<(), PersistenceError> {
+    pub async fn upsert_session(&self, record: ThreadRecord) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::UpsertSession {
@@ -243,7 +243,7 @@ impl PersistenceHandle {
     }
 
     /// Non-blocking fire-and-forget session upsert to avoid blocking synchronous writers.
-    pub fn try_upsert_session(&self, record: SessionRecord) {
+    pub fn try_upsert_session(&self, record: ThreadRecord) {
         let (ack_tx, _) = oneshot::channel();
         if let Err(error) = self.supervisor.try_send(PersistenceCommand::UpsertSession {
             record,
@@ -289,7 +289,7 @@ impl PersistenceHandle {
     /// Asynchronously record a command invocation.
     pub async fn record_command(
         &self,
-        cmd: nuo_wire::CommandRecord,
+        cmd: nuo_protocol::CommandRecord,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
@@ -466,7 +466,7 @@ impl PersistenceHandle {
     pub async fn record_request_projection(
         &self,
         session_id: String,
-        record: nuo_wire::RequestProjection,
+        record: nuo_protocol::RequestProjection,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
@@ -487,7 +487,7 @@ impl PersistenceHandle {
     pub fn try_record_request_projection(
         &self,
         session_id: String,
-        record: nuo_wire::RequestProjection,
+        record: nuo_protocol::RequestProjection,
     ) {
         let (ack_tx, _) = oneshot::channel();
         if let Err(error) = self
@@ -509,7 +509,7 @@ impl PersistenceHandle {
 
     pub async fn record_attempts(
         &self,
-        entries: Vec<nuo_wire::usage_stats::UsageStatRecord>,
+        entries: Vec<nuo_protocol::usage_stats::UsageStatRecord>,
     ) -> Result<(), PersistenceError> {
         let (ack, rx) = oneshot::channel();
         self.supervisor
@@ -524,7 +524,7 @@ impl PersistenceHandle {
 
     pub(crate) fn record_usage_stats_blocking(
         &self,
-        entries: Vec<nuo_wire::usage_stats::UsageStatRecord>,
+        entries: Vec<nuo_protocol::usage_stats::UsageStatRecord>,
     ) -> Result<(), PersistenceError> {
         let (ack, rx) = oneshot::channel();
         self.run_blocking(
@@ -596,7 +596,7 @@ impl PersistenceHandle {
     }
 
     /// Asynchronously record an input history entry (fire-and-forget).
-    pub fn try_record_input_history(&self, entry: nuo_wire::HistoryEntry, dedup: bool) {
+    pub fn try_record_input_history(&self, entry: nuo_protocol::HistoryEntry, dedup: bool) {
         if let Err(error) = self
             .supervisor
             .try_send(PersistenceCommand::RecordInputHistory {
@@ -612,7 +612,7 @@ impl PersistenceHandle {
     /// Record an input history entry, waiting for single-writer SQLite actor confirmation.
     pub fn record_input_history_blocking(
         &self,
-        entry: nuo_wire::HistoryEntry,
+        entry: nuo_protocol::HistoryEntry,
         dedup: bool,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
@@ -629,7 +629,7 @@ impl PersistenceHandle {
     /// Save multiple input history entries synchronously, waiting for SQLite actor confirmation.
     pub fn save_input_history_blocking(
         &self,
-        entries: Vec<nuo_wire::HistoryEntry>,
+        entries: Vec<nuo_protocol::HistoryEntry>,
         dedup: bool,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
@@ -1023,10 +1023,10 @@ impl PersistenceHandle {
         Ok(report)
     }
 
-    /// Save an incremental [`nuo_wire::SessionDelta`] asynchronously (INV-SESSION-05).
+    /// Save an incremental [`nuo_protocol::SessionDelta`] asynchronously (INV-SESSION-05).
     pub async fn save_session_delta(
         &self,
-        delta: nuo_wire::SessionDelta,
+        delta: nuo_protocol::SessionDelta,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
@@ -1042,7 +1042,7 @@ impl PersistenceHandle {
     /// Synchronous [`Self::save_session_delta`] for blocking callers.
     pub fn save_session_delta_blocking(
         &self,
-        delta: nuo_wire::SessionDelta,
+        delta: nuo_protocol::SessionDelta,
     ) -> Result<(), PersistenceError> {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.run_blocking(
@@ -1110,8 +1110,10 @@ impl PersistenceHandle {
         session_id: impl Into<String>,
         job_id: impl Into<String>,
         now_ms: u64,
-    ) -> Result<crate::db::inspect_service::DeletionReport, nuo_wire::context_lifecycle::InspectError>
-    {
+    ) -> Result<
+        crate::db::inspect_service::DeletionReport,
+        nuo_protocol::context_lifecycle::InspectError,
+    > {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
             .send(PersistenceCommand::ExecuteInspectDeletion {
@@ -1121,10 +1123,10 @@ impl PersistenceHandle {
                 ack: ack_tx,
             })
             .await
-            .map_err(|_| nuo_wire::context_lifecycle::InspectError::Corrupt)?;
+            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?;
         ack_rx
             .await
-            .map_err(|_| nuo_wire::context_lifecycle::InspectError::Corrupt)?
+            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?
     }
 
     /// Collect a bounded garbage collection batch asynchronously through the single writer.
@@ -1136,7 +1138,7 @@ impl PersistenceHandle {
         batch_ms: u64,
     ) -> Result<
         crate::db::inspect_service::CollectionProgress,
-        nuo_wire::context_lifecycle::InspectError,
+        nuo_protocol::context_lifecycle::InspectError,
     > {
         let (ack_tx, ack_rx) = oneshot::channel();
         self.supervisor
@@ -1148,10 +1150,10 @@ impl PersistenceHandle {
                 ack: ack_tx,
             })
             .await
-            .map_err(|_| nuo_wire::context_lifecycle::InspectError::Corrupt)?;
+            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?;
         ack_rx
             .await
-            .map_err(|_| nuo_wire::context_lifecycle::InspectError::Corrupt)?
+            .map_err(|_| nuo_protocol::context_lifecycle::InspectError::Corrupt)?
     }
 
     /// The one blocking bridge for every synchronous verb.

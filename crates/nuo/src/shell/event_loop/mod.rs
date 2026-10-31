@@ -164,6 +164,16 @@ pub(crate) async fn run_app_loop(
             return Ok(());
         }
 
+        // The link died. Ending this *attachment* — not the process — is what
+        // makes recovery possible: the runner re-dials and re-attaches, and the
+        // transcript, tabs and history ride `TuiOutcome` across the gap
+        // (ADR-0136). Recovering here rather than on the next user gesture means
+        // a transient socket failure costs the operator nothing.
+        if app.relink_requested {
+            tracing::warn!("link lost; ending attachment so the runner can re-dial");
+            return Ok(());
+        }
+
         // Freeze guard. Below the usable minimum the whole UI is replaced by a
         // centered notice. While frozen we keep applying server mutations (so
         // a streaming round is never lost) but block every user-originated

@@ -5,7 +5,7 @@
 //! in-place sequential history stepping from overlay search, encapsulates draft
 //! preservation in [`DraftCapsule`], and provides unified mode dispatch.
 
-use nuo_wire::ImagePart;
+use nuo_protocol::ImagePart;
 
 /// Canonical completion category for [`ComposerMode::Complete`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -5,7 +5,7 @@
 //! WebSocket streams into the same [`BoxWireStream`] and [`BoxWireSink`] interfaces.
 use bytes::{Buf, BufMut, BytesMut};
 use futures::{Sink, SinkExt, Stream, StreamExt};
-use nuo_wire::Wire;
+use nuo_protocol::{Wire, WireFrame};
 use std::io;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -18,11 +18,16 @@ pub const MAX_WIRE_FRAME_SIZE: usize = 16 * 1024 * 1024;
 ///
 /// Frames consist of a 4-byte big-endian length prefix followed by
 /// the UTF-8 JSON-encoded payload.
+///
+/// Yields [`WireFrame`], not `Result<Wire, _>`: a payload naming a variant
+/// this build does not model has already been fully consumed by its length
+/// prefix, so it is reported per frame and the stream keeps its alignment.
+/// `Err` now means the framing itself is unusable [ADR-0136].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NativeWireCodec;
 
 impl Decoder for NativeWireCodec {
-    type Item = Wire;
+    type Item = WireFrame;
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -49,12 +54,7 @@ impl Decoder for NativeWireCodec {
         src.advance(4);
         let payload = src.split_to(length);
 
-        serde_json::from_slice(&payload).map(Some).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to deserialize Wire payload: {e}"),
-            )
-        })
+        Ok(Some(nuo_protocol::decode_wire_payload(&payload)))
     }
 }
 
@@ -90,8 +90,8 @@ impl Encoder<Wire> for NativeWireCodec {
 /// Unified sink type for sending [`Wire`] messages.
 pub type BoxWireSink = Pin<Box<dyn Sink<Wire, Error = String> + Send>>;
 
-/// Unified stream type for receiving [`Wire`] messages.
-pub type BoxWireStream = Pin<Box<dyn Stream<Item = Result<Wire, String>> + Send>>;
+/// Unified stream type for receiving [`nuo_protocol::WireFrame`]s.
+pub type BoxWireStream = Pin<Box<dyn Stream<Item = Result<WireFrame, String>> + Send>>;
 
 /// Convert a native async byte stream (e.g. `UnixStream` or Windows named pipe)
 /// into a pair of unified `(BoxWireSink, BoxWireStream)`.
@@ -133,7 +133,7 @@ where
     let source = Box::pin(source.filter_map(|res| async move {
         match res {
             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                Some(serde_json::from_str(&text).map_err(|e| format!("JSON decode error: {e}")))
+                Some(Ok(nuo_protocol::decode_wire_payload(text.as_bytes())))
             }
             Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => None,
             Ok(tokio_tungstenite::tungstenite::Message::Ping(_))

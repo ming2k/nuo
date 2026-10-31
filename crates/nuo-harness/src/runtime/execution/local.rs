@@ -2,11 +2,11 @@
 //!
 //! Executes filesystem operations and subprocess commands directly on the host OS.
 use async_trait::async_trait;
-use nuo_wire::execution::{
+use nuo_protocol::execution::{
     DirEntry, ExecutionEnvironment, FsError, FsMetadata, FsProvider, ProcessOutput, ProcessRunner,
     ShellIsolation,
 };
-use nuo_wire::{SharedAdditionalRoots, SharedConfinement};
+use nuo_protocol::{SharedAdditionalRoots, SharedConfinement};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -276,7 +276,7 @@ impl WorkspaceFsProvider {
     }
 
     fn confined(&self, path: &Path) -> Result<PathBuf, FsError> {
-        let expanded = nuo_wire::execution::expand_tilde(path);
+        let expanded = nuo_protocol::execution::expand_tilde(path);
         let candidate = if expanded.is_absolute() {
             expanded
         } else {
@@ -290,8 +290,8 @@ impl WorkspaceFsProvider {
         })?;
         let admitted = !self.confinement.is_confined()
             || resolved.starts_with(&self.root)
-            || nuo_wire::execution::admits_temp_path(&resolved)
-            || nuo_wire::execution::admits_skills_path(&resolved)
+            || nuo_protocol::execution::admits_temp_path(&resolved)
+            || nuo_protocol::execution::admits_skills_path(&resolved)
             || self
                 .additional_roots
                 .snapshot()

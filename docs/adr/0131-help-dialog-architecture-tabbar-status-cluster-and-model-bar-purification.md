@@ -49,11 +49,12 @@ The right edge of the Client Global TabBar (`Tier 1`) is standardized into a uni
 
 ### 3. Sovereign Help Dialog (`DialogKind::Help`)
 A first-class modal dialog entity is introduced (`DialogKind::Help` with `DialogScope::Client`):
-- **Current Scene Block**: Dynamically reflects available actions in the active scene (e.g., Thread: `Ctrl-O` notices, `Alt-T` context telemetry, `Alt-C` connection details, `Esc` interrupt).
+- **Current Scene Block**: Dynamically reflects available actions in the active scene (e.g., Thread: notices, history recall, context telemetry, connection details, interrupt).
+- **Scene Navigation Block**: The intra-tab scene history (step back / forward), transcript step focus, and the clear-focus chord. This is the block that relieves the SceneBar of carrying keycaps: it documents the chords *resolved from the live keymap*, including any user remap.
 - **Client Domain Sub-blocks**:
-  - `Tabs & Workspaces`: `t` (new thread tab), `w` (close active tab), `Alt-[` / `Alt-]` (previous/next tab).
-  - `Views & Navigation`: `d` (dashboard), `s` (saved threads), `,` (settings).
-  - `System & Tools`: `p` (command palette / switcher), `/` (slash commands & skills).
+  - `Tabs & Workspaces`: new thread tab, close active tab, and `Alt-1..9` direct tab jump.
+  - `Views & Navigation`: dashboard, saved threads, settings.
+  - `Composer & System`: send, steer/follow-up mode toggle, command palette, slash commands.
 - **Direct Action Dispatch**: Pressing any advertised accelerator while the dialog is active dispatches the command and immediately dismisses the dialog.
 
 ### 4. Non-Printable Activation Chords (`F1` and `Alt-h`)
@@ -66,7 +67,9 @@ A first-class modal dialog entity is introduced (`DialogKind::Help` with `Dialog
 - `[INV-HELP-01]` **Sovereign Contextual Help**: Help is modeled as `DialogKind::Help`, presenting both active scene operations and partitioned client domain blocks.
 - `[INV-HELP-02]` **Direct Action Dispatch**: Single-key accelerators inside the Help dialog execute immediately and dismiss the modal.
 - `[INV-HELP-03]` **Non-Printable Dual Activation**: Help dialog invocation is bound to `F1` and `Alt-h`.
+- `[INV-HELP-04]` **Sole Chord Discovery Surface**: The Help dialog is the *only* surface that prints a chord for a remappable binding. Chrome renders navigation *affordances* (a `‹` / `›` chevron, a `F1 help` entrance) but never a chord literal, and every chord the dialog prints is resolved from the live keymap (`GlobalOverrides::effective_binding` / `SurfaceOverrides::effective_binding`) rather than written as a string — so a user remap changes the display, and a command with no chord renders `unbound` instead of a plausible keycap. This is enforced by `overlays/help.rs` tests (`chords_resolve_from_the_canonical_keymap`, `chords_follow_user_remaps`) plus the SceneBar assertions in `view_header.rs` that reject any `Alt+[` / `Alt+]` text.
 - `[INV-AFFORDANCE-01]` **TabBar Status Cluster & Model Bar Purity**: Notice badges MUST NOT reside on `model_bar`. Persistent notice affordances reside exclusively in the TabBar right cluster alongside the help affordance.
+- `[INV-AFFORDANCE-02]` **Chrome Renders Only Resolved Chords**: every keycap painted by chrome (activity strip, queue bar, headers) MUST be a chord the caller resolved from the live keymap — never a literal. A command with no binding renders **no keycap** rather than a plausible one, and a retired chord (`C-x …`) must never reappear. Enforced by `chrome::tests::activity_strip_keycaps_are_the_resolved_bindings` and the `C-x` rejection in `chrome::tests`, plus the resolved-chord assertions in `overlays/help.rs`.
 
 ## Consequences
 

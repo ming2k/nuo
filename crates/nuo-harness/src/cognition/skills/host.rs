@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use nuo_wire::WorkspaceTrustState;
+use nuo_protocol::WorkspaceTrustState;
 
 /// Host-resolved skill directories.
 ///

@@ -7,11 +7,11 @@
 use super::*;
 
 #[test]
-fn provider_retry_state_formats_the_attempt_pair_and_timing() {
-    // The clause the bar paints. The count is `attempt/max_attempts` — the pair
-    // the harness announced and the recovered anchor reports. It used to be
-    // `attempt-1/max_attempts-1` here and `attempt/max_attempts` in the
-    // transcript, so one scheduled retry read as `5/29` beside `6/30`.
+fn provider_retry_state_formats_the_retry_ordinal_and_countdown() {
+    // The clause the bar paints. It states *which* retry this is and how long
+    // until the next attempt — never the configured budget, and never the
+    // wire's `attempt`, which counts the initial request too (so the first
+    // retry would read `retry 2`).
     let now = std::time::Instant::now();
     let state = crate::shell::app::ProviderRetryState::scheduled(
         2,
@@ -19,9 +19,19 @@ fn provider_retry_state_formats_the_attempt_pair_and_timing() {
         now + std::time::Duration::from_millis(6_600),
         "HTTP 429: rate limited",
     );
-    assert_eq!(state.label(now), "retry 2/16 (next in 6.6s)");
+    assert_eq!(state.label(now), "retry 1 in 7s");
+    assert_eq!(
+        state.retry_ordinal(),
+        1,
+        "the first retry is the first retry"
+    );
     assert_eq!(state.retries(), 1, "one retry consumed so far");
     assert_eq!(state.faults(), ["HTTP 429: rate limited"]);
+    assert_eq!(
+        state.receipt_label(),
+        "retry 1 of 15",
+        "the budget is stated in the retained record instead"
+    );
 
     let running = crate::shell::app::ProviderRetryState::scheduled(
         4,
@@ -29,7 +39,12 @@ fn provider_retry_state_formats_the_attempt_pair_and_timing() {
         now - std::time::Duration::from_millis(1_200),
         "HTTP 503: overloaded",
     );
-    assert_eq!(running.label(now), "retry 4/16 (running for 1.2s)");
+    assert_eq!(
+        running.label(now),
+        "retry 3",
+        "an in-flight retry stops counting down; the round's own elapsed clock \
+         and the status verb already say what is happening"
+    );
     assert_eq!(running.retries(), 3);
 }
 
@@ -352,7 +367,7 @@ fn antigravity_template_prefills_url_and_seeds_relay_models() {
     );
     assert_eq!(
         app.custom_models,
-        nuo_wire::model_providers::ANTIGRAVITY_OAUTH_MODELS
+        nuo_protocol::model_providers::ANTIGRAVITY_OAUTH_MODELS
     );
     // No free-text Model field — the closed Gemini family is the seed.
     assert!(!app.custom_fields.contains(&crate::CustomField::Model));
@@ -423,7 +438,7 @@ fn custom_provider_edit_restores_protocol_and_budget() {
         "Relay".to_string(),
         "anthropic-messages".to_string(),
         "https://relay.example/v1/messages".to_string(),
-        nuo_wire::ConnectionAuth::Static,
+        nuo_protocol::ConnectionAuth::Static,
         false,
         Default::default(),
     );
@@ -731,7 +746,7 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
 
     let req1 = rx.try_recv().expect("should send RegisterProvider request");
     match req1 {
-        nuo_wire::AgentRequest::RegisterProvider { id, root_url, .. } => {
+        nuo_protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom-wechat-multi");
             assert_eq!(
                 root_url,
@@ -743,7 +758,7 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
 
     let req2 = rx.try_recv().expect("should send AddConnection request");
     match req2 {
-        nuo_wire::AgentRequest::AddConnection {
+        nuo_protocol::AgentRequest::AddConnection {
             name,
             provider,
             models,
@@ -775,7 +790,7 @@ fn curated_template_submits_the_provider_id_without_a_protocol_override() {
 
     let req = rx.try_recv().expect("should send a request");
     match req {
-        nuo_wire::AgentRequest::AddConnection {
+        nuo_protocol::AgentRequest::AddConnection {
             name,
             provider,
             models,
@@ -796,27 +811,29 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     // by the new name) and then the `EditConnection` metadata update.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
-    app.provider_picker.rows.push(nuo_wire::ProviderPickerRow {
-        id: "my-relay".to_string(),
-        name: "My Relay".to_string(),
-        model: "glm-5.2".to_string(),
-        models: vec!["glm-5.2".to_string()],
-        model_info: Vec::new(),
-        builtin: false,
-        protocol: "openai-chat-completions".to_string(),
-        base_url: "https://relay.example.com/v1".to_string(),
-        key_ready: true,
-        provider: "custom".to_string(),
-        headers: Default::default(),
-        last_used_ms: None,
-        auth: nuo_wire::ConnectionAuth::Static,
-    });
+    app.provider_picker
+        .rows
+        .push(nuo_protocol::ProviderPickerRow {
+            id: "my-relay".to_string(),
+            name: "My Relay".to_string(),
+            model: "glm-5.2".to_string(),
+            models: vec!["glm-5.2".to_string()],
+            model_info: Vec::new(),
+            builtin: false,
+            protocol: "openai-chat-completions".to_string(),
+            base_url: "https://relay.example.com/v1".to_string(),
+            key_ready: true,
+            provider: "custom".to_string(),
+            headers: Default::default(),
+            last_used_ms: None,
+            auth: nuo_protocol::ConnectionAuth::Static,
+        });
     app.open_edit_provider_editor(
         "my-relay".to_string(),
         "My Relay".to_string(),
         "openai-chat-completions".to_string(),
         "https://relay.example.com/v1".to_string(),
-        nuo_wire::ConnectionAuth::Static,
+        nuo_protocol::ConnectionAuth::Static,
         false,
         Default::default(),
     );
@@ -831,7 +848,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
 
     let rename = rx.try_recv().expect("rename transaction first");
     match rename {
-        nuo_wire::AgentRequest::RenameConnection { from, to } => {
+        nuo_protocol::AgentRequest::RenameConnection { from, to } => {
             assert_eq!(from, "my-relay");
             assert_eq!(to, "My Relay Renamed");
         }
@@ -839,7 +856,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     }
     let reg = rx.try_recv().expect("register provider second");
     match reg {
-        nuo_wire::AgentRequest::RegisterProvider { id, root_url, .. } => {
+        nuo_protocol::AgentRequest::RegisterProvider { id, root_url, .. } => {
             assert_eq!(id, "custom");
             assert_eq!(root_url, "https://relay.example.com/v1");
         }
@@ -847,7 +864,7 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     }
     let edit = rx.try_recv().expect("metadata edit third");
     match edit {
-        nuo_wire::AgentRequest::EditConnection { name, provider, .. } => {
+        nuo_protocol::AgentRequest::EditConnection { name, provider, .. } => {
             assert_eq!(name, "My Relay Renamed", "the edit follows the rename");
             assert_eq!(provider, "custom");
         }
@@ -884,7 +901,7 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
 
     let req = rx.try_recv().expect("should query connection detail");
     match req {
-        nuo_wire::AgentRequest::QueryConnectionDetail { id, .. } => {
+        nuo_protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "anthropic-prod");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -911,7 +928,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Initial phase 1 detail arrives with Fetching usage
-    let detail_phase1 = nuo_wire::ConnectionDetail {
+    let detail_phase1 = nuo_protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google-antigravity".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -927,7 +944,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
         active_model: Some("gemini-2.5-pro".to_string()),
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_wire::ConnectionUsageState::Fetching,
+        usage: nuo_protocol::ConnectionUsageState::Fetching,
         budget: Default::default(),
     };
 
@@ -955,7 +972,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 
     // Phase 2 quotas arrive for the same connection
     let mut detail_phase2 = detail_phase1.clone();
-    detail_phase2.usage = nuo_wire::ConnectionUsageState::Available(Box::default());
+    detail_phase2.usage = nuo_protocol::ConnectionUsageState::Available(Box::default());
 
     crate::shell::event_loop::apply::apply(
         &mut app,
@@ -984,7 +1001,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
     app.surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_detail = true;
-    app.connection_detail = Some(nuo_wire::ConnectionDetail {
+    app.connection_detail = Some(nuo_protocol::ConnectionDetail {
         name: "custom-relay".to_string(),
         provider: "custom".to_string(),
         provider_label: "Custom connection".to_string(),
@@ -1000,7 +1017,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
         active_model: None,
         active_model_effort: None,
         active_model_thinking: None,
-        usage: nuo_wire::ConnectionUsageState::Unsupported,
+        usage: nuo_protocol::ConnectionUsageState::Unsupported,
         budget: Default::default(),
     });
 
@@ -1015,14 +1032,14 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
     assert_eq!(
         app.connection_detail.as_ref().map(|d| &d.usage),
-        Some(&nuo_wire::ConnectionUsageState::Fetching)
+        Some(&nuo_protocol::ConnectionUsageState::Fetching)
     );
 
     let req = rx
         .try_recv()
         .expect("should query connection detail for refresh");
     match req {
-        nuo_wire::AgentRequest::QueryConnectionDetail { id, .. } => {
+        nuo_protocol::AgentRequest::QueryConnectionDetail { id, .. } => {
             assert_eq!(id, "custom-relay");
         }
         _ => panic!("Expected QueryConnectionDetail request"),
@@ -1062,7 +1079,10 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     assert!(app.copy_toast_until.is_some());
 
     let req = rx.try_recv().expect("should send refresh request");
-    assert!(matches!(req, nuo_wire::AgentRequest::RefreshProviderModels));
+    assert!(matches!(
+        req,
+        nuo_protocol::AgentRequest::RefreshProviderModels
+    ));
 
     // Second press while refreshing: warns already in progress, does not send duplicate request
     let flow2 = crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -1090,7 +1110,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
         &mut app,
         &runtime,
         crate::shell::event_loop::AppMutation::ProviderPicker(
-            nuo_wire::ProviderPickerSnapshot::default(),
+            nuo_protocol::ProviderPickerSnapshot::default(),
         ),
     );
     assert!(
@@ -1139,13 +1159,13 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         "Gemini Work".to_string(),
         "google".to_string(),
         "https://generativelanguage.googleapis.com".to_string(),
-        nuo_wire::ConnectionAuth::Static,
+        nuo_protocol::ConnectionAuth::Static,
         true,
-        nuo_wire::ConnectionBudget::Remote,
+        nuo_protocol::ConnectionBudget::Remote,
     );
 
     // Initial budget is Remote
-    assert_eq!(app.custom_budget, nuo_wire::ConnectionBudget::Remote);
+    assert_eq!(app.custom_budget, nuo_protocol::ConnectionBudget::Remote);
 
     // Focus on Budget field (index 2 for curated API key: Name=0, Token=1, Budget=2)
     assert_eq!(
@@ -1162,18 +1182,18 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
     app.cycle_custom_choice(true);
     assert_eq!(
         app.custom_budget,
-        nuo_wire::ConnectionBudget::local(1.0, nuo_wire::BudgetPeriod::Session)
+        nuo_protocol::ConnectionBudget::local(1.0, nuo_protocol::BudgetPeriod::Session)
     );
 
     // Cycle forward again
     app.cycle_custom_choice(true);
     assert_eq!(
         app.custom_budget,
-        nuo_wire::ConnectionBudget::local(5.0, nuo_wire::BudgetPeriod::Daily)
+        nuo_protocol::ConnectionBudget::local(5.0, nuo_protocol::BudgetPeriod::Daily)
     );
 
     // Test rendering detail rows includes budget line
-    let detail = nuo_wire::ConnectionDetail {
+    let detail = nuo_protocol::ConnectionDetail {
         name: "gemini-work".to_string(),
         provider: "google".to_string(),
         provider_label: "Google Gemini".to_string(),
@@ -1203,7 +1223,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         .expect("antigravity preset exists");
 
     app.open_preset_chooser();
-    app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+    app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
     assert_eq!(
         app.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending)
@@ -1317,7 +1337,7 @@ fn oauth_cancel_pops_cleanly_without_bouncing_loop() {
     );
 
     // 3. Begin OAuth
-    app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+    app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
     assert_eq!(
         app.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending)
@@ -1375,7 +1395,7 @@ fn oauth_success_name_editor_cancel_pops_cleanly() {
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.open_preset_chooser();
-    app.begin_oauth_add(antigravity, nuo_wire::LoginMethod::Browser);
+    app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
 
     // Simulate OAuth Done signal -> opens name editor
     app.open_oauth_instance_name_editor();

@@ -14,7 +14,7 @@
 //! `AgentResponse` stream lives in `nuo_runtime::monitor`.
 use serde::{Deserialize, Serialize};
 
-use crate::events::{ForkPoint, SessionForkKind};
+use crate::events::{ForkPoint, ThreadForkKind};
 
 /// Handshake action selecting a server-observability stream instead of a
 /// session attach. Sent as the first frame:
@@ -40,15 +40,15 @@ pub struct MonitorAction {
 /// deserialize.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SessionHosting {
-    /// The session's driver lives inside the serving host process (an
-    /// `attach`-created or lazily resumed session). The host owns its
+pub enum ThreadHosting {
+    /// The thread's driver lives inside the serving host process (an
+    /// `attach`-created or lazily resumed thread). The host owns its
     /// lifecycle and can serve full `Attach` clients for it.
     #[default]
     Hosted,
 }
 
-impl SessionHosting {
+impl ThreadHosting {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hosted => "hosted",
@@ -56,7 +56,7 @@ impl SessionHosting {
     }
 }
 
-impl std::fmt::Display for SessionHosting {
+impl std::fmt::Display for ThreadHosting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
@@ -67,18 +67,15 @@ impl std::fmt::Display for SessionHosting {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MonitorEvent {
     /// The full current state, sent exactly once as the first frame after the
-    /// monitor handshake. Sessions are sorted by `updated_at`, newest first.
+    /// monitor handshake. Threads are sorted by `updated_at`, newest first.
     Snapshot(MonitorSnapshot),
-    /// One hosted session was created or re-hosted (lazy resume). Carries its
+    /// One hosted thread was created or re-hosted (lazy resume). Carries its
     /// complete row so a consumer needs no back-reference.
-    SessionAdded(MonitoredSession),
-    /// One hosted session's row changed in place.
-    SessionUpdated(MonitoredSession),
-    /// A hosted session shut down. Consumers drop the row. (Session teardown
-    /// is not yet emitted by the host — hosted sessions live for the server's
-    /// lifetime — but the variant is part of the contract so panels written
-    /// against it handle teardown when it lands.)
-    SessionRemoved { session_id: String },
+    ThreadAdded(MonitoredThread),
+    /// One hosted thread's row changed in place.
+    ThreadUpdated(MonitoredThread),
+    /// A hosted thread shut down. Consumers drop the row.
+    ThreadRemoved { thread_id: String },
     /// The server as a whole began its graceful shutdown: no new
     /// attaches will be served, live connections are being closed with a
     /// WebSocket `GoingAway`, and every hosted session's teardown (including
@@ -149,7 +146,7 @@ pub struct MonitorSnapshot {
     /// record; `0` when the registry was not created by a server, e.g. an
     /// in-TUI `/serve` prehost).
     pub server_started_at: u64,
-    pub sessions: Vec<MonitoredSession>,
+    pub threads: Vec<MonitoredThread>,
     /// Server-level task fabric rows: rehosted services and any
     /// other task with no owning session. Session-scoped tasks stay in
     /// their session's own fabric; this is the human-side view of what the
@@ -191,11 +188,11 @@ pub struct MonitoredTask {
     pub log_path: Option<String>,
 }
 
-/// One row of the control panel: a hosted session's identity, status, and
+/// One row of the control panel: a hosted thread's identity, status, and
 /// accounting. Deliberately a superset of nothing — every field is cheap and
 /// content-free (see module docs).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MonitoredSession {
+pub struct MonitoredThread {
     pub id: String,
     /// Authentic AI/manual thread title, when established (ADR-0050).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,12 +202,12 @@ pub struct MonitoredSession {
     pub created_at: u64,
     pub updated_at: u64,
     pub message_count: usize,
-    /// Who owns the session's driver. Defaults to `Hosted` — the only value
+    /// Who owns the thread's driver. Defaults to `Hosted` — the only value
     /// so producers written against stay valid.
     #[serde(default)]
-    pub hosting: SessionHosting,
+    pub hosting: ThreadHosting,
     /// Derived lifecycle status: the panel's primary sort key.
-    pub status: SessionStatus,
+    pub status: ThreadStatus,
     /// 1-based index of the current (or most recently completed) user round.
     pub round: u64,
     /// 0-based index of the model request within the current round, when one
@@ -248,7 +245,7 @@ pub struct MonitoredSession {
     /// How this session came to exist: trunk root or `/fork` branch (ADR-0058).
     /// Defaults to `Trunk` for producers that predate the field.
     #[serde(default)]
-    pub fork_kind: SessionForkKind,
+    pub fork_kind: ThreadForkKind,
     /// Where this branch diverged from its parent (ADR-0120). Persisted on the
     /// child at fork time and read verbatim here — never re-derived.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -256,11 +253,11 @@ pub struct MonitoredSession {
     /// Structured digest (intent + history checklist), if
     /// the session has generated one.
     #[serde(default)]
-    pub digest: Option<crate::cognitive::SessionDigest>,
+    pub digest: Option<crate::cognitive::ThreadDigest>,
 }
 
-impl MonitoredSession {
-    /// A zeroed row for one session id — the seed a tracker starts from
+impl MonitoredThread {
+    /// A zeroed row for one thread id — the seed a tracker starts from
     /// before any event has been folded in.
     pub fn empty(id: String) -> Self {
         Self {
@@ -270,8 +267,8 @@ impl MonitoredSession {
             created_at: 0,
             updated_at: 0,
             message_count: 0,
-            hosting: SessionHosting::Hosted,
-            status: SessionStatus::Idle,
+            hosting: ThreadHosting::Hosted,
+            status: ThreadStatus::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -282,7 +279,7 @@ impl MonitoredSession {
             note: None,
             project_root: String::new(),
             parent_id: None,
-            fork_kind: SessionForkKind::default(),
+            fork_kind: ThreadForkKind::default(),
             fork_point: None,
             digest: None,
         }
@@ -295,7 +292,7 @@ impl MonitoredSession {
 /// itself stays binary (`RoundLifecycle`, ADR-0078).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SessionStatus {
+pub enum ThreadStatus {
     /// No round running, nothing waiting on a human.
     Idle,
     /// A round is actively producing model output or running tools.
@@ -310,7 +307,9 @@ pub enum SessionStatus {
     Failed,
 }
 
-impl SessionStatus {
+pub type SessionStatus = ThreadStatus;
+
+impl ThreadStatus {
     /// Whether a panel row in this status describes ongoing or blocked work —
     /// the default (non-`include_idle`) filter for monitor snapshots.
     pub fn is_active(self) -> bool {
@@ -384,11 +383,11 @@ mod tests {
 
     #[test]
     fn monitor_event_uses_kind_tag() {
-        let event = MonitorEvent::SessionRemoved {
-            session_id: "s-1".into(),
+        let event = MonitorEvent::ThreadRemoved {
+            thread_id: "s-1".into(),
         };
         let json = serde_json::to_string(&event).unwrap();
-        assert_eq!(json, r#"{"kind":"session_removed","session_id":"s-1"}"#);
+        assert_eq!(json, r#"{"kind":"thread_removed","thread_id":"s-1"}"#);
         let back: MonitorEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(back, event);
     }
@@ -404,8 +403,8 @@ mod tests {
     #[test]
     fn hosting_defaults_to_hosted_for_older_producers() {
         let json = r#"{"id":"s","overview":"","created_at":0,"updated_at":0,"message_count":0,"status":"idle","round":0,"turn":null,"output_tokens":0,"elapsed_ms":0,"current_tool":null,"activity":null,"context_tokens":null,"note":null}"#;
-        let row: MonitoredSession = serde_json::from_str(json).unwrap();
-        assert_eq!(row.hosting, SessionHosting::Hosted);
+        let row: MonitoredThread = serde_json::from_str(json).unwrap();
+        assert_eq!(row.hosting, ThreadHosting::Hosted);
     }
 
     #[test]
@@ -415,15 +414,15 @@ mod tests {
             server_started_at: 1_700_000_000,
             tasks: Vec::new(),
             persistence_health: None,
-            sessions: vec![MonitoredSession {
+            threads: vec![MonitoredThread {
                 id: "s-1".into(),
                 title: None,
                 overview: "fix the flaky test".into(),
                 created_at: 1,
                 updated_at: 2,
                 message_count: 7,
-                hosting: SessionHosting::Hosted,
-                status: SessionStatus::Running,
+                hosting: ThreadHosting::Hosted,
+                status: ThreadStatus::Running,
                 round: 3,
                 turn: Some(1),
                 output_tokens: 512,
@@ -434,7 +433,7 @@ mod tests {
                 note: None,
                 project_root: "/tmp/proj".into(),
                 parent_id: None,
-                fork_kind: SessionForkKind::Trunk,
+                fork_kind: ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             }],

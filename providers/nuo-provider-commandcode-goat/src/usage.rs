@@ -3,14 +3,14 @@
 //! Queries `GET https://api.commandcode.ai/alpha/billing/credits` with the user's
 //! Command Code bearer token to retrieve the credit ledger and the
 //! five-hour / weekly window limits, and normalizes them into the generic
-//! [`nuo_wire::ProviderUsage`] model.
+//! [`nuo_protocol::ProviderUsage`] model.
 //!
 //! This is the authoritative fetcher (the `nuo-provider-adapters` duplicate was retired by ADR-0027). It is
 //! a pure projection of the control plane's answer (ADR-0014 `[INV-LANE-05]`):
 //! the client renders the reported credits and windows verbatim and never
 //! recomputes either. Response shape: `docs/reference/openapi/commandcode-goat.yml`
 //! (`/alpha/billing/credits`).
-use nuo_wire::{
+use nuo_protocol::{
     BalanceQuota, PeriodicQuota, ProviderQuotaData, ProviderUsage, QuotaWindowBucket,
     QuotaWindowKind, UsageMetric,
 };

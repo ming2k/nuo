@@ -10,7 +10,7 @@
 //! [`scan_references`] or a call to [`mention_range_at`], never a second copy of
 //! the scan.
 //!
-//! ## Why this lives in `nuo-wire` (ADR-0057)
+//! ## Why this lives in `nuo-protocol` (ADR-0057)
 //!
 //! The admission rule requires that an item is exchanged by *multiple
 //! independent workspace layers* or *breaks a dependency cycle*. The grammar is

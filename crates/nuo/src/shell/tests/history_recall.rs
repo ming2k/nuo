@@ -118,7 +118,7 @@ fn restored_user_insert_keeps_mid_round_origin_without_opening_a_turn() {
     use nuo_view::model::document::UserMessageOrigin;
     let first = Message::new(Role::Assistant, "first answer");
     let inserted = Message::new(Role::User, "one more constraint").with_origin(
-        nuo_wire::InjectionOrigin::new(nuo_wire::InjectionKind::UserSteer),
+        nuo_protocol::InjectionOrigin::new(nuo_protocol::InjectionKind::UserSteer),
     );
     let second = Message::new(Role::Assistant, "revised answer");
 
@@ -166,8 +166,8 @@ fn restored_command_echo_origin_from_durable_provenance() {
 /// dropped from the dialogue before merge; the ledger row keeps the record.
 #[test]
 fn restored_slash_echoes_fold_into_command_components() {
+    use nuo_protocol::Role;
     use nuo_view::model::document::UserMessageOrigin;
-    use nuo_wire::Role;
 
     let restored = transcript_messages_from_core(
         vec![
@@ -376,7 +376,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     // tiebreaker.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let mk = |text: &str, sid: &str, ts: u64| {
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             text.to_string(),
             Some(sid.to_string()),
             Some("~/p".to_string()),
@@ -450,13 +450,13 @@ fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
 #[test]
 fn history_insert_clears_search_query_buffer_and_places_entry() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "history row 1".to_string(),
         Some("s1".to_string()),
         None,
         100,
     ));
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "history row 2".to_string(),
         Some("s1".to_string()),
         None,
@@ -532,7 +532,7 @@ fn recall_queued_restores_staged_images() {
     // Enter) come back alongside the text so the user can re-edit and
     // resend without losing the attachment.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -565,7 +565,7 @@ async fn history_recall_restores_staged_images_and_pastes() {
     app.current_session_id = "session-a".to_string();
     app.current_workspace = "~/p".to_string();
 
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -609,7 +609,7 @@ async fn history_recall_clears_staged_attachments_for_plain_entries() {
     app.current_workspace = "~/p".to_string();
     app.record_input_history("plain prompt".to_string(), Vec::new(), Vec::new());
 
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -633,7 +633,7 @@ async fn history_recall_clears_staged_attachments_for_plain_entries() {
 fn history_draft_round_trip_keeps_attachments() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let draft = "my in-progress draft".to_string();
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "draft-img".to_string(),
     };
@@ -662,7 +662,7 @@ async fn history_attachment_cache_is_capped() {
     for i in 0..40 {
         app.record_input_history(
             format!("prompt {i}"),
-            vec![nuo_wire::ImagePart {
+            vec![nuo_protocol::ImagePart {
                 mime: "image/png".to_string(),
                 data: format!("img-{i}"),
             }],
@@ -876,8 +876,8 @@ async fn test_app_does_not_touch_disk_history() {
         .filter(|req| {
             matches!(
                 req,
-                nuo_wire::AgentRequest::RecordInputHistory { .. }
-                    | nuo_wire::AgentRequest::DeleteInputHistoryEntry { .. }
+                nuo_protocol::AgentRequest::RecordInputHistory { .. }
+                    | nuo_protocol::AgentRequest::DeleteInputHistoryEntry { .. }
             )
         })
         .collect();
@@ -998,7 +998,7 @@ async fn esc_cancels_history_recall_and_restores_draft() {
 #[test]
 fn recall_queued_adopts_content_as_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -1117,24 +1117,34 @@ fn test_delete_selected_history_entry_and_cascade() {
 
     // 1. Setup 3 history entries
     app.input_history = vec![
-        nuo_wire::HistoryEntry::new("first entry".into(), Some("session-test".into()), None, 100),
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
+            "first entry".into(),
+            Some("session-test".into()),
+            None,
+            100,
+        ),
+        nuo_protocol::HistoryEntry::new(
             "target entry".into(),
             Some("session-test".into()),
             None,
             200,
         ),
-        nuo_wire::HistoryEntry::new("third entry".into(), Some("session-test".into()), None, 300),
+        nuo_protocol::HistoryEntry::new(
+            "third entry".into(),
+            Some("session-test".into()),
+            None,
+            300,
+        ),
     ];
     // Backfill has target entry
     app.session_history_backfill = vec![
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "target entry".into(),
             Some("session-test".into()),
             None,
             200,
         ),
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "other backfill".into(),
             Some("session-test".into()),
             None,
@@ -1299,7 +1309,7 @@ fn test_shift_delete_and_bare_delete_dispatch() {
 #[tokio::test]
 async fn test_history_delete_selected_action_dispatch() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "entry 1".to_string(),
         Some("s1".to_string()),
         None,
@@ -1334,7 +1344,7 @@ fn test_composer_hints_history_search_density() {
         &theme,
         theme.panel(),
         key,
-        false,
+        None,
     );
     let left_str: String = left.iter().map(|s| s.content.as_ref()).collect();
     let right_str: String = right.iter().map(|s| s.content.as_ref()).collect();
@@ -1354,7 +1364,7 @@ fn test_composer_hints_history_search_density() {
         &theme,
         theme.panel(),
         key,
-        false,
+        None,
     );
     let left_c_str: String = left_c.iter().map(|s| s.content.as_ref()).collect();
     let right_c_str: String = right_c.iter().map(|s| s.content.as_ref()).collect();
@@ -1372,7 +1382,7 @@ fn test_composer_hints_history_search_density() {
         &theme,
         theme.panel(),
         key,
-        false,
+        None,
     );
     let left_t_str: String = left_t.iter().map(|s| s.content.as_ref()).collect();
     let right_t_str: String = right_t.iter().map(|s| s.content.as_ref()).collect();
@@ -1440,28 +1450,28 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
 
     app.input_history = vec![
         // Scattered acronym initials across sentence: "all dogs run in the park" (ts: newest!)
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "all dogs run in the park".into(),
             Some("other-session".into()),
             None,
             base_time + 5 * hour_ms,
         ),
         // Exact whole word "adr", but typed 4 hours ago in other session
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "let's write the adr".into(),
             Some("other-session".into()),
             None,
             base_time + hour_ms,
         ),
         // Word prefix "adroit approach"
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "adroit approach to problems".into(),
             Some("other-session".into()),
             None,
             base_time + 2 * hour_ms,
         ),
         // Exact whole word "adr" typed recently in CURRENT session
-        nuo_wire::HistoryEntry::new(
+        nuo_protocol::HistoryEntry::new(
             "review the adr now".into(),
             Some("live-session".into()),
             None,
@@ -1722,7 +1732,7 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
         } else {
             format!("random prompt message line number {i}")
         };
-        app.input_history.push(nuo_wire::HistoryEntry::new(
+        app.input_history.push(nuo_protocol::HistoryEntry::new(
             text,
             Some("session-scale".to_string()),
             Some("~/work".to_string()),
@@ -1766,13 +1776,13 @@ async fn history_rows_scales_to_100k_entries_without_lag() {
 #[test]
 fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "cargo test --package nuo-ui".to_string(),
         Some("s1".to_string()),
         None,
         100,
     ));
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "git status --short".to_string(),
         Some("s1".to_string()),
         None,
@@ -1805,7 +1815,7 @@ fn adr0044_composer_owns_caret_and_direct_typing_filters_history() {
 #[test]
 fn adr0044_atomic_draft_stashing_and_esc_rollback() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "historical command".to_string(),
         Some("s1".to_string()),
         None,
@@ -1993,7 +2003,7 @@ async fn test_history_search_stashes_and_restores_attachments_with_empty_text() 
 
     // Draft with only staged images/pastes and empty text
     app.input.clear();
-    let img = nuo_wire::ImagePart {
+    let img = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -2082,7 +2092,7 @@ fn adr0051_canonical_quadrant_modality_transitions() {
     assert_eq!(app.composer_mode().label(), "Edit");
 
     // 2. In-place history stepping enters Recall mode ([INV-COMP-02])
-    app.input_history.push(nuo_wire::HistoryEntry::new(
+    app.input_history.push(nuo_protocol::HistoryEntry::new(
         "entry 1".to_string(),
         Some("session-test".to_string()),
         None,
@@ -2254,7 +2264,7 @@ fn adr0051_draft_capsule_atomic_stashing_and_restoration() {
     // Draft with text and pending attachments
     app.input = "in-flight prompt".to_string();
     app.cursor_position = 8;
-    let img = nuo_wire::ImagePart {
+    let img = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "base64data".to_string(),
     };

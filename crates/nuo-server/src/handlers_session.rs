@@ -8,7 +8,7 @@ use crate::mcp::McpRuntime;
 use nuo_harness::Agent;
 use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_persistence::{config::Config, session::SessionStore};
-use nuo_wire::AgentResponse;
+use nuo_protocol::AgentResponse;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -32,15 +32,15 @@ pub async fn delete(
                 let new_id = session.id().await;
                 let _ = resp_tx.send(AgentResponse::ConversationCleared {
                     previous_id: active_id_before,
-                    session_id: new_id,
+                    thread_id: new_id,
                 });
             }
-            let _ = resp_tx.send(AgentResponse::SessionsOverview(
+            let _ = resp_tx.send(AgentResponse::ThreadsOverview(
                 build_sessions_overview(session).await,
             ));
         }
         Err(error) => {
-            let _ = resp_tx.send(AgentResponse::SessionsOverview(
+            let _ = resp_tx.send(AgentResponse::ThreadsOverview(
                 build_sessions_overview(session).await,
             ));
             let _ = resp_tx.send(AgentResponse::Error(error));
@@ -48,13 +48,13 @@ pub async fn delete(
     }
 }
 
-/// `AgentRequest::RenameSession` — set (or clear) a session's manual title by
-/// id (or short-id prefix) and push a fresh sessions-overview snapshot, or
+/// `AgentRequest::RenameThread` — set (or clear) a thread's manual title by
+/// id (or short-id prefix) and push a fresh threads-overview snapshot, or
 /// surface the storage error. `title = None` clears the manual override, so
 /// the overview falls back to the AI-title / first-prompt preview.
-/// The pushed overview also refreshes the hosted session's monitor row: the
+/// The pushed overview also refreshes the hosted thread's monitor row: the
 /// registry's broadcast-tap folds it into the tracker and republishes
-/// `MonitorEvent::SessionUpdated` with the new title.
+/// `MonitorEvent::ThreadUpdated` with the new title.
 pub async fn rename(
     session: &Arc<SessionStore>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -64,7 +64,7 @@ pub async fn rename(
     match session.rename(&id, title).await {
         Ok(()) => {
             let overview = build_sessions_overview(session).await;
-            let _ = resp_tx.send(AgentResponse::SessionsOverview(overview));
+            let _ = resp_tx.send(AgentResponse::ThreadsOverview(overview));
         }
         Err(error) => {
             let _ = resp_tx.send(AgentResponse::Error(error));
@@ -72,9 +72,9 @@ pub async fn rename(
     }
 }
 
-/// `AgentRequest::QuerySessionDetail` — full detail for one session (complete
-/// last prompt, title, timestamps). Reply with [`AgentResponse::SessionDetail`]
-/// for the session-info sub-view, or surface the storage error.
+/// `AgentRequest::QueryThreadDetail` — full detail for one thread (complete
+/// last prompt, title, timestamps). Reply with [`AgentResponse::ThreadDetail`]
+/// for the thread-info sub-view, or surface the storage error.
 pub async fn detail(
     session: &Arc<SessionStore>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
@@ -82,7 +82,7 @@ pub async fn detail(
 ) {
     match session.detail(&id).await {
         Ok(detail) => {
-            let _ = resp_tx.send(AgentResponse::SessionDetail(detail));
+            let _ = resp_tx.send(AgentResponse::ThreadDetail(detail));
         }
         Err(error) => {
             let _ = resp_tx.send(AgentResponse::Error(error));
@@ -90,35 +90,41 @@ pub async fn detail(
     }
 }
 
-/// Return a fresh sessions-picker snapshot without prescribing whether the
+/// Return a fresh threads-picker snapshot without prescribing whether the
 /// requesting frontend should display it.
 pub async fn overview(session: &Arc<SessionStore>, resp_tx: &mpsc::UnboundedSender<AgentResponse>) {
-    let _ = resp_tx.send(AgentResponse::SessionsOverview(
+    let _ = resp_tx.send(AgentResponse::ThreadsOverview(
         build_sessions_overview(session).await,
     ));
 }
 
-/// Return the current session DAG without prescribing frontend navigation.
+/// Return the current thread DAG without prescribing frontend navigation.
 pub async fn tree(session: &Arc<SessionStore>, resp_tx: &mpsc::UnboundedSender<AgentResponse>) {
     let session_id = session.id().await;
     let tree = session.tree().await;
-    let _ = resp_tx.send(AgentResponse::SessionTreeSnapshot { session_id, tree });
+    let _ = resp_tx.send(AgentResponse::ThreadTreeSnapshot {
+        thread_id: session_id,
+        tree,
+    });
 }
 
 /// `AgentRequest::QueryTokenUsage` — snapshot the server-side token-source
-/// ledger for one session and reply with
+/// ledger for one thread and reply with
 /// [`AgentResponse::TokenUsageReport`]. Attached frontends hold no local
 /// ledger, so the context-usage modal reads the server's accounting through
-/// this on-demand round-trip. Pure read: the ledger is shared across sessions
-/// and filtered by `session_id`, so an unknown/empty id simply yields an
+/// this on-demand round-trip. Pure read: the ledger is shared across threads
+/// and filtered by `thread_id`, so an unknown/empty id simply yields an
 /// empty report.
 pub fn token_usage(
-    token_ledger: &nuo_wire::TokenSourceLedger,
+    token_ledger: &nuo_protocol::TokenSourceLedger,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
     session_id: String,
 ) {
     let report = token_ledger.snapshot_for_session(&session_id);
-    let _ = resp_tx.send(AgentResponse::TokenUsageReport { session_id, report });
+    let _ = resp_tx.send(AgentResponse::TokenUsageReport {
+        thread_id: session_id,
+        report,
+    });
 }
 
 /// `AgentRequest::QueryUsageStats` — aggregate the durable cross-session
@@ -155,7 +161,7 @@ pub fn query_context(
         &mcp_runtime.statuses_snapshot(),
         config,
     );
-    let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
+    let _ = resp_tx.send(AgentResponse::ThreadContext(snapshot));
 }
 
 /// `AgentRequest::RevokePermission` — drop one cached always-allow rule and
@@ -177,7 +183,7 @@ pub fn revoke_permission(
             &mcp_runtime.statuses_snapshot(),
             config,
         );
-        let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
+        let _ = resp_tx.send(AgentResponse::ThreadContext(snapshot));
     } else {
         let _ = resp_tx.send(AgentResponse::Error(format!(
             "No cached always-allow rule for {} {}.",
@@ -203,7 +209,7 @@ pub fn clear_all_permissions(
         &mcp_runtime.statuses_snapshot(),
         config,
     );
-    let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
+    let _ = resp_tx.send(AgentResponse::ThreadContext(snapshot));
 }
 
 /// `AgentRequest::ToggleTool` — enable/disable a tool for the session and
@@ -233,7 +239,7 @@ pub fn toggle_tool(
             if enabled { "enabled" } else { "disabled" }
         )));
     }
-    let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
+    let _ = resp_tx.send(AgentResponse::ThreadContext(snapshot));
 }
 
 /// `AgentRequest::ToggleMcpServer` — connect/disconnect a configured MCP server
@@ -259,7 +265,7 @@ pub async fn toggle_mcp_server(
         &mcp_runtime.statuses_snapshot(),
         config,
     );
-    let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
+    let _ = resp_tx.send(AgentResponse::ThreadContext(snapshot));
 }
 
 /// `AgentRequest::ReconnectMcpServer` — re-establish one server's connection on
@@ -281,13 +287,13 @@ pub async fn reconnect_mcp_server(
         &mcp_runtime.statuses_snapshot(),
         config,
     );
-    let _ = resp_tx.send(AgentResponse::SessionContext(snapshot));
+    let _ = resp_tx.send(AgentResponse::ThreadContext(snapshot));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::Message;
+    use nuo_protocol::Message;
 
     /// A store with one persisted user prompt (so it appears in `list()`),
     /// plus the response channel a frontend would hold.
@@ -295,7 +301,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SessionStore::for_path(dir.path().join("session.json")));
         store
-            .replace_messages(vec![Message::new(nuo_wire::Role::User, "first prompt")])
+            .replace_messages(vec![Message::new(nuo_protocol::Role::User, "first prompt")])
             .await
             .unwrap();
         (dir, store)
@@ -317,8 +323,8 @@ mod tests {
         )
         .await;
 
-        let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
-            panic!("expected a sessions-overview push after a rename");
+        let Some(AgentResponse::ThreadsOverview(items)) = resp_rx.recv().await else {
+            panic!("expected a threads-overview push after a rename");
         };
         let row = items.iter().find(|item| item.id == old_id).unwrap();
         assert_eq!(row.overview, "new title");
@@ -346,8 +352,8 @@ mod tests {
 
         overview(&store, &resp_tx).await;
 
-        let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
-            panic!("expected a sessions-overview snapshot");
+        let Some(AgentResponse::ThreadsOverview(items)) = resp_rx.recv().await else {
+            panic!("expected a threads-overview snapshot");
         };
         assert!(!items.is_empty());
         assert!(resp_rx.try_recv().is_err(), "query must not navigate");
@@ -361,12 +367,12 @@ mod tests {
 
         tree(&store, &resp_tx).await;
 
-        let Some(AgentResponse::SessionTreeSnapshot {
-            session_id,
+        let Some(AgentResponse::ThreadTreeSnapshot {
+            thread_id: session_id,
             tree: snapshot,
         }) = resp_rx.recv().await
         else {
-            panic!("expected a session-tree snapshot");
+            panic!("expected a thread-tree snapshot");
         };
         assert_eq!(session_id, store.id().await);
         assert_eq!(
@@ -387,7 +393,7 @@ mod tests {
 
         let Some(AgentResponse::ConversationCleared {
             previous_id,
-            session_id: new_id,
+            thread_id: new_id,
         }) = resp_rx.recv().await
         else {
             panic!("expected ConversationCleared response when deleting active session");
@@ -398,8 +404,8 @@ mod tests {
         // the freshly minted replacement, or no tab could ever match it.
         assert_eq!(previous_id, initial_id);
 
-        let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
-            panic!("expected SessionsOverview response after delete");
+        let Some(AgentResponse::ThreadsOverview(items)) = resp_rx.recv().await else {
+            panic!("expected ThreadsOverview response after delete");
         };
         // The newly reset active session must be present and tagged active for the monitor tracker.
         let active_row = items
@@ -420,7 +426,7 @@ mod tests {
 
         let Some(AgentResponse::ConversationCleared {
             previous_id,
-            session_id: new_id,
+            thread_id: new_id,
         }) = resp_rx.recv().await
         else {
             panic!("expected ConversationCleared response when deleting active session");
@@ -431,8 +437,8 @@ mod tests {
         // the freshly minted replacement, or no tab could ever match it.
         assert_eq!(previous_id, initial_id);
 
-        let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
-            panic!("expected SessionsOverview response after delete");
+        let Some(AgentResponse::ThreadsOverview(items)) = resp_rx.recv().await else {
+            panic!("expected ThreadsOverview response after delete");
         };
         assert!(!items.iter().any(|item| item.id == initial_id));
         let active_row = items
@@ -451,8 +457,8 @@ mod tests {
 
         delete(&store, &resp_tx, fake_uuid.clone()).await;
 
-        let Some(AgentResponse::SessionsOverview(items)) = resp_rx.recv().await else {
-            panic!("expected SessionsOverview response after idempotent delete");
+        let Some(AgentResponse::ThreadsOverview(items)) = resp_rx.recv().await else {
+            panic!("expected ThreadsOverview response after idempotent delete");
         };
         assert!(!items.is_empty());
     }

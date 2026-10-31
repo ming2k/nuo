@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn reseed_model_guidance_populates_agent_from_config() {
         let provider = Arc::new(nuo_harness::NoProvider);
-        let agent = Agent::new(provider, Vec::new(), nuo_wire::AgentIdentity::default());
+        let agent = Agent::new(provider, Vec::new(), nuo_protocol::AgentIdentity::default());
 
         let mut config = Config::default();
         config.model_guidance.0.insert(

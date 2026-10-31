@@ -1,4 +1,4 @@
-use nuo_wire::{CausalNode, Message, NodePayload, Role};
+use nuo_protocol::{CausalNode, Message, NodePayload, Role};
 use serde_json::Value;
 use std::collections::BTreeSet;
 
@@ -107,7 +107,7 @@ impl FileOperations {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::ToolCall;
+    use nuo_protocol::ToolCall;
 
     #[test]
     fn extracts_reads_and_modifications() {

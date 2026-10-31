@@ -4,7 +4,7 @@
 //! upon round admission, without blocking TTFT or tying to end-of-round digest tasks.
 
 use crate::cognition::agent::Agent;
-use nuo_wire::SessionTitleInput;
+use nuo_protocol::ThreadTitleInput;
 use std::sync::Arc;
 
 /// Character budget for prompt excerpt used for title generation.
@@ -20,7 +20,7 @@ impl Agent {
 
         let excerpt: String = trimmed.chars().take(TITLE_PROMPT_BUDGET_CHARS).collect();
         self.cognitive()
-            .generate_title(SessionTitleInput { excerpt })
+            .generate_title(ThreadTitleInput { excerpt })
             .await
     }
 
@@ -72,7 +72,7 @@ impl Agent {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_wire::{Message, ModelRequest, Provider, Role};
+    use nuo_protocol::{Message, ModelRequest, Provider, Role};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct MockTitleProvider {
@@ -85,9 +85,9 @@ mod tests {
         async fn chat(
             &self,
             _request: ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             self.consult_count.fetch_add(1, Ordering::SeqCst);
-            Ok(nuo_wire::ProviderCompletion::message(Message::new(
+            Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 self.reply.clone(),
             )))
@@ -97,8 +97,8 @@ mod tests {
             &self,
             _request: ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }

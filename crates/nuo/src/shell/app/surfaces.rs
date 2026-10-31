@@ -103,13 +103,13 @@ impl App {
     /// Build the mutation request implied by toggling the selected tool in the
     /// Tools modal, or `None` when there is no snapshot or the selection
     /// is out of range.
-    pub fn session_activate_request(&self) -> Option<nuo_wire::AgentRequest> {
+    pub fn session_activate_request(&self) -> Option<nuo_protocol::AgentRequest> {
         let tool = self
             .session_context
             .as_ref()?
             .tools
             .get(self.active_index())?;
-        Some(nuo_wire::AgentRequest::ToggleTool {
+        Some(nuo_protocol::AgentRequest::ToggleTool {
             name: tool.name.clone(),
             enabled: !tool.enabled,
         })
@@ -513,7 +513,7 @@ impl App {
             self.resume_queue(&sid);
         }
         if self.input_history_persist {
-            self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
+            self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
         }
         // Session transitions isolate their effects to session-scoped dialogs
         // (`[INV-SURFACE-05]`): archive the outgoing session's modal state,
@@ -630,7 +630,7 @@ impl App {
                 self.stash_draft();
             }
             if self.input_history_persist {
-                self.send_intent(nuo_wire::AgentRequest::QueryInputHistory);
+                self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
             }
         }
         let first = !self.surface_store.is_open(id);
@@ -1068,7 +1068,7 @@ impl App {
     pub fn clear_responding(&mut self) {
         self.set_phase(None);
         self.round_started_at = None;
-        self.loop_status = nuo_wire::LoopStatus::Idle;
+        self.loop_status = nuo_protocol::LoopStatus::Idle;
         if let Some(chrome) = self.session_chrome.get_mut(&self.current_session_id) {
             chrome.responding = false;
             chrome.set_phase(None);

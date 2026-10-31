@@ -7,7 +7,7 @@ use super::{MAX_RETAINED_REQUEST_PROJECTIONS, decode_json};
 
 /// Batch project dirty usage records into aggregated contributions.
 pub(crate) fn project_usage_batch(conn: &Connection, limit: usize) -> Result<usize> {
-    use nuo_wire::{RequestUsageSource, RequestUsageStatus};
+    use nuo_protocol::{RequestUsageSource, RequestUsageStatus};
     let mut stmt = conn.prepare("SELECT u.payload,u.day,u.revision FROM usage_dirty d JOIN usage_records u USING(session_id,actor_id,round,turn,attempt) ORDER BY d.revision LIMIT ?1")?;
     let rows = stmt
         .query_map([limit.min(128) as i64], |r| {
@@ -27,7 +27,7 @@ pub(crate) fn project_usage_batch(conn: &Connection, limit: usize) -> Result<usi
         .into_iter()
         .map(|(json, day, rev)| {
             Ok((
-                decode_json::<nuo_wire::RequestUsageRecord>(&json)?,
+                decode_json::<nuo_protocol::RequestUsageRecord>(&json)?,
                 day,
                 rev,
             ))
@@ -59,12 +59,12 @@ pub(crate) fn project_usage_batch(conn: &Connection, limit: usize) -> Result<usi
 }
 
 /// Record a slash-command invocation in the durable command ledger.
-pub(crate) fn record_command(conn: &Connection, cmd: &nuo_wire::CommandRecord) -> Result<()> {
+pub(crate) fn record_command(conn: &Connection, cmd: &nuo_protocol::CommandRecord) -> Result<()> {
     let id = format!(
         "{}:{}:{}",
         cmd.name,
         cmd.timestamp,
-        nuo_wire::todos::unix_now()
+        nuo_protocol::todos::unix_now()
     );
     conn.execute(
         r#"
@@ -80,9 +80,9 @@ pub(crate) fn record_command(conn: &Connection, cmd: &nuo_wire::CommandRecord) -
                 .as_ref()
                 .and_then(|r| serde_json::to_string(r).ok()),
             match cmd.status {
-                nuo_wire::CommandStatus::Success => "ok",
-                nuo_wire::CommandStatus::Error => "failed",
-                nuo_wire::CommandStatus::UserCancelled => "cancelled",
+                nuo_protocol::CommandStatus::Success => "ok",
+                nuo_protocol::CommandStatus::Error => "failed",
+                nuo_protocol::CommandStatus::UserCancelled => "cancelled",
             },
             cmd.timestamp as i64,
         ],
@@ -97,7 +97,7 @@ pub(crate) fn record_command(conn: &Connection, cmd: &nuo_wire::CommandRecord) -
 pub(crate) fn insert_request_projection(
     conn: &Connection,
     session_id: &str,
-    record: &nuo_wire::RequestProjection,
+    record: &nuo_protocol::RequestProjection,
 ) -> Result<()> {
     let payload = serde_json::to_string(record)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -134,7 +134,7 @@ pub(crate) fn load_request_projections(
     conn: &Connection,
     session_id: &str,
     limit: usize,
-) -> Result<Vec<nuo_wire::RequestProjection>> {
+) -> Result<Vec<nuo_protocol::RequestProjection>> {
     let mut stmt = conn.prepare(
         "SELECT payload FROM request_projections WHERE session_id = ?1
          ORDER BY created_at_ms ASC, rowid ASC LIMIT ?2",

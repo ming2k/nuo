@@ -233,7 +233,7 @@ fn tool_status_label(status: ToolStepStatus) -> &'static str {
 fn command_exit(
     name: &str,
     output: Option<&str>,
-    structured: Option<&nuo_wire::ToolOutput>,
+    structured: Option<&nuo_protocol::ToolOutput>,
 ) -> Option<i32> {
     if !crate::tools::shell_output::is_command_body(name, structured) {
         return None;
@@ -332,7 +332,7 @@ mod tests {
 
     #[test]
     fn an_entry_without_text_yields_no_record() {
-        let mut msg = TranscriptMessage::new(nuo_wire::Role::Assistant, "text");
+        let mut msg = TranscriptMessage::new(nuo_protocol::Role::Assistant, "text");
         msg.raw = String::new();
         msg.blocks = Vec::new();
         assert!(DiagnosticRecord::from_message(&msg).is_none());

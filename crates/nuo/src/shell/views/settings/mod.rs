@@ -97,7 +97,7 @@ impl ConfigCategory {
     pub fn detail_item_count(
         self,
         ws_path: Option<&std::path::Path>,
-        websearch: Option<&nuo_wire::WebSearchConfigView>,
+        websearch: Option<&nuo_protocol::WebSearchConfigView>,
         profile: &nuotc::TerminalProfile,
     ) -> usize {
         match self {
@@ -201,7 +201,7 @@ pub struct SettingsProps<'a> {
     pub focus: ConfigFocus,
     pub color_scheme: &'a str,
     pub custom_color_scheme: &'a ColorSchemeConfig,
-    pub websearch: Option<&'a nuo_wire::WebSearchConfigView>,
+    pub websearch: Option<&'a nuo_protocol::WebSearchConfigView>,
     pub workspace: &'a str,
     pub category_scroll: &'a mut usize,
     pub detail_scroll: &'a mut usize,
@@ -649,8 +649,12 @@ mod tests {
         );
         assert_eq!(
             components::item_count(),
-            nuo_view::tools::TOOL_COMPONENTS.len() + 2,
-            "one row per declared component, plus reasoning, auto-scroll"
+            nuo_view::tools::TOOL_COMPONENTS
+                .iter()
+                .filter(|c| c.has_inline_body)
+                .count()
+                + 2,
+            "one row per *disclosable* component, plus reasoning and auto-scroll"
         );
         assert_eq!(
             ConfigCategory::System.detail_item_count(None, None, &direct),

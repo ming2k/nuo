@@ -1,6 +1,6 @@
 //! Thread Stats overview: context window, thread token totals, streaming performance.
 
-use nuo_wire::TokenSourceReport;
+use nuo_protocol::TokenSourceReport;
 use nuotc::{Line, Modifier, Span, Style};
 
 use super::model::*;

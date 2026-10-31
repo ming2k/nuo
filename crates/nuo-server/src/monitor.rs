@@ -5,22 +5,22 @@
 //! renders. The tap lives in the session's broadcast-tap task
 //! ([`crate::registry`]), which calls [`MonitorTracker::observe`] for every
 //! response; the registry owns publishing the resulting
-//! [`nuo_wire::MonitorEvent`] diffs to the host-level topic.
+//! [`nuo_protocol::MonitorEvent`] diffs to the host-level topic.
 //!
 //! The tracker is deliberately *derived state, not protocol state*: the round
 //! lifecycle itself stays binary (ADR-0078) — `Idle`/`Running` here are a
 //! display badge, and the `Needs*` states are overlays on a still-running
 //! round.
-use nuo_wire::{AgentResponse, MonitoredSession, RoundEvent, SessionStatus};
+use nuo_protocol::{AgentResponse, MonitoredThread, RoundEvent, ThreadStatus};
 
-/// Tracks one hosted session. `base` is the cheap header row (from the same
-/// deferred parse that feeds the sessions picker), re-seeded whenever a
-/// `SessionsOverview` snapshot flows by (a rename/delete pushes one); every
+/// Tracks one hosted thread. `base` is the cheap header row (from the same
+/// deferred parse that feeds the threads picker), re-seeded whenever a
+/// `ThreadsOverview` snapshot flows by (a rename/delete pushes one); every
 /// other field is folded from the live event stream, starting at
 /// [`Self::bootstrap`].
 pub struct MonitorTracker {
-    base: MonitoredSession,
-    status: SessionStatus,
+    base: MonitoredThread,
+    status: ThreadStatus,
     round: u64,
     turn: Option<usize>,
     output_tokens: u64,
@@ -37,8 +37,8 @@ impl MonitorTracker {
     ///
     /// `seed_status` is the registry's bootstrap verdict: [`SessionStatus::Running`]
     /// when the resumed transcript's tail shows an unfinished round (the
-    /// driver will re-drive it), otherwise [`SessionStatus::Idle`].
-    pub fn bootstrap(mut base: MonitoredSession, seed_status: SessionStatus) -> Self {
+    /// driver will re-drive it), otherwise [`ThreadStatus::Idle`].
+    pub fn bootstrap(mut base: MonitoredThread, seed_status: ThreadStatus) -> Self {
         base.status = seed_status;
         Self {
             base,
@@ -46,7 +46,7 @@ impl MonitorTracker {
             round: 0,
             turn: None,
             output_tokens: 0,
-            round_started: if seed_status == SessionStatus::Running {
+            round_started: if seed_status == ThreadStatus::Running {
                 Some(std::time::Instant::now())
             } else {
                 None
@@ -61,7 +61,7 @@ impl MonitorTracker {
 
     /// The current panel row. `updated_at` advances with every observed event
     /// so a consumer can sort by liveness without the session store.
-    pub fn row(&self) -> MonitoredSession {
+    pub fn row(&self) -> MonitoredThread {
         let mut row = self.base.clone();
         row.updated_at = now_secs();
         row.status = self.status;
@@ -85,7 +85,7 @@ impl MonitorTracker {
         // bootstrap — so without this the row would show the stale overview
         // forever. `updated_at` is deliberately left alone: [`Self::row`]
         // re-stamps it on every projection.
-        if let AgentResponse::SessionsOverview(items) = response {
+        if let AgentResponse::ThreadsOverview(items) = response {
             if let Some(item) = items.iter().find(|item| item.id == self.base.id) {
                 self.base.title.clone_from(&item.title);
                 self.base.overview.clone_from(&item.overview);
@@ -117,22 +117,22 @@ impl MonitorTracker {
                 self.round = *round;
                 self.turn = Some(*turn);
                 self.note = None;
-                self.status = SessionStatus::Running;
+                self.status = ThreadStatus::Running;
             }
             RoundEvent::ToolCall { name, .. } => {
                 self.current_tool = Some(name.clone());
-                self.status = SessionStatus::Running;
+                self.status = ThreadStatus::Running;
                 self.note = None;
             }
             RoundEvent::ToolResult { .. } | RoundEvent::ToolCancelled { .. } => {
                 self.current_tool = None;
             }
             RoundEvent::PermissionRequest(request) => {
-                self.status = SessionStatus::NeedsApproval;
+                self.status = ThreadStatus::NeedsApproval;
                 self.note = Some(format!("permission: {}", request.tool));
             }
             RoundEvent::UserQuestionRequest(request) => {
-                self.status = SessionStatus::NeedsInput;
+                self.status = ThreadStatus::NeedsInput;
                 self.note = Some(
                     request
                         .questions
@@ -142,7 +142,7 @@ impl MonitorTracker {
                 );
             }
             RoundEvent::StdinRequest(request) => {
-                self.status = SessionStatus::NeedsInput;
+                self.status = ThreadStatus::NeedsInput;
                 self.note = Some(format!("stdin: {}", truncate(&request.prompt, 80)));
             }
             RoundEvent::StreamStart | RoundEvent::StreamDelta(_) | RoundEvent::StreamEnd(_) => {
@@ -150,31 +150,31 @@ impl MonitorTracker {
                 // has been resolved.
                 if matches!(
                     self.status,
-                    SessionStatus::NeedsApproval | SessionStatus::NeedsInput
+                    ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput
                 ) {
-                    self.status = SessionStatus::Running;
+                    self.status = ThreadStatus::Running;
                     self.note = None;
                 }
             }
             RoundEvent::RoundCompleted(summary) => {
-                self.finish_round(SessionStatus::Idle);
+                self.finish_round(ThreadStatus::Idle);
                 self.round = summary.round;
                 self.output_tokens = summary.output_tokens;
                 self.elapsed_ms = summary.duration_ms;
             }
             RoundEvent::Error(message) => {
-                self.finish_round(SessionStatus::Failed);
+                self.finish_round(ThreadStatus::Failed);
                 self.note = Some(truncate(message, 120));
             }
             RoundEvent::UnsentInput { .. } => {
-                self.finish_round(SessionStatus::Interrupted);
+                self.finish_round(ThreadStatus::Interrupted);
             }
             RoundEvent::RoundInterrupted(record) => {
                 // Every interrupted round now carries an explicit record
                 // (C11) — including the previously invisible supersede and
                 // phase-2/3 interrupt paths. Fold it as the row's terminal
                 // state with the reason as the note.
-                self.finish_round(SessionStatus::Interrupted);
+                self.finish_round(ThreadStatus::Interrupted);
                 self.note = Some(truncate(record.label(), 120));
             }
             RoundEvent::Activity(text) => {
@@ -201,7 +201,7 @@ impl MonitorTracker {
             self.output_tokens = 0;
             self.current_tool = None;
             self.note = None;
-            self.status = SessionStatus::Running;
+            self.status = ThreadStatus::Running;
         }
     }
 
@@ -212,12 +212,12 @@ impl MonitorTracker {
         }
     }
 
-    fn finish_round(&mut self, status: SessionStatus) {
+    fn finish_round(&mut self, status: ThreadStatus) {
         self.elapsed_ms = self.elapsed_ms();
         self.round_started = None;
         self.current_tool = None;
         self.status = status;
-        if status != SessionStatus::Failed {
+        if status != ThreadStatus::Failed {
             self.note = None;
         }
     }
@@ -242,26 +242,26 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{PermissionRequest, RoundSummary};
+    use nuo_protocol::{PermissionRequest, RoundSummary};
 
     fn round_event(event: RoundEvent) -> AgentResponse {
         AgentResponse::Round {
-            session_id: "s".into(),
+            thread_id: "s".into(),
             event,
         }
     }
 
     fn tracker() -> MonitorTracker {
         MonitorTracker::bootstrap(
-            MonitoredSession {
+            MonitoredThread {
                 id: "s".into(),
                 title: None,
                 overview: "task".into(),
                 created_at: 1,
                 updated_at: 1,
                 message_count: 2,
-                status: SessionStatus::Idle,
-                hosting: nuo_wire::SessionHosting::Hosted,
+                status: ThreadStatus::Idle,
+                hosting: nuo_protocol::ThreadHosting::Hosted,
                 round: 0,
                 turn: None,
                 output_tokens: 0,
@@ -272,11 +272,11 @@ mod tests {
                 note: None,
                 project_root: "/tmp/proj".into(),
                 parent_id: None,
-                fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             },
-            SessionStatus::Idle,
+            ThreadStatus::Idle,
         )
     }
 
@@ -287,8 +287,8 @@ mod tests {
         // row shows the new title (the overview derives from the stored
         // title, which the live event stream never carries).
         let mut t = tracker();
-        t.observe(&AgentResponse::SessionsOverview(vec![
-            nuo_wire::SessionOverview {
+        t.observe(&AgentResponse::ThreadsOverview(vec![
+            nuo_protocol::ThreadOverview {
                 id: "s".into(),
                 title: Some("renamed title".into()),
                 overview: "renamed title".into(),
@@ -297,12 +297,12 @@ mod tests {
                 message_count: 9,
                 active: true,
                 parent_id: None,
-                fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             },
             // Another session's row must not leak into ours.
-            nuo_wire::SessionOverview {
+            nuo_protocol::ThreadOverview {
                 id: "other".into(),
                 title: None,
                 overview: "someone else".into(),
@@ -311,7 +311,7 @@ mod tests {
                 message_count: 1,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             },
@@ -328,8 +328,8 @@ mod tests {
         // After a delete (or before first persist) the snapshot may not carry
         // our session at all; the seeded header must survive untouched.
         let mut t = tracker();
-        t.observe(&AgentResponse::SessionsOverview(vec![
-            nuo_wire::SessionOverview {
+        t.observe(&AgentResponse::ThreadsOverview(vec![
+            nuo_protocol::ThreadOverview {
                 id: "other".into(),
                 title: None,
                 overview: "someone else".into(),
@@ -338,7 +338,7 @@ mod tests {
                 message_count: 1,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             },
@@ -353,7 +353,7 @@ mod tests {
         let mut t = tracker();
         t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
         let row = t.row();
-        assert_eq!(row.status, SessionStatus::Running);
+        assert_eq!(row.status, ThreadStatus::Running);
         assert_eq!(row.round, 1);
         assert_eq!(row.turn, Some(0));
         t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 1 }));
@@ -373,7 +373,7 @@ mod tests {
             ..Default::default()
         })));
         let row = t.row();
-        assert_eq!(row.status, SessionStatus::Idle);
+        assert_eq!(row.status, ThreadStatus::Idle);
         assert_eq!(row.round, 1);
         assert_eq!(row.output_tokens, 300);
         assert_eq!(row.elapsed_ms, 5_000);
@@ -398,10 +398,10 @@ mod tests {
                 ..Default::default()
             },
         )));
-        assert_eq!(t.row().status, SessionStatus::NeedsApproval);
+        assert_eq!(t.row().status, ThreadStatus::NeedsApproval);
         assert!(t.row().note.unwrap().contains("write_file"));
         t.observe(&round_event(RoundEvent::StreamDelta("…".into())));
-        assert_eq!(t.row().status, SessionStatus::Running);
+        assert_eq!(t.row().status, ThreadStatus::Running);
         assert!(t.row().note.is_none());
     }
 
@@ -411,7 +411,7 @@ mod tests {
         t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
         t.observe(&round_event(RoundEvent::Error("provider blew up".into())));
         let row = t.row();
-        assert_eq!(row.status, SessionStatus::Failed);
+        assert_eq!(row.status, ThreadStatus::Failed);
         assert_eq!(row.note.as_deref(), Some("provider blew up"));
     }
 
@@ -423,7 +423,7 @@ mod tests {
             prompt: "redo".into(),
             images: Vec::new(),
         }));
-        assert_eq!(t.row().status, SessionStatus::Interrupted);
+        assert_eq!(t.row().status, ThreadStatus::Interrupted);
     }
 
     #[test]
@@ -434,15 +434,15 @@ mod tests {
         let mut t = tracker();
         t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
         t.observe(&round_event(RoundEvent::RoundInterrupted(
-            nuo_wire::RoundInterrupt {
-                reason: nuo_wire::RoundInterruptReason::User,
+            nuo_protocol::RoundInterrupt {
+                reason: nuo_protocol::RoundInterruptReason::User,
                 at_ms: 1_700_000_000_000,
                 round: Some(1),
                 detail: None,
             },
         )));
         let row = t.row();
-        assert_eq!(row.status, SessionStatus::Interrupted);
+        assert_eq!(row.status, ThreadStatus::Interrupted);
         assert_eq!(row.note.as_deref(), Some("Esc Esc"));
     }
 
@@ -454,6 +454,6 @@ mod tests {
         let row = t.row();
         assert_eq!(row.round, 1, "turns of one round must not double-count");
         assert_eq!(row.turn, Some(1));
-        assert_eq!(row.status, SessionStatus::Running);
+        assert_eq!(row.status, ThreadStatus::Running);
     }
 }

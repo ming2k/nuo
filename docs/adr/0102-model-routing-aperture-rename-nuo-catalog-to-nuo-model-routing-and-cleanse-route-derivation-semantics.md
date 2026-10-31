@@ -68,7 +68,7 @@ for the canonical entrypoint (`build_routes`) and fails if it is defined anywher
 tagged invariant with no mechanism is only an aspiration.
 
 ```text
-Layer 1  nuo-wire (protocol) · nuo-provider · nuo-inference-wire
+Layer 1  nuo-protocol · nuo-provider · nuo-inference-wire
               ▲
 Layer 2  nuo-model-routing · nuo-persistence · nuo-harness
               ▲

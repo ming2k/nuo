@@ -15,7 +15,7 @@
 //! - `INV-RET-04`: GC uses bounded batches and read leases; a leased artifact is
 //!   never concurrently collected.
 //! - `INV-RET-05`: deleting a requirement fact cascades to open task state.
-use nuo_wire::context_lifecycle::{
+use nuo_protocol::context_lifecycle::{
     AuthScope, Capture, CursorBinding, Deletion, InspectError, InspectStatus, PageLimits,
     Representation, Validity,
 };
@@ -140,7 +140,7 @@ impl<'a> InspectService<'a> {
             Err(_) => return Err(InspectError::CursorMismatch),
         };
         let content =
-            nuo_wire::tokenizer::truncate_str_to_tokens(text, limits.tokens.min(8192) as usize)
+            nuo_protocol::tokenizer::truncate_str_to_tokens(text, limits.tokens.min(8192) as usize)
                 .to_owned();
         let count = content.len() as u64;
         if count == 0 && start < length {
@@ -159,7 +159,7 @@ impl<'a> InspectService<'a> {
             return Err(InspectError::Purged);
         }
         Ok(ArtifactPage {
-            tokens: nuo_wire::tokenizer::count_tokens(&content) as u64,
+            tokens: nuo_protocol::tokenizer::count_tokens(&content) as u64,
             bytes: count,
             content,
             next_cursor: (start + count < length).then(|| {

@@ -182,8 +182,8 @@ pub(super) async fn handle_selection_start(
                                             (revision, payload.parse())
                                         {
                                             app.send_intent(
-                                                nuo_wire::AgentRequest::UpdateWebSearchConfig(
-                                                    Box::new(nuo_wire::WebSearchConfigUpdate {
+                                                nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(nuo_protocol::WebSearchConfigUpdate {
                                                         expected_revision: revision,
                                                         provider: Some(provider),
                                                         ..Default::default()
@@ -197,8 +197,8 @@ pub(super) async fn handle_selection_start(
                                             (revision, payload.parse())
                                         {
                                             app.send_intent(
-                                                nuo_wire::AgentRequest::UpdateWebSearchConfig(
-                                                    Box::new(nuo_wire::WebSearchConfigUpdate {
+                                                nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                                                    Box::new(nuo_protocol::WebSearchConfigUpdate {
                                                         expected_revision: revision,
                                                         reader: Some(reader),
                                                         ..Default::default()

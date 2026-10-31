@@ -248,25 +248,25 @@ impl HarnessTask for TrajectoryLoopReviewerTask {
     }
 }
 
-// 1. Session Title & Digest
+// 1. Thread Title & Digest
 
-/// Input for lightweight session title generation.
+/// Input for lightweight thread title generation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionTitleInput {
+pub struct ThreadTitleInput {
     /// Opening user prompt or conversation excerpt.
     pub excerpt: String,
 }
 
-/// Task definition: distill an opening conversation excerpt into a concise session title.
+/// Task definition: distill an opening conversation excerpt into a concise thread title.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct SessionTitleTask;
+pub struct ThreadTitleTask;
 
-impl HarnessTask for SessionTitleTask {
-    type Input = SessionTitleInput;
+impl HarnessTask for ThreadTitleTask {
+    type Input = ThreadTitleInput;
     type Output = String;
 
     fn name(&self) -> &'static str {
-        "session_title"
+        "thread_title"
     }
 
     fn model_preference(&self) -> CognitiveModelPreference {
@@ -309,14 +309,14 @@ impl HarnessTask for SessionTitleTask {
     }
 }
 
-/// The resume-time "working memory" projection of a session: a headline, the
+/// The resume-time "working memory" projection of a thread: a headline, the
 /// user's intent, and a running checklist of what has happened.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SessionDigest {
+pub struct ThreadDigest {
     /// Cleaned, concise title (3-7 words) — the picker row's headline.
     pub title: String,
-    /// One or two sentences stating what the user wants out of this session.
+    /// One or two sentences stating what the user wants out of this thread.
     pub intent: String,
     /// Running checklist of what has been done and decided, oldest first.
     pub history: Vec<String>,
@@ -473,9 +473,9 @@ mod tests {
     }
 
     #[test]
-    fn session_title_task_metadata_and_parser() {
-        let task = SessionTitleTask;
-        assert_eq!(task.name(), "session_title");
+    fn thread_title_task_metadata_and_parser() {
+        let task = ThreadTitleTask;
+        assert_eq!(task.name(), "thread_title");
         assert_eq!(task.model_preference(), CognitiveModelPreference::FlashLite);
         // A heavyweight-model round-trip bound: the old 2s value timed out
         // before any real provider could answer.

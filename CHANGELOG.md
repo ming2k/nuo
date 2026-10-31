@@ -8,6 +8,109 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **Subagent Disclosure: Live Thinking and Child Steps Now Actually Expand.**
+  - `TranscriptMessage::push_reasoning_delta` appended `raw` without re-parsing
+    `blocks`, so an expanded *streaming* reasoning trace painted an empty shell
+    until `StreamReasoningEnd` re-parsed the whole chain. The disclosure body is
+    drawn from `blocks`, so this only ever showed through the subagent folding
+    path (`push_subagent_event`), which is that method's only caller — the
+    primary stream already appended through `push_stream`. The append now funnels
+    through `push_stream`, so one streaming mechanism serves both.
+  - The folding path ignored `[tui.default_expanded] thinking` entirely (the
+    trace was constructed collapsed), making the setting dead for every live
+    subagent trace while a resumed child honoured it.
+  - Nested subagent tool steps now resolve their default disclosure from the same
+    lifecycle rule as top-level steps (`nuo_view::disclosure_config::tool_step_expanded`,
+    which the live applier and the restore pass also delegate to).
+  - `TranscriptEdit::ReasoningFinalize` no longer hand-rolls the
+    `raw`/`reparse`/`content` trio; it calls `finalize_reasoning` + `set_reasoning_duration`.
+
+- **SceneBar Carries No Chords; Help Is the Sole Discovery Surface.**
+  - Tier 2 SceneBar renders pure chevron affordances (`‹` / `›`) instead of
+    `‹ Alt+[` / `Alt+] ›`. A printed chord is a hardcoded copy of a remappable
+    binding, and the row's job is to say *where you can go*, not *what to press*.
+  - `Key::display()` / `Key::chord()` returned `·` for `Alt+[`, `Alt+]`, `Alt+,`
+    and `Alt+.` — the alt arm of the chord vocabulary only covered `a..=z`. Every
+    surface asking a key what it is called got a placeholder, which is exactly
+    why the SceneBar had been hardcoding the text. The vocabulary now covers the
+    punctuation chords, plus `Alt+←`/`Alt+→`.
+  - The Help dialog resolves every chord it prints from the live keymap
+    (`GlobalOverrides` / `SurfaceOverrides`), so a user remap changes the display
+    and an unbound command reads `unbound` instead of a plausible keycap. Corrected
+    the mislabelled `Alt-[ / ]` row: it walks the tab's *scene history*, not tabs.
+    Added a dedicated **Scene Navigation** block (history, step focus, clear focus)
+    and a **Composer & System** block (send, steer/follow-up, palette).
+
+### Changed
+
+- **Chrome No Longer Prints Retired or Invented Chords.**
+  - The activity strip advertised `C-x q` / `C-x b`, a namespace ADR-0131 retired
+    outright — both keycaps named key sequences that dispatch nothing. It now
+    resolves the queue chord from the live keymap (and the armed-interrupt pair
+    from the resolved `CancelOrBack` binding), and renders **no** keycap when the
+    command is unbound. `[INV-AFFORDANCE-02]`.
+  - `ActivityStripProps` therefore carries `queue_key`, and `TranscriptProps`
+    carries `interrupt_key`, both resolved by the caller.
+
+- **The Entry-Focus Hint Names the Verb the Entry Actually Supports.**
+  - `HintState::EntryFocused` gained a `subagent` discriminant, fed from the
+    focused message itself (`App::focused_entry_kind`). A subagent task has no
+    inline body — activation returns `EnterSubagent` — so the row now says
+    `open subagent` instead of promising `Space expand` for a body the renderer
+    never draws.
+
+- **A Disclosure Policy Is Declared Only Where a Body Exists.**
+  - `ToolComponent` gained `has_inline_body`. Subagent delegations declare
+    `false`: `draw_subagent_inline_step` paints two fixed rows and reads no
+    `expanded` flag, and activation drills into the scene rather than toggling.
+  - Such components are filtered out of the Settings → Components rows
+    (`disclosable_components()`), and `default_expanded()` is `false` for them
+    regardless of `expanded_by_default`. The panel previously offered a
+    "Subagent Delegations — expand by default" switch wired to nothing.
+  - `[INV-COMPONENT-09]`-style rationale recorded as ADR-0020 §9; ADR-0020 §8 no
+    longer claims subagent tasks render the disclosure marker.
+
+- **ADR-0092 / ADR-0131 contracts updated** for the chord-free SceneBar
+  (`[INV-SCENE-03]`, `[INV-INTERACT-01]`), the new `[INV-HELP-04] Sole Chord
+  Discovery Surface`, and `[INV-AFFORDANCE-02] Resolved Chords Only`.
+
+### Fixed (workspace)
+
+- **Completed the ADR-0135 `Session` → `Thread` nomenclature migration** in
+  `nuo status`, `nuo commands/thread`, the shell test fixtures, and the serve
+  integration suite, and renamed the raw `EndSession` attach frame assertion to
+  the shipped `EndThread`. `cargo check --workspace --all-targets` and the full
+  test suite were failing to compile before this.
+
+### Changed
+
+- **Provider-Retry Vocabulary: the Clause Tells Time, the Record Does Not.**
+  - The activity bar's setback clause is now `retry 1 in 4s` while backing off and
+    `retry 1` once the retried request is in flight, replacing
+    `retry 2/30 (next in 0.8s)` / `retry 2/30 (running for 1.2s)`.
+  - The ordinal is the retry (one attempt past the first request), not the wire's
+    `attempt`, so the first retry reads `retry 1` instead of `retry 2`.
+  - The configured attempt budget left the live bar; it is stated once in the
+    retained notice-log receipt (`retry 1 of 29`) and in the exhausted-round error.
+  - The countdown is whole seconds rounded up (no tenths churn, never `0s`), and the
+    redundant in-flight timer is gone — the status verb and the round elapsed clock
+    already cover it.
+  - **The countdown is the bar's alone.** The retry receipt in the notice center is
+    a static card read at an arbitrary later moment, so it carries only
+    time-invariant facts (`retry 1 of 29`); a countdown baked into it was not
+    redundant but false, since nothing can tick a frozen card back to the truth
+    (`[INV-RETRY-08]`).
+  - **Both sides of the receipt's ratio are retries.** The denominator is
+    `retries_capacity()` (`max_attempts - 1`), not `max_attempts`, so a round that
+    may spend 29 retries reads `retry 1 of 29` and agrees with the
+    "Exhausted 29 retry attempts" error for the same round (`[INV-RETRY-09]`).
+  - `RetryProgress::receipt_label` and `format_retry_countdown` are the new
+    vocabulary (the one-decimal `format_retry_duration` had no caller left and is
+    deleted); the headless stderr record now reads its count from the same owner
+    instead of re-deriving `attempt/max_attempts`.
+
 ## [0.0.62] - 2026-10-31
 
 ### Refactored

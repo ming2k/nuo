@@ -9,7 +9,7 @@ description = "OpenCode Go subscription provider channel for Nuo (ADR-0015, ADR-
 [dependencies]
 nuo-provider = { workspace = true }
 nuo-inference-wire = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

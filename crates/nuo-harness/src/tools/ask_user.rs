@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use nuo_wire::{BuiltinTool, Tool};
+use nuo_protocol::{BuiltinTool, Tool};
 use serde_json::json;
 
 /// Ask the user one or more multiple-choice questions mid-task.
@@ -87,4 +87,4 @@ impl Tool for AskUserTool {
     }
 }
 
-nuo_wire::register_tool!(AskUserFactory => AskUserTool);
+nuo_protocol::register_tool!(AskUserFactory => AskUserTool);

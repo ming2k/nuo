@@ -34,7 +34,7 @@ pub mod usage_projection;
 pub use handle::{StorageMaintenanceReport, get_persistence_handle};
 pub(crate) use migrations::*;
 pub use migrations::{
-    CURRENT_DB_VERSION, SessionRecord, SessionTranscriptView, open_in_memory_for_tests,
+    CURRENT_DB_VERSION, ThreadRecord, ThreadTranscriptView, open_in_memory_for_tests,
 };
 
 #[cfg(test)]
@@ -49,45 +49,45 @@ pub struct SessionMessageView {
     pub content: String,
 }
 
-fn role_str(role: nuo_wire::Role) -> &'static str {
+fn role_str(role: nuo_protocol::Role) -> &'static str {
     match role {
-        nuo_wire::Role::User => "user",
-        nuo_wire::Role::Assistant => "assistant",
-        nuo_wire::Role::System => "system",
-        nuo_wire::Role::Tool => "tool",
+        nuo_protocol::Role::User => "user",
+        nuo_protocol::Role::Assistant => "assistant",
+        nuo_protocol::Role::System => "system",
+        nuo_protocol::Role::Tool => "tool",
     }
 }
 
-fn role_from_str(role: &str) -> Option<nuo_wire::Role> {
+fn role_from_str(role: &str) -> Option<nuo_protocol::Role> {
     match role {
-        "user" => Some(nuo_wire::Role::User),
-        "assistant" => Some(nuo_wire::Role::Assistant),
-        "system" => Some(nuo_wire::Role::System),
-        "tool" => Some(nuo_wire::Role::Tool),
+        "user" => Some(nuo_protocol::Role::User),
+        "assistant" => Some(nuo_protocol::Role::Assistant),
+        "system" => Some(nuo_protocol::Role::System),
+        "tool" => Some(nuo_protocol::Role::Tool),
         _ => None,
     }
 }
 
-fn origin_str(origin: nuo_wire::EntryOrigin) -> &'static str {
+fn origin_str(origin: nuo_protocol::EntryOrigin) -> &'static str {
     match origin {
-        nuo_wire::EntryOrigin::Harness => "harness",
-        nuo_wire::EntryOrigin::Checkpoint => "checkpoint",
+        nuo_protocol::EntryOrigin::Harness => "harness",
+        nuo_protocol::EntryOrigin::Checkpoint => "checkpoint",
     }
 }
 
-fn origin_from_str(origin: &str) -> Option<nuo_wire::EntryOrigin> {
+fn origin_from_str(origin: &str) -> Option<nuo_protocol::EntryOrigin> {
     match origin {
-        "harness" => Some(nuo_wire::EntryOrigin::Harness),
-        "checkpoint" => Some(nuo_wire::EntryOrigin::Checkpoint),
+        "harness" => Some(nuo_protocol::EntryOrigin::Harness),
+        "checkpoint" => Some(nuo_protocol::EntryOrigin::Checkpoint),
         _ => None,
     }
 }
 
-fn serde_plain(kind: nuo_wire::DirectiveKind) -> rusqlite::Result<&'static str> {
+fn serde_plain(kind: nuo_protocol::DirectiveKind) -> rusqlite::Result<&'static str> {
     Ok(match kind {
-        nuo_wire::DirectiveKind::Prune => "prune",
-        nuo_wire::DirectiveKind::Compact => "compact",
-        nuo_wire::DirectiveKind::Freeze => "freeze",
+        nuo_protocol::DirectiveKind::Prune => "prune",
+        nuo_protocol::DirectiveKind::Compact => "compact",
+        nuo_protocol::DirectiveKind::Freeze => "freeze",
     })
 }
 
@@ -104,15 +104,18 @@ fn extract_content_blob(payload_json: &str) -> Option<String> {
 /// Reassemble the persisted fork address from its two columns. A turn without
 /// a round is not a representable address, so it degrades to "unrecorded"
 /// rather than inventing a round the writer never stamped.
-fn fork_point_from_columns(round: Option<i64>, turn: Option<i64>) -> Option<nuo_wire::ForkPoint> {
-    round.map(|round| nuo_wire::ForkPoint {
+fn fork_point_from_columns(
+    round: Option<i64>,
+    turn: Option<i64>,
+) -> Option<nuo_protocol::ForkPoint> {
+    round.map(|round| nuo_protocol::ForkPoint {
         round: round.max(0) as u64,
         turn: turn.map(|t| t.max(0) as u32),
     })
 }
 
-fn map_session_row(row: &Row) -> Result<SessionRecord> {
-    Ok(SessionRecord {
+fn map_session_row(row: &Row) -> Result<ThreadRecord> {
+    Ok(ThreadRecord {
         id: row.get(0)?,
         parent_id: row.get(1)?,
         fork_kind: row.get(2)?,
@@ -136,7 +139,7 @@ struct SummaryRow {
     id: String,
     parent_id: Option<String>,
     fork_kind: String,
-    fork_point: Option<nuo_wire::ForkPoint>,
+    fork_point: Option<nuo_protocol::ForkPoint>,
     title: Option<String>,
     created_at_s: i64,
     updated_at_s: i64,
@@ -178,9 +181,9 @@ fn push_summary(
         digest_json,
     } = item;
     let fork_kind = match fork_str.as_str() {
-        "fork" => nuo_wire::SessionForkKind::Fork,
-        "subagent" => nuo_wire::SessionForkKind::Subagent,
-        _ => nuo_wire::SessionForkKind::Trunk,
+        "fork" => nuo_protocol::ThreadForkKind::Fork,
+        "subagent" => nuo_protocol::ThreadForkKind::Subagent,
+        _ => nuo_protocol::ThreadForkKind::Trunk,
     };
 
     let final_msg_count = msg_count.max(0) as usize;
@@ -300,7 +303,7 @@ struct FastSummaryProbe {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
-    digest: Option<nuo_wire::SessionDigest>,
+    digest: Option<nuo_protocol::ThreadDigest>,
     #[serde(default)]
     model_window: Vec<FastMessageProbe>,
     #[serde(default)]
@@ -309,7 +312,7 @@ struct FastSummaryProbe {
 
 #[derive(Deserialize)]
 struct FastMessageProbe {
-    role: nuo_wire::Role,
+    role: nuo_protocol::Role,
     #[serde(default)]
     content: String,
     #[serde(default)]
@@ -320,7 +323,7 @@ struct FastMessageProbe {
 
 #[derive(Deserialize)]
 struct FastOriginProbe {
-    kind: nuo_wire::InjectionKind,
+    kind: nuo_protocol::InjectionKind,
 }
 
 /// The **only** way to read the unified store.
@@ -461,14 +464,14 @@ impl WriterHealth {
     /// The wire representation for the monitor stream (D4). The
     /// conversion lives here, next to the state machine, so no consumer can
     /// mis-translate a transition.
-    pub fn to_wire(&self) -> nuo_wire::monitor::PersistenceHealth {
+    pub fn to_wire(&self) -> nuo_protocol::monitor::PersistenceHealth {
         match self {
-            Self::Healthy => nuo_wire::monitor::PersistenceHealth::Healthy,
+            Self::Healthy => nuo_protocol::monitor::PersistenceHealth::Healthy,
             Self::Recovering {
                 attempt,
                 since_ms,
                 error,
-            } => nuo_wire::monitor::PersistenceHealth::Recovering {
+            } => nuo_protocol::monitor::PersistenceHealth::Recovering {
                 attempt: *attempt,
                 since_ms: *since_ms,
                 error: error.clone(),
@@ -477,7 +480,7 @@ impl WriterHealth {
                 attempt,
                 since_ms,
                 error,
-            } => nuo_wire::monitor::PersistenceHealth::Down {
+            } => nuo_protocol::monitor::PersistenceHealth::Down {
                 attempt: *attempt,
                 since_ms: *since_ms,
                 error: error.clone(),
@@ -563,7 +566,7 @@ impl fmt::Display for SaveError {
 /// in full. Preparation runs **before** the writer transaction.
 fn commit_payload_digest(
     data: &crate::session::SessionData,
-    usage_upserts: &[nuo_wire::RequestUsageRecord],
+    usage_upserts: &[nuo_protocol::RequestUsageRecord],
 ) -> Result<String> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -640,7 +643,7 @@ fn record_commit_receipt(
 // and writer calls lose updates even when each individual write is serialized.
 fn persist_usage_records(
     conn: &Connection,
-    entries: Vec<nuo_wire::usage_stats::UsageStatRecord>,
+    entries: Vec<nuo_protocol::usage_stats::UsageStatRecord>,
 ) -> Result<()> {
     let tx = rusqlite::Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
     for entry in entries {
@@ -661,7 +664,7 @@ fn decode_json<T: serde::de::DeserializeOwned>(value: &str) -> Result<T> {
 /// The live settlement path keeps [`upsert_attempt`]'s hard refusal.
 fn import_legacy_attempt(
     conn: &Connection,
-    entry: &nuo_wire::usage_stats::UsageStatRecord,
+    entry: &nuo_protocol::usage_stats::UsageStatRecord,
 ) -> Result<()> {
     match upsert_attempt(conn, entry) {
         Ok(_) => Ok(()),
@@ -737,7 +740,7 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
         drop(stmt);
         #[derive(Deserialize)]
         struct Day {
-            records: Vec<nuo_wire::usage_stats::UsageStatRecord>,
+            records: Vec<nuo_protocol::usage_stats::UsageStatRecord>,
         }
         for blob in blobs {
             let day: Day = decode_json(&blob)?;
@@ -758,7 +761,7 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     drop(stmt);
     for (payload, root, at) in rows {
-        let record: nuo_wire::RequestUsageRecord = decode_json(&payload)?;
+        let record: nuo_protocol::RequestUsageRecord = decode_json(&payload)?;
         let at = if record.started_at_ms > 0 {
             record.started_at_ms
         } else {
@@ -766,8 +769,8 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
         };
         import_legacy_attempt(
             tx,
-            &nuo_wire::usage_stats::UsageStatRecord {
-                day: nuo_wire::usage_stats::day_key_from_epoch_ms(at),
+            &nuo_protocol::usage_stats::UsageStatRecord {
+                day: nuo_protocol::usage_stats::day_key_from_epoch_ms(at),
                 recorded_at_ms: at,
                 project: if root.is_empty() {
                     String::new()
@@ -787,9 +790,9 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
 
 fn upsert_attempt(
     conn: &Connection,
-    entry: &nuo_wire::usage_stats::UsageStatRecord,
+    entry: &nuo_protocol::usage_stats::UsageStatRecord,
 ) -> Result<bool> {
-    use nuo_wire::{RequestUsageRecord, RequestUsageSource};
+    use nuo_protocol::{RequestUsageRecord, RequestUsageSource};
     let key = &entry.record.key;
     let previous: Option<String> = conn.query_row(
         "SELECT payload FROM usage_records WHERE session_id=?1 AND actor_id=?2 AND round=?3 AND turn=?4 AND attempt=?5",
@@ -851,7 +854,7 @@ pub(crate) enum PersistenceCommand {
         /// Usage-record upserts to apply on a delta save (the durable usage
         /// ledger lives in its own table; a full save rewrites it from
         /// `data`).
-        usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
+        usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
         /// D3 idempotency identity and revision precondition.
         guard: CommitGuard,
         /// The committed session revision (D3); a replay returns the
@@ -859,7 +862,7 @@ pub(crate) enum PersistenceCommand {
         ack: oneshot::Sender<Result<u64, PersistenceError>>,
     },
     UpsertSession {
-        record: SessionRecord,
+        record: ThreadRecord,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
     DeleteSession {
@@ -873,7 +876,7 @@ pub(crate) enum PersistenceCommand {
         ack: oneshot::Sender<Result<bool, PersistenceError>>,
     },
     RecordCommand {
-        cmd: nuo_wire::CommandRecord,
+        cmd: nuo_protocol::CommandRecord,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
     /// Append a write-ahead workspace effect and return its journal id
@@ -932,14 +935,14 @@ pub(crate) enum PersistenceCommand {
     },
     RecordRequestProjection {
         session_id: String,
-        record: nuo_wire::RequestProjection,
+        record: nuo_protocol::RequestProjection,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
     ProjectUsage {
         ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
     RecordUsageStats {
-        entries: Vec<nuo_wire::usage_stats::UsageStatRecord>,
+        entries: Vec<nuo_protocol::usage_stats::UsageStatRecord>,
         ack: Option<oneshot::Sender<Result<(), PersistenceError>>>,
     },
     SetKV {
@@ -952,12 +955,12 @@ pub(crate) enum PersistenceCommand {
         ack: oneshot::Sender<Result<bool, PersistenceError>>,
     },
     RecordInputHistory {
-        entry: nuo_wire::HistoryEntry,
+        entry: nuo_protocol::HistoryEntry,
         dedup: bool,
         ack: Option<oneshot::Sender<Result<(), PersistenceError>>>,
     },
     SaveInputHistory {
-        entries: Vec<nuo_wire::HistoryEntry>,
+        entries: Vec<nuo_protocol::HistoryEntry>,
         dedup: bool,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
@@ -1007,7 +1010,7 @@ pub(crate) enum PersistenceCommand {
     },
     /// Persist an incremental Session IR delta directly into SQLite (INV-SESSION-05).
     SaveSessionDelta {
-        delta: Box<nuo_wire::SessionDelta>,
+        delta: Box<nuo_protocol::SessionDelta>,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
     },
     /// Commit immutable execution facts to the canonical context store.
@@ -1038,7 +1041,7 @@ pub(crate) enum PersistenceCommand {
         ack: oneshot::Sender<
             Result<
                 crate::db::inspect_service::DeletionReport,
-                nuo_wire::context_lifecycle::InspectError,
+                nuo_protocol::context_lifecycle::InspectError,
             >,
         >,
     },
@@ -1051,7 +1054,7 @@ pub(crate) enum PersistenceCommand {
         ack: oneshot::Sender<
             Result<
                 crate::db::inspect_service::CollectionProgress,
-                nuo_wire::context_lifecycle::InspectError,
+                nuo_protocol::context_lifecycle::InspectError,
             >,
         >,
     },
@@ -1067,7 +1070,7 @@ pub(crate) enum PersistenceCommand {
     SaveSessionThenDie {
         data: Box<crate::session::SessionData>,
         full: bool,
-        usage_upserts: Vec<nuo_wire::RequestUsageRecord>,
+        usage_upserts: Vec<nuo_protocol::RequestUsageRecord>,
         guard: CommitGuard,
     },
 }

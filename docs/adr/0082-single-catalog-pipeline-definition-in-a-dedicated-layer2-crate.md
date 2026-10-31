@@ -75,14 +75,14 @@ suite to compile alongside it — a visible, reviewable act rather than a silent
 Its position is **Layer 2 (Core Runtime Substrate)**, beside `nuo-persistence`:
 
 ```text
-Layer 1  nuo-wire (protocol) · nuo-provider · nuo-model-codec
+Layer 1  nuo-protocol · nuo-provider · nuo-model-codec
              ▲
 Layer 2  nuo-model-routing · nuo-persistence · nuo-agent · nuo-harness
              ▲
 Layer 3  nuo-server
 ```
 
-`nuo-model-routing` depends only on Layer-1 contracts (`nuo-wire`, `nuo-provider`,
+`nuo-model-routing` depends only on Layer-1 contracts (`nuo-protocol`, `nuo-provider`,
 `nuo-model-codec`) and on `nuo-persistence` for the stores it reads. It never names a
 concrete provider: remote catalog fetching is dispatched through
 `nuo_provider::fetch_remote_catalog`, whose implementation the composition root supplies.

@@ -3,7 +3,7 @@ use nuotc::{
     Frame, Rect, {Block as RtBlock, Paragraph}, {Line, Span}, {Modifier, Style},
 };
 
-use nuo_wire::{PermissionRequest, UserQuestionRequest};
+use nuo_protocol::{PermissionRequest, UserQuestionRequest};
 
 use crate::shell::render::Theme;
 use crate::shell::ui::ComponentTree;
@@ -1096,7 +1096,7 @@ pub fn draw_permission_sheet(
 /// permission sheet. Returns the rect it drew into.
 pub fn draw_input_injection(
     frame: &mut Frame,
-    request: &nuo_wire::InputRequest,
+    request: &nuo_protocol::InputRequest,
     input: &str,
     _cursor: usize,
     input_rect: Rect,
@@ -1171,7 +1171,7 @@ pub fn draw_input_injection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{UserQuestion, UserQuestionOption};
+    use nuo_protocol::{UserQuestion, UserQuestionOption};
 
     #[test]
     fn question_modal_records_option_hit_boxes() {

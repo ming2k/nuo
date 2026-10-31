@@ -10,7 +10,7 @@ const STREAM_LOOP_PRECEDING_CONTEXT_CHARS: usize = 12_000;
 #[derive(Debug, Clone)]
 struct StreamLoopIncident {
     pattern: crate::stream_loop_detector::DegeneratePattern,
-    channel: nuo_wire::StreamLoopChannel,
+    channel: nuo_protocol::StreamLoopChannel,
 }
 
 /// An in-flight Stream Sentinel review spawned off the hot stream loop.
@@ -19,14 +19,14 @@ struct StreamLoopIncident {
 /// or after the stream ends naturally.
 struct PendingStreamLoopReview {
     candidate_key: String,
-    channel: nuo_wire::StreamLoopChannel,
+    channel: nuo_protocol::StreamLoopChannel,
     pattern: crate::stream_loop_detector::DegeneratePattern,
-    verdict_rx: tokio::sync::oneshot::Receiver<nuo_wire::StreamLoopVerdict>,
+    verdict_rx: tokio::sync::oneshot::Receiver<nuo_protocol::StreamLoopVerdict>,
 }
 
 /// Memo key identifying an L1 candidate: its channel and pattern identity.
 fn stream_loop_candidate_key(
-    channel: nuo_wire::StreamLoopChannel,
+    channel: nuo_protocol::StreamLoopChannel,
     pattern: &crate::stream_loop_detector::DegeneratePattern,
 ) -> String {
     format!("{channel:?}:{pattern:?}")
@@ -118,7 +118,7 @@ impl Agent {
         messages: &[Message],
         assistant_text: &str,
         reasoning_text: &str,
-        channel: nuo_wire::StreamLoopChannel,
+        channel: nuo_protocol::StreamLoopChannel,
         pattern: crate::stream_loop_detector::DegeneratePattern,
         cleared_candidates: &std::collections::HashSet<String>,
         pending: &mut Option<PendingStreamLoopReview>,
@@ -156,10 +156,10 @@ impl Agent {
         messages: &[Message],
         assistant_text: &str,
         reasoning_text: &str,
-        channel: nuo_wire::StreamLoopChannel,
+        channel: nuo_protocol::StreamLoopChannel,
         pattern: crate::stream_loop_detector::DegeneratePattern,
     ) -> PendingStreamLoopReview {
-        let input = nuo_wire::StreamLoopReviewInput {
+        let input = nuo_protocol::StreamLoopReviewInput {
             heuristic_candidate: pattern.description(),
             channel,
             preceding_context: stream_loop_preceding_context(messages),
@@ -246,7 +246,7 @@ impl Agent {
     /// it back), so a mid-resume steering insert still has a drain target.
     pub(crate) fn resume_streaming_round(
         &self,
-        point: &nuo_wire::RetryPoint,
+        point: &nuo_protocol::RetryPoint,
     ) -> StreamingRoundState {
         self.round_paused_ms
             .store(point.paused_ms, std::sync::atomic::Ordering::Relaxed);
@@ -389,13 +389,15 @@ impl Agent {
             // per logical invocation. A transport retry reuses `pending_request`
             // (so `resuming_provider_request` is true) and must not re-record.
             if !resuming_provider_request {
-                self.fire_request_projection_persist(nuo_wire::RequestProjection::from_request(
-                    request,
-                    request_estimate.temporary_context_tokens,
-                    self.round_count(),
-                    round.turn_index as u64,
-                    crate::runtime::time::unix_epoch_ms(),
-                ));
+                self.fire_request_projection_persist(
+                    nuo_protocol::RequestProjection::from_request(
+                        request,
+                        request_estimate.temporary_context_tokens,
+                        self.round_count(),
+                        round.turn_index as u64,
+                        crate::runtime::time::unix_epoch_ms(),
+                    ),
+                );
             }
             let request_projection = request_estimate.total_tokens;
             let request_provider = self.provider.provider_id();
@@ -406,9 +408,9 @@ impl Agent {
                 context_tokens: request_projection,
             });
             on_event(AgentEvent::ContextTokens(
-                nuo_wire::ContextTokenSnapshot::from_estimate(
+                nuo_protocol::ContextTokenSnapshot::from_estimate(
                     request_estimate,
-                    nuo_wire::ContextTokenSource::Projection,
+                    nuo_protocol::ContextTokenSource::Projection,
                 ),
             ));
             // Allocate the ledger attempt and start its monotonic clock only
@@ -443,10 +445,10 @@ impl Agent {
             if let Some(conn) =
                 nuo_persistence::connections::Connections::load().get(&connection_id)
             {
-                if let nuo_wire::ConnectionBudget::Local { limit, period, .. } = &conn.budget {
+                if let nuo_protocol::ConnectionBudget::Local { limit, period, .. } = &conn.budget {
                     let current_spend = match period {
-                        nuo_wire::BudgetPeriod::Session => {
-                            if round.state.spend > nuo_wire::pricing::NanoUsd::ZERO {
+                        nuo_protocol::BudgetPeriod::Session => {
+                            if round.state.spend > nuo_protocol::pricing::NanoUsd::ZERO {
                                 round.state.spend
                             } else if let Some(pricing) = nuo_provider::resolve_model_pricing(
                                 &conn.provider,
@@ -455,18 +457,18 @@ impl Agent {
                                 pricing
                                     .calculate_cost(
                                         &round.state.token_usage,
-                                        nuo_wire::pricing::RatingInstant::UNKNOWN,
+                                        nuo_protocol::pricing::RatingInstant::UNKNOWN,
                                     )
                                     .amount
                             } else {
-                                nuo_wire::pricing::NanoUsd::ZERO
+                                nuo_protocol::pricing::NanoUsd::ZERO
                             }
                         }
-                        nuo_wire::BudgetPeriod::Daily | nuo_wire::BudgetPeriod::Total => {
+                        nuo_protocol::BudgetPeriod::Daily | nuo_protocol::BudgetPeriod::Total => {
                             let total_nano =
                                 nuo_persistence::connection_usage::ConnectionUsage::load()
                                     .connection_spend(&connection_id);
-                            nuo_wire::pricing::NanoUsd(total_nano)
+                            nuo_protocol::pricing::NanoUsd(total_nano)
                         }
                     };
 
@@ -480,9 +482,9 @@ impl Agent {
                         );
                         request_accounting.record_error(&err_msg);
                         return Err(HarnessError::Provider(
-                            nuo_wire::ProviderError::new(
+                            nuo_protocol::ProviderError::new(
                                 &connection_id,
-                                nuo_wire::ProviderErrorKind::QuotaExhausted,
+                                nuo_protocol::ProviderErrorKind::QuotaExhausted,
                                 err_msg,
                             )
                             .retryable(None),
@@ -523,7 +525,7 @@ impl Agent {
                             STREAM_IDLE_TIMEOUT.as_secs()
                         );
                         request_accounting.record_error(&err_msg);
-                        return Err(HarnessError::Provider(nuo_wire::ProviderError::new("harness", nuo_wire::ProviderErrorKind::Timeout, err_msg).retryable(None)));
+                        return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Timeout, err_msg).retryable(None)));
                     }
                 },
             };
@@ -536,7 +538,7 @@ impl Agent {
             // before their terminal frame. Provider-owned response state is
             // accepted only from the unique `Completed` event below.
             let mut streamed_usage: Option<TokenUsage> = None;
-            let mut completion_meta: Option<nuo_wire::ProviderCompletionMeta> = None;
+            let mut completion_meta: Option<nuo_protocol::ProviderCompletionMeta> = None;
             let mut text_loop_detector = crate::stream_loop_detector::StreamLoopDetector::new(1024);
             let mut reasoning_loop_detector =
                 crate::stream_loop_detector::StreamLoopDetector::new(1024);
@@ -602,7 +604,7 @@ impl Agent {
                             Some(review) => {
                                 (&mut review.verdict_rx)
                                     .await
-                                    .unwrap_or(nuo_wire::StreamLoopVerdict::No)
+                                    .unwrap_or(nuo_protocol::StreamLoopVerdict::No)
                             }
                             // Unreachable behind the branch guard; stay
                             // pending rather than panicking.
@@ -620,13 +622,13 @@ impl Agent {
                         );
                         if verdict.is_loop() {
                             match review.channel {
-                                nuo_wire::StreamLoopChannel::AssistantText => {
+                                nuo_protocol::StreamLoopChannel::AssistantText => {
                                     tracing::warn!(
                                         pattern = %review.pattern.description(),
                                         "Cognitive pipeline confirmed in-flight text stream loop; aborting stream early"
                                     );
                                 }
-                                nuo_wire::StreamLoopChannel::Reasoning => {
+                                nuo_protocol::StreamLoopChannel::Reasoning => {
                                     tracing::warn!(
                                         pattern = %review.pattern.description(),
                                         "Cognitive pipeline confirmed in-flight reasoning stream loop; aborting stream early"
@@ -641,10 +643,10 @@ impl Agent {
                         }
                         cognitive_cleared_candidates.insert(review.candidate_key);
                         match review.channel {
-                            nuo_wire::StreamLoopChannel::AssistantText => {
+                            nuo_protocol::StreamLoopChannel::AssistantText => {
                                 text_loop_detector.reset();
                             }
-                            nuo_wire::StreamLoopChannel::Reasoning => {
+                            nuo_protocol::StreamLoopChannel::Reasoning => {
                                 reasoning_loop_detector.reset();
                             }
                         }
@@ -688,7 +690,7 @@ impl Agent {
                                     STREAM_IDLE_TIMEOUT.as_secs()
                                 );
                                 request_accounting.record_error(&err_msg);
-                                return Err(HarnessError::Provider(nuo_wire::ProviderError::new("harness", nuo_wire::ProviderErrorKind::Timeout, err_msg).retryable(None)));
+                                return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Timeout, err_msg).retryable(None)));
                             }
                         };
                         let event = match event {
@@ -710,7 +712,7 @@ impl Agent {
                             let err_msg = "Provider emitted data after the terminal completion event."
                                 .to_string();
                             request_accounting.record_error(&err_msg);
-                            return Err(HarnessError::Provider(nuo_wire::ProviderError::new("harness", nuo_wire::ProviderErrorKind::Protocol, err_msg).retryable(None)));
+                            return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Protocol, err_msg).retryable(None)));
                         }
                         request_accounting.observe_stream_event(
                             &event,
@@ -753,7 +755,7 @@ impl Agent {
                                         messages,
                                         &content,
                                         &reasoning_content,
-                                        nuo_wire::StreamLoopChannel::AssistantText,
+                                        nuo_protocol::StreamLoopChannel::AssistantText,
                                         pat,
                                         &cognitive_cleared_candidates,
                                         &mut pending_stream_loop_review,
@@ -775,7 +777,7 @@ impl Agent {
                                         messages,
                                         &content,
                                         &reasoning_content,
-                                        nuo_wire::StreamLoopChannel::Reasoning,
+                                        nuo_protocol::StreamLoopChannel::Reasoning,
                                         pat,
                                         &cognitive_cleared_candidates,
                                         &mut pending_stream_loop_review,
@@ -874,9 +876,9 @@ impl Agent {
                             .to_string();
                     request_accounting.record_error(&err_msg);
                     return Err(HarnessError::Provider(
-                        nuo_wire::ProviderError::new(
+                        nuo_protocol::ProviderError::new(
                             "harness",
-                            nuo_wire::ProviderErrorKind::Transport,
+                            nuo_protocol::ProviderErrorKind::Transport,
                             err_msg,
                         )
                         .retryable(None),
@@ -892,9 +894,9 @@ impl Agent {
                     );
                     request_accounting.record_error(&err_msg);
                     return Err(HarnessError::Provider(
-                        nuo_wire::ProviderError::new(
+                        nuo_protocol::ProviderError::new(
                             "harness",
-                            nuo_wire::ProviderErrorKind::Transport,
+                            nuo_protocol::ProviderErrorKind::Transport,
                             err_msg,
                         )
                         .retryable(None),
@@ -914,7 +916,7 @@ impl Agent {
                 let verdict = review
                     .verdict_rx
                     .await
-                    .unwrap_or(nuo_wire::StreamLoopVerdict::No);
+                    .unwrap_or(nuo_protocol::StreamLoopVerdict::No);
                 tracing::debug!(
                     channel = ?review.channel,
                     pattern = %review.pattern.description(),
@@ -941,9 +943,9 @@ impl Agent {
                     .to_string();
                 request_accounting.record_error(&err_msg);
                 return Err(HarnessError::Provider(
-                    nuo_wire::ProviderError::new(
+                    nuo_protocol::ProviderError::new(
                         "harness",
-                        nuo_wire::ProviderErrorKind::Transport,
+                        nuo_protocol::ProviderErrorKind::Transport,
                         err_msg,
                     )
                     .retryable(None),
@@ -961,13 +963,13 @@ impl Agent {
             let mut stream_loop_hard_stopped = false;
             let stream_loop_notice = stream_loop_incident.as_ref().map(|incident| {
                 match incident.channel {
-                    nuo_wire::StreamLoopChannel::AssistantText => {
+                    nuo_protocol::StreamLoopChannel::AssistantText => {
                         content = crate::stream_loop_detector::StreamLoopDetector::trim_suffix(
                             &content,
                             &incident.pattern,
                         );
                     }
-                    nuo_wire::StreamLoopChannel::Reasoning => {
+                    nuo_protocol::StreamLoopChannel::Reasoning => {
                         reasoning_content =
                             crate::stream_loop_detector::StreamLoopDetector::trim_suffix(
                                 &reasoning_content,
@@ -1041,9 +1043,9 @@ impl Agent {
                     );
                     request_accounting.record_error(&err_msg);
                     return Err(HarnessError::Provider(
-                        nuo_wire::ProviderError::new(
+                        nuo_protocol::ProviderError::new(
                             "harness",
-                            nuo_wire::ProviderErrorKind::Transport,
+                            nuo_protocol::ProviderErrorKind::Transport,
                             err_msg,
                         )
                         .retryable(None),
@@ -1079,7 +1081,7 @@ impl Agent {
                     sent_at_ms: None,
                     cache_frozen: false,
                 };
-                cursor.local_head = nuo_wire::semantic_context_head(
+                cursor.local_head = nuo_protocol::semantic_context_head(
                     messages.iter().chain(std::iter::once(&prospective)),
                 );
                 Some(cursor.clone())
@@ -1088,7 +1090,7 @@ impl Agent {
             };
             if let (Some(cursor), Some(meta)) = (bound_cursor, completion_meta.as_mut()) {
                 let artifacts = meta.artifacts.get_or_insert_with(serde_json::Map::new);
-                nuo_wire::write_continuation_cursor(artifacts, &cursor);
+                nuo_protocol::write_continuation_cursor(artifacts, &cursor);
             }
             let response = Message {
                 role: Role::Assistant,
@@ -1117,7 +1119,7 @@ impl Agent {
                 children: None,
                 subagent_meta: None,
                 origin: None,
-                timestamp: Some(nuo_wire::todos::unix_now()),
+                timestamp: Some(nuo_protocol::todos::unix_now()),
                 // The durable send time of this turn, at the same millisecond
                 // granularity the live client stamps its band header with. The
                 // provider-call boundary is the moment this turn's content began

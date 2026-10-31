@@ -12,7 +12,7 @@
 //! keeping the interaction vocabulary free of layering cycles and unit-testable
 //! in isolation.
 
-use nuo_view::disclosure_config::{DisclosureSource, tool_expanded};
+use nuo_view::disclosure_config::{DisclosureSource, tool_step_expanded};
 use nuo_view::model::document::ToolStepStatus;
 use nuo_view::model::layout::{
     COMMAND_RESULT_BLOCK_IDX, COMPACTED_CARD_BLOCK_IDX, InteractiveTarget, NOTICE_BLOCK_IDX,
@@ -78,17 +78,26 @@ pub fn summary_at(cursor: &SemanticCursor) -> Option<(usize, StepKind)> {
 // driven by `[tui.default_expanded] thinking`, collapsed by default); a manual
 // user toggle pins the step (see `document::TranscriptMessage::pin_*`) and
 // opts out of further automatic changes.
+//
+// The rule itself lives in `nuo_view::disclosure_config::tool_step_expanded`,
+// next to the pure `DisclosureSource` port: one resolver serves the live
+// applier, the restore pass, and the subagent folding path. This function is
+// the shell's spelling of it, kept so call sites read in domain terms.
 
 /// Default disclosure for a tool step at its current lifecycle. The caller
 /// applies this through the system setter, which no-ops once the user has
 /// pinned the step.
 ///
-/// - **Running** → collapsed: there's no result yet, so an open body would
-///   just be noise. (Live-streaming tools like `bash` still accumulate output
-///   via `push_tool_stream`; the user can expand manually to watch it.)
+/// - **Running** → the declared component default: there's no result yet, so a
+///   step whose output *is* the point opens, while an incidental one stays
+///   folded. (Live-streaming tools like `bash` still accumulate output via
+///   `push_tool_stream`; the user can expand manually to watch it.)
 /// - **Failed / Denied** → expanded: the error/denial message is the whole
 ///   point and must be visible without an extra click.
 /// - **Cancelled** → collapsed: an aborted call reads as inert.
+/// - **Interrupted** → collapsed: a subagent preserved partial work, but the
+///   user stopped it deliberately; the summary line and the drill-in view
+///   surface the recovered findings.
 /// - **Ok** → the per-tool default (from the tool's `[tui.default_expanded]` entry
 ///   or built-in component default): `edit_text`, `write_file`, and `execute_command`
 ///   show their bodies; `read_text` and the rest stay collapsed.
@@ -97,16 +106,7 @@ pub fn default_tool_expanded(
     name: &str,
     config: &impl DisclosureSource,
 ) -> bool {
-    match status {
-        ToolStepStatus::Ingesting | ToolStepStatus::Executing => tool_expanded(config, name),
-        ToolStepStatus::Failed | ToolStepStatus::Denied => true,
-        ToolStepStatus::Cancelled => false,
-        // An interrupted subagent preserved partial work, but the user stopped
-        // it deliberately — leave it collapsed (like Cancelled); the summary
-        // line and the drill-in view surface the recovered findings.
-        ToolStepStatus::Interrupted => false,
-        ToolStepStatus::Ok => tool_expanded(config, name),
-    }
+    tool_step_expanded(config, status, name)
 }
 
 #[cfg(test)]

@@ -13,7 +13,7 @@ use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use netune::{
     Client, ClientConfig, Pool, RequestHead, Response, Target, TcpConnector, TlsConnector,
 };
-use nuo_wire::WebConfig;
+use nuo_protocol::WebConfig;
 
 /// A response whose body has been read.
 #[derive(Debug)]

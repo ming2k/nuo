@@ -811,7 +811,8 @@ pub fn apply_usage_ledger_schema(tx: &rusqlite::Transaction) -> Result<()> {
         .collect::<Vec<_>>();
     drop(stmt);
     for (session_id, json) in rows {
-        let Ok(records) = serde_json::from_str::<Vec<nuo_wire::RequestUsageRecord>>(&json) else {
+        let Ok(records) = serde_json::from_str::<Vec<nuo_protocol::RequestUsageRecord>>(&json)
+        else {
             continue;
         };
         for record in &records {
@@ -1162,7 +1163,7 @@ pub fn apply_session_ir_clean_break_schema(tx: &rusqlite::Transaction) -> Result
 pub fn insert_legacy_usage_record_tx(
     tx: &rusqlite::Connection,
     session_id: &str,
-    record: &nuo_wire::RequestUsageRecord,
+    record: &nuo_protocol::RequestUsageRecord,
 ) -> rusqlite::Result<()> {
     let payload = serde_json::to_string(record)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
@@ -1280,7 +1281,7 @@ pub fn apply_causal_nodes_composite_pk_schema(tx: &rusqlite::Transaction) -> Res
 pub fn insert_usage_record_tx(
     conn: &Connection,
     session_id: &str,
-    record: &nuo_wire::RequestUsageRecord,
+    record: &nuo_protocol::RequestUsageRecord,
 ) -> Result<()> {
     if record.key.session_id != session_id {
         return Err(rusqlite::Error::InvalidParameterName(
@@ -1305,8 +1306,8 @@ pub fn insert_usage_record_tx(
     };
     upsert_attempt(
         conn,
-        &nuo_wire::usage_stats::UsageStatRecord {
-            day: nuo_wire::usage_stats::day_key_from_epoch_ms(at),
+        &nuo_protocol::usage_stats::UsageStatRecord {
+            day: nuo_protocol::usage_stats::day_key_from_epoch_ms(at),
             recorded_at_ms: at,
             project,
             record: record.clone(),
@@ -1512,9 +1513,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                                 .chain(probe.archived_transcript.iter().rev())
                                 .find(|m| {
                                     let is_echo = m.origin.as_ref().is_some_and(|o| {
-                                        o.kind == nuo_wire::InjectionKind::CommandEcho
+                                        o.kind == nuo_protocol::InjectionKind::CommandEcho
                                     });
-                                    m.role == nuo_wire::Role::User && !m.hidden && !is_echo
+                                    m.role == nuo_protocol::Role::User && !m.hidden && !is_echo
                                 })
                                 .map(|m| m.content.clone());
                             let digest_json = probe
@@ -1648,7 +1649,7 @@ pub fn assert_referential_integrity(conn: &Connection) -> Result<()> {
 
 /// Session record representation in SQLite.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SessionRecord {
+pub struct ThreadRecord {
     pub id: String,
     pub parent_id: Option<String>,
     pub fork_kind: String,
@@ -1656,7 +1657,7 @@ pub struct SessionRecord {
     /// `None` on a trunk. One canonical type rather than the two raw columns,
     /// so an invalid pairing (a turn with no round) cannot be carried around.
     #[serde(default)]
-    pub fork_point: Option<nuo_wire::ForkPoint>,
+    pub fork_point: Option<nuo_protocol::ForkPoint>,
     pub title: Option<String>,
     pub created_at_s: i64,
     pub updated_at_s: i64,
@@ -1684,13 +1685,13 @@ pub struct HistorySearchResult {
     pub score: f64,
 }
 
-/// One persisted session's projected transcript tail plus metadata — the
+/// One persisted thread's projected transcript tail plus metadata — the
 /// public, field-private shape out-of-crate readers consume.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SessionTranscriptView {
+pub struct ThreadTranscriptView {
     pub id: String,
     pub title: Option<String>,
-    pub digest: Option<nuo_wire::SessionDigest>,
+    pub digest: Option<nuo_protocol::ThreadDigest>,
     pub workspace_root: Option<String>,
     pub message_count: usize,
     pub messages: Vec<SessionMessageView>,

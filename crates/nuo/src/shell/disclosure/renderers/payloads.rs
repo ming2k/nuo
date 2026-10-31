@@ -1253,7 +1253,7 @@ pub(crate) fn draw_web_search_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_wire::ToolOutput>,
+    structured: Option<&nuo_protocol::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -1263,7 +1263,7 @@ pub(crate) fn draw_web_search_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (query, _provider, hits, truncated) = match structured {
-        Some(nuo_wire::ToolOutput::WebSearch {
+        Some(nuo_protocol::ToolOutput::WebSearch {
             query,
             provider,
             results,
@@ -1410,7 +1410,7 @@ pub(crate) fn draw_web_article_content(
     block_idx: usize,
     output: &str,
     arguments: &str,
-    structured: Option<&nuo_wire::ToolOutput>,
+    structured: Option<&nuo_protocol::ToolOutput>,
     selection: &SelectionState,
     indent: usize,
     inner_w: usize,
@@ -1420,7 +1420,7 @@ pub(crate) fn draw_web_article_content(
     let _sel_range = block_selection_range(selection, mi, block_idx);
 
     let (url, title, _domain, markdown, reader, tokens, truncated) = match structured {
-        Some(nuo_wire::ToolOutput::WebArticle {
+        Some(nuo_protocol::ToolOutput::WebArticle {
             url,
             title,
             domain,
@@ -1662,7 +1662,7 @@ pub(crate) fn draw_web_article_content(
 pub(crate) fn parse_fallback_web_search(
     output: &str,
     arguments: &str,
-) -> (String, String, Vec<nuo_wire::WebSearchHit>, bool) {
+) -> (String, String, Vec<nuo_protocol::WebSearchHit>, bool) {
     let query = serde_json::from_str::<serde_json::Value>(arguments)
         .ok()
         .and_then(|v| {
@@ -1697,7 +1697,7 @@ pub(crate) fn parse_fallback_web_search(
         if is_numbered {
             if let (Some(title), Some(url)) = (current_title.take(), current_url.take()) {
                 let domain = extract_url_host(&url);
-                hits.push(nuo_wire::WebSearchHit {
+                hits.push(nuo_protocol::WebSearchHit {
                     title,
                     url,
                     domain,
@@ -1722,7 +1722,7 @@ pub(crate) fn parse_fallback_web_search(
 
     if let (Some(title), Some(url)) = (current_title, current_url) {
         let domain = extract_url_host(&url);
-        hits.push(nuo_wire::WebSearchHit {
+        hits.push(nuo_protocol::WebSearchHit {
             title,
             url,
             domain,
@@ -1754,7 +1754,7 @@ pub(crate) fn parse_fallback_web_article(
         cleaned = &cleaned[..idx];
     }
     let trimmed = cleaned.trim();
-    let tokens = nuo_wire::tokenizer::count_tokens(trimmed);
+    let tokens = nuo_protocol::tokenizer::count_tokens(trimmed);
     let truncated = output.contains("kept the first") || output.contains("truncated to fit");
     (
         url,
@@ -2162,11 +2162,11 @@ pub(crate) fn draw_matches_content(
 /// `state — cause` join form, because harness termination is the authentic fact
 /// that cannot be recovered from the child output stream alone.
 fn termination_footer(
-    term: nuo_wire::tool_output::ShellTermination,
+    term: nuo_protocol::tool_output::ShellTermination,
     theme: &Theme,
     bg: Color,
 ) -> Option<(String, Style)> {
-    use nuo_wire::tool_output::ShellTermination as T;
+    use nuo_protocol::tool_output::ShellTermination as T;
     let warn_style = Style::default().bg(bg).fg(theme.warn());
     let err_style = Style::default().bg(bg).fg(theme.err());
     // `state — cause` via the shared join token, so the separator/spacing can
@@ -2186,10 +2186,10 @@ fn termination_footer(
 
 /// Dynamic supervisor surface tint for Part 3 Harness Governance band (ADR-0070).
 fn harness_intervention_surface(
-    term: nuo_wire::tool_output::ShellTermination,
+    term: nuo_protocol::tool_output::ShellTermination,
     theme: &Theme,
 ) -> Color {
-    use nuo_wire::tool_output::ShellTermination as T;
+    use nuo_protocol::tool_output::ShellTermination as T;
     let tint = match term {
         T::Cancelled => theme.err(),
         _ => theme.warn(),
@@ -2238,7 +2238,7 @@ pub(crate) fn draw_command_content(
     mi: usize,
     block_idx: usize,
     content: &str,
-    structured: Option<&nuo_wire::ToolOutput>,
+    structured: Option<&nuo_protocol::ToolOutput>,
     command: &str,
     selection: &SelectionState,
     indent: usize,
@@ -2504,7 +2504,7 @@ fn emit_command_lines(
     // a phantom trailing blank row. Internal blank lines are preserved.
     let text = text.trim_end_matches(&['\r', '\n'][..]);
     for logical_line in text.split('\n') {
-        let logical_line = nuo_wire::tool_output::normalize_carriage_returns(logical_line);
+        let logical_line = nuo_protocol::tool_output::normalize_carriage_returns(logical_line);
         let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
         for wl in &wrapped {
             let block_wl = WrappedLine {
@@ -2764,7 +2764,7 @@ pub(crate) fn draw_tool_result(
     name: &str,
     arguments: &str,
     output: &str,
-    structured: Option<&nuo_wire::ToolOutput>,
+    structured: Option<&nuo_protocol::ToolOutput>,
     diff_cache: &mut DiffCache,
     selection: &SelectionState,
     indent: usize,
@@ -2778,7 +2778,10 @@ pub(crate) fn draw_tool_result(
     // that never reached disk and hide the actionable failure message.
     if matches!(
         structured,
-        Some(nuo_wire::ToolOutput::Error { .. } | nuo_wire::ToolOutput::PermissionDenied { .. })
+        Some(
+            nuo_protocol::ToolOutput::Error { .. }
+                | nuo_protocol::ToolOutput::PermissionDenied { .. }
+        )
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
         return;
@@ -2809,13 +2812,13 @@ pub(crate) fn draw_tool_result(
             // flattened `output` string with `start_line = 0` (slice-relative
             // 1-based numbering).
             let (raw_content, raw_start_line, explicit_lang) = match structured {
-                Some(nuo_wire::ToolOutput::Code {
+                Some(nuo_protocol::ToolOutput::Code {
                     text,
                     start_line,
                     lang,
                     ..
                 }) => (text.as_str(), *start_line, lang.as_deref()),
-                Some(nuo_wire::ToolOutput::Patch {
+                Some(nuo_protocol::ToolOutput::Patch {
                     new, start_line, ..
                 }) => (new.as_str(), *start_line, None),
                 _ => (output, 0, None),
@@ -2866,7 +2869,7 @@ pub(crate) fn draw_tool_result(
             // completed steps. Both paths are cached by stable message id and
             // exact source, so animation frames never repeat Myers/word diffing.
             let path_buf: Option<String> = match structured {
-                Some(nuo_wire::ToolOutput::Patch { .. }) => None,
+                Some(nuo_protocol::ToolOutput::Patch { .. }) => None,
                 _ => serde_json::from_str::<serde_json::Value>(arguments)
                     .ok()
                     .and_then(|v| {
@@ -2879,7 +2882,7 @@ pub(crate) fn draw_tool_result(
                     }),
             };
             let path_ref = match structured {
-                Some(nuo_wire::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
+                Some(nuo_protocol::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
                 _ => path_buf.as_deref(),
             };
             let lang = path_ref
@@ -2887,7 +2890,7 @@ pub(crate) fn draw_tool_result(
                 .unwrap_or(nuo_ui_primitives::syntax::Language::Plain);
 
             let hunks = match structured {
-                Some(nuo_wire::ToolOutput::Patch {
+                Some(nuo_protocol::ToolOutput::Patch {
                     old,
                     new,
                     start_line,
@@ -2895,7 +2898,7 @@ pub(crate) fn draw_tool_result(
                 }) => diff_cache.patch(message_id, old, new, *start_line),
                 _ => diff_cache.legacy_arguments(message_id, name, arguments),
             };
-            if let Some(nuo_wire::ToolOutput::Patch { warnings, .. }) = structured {
+            if let Some(nuo_protocol::ToolOutput::Patch { warnings, .. }) = structured {
                 for warning in warnings {
                     let text = format!("Warning: {warning}");
                     let bg = ctx.theme.code_surface();
@@ -2988,12 +2991,12 @@ pub(crate) fn draw_tool_error(
 }
 
 /// Resolve the shell command for a `bash` step: prefer the structured
-/// [`ToolOutput::Shell`](nuo_wire::ToolOutput) payload (set as soon as the
+/// [`ToolOutput::Shell`](nuo_protocol::ToolOutput) payload (set as soon as the
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
-fn command_for(structured: Option<&nuo_wire::ToolOutput>, arguments: &str) -> String {
-    if let Some(nuo_wire::ToolOutput::Shell { command, .. }) = structured
+fn command_for(structured: Option<&nuo_protocol::ToolOutput>, arguments: &str) -> String {
+    if let Some(nuo_protocol::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {
         return command.clone();
@@ -3414,7 +3417,7 @@ fn code_gutter_line_syntax(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::tool_output::ShellTermination;
+    use nuo_protocol::tool_output::ShellTermination;
 
     #[test]
     fn termination_footer_renders_stream_guard_warning() {

@@ -53,9 +53,9 @@ pub struct ArchivistService {
     /// agent always rides whichever provider the asking session currently
     /// resolves to. (std lock: `ProxyProvider` clones the inner `Arc` per
     /// call — never held across an await.)
-    holder: Arc<std::sync::RwLock<Arc<dyn nuo_wire::Provider>>>,
+    holder: Arc<std::sync::RwLock<Arc<dyn nuo_protocol::Provider>>>,
     /// Rolling conversation context (most recent turns), in message order.
-    scratch: tokio::sync::Mutex<Vec<nuo_wire::Message>>,
+    scratch: tokio::sync::Mutex<Vec<nuo_protocol::Message>>,
     /// Cap on the rolling context (messages); older entries drop first.
     scratch_cap: usize,
     /// The Archivist's ACP mailbox handle. Held for the service's lifetime.
@@ -73,7 +73,7 @@ impl ArchivistService {
     /// is the service-owned holder behind a `ProxyProvider`, so every round
     /// can ride the borrowed live channel (`ask`) without rebuilding.
     pub fn new() -> Self {
-        let holder: Arc<std::sync::RwLock<Arc<dyn nuo_wire::Provider>>> =
+        let holder: Arc<std::sync::RwLock<Arc<dyn nuo_protocol::Provider>>> =
             Arc::new(std::sync::RwLock::new(Arc::new(nuo_harness::NoProvider)));
         let agent = build_archivist(
             Arc::new(nuo_harness::orchestration::ProxyProvider::new(
@@ -93,7 +93,7 @@ impl ArchivistService {
     /// Server construction: the same service over the instance's shared
     /// ACP fabric. The Archivist registers at `agent://local/hypervisor/archivist`.
     pub fn with_fabric(fabric: acp::Fabric) -> Self {
-        let holder: Arc<std::sync::RwLock<Arc<dyn nuo_wire::Provider>>> =
+        let holder: Arc<std::sync::RwLock<Arc<dyn nuo_protocol::Provider>>> =
             Arc::new(std::sync::RwLock::new(Arc::new(nuo_harness::NoProvider)));
         let agent = build_archivist(
             Arc::new(nuo_harness::orchestration::ProxyProvider::new(
@@ -115,7 +115,11 @@ impl ArchivistService {
     /// `provider` is the borrowed live channel (a hosted session's current
     /// provider). The scratch context rides along so follow-ups ("that one",
     /// "and the one before it") stay coherent within the bounded window.
-    pub async fn ask(&self, provider: Arc<dyn nuo_wire::Provider>, text: &str) -> ArchivistAnswer {
+    pub async fn ask(
+        &self,
+        provider: Arc<dyn nuo_protocol::Provider>,
+        text: &str,
+    ) -> ArchivistAnswer {
         // Bind the round to the borrowed live channel. Rounds are serialized
         // by the caller (one question at a time per dashboard), so the holder
         // never races across asks.
@@ -134,8 +138,8 @@ impl ArchivistService {
         }
 
         let mut messages = self.scratch.lock().await.clone();
-        messages.push(nuo_wire::Message::new(
-            nuo_wire::Role::User,
+        messages.push(nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
             text.to_string(),
         ));
 
@@ -144,7 +148,7 @@ impl ArchivistService {
         let outcome = self
             .agent
             .run_streaming_with_events(&mut messages, &CancellationToken::new(), move |event| {
-                if let nuo_wire::events::AgentEvent::AssistantDelta { delta, .. } = event
+                if let nuo_protocol::events::AgentEvent::AssistantDelta { delta, .. } = event
                     && let Ok(mut buf) = collected_for_events.try_lock()
                     && buf.chars().count() < ANSWER_CHAR_BUDGET
                 {
@@ -158,9 +162,12 @@ impl ArchivistService {
         {
             let answer = collected.lock().await.clone();
             let mut scratch = self.scratch.lock().await;
-            scratch.push(nuo_wire::Message::new(nuo_wire::Role::Assistant, answer));
-            scratch.push(nuo_wire::Message::new(
-                nuo_wire::Role::User,
+            scratch.push(nuo_protocol::Message::new(
+                nuo_protocol::Role::Assistant,
+                answer,
+            ));
+            scratch.push(nuo_protocol::Message::new(
+                nuo_protocol::Role::User,
                 text.to_string(),
             ));
             let overflow = scratch.len().saturating_sub(self.scratch_cap);

@@ -15,7 +15,7 @@
 
 use super::*;
 use crate::shell::event_loop::UiRuntime;
-use nuo_wire::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 
 fn quarantined_snapshot() -> WorkspaceSecuritySnapshot {
     WorkspaceSecuritySnapshot {
@@ -165,8 +165,8 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::Harness(nuo_wire::HarnessSnapshot {
-            loop_status: nuo_wire::LoopStatus::Idle,
+        crate::shell::event_loop::AppMutation::Harness(nuo_protocol::HarnessSnapshot {
+            loop_status: nuo_protocol::LoopStatus::Idle,
             round_counter: 0,
             retry_pending: false,
             unattended: false,
@@ -204,8 +204,8 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
         user_assets: WorkspaceTrustState::Absent,
     };
     let snapshot = |security: WorkspaceSecuritySnapshot| {
-        crate::shell::event_loop::AppMutation::Harness(nuo_wire::HarnessSnapshot {
-            loop_status: nuo_wire::LoopStatus::Idle,
+        crate::shell::event_loop::AppMutation::Harness(nuo_protocol::HarnessSnapshot {
+            loop_status: nuo_protocol::LoopStatus::Idle,
             round_counter: 0,
             retry_pending: false,
             unattended: false,

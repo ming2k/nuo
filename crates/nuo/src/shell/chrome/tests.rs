@@ -1,5 +1,6 @@
 use super::model_bar::context_usage_spans;
 use super::*;
+use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
 use nuo_view::model::layout::LayoutMap;
 use nuotc::{Color, Rect};
@@ -35,7 +36,9 @@ fn activity_row_text_with_clause(
                 queued_preview: None,
                 tasks_count: 0,
                 tasks_preview: None,
+                queue_key: Some(Key::CTRL_Q),
             },
+            Some(Key::ESC),
             phase,
             &Theme::default(),
         );
@@ -66,7 +69,9 @@ fn activity_row_colors(width: u16, status: &str, awaiting: bool, phase: usize) -
                 queued_preview: None,
                 tasks_count: 0,
                 tasks_preview: None,
+                queue_key: Some(Key::CTRL_Q),
             },
+            Some(Key::ESC),
             phase,
             &Theme::default(),
         );
@@ -130,9 +135,9 @@ fn tilde_home_shortens_a_home_rooted_path() {
 
 #[test]
 fn backoff_clause_renders_beside_status_and_degrades_narrow() {
-    // Root status label keeps the workflow story; the transport countdown is a
+    // Root status label keeps the workflow story; the retry countdown is a
     // separate, warning-toned clause — never replacing the label. Both forms
-    // come from the same `RetryProgress`, so the count can never disagree
+    // come from the same `RetryProgress`, so the ordinal can never disagree
     // between the wide and the narrow rendering.
     let progress = nuo_view::retry::RetryProgress::scheduled(
         2,
@@ -143,19 +148,20 @@ fn backoff_clause_renders_beside_status_and_degrades_narrow() {
 
     let wide = activity_row_text_with_clause(100, "waiting for model", Some(&progress), false, 0);
     assert!(wide.contains("waiting for model"), "{wide:?}");
-    assert!(wide.contains("retry 2/8 (next in"), "{wide:?}");
+    assert!(wide.contains("retry 1 in"), "{wide:?}");
 
-    // Under width pressure the compact attempt counter survives and the
+    // Under width pressure the ordinal survives without the countdown and the
     // status label is still intact.
     let narrow = activity_row_text_with_clause(48, "waiting for model", Some(&progress), false, 0);
     assert!(narrow.contains("waiting for model"), "{narrow:?}");
     assert!(
-        narrow.contains("(2/8)"),
-        "compact form should drop the countdown tail and keep (2/8): {narrow:?}"
+        narrow.contains("retry 1"),
+        "compact form should keep the ordinal: {narrow:?}"
     );
     assert!(
-        !narrow.contains("retry 2/8"),
-        "the wide form must not survive where it does not fit: {narrow:?}"
+        !narrow.contains("retry 1 in"),
+        "and must actually have dropped the countdown, not merely be a \
+         substring match on the wide form: {narrow:?}"
     );
 
     // No clause configured -> no stray separators.
@@ -218,7 +224,9 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
                 queued_preview: Some("Check edge cases"),
                 tasks_count: 1,
                 tasks_preview: Some("indexer"),
+                queue_key: Some(Key::CTRL_Q),
             },
+            Some(Key::ESC),
             0,
             &theme,
         );
@@ -275,7 +283,9 @@ fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
                 queued_preview: None,
                 tasks_count: 0,
                 tasks_preview: None,
+                queue_key: Some(Key::CTRL_Q),
             },
+            Some(Key::ESC),
             0,
             &theme,
         );
@@ -292,8 +302,12 @@ fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
         "the workflow label keeps its own slot: {text:?}"
     );
     assert!(
-        text.contains("retry 6/30 (next in"),
+        text.contains("retry 5 in"),
         "the clause is the typed vocabulary verbatim: {text:?}"
+    );
+    assert!(
+        !text.contains("30"),
+        "the attempt budget is not the bar's business: {text:?}"
     );
     assert!(
         !text.contains("(("),
@@ -323,7 +337,9 @@ fn activity_strip_renders_idle_queued_preview() {
                 queued_preview: Some("Check edge cases"),
                 tasks_count: 0,
                 tasks_preview: None,
+                queue_key: Some(Key::CTRL_Q),
             },
+            Some(Key::ESC),
             0,
             &theme,
         );
@@ -339,7 +355,73 @@ fn activity_strip_renders_idle_queued_preview() {
         text.contains("Follow-up: \"Check edge cases\""),
         "shows preview: {text:?}"
     );
-    assert!(text.contains("C-x"), "shows C-x chord: {text:?}");
+    // The queue's chord is the *real* binding, resolved by the caller. The
+    // retired `C-x` namespace must never reappear: it was a keycap for a key
+    // sequence that dispatches nothing.
+    assert!(
+        !text.contains("C-x"),
+        "the strip must not advertise the retired C-x namespace: {text:?}"
+    );
+    assert!(
+        text.contains("Ctrl-q"),
+        "the queue keycap is the resolved OpenQueue chord: {text:?}"
+    );
+}
+
+/// A busy strip must advertise nothing it cannot keep: an unbound chord yields
+/// no keycap at all, and a bound one shows the chord that actually fires.
+#[test]
+fn activity_strip_keycaps_are_the_resolved_bindings() {
+    let theme = Theme::default();
+    let render = |interrupt: Option<Key>, queue: Option<Key>| -> String {
+        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        terminal.draw(|f| {
+            draw_activity_strip(
+                f,
+                f.area(),
+                None,
+                ActivityStripProps {
+                    status: "responding",
+                    backoff: None,
+                    awaiting_permission: false,
+                    queued_count: 1,
+                    queued_preview: Some("next"),
+                    tasks_count: 1,
+                    tasks_preview: Some("indexer"),
+                    queue_key: queue,
+                },
+                interrupt,
+                0,
+                &theme,
+            );
+        });
+        terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect()
+    };
+
+    // A remapped interrupt chord replaces the canonical Esc pair.
+    let remapped = render(Some(Key::ctrl('c')), Some(Key::CTRL_Q));
+    assert!(
+        remapped.contains("Ctrl-c Ctrl-c"),
+        "the armed interrupt repeats the resolved chord: {remapped:?}"
+    );
+
+    // With no interrupt chord bound, the strip advertises no interrupt keycap at
+    // all — but it also stays silent about the queue, because the running state
+    // owns the right cluster. Both halves matter: the row must never mint a key.
+    let unbound = render(None, Some(Key::CTRL_Q));
+    assert!(
+        !unbound.contains("Esc"),
+        "an unbound interrupt advertises no keycap: {unbound:?}"
+    );
+    assert!(
+        !unbound.contains("interrupt"),
+        "an unbound interrupt advertises no verb: {unbound:?}"
+    );
 }
 
 #[test]
@@ -360,7 +442,9 @@ fn activity_strip_returns_none_when_all_idle() {
                 queued_preview: None,
                 tasks_count: 0,
                 tasks_preview: None,
+                queue_key: Some(Key::CTRL_Q),
             },
+            Some(Key::ESC),
             0,
             &theme,
         );

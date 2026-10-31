@@ -6,7 +6,7 @@ use rusqlite::{Connection, Result, params};
 /// Record a prompt into `input_history`, respecting `dedup` and the global `HISTORY_CAP`.
 pub(crate) fn record_input_history(
     conn: &Connection,
-    entry: &nuo_wire::HistoryEntry,
+    entry: &nuo_protocol::HistoryEntry,
     dedup: bool,
 ) -> Result<()> {
     conn.execute("BEGIN IMMEDIATE", [])?;
@@ -48,7 +48,7 @@ pub(crate) fn record_input_history(
                 SELECT id FROM input_history ORDER BY created_at_ms DESC, id DESC LIMIT ?1
             )
             "#,
-            params![nuo_wire::HISTORY_CAP as i64],
+            params![nuo_protocol::HISTORY_CAP as i64],
         )?;
 
         Ok(())
@@ -70,7 +70,7 @@ pub(crate) fn record_input_history(
 pub(crate) fn load_input_history(
     conn: &Connection,
     limit: usize,
-) -> Result<Vec<nuo_wire::HistoryEntry>> {
+) -> Result<Vec<nuo_protocol::HistoryEntry>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT text, session_id, workspace, created_at_ms
@@ -84,7 +84,7 @@ pub(crate) fn load_input_history(
         let session_id: Option<String> = row.get(1)?;
         let workspace: Option<String> = row.get(2)?;
         let created_at_ms: i64 = row.get(3)?;
-        Ok(nuo_wire::HistoryEntry {
+        Ok(nuo_protocol::HistoryEntry {
             text,
             session_id,
             workspace,
@@ -102,7 +102,7 @@ pub(crate) fn load_input_history(
 /// Persist or batch-merge a list of history entries into SQLite.
 pub(crate) fn save_input_history(
     conn: &Connection,
-    entries: &[nuo_wire::HistoryEntry],
+    entries: &[nuo_protocol::HistoryEntry],
     dedup: bool,
 ) -> Result<()> {
     if entries.is_empty() {
@@ -145,7 +145,7 @@ pub(crate) fn save_input_history(
                 SELECT id FROM input_history ORDER BY created_at_ms DESC, id DESC LIMIT ?1
             )
             "#,
-            params![nuo_wire::HISTORY_CAP as i64],
+            params![nuo_protocol::HISTORY_CAP as i64],
         )?;
 
         Ok(())

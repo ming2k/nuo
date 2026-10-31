@@ -362,8 +362,8 @@ fn render_dialog(
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: nuo_wire::count_tokens(&app.input),
-                    draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
+                    draft_content_tokens: nuo_protocol::count_tokens(&app.input),
+                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.input),
                 },
                 loading,
                 &mut d.scroll,
@@ -386,8 +386,8 @@ fn render_dialog(
                 crate::shell::render::ContextUsageProps {
                     snapshot: app.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: nuo_wire::count_tokens(&app.input),
-                    draft_tokens: nuo_wire::estimate_draft_tokens(&app.input),
+                    draft_content_tokens: nuo_protocol::count_tokens(&app.input),
+                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.input),
                 },
                 d.index
                     .min(crate::shell::render::telemetry_round_count(&report).saturating_sub(1)),
@@ -645,6 +645,8 @@ fn render_dialog(
                 app.current_scene(),
                 Some(ctx.viewed_session_id),
                 unread_faults,
+                &app.key_overrides,
+                &app.surface_overrides,
                 &mut d.scroll,
                 ctx.theme,
             ))
@@ -943,7 +945,7 @@ fn handle_dialog_click(
                             target_title.as_deref(),
                         );
                         if is_empty {
-                            app.send_intent(nuo_wire::AgentRequest::DeleteSession {
+                            app.send_intent(nuo_protocol::AgentRequest::DeleteThread {
                                 id: viewed_session_id.to_string(),
                             });
                             let active_idx = app.surfaces.active_tab_index();

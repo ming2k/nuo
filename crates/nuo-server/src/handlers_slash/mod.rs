@@ -22,7 +22,7 @@ use nuo_persistence::{
     config::Config, connection_usage::ConnectionUsage, session::SessionStore,
     workspace_security::WorkspaceSecurityStore,
 };
-use nuo_wire::{AgentRequest, AgentResponse, Provider};
+use nuo_protocol::{AgentRequest, AgentResponse, Provider};
 
 pub use dispatch::dispatch;
 
@@ -33,8 +33,8 @@ pub struct SlashEnv<'a> {
     pub agent: &'a Arc<Agent>,
     pub mcp_runtime: &'a Arc<McpRuntime>,
     pub workspace_security: &'a Arc<WorkspaceSecurityStore>,
-    pub shared_additional_roots: &'a nuo_wire::SharedAdditionalRoots,
-    pub shared_confinement: &'a nuo_wire::SharedConfinement,
+    pub shared_additional_roots: &'a nuo_protocol::SharedAdditionalRoots,
+    pub shared_confinement: &'a nuo_protocol::SharedConfinement,
     pub resp_tx: &'a mpsc::UnboundedSender<AgentResponse>,
     pub session: &'a Arc<SessionStore>,
     pub lifecycle: &'a Arc<RoundLifecycle>,
@@ -45,6 +45,6 @@ pub struct SlashEnv<'a> {
     pub startup: &'a SessionStart,
     pub ui: &'a dyn crate::UiBridge,
     pub extra_commands: &'a SlashCommandRegistry,
-    pub websearch_shared: &'a nuo_wire::SharedWebConfig,
+    pub websearch_shared: &'a nuo_protocol::SharedWebConfig,
     pub background_jobs: &'a crate::background_jobs::BackgroundJobManager,
 }

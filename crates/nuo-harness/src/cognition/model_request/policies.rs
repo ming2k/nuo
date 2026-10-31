@@ -22,7 +22,7 @@
 //!    role identities, user project rules, admitted multi-workspace roots, and
 //!    untrusted web boundaries. In the default configuration with no identity or
 //!    rules, zero system prompt tokens are emitted.
-use nuo_wire::InstructionTier;
+use nuo_protocol::InstructionTier;
 
 use super::system_prompt::InstructionOrder;
 use crate::{SystemPromptContext, SystemPromptRegistry, SystemPromptSection};

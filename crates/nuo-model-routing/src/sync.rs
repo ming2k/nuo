@@ -13,11 +13,11 @@ use super::derive::resolve_credential;
 use futures::stream::{self, StreamExt};
 use nuo_persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use nuo_persistence::connections::Connections;
+use nuo_protocol::WireProtocol;
 use nuo_provider::{
     CatalogShape, ModelProviderSpec, RemoteCatalogOptions, RemoteCatalogRequest,
     RemoteCatalogSource, RemoteCatalogUpdate, model_provider_spec,
 };
-use nuo_wire::WireProtocol;
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 
@@ -117,7 +117,7 @@ const fn catalog_shape_id(protocol: CatalogShape) -> &'static str {
 struct CatalogSyncJob {
     connection: nuo_persistence::connections::Connection,
     source: CatalogFetchSource,
-    api_key: nuo_wire::SecretString,
+    api_key: nuo_protocol::SecretString,
     /// Where the fetch resolves OAuth bearers and signed-catalog identity
     /// (host credentials provider).
     credentials: nuo_provider::CredentialHost,
@@ -147,8 +147,8 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                     &job.connection.provider,
                     &job.connection.name,
                     &job.connection.auth,
-                    nuo_wire::SecretString::from(""),
-                    nuo_wire::ProviderDialect::Standard,
+                    nuo_protocol::SecretString::from(""),
+                    nuo_protocol::ProviderDialect::Standard,
                 ) else {
                     return CatalogFetchResult {
                         connection: job.connection,
@@ -172,7 +172,7 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                     }
                 }
             } else {
-                nuo_wire::ResolvedAuth::new(job.api_key)
+                nuo_protocol::ResolvedAuth::new(job.api_key)
             };
             let extra_headers: Vec<(&str, &str)> = headers
                 .iter()
@@ -201,10 +201,10 @@ async fn fetch_models(job: CatalogSyncJob) -> CatalogFetchResult {
                 base_url: &base_url,
                 api_key: &auth.token,
                 account_id: auth
-                    .extension::<nuo_wire::ChatGptAuthMetadata>()
+                    .extension::<nuo_protocol::ChatGptAuthMetadata>()
                     .map(|m| m.account_id.as_str())
                     .or_else(|| {
-                        auth.extension::<nuo_wire::GoogleAuthMetadata>()
+                        auth.extension::<nuo_protocol::GoogleAuthMetadata>()
                             .map(|m| m.project_id.as_str())
                             .filter(|s| !s.trim().is_empty())
                     }),
@@ -502,10 +502,10 @@ fn apply_fetched(
                     model
                         .availability
                         .as_ref()
-                        .is_none_or(nuo_wire::Availability::is_usable)
+                        .is_none_or(nuo_protocol::Availability::is_usable)
                         || sovereign.contains(&model.id)
                 })
-                .filter(|model| nuo_wire::model::model_by_id(&model.id).is_none())
+                .filter(|model| nuo_protocol::model::model_by_id(&model.id).is_none())
                 .map(|model| (model.id.clone(), fitted_model_info(model)))
                 .collect();
             if cache.fitted_models.get(&connection.name) != Some(&fitted) {
@@ -670,7 +670,7 @@ fn build_first_party_source(
     // needs dialect signing; the fetcher receives the built signer as data.
     let needs_dialect_signing = protocol
         .auth()
-        .eq(&nuo_wire::provider_surface::CatalogAuth::Dialect);
+        .eq(&nuo_protocol::provider_surface::CatalogAuth::Dialect);
     let dimensions = resolved_catalog_dimensions(connection, protocol);
     Some(CatalogFetchSource::FirstParty {
         protocol,
@@ -708,12 +708,12 @@ fn resolved_catalog_dimensions(
     dimensions
 }
 
-/// Rebuild the fitted-model overlay (`nuo_wire::model`) from the
+/// Rebuild the fitted-model overlay (`nuo_protocol::model`) from the
 /// remote-catalog cache.
 pub fn sync_fitted_model_registry() {
     let cache = RemoteCatalogCache::load();
     let connections = Connections::load();
-    let fitted: Vec<nuo_wire::model::FittedModel> = connections
+    let fitted: Vec<nuo_protocol::model::FittedModel> = connections
         .connections
         .iter()
         .flat_map(|connection| {
@@ -728,7 +728,7 @@ pub fn sync_fitted_model_registry() {
                     ),
                 };
                 map.iter()
-                    .map(move |(id, info)| nuo_wire::model::FittedModel {
+                    .map(move |(id, info)| nuo_protocol::model::FittedModel {
                         id: id.clone(),
                         family: family.clone(),
                         context_window: info.context_window,
@@ -738,7 +738,7 @@ pub fn sync_fitted_model_registry() {
                         effort_levels: info
                             .efforts
                             .iter()
-                            .filter_map(|level| match nuo_wire::Effort::parse(level) {
+                            .filter_map(|level| match nuo_protocol::Effort::parse(level) {
                                 Some(e) => Some(e),
                                 None => {
                                     tracing::warn!(
@@ -757,7 +757,7 @@ pub fn sync_fitted_model_registry() {
         })
         .flatten()
         .collect();
-    nuo_wire::model::register_fitted_models(fitted);
+    nuo_protocol::model::register_fitted_models(fitted);
 }
 
 fn fitted_model_info(model: &nuo_provider::DiscoveredModel) -> FittedModelInfo {
@@ -774,7 +774,7 @@ mod tests {
     use super::*;
     use nuo_provider::DiscoveredModel;
 
-    fn discovered(id: &str, availability: Option<nuo_wire::Availability>) -> DiscoveredModel {
+    fn discovered(id: &str, availability: Option<nuo_protocol::Availability>) -> DiscoveredModel {
         DiscoveredModel {
             id: id.to_string(),
             availability,
@@ -786,7 +786,7 @@ mod tests {
             context_window: Some(200_000),
             max_output_tokens: None,
             reasoning: Some(true),
-            thinking: Some(nuo_wire::ReasoningSupport::ReasoningContent),
+            thinking: Some(nuo_protocol::ReasoningSupport::ReasoningContent),
             tool_call: Some(true),
             vision: Some(true),
             effort_levels: None,
@@ -804,9 +804,9 @@ mod tests {
         let mut cache = RemoteCatalogCache::default();
         // Pre-sorted like the generic fetcher emits them (id-ascending).
         let models = vec![
-            discovered("gmodel", Some(nuo_wire::Availability::locked(None))),
+            discovered("gmodel", Some(nuo_protocol::Availability::locked(None))),
             discovered("mmodel", None),
-            discovered("qtest-max", Some(nuo_wire::Availability::usable())),
+            discovered("qtest-max", Some(nuo_protocol::Availability::usable())),
         ];
         let fetched = CatalogFetchResult {
             connection: nuo_persistence::connections::Connection {
@@ -836,7 +836,7 @@ mod tests {
         let metadata = &cache.remote_metadata["qoder-test"];
         assert_eq!(
             metadata["gmodel"].availability,
-            Some(nuo_wire::Availability::locked(None)),
+            Some(nuo_protocol::Availability::locked(None)),
             "the lock declaration round-trips to the picker surface"
         );
         assert_eq!(metadata["mmodel"].availability, None);
@@ -859,7 +859,7 @@ mod tests {
             name: "qoder-test".to_string(),
             ..Default::default()
         };
-        connection.models.include = vec![nuo_wire::DeclaredModel {
+        connection.models.include = vec![nuo_protocol::DeclaredModel {
             id: "gmodel".to_string(),
             ..Default::default()
         }];
@@ -869,7 +869,7 @@ mod tests {
             update: Ok(RemoteCatalogUpdate::Modified {
                 models: vec![discovered(
                     "gmodel",
-                    Some(nuo_wire::Availability::locked(Some(
+                    Some(nuo_protocol::Availability::locked(Some(
                         "requires a paid plan".to_string(),
                     ))),
                 )],
@@ -886,7 +886,7 @@ mod tests {
         // The declaration itself is never rewritten — only overridden.
         assert_eq!(
             cache.remote_metadata["qoder-test"]["gmodel"].availability,
-            Some(nuo_wire::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "requires a paid plan".to_string()
             )))
         );
@@ -909,7 +909,7 @@ mod tests {
             update: Ok(RemoteCatalogUpdate::Modified {
                 models: vec![discovered(
                     "gmodel",
-                    Some(nuo_wire::Availability::locked(None)),
+                    Some(nuo_protocol::Availability::locked(None)),
                 )],
                 etag: Some("\"v1\"".to_string()),
             }),
@@ -935,7 +935,7 @@ mod tests {
         // The verdict is retained, not dropped — and still enforced.
         assert_eq!(
             cache.remote_metadata["qoder-test"]["gmodel"].availability,
-            Some(nuo_wire::Availability::locked(None))
+            Some(nuo_protocol::Availability::locked(None))
         );
     }
 }

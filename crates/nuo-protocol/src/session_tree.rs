@@ -2,17 +2,17 @@ use crate::message::{Message, Role};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-/// Unique identifier for a node in the session DAG tree.
-pub type SessionEntryId = String;
+/// Unique identifier for a node in the thread DAG tree.
+pub type ThreadEntryId = String;
 
-/// The content and semantics of a single node in the session DAG.
+/// The content and semantics of a single node in the thread DAG.
 // `Message` is by far the dominant payload of the tree and both variants are
 // short-lived around serialization; keeping it inline avoids a heap hop on
 // every append and keeps the on-disk serde shape flat.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum SessionEntryKind {
+pub enum ThreadEntryKind {
     /// A standard dialogue message (User, Assistant, Tool, System).
     Message { message: Message },
     /// A compaction summary replacing older turns up to `first_kept_entry_id`.
@@ -43,14 +43,14 @@ pub enum SessionEntryKind {
     },
 }
 
-/// A node in the session DAG tree.
+/// A node in the thread DAG tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionEntry {
-    pub id: SessionEntryId,
-    pub parent_id: Option<SessionEntryId>,
+pub struct ThreadEntry {
+    pub id: ThreadEntryId,
+    pub parent_id: Option<ThreadEntryId>,
     pub timestamp: u64,
     #[serde(flatten)]
-    pub kind: SessionEntryKind,
+    pub kind: ThreadEntryKind,
 }
 
 /// Content payload of a compaction entry node.
@@ -65,7 +65,7 @@ pub struct CompactionPayload {
     pub modified_files: Vec<String>,
 }
 
-impl SessionEntry {
+impl ThreadEntry {
     pub fn new_message(
         id: impl Into<String>,
         parent_id: Option<String>,
@@ -76,7 +76,7 @@ impl SessionEntry {
             id: id.into(),
             parent_id,
             timestamp,
-            kind: SessionEntryKind::Message { message },
+            kind: ThreadEntryKind::Message { message },
         }
     }
 
@@ -90,7 +90,7 @@ impl SessionEntry {
             id: id.into(),
             parent_id,
             timestamp,
-            kind: SessionEntryKind::Compaction {
+            kind: ThreadEntryKind::Compaction {
                 summary: payload.summary,
                 first_kept_entry_id: payload.first_kept_entry_id,
                 tokens_before: payload.tokens_before,
@@ -113,7 +113,7 @@ impl SessionEntry {
             id: id.into(),
             parent_id,
             timestamp,
-            kind: SessionEntryKind::BranchSummary {
+            kind: ThreadEntryKind::BranchSummary {
                 summary,
                 from_id,
                 read_files,
@@ -125,37 +125,37 @@ impl SessionEntry {
     /// Extract context-visible message from this entry.
     pub fn to_context_message(&self) -> Option<Message> {
         match &self.kind {
-            SessionEntryKind::Message { message } => Some(message.clone()),
-            SessionEntryKind::Compaction { summary, .. } => Some(Message::new(
+            ThreadEntryKind::Message { message } => Some(message.clone()),
+            ThreadEntryKind::Compaction { summary, .. } => Some(Message::new(
                 Role::System,
                 format!("[Context Compaction Summary]\n{}", summary),
             )),
-            SessionEntryKind::BranchSummary { summary, .. } => Some(Message::new(
+            ThreadEntryKind::BranchSummary { summary, .. } => Some(Message::new(
                 Role::System,
                 format!("[Branch Exploration Summary]\n{}", summary),
             )),
-            SessionEntryKind::Custom { content, .. } => {
+            ThreadEntryKind::Custom { content, .. } => {
                 Some(Message::new(Role::System, content.clone()))
             }
         }
     }
 }
 
-/// A tree-structured DAG representing a branching conversation session.
+/// A tree-structured DAG representing a branching conversation thread.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct SessionTree {
+pub struct ThreadTree {
     /// All entries in the tree keyed by ID.
-    pub entries: HashMap<SessionEntryId, SessionEntry>,
-    /// Root node of the session tree (first prompt).
-    pub root_id: Option<SessionEntryId>,
+    pub entries: HashMap<ThreadEntryId, ThreadEntry>,
+    /// Root node of the thread tree (first prompt).
+    pub root_id: Option<ThreadEntryId>,
     /// The currently active leaf ID in the tree.
-    pub active_leaf_id: Option<SessionEntryId>,
+    pub active_leaf_id: Option<ThreadEntryId>,
     /// Named branches mapping branch name -> leaf entry ID.
     #[serde(default)]
-    pub named_branches: HashMap<String, SessionEntryId>,
+    pub named_branches: HashMap<String, ThreadEntryId>,
 }
 
-impl SessionTree {
+impl ThreadTree {
     pub fn new() -> Self {
         Self::default()
     }
@@ -167,16 +167,16 @@ impl SessionTree {
         message: Message,
         timestamp: u64,
         custom_parent_id: Option<String>,
-    ) -> SessionEntryId {
+    ) -> ThreadEntryId {
         let parent = custom_parent_id.or_else(|| self.active_leaf_id.clone());
         let id = uuid::Uuid::new_v4().to_string();
-        let entry = SessionEntry::new_message(id.clone(), parent, timestamp, message);
+        let entry = ThreadEntry::new_message(id.clone(), parent, timestamp, message);
         self.insert_entry(entry);
         id
     }
 
     /// Insert an entry into the tree and update active leaf.
-    pub fn insert_entry(&mut self, entry: SessionEntry) {
+    pub fn insert_entry(&mut self, entry: ThreadEntry) {
         let id = entry.id.clone();
         if self.root_id.is_none() && entry.parent_id.is_none() {
             self.root_id = Some(id.clone());
@@ -186,18 +186,18 @@ impl SessionTree {
     }
 
     /// Get an entry by ID.
-    pub fn get_entry(&self, id: &str) -> Option<&SessionEntry> {
+    pub fn get_entry(&self, id: &str) -> Option<&ThreadEntry> {
         self.entries.get(id)
     }
 
     /// Return the active leaf ID if set.
-    pub fn active_leaf(&self) -> Option<SessionEntryId> {
+    pub fn active_leaf(&self) -> Option<ThreadEntryId> {
         self.active_leaf_id.clone()
     }
 
     /// Get all entries forming the linear branch from the root down to `leaf_id`.
     /// Returned entries are in chronological root-to-leaf order.
-    pub fn get_branch(&self, leaf_id: &str) -> Vec<SessionEntry> {
+    pub fn get_branch(&self, leaf_id: &str) -> Vec<ThreadEntry> {
         let mut path = Vec::new();
         let mut curr = Some(leaf_id.to_string());
         let mut visited = HashSet::new();
@@ -226,7 +226,7 @@ impl SessionTree {
         // Check if there is a compaction entry in the branch
         let mut start_idx = 0;
         for entry in &branch {
-            if let SessionEntryKind::Compaction {
+            if let ThreadEntryKind::Compaction {
                 ref first_kept_entry_id,
                 ..
             } = entry.kind
@@ -243,7 +243,7 @@ impl SessionTree {
         }
 
         for entry in &branch[start_idx..] {
-            if let SessionEntryKind::Compaction { .. } = entry.kind {
+            if let ThreadEntryKind::Compaction { .. } = entry.kind {
                 continue; // already handled
             }
             if let Some(msg) = entry.to_context_message() {
@@ -276,7 +276,7 @@ impl SessionTree {
         &self,
         old_leaf: &str,
         target_id: &str,
-    ) -> (Vec<SessionEntry>, Option<String>) {
+    ) -> (Vec<ThreadEntry>, Option<String>) {
         let lca = self.lowest_common_ancestor(old_leaf, target_id);
         let mut abandoned = Vec::new();
         let mut curr = Some(old_leaf.to_string());
@@ -298,7 +298,7 @@ impl SessionTree {
     }
 
     /// Find all leaf entry IDs in the tree (nodes that have no children).
-    pub fn leaves(&self) -> Vec<SessionEntryId> {
+    pub fn leaves(&self) -> Vec<ThreadEntryId> {
         let parents: HashSet<&str> = self
             .entries
             .values()
@@ -313,7 +313,7 @@ impl SessionTree {
     }
 
     /// Return all immediate child entries of a given node.
-    pub fn children_of(&self, parent_id: &str) -> Vec<&SessionEntry> {
+    pub fn children_of(&self, parent_id: &str) -> Vec<&ThreadEntry> {
         self.entries
             .values()
             .filter(|e| e.parent_id.as_deref() == Some(parent_id))
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn tree_append_and_branch_linear() {
-        let mut tree = SessionTree::new();
+        let mut tree = ThreadTree::new();
         let id1 = tree.append_message(Message::new(Role::User, "hello"), 100, None);
         let id2 = tree.append_message(Message::new(Role::Assistant, "hi"), 101, None);
         let id3 = tree.append_message(Message::new(Role::User, "what is rust?"), 102, None);
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn tree_fork_and_lca() {
-        let mut tree = SessionTree::new();
+        let mut tree = ThreadTree::new();
         let r = tree.append_message(Message::new(Role::User, "prompt 1"), 100, None);
         let a1 = tree.append_message(
             Message::new(Role::Assistant, "plan A"),

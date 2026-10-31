@@ -462,7 +462,7 @@ define_builtin_commands! {
 impl BuiltinCmd {
     /// Backward-compatible aliases for renamed commands. Unlike the legacy
     /// behaviour, aliases are **first-class completion candidates** (see
-    /// `CommandAlias` in `nuo-wire`): typing `/set` offers a `setup`
+    /// `CommandAlias` in `nuo-protocol`): typing `/set` offers a `setup`
     /// row that stays `/setup` when selected — the alias is only resolved to
     /// its target at dispatch time. They remain absent from
     /// [`BuiltinCmd::ALL`] so `/help` keeps listing canonical names only.
@@ -615,10 +615,10 @@ fn edit_distance(a: &str, b: &str) -> usize {
 /// attach. Built-ins, compatibility aliases, trigger steering, and trusted
 /// project commands all originate here so TUI and Web never maintain their
 /// own command vocabulary.
-pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog {
+pub fn command_catalog(custom: &[(String, String)]) -> nuo_protocol::CommandCatalog {
     let mut commands = BuiltinCmd::SPECS
         .iter()
-        .map(|spec| nuo_wire::CommandSpec {
+        .map(|spec| nuo_protocol::CommandSpec {
             name: spec.name.to_string(),
             summary: spec.summary.to_string(),
             usage: spec
@@ -629,7 +629,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
             examples: spec
                 .examples
                 .iter()
-                .map(|(command, description)| nuo_wire::CommandExample {
+                .map(|(command, description)| nuo_protocol::CommandExample {
                     command: (*command).to_string(),
                     description: (*description).to_string(),
                 })
@@ -641,10 +641,10 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
                 .collect(),
             category: Some(spec.category.label().to_string()),
             subcommands: {
-                let mut subs: Vec<nuo_wire::CommandSubcommandSpec> = spec
+                let mut subs: Vec<nuo_protocol::CommandSubcommandSpec> = spec
                     .subcommands
                     .iter()
-                    .map(|(name, summary)| nuo_wire::CommandSubcommandSpec {
+                    .map(|(name, summary)| nuo_protocol::CommandSubcommandSpec {
                         name: (*name).to_string(),
                         summary: (*summary).to_string(),
                     })
@@ -654,7 +654,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
                     for (id, p) in user_roles.roles {
                         if !subs.iter().any(|s| s.name == id) {
                             let desc = p.description.as_deref().unwrap_or(p.name.as_str());
-                            subs.push(nuo_wire::CommandSubcommandSpec {
+                            subs.push(nuo_protocol::CommandSubcommandSpec {
                                 name: id,
                                 summary: desc.to_string(),
                             });
@@ -665,17 +665,21 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
             },
         })
         .collect::<Vec<_>>();
-    commands.extend(custom.iter().map(|(name, summary)| nuo_wire::CommandSpec {
-        name: name.clone(),
-        summary: summary.clone(),
-        usage: vec![name.clone()],
-        examples: Vec::new(),
-        intent_keywords: Vec::new(),
-        category: Some("Project".to_string()),
-        subcommands: Vec::new(),
-    }));
+    commands.extend(
+        custom
+            .iter()
+            .map(|(name, summary)| nuo_protocol::CommandSpec {
+                name: name.clone(),
+                summary: summary.clone(),
+                usage: vec![name.clone()],
+                examples: Vec::new(),
+                intent_keywords: Vec::new(),
+                category: Some("Project".to_string()),
+                subcommands: Vec::new(),
+            }),
+    );
 
-    nuo_wire::CommandCatalog {
+    nuo_protocol::CommandCatalog {
         commands,
         aliases: [
             ("/resume", "/threads"),
@@ -692,18 +696,20 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_wire::CommandCatalog 
             ("/setup", "/init"),
         ]
         .into_iter()
-        .map(|(name, target)| nuo_wire::CommandAlias {
+        .map(|(name, target)| nuo_protocol::CommandAlias {
             name: name.to_string(),
             target: target.to_string(),
         })
         .collect(),
         suggestions: TRIGGER_WORD_SUGGESTIONS
             .iter()
-            .map(|(trigger, target, reason)| nuo_wire::CommandSuggestion {
-                trigger: (*trigger).to_string(),
-                target: (*target).to_string(),
-                reason: (*reason).to_string(),
-            })
+            .map(
+                |(trigger, target, reason)| nuo_protocol::CommandSuggestion {
+                    trigger: (*trigger).to_string(),
+                    target: (*target).to_string(),
+                    reason: (*reason).to_string(),
+                },
+            )
             .collect(),
     }
 }
@@ -759,7 +765,7 @@ pub fn init_tracing() -> Option<WorkerGuard> {
         let lvl = matches!(l.as_str(), "error" | "warn" | "info" | "debug" | "trace")
             .then_some(l.as_str())
             .unwrap_or("info");
-        tracing_subscriber::EnvFilter::new(format!("nuo={lvl},nuo_wire={lvl},nuo_server={lvl}"))
+        tracing_subscriber::EnvFilter::new(format!("nuo={lvl},nuo_protocol={lvl},nuo_server={lvl}"))
     });
     tracing_subscriber::fmt()
         .with_env_filter(filter)

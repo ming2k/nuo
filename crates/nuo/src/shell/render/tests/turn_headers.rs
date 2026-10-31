@@ -47,7 +47,7 @@ fn header_row<'a>(grid: &'a str, anchor: &str) -> &'a str {
 /// `finish_tool_step` produces in production (so the step renders its result
 /// rather than a bare invocation).
 fn finished_step(name: &str, arguments: &str, text: &str) -> TranscriptMessage {
-    let structured = nuo_wire::ToolOutput::Code {
+    let structured = nuo_protocol::ToolOutput::Code {
         lang: None,
         text: text.to_string(),
         start_line: 1,
@@ -63,7 +63,7 @@ const EPOCH_MS: u64 = 1_700_000_000_000;
 
 #[test]
 fn user_round_header_paints_its_send_time() {
-    let message = TranscriptMessage::new(nuo_wire::Role::User, "hello there")
+    let message = TranscriptMessage::new(nuo_protocol::Role::User, "hello there")
         .with_round(1)
         .with_sent_at_ms(EPOCH_MS);
     let grid = grid_of(&[message], 72, 12);
@@ -139,7 +139,7 @@ fn every_component_of_one_turn_shares_the_same_time() {
     let step = stamp(step);
 
     let text = stamp(
-        TranscriptMessage::new(nuo_wire::Role::Assistant, "done")
+        TranscriptMessage::new(nuo_protocol::Role::Assistant, "done")
             .with_attribution("anthropic", "claude-sonnet"),
     );
 

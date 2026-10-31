@@ -34,7 +34,7 @@
 //! both the final model *and* the emitted effects, then render each
 //! intermediate state to a snapshot. That is the "see the interaction" debug
 //! loop the old inline arms made impossible.
-use nuo_wire::{UserQuestion, UserQuestionRequest};
+use nuo_protocol::{UserQuestion, UserQuestionRequest};
 
 /// The "Other" free-text option label emitted in a reply when the user
 /// selected the synthetic "Other" row but left its text field blank — matches
@@ -466,7 +466,7 @@ mod tests {
     //! Pure state-machine tests: feed a script of actions, assert the model
     //! and the emitted effects. No terminal, no async, no agent.
     use super::*;
-    use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+    use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
     /// A single-select question with two labeled options.
     fn single_select_req() -> UserQuestionRequest {

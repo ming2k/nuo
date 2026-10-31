@@ -547,7 +547,7 @@ impl WireEntityResolution<'_> {
 /// inputs, or an account whose plan caps the context window lower than the
 /// model card claims).
 ///
-/// This lives in `nuo-wire` (not persistence) so the merge function can
+/// This lives in `nuo-protocol` (not persistence) so the merge function can
 /// live beside the structure it overrides -- persistence keys it per
 /// `(instance_id, model_id)` inside `RouteSettings` and owns only storage.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -987,7 +987,7 @@ mod capability_tests {
 /// modules), and each table is submitted once at link time:
 ///
 /// ```ignore
-/// inventory::submit!(nuo_wire::model::BaselineModels(MODELS));
+/// inventory::submit!(nuo_protocol::model::BaselineModels(MODELS));
 /// ```
 ///
 /// Every binary that links a provider crate picks its tables up with no

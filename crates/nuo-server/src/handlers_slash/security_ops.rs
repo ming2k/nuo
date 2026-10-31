@@ -8,10 +8,10 @@ use nuo_harness::Agent;
 use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_persistence::config::Config;
 use nuo_persistence::workspace_security::WorkspaceSecurityStore;
-use nuo_wire::TrustDomain;
+use nuo_protocol::TrustDomain;
 
 pub(crate) struct AssetReloadReport {
-    pub snapshot: nuo_wire::WorkspaceSecuritySnapshot,
+    pub snapshot: nuo_protocol::WorkspaceSecuritySnapshot,
     pub connected_mcp: Vec<String>,
     pub removed_mcp: Vec<String>,
 }
@@ -23,7 +23,7 @@ pub(crate) async fn reload_trusted_assets(
     workspace_security: &WorkspaceSecurityStore,
     project_root: &Path,
     skills_registry: &SkillRegistry,
-    shared_additional_roots: &nuo_wire::SharedAdditionalRoots,
+    shared_additional_roots: &nuo_protocol::SharedAdditionalRoots,
 ) -> Result<AssetReloadReport, String> {
     let mut snapshot = workspace_security.snapshot(project_root);
     snapshot.user_assets = compute_user_assets_trust();
@@ -62,7 +62,7 @@ pub(crate) async fn reload_trusted_assets(
     })
 }
 
-pub(crate) fn compute_user_assets_trust() -> nuo_wire::WorkspaceTrustState {
+pub(crate) fn compute_user_assets_trust() -> nuo_protocol::WorkspaceTrustState {
     let config = Config::load();
     let ledger = nuo_persistence::AssetAttestationLedger::load();
     let mut user_asset_count = 0;
@@ -72,9 +72,9 @@ pub(crate) fn compute_user_assets_trust() -> nuo_wire::WorkspaceTrustState {
     for (name, server_cfg) in &config.mcp {
         if server_cfg.sandbox_root.is_none() && server_cfg.enabled {
             user_asset_count += 1;
-            let locator = nuo_wire::security::AssetLocator::UserMcp { name: name.clone() };
+            let locator = nuo_protocol::security::AssetLocator::UserMcp { name: name.clone() };
             let spec = if let Some(url) = &server_cfg.url {
-                nuo_wire::security::AssetSpec::RemoteEndpoint {
+                nuo_protocol::security::AssetSpec::RemoteEndpoint {
                     url: url.clone(),
                     headers: server_cfg
                         .environment
@@ -83,7 +83,7 @@ pub(crate) fn compute_user_assets_trust() -> nuo_wire::WorkspaceTrustState {
                         .collect(),
                 }
             } else {
-                nuo_wire::security::AssetSpec::Process {
+                nuo_protocol::security::AssetSpec::Process {
                     command: server_cfg.command.clone(),
                     env: server_cfg
                         .environment
@@ -93,31 +93,31 @@ pub(crate) fn compute_user_assets_trust() -> nuo_wire::WorkspaceTrustState {
                 }
             };
             match ledger.status(&locator, &spec) {
-                nuo_wire::security::AttestationStatus::Trusted
-                | nuo_wire::security::AttestationStatus::SessionEphemeral
-                | nuo_wire::security::AttestationStatus::Denied => {}
-                nuo_wire::security::AttestationStatus::Changed => {
+                nuo_protocol::security::AttestationStatus::Trusted
+                | nuo_protocol::security::AttestationStatus::SessionEphemeral
+                | nuo_protocol::security::AttestationStatus::Denied => {}
+                nuo_protocol::security::AttestationStatus::Changed => {
                     user_changed_count += 1;
                     user_untrusted_count += 1;
                 }
-                nuo_wire::security::AttestationStatus::Expired => {
+                nuo_protocol::security::AttestationStatus::Expired => {
                     user_expired_count += 1;
                     user_untrusted_count += 1;
                 }
-                nuo_wire::security::AttestationStatus::Quarantined => {
+                nuo_protocol::security::AttestationStatus::Quarantined => {
                     user_untrusted_count += 1;
                 }
             }
         }
     }
     if user_asset_count == 0 {
-        nuo_wire::WorkspaceTrustState::Absent
+        nuo_protocol::WorkspaceTrustState::Absent
     } else if user_untrusted_count == 0 {
-        nuo_wire::WorkspaceTrustState::Trusted
+        nuo_protocol::WorkspaceTrustState::Trusted
     } else if user_changed_count > 0 || user_expired_count > 0 {
-        nuo_wire::WorkspaceTrustState::Changed
+        nuo_protocol::WorkspaceTrustState::Changed
     } else {
-        nuo_wire::WorkspaceTrustState::Quarantined
+        nuo_protocol::WorkspaceTrustState::Quarantined
     }
 }
 
@@ -127,9 +127,9 @@ pub(crate) fn trust_user_assets() -> Vec<String> {
     let mut trusted = Vec::new();
     for (name, server_cfg) in &config.mcp {
         if server_cfg.sandbox_root.is_none() {
-            let locator = nuo_wire::security::AssetLocator::UserMcp { name: name.clone() };
+            let locator = nuo_protocol::security::AssetLocator::UserMcp { name: name.clone() };
             let spec = if let Some(url) = &server_cfg.url {
-                nuo_wire::security::AssetSpec::RemoteEndpoint {
+                nuo_protocol::security::AssetSpec::RemoteEndpoint {
                     url: url.clone(),
                     headers: server_cfg
                         .environment
@@ -138,7 +138,7 @@ pub(crate) fn trust_user_assets() -> Vec<String> {
                         .collect(),
                 }
             } else {
-                nuo_wire::security::AssetSpec::Process {
+                nuo_protocol::security::AssetSpec::Process {
                     command: server_cfg.command.clone(),
                     env: server_cfg
                         .environment
@@ -161,9 +161,9 @@ pub(crate) fn deny_user_assets() -> Vec<String> {
     let mut denied = Vec::new();
     for (name, server_cfg) in &config.mcp {
         if server_cfg.sandbox_root.is_none() {
-            let locator = nuo_wire::security::AssetLocator::UserMcp { name: name.clone() };
+            let locator = nuo_protocol::security::AssetLocator::UserMcp { name: name.clone() };
             let spec = if let Some(url) = &server_cfg.url {
-                nuo_wire::security::AssetSpec::RemoteEndpoint {
+                nuo_protocol::security::AssetSpec::RemoteEndpoint {
                     url: url.clone(),
                     headers: server_cfg
                         .environment
@@ -172,7 +172,7 @@ pub(crate) fn deny_user_assets() -> Vec<String> {
                         .collect(),
                 }
             } else {
-                nuo_wire::security::AssetSpec::Process {
+                nuo_protocol::security::AssetSpec::Process {
                     command: server_cfg.command.clone(),
                     env: server_cfg
                         .environment

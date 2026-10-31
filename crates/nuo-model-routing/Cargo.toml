@@ -7,7 +7,7 @@ license.workspace = true
 description = "Model routing pipeline: connections x credentials x discovery cache -> provider entries, channels, and the picker snapshot"
 
 [dependencies]
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-provider = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }

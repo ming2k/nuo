@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use nuo_persistence::paths;
 
-pub use nuo_wire::discovery::Discovery;
+pub use nuo_protocol::discovery::Discovery;
 
 /// The global discovery path for the unified server: one record
 /// per user, in the instance dir (`NUO_HOME`, else

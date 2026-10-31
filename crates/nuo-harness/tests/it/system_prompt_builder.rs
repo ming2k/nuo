@@ -16,9 +16,9 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
-        Ok(nuo_wire::ProviderCompletion::message(Message::new(
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
             "done",
         )))
@@ -26,9 +26,11 @@ impl Provider for IdleProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_wire::ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
+        _request: nuo_protocol::ModelRequest,
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
         Ok(Box::pin(stream::once(async { Ok("done".to_owned()) })))
     }
 }
@@ -205,8 +207,8 @@ fn subagent_inherits_parent_model_guidance() {
 
     let tool = nuo_harness::SubagentTool::new(
         Arc::new(IdleProvider),
-        nuo_wire::ToolSet::from_tools(Vec::new()),
-        &nuo_wire::SubAgentProfile::EXPLORE,
+        nuo_protocol::ToolSet::from_tools(Vec::new()),
+        &nuo_protocol::SubAgentProfile::EXPLORE,
     );
     tool.bind_model_guidance(parent.model_guidance_handle());
 

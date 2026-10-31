@@ -1,6 +1,6 @@
 //! Shared configuration schema for MCP servers.
 //!
-//! Lives in `nuo-wire` for the same reason `WebSearchConfig` does: both the
+//! Lives in `nuo-protocol` for the same reason `WebSearchConfig` does: both the
 //! app-layer `Config` (which owns the `[mcp]` table), the runtime layers
 //! (`nuo-harness`/`nuo-server`), and the
 //! session/frontend layers exchange these values without depending on one
@@ -73,7 +73,7 @@ impl McpServerConfig {
 
 /// Runtime status reported by the MCP connector (owned by `nuo-server`) for each configured server.
 ///
-/// Lives in `nuo-wire` (alongside [`McpServerConfig`]) so the TUI can
+/// Lives in `nuo-protocol` (alongside [`McpServerConfig`]) so the TUI can
 /// consume it without depending on the connector implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McpConnectionStatus {

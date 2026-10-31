@@ -5,7 +5,7 @@
 //! became an [`ActionFlow`] value (it already was, inside `dispatch_action`).
 use std::sync::atomic::Ordering;
 
-use nuo_wire::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 use crate::shell::App;
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
@@ -21,10 +21,10 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
         let name = app.custom_name.trim().to_string();
         let protocol = app
             .custom_protocol_wire
-            .parse::<nuo_wire::WireProtocol>()
+            .parse::<nuo_protocol::WireProtocol>()
             .expect("provider editor must carry a registered wire protocol");
         let base_url = app.custom_base_url.trim().to_string();
-        let api_key = nuo_wire::SecretString::from(app.custom_token.trim());
+        let api_key = nuo_protocol::SecretString::from(app.custom_token.trim());
         if let Some(key) = app.custom_edit_id.clone() {
             // Edit mode: update meta (models stay managed in
             // the Models picker). A name is still required.
@@ -201,7 +201,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             // cleared and prefill when the `RouteSettings` answer lands.
             app.editor_vision_override = None;
             app.editor_tool_override = None;
-            app.send_intent(nuo_wire::AgentRequest::QueryRouteSettings {
+            app.send_intent(nuo_protocol::AgentRequest::QueryRouteSettings {
                 provider_id: row.provider_id.clone(),
                 model: row.model.clone(),
             });
@@ -286,7 +286,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                         String::new(),
                         String::new(),
                         String::new(),
-                        nuo_wire::ConnectionAuth::Static,
+                        nuo_protocol::ConnectionAuth::Static,
                         true,
                     ));
                 app.surfaces
@@ -322,15 +322,15 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
             };
             let mut parts = payload.splitn(2, ':');
             let axis = match parts.next() {
-                Some("search") => nuo_wire::WebProviderAxis::Search,
-                Some("reader") => nuo_wire::WebProviderAxis::Reader,
+                Some("search") => nuo_protocol::WebProviderAxis::Search,
+                Some("reader") => nuo_protocol::WebProviderAxis::Reader,
                 _ => return ActionFlow::NextEvent,
             };
             let provider_id = parts.next().unwrap_or_default().to_string();
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                nuo_wire::WebSearchConfigUpdate {
+                nuo_protocol::WebSearchConfigUpdate {
                     expected_revision,
-                    credential: Some(nuo_wire::WebCredentialUpdate {
+                    credential: Some(nuo_protocol::WebCredentialUpdate {
                         axis,
                         provider_id,
                         value: app.input.trim().to_string(),
@@ -352,7 +352,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                 return ActionFlow::NextEvent;
             };
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
-                nuo_wire::WebSearchConfigUpdate {
+                nuo_protocol::WebSearchConfigUpdate {
                     expected_revision,
                     searxng_url: Some(app.input.trim().to_string()),
                     ..Default::default()
@@ -394,7 +394,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                     model,
                     effort: Some(effort),
                     thinking: app.editor_thinking_available.then_some(app.editor_thinking),
-                    overrides: Some(nuo_wire::CapabilityOverrides {
+                    overrides: Some(nuo_protocol::CapabilityOverrides {
                         vision: app.editor_vision_override,
                         tool_call: app.editor_tool_override,
                         ..Default::default()
@@ -406,7 +406,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                     model,
                     effort: Some(effort),
                     thinking: app.editor_thinking_available.then_some(app.editor_thinking),
-                    overrides: Some(nuo_wire::CapabilityOverrides {
+                    overrides: Some(nuo_protocol::CapabilityOverrides {
                         vision: app.editor_vision_override,
                         tool_call: app.editor_tool_override,
                         ..Default::default()
@@ -686,7 +686,7 @@ pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, ke
         let auth = app.provider_row_auth(&id);
         let method = auth
             .default_login_method()
-            .unwrap_or(nuo_wire::LoginMethod::Device);
+            .unwrap_or(nuo_protocol::LoginMethod::Device);
         app.send_intent(AgentRequest::ConnectConnection { name: id, method });
         app.dismiss_surface();
     } else {
@@ -734,12 +734,12 @@ pub(crate) async fn handle_permission_submit(
     }
     if let Some(request) = app.pending_permission.take() {
         let decision = if app.permission_confirm_always {
-            nuo_wire::PermissionDecision::Always
+            nuo_protocol::PermissionDecision::Always
         } else {
             match app.modal_index {
-                0 => nuo_wire::PermissionDecision::Once,
-                i if i == reject_idx => nuo_wire::PermissionDecision::Reject,
-                _ => nuo_wire::PermissionDecision::Reject,
+                0 => nuo_protocol::PermissionDecision::Once,
+                i if i == reject_idx => nuo_protocol::PermissionDecision::Reject,
+                _ => nuo_protocol::PermissionDecision::Reject,
             }
         };
         let request_id = request.id;
@@ -749,14 +749,14 @@ pub(crate) async fn handle_permission_submit(
             decision,
             parent_call_id,
         });
-        if decision == nuo_wire::PermissionDecision::Reject {
-            let queued: Vec<nuo_wire::PermissionRequest> =
+        if decision == nuo_protocol::PermissionDecision::Reject {
+            let queued: Vec<nuo_protocol::PermissionRequest> =
                 app.pending_permissions.drain(..).collect();
             for pending in queued {
                 let parent_call_id = app.subagent_permission_parent.remove(&pending.id);
                 app.send_intent(AgentRequest::PermissionReply {
                     request_id: pending.id,
-                    decision: nuo_wire::PermissionDecision::Reject,
+                    decision: nuo_protocol::PermissionDecision::Reject,
                     parent_call_id,
                 });
             }
@@ -821,9 +821,9 @@ pub(crate) mod question_effects {
                         // record no refusal at all and let the gate re-open.
                         let offered = app.workspace_security.domains_needing_review();
                         let decision = if selected.is_empty() {
-                            nuo_wire::TrustDecision::Deny
+                            nuo_protocol::TrustDecision::Deny
                         } else {
-                            nuo_wire::TrustDecision::Grant
+                            nuo_protocol::TrustDecision::Grant
                         };
                         let domains = if selected.is_empty() {
                             offered
@@ -908,7 +908,7 @@ mod tests {
         // Simulate the mounted sheet exactly as the per-frame sync leaves it:
         // slot state set, no router transient pushed on top of the session view.
         let request = {
-            use nuo_wire::{UserQuestion, UserQuestionOption, UserQuestionRequest};
+            use nuo_protocol::{UserQuestion, UserQuestionOption, UserQuestionRequest};
             UserQuestionRequest {
                 id: "q1".into(),
                 questions: vec![UserQuestion {

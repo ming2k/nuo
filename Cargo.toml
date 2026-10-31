@@ -119,7 +119,6 @@ nuotc = { git = "https://github.com/ming2k/nuotc.git", tag = "v0.0.6" }
 
 # In-house Nuo crates
 nuo-protocol = { version = "0.0.62", path = "crates/nuo-protocol" }
-nuo-wire = { version = "0.0.62", package = "nuo-protocol", path = "crates/nuo-protocol" }
 nuo = { version = "0.0.62", path = "crates/nuo" }
 nuo-server = { version = "0.0.62", path = "crates/nuo-server" }
 nuo-persistence = { version = "0.0.62", path = "crates/nuo-persistence" }

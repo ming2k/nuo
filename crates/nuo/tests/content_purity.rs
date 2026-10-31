@@ -137,7 +137,7 @@ fn round_event_classification_has_no_wildcard_arm() {
     // And the class must actually be consulted by the admission path.
     let edits = read(&root.join("crates/nuo/src/shell/event_loop/mutations.rs"));
     assert!(
-        edits.contains("class: nuo_wire::EventClass"),
+        edits.contains("class: nuo_protocol::EventClass"),
         "TranscriptEdit::Append must carry the event class (ADR-0117)"
     );
     let apply = read(&root.join("crates/nuo/src/shell/event_loop/apply.rs"));

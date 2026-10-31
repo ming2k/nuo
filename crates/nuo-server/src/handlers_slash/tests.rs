@@ -126,7 +126,7 @@ mod session_route_tests {
 #[cfg(test)]
 mod trust_route_tests {
     use super::{TrustRoute, trust_route};
-    use nuo_wire::TrustDomain;
+    use nuo_protocol::TrustDomain;
 
     fn parts(command: &str) -> Vec<&str> {
         command.split_whitespace().collect()
@@ -346,7 +346,7 @@ mod confinement_arg_tests {
 #[cfg(test)]
 mod trust_domain_tests {
     use super::parse_trust_domain;
-    use nuo_wire::TrustDomain;
+    use nuo_protocol::TrustDomain;
 
     #[test]
     fn known_domains_parse() {
@@ -409,14 +409,14 @@ mod trust_domain_tests {
         let agent = Arc::new(nuo_harness::Agent::new(
             Arc::new(nuo_harness::NoProvider),
             vec![],
-            nuo_wire::AgentIdentity::default(),
+            nuo_protocol::AgentIdentity::default(),
         ));
         let mcp = Arc::new(crate::mcp::McpRuntime::start_background(
             Default::default(),
             agent.dynamic_tool_sink(),
         ));
         let skills = nuo_harness::cognition::skills::SkillRegistry::empty();
-        let shared_roots = nuo_wire::SharedAdditionalRoots::empty();
+        let shared_roots = nuo_protocol::SharedAdditionalRoots::empty();
 
         // Initially untrusted: roots should remain quarantined and empty
         let report = security_ops::reload_trusted_assets(
@@ -431,7 +431,7 @@ mod trust_domain_tests {
         .unwrap();
         assert_eq!(
             report.snapshot.ex_workspace,
-            nuo_wire::WorkspaceTrustState::Quarantined
+            nuo_protocol::WorkspaceTrustState::Quarantined
         );
         assert!(shared_roots.snapshot().is_empty());
 
@@ -449,7 +449,7 @@ mod trust_domain_tests {
         .unwrap();
         assert_eq!(
             report.snapshot.ex_workspace,
-            nuo_wire::WorkspaceTrustState::Trusted
+            nuo_protocol::WorkspaceTrustState::Trusted
         );
         let canonical_extra = std::fs::canonicalize(&external).unwrap();
         assert_eq!(shared_roots.snapshot(), vec![canonical_extra]);
@@ -468,7 +468,7 @@ mod trust_domain_tests {
         .unwrap();
         assert_eq!(
             report.snapshot.ex_workspace,
-            nuo_wire::WorkspaceTrustState::Quarantined
+            nuo_protocol::WorkspaceTrustState::Quarantined
         );
         assert!(shared_roots.snapshot().is_empty());
     }
@@ -477,7 +477,7 @@ mod trust_domain_tests {
 #[cfg(test)]
 mod role_command_tests {
     use crate::startup::BuiltinCmd;
-    use nuo_wire::MainAgentRole;
+    use nuo_protocol::MainAgentRole;
 
     #[test]
     fn role_command_resolves_to_builtin_role() {
@@ -504,7 +504,7 @@ mod role_command_tests {
 
 #[cfg(test)]
 mod unknown_command_tests {
-    use nuo_wire::CommandResult;
+    use nuo_protocol::CommandResult;
 
     /// A typo must come back as a **typed, machine-readable** result that names
     /// the intended command: the client deliberately routes every `/`-prefixed
@@ -560,7 +560,7 @@ mod retired_aside_redirect_tests {
     use std::sync::Arc;
 
     use nuo_persistence::session::SessionStore;
-    use nuo_wire::{AgentResponse, CommandResult, Message, Role, RoundEvent};
+    use nuo_protocol::{AgentResponse, CommandResult, Message, Role, RoundEvent};
     use tokio::sync::mpsc;
 
     use super::super::session_ops::fork_retired_aside;
@@ -587,7 +587,7 @@ mod retired_aside_redirect_tests {
         let mut texts: Vec<String> = Vec::new();
         while let Ok(resp) = rx.try_recv() {
             match resp {
-                AgentResponse::SessionForked {
+                AgentResponse::ThreadForked {
                     child_id, prompt, ..
                 } => forked = Some((child_id, prompt)),
                 AgentResponse::Round {
@@ -637,7 +637,7 @@ mod retired_aside_redirect_tests {
 
         let mut announced = None;
         while let Ok(resp) = rx.try_recv() {
-            if let AgentResponse::SessionForked {
+            if let AgentResponse::ThreadForked {
                 child_id,
                 fork_point,
                 ..
@@ -647,7 +647,7 @@ mod retired_aside_redirect_tests {
             }
         }
         let (child_id, fork_point) = announced.expect("a /fork must announce the branch");
-        assert_eq!(fork_point, Some(nuo_wire::ForkPoint::at_turn(2, 0)));
+        assert_eq!(fork_point, Some(nuo_protocol::ForkPoint::at_turn(2, 0)));
 
         // The picker's own projection reads the same value off the store — it
         // does not re-derive it from the announcement.
@@ -656,8 +656,11 @@ mod retired_aside_redirect_tests {
             .iter()
             .find(|row| row.id == child_id)
             .expect("the branch appears in the overview");
-        assert_eq!(child.fork_point, Some(nuo_wire::ForkPoint::at_turn(2, 0)));
-        assert_eq!(child.fork_kind, nuo_wire::SessionForkKind::Fork);
+        assert_eq!(
+            child.fork_point,
+            Some(nuo_protocol::ForkPoint::at_turn(2, 0))
+        );
+        assert_eq!(child.fork_kind, nuo_protocol::ThreadForkKind::Fork);
         assert_eq!(child.parent_id.as_deref(), Some(store.id().await.as_str()));
         // A fork no longer invents a title to carry its provenance.
         assert_eq!(child.title, None, "provenance is not smuggled into a title");
@@ -678,7 +681,7 @@ mod retired_aside_redirect_tests {
 
         let mut prompt_seen = None;
         while let Ok(resp) = rx.try_recv() {
-            if let AgentResponse::SessionForked { prompt, .. } = resp {
+            if let AgentResponse::ThreadForked { prompt, .. } = resp {
                 prompt_seen = Some(prompt);
             }
         }

@@ -117,7 +117,7 @@ pub fn draw_model_bar(
     let context_max = if context_window > 0 {
         context_window
     } else {
-        nuo_wire::model::resolve(current_model).context_window
+        nuo_protocol::model::resolve(current_model).context_window
     };
 
     // Name-first, id-fallback (ADR-0081): the catalog resolved this route's

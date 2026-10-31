@@ -73,6 +73,7 @@ fn input_box_grows_with_wrapped_content() {
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
                     tasks_bar: Default::default(),
+                    interrupt_key: None,
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
@@ -1293,7 +1294,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
     // A long user message fills the first wrapped line edge to edge, so the
     // right-side padding is only present if the wrap width reserves it.
     let messages = vec![TranscriptMessage::new(
-        nuo_wire::Role::User,
+        nuo_protocol::Role::User,
         "x".repeat(200),
     )];
     let long_input = "y".repeat(200);
@@ -1324,6 +1325,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1588,8 +1590,8 @@ fn queued_user_message_renders_badge_and_dimmer_bg() {
     let mut terminal = nuotc::TestTerminal::new(width, 20);
 
     let messages = vec![
-        TranscriptMessage::new(nuo_wire::Role::User, "first steer message").queued(),
-        TranscriptMessage::new(nuo_wire::Role::User, "second steer message").queued(),
+        TranscriptMessage::new(nuo_protocol::Role::User, "first steer message").queued(),
+        TranscriptMessage::new(nuo_protocol::Role::User, "second steer message").queued(),
     ];
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
@@ -1614,6 +1616,7 @@ fn queued_user_message_renders_badge_and_dimmer_bg() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1678,7 +1681,7 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
     let width = 56u16;
     let mut terminal = nuotc::TestTerminal::new(width, 16);
 
-    let mut held = TranscriptMessage::new(nuo_wire::Role::User, "held steer");
+    let mut held = TranscriptMessage::new(nuo_protocol::Role::User, "held steer");
     held.delivery = DeliveryStatus::HeldNextRound;
     held.origin = nuo_view::model::document::UserMessageOrigin::Steer;
     let messages = vec![held];
@@ -1706,6 +1709,7 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1762,11 +1766,11 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
 #[test]
 fn history_panel_uses_composer_padding_not_brand_column() {
     let theme = Theme::default();
-    let history: Vec<nuo_wire::HistoryEntry> = ["one", "two", "three"]
+    let history: Vec<nuo_protocol::HistoryEntry> = ["one", "two", "three"]
         .into_iter()
         .enumerate()
         .map(|(i, text)| {
-            nuo_wire::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
+            nuo_protocol::HistoryEntry::new(text.to_string(), Some(format!("s{i}")), None, i as u64)
         })
         .collect();
     let texts: Vec<&str> = history.iter().map(|e| e.text.as_str()).collect();
@@ -1841,7 +1845,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_wire::Role::Assistant,
+        nuo_protocol::Role::Assistant,
         "# 👨‍👩‍👧 OKX\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1866,6 +1870,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -2429,6 +2434,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                         expand_key: None,
                     },
                     tasks_bar: Default::default(),
+                    interrupt_key: None,
                     subagent_bar: None,
                     page_hints: Some(ViewHints {
                         kind: ViewKind::Thread,

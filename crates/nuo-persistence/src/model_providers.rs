@@ -4,14 +4,14 @@
 //! model provider id (e.g. `deepseek`, `anthropic`, `openai`). Applied across
 //! every connection that points at that provider — model semantics belong to
 //! the provider, not to a credential binding.
-use nuo_wire::model::ModelScopeConfig;
+use nuo_protocol::model::ModelScopeConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::fsutil;
 use crate::paths;
 
-pub use nuo_wire::model_providers::UserDeclaredProvider;
+pub use nuo_protocol::model_providers::UserDeclaredProvider;
 
 /// Root map of user-configured model providers in `model_providers.toml`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,9 +83,9 @@ impl ModelProviders {
                     if let Some(format) = table.remove("catalog_format") {
                         let format = format.as_str().ok_or("catalog_format must be a string")?;
                         let catalog = if matches!(format, "none" | "static") {
-                            nuo_wire::RemoteCatalogSource::None
+                            nuo_protocol::RemoteCatalogSource::None
                         } else {
-                            nuo_wire::RemoteCatalogSource::Endpoint(
+                            nuo_protocol::RemoteCatalogSource::Endpoint(
                                 serde_json::from_value(serde_json::Value::String(format.into()))
                                     .map_err(|e| e.to_string())?,
                             )
@@ -180,7 +180,7 @@ pub(crate) fn migrate_endpoint_root(endpoint: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::model::DeclaredModel;
+    use nuo_protocol::model::DeclaredModel;
 
     #[test]
     fn user_declared_provider_dialects_are_validated_and_preserve_endpoint_overrides() {
@@ -245,13 +245,13 @@ mod tests {
             UserDeclaredProvider {
                 label: Some("Corporate Relay".to_string()),
                 root_url: "https://relay.corp.example/v1".to_string(),
-                default_protocol: Some(nuo_wire::WireProtocol::OpenAiChatCompletions),
+                default_protocol: Some(nuo_protocol::WireProtocol::OpenAiChatCompletions),
                 user_agent: Some("corp-agent/1.0".to_string()),
                 headers: None,
-                catalog: Some(nuo_wire::RemoteCatalogSource::Endpoint(
-                    nuo_wire::CatalogShape::OpenAi,
+                catalog: Some(nuo_protocol::RemoteCatalogSource::Endpoint(
+                    nuo_protocol::CatalogShape::OpenAi,
                 )),
-                dialect: Some(nuo_wire::ProviderDialect::DeepSeek),
+                dialect: Some(nuo_protocol::ProviderDialect::DeepSeek),
                 protocol_roots: vec![],
                 catalog_root_url: None,
                 prompt_cache: None,
@@ -269,9 +269,9 @@ mod tests {
         assert_eq!(prov.root_url, "https://relay.corp.example/v1");
         assert_eq!(
             prov.default_protocol,
-            Some(nuo_wire::WireProtocol::OpenAiChatCompletions)
+            Some(nuo_protocol::WireProtocol::OpenAiChatCompletions)
         );
         assert_eq!(prov.user_agent.as_deref(), Some("corp-agent/1.0"));
-        assert_eq!(prov.dialect, Some(nuo_wire::ProviderDialect::DeepSeek));
+        assert_eq!(prov.dialect, Some(nuo_protocol::ProviderDialect::DeepSeek));
     }
 }

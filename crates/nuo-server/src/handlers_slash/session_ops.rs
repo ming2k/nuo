@@ -10,14 +10,14 @@ use nuo_harness::RoundLifecycle;
 use nuo_harness::orchestration::round_response;
 use nuo_persistence::config::Config;
 use nuo_persistence::session::SessionStore;
-use nuo_wire::{AgentNotice, AgentResponse, CommandResult, LoopStatus, RoundEvent};
+use nuo_protocol::{AgentNotice, AgentResponse, CommandResult, LoopStatus, RoundEvent};
 
 pub(crate) async fn supersede_for_session_switch(
     lifecycle: &RoundLifecycle,
     agent: &Agent,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
 ) {
-    lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::Superseded);
+    lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::Superseded);
     lifecycle.supersede();
     agent.reject_pending_permissions();
     agent.reject_pending_user_questions();
@@ -27,7 +27,7 @@ pub(crate) async fn supersede_for_session_switch(
 }
 
 pub(crate) fn apply_additional_roots(
-    handle: &nuo_wire::SharedAdditionalRoots,
+    handle: &nuo_protocol::SharedAdditionalRoots,
     effective: &Config,
     project_root: &std::path::Path,
 ) {
@@ -81,16 +81,16 @@ pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args
             .await;
             let _ = resp_tx.send(round_response(
                 &session.id().await,
-                RoundEvent::TodosUpdated(nuo_wire::TodoList::default()),
+                RoundEvent::TodosUpdated(nuo_protocol::TodoList::default()),
             ));
             let _ = resp_tx.send(AgentResponse::ConversationCleared {
                 previous_id,
-                session_id: session.id().await,
+                thread_id: session.id().await,
             });
             let _ = resp_tx.send(round_response(
                 &session.id().await,
-                RoundEvent::HarnessState(nuo_wire::HarnessSnapshot {
-                    loop_status: nuo_wire::LoopStatus::Idle,
+                RoundEvent::HarnessState(nuo_protocol::HarnessSnapshot {
+                    loop_status: nuo_protocol::LoopStatus::Idle,
                     round_counter: 0,
                     unattended: fresh_posture,
                     confined: shared_confinement.is_confined(),
@@ -120,13 +120,13 @@ pub(crate) async fn start_fresh_session(env: &mut SlashEnv<'_>, name: &str, args
 pub(crate) async fn switch_or_start_session_with_role(
     env: &mut SlashEnv<'_>,
     role_id: &str,
-    target_workspace: Option<nuo_wire::WorkspaceBinding>,
+    target_workspace: Option<nuo_protocol::WorkspaceBinding>,
     force_new: bool,
     name: &str,
     args: &str,
 ) {
     let partition =
-        nuo_wire::SessionPartition::from_binding(target_workspace.as_ref(), Some(role_id));
+        nuo_protocol::SessionPartition::from_binding(target_workspace.as_ref(), Some(role_id));
     let latest_existing_id = if !force_new {
         nuo_persistence::db::get_persistence_handle()
             .reader()
@@ -168,7 +168,7 @@ pub(crate) async fn switch_or_start_session_with_role(
                 let sec_snapshot = workspace_security.snapshot(&ws.root);
                 agent.set_workspace_security(sec_snapshot);
             } else {
-                agent.set_workspace_security(nuo_wire::WorkspaceSecuritySnapshot::new(
+                agent.set_workspace_security(nuo_protocol::WorkspaceSecuritySnapshot::new(
                     "workspace-free",
                 ));
             }
@@ -179,14 +179,14 @@ pub(crate) async fn switch_or_start_session_with_role(
                         session,
                         agent,
                         resp_tx,
-                        nuo_wire::SessionSource::Resume,
+                        nuo_protocol::SessionSource::Resume,
                     )
                     .await;
                     let transcript = session.full_transcript().await;
                     let _ = resp_tx.send(AgentResponse::ConversationReplaced {
                         // `[INV-TAB-13]`: `active_id` was captured before the open.
                         previous_id: active_id.clone(),
-                        session_id: session.id().await,
+                        thread_id: session.id().await,
                         messages: transcript,
                         commands: session.commands().await,
                         round_interrupts: session.round_interrupts().await,
@@ -202,8 +202,8 @@ pub(crate) async fn switch_or_start_session_with_role(
                     .await;
                     let _ = resp_tx.send(round_response(
                         &session.id().await,
-                        RoundEvent::HarnessState(nuo_wire::HarnessSnapshot {
-                            loop_status: nuo_wire::LoopStatus::Idle,
+                        RoundEvent::HarnessState(nuo_protocol::HarnessSnapshot {
+                            loop_status: nuo_protocol::LoopStatus::Idle,
                             round_counter: session.round_counter().await,
                             unattended: session.unattended().await,
                             confined: shared_confinement.is_confined(),
@@ -251,7 +251,7 @@ pub(crate) async fn switch_or_start_session_with_role(
 pub(crate) async fn start_fresh_session_with_role(
     env: &mut SlashEnv<'_>,
     role_id: &str,
-    target_workspace: Option<nuo_wire::WorkspaceBinding>,
+    target_workspace: Option<nuo_protocol::WorkspaceBinding>,
     name: &str,
     args: &str,
 ) {
@@ -297,7 +297,9 @@ pub(crate) async fn start_fresh_session_with_role(
         let sec_snapshot = workspace_security.snapshot(&ws.root);
         agent.set_workspace_security(sec_snapshot);
     } else {
-        agent.set_workspace_security(nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free"));
+        agent.set_workspace_security(nuo_protocol::WorkspaceSecuritySnapshot::new(
+            "workspace-free",
+        ));
     }
 
     // `[INV-TAB-13]`: captured before the reset repoints the store (see
@@ -317,11 +319,12 @@ pub(crate) async fn start_fresh_session_with_role(
                     RoundEvent::UnattendedChanged(fresh_posture),
                 ));
             }
-            let default_confined = if let Some(builtin) = nuo_wire::MainAgentRole::parse(role_id) {
-                builtin.default_confined()
-            } else {
-                true
-            };
+            let default_confined =
+                if let Some(builtin) = nuo_protocol::MainAgentRole::parse(role_id) {
+                    builtin.default_confined()
+                } else {
+                    true
+                };
             if shared_confinement.is_confined() != default_confined {
                 shared_confinement.set_confined(default_confined);
                 let _ = resp_tx.send(round_response(
@@ -341,16 +344,16 @@ pub(crate) async fn start_fresh_session_with_role(
             .await;
             let _ = resp_tx.send(round_response(
                 &session.id().await,
-                RoundEvent::TodosUpdated(nuo_wire::TodoList::default()),
+                RoundEvent::TodosUpdated(nuo_protocol::TodoList::default()),
             ));
             let _ = resp_tx.send(AgentResponse::ConversationCleared {
                 previous_id,
-                session_id: session.id().await,
+                thread_id: session.id().await,
             });
             let _ = resp_tx.send(round_response(
                 &session.id().await,
-                RoundEvent::HarnessState(nuo_wire::HarnessSnapshot {
-                    loop_status: nuo_wire::LoopStatus::Idle,
+                RoundEvent::HarnessState(nuo_protocol::HarnessSnapshot {
+                    loop_status: nuo_protocol::LoopStatus::Idle,
                     round_counter: 0,
                     unattended: fresh_posture,
                     confined: shared_confinement.is_confined(),
@@ -391,16 +394,16 @@ pub(crate) async fn restore_session_runtime(
     session: &Arc<SessionStore>,
     agent: &Arc<Agent>,
     resp_tx: &mpsc::UnboundedSender<AgentResponse>,
-    source: nuo_wire::SessionSource,
+    source: nuo_protocol::SessionSource,
 ) {
     // Restore role and identity from the session's manifest or role metadata
     if let Some(manifest) = session.role_manifest().await {
         let role_identity = manifest.identity.clone();
-        let mut role = nuo_wire::AgentRoleProfile::with_identity(
+        let mut role = nuo_protocol::AgentRoleProfile::with_identity(
             manifest.role_id.clone(),
             role_identity.clone(),
         );
-        role.tools = nuo_wire::ToolSelection::from_allowlist(&manifest.tools);
+        role.tools = nuo_protocol::ToolSelection::from_allowlist(&manifest.tools);
         role.admit_mcp = manifest.admit_mcp.clone();
         if session.workspace_root().is_some() {
             role.extensions.push(Arc::new(
@@ -460,10 +463,10 @@ pub(crate) async fn restore_session_runtime(
         agent.set_unattended(restored_unattended);
         if restored_from_ledger {
             let notice = AgentNotice::new(
-                nuo_wire::NoticeKind::CommandAck,
-                nuo_wire::NoticeSeverity::Warning,
+                nuo_protocol::NoticeKind::CommandAck,
+                nuo_protocol::NoticeSeverity::Warning,
                 "Unattended mode restored",
-                nuo_wire::NoticeSource::Harness,
+                nuo_protocol::NoticeSource::Harness,
             )
             .with_body(
                 "This session was previously running in unattended execution mode. \
@@ -601,7 +604,7 @@ async fn emit_fork(
             )
             .await;
             let child_id = outcome.child_id;
-            let _ = resp_tx.send(AgentResponse::SessionForked {
+            let _ = resp_tx.send(AgentResponse::ThreadForked {
                 child_id: child_id.clone(),
                 parent_id: outcome.parent_id,
                 fork_point: Some(fork_point),

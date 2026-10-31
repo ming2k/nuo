@@ -4,7 +4,7 @@
 
 use crate::cli::ThreadAction;
 use nuo::transport::{self as client, ControlRequest};
-use nuo_wire::{MonitorAction, MonitorEvent, MonitoredSession};
+use nuo_protocol::{MonitorAction, MonitorEvent, MonitoredThread};
 use std::path::PathBuf;
 
 #[cfg(feature = "interactive")]
@@ -68,7 +68,7 @@ pub async fn run(
                 None => return Err("server closed the monitor stream".into()),
             };
 
-            render_threads(&state.sessions, watch, json);
+            render_threads(&state.threads, watch, json);
             if !watch {
                 return Ok(());
             }
@@ -76,11 +76,11 @@ pub async fn run(
             while let Some(event) = rx.recv().await {
                 match event {
                     MonitorEvent::Snapshot(snapshot) => state = snapshot,
-                    MonitorEvent::SessionAdded(row) | MonitorEvent::SessionUpdated(row) => {
-                        client::upsert_session_row(&mut state.sessions, row);
+                    MonitorEvent::ThreadAdded(row) | MonitorEvent::ThreadUpdated(row) => {
+                        client::upsert_session_row(&mut state.threads, row);
                     }
-                    MonitorEvent::SessionRemoved { session_id } => {
-                        state.sessions.retain(|row| row.id != session_id);
+                    MonitorEvent::ThreadRemoved { thread_id } => {
+                        state.threads.retain(|row| row.id != thread_id);
                     }
                     MonitorEvent::ServerDraining => {
                         if !json {
@@ -90,7 +90,7 @@ pub async fn run(
                     }
                     _ => {}
                 }
-                render_threads(&state.sessions, watch, json);
+                render_threads(&state.threads, watch, json);
             }
             Ok(())
         }
@@ -103,8 +103,8 @@ pub async fn run(
             }
             client::control(
                 &info,
-                ControlRequest::KillSession {
-                    session_id: id.clone(),
+                ControlRequest::KillThread {
+                    thread_id: id.clone(),
                 },
             )
             .await?;
@@ -114,7 +114,7 @@ pub async fn run(
     }
 }
 
-fn render_threads(sessions: &[MonitoredSession], watch: bool, json: bool) {
+fn render_threads(sessions: &[MonitoredThread], watch: bool, json: bool) {
     if json {
         println!(
             "{}",
@@ -130,7 +130,7 @@ fn render_threads(sessions: &[MonitoredSession], watch: bool, json: bool) {
 
 /// One headless row: a live session plus the lineage geometry it paints.
 struct ThreadRow<'a> {
-    row: &'a MonitoredSession,
+    row: &'a MonitoredThread,
     /// `""` at the root lane; otherwise ancestor columns plus an elbow — the
     /// same grammar the TUI picker paints, so a terminal without the TUI still
     /// sees the tree (ADR-0120). The elbow closes on the last row of a sibling
@@ -143,12 +143,12 @@ struct ThreadRow<'a> {
 /// this derives geometry from the same persisted facts and the same two rules:
 /// newest creation first within a sibling set, and every row emitted exactly
 /// once (ADR-0120, ADR-0128).
-fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
+fn thread_rows(sessions: &[MonitoredThread]) -> Vec<ThreadRow<'_>> {
     use std::collections::{HashMap, HashSet};
 
     let present: HashSet<&str> = sessions.iter().map(|s| s.id.as_str()).collect();
-    let mut children: HashMap<&str, Vec<&MonitoredSession>> = HashMap::new();
-    let mut roots: Vec<&MonitoredSession> = Vec::new();
+    let mut children: HashMap<&str, Vec<&MonitoredThread>> = HashMap::new();
+    let mut roots: Vec<&MonitoredThread> = Vec::new();
     for row in sessions {
         match row.parent_id.as_deref() {
             Some(parent) if present.contains(parent) && parent != row.id => {
@@ -161,7 +161,7 @@ fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
     // Newest creation first, id as the tiebreak so equal timestamps still form
     // a total order. `updated_at` is a liveness signal: ordering on it would
     // move a row every time a model streams (`[INV-LINEAGE-03]`).
-    let by_creation = |a: &&MonitoredSession, b: &&MonitoredSession| {
+    let by_creation = |a: &&MonitoredThread, b: &&MonitoredThread| {
         (b.created_at, a.id.as_str()).cmp(&(a.created_at, b.id.as_str()))
     };
     roots.sort_by(by_creation);
@@ -173,7 +173,7 @@ fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
     let mut visited: HashSet<&str> = HashSet::new();
     // Explicit stack, not recursion: a long chain must not overflow the stack
     // of a CLI that a script may point at an arbitrary store.
-    let mut stack: Vec<(&MonitoredSession, usize, bool, Vec<bool>)> = roots
+    let mut stack: Vec<(&MonitoredThread, usize, bool, Vec<bool>)> = roots
         .iter()
         .enumerate()
         .rev()
@@ -208,7 +208,7 @@ fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
     // Rows unreachable from any root (a `parent_id` cycle) still get listed.
     // They keep the same total order as every other sibling set rather than
     // whatever sequence the monitor snapshot happened to arrive in.
-    let mut stranded: Vec<&MonitoredSession> = sessions
+    let mut stranded: Vec<&MonitoredThread> = sessions
         .iter()
         .filter(|row| !visited.contains(row.id.as_str()))
         .collect();
@@ -223,7 +223,7 @@ fn thread_rows(sessions: &[MonitoredSession]) -> Vec<ThreadRow<'_>> {
     out
 }
 
-pub fn format_threads_table(sessions: &[MonitoredSession]) -> String {
+pub fn format_threads_table(sessions: &[MonitoredThread]) -> String {
     let mut out = String::new();
     if sessions.is_empty() {
         out.push_str("  (no active threads hosted on server; run `nuo thread ls -a` to include reaped/suspended threads)\n");
@@ -255,11 +255,13 @@ pub fn format_threads_table(sessions: &[MonitoredSession]) -> String {
             title.push_str(&lane);
         }
         match (row.fork_kind, row.fork_point) {
-            (nuo_wire::SessionForkKind::Fork, Some(point)) => title.push_str(&format!("⑂{point} ")),
-            (nuo_wire::SessionForkKind::Fork, None) => title.push_str("⑂ "),
+            (nuo_protocol::ThreadForkKind::Fork, Some(point)) => {
+                title.push_str(&format!("⑂{point} "))
+            }
+            (nuo_protocol::ThreadForkKind::Fork, None) => title.push_str("⑂ "),
             _ => {}
         }
-        if let (nuo_wire::SessionForkKind::Fork, Some(parent)) =
+        if let (nuo_protocol::ThreadForkKind::Fork, Some(parent)) =
             (row.fork_kind, row.parent_id.as_deref())
             && lane.is_empty()
         {
@@ -329,19 +331,19 @@ fn fmt_relative(updated_epoch_ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{SessionForkKind, SessionHosting, SessionStatus};
+    use nuo_protocol::{ThreadForkKind, ThreadHosting, ThreadStatus};
 
     #[test]
     fn format_threads_table_renders_header_and_rows() {
-        let rows = vec![MonitoredSession {
+        let rows = vec![MonitoredThread {
             id: "thr_99998888".into(),
             title: Some("implement universal snapshot".into()),
             overview: "implement universal snapshot".into(),
             created_at: 100,
             updated_at: 100,
             message_count: 5,
-            hosting: SessionHosting::Hosted,
-            status: SessionStatus::Running,
+            hosting: ThreadHosting::Hosted,
+            status: ThreadStatus::Running,
             round: 2,
             turn: Some(1),
             output_tokens: 500,
@@ -352,7 +354,7 @@ mod tests {
             note: None,
             project_root: "/data".into(),
             parent_id: None,
-            fork_kind: SessionForkKind::default(),
+            fork_kind: ThreadForkKind::default(),
             fork_point: None,
             digest: None,
         }];
@@ -370,15 +372,15 @@ mod tests {
     /// (`[INV-LINEAGE-01]`, `[INV-LINEAGE-02]`).
     #[test]
     fn threads_table_nests_branches_under_their_trunk() {
-        let row = |id: &str, parent: Option<&str>, created: u64| MonitoredSession {
+        let row = |id: &str, parent: Option<&str>, created: u64| MonitoredThread {
             id: id.into(),
             title: Some(id.into()),
             overview: id.into(),
             created_at: created,
             updated_at: created,
             message_count: 1,
-            hosting: SessionHosting::Hosted,
-            status: SessionStatus::Idle,
+            hosting: ThreadHosting::Hosted,
+            status: ThreadStatus::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -390,11 +392,11 @@ mod tests {
             project_root: "/data".into(),
             parent_id: parent.map(str::to_string),
             fork_kind: if parent.is_some() {
-                SessionForkKind::Fork
+                ThreadForkKind::Fork
             } else {
-                SessionForkKind::Trunk
+                ThreadForkKind::Trunk
             },
-            fork_point: parent.map(|_| nuo_wire::ForkPoint::at_turn(1, 0)),
+            fork_point: parent.map(|_| nuo_protocol::ForkPoint::at_turn(1, 0)),
             digest: None,
         };
 
@@ -428,15 +430,15 @@ mod tests {
     /// per-sibling-set rule the TUI picker applies (ADR-0128).
     #[test]
     fn threads_table_lists_roots_newest_first_without_orphaning_branches() {
-        let row = |id: &str, parent: Option<&str>, created: u64| MonitoredSession {
+        let row = |id: &str, parent: Option<&str>, created: u64| MonitoredThread {
             id: id.into(),
             title: Some(id.into()),
             overview: id.into(),
             created_at: created,
             updated_at: created,
             message_count: 1,
-            hosting: SessionHosting::Hosted,
-            status: SessionStatus::Idle,
+            hosting: ThreadHosting::Hosted,
+            status: ThreadStatus::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -448,11 +450,11 @@ mod tests {
             project_root: "/data".into(),
             parent_id: parent.map(str::to_string),
             fork_kind: if parent.is_some() {
-                SessionForkKind::Fork
+                ThreadForkKind::Fork
             } else {
-                SessionForkKind::Trunk
+                ThreadForkKind::Trunk
             },
-            fork_point: parent.map(|_| nuo_wire::ForkPoint::at_round(1)),
+            fork_point: parent.map(|_| nuo_protocol::ForkPoint::at_round(1)),
             digest: None,
         };
 
@@ -484,15 +486,15 @@ mod tests {
     /// origin instead of masquerading as a top-level conversation.
     #[test]
     fn threads_table_marks_a_branch_whose_origin_is_absent() {
-        let rows = vec![MonitoredSession {
+        let rows = vec![MonitoredThread {
             id: "orphan0001".into(),
             title: None,
             overview: "orphan".into(),
             created_at: 10,
             updated_at: 10,
             message_count: 1,
-            hosting: SessionHosting::Hosted,
-            status: SessionStatus::Idle,
+            hosting: ThreadHosting::Hosted,
+            status: ThreadStatus::Idle,
             round: 0,
             turn: None,
             output_tokens: 0,
@@ -503,7 +505,7 @@ mod tests {
             note: None,
             project_root: "/data".into(),
             parent_id: Some("missing-parent-id".into()),
-            fork_kind: SessionForkKind::Fork,
+            fork_kind: ThreadForkKind::Fork,
             fork_point: None,
             digest: None,
         }];

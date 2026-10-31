@@ -8,7 +8,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use nuo_tool::{
@@ -53,19 +52,20 @@ fn read_accesses(arguments: &str) -> ToolAccesses {
     }
 }
 
-/// Context holding the active workspace root and system tool settings.
+/// Context holding the active workspace root and filesystem tool settings.
 #[derive(Clone)]
 pub struct SystemToolContext {
     pub workspace_root: PathBuf,
-    pub default_timeout: Duration,
     pub vfs_resolver: Option<Arc<dyn nuo_tool::VirtualFileResolver>>,
 }
+
+/// Semantic alias for filesystem tool context ([INV-TOOL-15]).
+pub type FsToolContext = SystemToolContext;
 
 impl std::fmt::Debug for SystemToolContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SystemToolContext")
             .field("workspace_root", &self.workspace_root)
-            .field("default_timeout", &self.default_timeout)
             .field("vfs_resolver", &self.vfs_resolver.is_some())
             .finish()
     }
@@ -75,14 +75,8 @@ impl SystemToolContext {
     pub fn new(workspace_root: impl Into<PathBuf>) -> Self {
         Self {
             workspace_root: workspace_root.into(),
-            default_timeout: Duration::from_secs(60),
             vfs_resolver: None,
         }
-    }
-
-    pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.default_timeout = timeout;
-        self
     }
 
     pub fn with_vfs_resolver(mut self, resolver: Arc<dyn nuo_tool::VirtualFileResolver>) -> Self {

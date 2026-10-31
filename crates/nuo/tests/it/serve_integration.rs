@@ -5,23 +5,23 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use nuo::monitor::MonitorTracker;
-use nuo::registry::{HostedSession, SessionRegistry};
+use nuo::registry::{HostedThread, ThreadRegistry};
 use nuo::serve::{self, AttachAction, Wire};
 use nuo_persistence::session::SessionStore;
-use nuo_wire::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
+use nuo_protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-fn idle_base(id: String) -> nuo_wire::MonitoredSession {
-    nuo_wire::MonitoredSession {
+fn idle_base(id: String) -> nuo_protocol::MonitoredThread {
+    nuo_protocol::MonitoredThread {
         id,
         title: None,
         overview: String::new(),
         created_at: 0,
         updated_at: 0,
         message_count: 0,
-        status: nuo_wire::SessionStatus::Idle,
-        hosting: nuo_wire::SessionHosting::Hosted,
+        status: nuo_protocol::ThreadStatus::Idle,
+        hosting: nuo_protocol::ThreadHosting::Hosted,
         round: 0,
         turn: None,
         output_tokens: 0,
@@ -32,7 +32,7 @@ fn idle_base(id: String) -> nuo_wire::MonitoredSession {
         note: None,
         project_root: String::new(),
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::default(),
+        fork_kind: nuo_protocol::ThreadForkKind::default(),
         fork_point: None,
         digest: None,
     }
@@ -41,24 +41,24 @@ fn idle_base(id: String) -> nuo_wire::MonitoredSession {
 async fn prehosted(
     session: Arc<SessionStore>,
 ) -> (
-    Arc<SessionRegistry>,
+    Arc<ThreadRegistry>,
     mpsc::Receiver<AgentRequest>,
     broadcast::Sender<AgentResponse>,
 ) {
-    prehosted_with_catalog(session, nuo_wire::CommandCatalog::default()).await
+    prehosted_with_catalog(session, nuo_protocol::CommandCatalog::default()).await
 }
 
 async fn prehosted_with_catalog(
     session: Arc<SessionStore>,
-    command_catalog: nuo_wire::CommandCatalog,
+    command_catalog: nuo_protocol::CommandCatalog,
 ) -> (
-    Arc<SessionRegistry>,
+    Arc<ThreadRegistry>,
     mpsc::Receiver<AgentRequest>,
     broadcast::Sender<AgentResponse>,
 ) {
     let (req_tx, req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     // The synthetic project has no contributed assets, so the attach path has
     // no quarantine notice to add to these tests' frames. The state file
     // needs its own directory: the
@@ -75,7 +75,7 @@ async fn prehosted_with_catalog(
 
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::ThreadStatus::Idle,
     )));
     // Mimic the registry's broadcast-tap: fold every emitted response into the
     // tracker, publish a monitor diff, and buffer the attach-sync events, so
@@ -92,7 +92,7 @@ async fn prehosted_with_catalog(
                 guard.observe(&response);
                 guard.row()
             };
-            registry_for_tap.publish_for_test(MonitorEvent::SessionUpdated(row));
+            registry_for_tap.publish_for_test(MonitorEvent::ThreadUpdated(row));
             if matches!(
                 response,
                 AgentResponse::ProviderSwitched { .. }
@@ -104,14 +104,14 @@ async fn prehosted_with_catalog(
         }
     });
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(std::path::PathBuf::from("/tmp/nuo-test-project")),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -134,12 +134,12 @@ async fn prehosted_with_catalog(
 async fn completion_catalog_and_edits_round_trip_over_websocket() {
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
-    let command = nuo_wire::CommandSpec {
+    let command = nuo_protocol::CommandSpec {
         name: "/models".into(),
         summary: "Choose a model".into(),
         ..Default::default()
     };
-    let catalog = nuo_wire::CommandCatalog {
+    let catalog = nuo_protocol::CommandCatalog {
         commands: vec![command.clone()],
         ..Default::default()
     };
@@ -157,8 +157,8 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             version: None,
             action: AttachAction::Attach(None),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -178,10 +178,10 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
         match serde_json::from_str::<Wire>(frame.to_text().unwrap_or("")).unwrap() {
             Wire::Welcome { .. } => {}
             Wire::Response {
-                response: AgentResponse::SessionSnapshot(snapshot),
+                response: AgentResponse::ThreadSnapshot(snapshot),
             } => snapshot_catalog = snapshot.command_catalog.clone(),
             Wire::Response {
-                response: AgentResponse::SessionPhase(_),
+                response: AgentResponse::ThreadPhase(_),
             } => {}
             other => panic!("expected hydration, got {other:?}"),
         }
@@ -196,9 +196,9 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             .unwrap()
             .unwrap();
         if let Wire::Response {
-            response: AgentResponse::SessionPhase(update),
+            response: AgentResponse::ThreadPhase(update),
         } = serde_json::from_str::<Wire>(frame.to_text().unwrap_or("")).unwrap()
-            && update.phase == nuo_wire::SessionPhase::Ready
+            && update.phase == nuo_protocol::ThreadPhase::Ready
         {
             break;
         }
@@ -231,13 +231,13 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
         } if text == "/mod"
     ));
 
-    let item = nuo_wire::ComposerCompletion {
+    let item = nuo_protocol::ComposerCompletion {
         label: "/models".into(),
         description: "Choose a model".into(),
         insert_text: "/models ".into(),
         replace_start: 0,
         replace_end: 4,
-        kind: nuo_wire::ComposerCompletionKind::Slash,
+        kind: nuo_protocol::ComposerCompletionKind::Slash,
         alias_of: None,
         command: Some(command),
     };
@@ -277,7 +277,7 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
 /// broadcast-tap: project-scoping tests need several hosted sessions with
 /// distinct roots in one registry, and only the registry's project index
 /// matters for them.
-async fn host_with_project(registry: &SessionRegistry, project: std::path::PathBuf) -> String {
+async fn host_with_project(registry: &ThreadRegistry, project: std::path::PathBuf) -> String {
     // `for_path` keeps every artifact under the given project dir instead of
     // minting files in the real XDG project bucket; the registry only needs
     // `project_root` for routing/indexing.
@@ -289,25 +289,25 @@ async fn host_with_project(registry: &SessionRegistry, project: std::path::PathB
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(id.clone()),
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::ThreadStatus::Idle,
     )));
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(project),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_wire::CommandCatalog::default(),
+            command_catalog: nuo_protocol::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
@@ -341,7 +341,7 @@ async fn test_select_then_attach_round_trip() {
         version: None,
         action: AttachAction::Attach(None),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -354,7 +354,7 @@ async fn test_select_then_attach_round_trip() {
         .unwrap();
     let welcome: Wire = serde_json::from_str(welcome_msg.to_text().unwrap_or("")).unwrap();
     match welcome {
-        Wire::Welcome { session_id: id, .. } => assert_eq!(id, session_id),
+        Wire::Welcome { thread_id: id, .. } => assert_eq!(id, session_id),
         other => panic!("expected Welcome, got {other:?}"),
     }
 
@@ -368,12 +368,12 @@ async fn test_select_then_attach_round_trip() {
         .unwrap();
     match serde_json::from_str::<Wire>(sync_msg.to_text().unwrap_or("")).unwrap() {
         Wire::Response {
-            response: AgentResponse::SessionSnapshot(snapshot),
+            response: AgentResponse::ThreadSnapshot(snapshot),
         } => {
             assert!(snapshot.todos.is_empty());
             assert!(snapshot.harness_state.is_some());
         }
-        other => panic!("expected SessionSnapshot sync, got {other:?}"),
+        other => panic!("expected ThreadSnapshot sync, got {other:?}"),
     }
 
     ws.send(WsMessage::Text(
@@ -393,7 +393,7 @@ async fn test_select_then_attach_round_trip() {
     }
 
     let _ = bc_tx.send(AgentResponse::Round {
-        session_id: session_id.clone(),
+        thread_id: session_id.clone(),
         event: RoundEvent::Text("back".into()),
     });
     // Skip the readiness transition that follows the hydration snapshot.
@@ -406,7 +406,7 @@ async fn test_select_then_attach_round_trip() {
         let resp: Wire = serde_json::from_str(resp_msg.to_text().unwrap_or("")).unwrap();
         match resp {
             Wire::Response {
-                response: AgentResponse::SessionPhase(_),
+                response: AgentResponse::ThreadPhase(_),
             } => continue,
             Wire::Response {
                 response: AgentResponse::Round { event, .. },
@@ -443,8 +443,8 @@ async fn welcome_then_snapshot_then_ready_is_the_order() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -465,25 +465,25 @@ async fn welcome_then_snapshot_then_ready_is_the_order() {
 
     match next_frame!() {
         Wire::Welcome {
-            session_id: id,
+            thread_id: id,
             phase,
         } => {
             assert_eq!(id, session_id);
-            assert!(matches!(phase, nuo_wire::SessionPhase::Ready));
+            assert!(matches!(phase, nuo_protocol::ThreadPhase::Ready));
         }
         other => panic!("expected Welcome first, got {other:?}"),
     }
     match next_frame!() {
         Wire::Response {
-            response: AgentResponse::SessionSnapshot(snapshot),
-        } => assert_eq!(snapshot.session_id, session_id),
-        other => panic!("expected SessionSnapshot second, got {other:?}"),
+            response: AgentResponse::ThreadSnapshot(snapshot),
+        } => assert_eq!(snapshot.thread_id, session_id),
+        other => panic!("expected ThreadSnapshot second, got {other:?}"),
     }
     match next_frame!() {
         Wire::Response {
-            response: AgentResponse::SessionPhase(update),
-        } => assert_eq!(update.phase, nuo_wire::SessionPhase::Ready),
-        other => panic!("expected SessionPhase(Ready) third, got {other:?}"),
+            response: AgentResponse::ThreadPhase(update),
+        } => assert_eq!(update.phase, nuo_protocol::ThreadPhase::Ready),
+        other => panic!("expected ThreadPhase(Ready) third, got {other:?}"),
     }
 }
 
@@ -502,14 +502,17 @@ async fn attach_receives_restored_todos_after_welcome() {
 
     // Give the session content so its file persists, then a non-empty list.
     session
-        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "hello",
+        )])
         .await
         .unwrap();
-    let mut todos = nuo_wire::TodoList::new();
-    todos.items.push(nuo_wire::TodoItem {
-        id: nuo_wire::TodoId(1),
+    let mut todos = nuo_protocol::TodoList::new();
+    todos.items.push(nuo_protocol::TodoItem {
+        id: nuo_protocol::TodoId(1),
         content: "restored task".to_string(),
-        status: nuo_wire::TodoStatus::InProgress,
+        status: nuo_protocol::TodoStatus::InProgress,
         created_at: 1,
         updated_at: 1,
     });
@@ -527,7 +530,7 @@ async fn attach_receives_restored_todos_after_welcome() {
         version: None,
         action: AttachAction::Attach(None),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -539,7 +542,7 @@ async fn attach_receives_restored_todos_after_welcome() {
         .unwrap()
         .unwrap();
     match serde_json::from_str::<Wire>(welcome_msg.to_text().unwrap_or("")).unwrap() {
-        Wire::Welcome { session_id: id, .. } => assert_eq!(id, session_id),
+        Wire::Welcome { thread_id: id, .. } => assert_eq!(id, session_id),
         other => panic!("expected Welcome, got {other:?}"),
     }
 
@@ -552,9 +555,9 @@ async fn attach_receives_restored_todos_after_welcome() {
         .unwrap();
     match serde_json::from_str::<Wire>(todos_msg.to_text().unwrap_or("")).unwrap() {
         Wire::Response {
-            response: AgentResponse::SessionSnapshot(snapshot),
+            response: AgentResponse::ThreadSnapshot(snapshot),
         } => {
-            assert_eq!(snapshot.session_id, session_id);
+            assert_eq!(snapshot.thread_id, session_id);
             assert_eq!(snapshot.todos, todos.items);
         }
         other => panic!("expected SessionSnapshot restore, got {other:?}"),
@@ -600,7 +603,7 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
             version: None,
             action: AttachAction::Attach(None),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             protocol: None,
         })
         .unwrap()
@@ -624,7 +627,7 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
             _ => break,
         };
         if let Ok(Wire::Response {
-            response: AgentResponse::SessionSnapshot(snapshot),
+            response: AgentResponse::ThreadSnapshot(snapshot),
         }) = serde_json::from_str::<Wire>(msg.to_text().unwrap_or(""))
         {
             saw_provider = Some((snapshot.provider, snapshot.model));
@@ -656,7 +659,7 @@ async fn unknown_id_is_an_error() {
         version: None,
         action: AttachAction::Attach(Some("nope".into())),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -694,8 +697,8 @@ async fn unknown_id_is_refused_with_session_gone_code() {
         version: None,
         action: AttachAction::Attach(Some("no-such-session-at-all".into())),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-        protocol: Some(nuo_wire::PROTOCOL_VERSION),
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -710,7 +713,7 @@ async fn unknown_id_is_refused_with_session_gone_code() {
             assert!(message.contains("no-such-session-at-all"));
             assert_eq!(
                 code.as_deref(),
-                Some(nuo_wire::ERR_SESSION_GONE),
+                Some(nuo_protocol::ERR_SESSION_GONE),
                 "a session with no durable binding must be refused as gone so the \
                  client can retire the tab that names it"
             );
@@ -723,10 +726,10 @@ async fn unknown_id_is_refused_with_session_gone_code() {
 /// the caller's working directory, and auto-attach must resolve inside THAT
 /// project — not the server process's cwd, which is whatever the first client
 /// that spawned the server happened to use. `New` creation and lazy resume
-/// are scoped by the same value (`registry::SessionRegistry::resolve`).
+/// are scoped by the same value (`registry::ThreadRegistry::resolve`).
 #[tokio::test]
 async fn select_project_scopes_auto_attach() {
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let project_a = std::env::temp_dir().join(format!("nuo-scope-a-{}", uuid::Uuid::new_v4()));
     let project_b = std::env::temp_dir().join(format!("nuo-scope-b-{}", uuid::Uuid::new_v4()));
     let id_a = host_with_project(&registry, project_a.clone()).await;
@@ -746,7 +749,7 @@ async fn select_project_scopes_auto_attach() {
         version: None,
         action: AttachAction::Attach(None),
         project: Some(project_a),
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -758,7 +761,10 @@ async fn select_project_scopes_auto_attach() {
         .unwrap()
         .unwrap();
     match serde_json::from_str::<Wire>(msg.to_text().unwrap_or("")).unwrap() {
-        Wire::Welcome { session_id, .. } => assert_eq!(session_id, id_a),
+        Wire::Welcome {
+            thread_id: session_id,
+            ..
+        } => assert_eq!(session_id, id_a),
         other => panic!("expected Welcome for project-a's session, got {other:?}"),
     }
 }
@@ -783,7 +789,7 @@ async fn select_without_project_falls_back_to_server_cwd() {
     let _cleanup_elsewhere = Cleanup(elsewhere_sessions);
     let _cleanup_cwd = Cleanup(sessions_dir);
 
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let cwd_session = host_with_project(&registry, cwd).await;
     let _other = host_with_project(&registry, elsewhere).await;
 
@@ -810,7 +816,10 @@ async fn select_without_project_falls_back_to_server_cwd() {
         .unwrap()
         .unwrap();
     match serde_json::from_str::<Wire>(msg.to_text().unwrap_or("")).unwrap() {
-        Wire::Welcome { session_id, .. } => assert_eq!(session_id, cwd_session),
+        Wire::Welcome {
+            thread_id: session_id,
+            ..
+        } => assert_eq!(session_id, cwd_session),
         other => panic!("expected Welcome for the cwd-rooted session, got {other:?}"),
     }
 }
@@ -824,7 +833,7 @@ async fn select_without_project_falls_back_to_server_cwd() {
 /// cross-project session remains an explicit choice.
 #[tokio::test]
 async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let project_a = std::env::temp_dir().join(format!("nuo-scope-d-{}", uuid::Uuid::new_v4()));
     let project_b = std::env::temp_dir().join(format!("nuo-scope-e-{}", uuid::Uuid::new_v4()));
     let id_b = host_with_project(&registry, project_b.clone()).await;
@@ -840,7 +849,7 @@ async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
         version: None,
         action: AttachAction::Attach(None),
         project: Some(project_a),
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -852,7 +861,7 @@ async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
         .unwrap()
         .unwrap();
     match serde_json::from_str::<Wire>(msg.to_text().unwrap_or("")).unwrap() {
-        Wire::Pick { sessions } => {
+        Wire::Pick { threads: sessions } => {
             // The picker offers exactly the foreign session — an explicit
             // choice, never an automatic one.
             assert_eq!(sessions.len(), 1);
@@ -887,7 +896,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
             include_idle: true,
         }),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -903,8 +912,8 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
         Wire::Monitor {
             event: MonitorEvent::Snapshot(snapshot),
         } => {
-            assert_eq!(snapshot.sessions.len(), 1);
-            assert_eq!(snapshot.sessions[0].id, session_id);
+            assert_eq!(snapshot.threads.len(), 1);
+            assert_eq!(snapshot.threads[0].id, session_id);
         }
         other => panic!("expected monitor Snapshot, got {other:?}"),
     }
@@ -912,7 +921,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
     // A broadcast response flows through the tracker into a diff. A
     // TurnStarted flips the row to Running, which the watch stream reports.
     let _ = bc_tx.send(AgentResponse::Round {
-        session_id: session_id.clone(),
+        thread_id: session_id.clone(),
         event: RoundEvent::TurnStarted { round: 1, turn: 0 },
     });
     let diff = tokio::time::timeout(Duration::from_secs(2), ws.next())
@@ -923,10 +932,10 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
     let frame: Wire = serde_json::from_str(diff.to_text().unwrap_or("")).unwrap();
     match frame {
         Wire::Monitor {
-            event: MonitorEvent::SessionUpdated(row),
+            event: MonitorEvent::ThreadUpdated(row),
         } => {
             assert_eq!(row.id, session_id);
-            assert_eq!(row.status, nuo_wire::SessionStatus::Running);
+            assert_eq!(row.status, nuo_protocol::ThreadStatus::Running);
             assert_eq!(row.round, 1);
             assert_eq!(row.turn, Some(0));
         }
@@ -944,8 +953,8 @@ async fn rename_live_session_republishes_monitor_row() {
     // real content so it persists and appears in `list()`.
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     session
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
             "first prompt",
         )])
         .await
@@ -976,7 +985,7 @@ async fn rename_live_session_republishes_monitor_row() {
     let row = tokio::time::timeout(Duration::from_secs(2), async {
         loop {
             match monitor_rx.recv().await {
-                Ok(MonitorEvent::SessionUpdated(row)) if row.id == session_id => break row,
+                Ok(MonitorEvent::ThreadUpdated(row)) if row.id == session_id => break row,
                 Ok(_) => continue,
                 Err(error) => panic!("monitor stream ended before the rename diff: {error}"),
             }
@@ -994,7 +1003,7 @@ async fn rename_live_session_republishes_monitor_row() {
         })
         .await;
     let row = snapshot
-        .sessions
+        .threads
         .iter()
         .find(|row| row.id == session_id)
         .unwrap();
@@ -1024,7 +1033,7 @@ async fn monitor_one_shot_closes_after_snapshot() {
             include_idle: false,
         }),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1040,7 +1049,7 @@ async fn monitor_one_shot_closes_after_snapshot() {
     match frame {
         Wire::Monitor {
             event: MonitorEvent::Snapshot(snapshot),
-        } => assert!(snapshot.sessions.is_empty()),
+        } => assert!(snapshot.threads.is_empty()),
         other => panic!("expected monitor Snapshot, got {other:?}"),
     }
     // Then the stream ends.
@@ -1082,7 +1091,7 @@ async fn attach_end_session_tears_down_and_notifies() {
             include_idle: true,
         }),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1114,7 +1123,7 @@ async fn attach_end_session_tears_down_and_notifies() {
         version: None,
         action: AttachAction::Attach(Some(id.clone())),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1132,7 +1141,7 @@ async fn attach_end_session_tears_down_and_notifies() {
 
     // Declare the session ended — raw frame shape the Web app sends.
     ws.send(WsMessage::Text(
-        r#"{"type":"Request","EndSession":null}"#.into(),
+        r#"{"type":"Request","EndThread":null}"#.into(),
     ))
     .await
     .unwrap();
@@ -1158,7 +1167,7 @@ async fn attach_end_session_tears_down_and_notifies() {
     // connection layer, not forwarded).
     assert!(
         _req_rx.try_recv().is_err(),
-        "EndSession must not reach the driver queue"
+        "EndThread must not reach the driver queue"
     );
 
     // The dashboard's monitor stream sees the row disappear.
@@ -1170,9 +1179,9 @@ async fn attach_end_session_tears_down_and_notifies() {
     let frame: Wire = serde_json::from_str(removed.to_text().unwrap_or("")).unwrap();
     match frame {
         Wire::Monitor {
-            event: MonitorEvent::SessionRemoved { session_id },
-        } => assert_eq!(session_id, id),
-        other => panic!("expected monitor SessionRemoved, got {other:?}"),
+            event: MonitorEvent::ThreadRemoved { thread_id },
+        } => assert_eq!(thread_id, id),
+        other => panic!("expected monitor ThreadRemoved, got {other:?}"),
     }
 
     let _ = handle;
@@ -1183,7 +1192,7 @@ async fn attach_end_session_tears_down_and_notifies() {
 /// observe in the monitor snapshot, kill.
 #[tokio::test]
 async fn control_create_observe_kill_roundtrip() {
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let probe = registry.clone();
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
@@ -1197,13 +1206,13 @@ async fn control_create_observe_kill_roundtrip() {
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
         version: None,
-        action: AttachAction::Control(serve::ControlRequest::CreateSession {
+        action: AttachAction::Control(serve::ControlRequest::CreateThread {
             project: "/tmp/x".into(),
             prompt: None,
             init_options: None,
         }),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1228,11 +1237,11 @@ async fn control_create_observe_kill_roundtrip() {
         .unwrap();
     let select = serde_json::to_string(&Wire::Select {
         version: None,
-        action: AttachAction::Control(serve::ControlRequest::KillSession {
-            session_id: "nope".into(),
+        action: AttachAction::Control(serve::ControlRequest::KillThread {
+            thread_id: "nope".into(),
         }),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1265,7 +1274,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         &format!("serve-integration-{}", std::process::id()),
     )
     .unwrap();
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let mut handle = serve::start_server(
         serve::ServeOptions {
             local_endpoint: Some(endpoint.clone()),
@@ -1304,7 +1313,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
             include_idle: true,
         }),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     };
     wire_sink.send(select).await.unwrap();
@@ -1314,9 +1323,9 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         .unwrap()
         .unwrap();
     match msg {
-        Wire::Monitor {
+        nuo_protocol::WireFrame::Wire(Wire::Monitor {
             event: MonitorEvent::Snapshot(_),
-        } => {}
+        }) => {}
         other => panic!("expected Snapshot over native local IPC, got {other:?}"),
     }
 
@@ -1349,7 +1358,7 @@ async fn native_local_ipc_bind_failure_is_reported() {
     )
     .unwrap();
     let _occupied = nuo_host::ipc::LocalListener::bind(&endpoint).unwrap();
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let mut handle = serve::start_server(
         serve::ServeOptions {
             local_endpoint: Some(endpoint),
@@ -1375,36 +1384,36 @@ async fn host_bare(
     session: Arc<SessionStore>,
     created_at: std::time::Instant,
 ) -> (
-    Arc<SessionRegistry>,
+    Arc<ThreadRegistry>,
     broadcast::Sender<AgentResponse>,
     String,
 ) {
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let base = idle_base(session.id().await);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         base,
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::ThreadStatus::Idle,
     )));
     let id = session.id().await;
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(std::env::temp_dir().join("nuo-reaper-project")),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx.clone(),
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_wire::CommandCatalog::default(),
+            command_catalog: nuo_protocol::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at,
@@ -1427,14 +1436,14 @@ fn fresh_empty_store(tag: &str) -> (std::path::PathBuf, Arc<SessionStore>) {
 }
 
 /// Snapshot the set of currently hosted session ids.
-async fn hosted_ids(registry: &SessionRegistry) -> std::collections::HashSet<String> {
+async fn hosted_ids(registry: &ThreadRegistry) -> std::collections::HashSet<String> {
     registry
         .monitor_snapshot(MonitorAction {
             watch: false,
             include_idle: true,
         })
         .await
-        .sessions
+        .threads
         .into_iter()
         .map(|r| r.id)
         .collect()
@@ -1490,7 +1499,10 @@ async fn reaper_keeps_session_once_it_has_content() {
     // Give the session real content: this persists it, so it is user history
     // and must never be reaped no matter how idle.
     store
-        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "hello",
+        )])
         .await
         .unwrap();
     let (registry, _tx, id) = host_bare(store, std::time::Instant::now()).await;
@@ -1509,7 +1521,10 @@ async fn reaper_keeps_session_once_it_has_content() {
 async fn suspension_removes_idle_persisted_session() {
     let (dir, store) = fresh_empty_store("suspend");
     store
-        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "hello",
+        )])
         .await
         .unwrap();
     let (registry, _tx, id) = host_bare(store, std::time::Instant::now()).await;
@@ -1533,7 +1548,10 @@ async fn suspension_removes_idle_persisted_session() {
 async fn suspension_keeps_session_with_attached_client() {
     let (dir, store) = fresh_empty_store("suspend-attached");
     store
-        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "hello",
+        )])
         .await
         .unwrap();
     let (registry, bc_tx, id) = host_bare(store, std::time::Instant::now()).await;
@@ -1553,7 +1571,10 @@ async fn suspension_keeps_session_with_attached_client() {
 async fn suspension_deferred_by_recent_activity() {
     let (dir, store) = fresh_empty_store("suspend-active");
     store
-        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "hello",
+        )])
         .await
         .unwrap();
     // Hosted "recently": the idle clock has not run out yet.
@@ -1591,7 +1612,7 @@ async fn suspension_skips_empty_unpersisted_sessions() {
 /// trigger source signals use.
 #[tokio::test]
 async fn shutdown_control_verb_replies_then_stops_accepting() {
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
 
@@ -1603,7 +1624,7 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
         version: None,
         action: AttachAction::Control(serve::ControlRequest::Shutdown),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1656,7 +1677,7 @@ async fn version_skew_is_refused_with_both_versions() {
             version: version.map(str::to_string),
             action: AttachAction::Attach(Some("definitely-not-a-session".into())),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
             protocol: None,
         })
         .unwrap();
@@ -1750,7 +1771,7 @@ fn global_record_carries_the_server_version() {
 /// declares no number keeps the product-version judgment.
 #[tokio::test]
 async fn protocol_window_governs_when_declared() {
-    use nuo_wire::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
+    use nuo_protocol::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
@@ -1767,7 +1788,7 @@ async fn protocol_window_governs_when_declared() {
             protocol,
             action: AttachAction::Attach(Some("definitely-not-a-session".into())),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         })
         .unwrap();
         ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1841,7 +1862,7 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
         version: None,
         action: AttachAction::Control(request),
         project: None,
-        posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
+        posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         protocol: None,
     })
     .unwrap();
@@ -1869,7 +1890,7 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
 /// to lazy-resume from), while an unknown id is the usual not-hosted error.
 #[tokio::test]
 async fn control_suspend_session_guards_and_rejects() {
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let tmp = tempfile::tempdir().unwrap();
     // An empty session: hosted but with no persisted content.
     let empty_id = host_with_project(&registry, tmp.path().to_path_buf()).await;
@@ -1881,8 +1902,8 @@ async fn control_suspend_session_guards_and_rejects() {
     // Unknown session: the standard not-hosted error.
     let err = control_roundtrip(
         port,
-        serve::ControlRequest::SuspendSession {
-            session_id: "missing".into(),
+        serve::ControlRequest::SuspendThread {
+            thread_id: "missing".into(),
         },
     )
     .await
@@ -1895,8 +1916,8 @@ async fn control_suspend_session_guards_and_rejects() {
     // Empty session: refused with the "kill it instead" guidance.
     let err = control_roundtrip(
         port,
-        serve::ControlRequest::SuspendSession {
-            session_id: empty_id.clone(),
+        serve::ControlRequest::SuspendThread {
+            thread_id: empty_id.clone(),
         },
     )
     .await
@@ -1916,13 +1937,16 @@ async fn control_suspend_session_guards_and_rejects() {
 /// exercises, so this test pins only the verb's contract.
 #[tokio::test]
 async fn control_suspend_session_parks_a_contentful_session() {
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let tmp = tempfile::tempdir().unwrap();
     let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
     let id = session.id().await;
     // Real content → the session persists, so it is suspendable.
     session
-        .replace_messages(vec![nuo_wire::Message::new(nuo_wire::Role::User, "hello")])
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "hello",
+        )])
         .await
         .unwrap();
 
@@ -1930,25 +1954,25 @@ async fn control_suspend_session_parks_a_contentful_session() {
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(id.clone()),
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::ThreadStatus::Idle,
     )));
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security: std::sync::Arc::new(
                 nuo_persistence::workspace_security::WorkspaceSecurityStore::load(),
             ),
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
-            command_catalog: nuo_wire::CommandCatalog::default(),
+            command_catalog: nuo_protocol::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
             created_at: std::time::Instant::now(),
@@ -1967,8 +1991,8 @@ async fn control_suspend_session_parks_a_contentful_session() {
     assert!(
         control_roundtrip(
             port,
-            serve::ControlRequest::SuspendSession {
-                session_id: id.clone(),
+            serve::ControlRequest::SuspendThread {
+                thread_id: id.clone(),
             },
         )
         .await
@@ -1995,7 +2019,7 @@ async fn attach_trust_workspace(
     attach_trust_workspace_with_posture(
         tmp,
         security_file,
-        nuo_wire::human_request::HumanChannelPosture::Interactive,
+        nuo_protocol::human_request::HumanChannelPosture::Interactive,
     )
     .await
 }
@@ -2008,7 +2032,7 @@ async fn attach_trust_workspace(
 async fn attach_trust_workspace_with_posture(
     tmp: &tempfile::TempDir,
     security_file: &std::path::Path,
-    posture: nuo_wire::human_request::HumanChannelPosture,
+    posture: nuo_protocol::human_request::HumanChannelPosture,
 ) -> (
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     serve::ServeHandle,
@@ -2019,23 +2043,23 @@ async fn attach_trust_workspace_with_posture(
             security_file.to_path_buf(),
         ),
     );
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let sync_buffer = Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new()));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::ThreadStatus::Idle,
     )));
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -2064,7 +2088,7 @@ async fn attach_trust_workspace_with_posture(
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
             posture,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2092,23 +2116,23 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
         ),
     );
 
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let (req_tx, _req_rx) = mpsc::channel::<AgentRequest>(512);
     let (bc_tx, _) = broadcast::channel::<AgentResponse>(1024);
     let sync_buffer = Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new()));
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
         idle_base(session.id().await),
-        nuo_wire::SessionStatus::Idle,
+        nuo_protocol::ThreadStatus::Idle,
     )));
     registry
-        .host(HostedSession {
+        .host(HostedThread {
             workspace_root: Some(tmp.path().to_path_buf()),
             human_channel: std::sync::Arc::new(
-                nuo_wire::human_request::HumanChannelAccountant::new(),
+                nuo_protocol::human_request::HumanChannelAccountant::new(),
             ),
             security,
             session,
-            shared_confinement: nuo_wire::SharedConfinement::default(),
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
             req_tx,
             events: bc_tx,
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -2136,8 +2160,8 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             version: None,
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2161,10 +2185,10 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             continue;
         };
         match response {
-            AgentResponse::SessionSnapshot(snapshot) => {
+            AgentResponse::ThreadSnapshot(snapshot) => {
                 if let Some(harness) = &snapshot.harness_state
                     && harness.workspace_security.instructions
-                        == nuo_wire::WorkspaceTrustState::Quarantined
+                        == nuo_protocol::WorkspaceTrustState::Quarantined
                 {
                     saw_quarantined_snapshot = true;
                 }
@@ -2219,7 +2243,7 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
         security_file.clone(),
     );
     security
-        .trust_domains(tmp.path(), &[nuo_wire::TrustDomain::Instructions])
+        .trust_domains(tmp.path(), &[nuo_protocol::TrustDomain::Instructions])
         .unwrap();
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
     let (mut ws, _server) = attach_trust_workspace(&tmp, &security_file).await;
@@ -2237,10 +2261,10 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
             continue;
         };
         match response {
-            AgentResponse::SessionSnapshot(snapshot) => {
+            AgentResponse::ThreadSnapshot(snapshot) => {
                 if let Some(harness) = &snapshot.harness_state
                     && harness.workspace_security.instructions
-                        == nuo_wire::WorkspaceTrustState::Changed
+                        == nuo_protocol::WorkspaceTrustState::Changed
                 {
                     saw_changed_snapshot = true;
                     // The snapshot is the gate; the passive banner must not
@@ -2251,7 +2275,7 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
             AgentResponse::Round {
                 event: RoundEvent::Notice(n),
                 ..
-            } if n.kind == nuo_wire::NoticeKind::TrustChanged => {
+            } if n.kind == nuo_protocol::NoticeKind::TrustChanged => {
                 saw_banner = true;
             }
             _ => {}
@@ -2281,13 +2305,13 @@ async fn autonomous_attach_falls_back_to_the_banner() {
         security_file.clone(),
     );
     security
-        .trust_domains(tmp.path(), &[nuo_wire::TrustDomain::Instructions])
+        .trust_domains(tmp.path(), &[nuo_protocol::TrustDomain::Instructions])
         .unwrap();
     std::fs::write(tmp.path().join("AGENTS.md"), "project instructions v2").unwrap();
     let (mut ws, _server) = attach_trust_workspace_with_posture(
         &tmp,
         &security_file,
-        nuo_wire::human_request::HumanChannelPosture::Autonomous,
+        nuo_protocol::human_request::HumanChannelPosture::Autonomous,
     )
     .await;
 
@@ -2306,7 +2330,7 @@ async fn autonomous_attach_falls_back_to_the_banner() {
             continue;
         };
         if let RoundEvent::Notice(n) = event
-            && n.kind == nuo_wire::NoticeKind::TrustChanged
+            && n.kind == nuo_protocol::NoticeKind::TrustChanged
         {
             saw_banner = true;
             break;
@@ -2349,8 +2373,8 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2367,7 +2391,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             .unwrap();
         let frame: Wire = serde_json::from_str(raw.to_text().unwrap_or("")).unwrap();
         if let Wire::Response {
-            response: AgentResponse::SessionSnapshot(snapshot),
+            response: AgentResponse::ThreadSnapshot(snapshot),
         } = frame
             && snapshot
                 .provider_keys
@@ -2389,8 +2413,8 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2407,7 +2431,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             .unwrap();
         let frame: Wire = serde_json::from_str(raw.to_text().unwrap_or("")).unwrap();
         if let Wire::Response {
-            response: AgentResponse::SessionSnapshot(snapshot),
+            response: AgentResponse::ThreadSnapshot(snapshot),
         } = frame
             && snapshot
                 .provider_keys
@@ -2445,8 +2469,8 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
             version: None,
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
-            posture: nuo_wire::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_wire::PROTOCOL_VERSION),
+            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
+            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
         })
         .unwrap()
         .into(),
@@ -2557,7 +2581,7 @@ fn test_inv_remote_01_endpoint_resolution() {
 async fn test_inv_remote_02_remote_symmetry_and_detach() {
     use nuo::transport::{AttachAction, ClientTarget, Handshake, RemoteServer};
 
-    let registry = Arc::new(SessionRegistry::prehost_only());
+    let registry = Arc::new(ThreadRegistry::prehost_only());
     let _session_id = host_with_project(&registry, std::env::temp_dir()).await;
     let token = "test-remote-bearer-98765".to_string();
 

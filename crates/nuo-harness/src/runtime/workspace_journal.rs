@@ -6,7 +6,7 @@
 //! tool's own declarations rather than from the model's prose:
 //!
 //! 1. **Which paths does this call mutate?** — from
-//!    [`Tool::accesses`](nuo_wire::Tool::accesses), the same declaration the
+//!    [`Tool::accesses`](nuo_protocol::Tool::accesses), the same declaration the
 //!    scheduler uses to serialize concurrent calls. Not from the argument JSON:
 //!    a tool that declares a write is a tool that writes, and a tool that writes
 //!    without declaring it is caught by `debug_assert_safe_targets`.
@@ -164,9 +164,9 @@ fn read_pre_image(path: &Path) -> Result<Option<Vec<u8>>, String> {
 /// Capture one call's effects **before** it executes.
 ///
 /// `effect_ceiling` is the tool's declared
-/// [`effect_class`](nuo_wire::Tool::effect_class) and `accesses` its declared
+/// [`effect_class`](nuo_protocol::Tool::effect_class) and `accesses` its declared
 /// accesses for these arguments; the two are reconciled here exactly as
-/// [`effect_class_for`](nuo_wire::Tool::effect_class_for) does, so a tool cannot
+/// [`effect_class_for`](nuo_protocol::Tool::effect_class_for) does, so a tool cannot
 /// claim reversibility it cannot support.
 ///
 /// Returns [`CaptureOutcome::paths`] empty and [`CaptureOutcome::effect`] the

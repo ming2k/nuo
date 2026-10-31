@@ -135,7 +135,7 @@ pub(crate) fn render_pricing_detail_rows(
     section_title: &str,
     theme: &Theme,
 ) -> Option<Vec<SelectableRow>> {
-    let pricing = nuo_wire::pricing::resolve_model_pricing(provider_id, model)?;
+    let pricing = nuo_protocol::pricing::resolve_model_pricing(provider_id, model)?;
     let mut rows = Vec::new();
     rows.push(SelectableRow::empty());
     rows.push(detail_section_row(section_title, theme));
@@ -161,9 +161,10 @@ pub(crate) fn render_pricing_detail_rows(
         ));
     } else {
         let base_tier = &pricing.tiers[0];
-        let in_str = nuo_wire::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
+        let in_str =
+            nuo_protocol::pricing::NanoUsd(base_tier.input_standard_nano_per_m).format_rate();
         let out_str =
-            nuo_wire::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
+            nuo_protocol::pricing::NanoUsd(base_tier.output_standard_nano_per_m).format_rate();
         let tiered_suffix = if pricing.tiers.len() > 1 {
             ", tiered"
         } else {
@@ -183,7 +184,8 @@ pub(crate) fn render_pricing_detail_rows(
         ));
 
         if base_tier.cache_read_nano_per_m > 0 {
-            let hit_str = nuo_wire::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
+            let hit_str =
+                nuo_protocol::pricing::NanoUsd(base_tier.cache_read_nano_per_m).format_rate();
             let discount_pct = if base_tier.input_standard_nano_per_m > 0 {
                 let saved = base_tier
                     .input_standard_nano_per_m
@@ -207,9 +209,10 @@ pub(crate) fn render_pricing_detail_rows(
 
         if let Some(off_peak) = &pricing.off_peak {
             let op_tier = &off_peak.tiers[0];
-            let op_in = nuo_wire::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
+            let op_in =
+                nuo_protocol::pricing::NanoUsd(op_tier.input_standard_nano_per_m).format_rate();
             let op_out =
-                nuo_wire::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
+                nuo_protocol::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
             rows.push(detail_kv_row(
                 "Off-Peak Rates",
                 &format!("50% off ({op_in} in · {op_out} out)"),
@@ -228,7 +231,7 @@ pub(crate) fn render_pricing_detail_rows(
                 .unwrap_or(0);
             let window = off_peak
                 .schedule
-                .window_at(nuo_wire::pricing::RatingInstant::from_epoch_ms(now_ms));
+                .window_at(nuo_protocol::pricing::RatingInstant::from_epoch_ms(now_ms));
             let (win_label, win_style) = if window.is_off_peak() {
                 (
                     "Off-Peak (Active)",

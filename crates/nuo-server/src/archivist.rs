@@ -20,7 +20,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nuo_harness::{Agent, AgentIdentity};
 use nuo_persistence::db::{DbReader, get_persistence_handle};
-use nuo_wire::Tool;
+use nuo_protocol::Tool;
 use serde_json::json;
 
 use acp::{AgentAddress, AgentEnvelope, Fabric, MessageIntent, SteerAction};
@@ -38,7 +38,7 @@ fn read_store() -> Result<DbReader, String> {
 /// addressed as `agent://local/hypervisor/archivist` with the retrieval toolset plus the
 /// delegation channel. `fabric` is the server's shared ACP fabric.
 pub fn build_archivist(
-    provider: Arc<dyn nuo_wire::Provider>,
+    provider: Arc<dyn nuo_protocol::Provider>,
     fabric: Option<Fabric>,
 ) -> Arc<Agent> {
     let address = archivist_address();
@@ -64,7 +64,7 @@ pub fn build_archivist(
     );
 
     let agent = Arc::new(Agent::new(provider, tools, identity));
-    agent.set_kind(nuo_wire::AgentKind::Root);
+    agent.set_kind(nuo_protocol::AgentKind::Root);
     agent
 }
 
@@ -213,7 +213,7 @@ impl Tool for ArchivistSearchHistoryTool {
         let query = args["query"].as_str().ok_or("Missing 'query' argument")?;
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 100) as usize;
-        let filter = workspace.map(|w| nuo_wire::WorkspaceFilter::Path(w.into()));
+        let filter = workspace.map(|w| nuo_protocol::WorkspaceFilter::Path(w.into()));
 
         let reader = read_store()?;
         // Two-stage recall (Layer 3, deterministic leg): strict
@@ -291,7 +291,7 @@ impl Tool for ArchivistListSessionsTool {
         let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(50).clamp(1, 500) as usize;
-        let filter = workspace.map(|w| nuo_wire::WorkspaceFilter::Path(w.into()));
+        let filter = workspace.map(|w| nuo_protocol::WorkspaceFilter::Path(w.into()));
 
         let reader = read_store()?;
         let rows = reader

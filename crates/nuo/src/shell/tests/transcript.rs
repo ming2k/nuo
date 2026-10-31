@@ -9,26 +9,26 @@ use super::*;
 #[test]
 fn only_high_frequency_stream_updates_are_coalesced() {
     let stream_delta = AgentResponse::Round {
-        session_id: "session".to_string(),
+        thread_id: "thread".to_string(),
         event: RoundEvent::StreamDelta("hello".to_string()),
     };
     let tool_stream = AgentResponse::Round {
-        session_id: "session".to_string(),
+        thread_id: "thread".to_string(),
         event: RoundEvent::ToolStream {
             id: "call".to_string(),
-            stream: nuo_wire::ToolStream::Stdout("line\n".to_string()),
+            stream: nuo_protocol::ToolStream::Stdout("line\n".to_string()),
         },
     };
     let stream_start = AgentResponse::Round {
-        session_id: "session".to_string(),
+        thread_id: "thread".to_string(),
         event: RoundEvent::StreamStart,
     };
     let stream_end = AgentResponse::Round {
-        session_id: "session".to_string(),
+        thread_id: "thread".to_string(),
         event: RoundEvent::StreamEnd("done".to_string()),
     };
     let tool_input_progress = AgentResponse::Round {
-        session_id: "session".to_string(),
+        thread_id: "thread".to_string(),
         event: RoundEvent::ToolInputProgress {
             index: 0,
             id: None,
@@ -37,7 +37,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
         },
     };
     let tool_call_started = AgentResponse::Round {
-        session_id: "session".to_string(),
+        thread_id: "thread".to_string(),
         event: RoundEvent::ToolCallStarted {
             index: 0,
             id: None,
@@ -102,15 +102,15 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
     // restores as a distinct, non-conversational command row carrying the
     // typed result as its expandable body.
     let commands = vec![
-        nuo_wire::CommandRecord::new("search", "foo").with_result(
-            nuo_wire::CommandResult::Search {
+        nuo_protocol::CommandRecord::new("search", "foo").with_result(
+            nuo_protocol::CommandResult::Search {
                 query: "foo".to_string(),
                 hits: vec![],
             },
         ),
         // A result-less record (legacy fold / command without result): the
         // invocation still restores, with an empty expandable body.
-        nuo_wire::CommandRecord::new("compact", ""),
+        nuo_protocol::CommandRecord::new("compact", ""),
     ];
     let restored = transcript_commands_from_ledger(commands);
     assert_eq!(restored.len(), 2);
@@ -130,7 +130,7 @@ fn command_ledger_restores_as_non_conversational_command_rows() {
     assert_eq!(search.round, None, "a command is not a thread turn");
     assert_ne!(
         search.role,
-        nuo_wire::Role::Assistant,
+        nuo_protocol::Role::Assistant,
         "never assistant prose"
     );
 
@@ -151,7 +151,7 @@ fn command_error_settles_pending_command_in_place() {
     assert_eq!(message.command_result_phase(), Some(CommandPhase::Pending));
     assert_eq!(message.command_result_text(), None);
 
-    let settled = message.settle_command_result(nuo_wire::CommandResult::Error {
+    let settled = message.settle_command_result(nuo_protocol::CommandResult::Error {
         message: "Unknown /trust subcommand 'workspace'.".to_string(),
         detail: None,
     });
@@ -172,8 +172,8 @@ fn command_error_settles_pending_command_in_place() {
 #[test]
 fn command_rows_merge_at_their_turn_seams_on_restore() {
     use crate::shell::transcript::merge_command_rows;
+    use nuo_protocol::Role;
     use nuo_view::model::document::TranscriptMessage;
-    use nuo_wire::Role;
 
     // Dialogue: two rounds, timestamps 1000 and 3000.
     let dialogue = vec![
@@ -189,14 +189,14 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
     // Ledger: one command run between the rounds (2000), one after the last
     // (4000). Rebuild stamps each row with the record's timestamp.
     let commands = crate::shell::transcript::transcript_commands_from_ledger(vec![
-        nuo_wire::CommandRecord::new("compact", "")
-            .with_result(nuo_wire::CommandResult::Ack {
+        nuo_protocol::CommandRecord::new("compact", "")
+            .with_result(nuo_protocol::CommandResult::Ack {
                 title: "Compacted".to_string(),
                 detail: None,
             })
             .with_timestamp(2000),
-        nuo_wire::CommandRecord::new("new", "")
-            .with_result(nuo_wire::CommandResult::Text(
+        nuo_protocol::CommandRecord::new("new", "")
+            .with_result(nuo_protocol::CommandResult::Text(
                 "Started new session: c3".to_string(),
             ))
             .with_timestamp(4000),
@@ -223,15 +223,15 @@ fn command_rows_merge_at_their_turn_seams_on_restore() {
 #[test]
 fn command_rows_tail_when_dialogue_has_no_timestamps() {
     use crate::shell::transcript::merge_command_rows;
+    use nuo_protocol::Role;
     use nuo_view::model::document::TranscriptMessage;
-    use nuo_wire::Role;
 
     let dialogue = vec![
         TranscriptMessage::new(Role::User, "prompt"),
         TranscriptMessage::new(Role::Assistant, "reply"),
     ];
     let commands = crate::shell::transcript::transcript_commands_from_ledger(vec![
-        nuo_wire::CommandRecord::new("compact", "").with_timestamp(123),
+        nuo_protocol::CommandRecord::new("compact", "").with_timestamp(123),
     ]);
 
     let merged = merge_command_rows(dialogue, commands);
@@ -247,7 +247,7 @@ fn command_result_message_expands_and_round_trips_display() {
     let mut message = TranscriptMessage::command_result(
         "permissions",
         "",
-        Some(nuo_wire::CommandResult::PermissionList {
+        Some(nuo_protocol::CommandResult::PermissionList {
             allowed: vec!["execute_command".to_string()],
         }),
     );
@@ -287,7 +287,7 @@ fn command_row_layout_classifies_by_result_shape() {
     let fresh = TranscriptMessage::command_result(
         "new",
         "",
-        Some(nuo_wire::CommandResult::Text(
+        Some(nuo_protocol::CommandResult::Text(
             "Started new session: a1b2c3".to_string(),
         )),
     );
@@ -304,7 +304,7 @@ fn command_row_layout_classifies_by_result_shape() {
     let permissions = TranscriptMessage::command_result(
         "permissions",
         "",
-        Some(nuo_wire::CommandResult::PermissionList {
+        Some(nuo_protocol::CommandResult::PermissionList {
             allowed: vec!["execute_command".to_string(), "edit_text".to_string()],
         }),
     );
@@ -348,7 +348,7 @@ fn queued_dispatch_carries_text_and_images() {
         state: QueuedDispatchState::Waiting,
         text: "hello".to_string(),
         queued_at_ms: 0,
-        images: vec![nuo_wire::ImagePart {
+        images: vec![nuo_protocol::ImagePart {
             mime: "image/png".to_string(),
             data: "base64".to_string(),
         }],
@@ -513,7 +513,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // User prompt is sending in transcript
     let prompt = nuo_view::model::document::TranscriptMessage::new(
-        nuo_wire::Role::User,
+        nuo_protocol::Role::User,
         "write a fibonacci function",
     )
     .sending();
@@ -528,7 +528,7 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
 
     // Verify interrupt request was sent to agent
     let req = rx.try_recv().expect("must send interrupt request");
-    assert!(matches!(req, nuo_wire::AgentRequest::Interrupt));
+    assert!(matches!(req, nuo_protocol::AgentRequest::Interrupt));
 
     // UI state is immediately cleared (not blocked)
     assert!(!app.running_sessions.contains("session-a"));
@@ -558,7 +558,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     let prompt =
-        nuo_view::model::document::TranscriptMessage::new(nuo_wire::Role::User, "calculate pi")
+        nuo_view::model::document::TranscriptMessage::new(nuo_protocol::Role::User, "calculate pi")
             .sending();
     app.messages.push(prompt);
 
@@ -584,8 +584,8 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     // The interrupt's detail carries the last fault, one line — the producer
     // puts it there (see the `RoundInterrupted` arm of the translator), so the
     // anchor is self-explanatory without a second row.
-    let record = nuo_wire::RoundInterrupt {
-        reason: nuo_wire::RoundInterruptReason::User,
+    let record = nuo_protocol::RoundInterrupt {
+        reason: nuo_protocol::RoundInterruptReason::User,
         round: Some(1),
         at_ms: 1_234_567,
         detail: Some("Google HTTP 503 Service Unavailable: No capacity available for model".into()),

@@ -9,7 +9,7 @@ description = "OpenRouter multi-model gateway provider channel for Nuo"
 [dependencies]
 nuo-provider = { workspace = true }
 nuo-inference-wire = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 inventory = { workspace = true }

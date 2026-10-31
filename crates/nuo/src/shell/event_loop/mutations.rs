@@ -20,8 +20,8 @@
 //!   stream), and the loop drains eagerly each iteration.
 use std::collections::HashMap;
 
-use nuo_wire::{
-    InputRequest, PermissionRequest, ProviderPickerSnapshot, SessionOverview, SubagentEvent,
+use nuo_protocol::{
+    InputRequest, PermissionRequest, ProviderPickerSnapshot, SubagentEvent, ThreadOverview,
     ToolStream, UserQuestionRequest,
 };
 
@@ -37,7 +37,7 @@ pub(crate) struct CompletionSignal {
     pub request_id: u64,
     pub input: String,
     pub cursor: usize,
-    pub items: Vec<nuo_wire::InputCompletion>,
+    pub items: Vec<nuo_protocol::InputCompletion>,
 }
 
 /// One semantic edit of the primary transcript document. The applier executes
@@ -124,7 +124,7 @@ pub(crate) enum TranscriptEdit {
     /// carries the preview where a decision is at stake.
     ToolPreview {
         id: String,
-        preview: nuo_wire::PreviewResult,
+        preview: nuo_protocol::PreviewResult,
     },
     /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call.
     ToolInputProgress {
@@ -139,7 +139,7 @@ pub(crate) enum TranscriptEdit {
         id: String,
         name: String,
         output: String,
-        structured: nuo_wire::ToolOutput,
+        structured: nuo_protocol::ToolOutput,
         duration_ms: u64,
         fallback: Option<TranscriptMessage>,
     },
@@ -178,14 +178,16 @@ pub(crate) enum TranscriptEdit {
     /// this invocation, or append the fallback component.
     SettleCommandResult {
         invocation: String,
-        result: nuo_wire::CommandResult,
+        result: nuo_protocol::CommandResult,
         fallback: Option<TranscriptMessage>,
     },
     /// The newest user prompt matching the interruption semantics is marked
     /// cancelled, any in-flight provider retry is settled into a static failure
     /// notice preserving diagnostics, and a round-interrupt projection row is
     /// appended.
-    Interrupted { record: nuo_wire::RoundInterrupt },
+    Interrupted {
+        record: nuo_protocol::RoundInterrupt,
+    },
     /// The newest user prompt is marked cancelled (transport-level retraction).
     CancelLastUserPrompt,
     /// Append a fully-built message (assistant text, notices, projections).
@@ -195,7 +197,7 @@ pub(crate) enum TranscriptEdit {
         /// `TurnOutcome` becomes an anchor; every other class is refused, so an
         /// operation, a telemetry sample or a receipt can never enter the thread
         /// transcript (`nuo_view::model::thread`).
-        class: nuo_wire::EventClass,
+        class: nuo_protocol::EventClass,
         message: TranscriptMessage,
     },
     /// Freeze any orphaned still-streaming reasoning trace (its round ended
@@ -236,7 +238,7 @@ pub(crate) enum ChromeEdit {
     /// The round ended (interrupt / error): retire the live surface.
     RoundEnded,
     /// The turn finished; performance snapshot for the Activity modal.
-    TurnPerformance(Box<nuo_wire::TurnPerformanceSnapshot>),
+    TurnPerformance(Box<nuo_protocol::TurnPerformanceSnapshot>),
 }
 
 /// Everything the response translator (and monitor client) can ask the event
@@ -253,12 +255,12 @@ pub(crate) enum AppMutation {
     },
 
     // Session lifecycle / harness.
-    Harness(nuo_wire::HarnessSnapshot),
+    Harness(nuo_protocol::HarnessSnapshot),
     /// Server-attested readiness transition (ADR-0133 `[INV-ATTACH-04]`).
-    SessionPhase(nuo_wire::SessionPhase),
+    SessionPhase(nuo_protocol::ThreadPhase),
     /// Replace the server-owned slash-command vocabulary from an authoritative
     /// hydration snapshot.
-    CommandCatalog(nuo_wire::CommandCatalog),
+    CommandCatalog(nuo_protocol::CommandCatalog),
     HarnessUnattended(bool),
     HarnessConfined(bool),
     ClearSwitchingSession,
@@ -283,7 +285,7 @@ pub(crate) enum AppMutation {
     SessionForked {
         child_id: String,
         parent_id: String,
-        fork_point: Option<nuo_wire::ForkPoint>,
+        fork_point: Option<nuo_protocol::ForkPoint>,
         /// Opening prompt to dispatch into the child after re-attach (retired
         /// `/btw <prompt>` steer, `[INV-DEPR-01]`).
         prompt: Option<String>,
@@ -353,35 +355,35 @@ pub(crate) enum AppMutation {
     /// snapshot cannot know about yet, and mirror the server's paused flag.
     QueueSnapshot {
         session_id: String,
-        items: Vec<nuo_wire::QueuedMessage>,
+        items: Vec<nuo_protocol::QueuedMessage>,
         paused: bool,
     },
     // Views / panels / modal data.
     /// The server's persisted prompt input history (the server is the SSOT;
     /// the TUI never opens the database itself).
-    InputHistory(Vec<nuo_wire::HistoryEntry>),
+    InputHistory(Vec<nuo_protocol::HistoryEntry>),
     /// Stored capability overrides for one provider/model route — the model
     /// editor's prefill, delivered after the editor opened.
     RouteSettings {
         provider_id: String,
         model: String,
-        overrides: Option<nuo_wire::model::CapabilityOverrides>,
+        overrides: Option<nuo_protocol::model::CapabilityOverrides>,
     },
     KeyStatus(HashMap<String, bool>),
     ProviderPicker(ProviderPickerSnapshot),
-    SessionsOverview(Vec<SessionOverview>),
+    SessionsOverview(Vec<ThreadOverview>),
     OpenSessionsPanel,
     OpenTreePanel,
-    SessionDetail(nuo_wire::SessionDetail),
-    ConnectionDetail(nuo_wire::ConnectionDetail),
-    TokenReport(Option<nuo_wire::TokenSourceReport>),
-    UsageStats(nuo_wire::usage_stats::UsageStatsReport),
+    SessionDetail(nuo_protocol::ThreadDetail),
+    ConnectionDetail(nuo_protocol::ConnectionDetail),
+    TokenReport(Option<nuo_protocol::TokenSourceReport>),
+    UsageStats(nuo_protocol::usage_stats::UsageStatsReport),
     /// A usage fetch failed. The report already on screen is kept (a refresh
     /// must never blank a populated view); only the loading flag clears.
     UsageFailed(String),
-    ProviderQuotas(nuo_wire::ProviderQuotaSnapshot),
-    SessionTree(nuo_wire::SessionTree),
-    SessionContext(nuo_wire::SessionContextSnapshot),
+    ProviderQuotas(nuo_protocol::ProviderQuotaSnapshot),
+    SessionTree(nuo_protocol::ThreadTree),
+    SessionContext(nuo_protocol::ThreadContextSnapshot),
     CompletionSignal(CompletionSignal),
     /// One disclosure the client surfaced: a routed notice, or a local fault
     /// (a clipboard write that failed, a link that could not be opened).
@@ -404,8 +406,8 @@ pub(crate) enum AppMutation {
         at_ms: u64,
     },
     Oauth(OauthAddSignal),
-    WebSearchConfig(Option<nuo_wire::WebSearchConfigView>),
-    ServerEndpoints(nuo_wire::ServerEndpointsReport),
+    WebSearchConfig(Option<nuo_protocol::WebSearchConfigView>),
+    ServerEndpoints(nuo_protocol::ServerEndpointsReport),
     PreAttach(PreAttachSignal),
     /// A failed trust-grant round-trip for the mounted PreAttach surface
     /// the server could not persist the trust decision. The
@@ -418,12 +420,30 @@ pub(crate) enum AppMutation {
     },
     ContextTokens {
         session_id: String,
-        snapshot: nuo_wire::ContextTokenSnapshot,
+        snapshot: nuo_protocol::ContextTokenSnapshot,
     },
     ClearContextTokens,
+    /// The server asked this client to stop: `/exit`, a killed thread, or the
+    /// server's own drain. Only the *server* can end a session, so this is the
+    /// one mutation that quits without a user gesture.
     Quit,
-    HostSessions(Vec<nuo_wire::MonitoredSession>),
-    PersistenceHealth(Option<nuo_wire::monitor::PersistenceHealth>),
+    /// The attach link died with the session still live (ADR-0136).
+    ///
+    /// Distinct from [`Self::Quit`] by construction. The rung this replaces
+    /// synthesized `AgentResponse::Exit` whenever the reader task stopped —
+    /// including when it stopped *because it could not decode one frame* — so a
+    /// protocol skew and a user typing `/exit` were the same message, and the
+    /// TUI closed the window mid-round with no explanation.
+    ///
+    /// A dead link is recoverable: the attach loop re-dials the server, the
+    /// same way it does for a thread switch. So this surfaces the fault and
+    /// keeps the process alive.
+    LinkLost {
+        /// The transport error, verbatim, for the notice log.
+        reason: String,
+    },
+    HostSessions(Vec<nuo_protocol::MonitoredThread>),
+    PersistenceHealth(Option<nuo_protocol::monitor::PersistenceHealth>),
     /// A dashboard console receipt: appended to
     /// `App::host_console_log` by the applier.
     HostConsole(crate::shell::overlays::ConsoleLine),

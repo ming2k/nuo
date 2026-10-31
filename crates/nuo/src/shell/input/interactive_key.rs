@@ -44,8 +44,8 @@ pub(crate) fn handle_focused_entry_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nuo_protocol::Role;
     use nuo_view::model::interactive::InteractiveEntry;
-    use nuo_wire::Role;
 
     fn space(modifiers: KeyModifiers) -> Key {
         Key {

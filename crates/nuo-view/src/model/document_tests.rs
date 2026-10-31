@@ -1,6 +1,15 @@
 //! Tests for the transcript document model and markdown parser.
 use super::*;
 
+/// An empty disclosure policy: no `[tui.default_expanded]` overrides, so a tool
+/// step folds according to its declared component default alone. Every
+/// `push_subagent_event` call threads it, because the subagent folding path
+/// resolves its disclosure defaults from the same source the live primary
+/// stream uses — one policy, not two.
+fn no_overrides() -> std::collections::HashMap<String, bool> {
+    std::collections::HashMap::new()
+}
+
 #[test]
 fn test_parse_simple_text() {
     let blocks = parse_blocks("Hello world");
@@ -362,7 +371,7 @@ fn tool_step_collapses_and_restores_full_semantic_detail() {
     assert!(message.finish_tool_step(
         "call_1",
         "contents",
-        nuo_wire::ToolOutput::text("contents"),
+        nuo_protocol::ToolOutput::text("contents"),
         1234
     ));
     // Collapsed completed: summary + duration suffix.
@@ -405,9 +414,12 @@ fn subagent_started_event_labels_step_by_role() {
     );
     assert_eq!(task.subagent_description(), "write the plan");
     assert_eq!(task.subagent_role(), None);
-    assert!(task.push_subagent_event(&nuo_wire::SubagentEvent::Started {
-        profile: "explore".to_string()
-    }));
+    assert!(task.push_subagent_event(
+        &nuo_protocol::SubagentEvent::Started {
+            profile: "explore".to_string()
+        },
+        &no_overrides()
+    ));
     assert_eq!(task.subagent_role().as_deref(), Some("explore"));
     assert_eq!(task.subagent_description(), "write the plan");
     // The collapsed header carries only the description — the role is
@@ -431,7 +443,10 @@ fn subagent_status_reflects_children_and_completion() {
 
     // A reported activity line (e.g. during the first model call) is
     // surfaced so the row reads as alive, not stuck on a bare state.
-    task.push_subagent_event(&SubagentEvent::Activity("waiting for model".into()));
+    task.push_subagent_event(
+        &SubagentEvent::Activity("waiting for model".into()),
+        &no_overrides(),
+    );
     let waiting = task.subagent_status_line().expect("waiting status");
     assert!(
         waiting.starts_with("running waiting for model"),
@@ -439,19 +454,28 @@ fn subagent_status_reflects_children_and_completion() {
     );
 
     // Streaming assistant text => the peek row reports `thinking`.
-    task.push_subagent_event(&SubagentEvent::StreamStart { round: 1, turn: 0 });
-    task.push_subagent_event(&SubagentEvent::StreamDelta("partial".into()));
+    task.push_subagent_event(
+        &SubagentEvent::StreamStart { round: 1, turn: 0 },
+        &no_overrides(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::StreamDelta("partial".into()),
+        &no_overrides(),
+    );
     let thinking = task.subagent_status_line().expect("thinking status");
     assert!(thinking.starts_with("running thinking"), "got: {thinking}");
 
     // An in-flight child tool call surfaces the tool's header.
-    task.push_subagent_event(&SubagentEvent::ToolCall {
-        id: "inner".into(),
-        name: "search_text".into(),
-        arguments: r#"{"query":"foo"}"#.into(),
-        round: 1,
-        turn: 0,
-    });
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "inner".into(),
+            name: "search_text".into(),
+            arguments: r#"{"query":"foo"}"#.into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
     let running = task.subagent_status_line().expect("running status");
     assert!(running.contains("Search"), "got: {running}");
 
@@ -460,7 +484,7 @@ fn subagent_status_reflects_children_and_completion() {
     assert!(task.finish_tool_step(
         "call_9",
         "final answer",
-        nuo_wire::ToolOutput::text("final answer"),
+        nuo_protocol::ToolOutput::text("final answer"),
         1500
     ));
     assert!(
@@ -481,19 +505,22 @@ fn subagent_status_reflects_children_and_completion() {
 fn subagent_failed_status_reports_failure() {
     let mut task =
         TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
-    task.push_subagent_event(&SubagentEvent::ToolCall {
-        id: "i".into(),
-        name: "execute_command".into(),
-        arguments: "{}".into(),
-        round: 1,
-        turn: 0,
-    });
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "i".into(),
+            name: "execute_command".into(),
+            arguments: "{}".into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
     // The subagent failure is now signalled by the structured `failed`
     // flag on `ToolOutput::Subagent`, not by an "Error:" text prefix.
-    let structured = nuo_wire::ToolOutput::Subagent {
+    let structured = nuo_protocol::ToolOutput::Subagent {
         summary: "Error: boom".into(),
         messages: Vec::new(),
-        usage: nuo_wire::TokenUsage::default(),
+        usage: nuo_protocol::TokenUsage::default(),
         generation_ms: 0,
         failed: true,
         interrupted: false,
@@ -511,21 +538,24 @@ fn subagent_failed_status_reports_failure() {
 fn subagent_peek_reports_awaiting_approval_while_parked() {
     let mut task =
         TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
-    task.push_subagent_event(&SubagentEvent::ToolCall {
-        id: "i".into(),
-        name: "execute_command".into(),
-        arguments: r#"{"command":"rm -rf x"}"#.into(),
-        round: 1,
-        turn: 0,
-    });
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "i".into(),
+            name: "execute_command".into(),
+            arguments: r#"{"command":"rm -rf x"}"#.into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
     // The in-flight tool normally drives the peek row…
     let peek = task.subagent_status_line().unwrap();
     assert!(peek.starts_with("running Run rm"), "got: {peek}");
 
     // …but a parked permission request takes over the row: the subagent is
     // blocked on a human, not making progress.
-    task.push_subagent_event(&SubagentEvent::PermissionRequest(
-        nuo_wire::PermissionRequest {
+    task.push_subagent_event(
+        &SubagentEvent::PermissionRequest(nuo_protocol::PermissionRequest {
             id: "p1".into(),
             tool: "execute_command".into(),
             label: "Run rm".into(),
@@ -536,20 +566,27 @@ fn subagent_peek_reports_awaiting_approval_while_parked() {
             one_off: false,
             origin: None,
             ..Default::default()
-        },
-    ));
+        }),
+        &no_overrides(),
+    );
     let peek = task.subagent_status_line().unwrap();
     assert!(peek.starts_with("awaiting approval"), "got: {peek}");
 
     // The next progress event from the subagent clears the parked wait.
-    task.push_subagent_event(&SubagentEvent::ToolResult {
-        id: "i".into(),
-        name: "execute_command".into(),
-        output: "done".into(),
-        duration_ms: 3,
-    });
-    task.push_subagent_event(&SubagentEvent::StreamStart { round: 1, turn: 0 });
-    task.push_subagent_event(&SubagentEvent::StreamDelta("…".into()));
+    task.push_subagent_event(
+        &SubagentEvent::ToolResult {
+            id: "i".into(),
+            name: "execute_command".into(),
+            output: "done".into(),
+            duration_ms: 3,
+        },
+        &no_overrides(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::StreamStart { round: 1, turn: 0 },
+        &no_overrides(),
+    );
+    task.push_subagent_event(&SubagentEvent::StreamDelta("…".into()), &no_overrides());
     let peek = task.subagent_status_line().unwrap();
     assert!(peek.starts_with("running thinking"), "got: {peek}");
 }
@@ -558,27 +595,33 @@ fn subagent_peek_reports_awaiting_approval_while_parked() {
 fn interrupted_subagent_status_reports_interrupted_not_failed() {
     let mut task =
         TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
-    task.push_subagent_event(&SubagentEvent::ToolCall {
-        id: "i".into(),
-        name: "read_text".into(),
-        arguments: "{}".into(),
-        round: 1,
-        turn: 0,
-    });
-    task.push_subagent_event(&SubagentEvent::ToolResult {
-        id: "i".into(),
-        name: "read_text".into(),
-        output: "found 1 of 3 handlers".into(),
-        duration_ms: 5,
-    });
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "i".into(),
+            name: "read_text".into(),
+            arguments: "{}".into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::ToolResult {
+            id: "i".into(),
+            name: "read_text".into(),
+            output: "found 1 of 3 handlers".into(),
+            duration_ms: 5,
+        },
+        &no_overrides(),
+    );
     // An interrupted subagent carries `interrupted: true, failed: false`:
     // the partial work was preserved, so it must classify as Interrupted
     // — never as Failed (it did not error) and never as Ok (it did not
     // finish).
-    let structured = nuo_wire::ToolOutput::Subagent {
+    let structured = nuo_protocol::ToolOutput::Subagent {
         summary: "Interrupted: stopped by the user".into(),
         messages: Vec::new(),
-        usage: nuo_wire::TokenUsage::default(),
+        usage: nuo_protocol::TokenUsage::default(),
         generation_ms: 0,
         failed: false,
         interrupted: true,
@@ -607,7 +650,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
     // structured `ToolOutput::Shell { exit: Some(1) }`, `is_error()` now
     // drives the classification and the step correctly reads `Failed`.
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"false"}"#);
-    let structured = nuo_wire::ToolOutput::Shell {
+    let structured = nuo_protocol::ToolOutput::Shell {
         command: "false".into(),
         stdout: String::new(),
         stderr: "boom".into(),
@@ -615,7 +658,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
         exit: Some(1),
         truncated: false,
         truncated_note: None,
-        termination: nuo_wire::tool_output::ShellTermination::Exited,
+        termination: nuo_protocol::tool_output::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -630,7 +673,7 @@ fn bash_failure_is_classified_failed_from_structured_exit_code() {
 #[test]
 fn bash_success_is_classified_ok() {
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"true"}"#);
-    let structured = nuo_wire::ToolOutput::Shell {
+    let structured = nuo_protocol::ToolOutput::Shell {
         command: "true".into(),
         stdout: "ok\n".into(),
         stderr: String::new(),
@@ -638,7 +681,7 @@ fn bash_success_is_classified_ok() {
         exit: Some(0),
         truncated: false,
         truncated_note: None,
-        termination: nuo_wire::tool_output::ShellTermination::Exited,
+        termination: nuo_protocol::tool_output::ShellTermination::Exited,
         detached_job_id: None,
     };
     let text = structured.to_text();
@@ -652,7 +695,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
     // tag each) so the live view renders arrival-ordered, stderr-tinted,
     // interleaved output — not the all-stdout-then-all-stderr degraded
     // band the empty-`lines` fallback forced.
-    use nuo_wire::{ToolStream, tool_output::ShellStream};
+    use nuo_protocol::{ToolStream, tool_output::ShellStream};
     let mut step = TranscriptMessage::tool_step("c", "execute_command", r#"{"command":"x"}"#);
     assert!(step.push_tool_stream("c", &ToolStream::Stdout("Compiling a\n".into())));
     assert!(step.push_tool_stream("c", &ToolStream::Stderr("warning: b\n".into())));
@@ -663,7 +706,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            nuo_wire::ToolOutput::Shell { lines, .. } => lines,
+            nuo_protocol::ToolOutput::Shell { lines, .. } => lines,
             _ => panic!("expected Shell"),
         },
         _ => panic!("expected ToolStep"),
@@ -686,7 +729,7 @@ fn push_tool_stream_builds_interleaved_lines_for_live_view() {
             structured: Some(b),
             ..
         } => match b.as_ref() {
-            nuo_wire::ToolOutput::Shell { stdout, stderr, .. } => {
+            nuo_protocol::ToolOutput::Shell { stdout, stderr, .. } => {
                 assert!(stdout.contains("Compiling a"));
                 assert!(stdout.contains("Compiling c"));
                 assert!(stderr.contains("warning: b"));
@@ -715,7 +758,7 @@ fn cancel_tool_step_transitions_to_a_terminal_state() {
     assert!(!step.finish_tool_step(
         "call_1",
         "late result",
-        nuo_wire::ToolOutput::text("late result"),
+        nuo_protocol::ToolOutput::text("late result"),
         10
     ));
     assert!(!step.cancel_tool_step("call_1"));
@@ -738,13 +781,16 @@ fn cancelling_a_subagent_also_cancels_its_running_children() {
         r#"{"description":"d","prompt":"p"}"#,
     );
     // A nested tool call still in flight.
-    task.push_subagent_event(&SubagentEvent::ToolCall {
-        id: "inner".into(),
-        name: "search_text".into(),
-        arguments: r#"{"query":"foo"}"#.into(),
-        round: 1,
-        turn: 0,
-    });
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "inner".into(),
+            name: "search_text".into(),
+            arguments: r#"{"query":"foo"}"#.into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
     let children = task.subagent_children().expect("has children");
     assert_eq!(
         children[0].tool_step_status(),
@@ -774,7 +820,12 @@ fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
     let mut a = TranscriptMessage::tool_step("a", "read_text", "{}");
     let mut b = TranscriptMessage::tool_step("b", "read_text", "{}");
     // `b` already finished successfully; the sweep must not clobber it.
-    assert!(b.finish_tool_step("b", "contents", nuo_wire::ToolOutput::text("contents"), 5));
+    assert!(b.finish_tool_step(
+        "b",
+        "contents",
+        nuo_protocol::ToolOutput::text("contents"),
+        5
+    ));
     assert_eq!(b.tool_step_status(), Some(ToolStepStatus::Ok));
 
     // The sweep cancels a running step and is then a no-op on it.
@@ -817,11 +868,11 @@ fn notice_from_core_preserves_the_topic_and_detail_split() {
     // title/body detail) must survive the boundary into the transcript
     // model instead of being flattened to `raw` and re-parsed at render
     // time. `raw` still carries the flattened form for copy fidelity.
-    let core = nuo_wire::AgentNotice::new(
-        nuo_wire::NoticeKind::CheckpointReplay,
-        nuo_wire::NoticeSeverity::Warning,
+    let core = nuo_protocol::AgentNotice::new(
+        nuo_protocol::NoticeKind::CheckpointReplay,
+        nuo_protocol::NoticeSeverity::Warning,
         "Completed tool call not repeated",
-        nuo_wire::NoticeSource::Harness,
+        nuo_protocol::NoticeSource::Harness,
     )
     .with_body("The retried model request repeated a tool call that already completed.");
 
@@ -848,12 +899,12 @@ fn notice_topic_labels_cover_the_contract_vocabulary() {
     // Every wire `NoticeKind` maps to a predictable user-facing topic label;
     // the match must not grow stale as the contract evolves.
     for (kind, label) in [
-        (nuo_wire::NoticeKind::CheckpointReplay, "replay"),
-        (nuo_wire::NoticeKind::NudgeInjected, "turn guard"),
-        (nuo_wire::NoticeKind::ReviewAlert, "review"),
-        (nuo_wire::NoticeKind::TrustChanged, "trust"),
-        (nuo_wire::NoticeKind::CommandAck, "command"),
-        (nuo_wire::NoticeKind::ImageInputWithheld, "images"),
+        (nuo_protocol::NoticeKind::CheckpointReplay, "replay"),
+        (nuo_protocol::NoticeKind::NudgeInjected, "turn guard"),
+        (nuo_protocol::NoticeKind::ReviewAlert, "review"),
+        (nuo_protocol::NoticeKind::TrustChanged, "trust"),
+        (nuo_protocol::NoticeKind::CommandAck, "command"),
+        (nuo_protocol::NoticeKind::ImageInputWithheld, "images"),
     ] {
         assert_eq!(notice_topic_label(kind), label);
     }
@@ -881,7 +932,7 @@ fn user_message_origin_defaults_to_chat_and_can_be_overridden() {
 
 #[test]
 fn round_interrupt_creates_structured_notice() {
-    use nuo_wire::{RoundInterrupt, RoundInterruptReason};
+    use nuo_protocol::{RoundInterrupt, RoundInterruptReason};
     // The producer puts the last transport fault in `detail` — one line, never
     // a pretty-printed payload (see the `RoundInterrupted` arm of the shell
     // translator). The constructor renders whatever it is given, and splits it
@@ -964,8 +1015,8 @@ fn command_result_populates_command_invocation() {
 /// silently collapse `/undo`'s "Restored:" rows into one line — fails a test.
 #[test]
 fn workspace_change_results_parse_as_markdown_not_plain() {
-    let undo = nuo_wire::CommandResult::UndoOutcome {
-        restored: vec![nuo_wire::ChangedFile {
+    let undo = nuo_protocol::CommandResult::UndoOutcome {
+        restored: vec![nuo_protocol::ChangedFile {
             path: "src/lib.rs".into(),
             tool: "edit_text".into(),
             round_id: "3".into(),
@@ -974,7 +1025,7 @@ fn workspace_change_results_parse_as_markdown_not_plain() {
             created: false,
             deleted: false,
         }],
-        refused: vec![nuo_wire::UndoRefusal {
+        refused: vec![nuo_protocol::UndoRefusal {
             path: "src/other.rs".into(),
             reason: "the file changed after this thread wrote it".into(),
         }],
@@ -1003,7 +1054,7 @@ fn workspace_change_results_parse_as_markdown_not_plain() {
 
     // The same holds for `/diff`, whose empty-group case must still render its
     // headline rather than parsing to nothing.
-    let diff = nuo_wire::CommandResult::WorkspaceChanges {
+    let diff = nuo_protocol::CommandResult::WorkspaceChanges {
         reversible: Vec::new(),
         irreversible: Vec::new(),
         unconfirmed: Vec::new(),
@@ -1352,7 +1403,7 @@ fn announced_tool_step_collapses_and_tracks_input_bytes() {
     assert!(!summary.contains("receiving input"), "got: {summary}");
 
     // Output streaming then resolves by the collapsed id.
-    assert!(step.push_tool_stream("call_9", &nuo_wire::ToolStream::Stdout("x\n".into())));
+    assert!(step.push_tool_stream("call_9", &nuo_protocol::ToolStream::Stdout("x\n".into())));
 }
 
 #[test]
@@ -1366,7 +1417,7 @@ fn orphan_announced_tool_step_is_cancelled_not_left_running() {
 
     // A dispatched (id-bearing) step is NOT touched by the orphan sweep.
     let mut dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
-    assert!(dispatched.push_tool_stream("call_1", &nuo_wire::ToolStream::Stdout("y\n".into())));
+    assert!(dispatched.push_tool_stream("call_1", &nuo_protocol::ToolStream::Stdout("y\n".into())));
     assert!(!dispatched.cancel_pending_announced_tool_step());
     assert_eq!(
         dispatched.tool_step_status(),
@@ -1397,9 +1448,9 @@ fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
     assert!(step.finish_tool_step(
         "call_1",
         "Edited 'src/lib.rs' successfully",
-        nuo_wire::ToolOutput::Patch {
+        nuo_protocol::ToolOutput::Patch {
             path: "src/lib.rs".into(),
-            op: nuo_wire::PatchOp::Edit,
+            op: nuo_protocol::PatchOp::Edit,
             old: "foo".into(),
             new: "bar".into(),
             start_line: 1,
@@ -1502,9 +1553,9 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     assert!(step.finish_tool_step(
         "call_edit_1",
         "Updated auth",
-        nuo_wire::ToolOutput::Patch {
+        nuo_protocol::ToolOutput::Patch {
             path: "src/model/auth.rs".into(),
-            op: nuo_wire::PatchOp::Edit,
+            op: nuo_protocol::PatchOp::Edit,
             old: "let x = 1;".into(),
             new: "let x = 2;".into(),
             start_line: 1,
@@ -1553,5 +1604,158 @@ fn parse_arguments_kv_never_dumps_raw_syntax_on_incomplete_json() {
     assert!(
         kv.iter()
             .all(|(k, _)| k != "path" || !k.contains("docs/adr/018"))
+    );
+}
+
+/// A live subagent reasoning delta must populate the rendered block projection,
+/// not just the accumulated text.
+///
+/// This is the root-cause guard for "a subagent's thinking cannot be expanded":
+/// the disclosure body is drawn from `blocks`, so a delta that advanced `raw`
+/// without re-parsing left every expansion an empty shell until the stream
+/// ended. Only the subagent folding path was affected — the primary stream
+/// already appended through `push_stream`.
+#[test]
+fn live_subagent_reasoning_delta_populates_the_rendered_blocks() {
+    let mut task =
+        TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
+    task.push_subagent_event(
+        &SubagentEvent::StreamReasoningStart { round: 1, turn: 0 },
+        &no_overrides(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::StreamReasoningDelta("investigating the module layout".into()),
+        &no_overrides(),
+    );
+
+    let trace = task
+        .subagent_children()
+        .and_then(|kids| kids.last())
+        .expect("the trace child must exist");
+    assert!(
+        trace.is_reasoning_streaming(),
+        "the trace is still open mid-stream"
+    );
+    assert_eq!(
+        trace.blocks.len(),
+        1,
+        "a streaming delta must be parsed into blocks, otherwise expanding the \
+         trace paints nothing"
+    );
+    assert_eq!(
+        trace.blocks[0].raw_text(),
+        "investigating the module layout",
+        "the parsed block carries the delta verbatim"
+    );
+
+    // A second delta extends the same block rather than appending an empty one.
+    task.push_subagent_event(
+        &SubagentEvent::StreamReasoningDelta(" end".into()),
+        &no_overrides(),
+    );
+    let trace = task.subagent_children().unwrap().last().unwrap();
+    assert_eq!(trace.blocks.len(), 1);
+    assert_eq!(
+        trace.blocks[0].raw_text(),
+        "investigating the module layout end"
+    );
+}
+
+/// `[tui.default_expanded] thinking` reaches a subagent's live trace exactly as
+/// it reaches the primary's and a resumed child's.
+///
+/// Before this the folding path hardcoded `expanded: false`, so the setting was
+/// silently dead for every live subagent trace — the one place the default was
+/// configured to be visible.
+#[test]
+fn subagent_reasoning_honours_the_configured_default_expansion() {
+    let mut open = std::collections::HashMap::new();
+    open.insert(crate::disclosure_config::THINKING_KEY.to_string(), true);
+
+    for (policy, expected) in [(&std::collections::HashMap::new(), false), (&open, true)] {
+        let mut task =
+            TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
+        task.push_subagent_event(
+            &SubagentEvent::StreamReasoningStart { round: 1, turn: 0 },
+            policy,
+        );
+        let trace = task.subagent_children().unwrap().last().unwrap();
+        assert_eq!(
+            trace.reasoning_expanded(),
+            Some(expected),
+            "the child trace must resolve its default from the shared policy"
+        );
+    }
+}
+
+/// A nested subagent tool step resolves its disclosure default from the same
+/// lifecycle rule as a top-level one: a failure opens, a healthy declared
+/// default applies.
+#[test]
+fn nested_subagent_tool_steps_follow_the_lifecycle_default() {
+    let mut task =
+        TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
+    // `execute_command` declares expanded-by-default, so a healthy result opens.
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "ok".into(),
+            name: "execute_command".into(),
+            arguments: r#"{"command":"true"}"#.into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::ToolResult {
+            id: "ok".into(),
+            name: "execute_command".into(),
+            output: "done".into(),
+            duration_ms: 1,
+        },
+        &no_overrides(),
+    );
+    let ok_step = &task.subagent_children().unwrap()[0];
+    assert_eq!(ok_step.tool_step_status(), Some(ToolStepStatus::Ok));
+    assert_eq!(
+        ok_step.tool_step_expanded(),
+        Some(true),
+        "a healthy declared-expanded child follows its component default"
+    );
+
+    // A component that declares collapsed stays folded on a healthy result —
+    // the same rule, the other direction. (`SubagentEvent::ToolResult` carries
+    // plain text, so a child result cannot express `Failed`; the terminal
+    // failure arms of the lifecycle rule are exercised at the top level, where
+    // `ToolOutput` carries the classification.)
+    task.push_subagent_event(
+        &SubagentEvent::ToolCall {
+            id: "read".into(),
+            name: "search_text".into(),
+            arguments: r#"{"query":"x"}"#.into(),
+            round: 1,
+            turn: 0,
+        },
+        &no_overrides(),
+    );
+    task.push_subagent_event(
+        &SubagentEvent::ToolResult {
+            id: "read".into(),
+            name: "search_text".into(),
+            output: "1 match".into(),
+            duration_ms: 1,
+        },
+        &no_overrides(),
+    );
+    let folded = task
+        .subagent_children()
+        .unwrap()
+        .iter()
+        .find(|m| m.tool_step_call_id() == Some("read"))
+        .expect("the folded child exists");
+    assert_eq!(
+        folded.tool_step_expanded(),
+        Some(false),
+        "a healthy declared-collapsed child stays folded"
     );
 }

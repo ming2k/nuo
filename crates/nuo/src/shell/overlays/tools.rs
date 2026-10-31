@@ -26,7 +26,7 @@ use nuo_ui_primitives::primitives::{ContentModalSpec, FooterHint, breadcrumb_par
 #[allow(clippy::too_many_arguments)]
 pub fn draw_tools_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_wire::SessionContextSnapshot>,
+    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,
@@ -159,7 +159,7 @@ pub fn draw_tools_modal(
 }
 
 fn render_tool_detail(
-    tool: &nuo_wire::ToolInfo,
+    tool: &nuo_protocol::ToolInfo,
     body_width: usize,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
@@ -366,11 +366,11 @@ mod tests {
     use super::*;
     use nuotc::TestTerminal;
 
-    fn sample_snapshot() -> nuo_wire::SessionContextSnapshot {
-        nuo_wire::SessionContextSnapshot {
-            model: nuo_wire::ModelInfo::default(),
+    fn sample_snapshot() -> nuo_protocol::ThreadContextSnapshot {
+        nuo_protocol::ThreadContextSnapshot {
+            model: nuo_protocol::ModelInfo::default(),
             tools: vec![
-                nuo_wire::ToolInfo {
+                nuo_protocol::ToolInfo {
                     name: "read_text".to_string(),
                     description: "Reads a text file with line numbers.".to_string(),
                     enabled: true,
@@ -397,7 +397,7 @@ mod tests {
                     requires_user: false,
                     requires_vision: false,
                 },
-                nuo_wire::ToolInfo {
+                nuo_protocol::ToolInfo {
                     name: "execute_command".to_string(),
                     description: "Executes a shell command.".to_string(),
                     enabled: false,
@@ -407,7 +407,7 @@ mod tests {
                     requires_user: true,
                     requires_vision: false,
                 },
-                nuo_wire::ToolInfo {
+                nuo_protocol::ToolInfo {
                     name: "github_issues".to_string(),
                     description: "List issues".to_string(),
                     enabled: true,

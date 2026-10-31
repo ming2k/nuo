@@ -37,7 +37,7 @@
 //! It does not decide *which* rows to undo (that is the round-scoped journal
 //! query), whether a row is addressable at all (that is the row's own
 //! `is_undoable`), or what the user is told (that is
-//! [`CommandResult::UndoOutcome`](nuo_wire::CommandResult::UndoOutcome)). It takes
+//! [`CommandResult::UndoOutcome`](nuo_protocol::CommandResult::UndoOutcome)). It takes
 //! candidate rows and produces the outcome of attempting each one.
 //!
 //! ## Content residency
@@ -51,7 +51,7 @@
 use std::path::{Path, PathBuf};
 
 use nuo_persistence::workspace_effects::{JournalOp, WorkspaceEffect, WorkspaceEffectReversal};
-use nuo_wire::{ChangedFile, UndoRefusal};
+use nuo_protocol::{ChangedFile, UndoRefusal};
 
 use crate::runtime::workspace_journal::PreImageStore;
 

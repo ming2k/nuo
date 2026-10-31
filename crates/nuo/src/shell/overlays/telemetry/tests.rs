@@ -3,7 +3,7 @@ use super::model::*;
 use super::overview::build_overview_body;
 use super::tables::{build_rounds_table, build_turns_table};
 use crate::shell::render::Theme;
-use nuo_wire::{
+use nuo_protocol::{
     RequestPerformance, RequestUsageKey, RequestUsageRecord, RequestUsageSource,
     RequestUsageStatus, TokenSourceReport, TokenSourceRow, TransportObservation,
 };
@@ -392,7 +392,7 @@ fn test_build_overview_and_sticky_table_headers() {
 
     let report = TokenSourceReport {
         rows: Vec::new(),
-        grand_total: nuo_wire::TokenSourceTotals {
+        grand_total: nuo_protocol::TokenSourceTotals {
             prompt_tokens: 4000,
             completion_tokens: 300,
             cache_read_tokens: 3000,
@@ -407,9 +407,9 @@ fn test_build_overview_and_sticky_table_headers() {
         &report,
         &rounds,
         ContextUsageProps {
-            snapshot: Some(nuo_wire::ContextTokenSnapshot {
+            snapshot: Some(nuo_protocol::ContextTokenSnapshot {
                 tokens: 24_500,
-                source: nuo_wire::ContextTokenSource::Api,
+                source: nuo_protocol::ContextTokenSource::Api,
                 overhead_tokens: None,
                 history_tokens: None,
                 temporary_context_tokens: None,

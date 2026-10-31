@@ -7,7 +7,7 @@
 //! - Clean `## User`, `## Reasoning`, `## Assistant`, and `## Activity` sections.
 //! - Activities render tool invocations and outputs as indented code blocks (4 spaces).
 //! - Hidden and system messages are skipped. Subagent transcripts are summarised inline.
-use nuo_wire::{Message, Role, SubagentMeta, ToolCall};
+use nuo_protocol::{Message, Role, SubagentMeta, ToolCall};
 
 /// Metadata carried from the harness into the exporter so the header reflects
 /// the live session state at the moment of export.
@@ -27,7 +27,7 @@ pub struct ExportContext<'a> {
 pub fn format_export_markdown(
     _ctx: ExportContext<'_>,
     messages: &[Message],
-    commands: &[nuo_wire::CommandRecord],
+    commands: &[nuo_protocol::CommandRecord],
 ) -> String {
     let mut out = String::from("# Nuo thread\n\n");
     let mut emitted_any = false;
@@ -537,7 +537,7 @@ fn parse_tool_result(content: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::ToolCall;
+    use nuo_protocol::ToolCall;
 
     fn user(content: &str) -> Message {
         Message::new(Role::User, content)
@@ -793,7 +793,7 @@ mod tests {
     #[test]
     fn renders_user_images_and_subagent_activity() {
         let mut user_msg = user("check this diagram");
-        user_msg.images = Some(vec![nuo_wire::ImagePart {
+        user_msg.images = Some(vec![nuo_protocol::ImagePart {
             mime: "image/png".to_string(),
             data: "abcd".to_string(),
         }]);
@@ -835,16 +835,16 @@ mod tests {
     #[test]
     fn renders_command_ledger_as_distinct_blockquotes() {
         let commands = vec![
-            nuo_wire::CommandRecord::new("search", "foo").with_result(
-                nuo_wire::CommandResult::Search {
+            nuo_protocol::CommandRecord::new("search", "foo").with_result(
+                nuo_protocol::CommandResult::Search {
                     query: "foo".to_string(),
-                    hits: vec![nuo_wire::SearchHit {
+                    hits: vec![nuo_protocol::SearchHit {
                         text: "match".to_string(),
                         score: 0.5,
                     }],
                 },
             ),
-            nuo_wire::CommandRecord::new("compact", ""),
+            nuo_protocol::CommandRecord::new("compact", ""),
         ];
         let out = format_export_markdown(
             ExportContext {

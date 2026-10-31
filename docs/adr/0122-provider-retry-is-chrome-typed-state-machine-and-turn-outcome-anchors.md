@@ -16,6 +16,15 @@ negative_knowledge: true
 - Consulted: Interface Architecture, Runtime Kernel, Protocol
 - Amends: [ADR-0116](0116-content-residency-and-surface-layer-topology.md) — the routing table's `ProviderRetry → Absorbed` row is deleted because the content it named is no longer a notice; [ADR-0117](0117-transcript-admission-purity-dialogue-only-thread-documents.md) — the retry path becomes a conforming producer (its row is a `TurnOutcome` anchor admitted through the one gate, not a `push`); [ADR-0121](0121-notice-log-residency-retained-disclosure-record-and-bubble-as-pointer.md) — the retry receipt is the notice log's second writer
 
+> **Amendment note**: §1's *rendering* vocabulary was revised in place
+> (2026-10-31): the live clause is `retry N in Xs` / `retry N`, the retained
+> receipt is `retry N of M`, and `N` is the retry ordinal rather than the wire's
+> attempt number. The ownership decision below — one typed state machine composes
+> every count and every phrase, and no render site re-derives one — is unchanged;
+> `[INV-RETRY-01]` was restated in terms of the ordinal and `[INV-RETRY-07]` was
+> added to pin what the live clause may and may not spend columns on. The retired
+> `retry 6/30 (next in 8s)` / `(6/30)` forms are recorded there, with the reasons.
+
 ---
 
 ## Context and Problem Statement
@@ -106,18 +115,67 @@ impl RetryProgress {
     pub fn scheduled(attempt, max_attempts, retry_at, fault) -> Self;   // clamps into 1..=max
     pub fn with_next_attempt(self, attempt, max_attempts, retry_at, fault) -> Self;
     pub fn phase(&self, now: Instant) -> RetryPhase;                    // BackingOff | Reattempting
-    pub fn label(&self, now: Instant) -> String;                        // "retry 6/30 (next in 8s)"
-    pub fn compact_label(&self) -> String;                              // "(6/30)"
+    pub fn retry_ordinal(&self) -> usize;                               // attempt - 1, floored at 1
+    pub fn label(&self, now: Instant) -> String;                        // "retry 1 in 4s" | "retry 1"
+    pub fn compact_label(&self) -> String;                              // "retry 1"
+    pub fn retries_capacity(&self) -> usize;                            // max_attempts - 1
+    pub fn receipt_label(&self) -> String;                              // "retry 1 of 4"
     pub fn retries(&self) -> usize;                                     // attempt - 1
     pub fn faults(&self) -> &[String];
 }
 ```
 
-`[INV-RETRY-01]` — **One attempt vocabulary.** The count is
-`attempt/max_attempts`, composed in exactly one function, and every consumer
-reads it: the bar's clause, its width-constrained compact form, the receipt-log
-line, the recovered anchor, and the exhausted-error phrasing. The constructor
-clamps, so `retry 0/0` and `retry 7/5` are unrepresentable.
+`[INV-RETRY-01]` — **One attempt vocabulary.** The count is one *ordinal* —
+`retry_ordinal()`, i.e. `attempt - 1` floored at 1 — composed in exactly one
+function, and every consumer reads it: the bar's clause, its width-constrained
+compact form, the receipt-log line, the headless stderr record, and the
+exhausted-error phrasing. The constructor clamps, so `retry 0` is
+unrepresentable.
+
+The ordinal is deliberately **not** the wire's `attempt`: that field counts the
+initial request too, so painting it made the first retry read `retry 2` — one
+higher than what the user is watching happen. The derived `retries()` was always
+the reader's number; the label now says so.
+
+`[INV-RETRY-09]` — **One set of units.** Both sides of any `of` ratio are
+**retries**, never a retry count over an attempt count. `max_attempts` counts the
+initial request as attempt 1, so the boundary is explicit and lives on the type:
+`retry_ordinal()` (a retry index) pairs with `retries_capacity()`
+(`max_attempts - 1`), and `retries()` is the same number the exhausted-round error
+prints. `retry 1 of 30` for a `provider_retry_max_attempts = 30` round was two
+units across one `of` — it claimed one retry more than the round could spend and
+contradicted the "Exhausted 29 retry attempts" line printed for that same round.
+Enforced by `the_receipt_states_both_sides_of_the_ratio_in_the_same_unit`, which
+checks the last reachable retry fills the denominator exactly.
+
+`[INV-RETRY-07]` — **The live clause states the ordinal and the wait, never the
+budget and never a second clock.** `label(now)` is `retry N in Xs` while backing
+off and `retry N` once the attempt is in flight. `max_attempts` is configured
+policy, not news: it is reached only after minutes of stepped backoff, it spent
+columns on the one row that also carries the status verb and the round timer, and
+it is stated where it becomes decision-relevant instead — once per attempt in
+`receipt_label` (`retry 1 of 29`) and in the exhausted-round error
+(`Exhausted N retry attempts — …`). The in-flight form drops the countdown for
+the same reason: the phase's own status verb (`waiting for model`) and the round
+elapsed clock already say what is happening, and a third clock counting the same
+wait upward churned every frame.
+
+`[INV-RETRY-08]` — **A record is time-invariant; a countdown is chrome.** The
+retry receipt in the notice log states only facts that stay true (`retry N of M`).
+The countdown belongs *exclusively* to the bar's clause. The notice log is a card
+stack consulted at an arbitrary later moment, so `retry 1 in 4s` frozen into a
+record is not redundant but **false** — nothing in the log can tick it back to the
+truth. This is ADR-0116's residency rule applied to a duration: content that
+re-renders on a clock cannot be a record. Enforced by
+`the_receipt_is_a_card_with_no_decaying_fact_in_it`.
+
+The countdown is **whole seconds, rounded up** (`format_retry_countdown`), so a
+wait that is nearly over never reads `0s` and a repainting bar never flickers a
+tenths tail. `format_retry_countdown` is the vocabulary's *only* duration
+formatter: the one-decimal `format_retry_duration` existed for "record-shaped
+prose" that no longer needs it, and a second reading of "how long is this wait"
+with no caller is an invitation for a future paint site to re-split the
+vocabulary.
 
 The compact form is a **method**, not a substring of the full label. The old bar
 extracted `(N/M)` by splitting the rendered sentence on `"retry "` — parsing a
@@ -136,24 +194,37 @@ and any missed tick leaves the bar lying about which state it is in.
   as a clause beside the activity label, retired by the next phase write that is
   not `AwaitingModel` (`nuo_view::phase` rule 4, unchanged); and
 - **a receipt** — one `SurfaceId::NOTICES` line per scheduled attempt, carrying
-  the clause, the route (`provider/model`) and the fault, openable with the notice
-  viewer and copyable.
+  the *retained* form of the count (`retry 1 of 29`), the route
+  (`provider/model`) and the fault, openable with the notice viewer and
+  copyable. The receipt is where the budget belongs: a log line is read after the
+  fact, so it can answer "how much rope did this round have left?" — a question
+  the live clause must not spend columns on, and one a frozen countdown could not
+  answer anyway.
 
 `[INV-RETRY-02]` — **No transcript row while a retry is in flight.** The
 transcript contains what was said; a backoff is not something anyone said.
 
 ### 3. The retry is a turn outcome, admitted as an anchor
 
-`TranscriptMessage::retry_recovered(&RetryProgress, round, at_ms)` mints the
+> **Superseded in part (ADR-0134, 2026-12-12)**: `TranscriptMessage::retry_recovered`
+> and `TranscriptEdit::RetrySettled` were removed with the rest of the retry
+> *resolution* vocabulary — a recovered round now leaves no anchor at all. The
+> surviving `[INV-RETRY-03]` rule is unchanged: a round that dies while backing off
+> is recorded as a `TurnOutcome` anchor via `TranscriptEdit::Append`, and no retry
+> fact is ever written with a bare `push`. Consequence for the vocabulary: no
+> transcript surface reads the retry ordinal, so `retry_ordinal` has exactly three
+> consumers — the bar's clause, the notice receipt, and the headless record.
+
+`TranscriptMessage::retry_recovered(&RetryProgress, round, at_ms)` minted the
 success-side twin of `round_interrupted`: `topic: "recovered"`, title
 `"Recovered after N provider retries (round R)"`, detail = the fault list, one
-line each. It is admitted through `TranscriptEdit::Append { class: TurnOutcome }`
-— the one gate.
+line each, admitted through `TranscriptEdit::Append { class: TurnOutcome }`.
+It has since been deleted (§ above); the failure-side anchor below is what
+survives.
 
-The transient-retry mutations are gone. `UpsertRetry` (which had no class and
-pushed directly) and `RetainNotRetry` are replaced by a single
-`TranscriptEdit::RetrySettled { recovered: Option<TranscriptMessage> }`, which
-admits the anchor or does nothing.
+`UpsertRetry` (which had no class and pushed directly) and `RetainNotRetry` are
+gone. The live-retry mutations do not exist at all: the recovery case records
+nothing, and the stop case is the ordinary interrupt anchor.
 
 `[INV-RETRY-03]` — **Every L0 retry row is a `TurnOutcome` anchor.** There is no
 retry write path that skips the class declaration.
@@ -211,8 +282,8 @@ parses `waiting to retry (Ns)` to recover a count.
 ### 7. The diagnostic header stops claiming a live attempt count
 
 `DiagnosticRecord::attempt` is removed. A transcript entry cannot carry a live
-attempt pair any more, so the field had no producer; the recovered anchor states
-its count in its title. `kind=provider-retry` disappears with the entry kind.
+attempt pair any more, so the field had no producer. `kind=provider-retry`
+disappears with the entry kind.
 
 ## Normative Invariants Established
 
@@ -298,4 +369,4 @@ its count in its title. `kind=provider-retry` disappears with the entry kind.
 ## Links
 
 - Related ADRs: [ADR-0116](0116-content-residency-and-surface-layer-topology.md) (content residency), [ADR-0117](0117-transcript-admission-purity-dialogue-only-thread-documents.md) (admission purity), [ADR-0121](0121-notice-log-residency-retained-disclosure-record-and-bubble-as-pointer.md) (notice log residency), [ADR-0020](0020-interactive-component-registry-single-source-of-truth.md) (the notice renderer contract this keeps)
-- Code: `crates/nuo-view/src/retry.rs`, `crates/nuo-view/src/model/document.rs` (`retry_recovered`), `crates/nuo-view/src/model/layer.rs`, `crates/nuo/src/shell/event_loop/mutations.rs` (`RetrySettled`), `crates/nuo/src/shell/mod.rs` (`RetryScheduled` / `RoundInterrupted` / `RoundCompleted` arms)
+- Code: `crates/nuo-view/src/retry.rs`, `crates/nuo-view/src/model/layer.rs`, `crates/nuo/src/shell/mod.rs` (`RetryScheduled` / `RoundInterrupted` / `RoundCompleted` arms), `crates/nuo/src/shell/chrome/activity_strip.rs` (the bar's clause and its width ladder), `crates/nuo/src/shell/headless.rs` (the headless stderr record). `retry_recovered` / `RetrySettled` are gone — see §3's supersession note.

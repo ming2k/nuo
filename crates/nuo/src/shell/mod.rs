@@ -6,7 +6,7 @@
 //!
 //! Layer structure:
 //! - The in-house grid engine (`nuotc`) — a retained cell grid with dirty tracking and a back/front diff.
-//! - The view and component tree — painting `nuo_wire` domain types into the engine grid:
+//! - The view and component tree — painting `nuo_protocol` domain types into the engine grid:
 //!   `model`, `render`, `components`, `overlays`, `tools`, `disclosure`, `layout`,
 //!   `declarative` (ADR-0072), `theme`, `design`, `chrome`, `composer`, `primitives`.
 //! - The interactive application runtime: application state ([`app`]), input mapping ([`input`]),
@@ -89,7 +89,7 @@ pub(crate) fn grid_rows(grid: &nuotc::CellGrid) -> Vec<String> {
         .collect()
 }
 
-use nuo_wire::{
+use nuo_protocol::{
     AgentRequest, AgentResponse, LoopStatus, Message, ProviderPickerSnapshot, Role, RoundEvent,
 };
 use nuotc::{Backend, Terminal};
@@ -234,8 +234,8 @@ fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
                 | RoundEvent::ToolStream { .. }
                 | RoundEvent::ToolInputProgress { .. }
                 | RoundEvent::SubagentStep {
-                    event: nuo_wire::SubagentEvent::StreamDelta(_)
-                        | nuo_wire::SubagentEvent::StreamReasoningDelta(_),
+                    event: nuo_protocol::SubagentEvent::StreamDelta(_)
+                        | nuo_protocol::SubagentEvent::StreamReasoningDelta(_),
                     ..
                 },
             ..
@@ -246,16 +246,16 @@ fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
 pub struct TuiLaunchConfig {
     pub initial_provider: String,
     pub initial_model: String,
-    pub input_history: Vec<nuo_wire::HistoryEntry>,
+    pub input_history: Vec<nuo_protocol::HistoryEntry>,
     pub initial_messages: Vec<Message>,
-    pub initial_commands: Vec<nuo_wire::CommandRecord>,
+    pub initial_commands: Vec<nuo_protocol::CommandRecord>,
     pub initial_round_count: u64,
-    pub command_catalog: nuo_wire::CommandCatalog,
-    pub initial_round_interrupts: Vec<nuo_wire::RoundInterrupt>,
+    pub command_catalog: nuo_protocol::CommandCatalog,
+    pub initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
     pub tui_config: config::TuiConfig,
     pub input_history_config: config::InputHistoryConfig,
     pub session: SessionSource,
-    pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
     pub startup_overlay: StartupOverlay,
     pub initial_tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,
     pub initial_tab_history: Option<Vec<crate::shell::surfaces::TabKind>>,
@@ -272,7 +272,7 @@ pub struct TuiLaunchConfig {
     /// Server-attested readiness at attach time (ADR-0133). `Ready` is only
     /// authoritative when the snapshot has also been applied; the client gates
     /// input on the transition, not on this initial value.
-    pub initial_phase: nuo_wire::SessionPhase,
+    pub initial_phase: nuo_protocol::ThreadPhase,
     /// Opening prompt (`-p`) dispatched on the `Ready` transition rather than
     /// at handshake time (ADR-0133).
     pub initial_prompt: Option<String>,
@@ -299,6 +299,7 @@ pub fn ensure_panic_hook() {
 pub async fn run_tui(
     tx: mpsc::UnboundedSender<AgentRequest>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
     let profile = nuotc::TerminalProfile::detect();
@@ -308,7 +309,7 @@ pub async fn run_tui(
     let mut terminal = Terminal::new(backend);
     terminal::spawn_signal_guard();
     ensure_panic_hook();
-    let outcome = run_tui_with_terminal(&mut terminal, tx, rx, config).await;
+    let outcome = run_tui_with_terminal(&mut terminal, tx, rx, link_lost, config).await;
     terminal::restore_terminal();
     outcome
 }
@@ -317,10 +318,11 @@ pub async fn run_tui_with_terminal(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<AgentRequest>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
     let mut input = event_loop::input_reader::InputSource::spawn()?;
-    run_tui_with_input(terminal, tx, rx, config, &mut input).await
+    run_tui_with_input(terminal, tx, rx, link_lost, config, &mut input).await
 }
 
 /// One attachment's TUI run against a caller-owned [`InputSource`].
@@ -333,6 +335,7 @@ pub(crate) async fn run_tui_with_input(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<AgentRequest>,
     mut rx: mpsc::UnboundedReceiver<AgentResponse>,
+    link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
     input: &mut event_loop::input_reader::InputSource,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
@@ -357,9 +360,9 @@ pub(crate) async fn run_tui_with_input(
         initial_prompt,
     } = config;
     let session_phase_init = initial_phase.clone();
-    let initial_pending_prompts: Vec<nuo_wire::AgentRequest> = initial_prompt
+    let initial_pending_prompts: Vec<nuo_protocol::AgentRequest> = initial_prompt
         .map(|text| {
-            vec![nuo_wire::AgentRequest::Prompt {
+            vec![nuo_protocol::AgentRequest::Prompt {
                 text,
                 images: Vec::new(),
                 sent_at_ms: None,
@@ -429,38 +432,38 @@ pub(crate) async fn run_tui_with_input(
             let Some(info) = client::discover(&project_root).await else {
                 return;
             };
-            let action = nuo_wire::MonitorAction {
+            let action = nuo_protocol::MonitorAction {
                 watch: true,
                 include_idle: true,
             };
             let Ok(mut rx) = client::monitor_stream(&info, action).await else {
                 return;
             };
-            let mut rows: Vec<nuo_wire::MonitoredSession> = Vec::new();
+            let mut rows: Vec<nuo_protocol::MonitoredThread> = Vec::new();
             while let Some(event) = rx.recv().await {
                 match event {
-                    nuo_wire::MonitorEvent::Snapshot(snap) => {
-                        rows = snap.sessions;
+                    nuo_protocol::MonitorEvent::Snapshot(snap) => {
+                        rows = snap.threads;
                         mutations
                             .send(event_loop::AppMutation::PersistenceHealth(
                                 snap.persistence_health,
                             ))
                             .await;
                     }
-                    nuo_wire::MonitorEvent::SessionAdded(row)
-                    | nuo_wire::MonitorEvent::SessionUpdated(row) => {
+                    nuo_protocol::MonitorEvent::ThreadAdded(row)
+                    | nuo_protocol::MonitorEvent::ThreadUpdated(row) => {
                         client::upsert_session_row(&mut rows, row);
                     }
-                    nuo_wire::MonitorEvent::SessionRemoved { session_id } => {
-                        rows.retain(|r| r.id != session_id);
+                    nuo_protocol::MonitorEvent::ThreadRemoved { thread_id } => {
+                        rows.retain(|r| r.id != thread_id);
                     }
                     // Server-level task diffs: the dashboard's
                     // task section is folded in a later phase.
-                    nuo_wire::MonitorEvent::TaskUpdated(_) => {}
-                    nuo_wire::MonitorEvent::TaskRemoved { .. } => {}
+                    nuo_protocol::MonitorEvent::TaskUpdated(_) => {}
+                    nuo_protocol::MonitorEvent::TaskRemoved { .. } => {}
                     // Durability-health transitions (D4): a degraded
                     // state retains the visible banner; Healthy clears it.
-                    nuo_wire::MonitorEvent::PersistenceHealth(health) => {
+                    nuo_protocol::MonitorEvent::PersistenceHealth(health) => {
                         mutations
                             .send(event_loop::AppMutation::PersistenceHealth(
                                 (!health.is_healthy()).then_some(health),
@@ -470,7 +473,7 @@ pub(crate) async fn run_tui_with_input(
                     // The server began its graceful shutdown: the
                     // stream closes right after; the next server interaction
                     // re-discovers or re-spawns.
-                    nuo_wire::MonitorEvent::ServerDraining => {}
+                    nuo_protocol::MonitorEvent::ServerDraining => {}
                 }
                 mutations
                     .send(event_loop::AppMutation::HostSessions(rows.clone()))
@@ -486,6 +489,9 @@ pub(crate) async fn run_tui_with_input(
     // itself receives; every application-state change is a mutation.
     {
         let mutations = mutations.clone();
+        // The translator reads the reader's recorded transport failure when the
+        // response stream ends, so the disclosure names the real cause.
+        let link_lost_for_reader = link_lost.clone();
         tokio::spawn(async move {
             // Per-session `(round, turn)` position.
             let mut positions_by_session = HashMap::<String, (u64, u64)>::new();
@@ -520,12 +526,12 @@ pub(crate) async fn run_tui_with_input(
             let mut current_provider = initial_provider_for_translator.clone();
             let mut current_model = initial_model_for_translator.clone();
             let mut picker = ProviderPickerSnapshot::default();
-            let mut harness = nuo_wire::HarnessSnapshot {
+            let mut harness = nuo_protocol::HarnessSnapshot {
                 loop_status: LoopStatus::Idle,
                 round_counter: initial_round_count,
                 unattended: false,
                 confined: true,
-                workspace_security: nuo_wire::WorkspaceSecuritySnapshot::default(),
+                workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
                 retry_pending: false,
                 role: None,
                 workspace: None,
@@ -614,7 +620,10 @@ pub(crate) async fn run_tui_with_input(
                     // translator routes every event to it. Permission and
                     // user-question requests stay global so their modals surface
                     // regardless of which view is focused.
-                    AgentResponse::Round { session_id, event } => {
+                    AgentResponse::Round {
+                        thread_id: session_id,
+                        event,
+                    } => {
                         macro_rules! transcript {
                             ($edit:expr) => {
                                 mutations.send(M::Transcript { edit: $edit }).await;
@@ -743,13 +752,15 @@ pub(crate) async fn run_tui_with_input(
                                     .as_ref()
                                     .and_then(|progress| progress.faults().last().cloned());
                                 let record = match (record.detail, last_fault) {
-                                    (None, Some(fault)) => nuo_wire::RoundInterrupt {
+                                    (None, Some(fault)) => nuo_protocol::RoundInterrupt {
                                         detail: Some(nuo_view::model::notice_text::display_text(
                                             &fault,
                                         )),
                                         ..record
                                     },
-                                    (detail, _) => nuo_wire::RoundInterrupt { detail, ..record },
+                                    (detail, _) => {
+                                        nuo_protocol::RoundInterrupt { detail, ..record }
+                                    }
                                 };
                                 retry_progress = None;
                                 chrome!(event_loop::mutations::ChromeEdit::RoundEnded);
@@ -773,7 +784,7 @@ pub(crate) async fn run_tui_with_input(
                                 // `TrustChanged` *condition* is what opened the gate in
                                 // the first place; feeding it here would render the
                                 // workspace's own state as if it were an error.
-                                if notice.kind == nuo_wire::NoticeKind::TrustFailure {
+                                if notice.kind == nuo_protocol::NoticeKind::TrustFailure {
                                     mutations
                                         .send(M::PreAttachAttestationError(notice.render_text()))
                                         .await;
@@ -826,7 +837,7 @@ pub(crate) async fn run_tui_with_input(
                                     message.turn = Some(turn);
                                 }
                                 transcript!(E::Append {
-                                    class: nuo_wire::EventClass::Dialogue,
+                                    class: nuo_protocol::EventClass::Dialogue,
                                     message
                                 });
                                 // A one-shot text payload is the degenerate case
@@ -1034,7 +1045,7 @@ pub(crate) async fn run_tui_with_input(
                                 // full chain: gate at message creation. Unrecognized
                                 // ids default to disclosed — only known
                                 // `ReasoningSummary` models are gated.
-                                let hidden_chain = !nuo_wire::model_by_id(&current_model)
+                                let hidden_chain = !nuo_protocol::model_by_id(&current_model)
                                     .map(|m| m.thinking.chain_disclosed())
                                     .unwrap_or(true);
                                 if hidden_chain {
@@ -1274,7 +1285,7 @@ pub(crate) async fn run_tui_with_input(
                                 // under this `parent_call_id`; the reply is tagged
                                 // for down-routing into the child.
                                 match &event {
-                                    nuo_wire::SubagentEvent::PermissionRequest(req) => {
+                                    nuo_protocol::SubagentEvent::PermissionRequest(req) => {
                                         mutations
                                             .send(M::QueuePermission {
                                                 request: req.clone(),
@@ -1287,7 +1298,7 @@ pub(crate) async fn run_tui_with_input(
                                             .await;
                                         mutations.send(M::SetResponding(true)).await;
                                     }
-                                    nuo_wire::SubagentEvent::UserQuestionRequest(req) => {
+                                    nuo_protocol::SubagentEvent::UserQuestionRequest(req) => {
                                         mutations
                                             .send(M::QueueQuestion {
                                                 request: req.clone(),
@@ -1353,7 +1364,7 @@ pub(crate) async fn run_tui_with_input(
                                 )
                                 .with_sent_at_ms(now_ms!());
                                 transcript!(E::Append {
-                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    class: nuo_protocol::EventClass::TurnOutcome,
                                     message
                                 });
                             }
@@ -1471,9 +1482,8 @@ pub(crate) async fn run_tui_with_input(
                                 let retry_at = std::time::Instant::now() + delay;
                                 // Advance the one typed state machine. Every
                                 // consumer below reads *this* value, so the
-                                // count on the bar, the count in the receipt and
-                                // the count in the settled anchor are the same
-                                // number by construction.
+                                // ordinal on the bar and the ordinal in the
+                                // receipt are the same number by construction.
                                 let progress = match retry_progress.take() {
                                     Some(progress) => progress.with_next_attempt(
                                         attempt,
@@ -1488,8 +1498,17 @@ pub(crate) async fn run_tui_with_input(
                                         message.clone(),
                                     ),
                                 };
-                                let clause = progress.label(std::time::Instant::now());
                                 let fault = nuo_view::model::notice_text::display_text(&message);
+                                // The record's ordinal pair, composed by the same
+                                // owner as the bar's clause (`receipt_label`), so
+                                // the two can never disagree about which retry
+                                // this was — and this is the one place the
+                                // attempt *budget* is stated: `retry 2 of 30`
+                                // answers "how much rope is left?" for a reader
+                                // consulting the log afterwards, which is exactly
+                                // the question the live bar must not spend
+                                // columns on.
+                                let receipt = progress.receipt_label();
                                 // The bar's clause and the stored state are the
                                 // same value: clone once here so the published
                                 // setback cannot be a second, independently
@@ -1523,18 +1542,18 @@ pub(crate) async fn run_tui_with_input(
                                     .send(M::NoticeDisclosure {
                                         severity: NoticeSeverity::Warning,
                                         topic: "retry".to_string(),
-                                        // The summary is the clause plus the
+                                        // The summary is the receipt plus the
                                         // fault's lead line; the detail is the
                                         // fault verbatim, so the provider's
                                         // full body stays readable and pasteable
                                         // in the viewer now that the transcript
                                         // no longer carries it.
                                         text: if provider.is_empty() {
-                                            format!("{clause} — {fault}")
+                                            format!("{receipt} — {fault}")
                                         } else if model.is_empty() {
-                                            format!("{clause} — {provider}: {fault}")
+                                            format!("{receipt} — {provider}: {fault}")
                                         } else {
-                                            format!("{clause} — {provider}/{model}: {fault}")
+                                            format!("{receipt} — {provider}/{model}: {fault}")
                                         },
                                         detail: Some(nuo_view::model::notice_text::display_text(
                                             &message,
@@ -1567,7 +1586,7 @@ pub(crate) async fn run_tui_with_input(
                                     TranscriptMessage::notice(NoticeSeverity::Error, message)
                                         .with_sent_at_ms(now_ms!());
                                 transcript!(E::Append {
-                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    class: nuo_protocol::EventClass::TurnOutcome,
                                     message: notice
                                 });
 
@@ -1578,10 +1597,10 @@ pub(crate) async fn run_tui_with_input(
                             }
                             RoundEvent::BackgroundJobStarted(info) => {
                                 let label = match &info.spec {
-                                    nuo_wire::JobSpec::Process { command, label, .. } => {
+                                    nuo_protocol::JobSpec::Process { command, label, .. } => {
                                         label.as_deref().unwrap_or(command)
                                     }
-                                    nuo_wire::JobSpec::Timer { label, prompt, .. } => {
+                                    nuo_protocol::JobSpec::Timer { label, prompt, .. } => {
                                         label.as_deref().unwrap_or(prompt.as_str())
                                     }
                                 };
@@ -1598,7 +1617,7 @@ pub(crate) async fn run_tui_with_input(
                                 )
                                 .with_sent_at_ms(now_ms!());
                                 transcript!(E::Append {
-                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    class: nuo_protocol::EventClass::TurnOutcome,
                                     message
                                 });
                             }
@@ -1611,7 +1630,7 @@ pub(crate) async fn run_tui_with_input(
                                 )
                                 .with_sent_at_ms(now_ms!());
                                 transcript!(E::Append {
-                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    class: nuo_protocol::EventClass::TurnOutcome,
                                     message
                                 });
                             }
@@ -1619,7 +1638,7 @@ pub(crate) async fn run_tui_with_input(
                                 let (label, is_success, exit_code, duration_secs) = match &outcome
                                     .state
                                 {
-                                    nuo_wire::JobState::Succeeded { duration_ms, .. } => (
+                                    nuo_protocol::JobState::Succeeded { duration_ms, .. } => (
                                         format!(
                                             "Background job `{}` completed ({}s)",
                                             outcome.job_id.0,
@@ -1629,7 +1648,7 @@ pub(crate) async fn run_tui_with_input(
                                         Some(0),
                                         duration_ms / 1000,
                                     ),
-                                    nuo_wire::JobState::Failed {
+                                    nuo_protocol::JobState::Failed {
                                         duration_ms,
                                         exit_code,
                                         ..
@@ -1643,7 +1662,7 @@ pub(crate) async fn run_tui_with_input(
                                         Some(*exit_code),
                                         duration_ms / 1000,
                                     ),
-                                    nuo_wire::JobState::Killed { duration_ms } => (
+                                    nuo_protocol::JobState::Killed { duration_ms } => (
                                         format!(
                                             "Background job `{}` terminated ({}s)",
                                             outcome.job_id.0,
@@ -1653,7 +1672,7 @@ pub(crate) async fn run_tui_with_input(
                                         None,
                                         duration_ms / 1000,
                                     ),
-                                    nuo_wire::JobState::TimedOut { duration_ms } => (
+                                    nuo_protocol::JobState::TimedOut { duration_ms } => (
                                         format!(
                                             "Background job `{}` timed out ({}s)",
                                             outcome.job_id.0,
@@ -1686,7 +1705,7 @@ pub(crate) async fn run_tui_with_input(
                                 let message = TranscriptMessage::notice(severity, label)
                                     .with_sent_at_ms(now_ms!());
                                 transcript!(E::Append {
-                                    class: nuo_wire::EventClass::TurnOutcome,
+                                    class: nuo_protocol::EventClass::TurnOutcome,
                                     message
                                 });
                             }
@@ -1730,7 +1749,7 @@ pub(crate) async fn run_tui_with_input(
                     }
                     AgentResponse::ConversationCleared {
                         previous_id,
-                        session_id,
+                        thread_id: session_id,
                     } => {
                         mutations
                             .send(M::Transcript {
@@ -1740,11 +1759,11 @@ pub(crate) async fn run_tui_with_input(
                         mutations.send(M::SetRoundCount(0)).await;
                         needs_round_rebase = false;
                         mutations.send(M::ClearContextTokens).await;
-                        // `/new` minted a fresh session and switched to it: rebase
+                        // `/new` minted a fresh thread and switched to it: rebase
                         // **the tab that represented `previous_id`** — never "the
                         // active tab" (ADR-0123 `[INV-TAB-13]`). The two can differ
-                        // whenever a session switch raced this frame, and rebasing
-                        // the wrong one manufactures a tab pointing at a session
+                        // whenever a thread switch raced this frame, and rebasing
+                        // the wrong one manufactures a tab pointing at a thread
                         // that does not exist.
                         mutations
                             .send(M::LiveSession {
@@ -1755,12 +1774,12 @@ pub(crate) async fn run_tui_with_input(
                         live_session = session_id.clone();
                         mutations.send(M::TokenReport(None)).await;
                         mutations
-                            .send(M::SessionTree(nuo_wire::SessionTree::default()))
+                            .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
                             .await;
                     }
                     AgentResponse::ConversationReplaced {
                         previous_id,
-                        session_id,
+                        thread_id: session_id,
                         messages,
                         commands,
                         round_interrupts,
@@ -1783,10 +1802,10 @@ pub(crate) async fn run_tui_with_input(
                             .await;
                         needs_round_rebase = true;
                         // The model-window revision changed; do not reuse an API
-                        // anchor from the previous session/projection.
+                        // anchor from the previous thread/projection.
                         mutations.send(M::ClearContextTokens).await;
-                        // Track the new id so session-scoped client state follows,
-                        // and drop the previous session's cached report. Addressed
+                        // Track the new id so thread-scoped client state follows,
+                        // and drop the previous thread's cached report. Addressed
                         // by `previous_id`, exactly as `ConversationCleared` is
                         // (ADR-0123 `[INV-TAB-13]`).
                         mutations
@@ -1798,18 +1817,21 @@ pub(crate) async fn run_tui_with_input(
                         live_session = session_id;
                         mutations.send(M::TokenReport(None)).await;
                         mutations
-                            .send(M::SessionTree(nuo_wire::SessionTree::default()))
+                            .send(M::SessionTree(nuo_protocol::ThreadTree::default()))
                             .await;
                     }
-                    AgentResponse::SessionsOverview(sessions) => {
+                    AgentResponse::ThreadsOverview(sessions) => {
                         mutations.send(M::SessionsOverview(sessions)).await;
                     }
-                    AgentResponse::OpenSessionsPanel => {
+                    AgentResponse::OpenThreadsPanel => {
                         mutations.send(M::OpenSessionsPanel).await;
                     }
-                    AgentResponse::SessionTreeSnapshot { session_id, tree } => {
-                        // A tree query is session-scoped: reject a reply that
-                        // raced a primary-session switch.
+                    AgentResponse::ThreadTreeSnapshot {
+                        thread_id: session_id,
+                        tree,
+                    } => {
+                        // A tree query is thread-scoped: reject a reply that
+                        // raced a primary-thread switch.
                         if live_session == session_id {
                             mutations.send(M::SessionTree(tree)).await;
                         }
@@ -1817,7 +1839,7 @@ pub(crate) async fn run_tui_with_input(
                     AgentResponse::OpenTreePanel => {
                         mutations.send(M::OpenTreePanel).await;
                     }
-                    AgentResponse::SessionForked {
+                    AgentResponse::ThreadForked {
                         child_id,
                         parent_id,
                         fork_point,
@@ -1832,24 +1854,27 @@ pub(crate) async fn run_tui_with_input(
                             })
                             .await;
                     }
-                    AgentResponse::SessionDetail(detail) => {
+                    AgentResponse::ThreadDetail(detail) => {
                         mutations.send(M::SessionDetail(detail)).await;
                     }
                     AgentResponse::ConnectionDetail(detail) => {
                         mutations.send(M::ConnectionDetail(detail)).await;
                     }
-                    AgentResponse::TokenUsageReport { session_id, report } => {
+                    AgentResponse::TokenUsageReport {
+                        thread_id: session_id,
+                        report,
+                    } => {
                         // Install the report only when it still belongs to the
-                        // session the frontend is viewing — a reply that raced a
-                        // session switch would populate the modal with the
-                        // previous session's rows.
+                        // thread the frontend is viewing — a reply that raced a
+                        // thread switch would populate the modal with the
+                        // previous thread's rows.
                         let viewed = viewed_session_id_clone.lock().await.clone();
                         if viewed.as_deref() == Some(session_id.as_str()) {
                             mutations.send(M::TokenReport(Some(report))).await;
                         }
                     }
                     AgentResponse::UsageStatsReport { report } => {
-                        // Session-independent by design.
+                        // Thread-independent by design.
                         mutations.send(M::UsageStats(report)).await;
                     }
                     AgentResponse::ProviderQuotas(snapshot) => {
@@ -1872,7 +1897,7 @@ pub(crate) async fn run_tui_with_input(
                             ))
                             .await;
                     }
-                    AgentResponse::SessionContext(snapshot) => {
+                    AgentResponse::ThreadContext(snapshot) => {
                         mutations.send(M::SessionContext(snapshot)).await;
                     }
                     AgentResponse::Exit => {
@@ -1889,7 +1914,7 @@ pub(crate) async fn run_tui_with_input(
                     }
                     AgentResponse::ConnectStatus(status) => {
                         match status {
-                            nuo_wire::ConnectStatus::Pending {
+                            nuo_protocol::ConnectStatus::Pending {
                                 url,
                                 user_code,
                                 message,
@@ -1937,7 +1962,7 @@ pub(crate) async fn run_tui_with_input(
                                         .await;
                                 }
                             }
-                            nuo_wire::ConnectStatus::Done { provider } => {
+                            nuo_protocol::ConnectStatus::Done { provider } => {
                                 mutations
                                     .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
                                     .await;
@@ -1951,7 +1976,7 @@ pub(crate) async fn run_tui_with_input(
                                     })
                                     .await;
                             }
-                            nuo_wire::ConnectStatus::CatalogSyncWarning {
+                            nuo_protocol::ConnectStatus::CatalogSyncWarning {
                                 provider,
                                 message,
                                 kind,
@@ -1960,10 +1985,10 @@ pub(crate) async fn run_tui_with_input(
                                 // account may not use this provider); a
                                 // transient failure is not. Say which.
                                 let text = match kind {
-                                    nuo_wire::CatalogSyncFailure::Refused => format!(
+                                    nuo_protocol::CatalogSyncFailure::Refused => format!(
                                         "{provider}: the upstream refused the model-list request ({message}). This connection is not usable with the current credentials or plan; the previously cached list is still shown."
                                     ),
-                                    nuo_wire::CatalogSyncFailure::Transient => format!(
+                                    nuo_protocol::CatalogSyncFailure::Transient => format!(
                                         "{provider}: could not refresh the model list ({message}). Showing the previous list."
                                     ),
                                 };
@@ -1977,7 +2002,7 @@ pub(crate) async fn run_tui_with_input(
                                     })
                                     .await;
                             }
-                            nuo_wire::ConnectStatus::Failed { provider, message } => {
+                            nuo_protocol::ConnectStatus::Failed { provider, message } => {
                                 mutations
                                     .send(M::Oauth(crate::shell::app::OauthAddSignal::Failed {
                                         message: message.clone(),
@@ -2030,13 +2055,13 @@ pub(crate) async fn run_tui_with_input(
                     AgentResponse::ServerEndpointsStatus(report) => {
                         mutations.send(M::ServerEndpoints(report)).await;
                     }
-                    AgentResponse::SessionSnapshot(snapshot) => {
-                        let sid = snapshot.session_id.clone();
+                    AgentResponse::ThreadSnapshot(snapshot) => {
+                        let sid = snapshot.thread_id.clone();
                         // `[INV-ATTACH-04]` (ADR-0133): this frame is the
                         // authoritative hydration payload. Rebuild the whole
                         // visible transcript from it (and the command ledger),
                         // exactly like `ConversationReplaced`, but addressed to
-                        // the snapshot's own session id.
+                        // the snapshot's own thread id.
                         let mut rebuilt =
                             transcript_messages_from_core(snapshot.messages, &tui_config_clone);
                         rebuilt = merge_command_rows(
@@ -2088,7 +2113,7 @@ pub(crate) async fn run_tui_with_input(
                             })
                             .await;
                     }
-                    AgentResponse::SessionPhase(update) => {
+                    AgentResponse::ThreadPhase(update) => {
                         mutations.send(M::SessionPhase(update.phase)).await;
                     }
                     AgentResponse::StateDelta(delta) => {
@@ -2100,13 +2125,28 @@ pub(crate) async fn run_tui_with_input(
                         if let Some(ct) = delta.context_tokens {
                             mutations
                                 .send(M::ContextTokens {
-                                    session_id: delta.session_id,
+                                    session_id: delta.thread_id,
                                     snapshot: ct,
                                 })
                                 .await;
                         }
                     }
                 }
+            }
+            // The response stream ended. Only a *transport* failure is a
+            // fault: the reader records that case with its real error, so the
+            // disclosure names what actually happened instead of guessing
+            // (ADR-0136). A clean close is a server instruction — `Exit`
+            // already delivered that, and inventing a fault here would
+            // contradict it.
+            let transport_failure = link_lost_for_reader
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
+            if let Some(reason) = transport_failure {
+                mutations
+                    .send(event_loop::mutations::AppMutation::LinkLost { reason })
+                    .await;
             }
         });
     }
@@ -2133,7 +2173,7 @@ pub(crate) async fn run_tui_with_input(
         messages: restored,
         layout_height_cache: Default::default(),
         session_chrome: std::collections::HashMap::new(),
-        session_tree: nuo_wire::SessionTree::default(),
+        session_tree: nuo_protocol::ThreadTree::default(),
         scroll: 0,
         follow_bottom: true,
         content_lines: 0,
@@ -2161,7 +2201,7 @@ pub(crate) async fn run_tui_with_input(
         pending_inputs: std::collections::VecDeque::new(),
         subagent_permission_parent: HashMap::new(),
         subagent_question_parent: HashMap::new(),
-        workspace_security: nuo_wire::WorkspaceSecuritySnapshot::default(),
+        workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
         context_tokens_by_session: HashMap::new(),
         open_sessions_signal: false,
         open_tree_signal: false,
@@ -2211,7 +2251,7 @@ pub(crate) async fn run_tui_with_input(
         current_session_id: "test-session".to_string(),
         session_phase: session_phase_init.clone(),
         pending_prompts: initial_pending_prompts,
-        switching_session: (session_phase_init != nuo_wire::SessionPhase::Ready)
+        switching_session: (session_phase_init != nuo_protocol::ThreadPhase::Ready)
             .then(|| live_session_init.clone()),
         current_workspace: String::new(),
         current_role: None,
@@ -2222,6 +2262,7 @@ pub(crate) async fn run_tui_with_input(
         provider_retry: None,
         persistence_health: None,
         link_down: false,
+        relink_requested: false,
         unattended: false,
         confined: true,
         round_count: 0,
@@ -2339,11 +2380,11 @@ pub(crate) async fn run_tui_with_input(
         custom_field: 0,
         custom_fields: Vec::new(),
         custom_protocol_wire: String::new(),
-        custom_budget: nuo_wire::ConnectionBudget::default(),
+        custom_budget: nuo_protocol::ConnectionBudget::default(),
         custom_models: Vec::new(),
         custom_url_hint: String::new(),
         custom_user_agent: None,
-        custom_auth: nuo_wire::ConnectionAuth::Static,
+        custom_auth: nuo_protocol::ConnectionAuth::Static,
         custom_provider_id: None,
         awaiting_oauth_add: false,
         oauth_pending_message: String::new(),
@@ -2491,6 +2532,7 @@ pub(crate) async fn run_tui_with_input(
         switch_to_prompt,
         tabs,
         tab_history,
+        relink_requested: app.relink_requested,
     })
 }
 
@@ -2498,7 +2540,7 @@ pub(crate) async fn run_tui_with_input(
 /// when the user picked a session in the `/host` panel — the server session
 /// to switch to (the caller re-attaches).
 pub struct TuiOutcome {
-    pub history: Vec<nuo_wire::HistoryEntry>,
+    pub history: Vec<nuo_protocol::HistoryEntry>,
     pub switch_to: Option<String>,
     pub switch_to_new: bool,
     pub switch_to_new_prompt: Option<String>,
@@ -2507,14 +2549,19 @@ pub struct TuiOutcome {
     pub switch_to_prompt: Option<String>,
     pub tabs: Option<Vec<crate::shell::surfaces::ClientTab>>,
     pub tab_history: Option<Vec<crate::shell::surfaces::TabKind>>,
+    /// The attachment ended because the link died, not because the operator
+    /// asked to leave (ADR-0136). The runner re-dials and re-attaches, so a
+    /// transient socket failure does not end the session.
+    pub relink_requested: bool,
 }
 
 pub async fn start_tui(
     tx: mpsc::UnboundedSender<AgentRequest>,
     rx: mpsc::UnboundedReceiver<AgentResponse>,
+    link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
-    run_tui(tx, rx, config).await
+    run_tui(tx, rx, link_lost, config).await
 }
 
 /// Apply the visible transcript effect of a stream-start signal: settle any
@@ -2547,6 +2594,11 @@ pub(crate) fn begin_stream(messages: &mut [TranscriptMessage]) {
 /// notices can be appended between reasoning deltas — under `last_mut()`
 /// addressing the next delta would fork the trace into a second Thinking
 /// entry (the "two Thinking blocks" bug).
+///
+/// The append itself is [`TranscriptMessage::push_reasoning_delta`], so the
+/// primary stream and the subagent folding path share one accumulation
+/// mechanism: `content` and the rendered `blocks` advance together or not at
+/// all.
 pub(crate) fn append_reasoning_delta(
     messages: &mut [TranscriptMessage],
     round: Option<u64>,
@@ -2556,10 +2608,7 @@ pub(crate) fn append_reasoning_delta(
     let target = messages.iter_mut().rfind(|message| {
         message.is_reasoning() && message.round == round && message.turn == turn
     })?;
-    target.push_stream(delta);
-    if let MessageKind::Reasoning { content, .. } = &mut target.kind {
-        content.push_str(delta);
-    }
+    target.push_reasoning_delta(delta);
     Some(target.id)
 }
 
@@ -2665,7 +2714,7 @@ mod streaming_appends_tests {
 
     #[test]
     fn text_delta_appends_across_an_intervening_command_entry() {
-        use nuo_wire::Role;
+        use nuo_protocol::Role;
         let mut text = TranscriptMessage::new(Role::Assistant, "hello ");
         text.round = Some(3);
         text.turn = Some(1);

@@ -30,11 +30,11 @@ fn redesigned_components_render_without_panicking() {
                 thinking.set_reasoning_expanded(true);
                 let mut tool = TranscriptMessage::tool_step("call_1", "list_dir", r#"{"path":"."}"#);
                 tool.set_tool_step_expanded(true);
-                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_wire::ToolOutput::text("file_a\nfile_b"), 12);
+                tool.finish_tool_step("call_1", "file_a\nfile_b", nuo_protocol::ToolOutput::text("file_a\nfile_b"), 12);
                 let messages = vec![
-                    TranscriptMessage::new(nuo_wire::Role::User, "hi"),
+                    TranscriptMessage::new(nuo_protocol::Role::User, "hi"),
                     TranscriptMessage::new(
-                        nuo_wire::Role::Assistant,
+                        nuo_protocol::Role::Assistant,
                         "Here is a table:\n\n| Tool | Count |\n| --- | ---: |\n| read | 1 |\n| webfetch | 250 |",
                     ),
                     thinking,
@@ -61,6 +61,7 @@ fn redesigned_components_render_without_panicking() {
                             expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                         },
                         tasks_bar: Default::default(),
+                        interrupt_key: None,
                         subagent_bar: None,
                         page_hints: None,
                         tab_bar: None,
@@ -169,10 +170,14 @@ fn redesigned_components_render_without_panicking() {
             &theme,
             &nuo_view::model::selection::SelectionState::None,
         );
-        let history_roster: Vec<nuo_wire::HistoryEntry> =
-            [nuo_wire::HistoryEntry::new("a".to_string(), None, None, 0)]
-                .into_iter()
-                .collect();
+        let history_roster: Vec<nuo_protocol::HistoryEntry> = [nuo_protocol::HistoryEntry::new(
+            "a".to_string(),
+            None,
+            None,
+            0,
+        )]
+        .into_iter()
+        .collect();
         let ranked: Vec<(usize, nuo_ui_primitives::fuzzy::FuzzyMatch)> =
             nuo_ui_primitives::fuzzy::rank(&["a"], "");
         let input_rect = nuotc::Rect::new(0, 20, 80, 3);
@@ -240,7 +245,7 @@ fn redesigned_components_render_without_panicking() {
         let selection = nuo_view::model::selection::SelectionState::None;
         let mut layout_map = nuo_view::model::layout::LayoutMap::new();
         let sessions_list = [
-            nuo_wire::SessionOverview {
+            nuo_protocol::ThreadOverview {
                 id: "abc123".to_string(),
                 title: Some("Refactor the renderer".to_string()),
                 overview: "Refactor the renderer".to_string(),
@@ -249,11 +254,11 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 12,
                 active: true,
                 parent_id: None,
-                fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             },
-            nuo_wire::SessionOverview {
+            nuo_protocol::ThreadOverview {
                 id: "def456".to_string(),
                 title: Some("Fix the tool_call_id bug".to_string()),
                 overview: "Fix the tool_call_id bug".to_string(),
@@ -262,7 +267,7 @@ fn redesigned_components_render_without_panicking() {
                 message_count: 4,
                 active: false,
                 parent_id: None,
-                fork_kind: nuo_wire::SessionForkKind::Trunk,
+                fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,
                 digest: None,
             },
@@ -303,15 +308,15 @@ fn redesigned_components_render_without_panicking() {
         );
         let question_request = UserQuestionRequest {
             id: "q1".to_string(),
-            questions: vec![nuo_wire::UserQuestion {
+            questions: vec![nuo_protocol::UserQuestion {
                 header: Some("Style".to_string()),
                 question: "Which error handling crate?".to_string(),
                 options: vec![
-                    nuo_wire::UserQuestionOption {
+                    nuo_protocol::UserQuestionOption {
                         label: "anyhow (Recommended)".to_string(),
                         description: Some("Simple".to_string()),
                     },
-                    nuo_wire::UserQuestionOption {
+                    nuo_protocol::UserQuestionOption {
                         label: "thiserror".to_string(),
                         description: Some("Structured".to_string()),
                     },
@@ -534,15 +539,15 @@ fn settings_view_has_padded_panes_and_distinct_zone_tones_without_a_prose_header
 fn settings_scene_renders_without_chevron_indicators_and_with_clean_alignment() {
     let theme = Theme::default();
     let custom = nuo_ui_primitives::ColorSchemeConfig::default();
-    let web = nuo_wire::WebSearchConfigView {
+    let web = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: nuo_wire::WebSearchProvider::Exa,
-        reader: nuo_wire::WebReaderProvider::Jina,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: nuo_wire::WebCredentialStatus::Stored,
-        reader_credential: nuo_wire::WebCredentialStatus::Stored,
-        capabilities: nuo_wire::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::Stored,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);
@@ -841,15 +846,15 @@ fn web_settings_split_search_and_reader_into_clear_panels() {
     let theme = Theme::default();
     let custom = nuo_ui_primitives::ColorSchemeConfig::default();
     let tui_config = crate::shell::config::TuiConfig::default();
-    let web = nuo_wire::WebSearchConfigView {
+    let web = nuo_protocol::WebSearchConfigView {
         revision: 0,
-        provider: nuo_wire::WebSearchProvider::Exa,
-        reader: nuo_wire::WebReaderProvider::Jina,
+        provider: nuo_protocol::WebSearchProvider::Exa,
+        reader: nuo_protocol::WebReaderProvider::Jina,
         timeout_secs: 20,
         searxng_url: None,
-        search_credential: nuo_wire::WebCredentialStatus::Stored,
-        reader_credential: nuo_wire::WebCredentialStatus::Stored,
-        capabilities: nuo_wire::web_provider_capabilities(),
+        search_credential: nuo_protocol::WebCredentialStatus::Stored,
+        reader_credential: nuo_protocol::WebCredentialStatus::Stored,
+        capabilities: nuo_protocol::web_provider_capabilities(),
     };
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);
@@ -934,7 +939,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
         let backoff: Option<&nuo_view::retry::RetryProgress> = None;
         let theme = Theme::default();
         let messages = vec![TranscriptMessage::new(
-            nuo_wire::Role::Assistant,
+            nuo_protocol::Role::Assistant,
             "A finished response above the footer.",
         )];
         let mut terminal = nuotc::TestTerminal::new(60, 20);
@@ -964,6 +969,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
                     tasks_bar: Default::default(),
+                    interrupt_key: None,
                     subagent_bar: None,
                     page_hints: None,
                     tab_bar: None,
@@ -1006,7 +1012,7 @@ fn footer_keeps_one_blank_row_below_transcript_when_active_or_idle() {
 #[test]
 fn too_small_terminal_shows_notice_and_zeroed_render() {
     let theme = Theme::default();
-    let messages = vec![TranscriptMessage::new(nuo_wire::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
 
     let mut terminal = nuotc::TestTerminal::new(20, 8);
     let mut render_opt: Option<TranscriptRender> = None;
@@ -1032,6 +1038,7 @@ fn too_small_terminal_shows_notice_and_zeroed_render() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1134,6 +1141,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1172,7 +1180,7 @@ fn empty_session_renders_empty_state_with_nonzero_height() {
 fn nonempty_session_does_not_render_empty_state() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 24);
-    let messages = vec![TranscriptMessage::new(nuo_wire::Role::User, "hello")];
+    let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
 
     let mut render_opt: Option<TranscriptRender> = None;
     terminal.draw(|f| {
@@ -1198,6 +1206,7 @@ fn nonempty_session_does_not_render_empty_state() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1267,6 +1276,7 @@ fn empty_session_uses_user_logo_and_reports_its_height() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1426,6 +1436,7 @@ fn empty_state_tour_renders_the_current_carousel_page() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1475,7 +1486,7 @@ fn h1_underline_clamps_to_text_extent() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(60, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_wire::Role::Assistant,
+        nuo_protocol::Role::Assistant,
         "# QQ_H1_TEST\n\nbody text here\n",
     )];
     terminal.draw(|f| {
@@ -1500,6 +1511,7 @@ fn h1_underline_clamps_to_text_extent() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1573,7 +1585,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
     let width = 60u16;
     let mut terminal = nuotc::TestTerminal::new(width, 12);
     let messages = vec![TranscriptMessage::new(
-        nuo_wire::Role::Assistant,
+        nuo_protocol::Role::Assistant,
         "# Hello😀\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1598,6 +1610,7 @@ fn h1_underline_emits_wide_glyph_in_underlined_run() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1656,7 +1669,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
     // wraps this ~95-char heading to ≥2 rows.
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     let messages = vec![TranscriptMessage::new(
-        nuo_wire::Role::Assistant,
+        nuo_protocol::Role::Assistant,
         "# This is a very long heading that intentionally wraps to multiple rows for the underline-prefix test\n\nbody\n",
     )];
     terminal.draw(|f| {
@@ -1681,6 +1694,7 @@ fn h1_underline_excludes_prefix_indent_on_wrapped_rows() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,
@@ -1770,7 +1784,7 @@ fn persistence_health_banner_renders_state_and_detail() {
     use crate::shell::chrome::draw_persistence_health_bar;
     let theme = Theme::default();
 
-    let render = |health: &nuo_wire::monitor::PersistenceHealth, width: u16| {
+    let render = |health: &nuo_protocol::monitor::PersistenceHealth, width: u16| {
         let mut terminal = nuotc::TestTerminal::new(width, 1);
         terminal.draw(|f| {
             draw_persistence_health_bar(f, f.area(), health, &theme);
@@ -1781,7 +1795,7 @@ fn persistence_health_banner_renders_state_and_detail() {
             .collect::<String>()
     };
 
-    let recovering = nuo_wire::monitor::PersistenceHealth::Recovering {
+    let recovering = nuo_protocol::monitor::PersistenceHealth::Recovering {
         attempt: 1,
         since_ms: 0,
         error: "engine open failed: database is locked".into(),
@@ -1796,7 +1810,7 @@ fn persistence_health_banner_renders_state_and_detail() {
         "banner carries the cause: {recovering_row:?}"
     );
 
-    let down = nuo_wire::monitor::PersistenceHealth::Down {
+    let down = nuo_protocol::monitor::PersistenceHealth::Down {
         attempt: 7,
         since_ms: 0,
         error: "persistence writer stopped".into(),

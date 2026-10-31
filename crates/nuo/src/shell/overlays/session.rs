@@ -45,7 +45,7 @@ fn absolute_time(ts: u64) -> String {
 /// opens); `session_info_scroll` is that sub-view's own scroll slot.
 /// Properties for rendering the Sessions modal.
 pub struct SessionsModalProps<'a> {
-    pub sessions: &'a [nuo_wire::SessionOverview],
+    pub sessions: &'a [nuo_protocol::ThreadOverview],
     pub expanded_sessions: Option<&'a std::collections::HashSet<String>>,
     pub selected: usize,
     pub scroll: &'a mut usize,
@@ -53,7 +53,7 @@ pub struct SessionsModalProps<'a> {
     pub startup_picker: bool,
     pub spinner_phase: usize,
     pub session_info_detail: bool,
-    pub session_detail: Option<&'a nuo_wire::SessionDetail>,
+    pub session_detail: Option<&'a nuo_protocol::ThreadDetail>,
     pub session_info_scroll: &'a mut usize,
     pub sessions_loading: bool,
     pub running_sessions: Option<&'a std::collections::HashSet<String>>,
@@ -69,7 +69,7 @@ pub struct SessionsModalProps<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionPickerItem<'a> {
     /// The thread this row shows.
-    pub session: &'a nuo_wire::SessionOverview,
+    pub session: &'a nuo_protocol::ThreadOverview,
     /// Nesting depth: `0` for a root, `1` for a direct child, and so on.
     pub depth: usize,
     /// Whether this row is the last of its sibling set in the emitted order —
@@ -93,7 +93,7 @@ pub struct SessionPickerItem<'a> {
 
 impl<'a> SessionPickerItem<'a> {
     /// The thread this row projects.
-    pub fn session(&self) -> &'a nuo_wire::SessionOverview {
+    pub fn session(&self) -> &'a nuo_protocol::ThreadOverview {
         self.session
     }
 
@@ -148,18 +148,18 @@ impl<'a> SessionPickerItem<'a> {
 /// `expanded_set` names the rows whose children are shown. Collapsed rows still
 /// report their `child_count` so the badge reads `[⑂ 3]` before expanding.
 pub fn project_session_rows<'a>(
-    sessions: &'a [nuo_wire::SessionOverview],
+    sessions: &'a [nuo_protocol::ThreadOverview],
     expanded_set: Option<&std::collections::HashSet<String>>,
 ) -> Vec<SessionPickerItem<'a>> {
     use std::collections::{HashMap, HashSet};
 
-    let by_id: HashMap<&str, &'a nuo_wire::SessionOverview> =
+    let by_id: HashMap<&str, &'a nuo_protocol::ThreadOverview> =
         sessions.iter().map(|s| (s.id.as_str(), s)).collect();
 
     // Children indexed by parent id. A row is a child only when its parent is
     // present; otherwise it is an *anchorless* root (handled below).
-    let mut children: HashMap<&str, Vec<&'a nuo_wire::SessionOverview>> = HashMap::new();
-    let mut roots: Vec<&'a nuo_wire::SessionOverview> = Vec::new();
+    let mut children: HashMap<&str, Vec<&'a nuo_protocol::ThreadOverview>> = HashMap::new();
+    let mut roots: Vec<&'a nuo_protocol::ThreadOverview> = Vec::new();
     let mut parent_missing: HashSet<&str> = HashSet::new();
 
     for session in sessions {
@@ -182,7 +182,7 @@ pub fn project_session_rows<'a>(
     // Deterministic order: newest creation first, id as the tiebreak so equal
     // timestamps still form a total order. Descending on `created_at` only —
     // `updated_at` is a liveness signal and must not move a row (`[INV-LINEAGE-03]`).
-    let order = |a: &&'a nuo_wire::SessionOverview, b: &&'a nuo_wire::SessionOverview| {
+    let order = |a: &&'a nuo_protocol::ThreadOverview, b: &&'a nuo_protocol::ThreadOverview| {
         (b.created_at, a.id.as_str()).cmp(&(a.created_at, b.id.as_str()))
     };
     roots.sort_by(order);
@@ -199,7 +199,7 @@ pub fn project_session_rows<'a>(
     // adversarially long chain must not be able to overflow the render stack).
     // Each frame carries the geometry its children inherit.
     struct Frame<'s> {
-        session: &'s nuo_wire::SessionOverview,
+        session: &'s nuo_protocol::ThreadOverview,
         depth: usize,
         is_last: bool,
         ancestry: Vec<bool>,
@@ -280,7 +280,7 @@ pub fn project_session_rows<'a>(
     // Walking up from an unvisited row distinguishes them: reaching an emitted
     // row means the chain is sound (just folded); returning to the walk's own
     // starting point means a cycle.
-    let stranded: Vec<&'a nuo_wire::SessionOverview> = sessions
+    let stranded: Vec<&'a nuo_protocol::ThreadOverview> = sessions
         .iter()
         .filter(|session| !visited.contains(session.id.as_str()))
         .filter(|session| {
@@ -581,7 +581,7 @@ fn short_id(id: &str) -> String {
 /// Build the session-info sub-view body: a label/value read-out (id, title,
 /// created/last-active timestamps, message count) followed by the full last
 /// effective user prompt, wrapped to the modal width.
-fn detail_body(detail: &nuo_wire::SessionDetail, theme: &Theme) -> Vec<Line<'static>> {
+fn detail_body(detail: &nuo_protocol::ThreadDetail, theme: &Theme) -> Vec<Line<'static>> {
     let label = Style::default().fg(theme.dim());
     let value = Style::default().fg(theme.fg());
     let kv = |k: &str, v: String| {
@@ -745,8 +745,8 @@ mod tests {
 
     /// A session row with the fields these tests care about spelled out, so a
     /// new wire field does not turn every assertion into a fixture edit.
-    fn overview(id: &str, parent: Option<&str>, created_at: u64) -> nuo_wire::SessionOverview {
-        nuo_wire::SessionOverview {
+    fn overview(id: &str, parent: Option<&str>, created_at: u64) -> nuo_protocol::ThreadOverview {
+        nuo_protocol::ThreadOverview {
             id: id.into(),
             title: Some(id.into()),
             overview: id.into(),
@@ -756,11 +756,11 @@ mod tests {
             active: false,
             parent_id: parent.map(str::to_string),
             fork_kind: if parent.is_some() {
-                nuo_wire::SessionForkKind::Fork
+                nuo_protocol::ThreadForkKind::Fork
             } else {
-                nuo_wire::SessionForkKind::Trunk
+                nuo_protocol::ThreadForkKind::Trunk
             },
-            fork_point: parent.map(|_| nuo_wire::ForkPoint::at_round(1)),
+            fork_point: parent.map(|_| nuo_protocol::ForkPoint::at_round(1)),
             digest: None,
         }
     }
@@ -874,10 +874,10 @@ mod tests {
         trunk.title = Some("Trunk Work".into());
         let mut child = overview("child", Some("trunk"), 20);
         child.title = Some("Child Branch".into());
-        child.fork_point = Some(nuo_wire::ForkPoint::at_round(1));
+        child.fork_point = Some(nuo_protocol::ForkPoint::at_round(1));
         let mut grandchild = overview("grandchild", Some("child"), 30);
         grandchild.title = Some("Grand Branch".into());
-        grandchild.fork_point = Some(nuo_wire::ForkPoint::at_turn(2, 1));
+        grandchild.fork_point = Some(nuo_protocol::ForkPoint::at_turn(2, 1));
 
         let sessions = vec![trunk, child, grandchild];
         let expanded = std::collections::HashSet::from(["trunk".to_string(), "child".to_string()]);
@@ -1008,14 +1008,14 @@ mod tests {
 
     #[test]
     fn sessions_modal_renders_trunk_badges_and_expanded_branches() {
-        use nuo_wire::{SessionForkKind, SessionOverview};
+        use nuo_protocol::{ThreadForkKind, ThreadOverview};
         let theme = Theme::default();
         let selection = nuo_view::model::selection::SelectionState::None;
         let mut layout_map = nuo_view::model::layout::LayoutMap::default();
         let mut scroll = 0;
         let mut info_scroll = 0;
 
-        let s1 = SessionOverview {
+        let s1 = ThreadOverview {
             id: "s1".into(),
             title: Some("Auth Refactor".into()),
             overview: "Auth Refactor".into(),
@@ -1024,11 +1024,11 @@ mod tests {
             message_count: 5,
             active: false,
             parent_id: None,
-            fork_kind: SessionForkKind::Trunk,
+            fork_kind: ThreadForkKind::Trunk,
             fork_point: None,
             digest: None,
         };
-        let s2 = SessionOverview {
+        let s2 = ThreadOverview {
             id: "s2".into(),
             title: Some("Regex Branch".into()),
             overview: "Regex Branch".into(),
@@ -1037,10 +1037,10 @@ mod tests {
             message_count: 2,
             active: false,
             parent_id: Some("s1".into()),
-            fork_kind: SessionForkKind::Fork,
+            fork_kind: ThreadForkKind::Fork,
             // A real branch records where it diverged; the picker paints that
             // address rather than inventing a name for it (ADR-0120).
-            fork_point: Some(nuo_wire::ForkPoint::at_round(1)),
+            fork_point: Some(nuo_protocol::ForkPoint::at_round(1)),
             digest: None,
         };
         let sessions = vec![s1, s2];
@@ -1121,7 +1121,7 @@ mod tests {
         let mut scroll = 0;
         let mut info_scroll = 0;
 
-        let s1 = nuo_wire::SessionOverview {
+        let s1 = nuo_protocol::ThreadOverview {
             id: "s1".into(),
             title: Some("Running Task".into()),
             overview: "Running Task".into(),
@@ -1130,7 +1130,7 @@ mod tests {
             message_count: 5,
             active: true,
             parent_id: None,
-            fork_kind: nuo_wire::SessionForkKind::Trunk,
+            fork_kind: nuo_protocol::ThreadForkKind::Trunk,
             fork_point: None,
             digest: None,
         };

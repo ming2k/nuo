@@ -54,12 +54,10 @@ fn log_dispatch(app: &mut App, raw: &str, targets: Vec<usize>, action: &'static 
 /// The control request a console verb maps to.
 fn verb_request(verb: ConsoleVerb, id: String) -> crate::shell::client::ControlRequest {
     match verb {
-        ConsoleVerb::Kill => crate::shell::client::ControlRequest::KillSession { session_id: id },
-        ConsoleVerb::Interrupt => {
-            crate::shell::client::ControlRequest::Interrupt { session_id: id }
-        }
+        ConsoleVerb::Kill => crate::shell::client::ControlRequest::KillThread { thread_id: id },
+        ConsoleVerb::Interrupt => crate::shell::client::ControlRequest::Interrupt { thread_id: id },
         ConsoleVerb::Suspend => {
-            crate::shell::client::ControlRequest::SuspendSession { session_id: id }
+            crate::shell::client::ControlRequest::SuspendThread { thread_id: id }
         }
     }
 }
@@ -220,7 +218,7 @@ async fn dispatch_create(app: &mut App, runtime: &UiRuntime, raw: &str, text: Op
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let project = project_root.display().to_string();
     tokio::spawn(async move {
-        let outcome = discover_and_control(crate::shell::client::ControlRequest::CreateSession {
+        let outcome = discover_and_control(crate::shell::client::ControlRequest::CreateThread {
             project,
             prompt: text,
             init_options: None,
@@ -359,7 +357,7 @@ pub(super) async fn dispatch_console_command(
                     (
                         n,
                         crate::shell::client::ControlRequest::SendPrompt {
-                            session_id: id,
+                            thread_id: id,
                             text: text.clone(),
                         },
                     )

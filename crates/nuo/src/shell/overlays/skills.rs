@@ -25,7 +25,7 @@ use nuo_ui_primitives::primitives::{
 /// consistent with the clamped body height.
 pub fn draw_skills_modal(
     frame: &mut Frame,
-    session_context: Option<&nuo_wire::SessionContextSnapshot>,
+    session_context: Option<&nuo_protocol::ThreadContextSnapshot>,
     modal_index: usize,
     expanded: Option<usize>,
     scroll: &mut usize,

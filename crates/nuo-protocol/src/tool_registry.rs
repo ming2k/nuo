@@ -8,7 +8,7 @@
 //!
 //! Tools that need runtime state (config blobs, shared registries) pull it out
 //! of an opaque [`ToolContext`]: a type-keyed service map. This keeps
-//! `nuo-wire` free of dependencies on the concrete state types, which live
+//! `nuo-protocol` free of dependencies on the concrete state types, which live
 //! in higher crates (e.g. `SkillRegistry` in `nuo-skills`). The map is the
 //! only seam.
 //!
@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 /// An opaque, type-keyed bag of services handed to each [`ToolFactory`] at
 /// build time. Tools look their concrete dependencies up by Rust type. There
-/// is intentionally no typed list of fields: that would force `nuo-wire` to
+/// is intentionally no typed list of fields: that would force `nuo-protocol` to
 /// depend on every higher crate's state types. The map is the seam.
 ///
 /// Cheaply [`Clone`](self::ToolContext#method.clone)-able (shared via `Arc`);
@@ -870,15 +870,15 @@ impl ToolPool {
 /// - **Context-free** — for tools needing no runtime state. `$build` is any
 ///   expression evaluating to `T: Tool`:
 ///   ```ignore
-///   nuo_wire::register_tool!(ExecuteCommandFactory => ExecuteCommandTool);
+///   nuo_protocol::register_tool!(ExecuteCommandFactory => ExecuteCommandTool);
 ///   ```
 ///
 /// - **Context-aware** — `$ctx` (a name *you* choose) binds the build context,
 ///   which `$build` may then reference. Use `?` / early `return None` to
 ///   decline (the tool then won't appear in the assembled set):
 ///   ```ignore
-///   nuo_wire::register_tool!(WebReaderFactory => |ctx| {
-///       let cfg = ctx.get::<nuo_wire::WebSearchConfig>()?.clone();
+///   nuo_protocol::register_tool!(WebReaderFactory => |ctx| {
+///       let cfg = ctx.get::<nuo_protocol::WebSearchConfig>()?.clone();
 ///       WebReaderTool::with_config(cfg)
 ///   });
 ///   ```

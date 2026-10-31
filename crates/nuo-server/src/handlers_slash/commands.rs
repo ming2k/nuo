@@ -28,7 +28,7 @@ use nuo_harness::cognition::skills::ListSkillsTool;
 use nuo_harness::orchestration::{
     ContextProjectionSettings, RoundInput, round_response, send_compaction,
 };
-use nuo_wire::{AgentResponse, CommandResult, LoopStatus, RoundEvent, Tool, TrustDomain};
+use nuo_protocol::{AgentResponse, CommandResult, LoopStatus, RoundEvent, Tool, TrustDomain};
 
 pub(crate) async fn permissions(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&str]) {
     let SlashEnv {
@@ -200,7 +200,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
 
             lines.push("Available roles:".to_string());
             lines.push("  Built-in roles:".to_string());
-            for preset in nuo_wire::MainAgentRole::ALL {
+            for preset in nuo_protocol::MainAgentRole::ALL {
                 lines.push(format!(
                     "    • `{}` — {}",
                     preset.as_str(),
@@ -248,10 +248,10 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
                 session.workspace_root().as_deref(),
             );
             let user_role = roles_config.get(role_id);
-            let builtin = nuo_wire::MainAgentRole::parse(role_id);
+            let builtin = nuo_protocol::MainAgentRole::parse(role_id);
 
             if user_role.is_none() && builtin.is_none() {
-                let mut available: Vec<String> = nuo_wire::MainAgentRole::ALL
+                let mut available: Vec<String> = nuo_protocol::MainAgentRole::ALL
                     .iter()
                     .map(|p| format!("`{}`", p.as_str()))
                     .collect();
@@ -272,7 +272,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
                 return;
             }
 
-            let target_workspace = if builtin == Some(nuo_wire::MainAgentRole::Developer) {
+            let target_workspace = if builtin == Some(nuo_protocol::MainAgentRole::Developer) {
                 let ws_arg = parts
                     .get(2..)
                     .map(|p| p.join(" "))
@@ -339,7 +339,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
                         }
                     }
                 };
-                Some(nuo_wire::WorkspaceBinding::new(target_path))
+                Some(nuo_protocol::WorkspaceBinding::new(target_path))
             } else if builtin.map(|b| !b.requires_workspace()).unwrap_or(false) {
                 None
             } else if let Some(user_role) = user_role {
@@ -347,7 +347,7 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
                     nuo_persistence::roles::RoleWorkspace::None => None,
                     nuo_persistence::roles::RoleWorkspace::Inherit => session.workspace(),
                     nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
-                        Some(nuo_wire::WorkspaceBinding::new(root))
+                        Some(nuo_protocol::WorkspaceBinding::new(root))
                     }
                 }
             } else {
@@ -401,7 +401,7 @@ pub(crate) async fn search(
         let hits = crate::search_lexical::search(query, &messages, &commands, 5);
         let hits = hits
             .into_iter()
-            .map(|hit| nuo_wire::SearchHit {
+            .map(|hit| nuo_protocol::SearchHit {
                 text: hit.text,
                 score: hit.score,
             })
@@ -531,14 +531,14 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                             session,
                             agent,
                             resp_tx,
-                            nuo_wire::SessionSource::Resume,
+                            nuo_protocol::SessionSource::Resume,
                         )
                         .await;
                         let transcript = session.full_transcript().await;
                         let _ = resp_tx.send(AgentResponse::ConversationReplaced {
                             // `[INV-TAB-13]`: the id being left addresses the tab.
                             previous_id: current_id.clone(),
-                            session_id: session.id().await,
+                            thread_id: session.id().await,
                             messages: transcript,
                             commands: session.commands().await,
                             round_interrupts: session.round_interrupts().await,
@@ -591,8 +591,8 @@ pub(crate) async fn sessions(mut env: SlashEnv<'_>, name: &str, args: &str, part
                     CommandResult::Text(String::new()),
                 );
                 let (overview, ()) = tokio::join!(overview_fut, record_fut);
-                let _ = resp_tx.send(AgentResponse::SessionsOverview(overview));
-                let _ = resp_tx.send(AgentResponse::OpenSessionsPanel);
+                let _ = resp_tx.send(AgentResponse::ThreadsOverview(overview));
+                let _ = resp_tx.send(AgentResponse::OpenThreadsPanel);
             }
         },
     }
@@ -610,8 +610,8 @@ pub(crate) async fn tree(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
         resp_tx, session, ..
     } = env;
     let tree = session.tree().await;
-    let _ = resp_tx.send(AgentResponse::SessionTreeSnapshot {
-        session_id: session.id().await,
+    let _ = resp_tx.send(AgentResponse::ThreadTreeSnapshot {
+        thread_id: session.id().await,
         tree: tree.clone(),
     });
     let _ = resp_tx.send(AgentResponse::OpenTreePanel);
@@ -750,7 +750,7 @@ pub(crate) async fn undo(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
                     )
                     .await
                 {
-                    refused.push(nuo_wire::UndoRefusal {
+                    refused.push(nuo_protocol::UndoRefusal {
                         path: file.path.clone(),
                         reason: format!(
                             "restored, but the journal could not record it: {error}. \
@@ -813,15 +813,15 @@ fn project_changes(
     effects: &[nuo_persistence::workspace_effects::WorkspaceEffect],
     workspace_root: Option<&std::path::Path>,
 ) -> (
-    Vec<nuo_wire::ChangedFile>,
-    Vec<nuo_wire::ChangedFile>,
-    Vec<nuo_wire::ChangedFile>,
+    Vec<nuo_protocol::ChangedFile>,
+    Vec<nuo_protocol::ChangedFile>,
+    Vec<nuo_protocol::ChangedFile>,
 ) {
     let mut reversible = Vec::new();
     let mut irreversible = Vec::new();
     let mut unconfirmed = Vec::new();
     for effect in effects {
-        let file = nuo_wire::ChangedFile {
+        let file = nuo_protocol::ChangedFile {
             path: display_path(effect.path.as_deref(), workspace_root),
             tool: effect.tool_name.clone(),
             round_id: effect.round_id.clone(),
@@ -928,12 +928,12 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
 
     let _ = resp_tx.send(round_response(
         &session.id().await,
-        nuo_wire::RoundEvent::Notice(
-            nuo_wire::AgentNotice::new(
-                nuo_wire::NoticeKind::CommandAck,
-                nuo_wire::NoticeSeverity::Info,
+        nuo_protocol::RoundEvent::Notice(
+            nuo_protocol::AgentNotice::new(
+                nuo_protocol::NoticeKind::CommandAck,
+                nuo_protocol::NoticeSeverity::Info,
                 "Compacting Context",
-                nuo_wire::NoticeSource::Harness,
+                nuo_protocol::NoticeSource::Harness,
             )
             .with_body("Synthesizing completed rounds into structured checkpoint..."),
         ),
@@ -990,7 +990,7 @@ pub(crate) async fn jobs(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
     match sub {
         "kill" => {
             if let Some(target_id) = parts.get(2) {
-                let jid = nuo_wire::JobId(target_id.to_string());
+                let jid = nuo_protocol::JobId(target_id.to_string());
                 match background_jobs.kill_job(&jid) {
                     Ok(()) => {
                         record_ack(
@@ -1018,7 +1018,7 @@ pub(crate) async fn jobs(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
         }
         "logs" => {
             if let Some(target_id) = parts.get(2) {
-                let jid = nuo_wire::JobId(target_id.to_string());
+                let jid = nuo_protocol::JobId(target_id.to_string());
                 match background_jobs.get_logs(&jid, 50) {
                     Some(lines) => {
                         let output = if lines.is_empty() {
@@ -1070,39 +1070,39 @@ pub(crate) async fn jobs(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
                 );
                 for j in jobs {
                     let (kind_str, detail) = match &j.spec {
-                        nuo_wire::JobSpec::Process { command, label, .. } => (
+                        nuo_protocol::JobSpec::Process { command, label, .. } => (
                             label.clone().unwrap_or_else(|| "process".to_string()),
                             command.clone(),
                         ),
-                        nuo_wire::JobSpec::Timer { label, prompt, .. } => (
+                        nuo_protocol::JobSpec::Timer { label, prompt, .. } => (
                             label.clone().unwrap_or_else(|| "timer".to_string()),
                             prompt.clone(),
                         ),
                     };
                     let status_str = match &j.state {
-                        nuo_wire::JobState::Queued => "Queued".to_string(),
-                        nuo_wire::JobState::Running { pid, .. } => {
+                        nuo_protocol::JobState::Queued => "Queued".to_string(),
+                        nuo_protocol::JobState::Running { pid, .. } => {
                             if let Some(p) = pid {
                                 format!("Running (PID {p})")
                             } else {
                                 "Running".to_string()
                             }
                         }
-                        nuo_wire::JobState::Ready { .. } => "Ready (service)".to_string(),
-                        nuo_wire::JobState::Succeeded { duration_ms, .. } => {
+                        nuo_protocol::JobState::Ready { .. } => "Ready (service)".to_string(),
+                        nuo_protocol::JobState::Succeeded { duration_ms, .. } => {
                             format!("✓ Passed ({}s)", duration_ms / 1000)
                         }
-                        nuo_wire::JobState::Failed {
+                        nuo_protocol::JobState::Failed {
                             duration_ms,
                             exit_code,
                             ..
                         } => {
                             format!("✗ Failed (Exit {exit_code}, {}s)", duration_ms / 1000)
                         }
-                        nuo_wire::JobState::Killed { duration_ms } => {
+                        nuo_protocol::JobState::Killed { duration_ms } => {
                             format!("Killed ({}s)", duration_ms / 1000)
                         }
-                        nuo_wire::JobState::TimedOut { duration_ms } => {
+                        nuo_protocol::JobState::TimedOut { duration_ms } => {
                             format!("Timed Out ({}s)", duration_ms / 1000)
                         }
                     };
@@ -1192,7 +1192,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 let user_granted = crate::handlers_slash::security_ops::trust_user_assets();
                 let effective = nuo_persistence::config::Config::load();
                 let mcp_report = mcp_runtime.reconfigure(effective.mcp.clone()).await;
-                let mut snap = nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
+                let mut snap = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
                 snap.user_assets = crate::handlers_slash::security_ops::compute_user_assets_trust();
                 agent.set_workspace_security(snap.clone());
                 let user_granted_str = if user_granted.is_empty() {
@@ -1226,7 +1226,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 let denied = crate::handlers_slash::security_ops::deny_user_assets();
                 let effective = nuo_persistence::config::Config::load();
                 let mcp_report = mcp_runtime.reconfigure(effective.mcp.clone()).await;
-                let mut snap = nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
+                let mut snap = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
                 snap.user_assets = crate::handlers_slash::security_ops::compute_user_assets_trust();
                 agent.set_workspace_security(snap.clone());
                 let message = if denied.is_empty() {
@@ -1253,7 +1253,7 @@ pub(crate) async fn trust(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&s
                 record_command(session, resp_tx, name, args, CommandResult::Text(message)).await;
             }
             TrustRoute::Status => {
-                let mut snapshot = nuo_wire::WorkspaceSecuritySnapshot::new("workspace-free");
+                let mut snapshot = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
                 snapshot.user_assets =
                     crate::handlers_slash::security_ops::compute_user_assets_trust();
                 agent.set_workspace_security(snapshot.clone());
@@ -1923,7 +1923,7 @@ pub(crate) async fn user_command(
 /// like a failed side effect (a plain error) is what made it feel unrecoverable.
 pub(crate) async fn record_unknown_command(
     session: &std::sync::Arc<nuo_persistence::session::SessionStore>,
-    resp_tx: &tokio::sync::mpsc::UnboundedSender<nuo_wire::AgentResponse>,
+    resp_tx: &tokio::sync::mpsc::UnboundedSender<nuo_protocol::AgentResponse>,
     name: &str,
     args: &str,
     typed: &str,
@@ -1933,7 +1933,7 @@ pub(crate) async fn record_unknown_command(
         resp_tx,
         name,
         args,
-        nuo_wire::CommandResult::UnknownCommand {
+        nuo_protocol::CommandResult::UnknownCommand {
             name: typed.to_string(),
             suggestion: crate::startup::suggest_command(typed).map(str::to_string),
         },

@@ -31,7 +31,7 @@
 //!   the [`serve`] WebSocket/UDS control plane: owner-only native IPC by default
 //!   (a Unix domain socket or Windows Named Pipe), plus TCP with a bearer
 //!   token when started `--public`. The wire protocol contracts live in
-//!   `nuo-protocol` (`nuo-wire`), which publishes the typed wire protocol
+//!   `nuo-protocol` (`nuo-protocol`), which publishes the typed wire protocol
 //!   the server drives ([`serve`] re-exports the envelope types).
 //! - [`serve_discovery`] publishes the global `server.json` record clients
 //!   use to find the server; on graceful shutdown the server tears every
@@ -43,7 +43,7 @@
 //! `nuo-server` depends on `nuo-harness` (the cognitive runtime and the built-in tools),
 //! `nuo-persistence` (persistence), the `providers/nuo-provider-*` crates (providers),
 //! `nuo-mcp` (the MCP connector protocol; this crate owns each live
-//! `McpRuntime` because it controls connection lifetime), and `nuo-wire`
+//! `McpRuntime` because it controls connection lifetime), and `nuo-protocol`
 //! (vocabulary — the former `nuo-contracts`, absorbed by ADR-0006).
 //! Slash-command discovery and project scaffolding live here as the
 //! `startup`/`project` modules. Agent-owned stateful tools are assembled
@@ -54,8 +54,8 @@
 //!
 //! This crate is application-neutral: it holds no product name, mission, or
 //! preset profile. The embedding binary supplies an
-//! [`nuo_wire::AgentIdentity`] to `Agent::new` / `from_toolset` and binds
-//! an [`nuo_wire::AgentRoleProfile`] via `apply_preset`.
+//! [`nuo_protocol::AgentIdentity`] to `Agent::new` / `from_toolset` and binds
+//! an [`nuo_protocol::AgentRoleProfile`] via `apply_preset`.
 //! The `nuo` binary keeps the coding identity; a forked child reuses
 //! the primary agent's identity (`Agent::identity()`) rather than naming a product here.
 
@@ -118,6 +118,7 @@ pub use durability_sink::StoreSink;
 pub use hypervisor::Hypervisor;
 pub use kernel_host::kernel_host;
 pub use mcp::{McpCatalog, McpRuntime};
+pub use registry::{HostedThread, ThreadRegistry};
 pub use session_driver::SessionDriver;
 pub use skills_host::DurableWorkspaceTrust;
 pub use ui_bridge::{CopyOutcome, UiBridge};

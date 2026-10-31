@@ -14,8 +14,8 @@
 use std::path::Path;
 
 use nuo::transport::{self as client, ServerDiagnostics, upsert_session_row, upsert_task_row};
-use nuo_wire::{
-    MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredSession, SessionHosting, SessionStatus,
+use nuo_protocol::{
+    MonitorAction, MonitorEvent, MonitorSnapshot, MonitoredThread, ThreadHosting, ThreadStatus,
 };
 
 /// How `nuo status` renders its stream.
@@ -49,6 +49,9 @@ pub async fn run(
         return Ok(());
     };
     if !client::versions_compatible(&info) {
+        if opts.diagnostic {
+            return Ok(());
+        }
         return Err(client::incompatibility_error(&info).into());
     }
     let action = MonitorAction {
@@ -71,11 +74,11 @@ pub async fn run(
     while let Some(event) = rx.recv().await {
         match event {
             MonitorEvent::Snapshot(snapshot) => state = snapshot,
-            MonitorEvent::SessionAdded(row) | MonitorEvent::SessionUpdated(row) => {
-                upsert_session_row(&mut state.sessions, row);
+            MonitorEvent::ThreadAdded(row) | MonitorEvent::ThreadUpdated(row) => {
+                upsert_session_row(&mut state.threads, row);
             }
-            MonitorEvent::SessionRemoved { session_id } => {
-                state.sessions.retain(|row| row.id != session_id);
+            MonitorEvent::ThreadRemoved { thread_id } => {
+                state.threads.retain(|row| row.id != thread_id);
             }
             MonitorEvent::TaskUpdated(task) => {
                 upsert_task_row(&mut state.tasks, task);
@@ -362,9 +365,9 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         snapshot.project_root.as_str()
     };
     out.push_str(&format!(
-        "nuo status — {} — {} session(s) needing attention\n",
+        "nuo status — {} — {} thread(s) needing attention\n",
         root,
-        snapshot.sessions.len()
+        snapshot.threads.len()
     ));
     // Durability health (D4): visible in the operator's first line
     // of view, never log-only.
@@ -372,9 +375,9 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         && !health.is_healthy()
     {
         let state = match health {
-            nuo_wire::monitor::PersistenceHealth::Recovering { .. } => "recovering",
-            nuo_wire::monitor::PersistenceHealth::Down { .. } => "down",
-            nuo_wire::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
+            nuo_protocol::monitor::PersistenceHealth::Recovering { .. } => "recovering",
+            nuo_protocol::monitor::PersistenceHealth::Down { .. } => "down",
+            nuo_protocol::monitor::PersistenceHealth::Healthy => unreachable!("filtered above"),
         };
         let detail = health.detail().unwrap_or_default();
         out.push_str(&format!(
@@ -389,13 +392,13 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
         ));
         for t in &snapshot.tasks {
             let state = match &t.state {
-                nuo_wire::JobState::Running { .. } => "running",
-                nuo_wire::JobState::Ready { .. } => "ready",
-                nuo_wire::JobState::Succeeded { .. } => "done",
-                nuo_wire::JobState::Failed { .. } => "failed",
-                nuo_wire::JobState::Killed { .. } => "killed",
-                nuo_wire::JobState::TimedOut { .. } => "timed out",
-                nuo_wire::JobState::Queued => "queued",
+                nuo_protocol::JobState::Running { .. } => "running",
+                nuo_protocol::JobState::Ready { .. } => "ready",
+                nuo_protocol::JobState::Succeeded { .. } => "done",
+                nuo_protocol::JobState::Failed { .. } => "failed",
+                nuo_protocol::JobState::Killed { .. } => "killed",
+                nuo_protocol::JobState::TimedOut { .. } => "timed out",
+                nuo_protocol::JobState::Queued => "queued",
             };
             let latest = t.latest_output.as_deref().unwrap_or("");
             let latest = if latest.chars().count() > 30 {
@@ -412,16 +415,16 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
             ));
         }
     }
-    if snapshot.sessions.is_empty() {
+    if snapshot.threads.is_empty() {
         out.push_str("  (all quiet — no running or blocked sessions)\n");
         out.push_str("\nTip: Run `nuo thread ls` for full thread history, or `nuo status --diagnostic` for transport internals.\n");
         return out;
     }
     out.push_str(&format!(
         "  {:<10} {:<14} {:<9} {:<7} {:>6} {:<9} {}\n",
-        "SESSION", "STATUS", "HOSTING", "ROUND", "OUT", "ELAPSED", "DETAIL"
+        "THREAD", "STATUS", "HOSTING", "ROUND", "OUT", "ELAPSED", "DETAIL"
     ));
-    for row in &snapshot.sessions {
+    for row in &snapshot.threads {
         out.push_str(&format!(
             "  {:<10} {:<14} {:<9} {:<7} {:>6} {:<9} {}\n",
             short_id(&row.id),
@@ -440,15 +443,15 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
 /// How the row's session is driven. Every session is
 /// server-held, so this is always `hosted`; the column stays so older
 /// servers' rows (which may omit `hosting`) still render.
-fn hosting_cell(row: &MonitoredSession) -> String {
+fn hosting_cell(row: &MonitoredThread) -> String {
     match row.hosting {
-        SessionHosting::Hosted => "hosted".to_string(),
+        ThreadHosting::Hosted => "hosted".to_string(),
     }
 }
 
 /// `round 3 › turn 2` while a round runs; `round 3` once it settled; `–`
 /// before the first round.
-fn round_turn(row: &MonitoredSession) -> String {
+fn round_turn(row: &MonitoredThread) -> String {
     match (row.round, row.turn) {
         (0, _) => "–".to_string(),
         (round, Some(turn)) => format!("{round} › {turn}"),
@@ -456,14 +459,14 @@ fn round_turn(row: &MonitoredSession) -> String {
     }
 }
 
-fn detail(row: &MonitoredSession) -> String {
+fn detail(row: &MonitoredThread) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(tool) = &row.current_tool {
         parts.push(format!("tool {tool}"));
     }
     if let Some(note) = &row.note {
         parts.push(note.clone());
-    } else if row.status == SessionStatus::Running
+    } else if row.status == ThreadStatus::Running
         && let Some(activity) = &row.activity
     {
         parts.push(activity.clone());
@@ -523,10 +526,10 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::SessionForkKind;
+    use nuo_protocol::ThreadForkKind;
 
-    fn row(id: &str, status: SessionStatus) -> MonitoredSession {
-        MonitoredSession {
+    fn row(id: &str, status: ThreadStatus) -> MonitoredThread {
+        MonitoredThread {
             id: id.into(),
             title: Some("refactor the parser".into()),
             overview: "refactor the parser".into(),
@@ -534,7 +537,7 @@ mod tests {
             updated_at: 100,
             message_count: 12,
             status,
-            hosting: SessionHosting::Hosted,
+            hosting: ThreadHosting::Hosted,
             round: 3,
             turn: Some(1),
             output_tokens: 1_240,
@@ -545,17 +548,17 @@ mod tests {
             note: None,
             project_root: "/tmp/project".into(),
             parent_id: None,
-            fork_kind: SessionForkKind::default(),
+            fork_kind: ThreadForkKind::default(),
             fork_point: None,
             digest: None,
         }
     }
 
-    fn snapshot(rows: Vec<MonitoredSession>) -> MonitorSnapshot {
+    fn snapshot(rows: Vec<MonitoredThread>) -> MonitorSnapshot {
         MonitorSnapshot {
             project_root: "/home/u/proj".into(),
             server_started_at: 50,
-            sessions: rows,
+            threads: rows,
             tasks: Vec::new(),
             persistence_health: None,
         }
@@ -564,11 +567,11 @@ mod tests {
     #[test]
     fn table_renders_server_tasks_section() {
         let mut snap = snapshot(Vec::new());
-        snap.tasks = vec![nuo_wire::MonitoredTask {
+        snap.tasks = vec![nuo_protocol::MonitoredTask {
             id: "task_abc12345".into(),
             label: "rehost:svc_old".into(),
             spec: "npm run dev".into(),
-            state: nuo_wire::JobState::Ready {
+            state: nuo_protocol::JobState::Ready {
                 started_at_ms: 0,
                 ready_at_ms: 0,
             },
@@ -594,7 +597,7 @@ mod tests {
 
     #[test]
     fn table_renders_status_round_and_detail() {
-        let text = table(&snapshot(vec![row("abcdef123456", SessionStatus::Running)]));
+        let text = table(&snapshot(vec![row("abcdef123456", ThreadStatus::Running)]));
         assert!(text.contains("abcdef12"), "{text}");
         assert!(text.contains("running"), "{text}");
         assert!(text.contains("3 › 1"), "{text}");
@@ -605,7 +608,7 @@ mod tests {
 
     #[test]
     fn blocked_row_shows_its_note() {
-        let mut blocked = row("zz", SessionStatus::NeedsApproval);
+        let mut blocked = row("zz", ThreadStatus::NeedsApproval);
         blocked.current_tool = None;
         blocked.note = Some("permission: write_file".into());
         let text = table(&snapshot(vec![blocked]));
@@ -617,16 +620,16 @@ mod tests {
 
     #[test]
     fn upsert_replaces_in_place_and_sorts_by_recency() {
-        let mut rows = vec![row("a", SessionStatus::Running)];
-        let mut newer = row("b", SessionStatus::Idle);
+        let mut rows = vec![row("a", ThreadStatus::Running)];
+        let mut newer = row("b", ThreadStatus::Idle);
         newer.updated_at = 200;
         upsert_session_row(&mut rows, newer);
         assert_eq!(rows[0].id, "b");
-        let mut updated = row("b", SessionStatus::Failed);
+        let mut updated = row("b", ThreadStatus::Failed);
         updated.updated_at = 300;
         upsert_session_row(&mut rows, updated);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].status, SessionStatus::Failed);
+        assert_eq!(rows[0].status, ThreadStatus::Failed);
     }
 
     #[test]
@@ -804,14 +807,14 @@ mod tests {
 #[cfg(test)]
 mod persistence_health_tests {
     use super::*;
-    use nuo_wire::monitor::PersistenceHealth;
+    use nuo_protocol::monitor::PersistenceHealth;
 
     #[test]
     fn table_warns_when_the_persistence_writer_is_down() {
         let mut snap = MonitorSnapshot {
             project_root: "/home/u/proj".into(),
             server_started_at: 50,
-            sessions: Vec::new(),
+            threads: Vec::new(),
             tasks: Vec::new(),
             persistence_health: Some(PersistenceHealth::Down {
                 attempt: 6,

@@ -62,7 +62,7 @@ Every crate in the repository belongs strictly to one of three versioning cluste
 | **`nuo`** | **Cluster C** | Unified public executable (server, CLI, TUI runner) | `version.workspace = true` | Binary distribution |
 | **`nuo-server`** | **Cluster C** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
 | **`nuo-tui`** | **Cluster C** | Semantic terminal interactive presentation view library | `version.workspace = true` | crates.io package |
-| **`nuo-protocol`** | **Cluster C** | IPC envelopes, session entities, discovery & shared domain contracts | `version.workspace = true` | crates.io package (`nuo-wire` alias) |
+| **`nuo-protocol`** | **Cluster C** | IPC envelopes, session entities, discovery & shared domain contracts | `version.workspace = true` | crates.io package |
 | **`nuo-host`** | **Cluster C** | Host environment, sandboxing & native tools | `version.workspace = true` | crates.io package |
 | **`nuo-tool`** | **Cluster C** | Zero-agent-runtime tool specification & schemas | `version.workspace = true` | crates.io package |
 | **`nuo-tool-derive`** | **Cluster C** | Compile-time JSON schema derive macro | Direct path companion to `nuo-tool` | crates.io package |

@@ -52,10 +52,23 @@ pub enum ComponentRowId {
 /// carries.
 const BEHAVIOR_ROWS: [ComponentRowId; 1] = [ComponentRowId::AutoScroll];
 
+/// The tool components that actually own a disclosure policy.
+///
+/// A component with no inline body (a subagent delegation) has nothing to
+/// disclose, so it must not appear in this panel: a switch that cannot change
+/// what the transcript paints is a lie about the product, not a setting. The
+/// filter lives here — the single ordering definition — so the renderer, the
+/// dispatcher, and the tests cannot disagree about which rows exist.
+fn disclosable_components() -> impl Iterator<Item = &'static ToolComponent> {
+    TOOL_COMPONENTS
+        .iter()
+        .filter(|component| component.has_inline_body)
+}
+
 /// Count of selectable rows in the Components panel. Derived from the tool
 /// registry — never a literal (ADR-0020).
 pub fn item_count() -> usize {
-    1 + TOOL_COMPONENTS.len() + BEHAVIOR_ROWS.len()
+    1 + disclosable_components().count() + BEHAVIOR_ROWS.len()
 }
 
 /// Resolve a detail index to its row identity. This is the single ordering
@@ -65,11 +78,11 @@ pub fn row_for_index(index: usize) -> Option<ComponentRowId> {
         return Some(ComponentRowId::Reasoning);
     }
     let tool_index = index - 1;
-    if let Some(component) = TOOL_COMPONENTS.get(tool_index) {
+    if let Some(component) = disclosable_components().nth(tool_index) {
         return Some(ComponentRowId::Tool(component));
     }
     BEHAVIOR_ROWS
-        .get(tool_index - TOOL_COMPONENTS.len())
+        .get(tool_index - disclosable_components().count())
         .copied()
 }
 
@@ -232,9 +245,15 @@ mod tests {
     /// drift (ADR-0020).
     #[test]
     fn panel_rows_are_derived_from_the_tool_registry() {
-        assert_eq!(item_count(), TOOL_COMPONENTS.len() + 2);
+        // Only components that own an inline body appear: a disclosure switch
+        // for a bodyless component (a subagent delegation) would change nothing.
+        let disclosable: Vec<_> = TOOL_COMPONENTS
+            .iter()
+            .filter(|c| c.has_inline_body)
+            .collect();
+        assert_eq!(item_count(), disclosable.len() + 2);
         assert_eq!(row_for_index(0), Some(ComponentRowId::Reasoning));
-        for (offset, component) in TOOL_COMPONENTS.iter().enumerate() {
+        for (offset, component) in disclosable.iter().enumerate() {
             assert_eq!(
                 row_for_index(1 + offset),
                 Some(ComponentRowId::Tool(component)),
@@ -244,11 +263,20 @@ mod tests {
             );
         }
         assert_eq!(
-            row_for_index(1 + TOOL_COMPONENTS.len()),
+            row_for_index(1 + disclosable.len()),
             Some(ComponentRowId::AutoScroll)
         );
         // Out of range resolves to nothing rather than wrapping.
         assert_eq!(row_for_index(item_count()), None);
+
+        // The bodyless components are exactly the ones excluded, and they are
+        // the subagent delegations.
+        let excluded: Vec<_> = TOOL_COMPONENTS
+            .iter()
+            .filter(|c| !c.has_inline_body)
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(excluded, vec!["subagent"]);
     }
 
     /// Activating a component row must move that component's state whichever

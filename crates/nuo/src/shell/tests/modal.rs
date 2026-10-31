@@ -10,7 +10,7 @@ use super::*;
 /// using the ladder the server shipped on the picker snapshot, not one
 /// re-derived client-side.
 ///
-/// The TUI binary links `nuo-wire` (which owns the `inventory` registry
+/// The TUI binary links `nuo-protocol` (which owns the `inventory` registry
 /// slot) but **not** `nuo-providers` (which owns the baseline tables that fill
 /// it). So `resolve_model` returns an empty ladder in the real binary, and
 /// reading it here collapsed the effort control to its value-only fallback —
@@ -30,18 +30,18 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
     let model = "relay-only-reasoner-unregistered";
     let levels = vec!["low".to_string(), "high".to_string(), "max".to_string()];
     assert!(
-        nuo_wire::resolve_model(model).effort_levels.is_empty(),
+        nuo_protocol::resolve_model(model).effort_levels.is_empty(),
         "precondition: the static registry must not know this id"
     );
 
     app.provider_picker = ProviderPickerSnapshot {
         default_id: "relay".to_string(),
-        rows: vec![nuo_wire::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "relay".to_string(),
             name: "Relay".to_string(),
             model: model.to_string(),
             models: vec![model.to_string()],
-            model_info: vec![nuo_wire::ProviderModelInfo {
+            model_info: vec![nuo_protocol::ProviderModelInfo {
                 model: model.to_string(),
                 protocol: "openai".to_string(),
                 effort: Some("high".to_string()),
@@ -253,7 +253,7 @@ fn picker_connections_count_matches_provider_rows_no_add_row() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     // Seed a few snapshot rows so providers_filtered() renders the full list
     // (the picker is snapshot-driven).
-    let row = |id: &str| nuo_wire::ProviderPickerRow {
+    let row = |id: &str| nuo_protocol::ProviderPickerRow {
         id: id.to_string(),
         name: id.to_string(),
         model: "m".to_string(),
@@ -268,7 +268,7 @@ fn picker_connections_count_matches_provider_rows_no_add_row() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "kimi-code".to_string(),
         rows: vec![row("kimi-code"), row("openai"), row("anthropic")],
     };
@@ -338,7 +338,7 @@ async fn switching_sessions_resets_navigation_and_backfill() {
     app.input = "walked row".to_string();
     app.history_index = Some(0);
     app.draft_capsule.text = "half-typed draft in a".to_string();
-    app.pending_images = vec![nuo_wire::ImagePart {
+    app.pending_images = vec![nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     }];
@@ -438,7 +438,7 @@ async fn inline_history_round_trip_keeps_staged_attachments() {
     app.current_session_id = "session-a".to_string();
     app.record_input_history("sent prompt".to_string(), Vec::new(), Vec::new());
 
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
@@ -475,7 +475,7 @@ async fn adopt_as_draft_replaces_stale_draft_and_is_restored() {
     app.draft_capsule.text = "stale draft".to_string();
     app.input = "whatever".to_string();
 
-    let image = nuo_wire::ImagePart {
+    let image = nuo_protocol::ImagePart {
         mime: "image/png".to_string(),
         data: "img".to_string(),
     };
@@ -1066,18 +1066,18 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
 
     app.provider_picker = ProviderPickerSnapshot {
         default_id: "openai".to_string(),
-        rows: vec![nuo_wire::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
             model: "gpt-5.5".to_string(),
             models: vec!["gpt-5.5".to_string(), "gpt-5-mini".to_string()],
             model_info: vec![
-                nuo_wire::ProviderModelInfo {
+                nuo_protocol::ProviderModelInfo {
                     model: "gpt-5.5".to_string(),
                     protocol: "openai".to_string(),
                     ..Default::default()
                 },
-                nuo_wire::ProviderModelInfo {
+                nuo_protocol::ProviderModelInfo {
                     model: "gpt-5-mini".to_string(),
                     protocol: "openai".to_string(),
                     ..Default::default()
@@ -1341,8 +1341,8 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
 
 #[test]
 fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
+    use nuo_protocol::Role;
     use nuo_view::model::document::TranscriptMessage;
-    use nuo_wire::Role;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let mut messages = vec![
@@ -2433,7 +2433,7 @@ async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
     // 3. Thread Stats overview body utilizes standardized DetailLayout components
     let theme = app.theme.clone();
     let rows = crate::shell::overlays::telemetry::overview::build_overview_body(
-        &nuo_wire::TokenSourceReport::default(),
+        &nuo_protocol::TokenSourceReport::default(),
         &[],
         crate::shell::render::ContextUsageProps {
             snapshot: None,
@@ -2578,10 +2578,10 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
 async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    app.session_context = Some(nuo_wire::SessionContextSnapshot {
-        model: nuo_wire::ModelInfo::default(),
+    app.session_context = Some(nuo_protocol::ThreadContextSnapshot {
+        model: nuo_protocol::ModelInfo::default(),
         tools: vec![
-            nuo_wire::ToolInfo {
+            nuo_protocol::ToolInfo {
                 name: "read_text".to_string(),
                 description: "Read file".to_string(),
                 enabled: true,
@@ -2591,7 +2591,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
                 requires_user: false,
                 requires_vision: false,
             },
-            nuo_wire::ToolInfo {
+            nuo_protocol::ToolInfo {
                 name: "execute_command".to_string(),
                 description: "Run command".to_string(),
                 enabled: false,
@@ -2690,7 +2690,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     // Space toggles the tool in Level 2
     let req = app.session_activate_request();
     assert!(req.is_some(), "Space toggles tool being viewed");
-    if let Some(nuo_wire::AgentRequest::ToggleTool { name, enabled }) = req {
+    if let Some(nuo_protocol::AgentRequest::ToggleTool { name, enabled }) = req {
         assert_eq!(name, "execute_command");
         assert!(enabled, "execute_command was false, toggle enables it");
     }
@@ -2731,12 +2731,12 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     app.running_sessions.insert(sid.to_string());
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             "Hello",
         ));
     app.scroll = 42;
 
-    app.sessions_overview = vec![nuo_wire::SessionOverview {
+    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: sid.to_string(),
         title: Some("Running Task".into()),
         overview: "Running Task".into(),
@@ -2745,7 +2745,7 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
         message_count: 1,
         active: true,
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         digest: None,
     }];
@@ -2782,7 +2782,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
     let target_sid = "session-2";
     app.current_session_id = current_sid.to_string();
 
-    app.sessions_overview = vec![nuo_wire::SessionOverview {
+    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Task".into()),
         overview: "Target Task".into(),
@@ -2791,7 +2791,7 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
         message_count: 3,
         active: false,
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         digest: None,
     }];
@@ -3045,7 +3045,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
     assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(empty_sid));
     assert!(app.is_current_thread_empty());
 
-    app.sessions_overview = vec![nuo_wire::SessionOverview {
+    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Thread".into()),
         overview: "Target Thread".into(),
@@ -3054,7 +3054,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
         message_count: 5,
         active: false,
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         digest: None,
     }];
@@ -3076,7 +3076,7 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
     // Must have sent DeleteSession intent for the abandoned empty thread
     let req = rx.try_recv().expect("DeleteSession sent for empty thread");
     match req {
-        nuo_wire::AgentRequest::DeleteSession { id } => {
+        nuo_protocol::AgentRequest::DeleteThread { id } => {
             assert_eq!(id, empty_sid);
         }
         other => panic!("expected DeleteSession, got {other:?}"),
@@ -3099,12 +3099,12 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     // Add a message to make it non-empty
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             "Hello",
         ));
     assert!(!app.is_current_thread_empty());
 
-    app.sessions_overview = vec![nuo_wire::SessionOverview {
+    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Thread".into()),
         overview: "Target Thread".into(),
@@ -3113,7 +3113,7 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
         message_count: 5,
         active: false,
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         digest: None,
     }];
@@ -3163,14 +3163,14 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     assert!(!app.switch_to_new);
     let req = rx.try_recv().expect("/new sent for empty thread");
     match req {
-        nuo_wire::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
+        nuo_protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
         other => panic!("expected /new slash command, got {other:?}"),
     }
 
     // 2. In non-empty tab: pressing 'N' should arm switch_to_new
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             "Existing message",
         ));
     assert!(!app.is_current_thread_empty());
@@ -3210,7 +3210,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     assert!(!app.switch_to_new);
     let req = rx.try_recv().expect("/new sent for empty thread");
     match req {
-        nuo_wire::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
+        nuo_protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
         other => panic!("expected /new slash command, got {other:?}"),
     }
 
@@ -3218,7 +3218,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     app.messages.clear();
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             "Crucial conversation",
         ));
     assert!(!app.is_current_thread_empty());
@@ -3253,7 +3253,7 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
 
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             "Prior turn",
         ));
     assert!(!app.is_current_thread_empty());
@@ -3293,7 +3293,7 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
 
     app.messages
         .push(nuo_view::model::document::TranscriptMessage::new(
-            nuo_wire::Role::User,
+            nuo_protocol::Role::User,
             "Active dialogue",
         ));
     assert!(!app.is_current_thread_empty());
@@ -3344,7 +3344,7 @@ async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
 #[test]
 fn models_dialog_arrow_navigation_skips_unusable_models() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: None,
         protocol: String::new(),
@@ -3357,9 +3357,9 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(nuo_wire::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(nuo_wire::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "Requires subscription or account".to_string(),
             )))
         },
@@ -3367,9 +3367,9 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![nuo_wire::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -3465,7 +3465,7 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
 #[test]
 fn models_dialog_click_on_unusable_model_is_ignored() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: None,
         protocol: String::new(),
@@ -3478,9 +3478,9 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(nuo_wire::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(nuo_wire::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "Requires subscription".to_string(),
             )))
         },
@@ -3488,9 +3488,9 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![nuo_wire::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -3550,7 +3550,7 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
 #[test]
 fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: None,
         protocol: String::new(),
@@ -3563,17 +3563,17 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(nuo_wire::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(nuo_wire::Availability::locked(None))
+            Some(nuo_protocol::Availability::locked(None))
         },
         availability_overridden: false,
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![nuo_wire::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -3606,7 +3606,7 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
 #[test]
 fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let info = |model: &str, usable: bool| nuo_wire::ProviderModelInfo {
+    let info = |model: &str, usable: bool| nuo_protocol::ProviderModelInfo {
         model: model.to_string(),
         name: Some(format!("Model {model}")),
         protocol: String::new(),
@@ -3619,9 +3619,9 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
         context_window: 128_000,
         max_output_tokens: None,
         availability: if usable {
-            Some(nuo_wire::Availability::usable())
+            Some(nuo_protocol::Availability::usable())
         } else {
-            Some(nuo_wire::Availability::locked(Some(
+            Some(nuo_protocol::Availability::locked(Some(
                 "Requires subscription or account entitlement".to_string(),
             )))
         },
@@ -3629,9 +3629,9 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_wire::ProviderPickerSnapshot {
+    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
-        rows: vec![nuo_wire::ProviderPickerRow {
+        rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
             name: "P1".into(),
             model: "m1".into(),
@@ -3729,7 +3729,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
 #[test]
 fn browse_connection_models_transitions_to_models_dialog() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.connection_detail = Some(nuo_wire::ConnectionDetail {
+    app.connection_detail = Some(nuo_protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google".to_string(),
         provider_label: "Google Antigravity".to_string(),

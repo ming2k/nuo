@@ -17,7 +17,9 @@
 //!     dummy `thread` placeholders eliminated when untitled [INV-SCENE-01]).
 //!   - For Non-Thread (`Dashboard`, `Settings`): scene label + domain summary context.
 //!   - On the right: right-aligned drill-in navigation stack / breadcrumbs
-//!     (`‹ Alt+[  thread › subagent  Alt+] ›`) with interactive navigation targets (ADR-0092 [INV-SCENE-03, INV-INTERACT-01]).
+//!     (`‹  thread › subagent  ›`) with interactive navigation targets (ADR-0092 [INV-SCENE-03, INV-INTERACT-01]).
+//!     The affordances are pure chevrons: chord text lives only in the Help
+//!     dialog, resolved from the live keymap (ADR-0131 [INV-HELP-04]).
 //!
 //! - **Tier 3 — Sovereign ThreadContextBar (`draw_thread_context_bar`).**
 //!   Height: 1 row on Thread viewports; **0 rows on non-thread scenes** (`Dashboard`, `Settings`)
@@ -519,9 +521,9 @@ pub(crate) fn draw_tab_bar(
 /// Interactive bounding boxes for Tier 2 SceneBar navigation elements (ADR-0092 [INV-INTERACT-01]).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SceneNavRects {
-    /// Back navigation affordance rect (`‹ Alt+[`).
+    /// Back navigation affordance rect (`‹ `).
     pub back: Option<Rect>,
-    /// Forward navigation affordance rect (`Alt+] ›`).
+    /// Forward navigation affordance rect (` ›`).
     pub forward: Option<Rect>,
     /// Hit target for each breadcrumb segment by stack depth: (depth_index, rect).
     pub crumbs: Vec<(usize, Rect)>,
@@ -533,7 +535,7 @@ pub struct SceneNavRects {
 /// - Left side: Scene identity and authentic task title (`THREAD <id_tail>  <title>`
 ///   for thread; `<scene_label>  <context>` for dashboard / settings).
 ///   If untitled, the title slot remains empty without layout shift.
-/// - Right side: Drill-in navigation stack / canonical breadcrumbs (`‹ Alt+[  thread › subagent  Alt+] ›`)
+/// - Right side: Drill-in navigation stack / canonical breadcrumbs (`‹  thread › subagent  ›`)
 ///   with dedicated back and forward affordances.
 pub(crate) fn draw_scene_bar(
     frame: &mut Frame,
@@ -576,7 +578,12 @@ pub(crate) fn draw_scene_bar(
             let mut elems = Vec::new();
 
             if hints.can_back {
-                let back_str = "‹ Alt+[ ";
+                // A pure chevron: the affordance is a *navigation control*, not
+                // a keycap. Chords belong to the Help dialog (ADR-0131 §3),
+                // which is the one surface that resolves them from the live
+                // keymap — printing `Alt+[` here hardcoded a binding the user
+                // may have remapped, and duplicated the discovery surface.
+                let back_str = "‹ ";
                 let bw = back_str.width();
                 let style = fill.fg(theme.dim());
                 spans.push(Span::styled(back_str, style));
@@ -624,7 +631,7 @@ pub(crate) fn draw_scene_bar(
             }
 
             if hints.can_forward {
-                let fwd_str = "  Alt+] ›";
+                let fwd_str = " ›";
                 let fw = fwd_str.width();
                 let style = fill.fg(theme.dim());
                 spans.push(Span::styled(fwd_str, style));
@@ -1272,7 +1279,15 @@ mod tests {
             row.contains("[EXPLORE] inspect codebase"),
             "shows scene context: {row}"
         );
-        assert!(row.contains("‹ Alt+["), "shows back affordance: {row}");
+        // The affordances are navigation controls, not keycaps: the chord text
+        // belongs to the Help dialog, which resolves it from the live keymap
+        // (ADR-0131 §3). SceneBar must never hardcode a binding the user can
+        // remap.
+        assert!(row.contains('‹'), "shows a back chevron affordance: {row}");
+        assert!(
+            !row.contains("Alt+["),
+            "the back affordance must not print a hardcoded chord: {row}"
+        );
         assert!(
             row.contains("thread › subagent"),
             "shows canonical breadcrumb trail: {row}"
@@ -1282,7 +1297,7 @@ mod tests {
             "no pseudo-tag delimiter artifact: {row}"
         );
         let ctx_pos = row.find("[EXPLORE]").unwrap();
-        let stack_pos = row.find("‹ Alt+[").unwrap();
+        let stack_pos = row.find('‹').unwrap();
         assert!(ctx_pos < stack_pos, "context left, stack right: {row}");
 
         // With can_forward = true
@@ -1298,9 +1313,10 @@ mod tests {
                 can_forward: true,
             },
         );
+        assert!(row_fwd.contains('›'), "shows forward affordance: {row_fwd}");
         assert!(
-            row_fwd.contains("Alt+] ›"),
-            "shows forward affordance: {row_fwd}"
+            !row_fwd.contains("Alt+]"),
+            "the forward affordance must not print a hardcoded chord: {row_fwd}"
         );
     }
 

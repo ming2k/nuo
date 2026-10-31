@@ -12,7 +12,7 @@ use nuo_harness::runtime::offstream::{
 };
 use nuo_persistence::blobs::BlobStore;
 use nuo_persistence::db::get_persistence_handle;
-use nuo_wire::{NodePayload, Role};
+use nuo_protocol::{NodePayload, Role};
 
 /// Pagination and text filtering helper for offstream sources.
 pub fn paginate_text(
@@ -56,7 +56,7 @@ pub fn paginate_text(
             line.to_string()
         };
 
-        let line_tokens = nuo_wire::tokenizer::count_tokens(&line_fmt).max(1);
+        let line_tokens = nuo_protocol::tokenizer::count_tokens(&line_fmt).max(1);
         if accumulated_tokens + line_tokens > budget_tokens && !collected.is_empty() {
             next_cursor = Some(pos.to_string());
             break;
@@ -125,10 +125,10 @@ impl OffstreamSource for SubagentSource {
                 for node in child_ir.history.nodes.values() {
                     if let NodePayload::Termination { reason, .. } = &node.payload {
                         status = match reason {
-                            nuo_wire::TerminationReason::UserInterrupt => {
+                            nuo_protocol::TerminationReason::UserInterrupt => {
                                 OffstreamStatus::Interrupted
                             }
-                            nuo_wire::TerminationReason::FatalError { .. } => {
+                            nuo_protocol::TerminationReason::FatalError { .. } => {
                                 OffstreamStatus::Failed
                             }
                             _ => OffstreamStatus::Ready,
@@ -394,7 +394,7 @@ impl OffstreamSource for ArtifactSource {
                 None,
                 1,
             )
-            .with_media(nuo_wire::ImagePart {
+            .with_media(nuo_protocol::ImagePart {
                 mime: mime.to_string(),
                 data: b64,
             }));

@@ -35,7 +35,7 @@
 
 use std::ops::Deref;
 
-use nuo_wire::EventClass;
+use nuo_protocol::EventClass;
 
 use crate::model::document::TranscriptMessage;
 
@@ -184,7 +184,7 @@ impl ThreadDoc {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::Role;
+    use nuo_protocol::Role;
 
     fn msg(text: &str) -> TranscriptMessage {
         TranscriptMessage::new(Role::Assistant, text)

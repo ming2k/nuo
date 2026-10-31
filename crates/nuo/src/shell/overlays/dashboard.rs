@@ -38,7 +38,7 @@
 //! running); `i` / `p` / `n` issue control-plane verbs (interrupt / prompt
 //! / new session); `k` kills the selection (confirm step); `s` suspends
 //! it; `Esc` backs out of the preview, then the dashboard.
-use nuo_wire::{MonitoredSession, SessionHosting, SessionStatus};
+use nuo_protocol::{MonitoredThread, ThreadHosting, ThreadStatus};
 use nuotc::{
     Constraint, Direction, Frame, Layout, Line, Modifier, Rect, Span, Style,
     {Block as RtBlock, Paragraph},
@@ -92,7 +92,7 @@ pub struct DashboardRects {
 /// A session card's dock position: its 1-based sequence number (creation
 /// order across the whole snapshot) and its disambiguated workspace name.
 struct DockEntry<'a> {
-    row: &'a MonitoredSession,
+    row: &'a MonitoredThread,
     seq: usize,
     workspace: String,
     /// Lineage (ADR-0120): the dock sequence of this card's parent, when the
@@ -101,7 +101,7 @@ struct DockEntry<'a> {
     /// (`⇂r2.1#N`) instead of a nesting the geometry cannot express.
     parent_seq: Option<usize>,
     /// The persisted fork address, when the store recorded one (`⇂r2.1`).
-    fork_point: Option<nuo_wire::ForkPoint>,
+    fork_point: Option<nuo_protocol::ForkPoint>,
 }
 
 /// The dashboard's sequence axis: indices into `rows` ordered by creation
@@ -114,7 +114,7 @@ struct DockEntry<'a> {
 /// oldest session because the number is an address the console consumes
 /// (`@3 …`), not a browsing order. The browsing surfaces lead with the newest
 /// thread instead (ADR-0128).
-pub fn creation_order(rows: &[MonitoredSession]) -> Vec<usize> {
+pub fn creation_order(rows: &[MonitoredThread]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..rows.len()).collect();
     order.sort_by(|&a, &b| {
         (rows[a].created_at, &rows[a].id).cmp(&(rows[b].created_at, &rows[b].id))
@@ -126,7 +126,7 @@ pub fn creation_order(rows: &[MonitoredSession]) -> Vec<usize> {
 /// session's display fields: `#seq` numbers and workspace names that are
 /// unique-by-basename when possible, full-path-disambiguated when two
 /// sessions share a directory name.
-fn dock_entries(rows: &[MonitoredSession]) -> Vec<DockEntry<'_>> {
+fn dock_entries(rows: &[MonitoredThread]) -> Vec<DockEntry<'_>> {
     let order = creation_order(rows);
 
     // Basename collisions → the colliding entries fall back to the full path.
@@ -210,7 +210,7 @@ fn workspace_basename(project_root: &str) -> String {
 /// transcript (every dispatched directive and the server's answer).
 /// Properties for rendering the full-screen session dashboard.
 pub struct DashboardProps<'a> {
-    pub rows: &'a [MonitoredSession],
+    pub rows: &'a [MonitoredThread],
     pub selected: usize,
     pub focus: DashboardFocus,
     pub list_scroll: &'a mut usize,
@@ -235,7 +235,7 @@ pub struct DashboardProps<'a> {
     /// Whether the dashboard is displaying the Model Usage view (ADR-0129).
     pub view_usage: bool,
     /// Cross-session model usage statistics report, if loaded.
-    pub usage_report: Option<&'a nuo_wire::usage_stats::UsageStatsReport>,
+    pub usage_report: Option<&'a nuo_protocol::usage_stats::UsageStatsReport>,
     /// Whether a model usage report fetch is in flight over the control plane.
     pub usage_loading: bool,
     /// Scroll offset for the model usage analytics report view.
@@ -243,7 +243,7 @@ pub struct DashboardProps<'a> {
 }
 
 /// Resolve the authentic semantic display title for a thread (ADR-0050, ADR-0129).
-pub fn thread_display_title(row: &MonitoredSession) -> &str {
+pub fn thread_display_title(row: &MonitoredThread) -> &str {
     if let Some(t) = row.title.as_deref().filter(|s| !s.trim().is_empty()) {
         t.trim()
     } else if let Some(digest) = &row.digest
@@ -269,34 +269,34 @@ pub fn fmt_tokens_compact(tokens: u64) -> String {
 }
 
 /// Visual status chip and theme-aligned style for a thread (ADR-0129).
-pub fn status_chip(status: SessionStatus, theme: &Theme) -> (&'static str, Style) {
+pub fn status_chip(status: ThreadStatus, theme: &Theme) -> (&'static str, Style) {
     match status {
-        SessionStatus::Running => (
+        ThreadStatus::Running => (
             "● RUNNING",
             Style::default()
                 .fg(theme.brand())
                 .add_modifier(Modifier::BOLD),
         ),
-        SessionStatus::NeedsApproval => (
+        ThreadStatus::NeedsApproval => (
             "▲ APPROVAL",
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
         ),
-        SessionStatus::NeedsInput => (
+        ThreadStatus::NeedsInput => (
             "? INPUT",
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
         ),
-        SessionStatus::Failed => (
+        ThreadStatus::Failed => (
             "✕ FAILED",
             Style::default()
                 .fg(theme.err())
                 .add_modifier(Modifier::BOLD),
         ),
-        SessionStatus::Interrupted => ("■ STOPPED", Style::default().fg(theme.dim())),
-        SessionStatus::Idle => ("○ IDLE", Style::default().fg(theme.muted())),
+        ThreadStatus::Interrupted => ("■ STOPPED", Style::default().fg(theme.dim())),
+        ThreadStatus::Idle => ("○ IDLE", Style::default().fg(theme.muted())),
     }
 }
 
@@ -597,19 +597,19 @@ pub fn draw_dashboard(
 /// [`crate::shell::render::draw_scene_bar`] — the same band every other scene
 /// uses (ADR-0024: one head, one scene row). This function only
 /// computes the dashboard's own context string and its attention flag.
-fn header_content(rows: &[MonitoredSession]) -> (String, bool) {
+fn header_content(rows: &[MonitoredThread]) -> (String, bool) {
     let needing = rows
         .iter()
         .filter(|r| {
             matches!(
                 r.status,
-                SessionStatus::NeedsApproval | SessionStatus::NeedsInput | SessionStatus::Failed
+                ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput | ThreadStatus::Failed
             )
         })
         .count();
     let running = rows
         .iter()
-        .filter(|r| r.status == SessionStatus::Running)
+        .filter(|r| r.status == ThreadStatus::Running)
         .count();
     let total_tokens: u64 = rows.iter().map(|r| r.output_tokens).sum();
     let summary = if rows.is_empty() {
@@ -762,8 +762,10 @@ fn draw_fleet_table(
         let (status_text, status_st) = status_chip(row.status, theme);
 
         let lineage = match row.fork_kind {
-            nuo_wire::SessionForkKind::Trunk | nuo_wire::SessionForkKind::Subagent => String::new(),
-            nuo_wire::SessionForkKind::Fork => {
+            nuo_protocol::ThreadForkKind::Trunk | nuo_protocol::ThreadForkKind::Subagent => {
+                String::new()
+            }
+            nuo_protocol::ThreadForkKind::Fork => {
                 let address = entry.fork_point.map(|p| p.label()).unwrap_or_default();
                 match (address.is_empty(), entry.parent_seq) {
                     (false, Some(parent)) => format!("\u{21b2}{address}#{parent} "),
@@ -1056,9 +1058,9 @@ fn dock_card_line(
     // line and it needs no marker). The fork address comes from the store; the
     // parent sequence is resolved from the dock itself.
     let lineage = match row.fork_kind {
-        nuo_wire::SessionForkKind::Trunk => String::new(),
-        nuo_wire::SessionForkKind::Subagent => String::new(),
-        nuo_wire::SessionForkKind::Fork => {
+        nuo_protocol::ThreadForkKind::Trunk => String::new(),
+        nuo_protocol::ThreadForkKind::Subagent => String::new(),
+        nuo_protocol::ThreadForkKind::Fork => {
             let address = entry
                 .fork_point
                 .map(|point| point.label())
@@ -1109,14 +1111,14 @@ fn dock_card_line(
 
 /// The dock's coarse status vocabulary: running vs. done, with the blocked
 /// states kept distinct since they are the dashboard's whole reason to be.
-fn dock_status_label(status: SessionStatus) -> &'static str {
+fn dock_status_label(status: ThreadStatus) -> &'static str {
     match status {
-        SessionStatus::Running => "running",
-        SessionStatus::NeedsApproval => "needs approval",
-        SessionStatus::NeedsInput => "needs input",
-        SessionStatus::Interrupted => "interrupted",
-        SessionStatus::Failed => "failed",
-        SessionStatus::Idle => "done",
+        ThreadStatus::Running => "running",
+        ThreadStatus::NeedsApproval => "needs approval",
+        ThreadStatus::NeedsInput => "needs input",
+        ThreadStatus::Interrupted => "interrupted",
+        ThreadStatus::Failed => "failed",
+        ThreadStatus::Idle => "done",
     }
 }
 
@@ -1176,7 +1178,7 @@ fn draw_console(
     frame: &mut Frame,
     area: Rect,
     log: &[ConsoleLine],
-    row: Option<&MonitoredSession>,
+    row: Option<&MonitoredThread>,
     focused: bool,
     scroll: &mut usize,
     theme: &Theme,
@@ -1191,7 +1193,7 @@ fn draw_console(
 fn draw_thread_dossier(
     frame: &mut Frame,
     area: Rect,
-    row: Option<&MonitoredSession>,
+    row: Option<&MonitoredThread>,
     seq: usize,
     focused: bool,
     scroll: &mut usize,
@@ -1248,7 +1250,7 @@ fn draw_console_log(
 fn draw_model_usage_view(
     frame: &mut Frame,
     area: Rect,
-    report: Option<&nuo_wire::usage_stats::UsageStatsReport>,
+    report: Option<&nuo_protocol::usage_stats::UsageStatsReport>,
     loading: bool,
     scroll: usize,
     theme: &Theme,
@@ -1559,14 +1561,12 @@ fn render_footer(
     }
 }
 
-fn status_style(status: SessionStatus, theme: &Theme) -> Style {
+fn status_style(status: ThreadStatus, theme: &Theme) -> Style {
     match status {
-        SessionStatus::Running => Style::default().fg(theme.brand()),
-        SessionStatus::NeedsApproval | SessionStatus::NeedsInput => {
-            Style::default().fg(theme.warn())
-        }
-        SessionStatus::Failed => Style::default().fg(theme.err()),
-        SessionStatus::Idle | SessionStatus::Interrupted => Style::default().fg(theme.muted()),
+        ThreadStatus::Running => Style::default().fg(theme.brand()),
+        ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput => Style::default().fg(theme.warn()),
+        ThreadStatus::Failed => Style::default().fg(theme.err()),
+        ThreadStatus::Idle | ThreadStatus::Interrupted => Style::default().fg(theme.muted()),
     }
 }
 
@@ -1584,7 +1584,7 @@ fn format_elapsed(ms: u64) -> String {
 /// The cognitive mission dossier and full telemetry for one session, shared
 /// by the console's detail view and the preview modal. `width` is the render
 /// width for wrapping text.
-fn session_detail_lines(row: &MonitoredSession, width: usize, theme: &Theme) -> Vec<Line<'static>> {
+fn session_detail_lines(row: &MonitoredThread, width: usize, theme: &Theme) -> Vec<Line<'static>> {
     let mut lines: Vec<Line> = Vec::new();
     let dim = Style::default().fg(theme.dim());
     let fg = Style::default().fg(theme.fg());
@@ -1655,7 +1655,7 @@ fn session_detail_lines(row: &MonitoredSession, width: usize, theme: &Theme) -> 
     field(
         "hosting",
         match row.hosting {
-            SessionHosting::Hosted => "hosted".to_string(),
+            ThreadHosting::Hosted => "hosted".to_string(),
         },
         fg,
     );
@@ -1699,7 +1699,7 @@ fn session_detail_lines(row: &MonitoredSession, width: usize, theme: &Theme) -> 
 /// never opens it; Esc closes. Read-only — attaching is `a` on the dock.
 pub fn draw_session_preview(
     frame: &mut Frame,
-    row: Option<&MonitoredSession>,
+    row: Option<&MonitoredThread>,
     scroll: &mut usize,
     theme: &Theme,
 ) {
@@ -2034,7 +2034,7 @@ fn split_leading_targets(text: &str) -> (Vec<usize>, &str) {
 /// header, then the selected session's monitor read-out.
 fn console_lines(
     log: &[ConsoleLine],
-    row: Option<&MonitoredSession>,
+    row: Option<&MonitoredThread>,
     width: usize,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
@@ -2086,7 +2086,7 @@ mod tests {
     #[test]
     fn dashboard_head_renders_the_shared_three_tier_band() {
         let theme = Theme::default();
-        let rows = vec![row("a-1", 100, "/work/app", SessionStatus::Running)];
+        let rows = vec![row("a-1", 100, "/work/app", ThreadStatus::Running)];
         let mut terminal = nuotc::TestTerminal::new(100, 24);
         let mut list_scroll = 0usize;
         let mut detail_scroll = 0usize;
@@ -2154,20 +2154,15 @@ mod tests {
         );
     }
 
-    fn row(
-        id: &str,
-        created_at: u64,
-        project_root: &str,
-        status: SessionStatus,
-    ) -> MonitoredSession {
-        MonitoredSession {
+    fn row(id: &str, created_at: u64, project_root: &str, status: ThreadStatus) -> MonitoredThread {
+        MonitoredThread {
             id: id.into(),
             title: None,
             overview: format!("task for {id}"),
             created_at,
             updated_at: created_at,
             message_count: 3,
-            hosting: SessionHosting::Hosted,
+            hosting: ThreadHosting::Hosted,
             status,
             round: 1,
             turn: None,
@@ -2179,7 +2174,7 @@ mod tests {
             note: None,
             project_root: project_root.into(),
             parent_id: None,
-            fork_kind: nuo_wire::SessionForkKind::Trunk,
+            fork_kind: nuo_protocol::ThreadForkKind::Trunk,
             fork_point: None,
             digest: None,
         }
@@ -2190,9 +2185,9 @@ mod tests {
         // Snapshot is newest-first by updated_at; the dock must re-sort by
         // creation so #1 is the oldest session no matter how rows arrive.
         let rows = vec![
-            row("c-newest", 300, "/work/app", SessionStatus::Running),
-            row("a-oldest", 100, "/work/lib", SessionStatus::Idle),
-            row("b-middle", 200, "/work/web", SessionStatus::Idle),
+            row("c-newest", 300, "/work/app", ThreadStatus::Running),
+            row("a-oldest", 100, "/work/lib", ThreadStatus::Idle),
+            row("b-middle", 200, "/work/web", ThreadStatus::Idle),
         ];
         let entries = dock_entries(&rows);
         // dock_entries preserves input order as its slots but stamps seq by
@@ -2209,8 +2204,8 @@ mod tests {
     #[test]
     fn creation_order_is_stable_for_equal_timestamps() {
         let rows = vec![
-            row("b", 100, "/p/b", SessionStatus::Idle),
-            row("a", 100, "/p/a", SessionStatus::Idle),
+            row("b", 100, "/p/b", ThreadStatus::Idle),
+            row("a", 100, "/p/a", ThreadStatus::Idle),
         ];
         assert_eq!(creation_order(&rows), vec![1, 0]);
         // Repeated calls give the same answer (total order via id tiebreak).
@@ -2220,8 +2215,8 @@ mod tests {
     #[test]
     fn workspace_names_use_basename_until_they_collide() {
         let rows = vec![
-            row("one", 1, "/home/ming/projects/nuo", SessionStatus::Idle),
-            row("two", 2, "/home/ming/projects/app", SessionStatus::Idle),
+            row("one", 1, "/home/ming/projects/nuo", ThreadStatus::Idle),
+            row("two", 2, "/home/ming/projects/app", ThreadStatus::Idle),
         ];
         let entries = dock_entries(&rows);
         assert_eq!(entries[0].workspace, "nuo");
@@ -2230,8 +2225,8 @@ mod tests {
         // Same basename in two different parents → both fall back to full
         // paths (a bare "src" would be ambiguous AND meaningless).
         let rows = vec![
-            row("one", 1, "/home/ming/projects/nuo", SessionStatus::Idle),
-            row("two", 2, "/tmp/worktree/nuo", SessionStatus::Idle),
+            row("one", 1, "/home/ming/projects/nuo", ThreadStatus::Idle),
+            row("two", 2, "/tmp/worktree/nuo", ThreadStatus::Idle),
         ];
         let entries = dock_entries(&rows);
         assert_eq!(entries[0].workspace, "/home/ming/projects/nuo");
@@ -2263,7 +2258,7 @@ mod tests {
             "x",
             now - (2 * 3600 + 14 * 60),
             "/work/nuo",
-            SessionStatus::Running,
+            ThreadStatus::Running,
         );
         let entries = dock_entries(std::slice::from_ref(&r));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
@@ -2294,8 +2289,8 @@ mod tests {
         let theme = Theme::default();
         let now = 1_000u64;
 
-        let mut trunk = row("t", 1, "/work/main", SessionStatus::Running);
-        trunk.fork_kind = nuo_wire::SessionForkKind::Trunk;
+        let mut trunk = row("t", 1, "/work/main", ThreadStatus::Running);
+        trunk.fork_kind = nuo_protocol::ThreadForkKind::Trunk;
         let entries = dock_entries(std::slice::from_ref(&trunk));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -2305,11 +2300,11 @@ mod tests {
         );
 
         // An explicit fork with a recorded address, parent present in the dock.
-        let trunk_row = row("t", 1, "/work/main", SessionStatus::Running);
-        let mut fork = row("a", 2, "/work/main", SessionStatus::Running);
+        let trunk_row = row("t", 1, "/work/main", ThreadStatus::Running);
+        let mut fork = row("a", 2, "/work/main", ThreadStatus::Running);
         fork.parent_id = Some("t".into());
-        fork.fork_kind = nuo_wire::SessionForkKind::Fork;
-        fork.fork_point = Some(nuo_wire::ForkPoint::at_turn(2, 1));
+        fork.fork_kind = nuo_protocol::ThreadForkKind::Fork;
+        fork.fork_point = Some(nuo_protocol::ForkPoint::at_turn(2, 1));
         let rows = vec![trunk_row, fork];
         let entries = dock_entries(&rows);
         let fork_entry = entries.iter().find(|e| e.row.id == "a").expect("fork card");
@@ -2321,10 +2316,10 @@ mod tests {
         );
 
         // A branch whose parent is not in the dock still states the address.
-        let mut orphan = row("f", 3, "/work/main", SessionStatus::Idle);
+        let mut orphan = row("f", 3, "/work/main", ThreadStatus::Idle);
         orphan.parent_id = Some("absent".into());
-        orphan.fork_kind = nuo_wire::SessionForkKind::Fork;
-        orphan.fork_point = Some(nuo_wire::ForkPoint::at_round(4));
+        orphan.fork_kind = nuo_protocol::ThreadForkKind::Fork;
+        orphan.fork_point = Some(nuo_protocol::ForkPoint::at_round(4));
         let entries = dock_entries(std::slice::from_ref(&orphan));
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
@@ -2349,9 +2344,9 @@ mod tests {
                 "a",
                 1,
                 "/very/long/path/to/a/deeply/nested/project",
-                SessionStatus::Idle,
+                ThreadStatus::Idle,
             ),
-            row("b", 2, "/other/worktree/project", SessionStatus::Idle),
+            row("b", 2, "/other/worktree/project", ThreadStatus::Idle),
         ];
         let entries = dock_entries(&rows);
         let line = dock_card_line(&entries[0], 60, false, false, now, &theme);
@@ -2371,7 +2366,7 @@ mod tests {
     fn dock_card_at_minimum_width_keeps_fixed_fields() {
         let theme = Theme::default();
         let now = 1_000u64;
-        let r = row("x", now, "/work/nuo", SessionStatus::Running);
+        let r = row("x", now, "/work/nuo", ThreadStatus::Running);
         let entries = dock_entries(std::slice::from_ref(&r));
         // A degenerate 30-cell cell (below the 36 target): seq, uptime and
         // status all survive; the name field just gets cramped.
@@ -2391,14 +2386,14 @@ mod tests {
 
     #[test]
     fn dock_status_vocabulary() {
-        assert_eq!(dock_status_label(SessionStatus::Running), "running");
-        assert_eq!(dock_status_label(SessionStatus::Idle), "done");
+        assert_eq!(dock_status_label(ThreadStatus::Running), "running");
+        assert_eq!(dock_status_label(ThreadStatus::Idle), "done");
         assert_eq!(
-            dock_status_label(SessionStatus::NeedsApproval),
+            dock_status_label(ThreadStatus::NeedsApproval),
             "needs approval"
         );
-        assert_eq!(dock_status_label(SessionStatus::NeedsInput), "needs input");
-        assert_eq!(dock_status_label(SessionStatus::Failed), "failed");
+        assert_eq!(dock_status_label(ThreadStatus::NeedsInput), "needs input");
+        assert_eq!(dock_status_label(ThreadStatus::Failed), "failed");
     }
 
     // console grammar
@@ -2562,8 +2557,8 @@ mod tests {
     #[test]
     fn session_detail_lines_renders_cognitive_digest_intent_and_milestones() {
         let theme = Theme::default();
-        let mut r = row("s-123", 1000, "/work/nuo", SessionStatus::Running);
-        r.digest = Some(nuo_wire::SessionDigest {
+        let mut r = row("s-123", 1000, "/work/nuo", ThreadStatus::Running);
+        r.digest = Some(nuo_protocol::ThreadDigest {
             title: "Refactor Auth Middleware".to_string(),
             intent: "Rewrite token validator to support ECDSA signatures.".to_string(),
             history: vec![
@@ -2610,7 +2605,7 @@ mod tests {
     #[test]
     fn session_detail_lines_falls_back_to_overview_when_no_digest() {
         let theme = Theme::default();
-        let mut r = row("s-456", 1000, "/work/nuo", SessionStatus::Idle);
+        let mut r = row("s-456", 1000, "/work/nuo", ThreadStatus::Idle);
         r.overview = "Plain user prompt without digest".to_string();
         r.digest = None;
 
@@ -2667,14 +2662,14 @@ mod tests {
 
     #[test]
     fn thread_display_title_prioritizes_authentic_title_over_digest_and_overview() {
-        let mut r = row("t-1", 100, "/work/test", SessionStatus::Running);
+        let mut r = row("t-1", 100, "/work/test", ThreadStatus::Running);
         r.overview.clear();
         assert_eq!(thread_display_title(&r), "untitled thread");
 
         r.overview = "first prompt text".to_string();
         assert_eq!(thread_display_title(&r), "first prompt text");
 
-        r.digest = Some(nuo_wire::cognitive::SessionDigest {
+        r.digest = Some(nuo_protocol::ThreadDigest {
             title: "Digest Mission Title".to_string(),
             intent: "fix bug".to_string(),
             history: Vec::new(),
@@ -2697,24 +2692,24 @@ mod tests {
     #[test]
     fn status_chip_provides_distinct_visual_vocabulary() {
         let theme = Theme::default();
-        let (label_run, _) = status_chip(SessionStatus::Running, &theme);
+        let (label_run, _) = status_chip(ThreadStatus::Running, &theme);
         assert!(label_run.contains("RUNNING"));
-        let (label_app, _) = status_chip(SessionStatus::NeedsApproval, &theme);
+        let (label_app, _) = status_chip(ThreadStatus::NeedsApproval, &theme);
         assert!(label_app.contains("APPROVAL"));
-        let (label_inp, _) = status_chip(SessionStatus::NeedsInput, &theme);
+        let (label_inp, _) = status_chip(ThreadStatus::NeedsInput, &theme);
         assert!(label_inp.contains("INPUT"));
-        let (label_fail, _) = status_chip(SessionStatus::Failed, &theme);
+        let (label_fail, _) = status_chip(ThreadStatus::Failed, &theme);
         assert!(label_fail.contains("FAILED"));
-        let (label_stop, _) = status_chip(SessionStatus::Interrupted, &theme);
+        let (label_stop, _) = status_chip(ThreadStatus::Interrupted, &theme);
         assert!(label_stop.contains("STOPPED"));
-        let (label_idle, _) = status_chip(SessionStatus::Idle, &theme);
+        let (label_idle, _) = status_chip(ThreadStatus::Idle, &theme);
         assert!(label_idle.contains("IDLE"));
     }
 
     #[test]
     fn draw_fleet_table_renders_structured_headers_and_thread_titles() {
         let theme = Theme::default();
-        let mut r1 = row("a-1", 100, "/work/repo", SessionStatus::Running);
+        let mut r1 = row("a-1", 100, "/work/repo", ThreadStatus::Running);
         r1.title = Some("Refactor Database Pool".to_string());
         r1.current_tool = Some("bash".to_string());
         r1.output_tokens = 14_200;

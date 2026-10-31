@@ -24,26 +24,26 @@ pub use search_tool::WebSearchTool;
 pub use snapshot::{WebPageSnapshot, WebSnapshotResult};
 pub use ssrf::{assert_public_url, extract_host, is_public_ip};
 
-nuo_wire::register_tool!(WebReaderFactory => |ctx| {
-    ctx.get::<nuo_wire::SharedWebConfig>()
+nuo_protocol::register_tool!(WebReaderFactory => |ctx| {
+    ctx.get::<nuo_protocol::SharedWebConfig>()
         .cloned()
         .map(WebReaderTool::with_shared_config)
         .unwrap_or_else(|| {
             WebReaderTool::with_config(
-                ctx.get::<nuo_wire::WebRuntimeConfig>()
+                ctx.get::<nuo_protocol::WebRuntimeConfig>()
                     .cloned()
                     .unwrap_or_default(),
             )
         })
 });
 
-nuo_wire::register_tool!(WebSearchFactory => |ctx| {
-    ctx.get::<nuo_wire::SharedWebConfig>()
+nuo_protocol::register_tool!(WebSearchFactory => |ctx| {
+    ctx.get::<nuo_protocol::SharedWebConfig>()
         .cloned()
         .map(WebSearchTool::with_shared_config)
         .unwrap_or_else(|| {
             WebSearchTool::with_config(
-                ctx.get::<nuo_wire::WebRuntimeConfig>()
+                ctx.get::<nuo_protocol::WebRuntimeConfig>()
                     .cloned()
                     .unwrap_or_default(),
             )

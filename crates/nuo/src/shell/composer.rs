@@ -735,7 +735,7 @@ fn draw_composer_impl(
                 theme,
                 panel_bg,
                 hints.toggle_mode_key,
-                hints.entry_focused,
+                hints.focused_entry,
             );
             let left_w: usize = left_spans.iter().map(|s| str_len(&s.content)).sum();
             let right_w: usize = right_spans.iter().map(|s| str_len(&s.content)).sum();

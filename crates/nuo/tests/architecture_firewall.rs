@@ -24,6 +24,22 @@ fn test_inv_arch_cli_lean_link() {
 /// This is the check whose absence let `crates/nuo/src/shell/snapshot_tests.rs`
 /// — the crate's only painted-grid regression net — sit uncompiled through
 /// months of geometry changes.
+/// `[INV-WIRE-03]` (ADR-0136): the wire variant census and `PROTOCOL_VERSION`
+/// agree, so a wire change cannot silently keep the old number.
+///
+/// ADR-0134 deleted the `RetryResolved` variant without bumping the protocol.
+/// A server built before that commit kept answering protocol 18 and then
+/// emitted a frame the client could not model, which the client reported as a
+/// dead link and closed on. The receiving side is now resilient, but this is
+/// the cure: the number has to move when the wire does.
+#[test]
+fn test_inv_wire_census_matches_protocol_version() {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::wire_census::check_wire_census(&root) {
+        panic!("Wire surface census violation:\n{e}");
+    }
+}
+
 #[test]
 fn test_inv_arch_source_residency() {
     let root = nuo::dev::find_workspace_root();

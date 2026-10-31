@@ -20,8 +20,8 @@ fn transcript_content_rect_spans_band_and_gap_rows() {
     // Two assistant text messages so a `MESSAGE_GAP_ROWS` blank row is
     // emitted between them — that row is rendered but never registered.
     let messages = vec![
-        TranscriptMessage::new(nuo_wire::Role::Assistant, "first".to_string()),
-        TranscriptMessage::new(nuo_wire::Role::Assistant, "second".to_string()),
+        TranscriptMessage::new(nuo_protocol::Role::Assistant, "first".to_string()),
+        TranscriptMessage::new(nuo_protocol::Role::Assistant, "second".to_string()),
     ];
     let mut layout_map = LayoutMap::new();
     terminal.draw(|f| {
@@ -46,6 +46,7 @@ fn transcript_content_rect_spans_band_and_gap_rows() {
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,

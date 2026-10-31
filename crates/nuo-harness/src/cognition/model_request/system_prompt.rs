@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use nuo_wire::{InstructionBundle, InstructionSlice, InstructionTier};
+use nuo_protocol::{InstructionBundle, InstructionSlice, InstructionTier};
 
 /// Read-only view of the live turn state an instruction section may draw on to render.
 ///
@@ -31,7 +31,7 @@ pub struct SystemPromptContext {
     /// Names of the tools admitted this turn (e.g. `["ask_user", ...]`).
     pub tool_names: Vec<String>,
     /// Whether a subagent-dispatch tool (one whose
-    /// [`Tool::spawns_subagent`](nuo_wire::Tool::spawns_subagent) is
+    /// [`Tool::spawns_subagent`](nuo_protocol::Tool::spawns_subagent) is
     /// true) is admitted this turn. Capability-derived, so a renamed or new
     /// dispatch tool needs no prompt-policy change.
     pub has_subagent_tool: bool,

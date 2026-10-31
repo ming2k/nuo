@@ -169,7 +169,7 @@ fn paragraph_separator_renders_as_a_blank_row() {
 
 #[test]
 fn core_notice_head_names_the_topic_and_body_keeps_the_structured_split() {
-    let core = nuo_wire::AgentNotice::trust_changed("Workspace configurations changed")
+    let core = nuo_protocol::AgentNotice::trust_changed("Workspace configurations changed")
         .with_body("Changed on disk: rules (AGENTS.md / rules) — quarantined pending review.");
     let msg = TranscriptMessage::notice_from_core(&core);
     let painted = paint(&msg, 60, 10, SelectionState::None);

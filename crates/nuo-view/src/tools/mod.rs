@@ -253,7 +253,26 @@ pub struct ToolComponent {
     pub members: &'static [(&'static str, &'static dyn ToolPresenter)],
     /// The disclosure default for the whole component, applied to every member
     /// name unless the user configures otherwise.
+    ///
+    /// Meaningful only when [`Self::has_inline_body`] is true: a component with
+    /// no expandable body can never honour a disclosure policy, so offering one
+    /// would be a settings switch wired to nothing.
     pub expanded_by_default: bool,
+    /// Whether this component renders an **inline expandable body** in the
+    /// transcript.
+    ///
+    /// Subagent delegations answer activation differently from every other
+    /// component: they have no inline body at all — `draw_subagent_inline_step`
+    /// paints exactly two fixed rows — and activation drills into the task's
+    /// scene instead of toggling a disclosure. Such a component therefore
+    /// carries no disclosure policy: it is excluded from the Settings panel's
+    /// disclosure rows and `tool_step_expanded` never consults it.
+    ///
+    /// Declaring this explicitly is what keeps the policy honest. Previously the
+    /// row was listed and toggleable while the renderer never read `expanded`
+    /// and `toggle_expanded` returned `false` for it: three separate lies about
+    /// one switch.
+    pub has_inline_body: bool,
 }
 
 impl std::fmt::Debug for ToolComponent {
@@ -294,8 +313,11 @@ impl ToolComponent {
     }
 
     /// The built-in (unconfigured) disclosure default for this component.
+    ///
+    /// Always `false` for a component with no inline body: there is nothing to
+    /// disclose, so no caller can be misled into advertising an expansion.
     pub fn default_expanded(&self) -> bool {
-        self.expanded_by_default
+        self.has_inline_body && self.expanded_by_default
     }
 }
 
@@ -312,6 +334,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand shell execution output logs and terminal commands by default",
         members: &[("execute_command", &execute_command::ExecuteCommandPresenter)],
         expanded_by_default: true,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "diff",
@@ -325,6 +348,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
             ("write", &edit_text::WritePresenter),
         ],
         expanded_by_default: true,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "read",
@@ -336,6 +360,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
             ("read", &read_text::ReadPresenter),
         ],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "read_image",
@@ -343,6 +368,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand image read confirmations and their delivery notices by default",
         members: &[("read_image", &read_image::ReadImagePresenter)],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "search",
@@ -354,6 +380,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
             ("list_dir", &search::ListDirPresenter),
         ],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "web_article",
@@ -361,6 +388,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand page reads and their extracted prose by default",
         members: &[("read_url", &web::WebReaderPresenter)],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "web_search",
@@ -368,6 +396,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand web search result cards and source pills by default",
         members: &[("search_web", &web::WebSearchPresenter)],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "todo",
@@ -380,6 +409,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
             ("todo_update", &meta::TodoPresenter),
         ],
         expanded_by_default: true,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "subagent",
@@ -390,6 +420,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
             ("delegate_code", &meta::SubagentPresenter),
         ],
         expanded_by_default: false,
+        has_inline_body: false,
     },
     ToolComponent {
         id: "skill",
@@ -397,6 +428,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand skill activations and their loaded guidance by default",
         members: &[("use_skill", &meta::UseSkillPresenter)],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "ask_user",
@@ -404,6 +436,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand agent questions and their recorded answers by default",
         members: &[("ask_user", &ask_user::AskUserPresenter)],
         expanded_by_default: false,
+        has_inline_body: true,
     },
     ToolComponent {
         id: "mcp",
@@ -411,6 +444,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         description: "Expand Model Context Protocol tool calls and responses by default",
         members: &[("mcp", &mcp::McpPresenter)],
         expanded_by_default: false,
+        has_inline_body: true,
     },
 ];
 

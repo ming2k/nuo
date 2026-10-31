@@ -7,7 +7,7 @@
 //! If project assets change (e.g. via git pull/checkout), trust drops back to
 //! Quarantined until explicitly reviewed again.
 use crate::paths;
-use nuo_wire::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
+use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use serde::{Deserialize, Serialize};
 
 use sha2::{Digest, Sha256};

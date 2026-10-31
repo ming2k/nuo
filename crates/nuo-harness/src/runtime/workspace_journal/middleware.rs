@@ -37,8 +37,8 @@
 
 use std::path::Path;
 
+use nuo_protocol::Tool;
 use nuo_tool::{EffectClass, ToolAccesses};
-use nuo_wire::Tool;
 
 use super::{
     CaptureOutcome, CapturedPath, JournalOpToken, JournalRow, PreImageStore, WorkspaceJournalPort,

@@ -547,7 +547,7 @@ pub trait Provider: Send + Sync {
     }
 }
 
-// `InputHandler` / `ToolInvocation` were relocated to `nuo-wire::capability`
+// `InputHandler` / `ToolInvocation` were relocated to `nuo-protocol::capability`
 // (the session-adapter layer) when `nuo-contracts` was consolidated. The
 // duplicates that used to live here had zero referents and are removed per
 // ADR-0008 (single tool contract; no duplicate vocabulary).

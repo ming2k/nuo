@@ -42,7 +42,7 @@ fn seed_thread(handle: &PersistenceHandle, thread_id: &str) {
     // The journal table references `threads`, and the single-writer door has no
     // "insert thread" verb, so the row is created through the session upsert
     // path the server already uses.
-    handle.try_upsert_session(nuo_persistence::db::SessionRecord {
+    handle.try_upsert_session(nuo_persistence::db::ThreadRecord {
         id: thread_id.to_string(),
         parent_id: None,
         fork_kind: "trunk".to_string(),

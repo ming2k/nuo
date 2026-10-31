@@ -6,8 +6,8 @@
 use nuo_harness::Agent;
 use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_persistence::{config::Config, session::SessionStore};
-use nuo_wire::{
-    McpConnectionStatus, McpServerInfo, ModelInfo, SessionContextSnapshot, SessionOverview,
+use nuo_protocol::{
+    McpConnectionStatus, McpServerInfo, ModelInfo, ThreadContextSnapshot, ThreadOverview,
 };
 
 /// First 8 characters of a session id — short enough for picker rows while
@@ -33,16 +33,16 @@ pub fn provider_key_status(_config: &Config) -> Vec<(String, bool)> {
 /// agent, and MCP per-server tool names by matching the `mcp__<server>__*`
 /// naming convention against the agent's installed tools.
 ///
-/// Sent in reply to [`nuo_wire::AgentRequest::QuerySessionContext`] and re-sent
-/// after any mutation ([`nuo_wire::AgentRequest::RevokePermission`] /
-/// [`nuo_wire::AgentRequest::ToggleTool`]) so the modal always reflects the
+/// Sent in reply to [`nuo_protocol::AgentRequest::QuerySessionContext`] and re-sent
+/// after any mutation ([`nuo_protocol::AgentRequest::RevokePermission`] /
+/// [`nuo_protocol::AgentRequest::ToggleTool`]) so the modal always reflects the
 /// post-change state.
 pub fn build_session_context(
     agent: &Agent,
     _skills_registry: &SkillRegistry,
     mcp_statuses: &[(String, McpConnectionStatus)],
     config: &Config,
-) -> SessionContextSnapshot {
+) -> ThreadContextSnapshot {
     let provider_id = nuo_model_routing::default_provider_id(config).to_string();
     let model = nuo_model_routing::resolved_model_name(config, &provider_id).unwrap_or_default();
 
@@ -109,7 +109,7 @@ pub fn build_session_context(
         })
         .collect();
 
-    SessionContextSnapshot {
+    ThreadContextSnapshot {
         model: model_info,
         tools,
         permissions,
@@ -127,7 +127,7 @@ pub fn build_session_context(
 /// nothing to state. (The *request* path is permissive instead — an undeclared
 /// route still carries images — but that is `accepts_images`, a policy rather
 /// than a claim.)
-pub fn derive_capabilities(capabilities: &nuo_wire::ModelCapabilities) -> Vec<String> {
+pub fn derive_capabilities(capabilities: &nuo_protocol::ModelCapabilities) -> Vec<String> {
     let mut caps = Vec::new();
     if capabilities.tool_call {
         caps.push("tool calling".to_string());
@@ -144,11 +144,11 @@ pub fn derive_capabilities(capabilities: &nuo_wire::ModelCapabilities) -> Vec<St
 /// Render-ready list of past sessions for the picker. Failures (unreadable
 /// store, corrupt index) degrade to an empty list rather than surfacing an
 /// error: the picker is non-modal and a missing list is recoverable.
-pub async fn build_sessions_overview(session: &SessionStore) -> Vec<SessionOverview> {
-    let mut overview: Vec<SessionOverview> = match session.list().await {
+pub async fn build_sessions_overview(session: &SessionStore) -> Vec<ThreadOverview> {
+    let mut overview: Vec<ThreadOverview> = match session.list().await {
         Ok(items) => items
             .into_iter()
-            .map(|item| SessionOverview {
+            .map(|item| ThreadOverview {
                 id: item.id,
                 title: item.title,
                 overview: item.overview,
@@ -167,7 +167,7 @@ pub async fn build_sessions_overview(session: &SessionStore) -> Vec<SessionOverv
 
     if !overview.iter().any(|item| item.active) {
         let summary = session.active_summary().await;
-        overview.push(SessionOverview {
+        overview.push(ThreadOverview {
             id: summary.id,
             title: summary.title,
             overview: summary.overview,

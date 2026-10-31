@@ -8,7 +8,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
-use nuo_wire::{AgentResponse, LoopStatus, Message, Role, RoundEvent, ToolCall};
+use nuo_protocol::{AgentResponse, LoopStatus, Message, Role, RoundEvent, ToolCall};
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -26,16 +26,16 @@ use crate::shell::render::Theme;
 use crate::shell::transcript::{
     finalize_streaming_reasoning, transcript_message_from_core, transcript_messages_from_core,
 };
+use nuo_protocol::{AgentRequest, ProviderPickerSnapshot};
 use nuo_view::model::layout::InteractiveTarget;
 use nuo_view::model::selection::{SelectionDrag, SelectionState};
-use nuo_wire::{AgentRequest, ProviderPickerSnapshot};
 
 use std::collections::HashMap;
 
 /// The vocabulary fixture is the **server's** catalog — the same publication a
 /// real client receives during attach. A test-local copy was what let the TUI's
 /// popup advertise `/delegate` and lose `/quotas` without any test noticing.
-fn test_command_catalog() -> nuo_wire::CommandCatalog {
+fn test_command_catalog() -> nuo_protocol::CommandCatalog {
     nuo_server::startup::command_catalog(&[])
 }
 
@@ -104,7 +104,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         messages: Vec::new(),
         layout_height_cache: Default::default(),
         session_chrome: std::collections::HashMap::new(),
-        session_tree: nuo_wire::SessionTree::default(),
+        session_tree: nuo_protocol::ThreadTree::default(),
         scroll: 0,
         follow_bottom: true,
         content_lines: 0,
@@ -157,7 +157,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         current_model: "mock".to_string(),
         cwd: cwd.clone(),
         current_session_id: "test-session".to_string(),
-        session_phase: nuo_wire::SessionPhase::Ready,
+        session_phase: nuo_protocol::ThreadPhase::Ready,
         pending_prompts: Vec::new(),
         current_workspace: String::new(),
         current_role: None,
@@ -168,13 +168,14 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         provider_retry: None,
         persistence_health: None,
         link_down: false,
+        relink_requested: false,
         live_session_id: "session-test".to_string(),
         pending_permissions: std::collections::VecDeque::new(),
         pending_questions: std::collections::VecDeque::new(),
         pending_inputs: std::collections::VecDeque::new(),
         subagent_permission_parent: HashMap::new(),
         subagent_question_parent: HashMap::new(),
-        workspace_security: nuo_wire::WorkspaceSecuritySnapshot::default(),
+        workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
         context_tokens_by_session: HashMap::new(),
         open_sessions_signal: false,
         open_tree_signal: false,
@@ -369,10 +370,10 @@ fn prompt_tail(messages: &[TranscriptMessage]) -> Vec<(String, bool, u64)> {
         .collect()
 }
 
-pub(crate) fn overview_row(id: &str) -> nuo_wire::SessionOverview {
-    nuo_wire::SessionOverview {
+pub(crate) fn overview_row(id: &str) -> nuo_protocol::ThreadOverview {
+    nuo_protocol::ThreadOverview {
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         id: id.to_string(),
         title: None,
@@ -414,15 +415,15 @@ fn relay_probe(
 }
 
 fn console_host_rows(app: &mut App) {
-    let row = |id: &str, created: u64| nuo_wire::MonitoredSession {
+    let row = |id: &str, created: u64| nuo_protocol::MonitoredThread {
         id: id.to_string(),
         title: None,
         overview: String::new(),
         created_at: created,
         updated_at: created,
         message_count: 1,
-        hosting: nuo_wire::SessionHosting::Hosted,
-        status: nuo_wire::SessionStatus::Idle,
+        hosting: nuo_protocol::ThreadHosting::Hosted,
+        status: nuo_protocol::ThreadStatus::Idle,
         round: 1,
         turn: None,
         output_tokens: 0,
@@ -433,7 +434,7 @@ fn console_host_rows(app: &mut App) {
         note: None,
         project_root: "/tmp/proj".to_string(),
         parent_id: None,
-        fork_kind: nuo_wire::SessionForkKind::Trunk,
+        fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,
         digest: None,
     };
@@ -455,6 +456,7 @@ mod elevation_pipeline;
 mod gesture_input;
 mod history_recall;
 mod input;
+mod link_resilience;
 mod modal;
 mod notices;
 mod pre_attach_gate;

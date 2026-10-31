@@ -21,10 +21,10 @@ impl App {
     /// `Vec` would grow past it over a long-lived TUI (each entry is small,
     /// but a multi-day session with heavy prompt reuse is unbounded anyway).
     /// Evicts from the oldest end.
-    pub(super) fn push_history(&mut self, entry: nuo_wire::HistoryEntry) {
+    pub(super) fn push_history(&mut self, entry: nuo_protocol::HistoryEntry) {
         self.input_history.push(entry);
-        if self.input_history.len() > nuo_wire::history::HISTORY_CAP {
-            let overflow = self.input_history.len() - nuo_wire::history::HISTORY_CAP;
+        if self.input_history.len() > nuo_protocol::history::HISTORY_CAP {
+            let overflow = self.input_history.len() - nuo_protocol::history::HISTORY_CAP;
             self.input_history.drain(..overflow);
         }
     }
@@ -33,7 +33,7 @@ impl App {
     /// frontend has: the shared in-process ledger (standalone path) or the
     /// on-demand harness snapshot (attach path). `None` in attach mode while
     /// the `QueryTokenUsage` round-trip is still in flight.
-    pub fn token_source_report(&self, session_id: &str) -> Option<nuo_wire::TokenSourceReport> {
+    pub fn token_source_report(&self, session_id: &str) -> Option<nuo_protocol::TokenSourceReport> {
         if let Some(ledger) = &self.token_ledger {
             Some(ledger.snapshot_for_session(session_id))
         } else {
@@ -126,8 +126,8 @@ impl App {
     /// (`crate::shell::input::readline`), the render grid
     /// ([`crate::shell::composer_grid`]), and the `@`-mention scanner all index
     /// by bytes. The control-plane contract is different:
-    /// [`nuo_wire::AgentRequest::CompleteComposer`] and
-    /// [`nuo_wire::InputCompletion`]'s `replace_start`/`replace_end` are
+    /// [`nuo_protocol::AgentRequest::CompleteComposer`] and
+    /// [`nuo_protocol::InputCompletion`]'s `replace_start`/`replace_end` are
     /// **Unicode scalar indices** (`nuo-server`'s completion engine converts
     /// them with `char_to_byte`). Sending bytes where the backend reads chars
     /// silently dead-ends every completion whose prefix is not pure ASCII: the

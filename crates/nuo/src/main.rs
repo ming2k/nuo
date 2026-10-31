@@ -68,6 +68,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         Mode::Dev(cli::DevAction::Storybook) => run_storybook().await,
         Mode::Dev(cli::DevAction::Export(dir)) => export_storybook(&dir),
         Mode::Dev(cli::DevAction::Check(target)) => run_dev_check(target),
+        Mode::Dev(cli::DevAction::BlessCensus) => run_bless_census(),
         Mode::Thread(action) => commands::thread::run(action, project_override).await,
         Mode::Server(action) => run_server_action(action, project_override).await,
     }
@@ -161,11 +162,33 @@ fn run_dev_check(target: cli::CheckTarget) -> Result<(), Box<dyn std::error::Err
         }
     }
 
+    if target == cli::CheckTarget::All || target == cli::CheckTarget::Wire {
+        println!("Checking wire surface census against PROTOCOL_VERSION (INV-WIRE-03)...");
+        if let Err(e) = nuo::dev::wire_census::check_wire_census(&root) {
+            eprintln!("{e}");
+            ok = false;
+        } else {
+            println!("wire census: clean");
+        }
+    }
+
     if ok {
         Ok(())
     } else {
         std::process::exit(1);
     }
+}
+
+/// Rewrite the wire-surface census at the current protocol number.
+fn run_bless_census() -> Result<(), Box<dyn std::error::Error>> {
+    let root = nuo::dev::find_workspace_root();
+    let path = nuo::dev::wire_census::bless_census(&root)?;
+    println!(
+        "Wire census renewed at protocol {}: {}",
+        nuo_protocol::PROTOCOL_VERSION,
+        path.display()
+    );
+    Ok(())
 }
 
 /// server verb dispatch (the server verbs own start/stop/restart/status/token).

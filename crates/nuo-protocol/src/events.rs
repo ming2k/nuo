@@ -45,11 +45,11 @@ pub enum AgentRequest {
         sent_at_ms: Option<u64>,
     },
     /// Queue steering message into a round that is already running. The target
-    /// session is explicit so a frontend can keep composing in a side view
+    /// thread is explicit so a frontend can keep composing in a side view
     /// (or switch views) without accidentally steering the wrong agent. The
     /// message is admitted atomically at the next safe turn boundary.
     Steer {
-        session_id: String,
+        thread_id: String,
         #[serde(alias = "input")]
         message: QueuedMessage,
     },
@@ -57,10 +57,10 @@ pub enum AgentRequest {
     /// cancellation against boundary admission: exactly one of
     /// `SteerAdmitted` or `SteerCancelled` is emitted for the id.
     CancelSteer {
-        session_id: String,
+        thread_id: String,
         input_id: String,
     },
-    /// Queue a follow-up message into an explicit live session. The
+    /// Queue a follow-up message into an explicit live thread. The
     /// **driver owns the queue** (M4): when the target round is
     /// idle the message starts immediately ([`RoundEvent::FollowUpStarted`]);
     /// when it is running the driver enqueues it
@@ -68,33 +68,33 @@ pub enum AgentRequest {
     /// round boundary. The frontend sends one verb and renders the state
     /// the backend reports — it never decides when a follow-up ships.
     FollowUp {
-        session_id: String,
+        thread_id: String,
         #[serde(alias = "input")]
         message: QueuedMessage,
     },
     /// Remove one queued follow-up (the queue modal's delete / destructive
     /// recall-to-composer). Idempotent: removing an unknown id is a no-op.
     QueueRemove {
-        session_id: String,
+        thread_id: String,
         input_id: String,
     },
-    /// Clear every queued follow-up for the session (the queue modal's clear).
+    /// Clear every queued follow-up for the thread (the queue modal's clear).
     QueueClear {
-        session_id: String,
+        thread_id: String,
     },
-    /// Reorder one queued follow-up within its session's queue by `delta`
-    /// positions (the queue modal's `K`/`J`). Clamped at the session's
+    /// Reorder one queued follow-up within its thread's queue by `delta`
+    /// positions (the queue modal's `K`/`J`). Clamped at the thread's
     /// slice boundaries; unknown ids are a no-op.
     QueueReorder {
-        session_id: String,
+        thread_id: String,
         input_id: String,
         delta: i32,
     },
-    /// Pause or resume automatic shipping of the session's follow-up queue
+    /// Pause or resume automatic shipping of the thread's follow-up queue
     /// (`Ctrl+P` / the queue modal's block control). Enqueueing still works
     /// while paused; only the round-boundary auto-ship is gated.
     QueuePaused {
-        session_id: String,
+        thread_id: String,
         paused: bool,
     },
     SlashCommand(String),
@@ -144,17 +144,17 @@ pub enum AgentRequest {
     InterruptSubagent {
         call_id: String,
     },
-    /// The client declares this session over. Sent on the paths
-    /// where the operator's intent is "I am done with this session", not
+    /// The client declares this thread over. Sent on the paths
+    /// where the operator's intent is "I am done with this thread", not
     /// "I am detaching": the TUI's `/exit` and double-Ctrl+C quit, a
-    /// headless run's terminal round, and the Web app's end-session
+    /// headless run's terminal round, and the Web app's end-thread
     /// action. The server intercepts it at the attach connection (it never
-    /// reaches the driver queue) and tears the hosted session down through
-    /// the same path as `ControlRequest::KillSession`: cancel the driver,
-    /// fire SessionEnd hooks, drop it from the registry, and publish
-    /// `SessionRemoved` so every dashboard drops the row. Disk history is
-    /// kept — ending a session is not deleting it.
-    EndSession,
+    /// reaches the driver queue) and tears the hosted thread down through
+    /// the same path as `ControlRequest::KillThread`: cancel the driver,
+    /// fire ThreadEnd hooks, drop it from the registry, and publish
+    /// `ThreadRemoved` so every dashboard drops the row. Disk history is
+    /// kept — ending a thread is not deleting it.
+    EndThread,
     PermissionReply {
         request_id: String,
         decision: PermissionDecision,
@@ -356,22 +356,22 @@ pub enum AgentRequest {
     },
     /// Refresh available models for catalog-enabled providers from upstream.
     RefreshProviderModels,
-    /// Delete a session (active or archived) by id or short id prefix.
-    DeleteSession {
+    /// Delete a thread (active or archived) by id or short id prefix.
+    DeleteThread {
         id: String,
     },
-    /// Set (or clear) a session's display title — the manual title the
-    /// monitor row and session pickers show (ADR-0022's AI title fills it
+    /// Set (or clear) a thread's display title — the manual title the
+    /// monitor row and thread pickers show (ADR-0022's AI title fills it
     /// only while no manual title exists). `title: None` clears the manual
     /// title back to the AI/first-prompt fallback. The harness republishes
     /// the monitor row so every client sees the rename.
-    RenameSession {
+    RenameThread {
         id: String,
         title: Option<String>,
     },
-    /// Request full detail for one session (the `i` session-info sub-view).
-    /// The harness replies with [`AgentResponse::SessionDetail`].
-    QuerySessionDetail {
+    /// Request full detail for one thread (the `i` thread-info sub-view).
+    /// The harness replies with [`AgentResponse::ThreadDetail`].
+    QueryThreadDetail {
         id: String,
     },
     /// Request connection inspection details and live provider usage.
@@ -397,35 +397,35 @@ pub enum AgentRequest {
         #[serde(default)]
         force_refresh: bool,
     },
-    /// Request the current sessions-picker rows without changing frontend
-    /// navigation. The reply is [`AgentResponse::SessionsOverview`].
-    QuerySessionsOverview,
-    /// Request the current session DAG without changing frontend navigation.
-    /// The reply is [`AgentResponse::SessionTreeSnapshot`].
-    QuerySessionTree,
+    /// Request the current threads-picker rows without changing frontend
+    /// navigation. The reply is [`AgentResponse::ThreadsOverview`].
+    QueryThreadsOverview,
+    /// Request the current thread DAG without changing frontend navigation.
+    /// The reply is [`AgentResponse::ThreadTreeSnapshot`].
+    QueryThreadTree,
     /// Request the token-source report (per-round / per-turn request usage,
-    /// reported vs. estimated) for one session. The harness replies with
+    /// reported vs. estimated) for one thread. The harness replies with
     /// [`AgentResponse::TokenUsageReport`] carrying a snapshot of its
     /// server-side ledger. Attached frontends have no local ledger, so the
     /// context-usage modal (click on the hint-bar meter) issues this on
-    /// demand — mirroring [`AgentRequest::QuerySessionDetail`].
+    /// demand — mirroring [`AgentRequest::QueryThreadDetail`].
     QueryTokenUsage {
-        session_id: String,
+        thread_id: String,
     },
-    /// Request the cross-session usage-statistics report: daily
+    /// Request the cross-thread usage-statistics report: daily
     /// token totals, per-model breakdown, and the recent terminal-request
     /// event log, aggregated over the durable day-partitioned store that
-    /// survives session cleanup. The harness replies with
+    /// survives thread cleanup. The harness replies with
     /// [`AgentResponse::UsageStatsReport`]. Sent by the TUI when the
     /// `/usage` overlay opens.
     QueryUsageStats {
         /// How many recent events to include in the event-log tail.
         event_cap: usize,
     },
-    /// Request a fresh session-context snapshot (model / tools / permissions /
-    /// skills / mcp). The harness replies with [`AgentResponse::SessionContext`].
+    /// Request a fresh thread-context snapshot (model / tools / permissions /
+    /// skills / mcp). The harness replies with [`AgentResponse::ThreadContext`].
     /// Sent by the TUI when a manager modal opens.
-    QuerySessionContext,
+    QueryThreadContext,
     /// Query server endpoints (port, active, token, local socket) (ADR-0045).
     QueryServerEndpoints,
     /// Toggle TCP listener on/off or set port (ADR-0045).
@@ -622,17 +622,17 @@ pub struct QueuedMessage {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrepareStage {
-    /// Opening or resuming the durable session store.
-    Session,
+    /// Opening or resuming the durable thread store.
+    Thread,
     /// Discovering local skill sources.
     Skills,
-    /// Running SessionStart hooks (bounded).
+    /// Running ThreadStart hooks (bounded).
     Hooks,
     /// Materialising the provider/model route (no credential I/O).
     Provider,
 }
 
-/// The lifecycle of a claimed session: existence is not readiness.
+/// The lifecycle of a claimed thread: existence is not readiness.
 ///
 /// `[INV-ATTACH-04]` (ADR-0133): a client MUST NOT submit a turn before
 /// [`Self::Ready`], and the authoritative snapshot (plus the workspace-trust
@@ -641,20 +641,20 @@ pub enum PrepareStage {
 /// `[INV-ATTACH-02]` to post-handshake assembly).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case")]
-pub enum SessionPhase {
+pub enum ThreadPhase {
     /// Identity claimed; no store or harness exists yet. The server sends this
     /// in the Welcome frame.
     Binding,
-    /// The durable session store is being opened or resumed.
+    /// The durable thread store is being opened or resumed.
     Loading,
     /// Local harness assembly is in progress.
     Preparing { stage: PrepareStage },
-    /// The session is usable: snapshot delivered, local harness assembled.
+    /// The thread is usable: snapshot delivered, local harness assembled.
     /// Network work (OAuth, remote skills, MCP, catalog) may still be running
     /// and MUST NOT be a prerequisite of this state.
     Ready,
     /// Assembly failed after the handshake. `code` carries the machine-readable
-    /// taxonomy (`[INV-ATTACH-01]`), e.g. `session_unresumable`.
+    /// taxonomy (`[INV-ATTACH-01]`), e.g. `thread_unresumable`.
     Failed {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
@@ -662,24 +662,24 @@ pub enum SessionPhase {
     },
 }
 
-/// A readiness transition for one claimed session.
+/// A readiness transition for one claimed thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionPhaseUpdate {
-    pub session_id: String,
-    pub phase: SessionPhase,
+pub struct ThreadPhaseUpdate {
+    pub thread_id: String,
+    pub phase: ThreadPhase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentResponse {
-    /// A per-round event tagged with the session it belongs to. The
-    /// TUI keys its transcript buffers by `session_id` and routes `event` to
+    /// A per-round event tagged with the thread it belongs to. The
+    /// TUI keys its transcript buffers by `thread_id` and routes `event` to
     /// the matching one without clobbering each other's transcript.
     ///
-    /// Global (non-session-scoped) responses — command replies, modal
+    /// Global (non-thread-scoped) responses — command replies, modal
     /// snapshots, provider switches — stay as dedicated top-level variants so
     /// they are handled once, regardless of which view is focused.
     Round {
-        session_id: String,
+        thread_id: String,
         event: RoundEvent,
     },
     /// Backend-owned completion result for [`AgentRequest::CompleteComposer`].
@@ -696,9 +696,9 @@ pub enum AgentResponse {
     /// The persisted prompt input history, in stored order — reply to
     /// [`AgentRequest::QueryInputHistory`].
     InputHistory(Vec<crate::HistoryEntry>),
-    /// Cross-project session search hits — reply to
+    /// Cross-project thread search hits — reply to
     /// [`AgentRequest::SearchHistory`]. Each hit anchors a transcript snippet
-    /// to its session so a dashboard/picker can jump straight to it.
+    /// to its thread so a dashboard/picker can jump straight to it.
     HistorySearch(Vec<crate::HistorySearchHit>),
     /// The stored capability overrides for one provider/model route — reply
     /// to [`AgentRequest::QueryRouteSettings`].
@@ -719,64 +719,64 @@ pub enum AgentResponse {
         text: String,
     },
     /// Blank the visible transcript and zero the round counter: the harness
-    /// switched to a brand-new empty session (`/new`, `/session new`). The
-    /// previous session is untouched on disk — nothing was deleted.
+    /// switched to a brand-new empty thread (`/new`, `/thread new`). The
+    /// previous thread is untouched on disk — nothing was deleted.
     ///
     /// **Both ids are required** (ADR-0123 `[INV-TAB-13]`). `previous_id` is the
-    /// session the store held *before* the reset; `session_id` is the freshly
+    /// thread the store held *before* the reset; `thread_id` is the freshly
     /// minted one. A frontend rebases the tab that represents `previous_id` —
     /// never "the active tab". Without `previous_id` a client cannot tell which
     /// tab the switch belongs to, and a positional guess rewrites the wrong one
-    /// (the ghost-tab race this ADR closes). `session_id` is the post-switch id,
-    /// mirroring [`AgentResponse::ConversationReplaced`], so session-scoped state
+    /// (the ghost-tab race this ADR closes). `thread_id` is the post-switch id,
+    /// mirroring [`AgentResponse::ConversationReplaced`], so thread-scoped state
     /// (inline ↑/↓ prompt recall, on-demand queries) follows the switch.
     ConversationCleared {
-        /// The session being left. A tab carrying this id is the one to rebase.
+        /// The thread being left. A tab carrying this id is the one to rebase.
         previous_id: String,
-        /// The freshly minted session id.
-        session_id: String,
+        /// The freshly minted thread id.
+        thread_id: String,
     },
     /// Replace the visible transcript (dialogue messages) AND the command
-    /// ledger with another session's state, after `/session open`,
-    /// `/resume`, `/session resume`. The frontend rebuilds the whole document
+    /// ledger with another thread's state, after `/thread open`,
+    /// `/resume`, `/thread resume`. The frontend rebuilds the whole document
     /// from these two sources: pure dialogue from `messages`, command rows
-    /// from `commands`. `session_id` identifies the session that produced the
-    /// replacement (the harness emits this only as a session switch, so it is
+    /// from `commands`. `thread_id` identifies the thread that produced the
+    /// replacement (the harness emits this only as a thread switch, so it is
     /// the post-switch id); attached frontends track it to keep on-demand
-    /// queries (e.g. [`AgentRequest::QueryTokenUsage`]) session-correct.
+    /// queries (e.g. [`AgentRequest::QueryTokenUsage`]) thread-correct.
     ConversationReplaced {
-        /// The session being left (ADR-0123 `[INV-TAB-13]`). Same contract as
+        /// The thread being left (ADR-0123 `[INV-TAB-13]`). Same contract as
         /// [`AgentResponse::ConversationCleared::previous_id`]: a frontend rebases
-        /// the tab that represents the session it is *leaving*, never "the active
-        /// tab" — the two differ whenever a session switch raced the frame.
+        /// the tab that represents the thread it is *leaving*, never "the active
+        /// tab" — the two differ whenever a thread switch raced the frame.
         previous_id: String,
-        session_id: String,
+        thread_id: String,
         messages: Vec<Message>,
         #[serde(default)]
         commands: Vec<crate::command::CommandRecord>,
         /// Round-interrupt records (C11): re-projected into the transcript at
-        /// their timestamp seams so the resumed session shows which rounds
+        /// their timestamp seams so the resumed thread shows which rounds
         /// were stopped, why, and when.
         #[serde(default)]
         round_interrupts: Vec<RoundInterrupt>,
     },
-    /// Replace the sessions picker contents. Data responses never navigate;
+    /// Replace the threads picker contents. Data responses never navigate;
     /// slash-command presentation is signalled separately.
-    SessionsOverview(Vec<SessionOverview>),
-    /// Presentation signal for bare `/sessions` / `/session list`.
-    OpenSessionsPanel,
-    /// Replace the session-tree view's data without changing navigation. The
-    /// session id lets a frontend reject a reply that raced a session switch.
-    SessionTreeSnapshot {
-        session_id: String,
-        tree: crate::SessionTree,
+    ThreadsOverview(Vec<ThreadOverview>),
+    /// Presentation signal for bare `/threads` / `/thread list`.
+    OpenThreadsPanel,
+    /// Replace the thread-tree view's data without changing navigation. The
+    /// thread id lets a frontend reject a reply that raced a thread switch.
+    ThreadTreeSnapshot {
+        thread_id: String,
+        tree: crate::ThreadTree,
     },
     /// Presentation signal for `/tree`.
     OpenTreePanel,
-    /// A session was forked into a new child thread (ADR-0058).
+    /// A thread was forked into a new child thread (ADR-0058).
     /// Sent to the client so it mounts a new sovereign `ClientTab::Thread`
-    /// and switches to the child session.
-    SessionForked {
+    /// and switches to the child thread.
+    ThreadForked {
         child_id: String,
         parent_id: String,
         /// Where the branch diverged (ADR-0120). Optional only so a peer
@@ -790,10 +790,10 @@ pub enum AgentResponse {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prompt: Option<String>,
     },
-    /// Reply to [`AgentRequest::QuerySessionDetail`]: full detail for one
-    /// session (complete last prompt, title, timestamps). Consumed by the
-    /// session-info sub-view.
-    SessionDetail(SessionDetail),
+    /// Reply to [`AgentRequest::QueryThreadDetail`]: full detail for one
+    /// thread (complete last prompt, title, timestamps). Consumed by the
+    /// thread-info sub-view.
+    ThreadDetail(ThreadDetail),
     /// Reply to [`AgentRequest::QueryConnectionDetail`]: full detail and usage
     /// for one connection (identity, endpoint, auth, models, usage/balance).
     ConnectionDetail(crate::ConnectionDetail),
@@ -801,19 +801,19 @@ pub enum AgentResponse {
     /// provider quota inspection overview across configured connections.
     ProviderQuotas(crate::ProviderQuotaSnapshot),
     /// Reply to [`AgentRequest::QueryTokenUsage`]: the server-side token-source
-    /// report for one session (per-round request usage, reported vs.
+    /// report for one thread (per-round request usage, reported vs.
     /// estimated). Attached frontends hold no local ledger, so the
-    /// context-usage modal renders this snapshot; the session id lets the
-    /// frontend discard a reply that raced a session switch.
+    /// context-usage modal renders this snapshot; the thread id lets the
+    /// frontend discard a reply that raced a thread switch.
     TokenUsageReport {
-        session_id: String,
+        thread_id: String,
         report: crate::token_ledger::TokenSourceReport,
     },
-    /// Reply to [`AgentRequest::QueryUsageStats`]: the cross-session usage
+    /// Reply to [`AgentRequest::QueryUsageStats`]: the cross-thread usage
     /// report (per-day / per-model totals + recent event log) aggregated from
     /// the durable usage store. Unlike [`Self::TokenUsageReport`] this data is
-    /// session-independent — it outlives session deletion by design
-    /// so no session id accompanies it.
+    /// thread-independent — it outlives thread deletion by design
+    /// so no thread id accompanies it.
     UsageStatsReport {
         report: crate::usage_stats::UsageStatsReport,
     },
@@ -825,11 +825,11 @@ pub enum AgentResponse {
     },
     /// Progress of an OAuth connect/authorize flow (xAI SuperGrok).
     ConnectStatus(ConnectStatus),
-    /// Full session-context snapshot (model + tools + permissions + skills +
-    /// mcp) for the session modal. Sent in reply to [`AgentRequest::QuerySessionContext`]
+    /// Full thread-context snapshot (model + tools + permissions + skills +
+    /// mcp) for the thread modal. Sent in reply to [`AgentRequest::QueryThreadContext`]
     /// and re-sent after any mutation handled by the harness
     /// ([`AgentRequest::RevokePermission`] / [`AgentRequest::ToggleTool`]).
-    SessionContext(SessionContextSnapshot),
+    ThreadContext(ThreadContextSnapshot),
     /// The transcript layout preference was updated (from the `/config` modal
     /// via [`AgentRequest::UpdateTuiLayout`]). Carries the persisted config
     /// string so the modal re-renders from the authoritative state — the TOML
@@ -846,12 +846,12 @@ pub enum AgentResponse {
     WebSearchConfigUpdated(WebConfigView),
     /// Response with current server endpoints status (ADR-0045).
     ServerEndpointsStatus(crate::ServerEndpointsReport),
-    /// Full authoritative declarative session snapshot upon attachment (ADR-0049).
-    SessionSnapshot(Box<SessionSnapshot>),
-    /// Readiness transition for the attached session (ADR-0133
+    /// Full authoritative declarative thread snapshot upon attachment (ADR-0049).
+    ThreadSnapshot(Box<ThreadSnapshot>),
+    /// Readiness transition for the attached thread (ADR-0133
     /// `[INV-ATTACH-04]`). Sent after Welcome; `Ready` always follows the
     /// authoritative snapshot on the same connection.
-    SessionPhase(SessionPhaseUpdate),
+    ThreadPhase(ThreadPhaseUpdate),
     /// Incremental state delta update (ADR-0049).
     StateDelta(StateDelta),
 }
@@ -1546,10 +1546,10 @@ const fn default_confined() -> bool {
     true
 }
 
-/// A row in the sessions picker: enough to identify, describe and order a past
-/// session without leaking the full transcript to the TUI.
+/// A row in the threads picker: enough to identify, describe and order a past
+/// thread without leaking the full transcript to the TUI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionOverview {
+pub struct ThreadOverview {
     pub id: String,
     /// Authentic AI/manual thread title, when established (ADR-0050).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1559,19 +1559,19 @@ pub struct SessionOverview {
     pub updated_at: u64,
     pub message_count: usize,
     pub active: bool,
-    /// The session this one was forked from, when it is a branch rather
-    /// than a trunk (`/fork`). `None` for a trunk session
-    /// (`/new` or the very first session). Lineage is what the dashboard
+    /// The thread this one was forked from, when it is a branch rather
+    /// than a trunk (`/fork`). `None` for a trunk thread
+    /// (`/new` or the very first thread). Lineage is what the dashboard
     /// groups by: one trunk row per conversation, its branches nested
     /// beneath — there is always exactly one *main* line, the trunk the
     /// user is driving; branches are derived views that never replace it.
     #[serde(default)]
     pub parent_id: Option<String>,
-    /// How this session came to exist, so the dashboard can badge rows
+    /// How this thread came to exist, so the dashboard can badge rows
     /// without string-matching ids: `fork` (an explicit `/fork` branch),
     /// or `trunk` (no parent).
     #[serde(default)]
-    pub fork_kind: SessionForkKind,
+    pub fork_kind: ThreadForkKind,
     /// Where this branch diverged from its parent (ADR-0120), persisted at
     /// fork time by the one fork primitive. `None` on a trunk and on branches
     /// whose provenance predates the field — never inferred from a title, a
@@ -1579,22 +1579,22 @@ pub struct SessionOverview {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_point: Option<ForkPoint>,
     /// Structured digest (intent + history checklist), if
-    /// the session has generated one.
+    /// the thread has generated one.
     #[serde(default)]
-    pub digest: Option<crate::cognitive::SessionDigest>,
+    pub digest: Option<crate::cognitive::ThreadDigest>,
 }
 
-/// The provenance of a session relative to its lineage.
+/// The provenance of a thread relative to its lineage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum SessionForkKind {
-    /// A root session: `/new` or the first-ever session. The main line.
+pub enum ThreadForkKind {
+    /// A root thread: `/new` or the first-ever thread. The main line.
     #[default]
     Trunk,
     /// An explicit `/fork` branch (the active pointer moved here).
     Fork,
-    /// A subagent run's own durable session: spawned by a
-    /// subagent tool call in a parent session, never surfaced in the picker.
+    /// A subagent run's own durable thread: spawned by a
+    /// subagent tool call in a parent thread, never surfaced in the picker.
     Subagent,
 }
 
@@ -1650,13 +1650,13 @@ impl std::fmt::Display for ForkPoint {
     }
 }
 
-/// Full detail for one session, requested on demand (the session-info
-/// sub-view, `i` from the sessions picker). Unlike [`SessionOverview`], which
+/// Full detail for one thread, requested on demand (the thread-info
+/// sub-view, `i` from the threads picker). Unlike [`ThreadOverview`], which
 /// carries a truncated preview, this carries the *complete* last effective user
 /// prompt so the info view can show it in full. Built from the same deferred
 /// header parse as the picker rows (no full-transcript deserialize).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct SessionDetail {
+pub struct ThreadDetail {
     pub id: String,
     /// Stored title (AI or manual), if any.
     pub title: Option<String>,
@@ -1669,15 +1669,15 @@ pub struct SessionDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_point: Option<ForkPoint>,
     /// Structured digest (intent + history checklist), if
-    /// the session has generated one — the resume-time working-memory view.
+    /// the thread has generated one — the resume-time working-memory view.
     #[serde(default)]
-    pub digest: Option<crate::cognitive::SessionDigest>,
+    pub digest: Option<crate::cognitive::ThreadDigest>,
     pub created_at: u64,
     pub updated_at: u64,
     pub message_count: usize,
     pub active: bool,
     /// The complete, untruncated text of the last non-echo user prompt, or
-    /// `None` when the session has no real user turn yet.
+    /// `None` when the thread holds no user prompts.
     pub last_prompt: Option<String>,
 }
 
@@ -1888,16 +1888,16 @@ pub struct ProviderPickerSnapshot {
 
 pub type ConnectionPickerSnapshot = ProviderPickerSnapshot;
 
-/// Complete state snapshot of a live or persisted session for client hydration (ADR-0049).
+/// Complete state snapshot of a live or persisted thread for client hydration (ADR-0049).
 ///
 /// Since ADR-0133 this is the *only* hydration payload: `Wire::Welcome` carries
 /// identity and phase, and this snapshot follows it on the same connection
-/// before `SessionPhase::Ready`. The fields below therefore duplicate nothing
-/// from the handshake — a late attacher can rebuild the entire visible session
+/// before `ThreadPhase::Ready`. The fields below therefore duplicate nothing
+/// from the handshake — a late attacher can rebuild the entire visible thread
 /// from this frame alone.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionSnapshot {
-    pub session_id: String,
+pub struct ThreadSnapshot {
+    pub thread_id: String,
     pub round_counter: u64,
     pub messages: Vec<Message>,
     pub provider: String,
@@ -1930,7 +1930,7 @@ pub struct SessionSnapshot {
 /// Incremental state delta update (ADR-0049).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StateDelta {
-    pub session_id: String,
+    pub thread_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2144,14 +2144,14 @@ pub struct StdinReply {
 
 pub type InputReply = StdinReply;
 
-/// A complete, render-ready picture of the live session, sent from the harness
-/// to the TUI for the session-context modal. Every pane in that modal reads
+/// A complete, render-ready picture of the live thread, sent from the harness
+/// to the TUI for the thread-context modal. Every pane in that modal reads
 /// from this one snapshot, so opening the modal and any mutation
 /// (revoke / toggle) only needs a single request/response round-trip rather
 /// than one per pane. Built by the harness from its own state (provider,
 /// tools, permissions, skills) plus the MCP load result.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SessionContextSnapshot {
+pub struct ThreadContextSnapshot {
     pub model: ModelInfo,
     pub tools: Vec<ToolInfo>,
     pub permissions: Vec<PermissionRuleInfo>,
@@ -2159,7 +2159,7 @@ pub struct SessionContextSnapshot {
     pub mcp: Vec<McpServerInfo>,
 }
 
-/// Model-side pane of [`SessionContextSnapshot`]. `capabilities` carries
+/// Model-side pane of [`ThreadContextSnapshot`]. `capabilities` carries
 /// heuristic hints (e.g. "tool calling", "reasoning") since per-model
 /// capability data is not yet modeled in the catalog.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

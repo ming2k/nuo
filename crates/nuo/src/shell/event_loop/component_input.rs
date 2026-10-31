@@ -285,24 +285,24 @@ fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAc
             match ctx {
                 "websearch_provider" => {
                     if let (Some(revision), Ok(provider)) = (revision, payload.parse()) {
-                        app.send_intent(nuo_wire::AgentRequest::UpdateWebSearchConfig(Box::new(
-                            nuo_wire::WebSearchConfigUpdate {
+                        app.send_intent(nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                            Box::new(nuo_protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 provider: Some(provider),
                                 ..Default::default()
-                            },
-                        )));
+                            }),
+                        ));
                     }
                 }
                 "websearch_reader" => {
                     if let (Some(revision), Ok(reader)) = (revision, payload.parse()) {
-                        app.send_intent(nuo_wire::AgentRequest::UpdateWebSearchConfig(Box::new(
-                            nuo_wire::WebSearchConfigUpdate {
+                        app.send_intent(nuo_protocol::AgentRequest::UpdateWebSearchConfig(
+                            Box::new(nuo_protocol::WebSearchConfigUpdate {
                                 expected_revision: revision,
                                 reader: Some(reader),
                                 ..Default::default()
-                            },
-                        )));
+                            }),
+                        ));
                     }
                 }
                 _ => {}

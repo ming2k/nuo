@@ -40,7 +40,7 @@ pub mod thinking;
 pub use spec::*;
 
 // Re-export the model-capability enums so callers reaching them through the
-// provider crate keep a stable path. They live in `nuo-wire` because they
+// provider crate keep a stable path. They live in `nuo-protocol` because they
 // are model capabilities, not transport details.
 pub use nuo_provider::effort::Effort;
 pub use nuo_provider::{ReasoningMode, ReasoningSupport};

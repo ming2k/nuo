@@ -8,7 +8,7 @@
 //! ## Why the shipped agent has no self-description
 //!
 //! The engine composes an identity preamble only when the embedding supplies
-//! one ([`nuo_wire::AgentIdentity`]); this CLI supplies none. Nothing in the harness
+//! one ([`nuo_protocol::AgentIdentity`]); this CLI supplies none. Nothing in the harness
 //! reads the model's self-name: no feature parses "I am nuo", addressing is
 //! user-side (`@role:` / `/role`), and the product name already travels
 //! with the binary, the UI chrome, and the config paths. Capabilities are
@@ -23,7 +23,7 @@
 //! A `/role` switch is the one place a framing line earns its
 //! tokens: the focused roles install an imperative role directive
 //! (see [`AgentRoleProfile::from_role`]).
-use nuo_wire::AgentRoleProfile;
+use nuo_protocol::AgentRoleProfile;
 
 /// The built-in **coding agent** profile: the declarative
 /// form of the standard developer role with canonical Base-Tier identity directive.
@@ -47,6 +47,6 @@ impl nuo::UiBridge for ServerUiBridge {
 }
 
 // Built-in roles (`developer`, `philosophist`, `ops`) and the `/role` switching mechanism
-// are declared in `nuo-wire` as shared vocabulary (`MainAgentRole`,
+// are declared in `nuo-protocol` as shared vocabulary (`MainAgentRole`,
 // `AgentRoleProfile::from_role`) and applied via `Agent::apply_role`,
 // so this binary does not need its own role registry — both frontends share one.

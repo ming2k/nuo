@@ -18,8 +18,8 @@
 //! consumer-facing window is a pure derive; nothing derived is persisted.
 use crate::blobs::BlobStore;
 use crate::paths;
-use nuo_wire::{
-    EntryPayload, InjectionKind, InjectionOrigin, Message, Provider, Role, SessionDetail,
+use nuo_protocol::{
+    EntryPayload, InjectionKind, InjectionOrigin, Message, Provider, Role, ThreadDetail,
     estimate_tokens,
 };
 use serde::{Deserialize, Serialize};
@@ -66,39 +66,39 @@ pub struct ProviderSelection {
     pub model: Option<String>,
 }
 
-pub use nuo_wire::{ContextProjectionCheckpoint, ContextProjectionKind};
+pub use nuo_protocol::{ContextProjectionCheckpoint, ContextProjectionKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SessionData {
+pub struct ThreadData {
     pub(crate) id: String,
     pub(crate) parent_id: Option<String>,
     /// How this session came to exist relative to its lineage: a root trunk,
     /// or an explicit `/fork` branch (ADR-0058).
     #[serde(default)]
-    pub(crate) fork_kind: nuo_wire::SessionForkKind,
+    pub(crate) fork_kind: nuo_protocol::ThreadForkKind,
     /// Where this branch diverged from its parent (ADR-0120), as the address
     /// `/fork` itself accepts. `None` on a trunk, and on a branch whose
     /// provenance predates the field — never reconstructed from a title or a
     /// round counter (`[INV-LINEAGE-01]`).
     #[serde(default)]
-    pub(crate) fork_point: Option<nuo_wire::ForkPoint>,
+    pub(crate) fork_point: Option<nuo_protocol::ForkPoint>,
     pub(crate) created_at: u64,
     pub(crate) updated_at: u64,
     /// The single durable transcript: immutable entries plus the
     /// projection decision history. The model window and every other read
     /// model derive from it via `Transcript::project`.
     #[serde(default)]
-    pub(crate) transcript: nuo_wire::Transcript,
+    pub(crate) transcript: nuo_protocol::Transcript,
     /// Stats of the most recent model-context projection (prune or compaction).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) last_projection: Option<ContextProjectionCheckpoint>,
-    pub(crate) workspace: Option<nuo_wire::WorkspaceBinding>,
+    pub(crate) workspace: Option<nuo_protocol::WorkspaceBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) role: Option<String>,
     /// Immutable role manifest snapshot captured at session creation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) role_manifest: Option<nuo_wire::SessionRoleManifest>,
+    pub(crate) role_manifest: Option<nuo_protocol::SessionRoleManifest>,
     /// Schema version of this session. Migrations are no longer applied —
     /// Is a clean break and legacy snapshots load as empty.
     pub(crate) schema_version: u32,
@@ -112,7 +112,7 @@ pub struct SessionData {
     /// AI-generated session digest — the resume-time working-memory
     /// projection shown by the session picker's detail view.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) digest: Option<nuo_wire::SessionDigest>,
+    pub(crate) digest: Option<nuo_protocol::ThreadDigest>,
     /// Transcript char count when `digest` was generated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) digest_anchor: Option<u64>,
@@ -133,23 +133,23 @@ pub struct SessionData {
     pub(crate) round_counter: u64,
     /// Per-request token accounting for this session.
     #[serde(default)]
-    pub(crate) request_usage_records: Vec<nuo_wire::RequestUsageRecord>,
+    pub(crate) request_usage_records: Vec<nuo_protocol::RequestUsageRecord>,
     /// Durable command ledger.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) commands: Vec<nuo_wire::CommandRecord>,
+    pub(crate) commands: Vec<nuo_protocol::CommandRecord>,
     /// Durable round-interrupt records (C11): projection state, never part of
     /// the transcript.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub(crate) round_interrupts: Vec<nuo_wire::RoundInterrupt>,
+    pub(crate) round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
     /// The durable `/retry` resume point (C12).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) retry_pending: Option<nuo_wire::RetryPoint>,
+    pub(crate) retry_pending: Option<nuo_protocol::RetryPoint>,
     /// Session-scoped unattended posture.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) unattended: bool,
     /// Native DAG session tree (Schema v12).
     #[serde(default)]
-    pub(crate) tree: nuo_wire::SessionTree,
+    pub(crate) tree: nuo_protocol::ThreadTree,
     /// Transcript entries this binary cannot decode, preserved verbatim
     /// raw rows ride in memory and round-trip through every
     /// save, so a newer binary's data survives an older binary untouched.
@@ -160,9 +160,11 @@ pub struct SessionData {
     pub(crate) unknown_directives: Vec<UnknownDirectiveRow>,
 }
 
-impl SessionData {
+pub type SessionData = ThreadData;
+
+impl ThreadData {
     /// Borrow the underlying transcript entries and directives.
-    pub fn transcript(&self) -> &nuo_wire::Transcript {
+    pub fn transcript(&self) -> &nuo_protocol::Transcript {
         &self.transcript
     }
 
@@ -178,7 +180,7 @@ impl SessionData {
             fork_point: self.fork_point,
             created_at: self.created_at,
             updated_at: self.updated_at,
-            transcript: nuo_wire::Transcript::default(),
+            transcript: nuo_protocol::Transcript::default(),
             last_projection: self.last_projection.clone(),
             workspace: self.workspace.clone(),
             role: self.role.clone(),
@@ -236,17 +238,17 @@ pub(crate) struct UnknownDirectiveRow {
     pub payload_json: String,
 }
 
-impl Default for SessionData {
+impl Default for ThreadData {
     fn default() -> Self {
         let now = unix_timestamp();
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             parent_id: None,
-            fork_kind: nuo_wire::SessionForkKind::Trunk,
+            fork_kind: nuo_protocol::ThreadForkKind::Trunk,
             fork_point: None,
             created_at: now,
             updated_at: now,
-            transcript: nuo_wire::Transcript::new(),
+            transcript: nuo_protocol::Transcript::new(),
             last_projection: None,
             workspace: default_workspace(),
             role: None,
@@ -265,7 +267,7 @@ impl Default for SessionData {
             round_interrupts: Vec::new(),
             retry_pending: None,
             unattended: false,
-            tree: nuo_wire::SessionTree::default(),
+            tree: nuo_protocol::ThreadTree::default(),
             unknown_entries: Vec::new(),
             unknown_directives: Vec::new(),
         }
@@ -315,8 +317,8 @@ fn default_project_root() -> PathBuf {
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn default_workspace() -> Option<nuo_wire::WorkspaceBinding> {
-    Some(nuo_wire::WorkspaceBinding::new(default_project_root()))
+fn default_workspace() -> Option<nuo_protocol::WorkspaceBinding> {
+    Some(nuo_protocol::WorkspaceBinding::new(default_project_root()))
 }
 
 /// Is a clean break: legacy snapshots (pre-transcript `SessionData`
@@ -331,34 +333,34 @@ fn migrate_session_data(mut data: SessionData) -> SessionData {
 #[derive(Serialize)]
 struct SessionRowChecksumView<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    commands: &'a Vec<nuo_wire::CommandRecord>,
+    commands: &'a Vec<nuo_protocol::CommandRecord>,
     created_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    digest: Option<&'a nuo_wire::SessionDigest>,
+    digest: Option<&'a nuo_protocol::ThreadDigest>,
     #[serde(skip_serializing_if = "Option::is_none")]
     digest_anchor: Option<u64>,
     disabled_tools: &'a std::collections::HashSet<String>,
-    fork_kind: nuo_wire::SessionForkKind,
+    fork_kind: nuo_protocol::ThreadForkKind,
     /// Fork provenance (ADR-0120). Folded into the row checksum: a silent
     /// rewrite of where a branch diverged is as destructive as a lost turn.
     #[serde(skip_serializing_if = "Option::is_none")]
-    fork_point: Option<nuo_wire::ForkPoint>,
+    fork_point: Option<nuo_protocol::ForkPoint>,
     generation: &'a str,
     id: &'a str,
     parent_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     persona: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    workspace: Option<&'a nuo_wire::WorkspaceBinding>,
+    workspace: Option<&'a nuo_protocol::WorkspaceBinding>,
     provider_selection: Option<&'a ProviderSelection>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    retry_pending: Option<&'a nuo_wire::RetryPoint>,
+    retry_pending: Option<&'a nuo_protocol::RetryPoint>,
     round_counter: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    round_interrupts: &'a Vec<nuo_wire::RoundInterrupt>,
+    round_interrupts: &'a Vec<nuo_protocol::RoundInterrupt>,
     schema_version: u32,
     title: Option<&'a str>,
-    tree: &'a nuo_wire::SessionTree,
+    tree: &'a nuo_protocol::ThreadTree,
     unattended: bool,
     updated_at: u64,
 }
@@ -458,11 +460,11 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// How this session came to exist: trunk root, or explicit `/fork`
     /// branch (ADR-0058). Drives the dashboard's lineage grouping.
-    pub fork_kind: nuo_wire::SessionForkKind,
+    pub fork_kind: nuo_protocol::ThreadForkKind,
     /// Where the branch diverged from its parent (ADR-0120), as the address
     /// `/fork` itself accepts. `None` on a trunk and on branches whose
     /// provenance predates the field.
-    pub fork_point: Option<nuo_wire::ForkPoint>,
+    pub fork_point: Option<nuo_protocol::ForkPoint>,
     pub message_count: usize,
     pub updated_at: u64,
     pub created_at: u64,
@@ -471,7 +473,7 @@ pub struct SessionSummary {
     pub overview: String,
     pub active: bool,
     /// The Chronicler's structured digest (intent + history checklist), if present.
-    pub digest: Option<nuo_wire::SessionDigest>,
+    pub digest: Option<nuo_protocol::ThreadDigest>,
 }
 
 /// The mutable bits a [`SessionStore`] pins to one session: the snapshot path
@@ -493,7 +495,7 @@ pub(crate) struct SessionState {
     pub(crate) defer_persist: bool,
     /// In-memory cache of projected messages, avoiding repetitive full-history
     /// projections on ReAct turn hot paths.
-    pub(crate) projected_cache: Option<Vec<nuo_wire::Message>>,
+    pub(crate) projected_cache: Option<Vec<nuo_protocol::Message>>,
 }
 
 impl SessionState {
@@ -507,7 +509,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) fn get_or_project_messages(&mut self) -> &[nuo_wire::Message] {
+    pub(crate) fn get_or_project_messages(&mut self) -> &[nuo_protocol::Message] {
         if self.projected_cache.is_none() {
             self.projected_cache = Some(self.data.transcript.project_messages());
         }
@@ -520,7 +522,7 @@ impl SessionState {
     }
 
     #[inline]
-    pub(crate) fn append_to_projection_cache(&mut self, new_messages: &[nuo_wire::Message]) {
+    pub(crate) fn append_to_projection_cache(&mut self, new_messages: &[nuo_protocol::Message]) {
         if let Some(ref mut cache) = self.projected_cache {
             cache.extend_from_slice(new_messages);
         } else {
@@ -529,11 +531,11 @@ impl SessionState {
     }
 }
 
-pub struct SessionStore {
-    workspace: std::sync::RwLock<Option<nuo_wire::WorkspaceBinding>>,
+pub struct ThreadStore {
+    workspace: std::sync::RwLock<Option<nuo_protocol::WorkspaceBinding>>,
     role: std::sync::RwLock<Option<String>>,
     /// Directory holding every session file for this project (or, for
-    /// [`SessionStore::for_path`], the parent of the pinned snapshot). All
+    /// [`ThreadStore::for_path`], the parent of the pinned snapshot). All
     /// `reset` / `fork` / `open` targets live here, so the store never writes
     /// outside it.
     sessions_dir: PathBuf,
@@ -545,6 +547,8 @@ pub struct SessionStore {
     /// FIFO commit gate for snapshot writes.
     persist_gate: Mutex<()>,
 }
+
+pub type SessionStore = ThreadStore;
 
 /// Write `data` authoritatively through the single-writer actor.
 ///
@@ -572,7 +576,7 @@ fn load_or_seed(
     writer: Option<&crate::db::PersistenceHandle>,
     session_id: &str,
     blob_store: &BlobStore,
-    workspace: Option<&nuo_wire::WorkspaceBinding>,
+    workspace: Option<&nuo_protocol::WorkspaceBinding>,
     persona: Option<&str>,
     legacy_file: Option<&Path>,
 ) -> SessionData {
@@ -657,7 +661,7 @@ pub(crate) fn last_effective_prompt_from_data(data: &SessionData) -> Option<Stri
         .directives
         .iter()
         .filter_map(|d| {
-            if matches!(d.payload, nuo_wire::DirectivePayload::Compact { .. }) {
+            if matches!(d.payload, nuo_protocol::DirectivePayload::Compact { .. }) {
                 Some(d.up_to_seq)
             } else {
                 None
@@ -904,8 +908,8 @@ pub fn build_excerpt_summary(
         if remaining < 16 {
             break;
         }
-        let cost = nuo_wire::tokenizer::count_tokens(content).min(EXCERPT_CAP_TOKENS)
-            + nuo_wire::tokenizer::count_tokens(label)
+        let cost = nuo_protocol::tokenizer::count_tokens(content).min(EXCERPT_CAP_TOKENS)
+            + nuo_protocol::tokenizer::count_tokens(label)
             + 2;
         used += cost;
         chosen.push(index);
@@ -923,12 +927,14 @@ pub fn build_excerpt_summary(
             continue;
         };
         let content = message.content.trim();
-        let remaining = max_tokens.saturating_sub(nuo_wire::tokenizer::count_tokens(&output));
+        let remaining = max_tokens.saturating_sub(nuo_protocol::tokenizer::count_tokens(&output));
         if remaining < 16 {
             break;
         }
-        let excerpt =
-            nuo_wire::tokenizer::truncate_str_to_tokens(content, remaining.min(EXCERPT_CAP_TOKENS));
+        let excerpt = nuo_protocol::tokenizer::truncate_str_to_tokens(
+            content,
+            remaining.min(EXCERPT_CAP_TOKENS),
+        );
         output.push_str(label);
         output.push_str(": ");
         output.push_str(excerpt);
@@ -939,7 +945,7 @@ pub fn build_excerpt_summary(
     if let Some(previous) = previous_summary.map(str::trim).filter(|s| !s.is_empty()) {
         let previous_budget = (max_tokens / 4).clamp(125, 1_000);
         let previous_excerpt =
-            nuo_wire::tokenizer::truncate_str_to_tokens(previous, previous_budget);
+            nuo_protocol::tokenizer::truncate_str_to_tokens(previous, previous_budget);
         format!("[Previous summary]\n{previous_excerpt}\n\n[Recent history]\n{history}")
     } else {
         history
@@ -1047,7 +1053,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
             }
         }
         if message.role == Role::Tool {
-            body = nuo_wire::tokenizer::truncate_str_to_tokens(
+            body = nuo_protocol::tokenizer::truncate_str_to_tokens(
                 body.trim(),
                 SUMMARY_TOOL_OUTPUT_CAP_TOKENS,
             )
@@ -1076,7 +1082,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
     }
 
     let joined = lines.join("\n\n");
-    if nuo_wire::tokenizer::count_tokens(&joined) <= budget {
+    if nuo_protocol::tokenizer::count_tokens(&joined) <= budget {
         return joined;
     }
 
@@ -1084,7 +1090,7 @@ pub fn serialize_for_summary(archived: &[Message], budget: usize) -> String {
     let mut kept: Vec<&String> = Vec::new();
     let mut total = 0usize;
     for line in lines.iter().rev() {
-        let cost = nuo_wire::tokenizer::count_tokens(line) + 2;
+        let cost = nuo_protocol::tokenizer::count_tokens(line) + 2;
         if total + cost > budget {
             break;
         }
@@ -1122,7 +1128,7 @@ fn serialize_subagent_transcript_for_summary(children: &[Message], budget: usize
             }
         }
         if message.role == Role::Tool {
-            body = nuo_wire::tokenizer::truncate_str_to_tokens(
+            body = nuo_protocol::tokenizer::truncate_str_to_tokens(
                 body.trim(),
                 SUMMARY_TOOL_OUTPUT_CAP_TOKENS,
             )
@@ -1145,12 +1151,12 @@ fn serialize_subagent_transcript_for_summary(children: &[Message], budget: usize
         lines.push(format!("  {label}: {body}"));
     }
     let joined = lines.join("\n");
-    if nuo_wire::tokenizer::count_tokens(&joined) <= budget {
+    if nuo_protocol::tokenizer::count_tokens(&joined) <= budget {
         joined
     } else {
         format!(
             "{}...[truncated]",
-            nuo_wire::tokenizer::truncate_str_to_tokens(&joined, budget)
+            nuo_protocol::tokenizer::truncate_str_to_tokens(&joined, budget)
         )
     }
 }
@@ -1192,9 +1198,9 @@ pub async fn summarize_with_provider(
 ) -> Result<String, String> {
     let transcript = serialize_for_summary(archived, budget);
     let user_prompt = build_summarization_user_prompt(&transcript, previous_summary, extra_context);
-    let instructions = nuo_wire::InstructionBundle::from_single(
+    let instructions = nuo_protocol::InstructionBundle::from_single(
         "compaction.summarization",
-        nuo_wire::InstructionTier::Task,
+        nuo_protocol::InstructionTier::Task,
         SUMMARIZATION_SYSTEM_PROMPT,
     );
     let messages = vec![Message::new(Role::User, user_prompt)];
@@ -1205,7 +1211,8 @@ pub async fn summarize_with_provider(
     const SUMMARIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
     let response = match tokio::time::timeout(
         SUMMARIZATION_TIMEOUT,
-        provider.chat(nuo_wire::ModelRequest::ephemeral(messages).with_instructions(instructions)),
+        provider
+            .chat(nuo_protocol::ModelRequest::ephemeral(messages).with_instructions(instructions)),
     )
     .await
     {
@@ -1293,11 +1300,11 @@ pub async fn run_compaction(
 
 /// Enforce the allocated checkpoint budget even when a summarizing provider
 /// ignores its requested length. Now a thin wrapper over the exact
-/// token-boundary cut ([`nuo_wire::tokenizer::truncate_to_tokens`]);
+/// token-boundary cut ([`nuo_protocol::tokenizer::truncate_to_tokens`]);
 /// the old binary search existed only because the budget round-tripped
 /// through characters (removed that).
 fn truncate_summary_to_token_budget(text: String, max_tokens: usize) -> String {
-    let (prefix, _) = nuo_wire::tokenizer::truncate_to_tokens(&text, max_tokens);
+    let (prefix, _) = nuo_protocol::tokenizer::truncate_to_tokens(&text, max_tokens);
     prefix.trim_end().to_string()
 }
 
@@ -1311,7 +1318,7 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
         .map_err(|e| format!("cannot open {}: {e}", db_path.display()))?;
     let mut examined = 0usize;
     let mut corrupt = 0usize;
-    let filter = project_root.map(|p| nuo_wire::WorkspaceFilter::Path(p.to_path_buf()));
+    let filter = project_root.map(|p| nuo_protocol::WorkspaceFilter::Path(p.to_path_buf()));
     for session in reader
         .list_sessions(filter.as_ref())
         .map_err(|e| e.to_string())?

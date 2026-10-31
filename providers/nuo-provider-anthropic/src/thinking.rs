@@ -4,7 +4,7 @@
 //! [`ReasoningMode`] (on/off) and [`Effort`] (depth) — that the request layer
 //! stamps onto every `/messages` body. This is an Anthropic-transport concern
 //! (it configures *how* the request encodes reasoning), so it lives here
-//! rather than in `nuo-wire` (which holds only the model *capabilities*:
+//! rather than in `nuo-protocol` (which holds only the model *capabilities*:
 //! `ReasoningMode`, `Effort`, `ReasoningSupport`).
 //!
 //! **Reasoning is opt-in.** The default for every model is thinking **off**

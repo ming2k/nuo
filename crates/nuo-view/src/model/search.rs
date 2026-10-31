@@ -682,7 +682,7 @@ fn facet_rev(facet: &Facet) -> u64 {
 mod tests {
     use super::*;
     use crate::model::document::NoticeSeverity;
-    use nuo_wire::Role;
+    use nuo_protocol::Role;
 
     fn prose(text: &str) -> TranscriptMessage {
         TranscriptMessage::new(Role::Assistant, text)
@@ -932,7 +932,7 @@ mod tests {
         assert!(step.finish_tool_step(
             "call",
             "total 0\nimportant.log\n",
-            nuo_wire::ToolOutput::Text("total 0\nimportant.log\n".into()),
+            nuo_protocol::ToolOutput::Text("total 0\nimportant.log\n".into()),
             0,
         ));
         let messages = vec![step];
@@ -955,7 +955,7 @@ mod tests {
         assert!(step.finish_tool_step(
             "call",
             "boom",
-            nuo_wire::ToolOutput::Error {
+            nuo_protocol::ToolOutput::Error {
                 message: "boom".into(),
                 detail: None,
             },

@@ -8,7 +8,7 @@
 //! deliberately binary — no active round, or an active round identified by a
 //! generation; display-level nuance ("running" vs. "pursue" vs.
 //! awaiting-permission) lives outside it, in
-//! [`nuo_wire::LoopStatus`] and the parked-request tables.
+//! [`nuo_protocol::LoopStatus`] and the parked-request tables.
 //!
 //! The two stop paths differ on purpose:
 //!
@@ -85,7 +85,7 @@ pub struct RoundBegin {
 /// normally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParkedInterrupt {
-    pub reason: nuo_wire::RoundInterruptReason,
+    pub reason: nuo_protocol::RoundInterruptReason,
     /// Unix-epoch milliseconds at stop-request time.
     pub at_ms: u64,
 }
@@ -185,7 +185,7 @@ impl RoundLifecycle {
     /// drifting to tail time, where it lands after the superseding message.
     /// Last writer wins: a supersede that follows a plain interrupt re-labels
     /// the same unwind.
-    pub fn record_interrupt(&self, reason: nuo_wire::RoundInterruptReason) {
+    pub fn record_interrupt(&self, reason: nuo_protocol::RoundInterruptReason) {
         self.interrupted
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let parked = ParkedInterrupt {
@@ -204,7 +204,11 @@ impl RoundLifecycle {
     /// is the newer message's send time, so the marker re-projects before
     /// that message on resume (the seam rule, `transcript.rs`). `sent_at_ms`
     /// of `None` (a message with no captured send time) falls back to now.
-    pub fn record_interrupt_at(&self, reason: nuo_wire::RoundInterruptReason, at_ms: Option<u64>) {
+    pub fn record_interrupt_at(
+        &self,
+        reason: nuo_protocol::RoundInterruptReason,
+        at_ms: Option<u64>,
+    ) {
         self.interrupted
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let parked = ParkedInterrupt {
@@ -309,14 +313,14 @@ mod tests {
         // the clear in `begin`, that reason leaks into the next round's tail
         // and mislabels a successful round as "interrupted · Esc Esc".
         let lifecycle = RoundLifecycle::new();
-        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
+        lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
         assert_eq!(
             lifecycle.take_interrupt().map(|parked| parked.reason),
-            Some(nuo_wire::RoundInterruptReason::User)
+            Some(nuo_protocol::RoundInterruptReason::User)
         );
 
         // Park again while idle; the next begin must discard it.
-        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::Superseded);
+        lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::Superseded);
         lifecycle.begin().await;
         assert_eq!(
             lifecycle.take_interrupt(),
@@ -332,15 +336,15 @@ mod tests {
         // round is admitted, and the replacement path parks after begin.
         let lifecycle = RoundLifecycle::new();
         let first = lifecycle.begin().await;
-        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
+        lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
         first.token.cancel();
         // The tail of the cancelled round reads it back...
         assert_eq!(
             lifecycle.take_interrupt().map(|parked| parked.reason),
-            Some(nuo_wire::RoundInterruptReason::User)
+            Some(nuo_protocol::RoundInterruptReason::User)
         );
         // ...and a stray late park while idle is again cleared by begin.
-        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
+        lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
         let second = lifecycle.begin().await;
         assert_eq!(
             lifecycle.take_interrupt(),
@@ -356,16 +360,19 @@ mod tests {
         // stamped when the unwinding round's cleanup finally runs can land
         // after the superseding message and misplace the marker on resume.
         let lifecycle = RoundLifecycle::new();
-        lifecycle.record_interrupt_at(nuo_wire::RoundInterruptReason::Superseded, Some(1_000));
+        lifecycle.record_interrupt_at(nuo_protocol::RoundInterruptReason::Superseded, Some(1_000));
         let parked = lifecycle
             .take_interrupt()
             .expect("park survives until taken");
-        assert_eq!(parked.reason, nuo_wire::RoundInterruptReason::Superseded);
+        assert_eq!(
+            parked.reason,
+            nuo_protocol::RoundInterruptReason::Superseded
+        );
         assert_eq!(parked.at_ms, 1_000);
 
         // A park without an explicit instant falls back to the wall clock,
         // which is still the stop-request moment — never tail time.
-        lifecycle.record_interrupt(nuo_wire::RoundInterruptReason::User);
+        lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
         let parked = lifecycle.take_interrupt().expect("fallback park exists");
         assert!(parked.at_ms > 0, "wall-clock fallback is populated");
     }

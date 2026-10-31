@@ -1,7 +1,7 @@
 //! Session-level AI title: domain vocabulary for the titling subagent.
 //!
 //! Follows the bounded-subagent split of the retired `session_review` (ADR-0016):
-//! domain types and pure helpers live here in `nuo-wire`, while the
+//! domain types and pure helpers live here in `nuo-protocol`, while the
 //! LLM-backed subagent that drives the `TITLE` profile lives in
 //! `nuo-harness` (`orchestration::session_title`). There is no trait here because a
 //! title is a single concept rather than a set of extensible dimensions — the
@@ -23,9 +23,9 @@
 pub const TITLE_MAX_LEN: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SessionTitle;
+pub struct ThreadTitle;
 
-impl SessionTitle {
+impl ThreadTitle {
     /// Maximum character length of a generated title.
     pub const MAX_LEN: usize = TITLE_MAX_LEN;
 

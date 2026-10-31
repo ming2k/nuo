@@ -385,6 +385,11 @@ fn compose_frame(
                 tasks_bar: render::TasksBarProps {
                     tasks: &app.background_tasks,
                 },
+                // The armed interrupt repeats the *resolved* chord, so remapping
+                // `CancelOrBack` moves the keycap rather than leaving a stale one.
+                interrupt_key: app
+                    .key_overrides
+                    .effective_binding(crate::shell::keymap::CommandId::CancelOrBack),
                 subagent_bar,
                 page_hints: Some(page_hints),
                 tab_bar: Some(render::TabBarProps {
@@ -660,7 +665,7 @@ fn compose_frame(
                     toggle_mode_key: app
                         .surface_overrides
                         .effective_binding(crate::shell::keymap::SurfaceVerb::ToggleSendMode),
-                    entry_focused: app.focused_target.is_some(),
+                    focused_entry: app.focused_entry_kind(),
                 }
             };
             let history_ghost: Option<String> =
@@ -1033,7 +1038,7 @@ fn compose_frame(
                 )),
                 SheetKind::OAuthPending => {
                     let title: &'static str = match &app.custom_auth {
-                        nuo_wire::ConnectionAuth::Negotiated { provider } => {
+                        nuo_protocol::ConnectionAuth::Negotiated { provider } => {
                             match provider.as_ref() {
                                 "chatgpt" => "ChatGPT Subscription",
                                 "copilot" => "Copilot",
@@ -1043,7 +1048,7 @@ fn compose_frame(
                                 _ => "Subscription",
                             }
                         }
-                        nuo_wire::ConnectionAuth::Static => "OAuth",
+                        nuo_protocol::ConnectionAuth::Static => "OAuth",
                     };
                     Some(render::draw_oauth_pending(
                         title,
@@ -1069,12 +1074,12 @@ fn compose_frame(
                     };
                     let protocol_display = app
                         .custom_protocol_wire
-                        .parse::<nuo_wire::WireProtocol>()
+                        .parse::<nuo_protocol::WireProtocol>()
                         .map(|p| p.display_name())
                         .unwrap_or(&app.custom_protocol_wire);
                     let budget_display = match &app.custom_budget {
-                        nuo_wire::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
-                        nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
+                        nuo_protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
+                        nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
                             format!("Local ({}, {})", limit.format_usd(), period.label())
                         }
                     };

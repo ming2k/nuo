@@ -7,12 +7,12 @@
 //! `Arc<dyn Provider>`. The chat dispatch in `nuo-server` checks
 //! [`NoProvider::ID`] up-front and refuses the send with a user-facing
 //! notification, so a [`NoProvider`] should never actually be invoked — its
-//! [`nuo_wire::Provider`] impl is a defensive backstop that
+//! [`nuo_protocol::Provider`] impl is a defensive backstop that
 //! returns a clear error if it ever is.
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use nuo_wire::{ModelRequest, Provider, ProviderCompletion};
+use nuo_protocol::{ModelRequest, Provider, ProviderCompletion};
 
 /// The provider id reported by [`NoProvider`]. Callers that need to gate on
 /// "is there a real provider installed?" compare against this constant (or
@@ -45,10 +45,10 @@ impl Provider for NoProvider {
     async fn chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<ProviderCompletion, nuo_wire::ProviderError> {
-        Err(nuo_wire::ProviderError::new(
+    ) -> Result<ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
             "none",
-            nuo_wire::ProviderErrorKind::Unavailable,
+            nuo_protocol::ProviderErrorKind::Unavailable,
             no_provider_message(),
         ))
     }
@@ -56,11 +56,13 @@ impl Provider for NoProvider {
     async fn stream_chat(
         &self,
         _request: ModelRequest,
-    ) -> Result<BoxStream<'static, Result<String, nuo_wire::ProviderError>>, nuo_wire::ProviderError>
-    {
-        Err(nuo_wire::ProviderError::new(
+    ) -> Result<
+        BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
+        Err(nuo_protocol::ProviderError::new(
             "none",
-            nuo_wire::ProviderErrorKind::Unavailable,
+            nuo_protocol::ProviderErrorKind::Unavailable,
             no_provider_message(),
         ))
     }
@@ -98,15 +100,15 @@ mod tests {
             async fn chat(
                 &self,
                 _request: ModelRequest,
-            ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+            ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
                 unreachable!()
             }
             async fn stream_chat(
                 &self,
                 _request: ModelRequest,
             ) -> Result<
-                BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-                nuo_wire::ProviderError,
+                BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+                nuo_protocol::ProviderError,
             > {
                 unreachable!()
             }

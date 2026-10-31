@@ -13,7 +13,7 @@
 //! - `INV-FACT-03`: view, checkpoint, and cursor commit atomically under a
 //!   compare-and-swap on the branch revision.
 //! - `INV-FACT-01`: this module is the only writer of the canonical fact tables.
-use nuo_wire::context_lifecycle::{
+use nuo_protocol::context_lifecycle::{
     ArtifactId, Checkpoint, ContextView, FactId, FactNode, SourceAuthority,
 };
 use rusqlite::{Connection, OptionalExtension, params};
@@ -624,8 +624,8 @@ fn authority_from_str(value: &str) -> SourceAuthority {
     }
 }
 
-fn sensitivity_str(sensitivity: nuo_wire::context_lifecycle::Sensitivity) -> &'static str {
-    use nuo_wire::context_lifecycle::Sensitivity;
+fn sensitivity_str(sensitivity: nuo_protocol::context_lifecycle::Sensitivity) -> &'static str {
+    use nuo_protocol::context_lifecycle::Sensitivity;
     match sensitivity {
         Sensitivity::Public => "public",
         Sensitivity::Internal => "internal",
@@ -633,8 +633,8 @@ fn sensitivity_str(sensitivity: nuo_wire::context_lifecycle::Sensitivity) -> &'s
     }
 }
 
-fn sensitivity_from_str(value: &str) -> nuo_wire::context_lifecycle::Sensitivity {
-    use nuo_wire::context_lifecycle::Sensitivity;
+fn sensitivity_from_str(value: &str) -> nuo_protocol::context_lifecycle::Sensitivity {
+    use nuo_protocol::context_lifecycle::Sensitivity;
     match value {
         "public" => Sensitivity::Public,
         "secret" => Sensitivity::Secret,
@@ -646,7 +646,7 @@ fn sensitivity_from_str(value: &str) -> nuo_wire::context_lifecycle::Sensitivity
 mod tests {
     use super::*;
     use crate::db::initialize_in_memory_db;
-    use nuo_wire::context_lifecycle::{
+    use nuo_protocol::context_lifecycle::{
         FactPayload, Representation, RepresentationEntry, RoundId, Sensitivity, TurnId, Validity,
         ViewId,
     };

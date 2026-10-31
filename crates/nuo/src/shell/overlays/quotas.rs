@@ -4,7 +4,7 @@
 //! - L1: Compact summary `name provider [92%/5h 99%/week]`
 //! - L2: Expanded detail with progress bars (Enter to toggle)
 
-use nuo_wire::{
+use nuo_protocol::{
     ConnectionQuotaEntry, ConnectionUsageState, ProviderQuotaData, ProviderQuotaSnapshot,
     QuotaWindowKind,
 };
@@ -329,7 +329,7 @@ fn quota_bar(used_fraction: f32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::{
+    use nuo_protocol::{
         ConnectionQuotaEntry, ConnectionUsageState, PeriodicQuota, ProviderQuotaData,
         QuotaWindowBucket,
     };
@@ -358,7 +358,7 @@ mod tests {
             primary_balance: Some("85%".into()),
             quota: None,
             plan: None,
-            state: ConnectionUsageState::Available(Box::new(nuo_wire::ProviderUsage {
+            state: ConnectionUsageState::Available(Box::new(nuo_protocol::ProviderUsage {
                 primary_balance: Some("85%".into()),
                 ..Default::default()
             })),

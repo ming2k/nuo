@@ -1,6 +1,6 @@
-//! Interactive Session Tree (DAG) visualization and navigation overlay.
+//! Interactive Thread Tree (DAG) visualization and navigation overlay.
 
-use nuo_wire::{SessionEntry, SessionEntryKind, SessionTree};
+use nuo_protocol::{ThreadEntry, ThreadEntryKind, ThreadTree};
 use nuotc::{
     Frame, Rect, Style, {Line, Span},
 };
@@ -29,8 +29,8 @@ pub struct TreeDisplayRow {
     pub kind_badge: &'static str,
 }
 
-/// Flatten a SessionTree into display rows in depth-first hierarchical order.
-pub fn flatten_tree(tree: &SessionTree) -> Vec<TreeDisplayRow> {
+/// Flatten a ThreadTree into display rows in depth-first hierarchical order.
+pub fn flatten_tree(tree: &ThreadTree) -> Vec<TreeDisplayRow> {
     if tree.entries.is_empty() {
         return Vec::new();
     }
@@ -39,7 +39,7 @@ pub fn flatten_tree(tree: &SessionTree) -> Vec<TreeDisplayRow> {
     let mut rows = Vec::new();
 
     // Find root nodes (entries with no parent)
-    let mut roots: Vec<&SessionEntry> = tree
+    let mut roots: Vec<&ThreadEntry> = tree
         .entries
         .values()
         .filter(|e| e.parent_id.is_none())
@@ -54,25 +54,25 @@ pub fn flatten_tree(tree: &SessionTree) -> Vec<TreeDisplayRow> {
 }
 
 fn traverse_node(
-    tree: &SessionTree,
-    node: &SessionEntry,
+    tree: &ThreadTree,
+    node: &ThreadEntry,
     depth: usize,
     is_last: bool,
     active_id: &str,
     rows: &mut Vec<TreeDisplayRow>,
 ) {
     let (kind_badge, label, detail) = match &node.kind {
-        SessionEntryKind::Message { message } => {
+        ThreadEntryKind::Message { message } => {
             let badge = match message.role {
-                nuo_wire::Role::User => "USER",
-                nuo_wire::Role::Assistant => "ASST",
-                nuo_wire::Role::Tool => "TOOL",
-                nuo_wire::Role::System => "SYS",
+                nuo_protocol::Role::User => "USER",
+                nuo_protocol::Role::Assistant => "ASST",
+                nuo_protocol::Role::Tool => "TOOL",
+                nuo_protocol::Role::System => "SYS",
             };
             let preview = message.content.lines().next().unwrap_or("").to_string();
             (badge, preview, format!("{} chars", message.content.len()))
         }
-        SessionEntryKind::Compaction {
+        ThreadEntryKind::Compaction {
             summary,
             tokens_before,
             ..
@@ -81,14 +81,14 @@ fn traverse_node(
             summary.lines().next().unwrap_or("Compaction").to_string(),
             format!("Tokens before: {}", tokens_before),
         ),
-        SessionEntryKind::BranchSummary {
+        ThreadEntryKind::BranchSummary {
             summary, from_id, ..
         } => (
             "BRANCH_SUM",
             format!("From {}", &from_id[..6.min(from_id.len())]),
             summary.lines().next().unwrap_or("").to_string(),
         ),
-        SessionEntryKind::Custom {
+        ThreadEntryKind::Custom {
             custom_type,
             content,
             ..
@@ -118,7 +118,7 @@ fn traverse_node(
 /// Draw the interactive session DAG tree modal.
 pub fn draw_tree_modal(
     frame: &mut Frame,
-    tree: &SessionTree,
+    tree: &ThreadTree,
     modal_index: usize,
     scroll: &mut usize,
     follow_selection: bool,

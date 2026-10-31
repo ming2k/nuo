@@ -13,9 +13,9 @@ use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 
-use nuo_wire::{
+use nuo_protocol::{
     AgentRequest, ConnectionAuth, ImagePart, LoopStatus, PermissionRequest, ProviderPickerSnapshot,
-    SessionOverview, UserQuestionRequest,
+    UserQuestionRequest,
 };
 
 use crate::shell::chrome::tasks_bar::BackgroundTaskItem;
@@ -87,7 +87,7 @@ pub struct QueuedDispatch {
 /// The attachments staged behind a recorded history entry, retained **in
 /// memory** so ↑/↓ and Ctrl+R recall can restore a just-sent / interrupted
 /// message's images and large pastes. Keyed by the same `(text, session_id)`
-/// identity [`nuo_wire::merge_history`] uses, so a recall finds the
+/// identity [`nuo_protocol::merge_history`] uses, so a recall finds the
 /// payloads that shipped with the exact prompt text.
 ///
 /// Deliberately **not** persisted: input history in SQLite is rebuildable cosmetic
@@ -218,7 +218,7 @@ pub struct SessionChrome {
     /// Latest completed principal ReAct turn's performance sample. Kept
     /// session-scoped so two views never borrow each other's hint-bar
     /// measurement.
-    pub last_turn_performance: Option<nuo_wire::TurnPerformanceSnapshot>,
+    pub last_turn_performance: Option<nuo_protocol::TurnPerformanceSnapshot>,
     /// The transport setback this session's in-flight model request reported
     /// (`RetryScheduled`): a retry countdown rendered as a clause beside the
     /// activity label, never as the label itself (see `nuo_view::phase` rule 2).
@@ -317,20 +317,20 @@ pub struct App {
     /// in-process harness shares this ledger); `None` in attach mode, where
     /// the accounting lives server-side and the modal renders the on-demand
     /// [`Self::token_report`] snapshot instead.
-    pub token_ledger: Option<Arc<nuo_wire::TokenSourceLedger>>,
+    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
     /// Token-source report fetched on demand from the harness for the viewed
     /// session. Populated by a `QueryTokenUsage` round-trip when the
     /// Telemetry modal opens in attach mode (`token_ledger` is `None`);
     /// `None` while the round-trip is in flight (the modal renders a loading
     /// placeholder). Cleared when the viewed session switches.
-    pub token_report: Option<nuo_wire::TokenSourceReport>,
+    pub token_report: Option<nuo_protocol::TokenSourceReport>,
     /// Latest session-scoped AI context snapshot from the harness. This is a
     /// provider usage/projection value, never a persisted transcript estimate.
-    pub context_tokens: Option<nuo_wire::ContextTokenSnapshot>,
+    pub context_tokens: Option<nuo_protocol::ContextTokenSnapshot>,
     /// Per-session context snapshots (M1): the applier keys them by
     /// session; the render loop projects the *viewed* session's value into
     /// `context_tokens` each frame.
-    pub context_tokens_by_session: HashMap<String, nuo_wire::ContextTokenSnapshot>,
+    pub context_tokens_by_session: HashMap<String, nuo_protocol::ContextTokenSnapshot>,
     /// The **live primary session id** (M1): the harness repoints
     /// its shared store on `/new`, `/session open`, `/resume`, and `/fork`;
     /// the translator reports each repoint here and session-scoped client
@@ -341,14 +341,14 @@ pub struct App {
     /// remain the *mounted front* projections the sheets render.
     pub pending_permissions: std::collections::VecDeque<PermissionRequest>,
     pub pending_questions: std::collections::VecDeque<UserQuestionRequest>,
-    pub pending_inputs: std::collections::VecDeque<nuo_wire::InputRequest>,
+    pub pending_inputs: std::collections::VecDeque<nuo_protocol::InputRequest>,
     /// Full-duplex (ADR-0029): which subagent (by parent tool-call id)
     /// surfaced a given permission / ask_user request, so the modal's reply
     /// can be tagged for down-routing.
     pub subagent_permission_parent: HashMap<String, String>,
     pub subagent_question_parent: HashMap<String, String>,
     /// The latest harness workspace-security snapshot (trust-gate state).
-    pub workspace_security: nuo_wire::WorkspaceSecuritySnapshot,
+    pub workspace_security: nuo_protocol::WorkspaceSecuritySnapshot,
     /// One-shot backend navigation signals (M1): the applier latches
     /// them; the loop consumes and clears when it mounts the surface.
     pub open_sessions_signal: bool,
@@ -367,15 +367,15 @@ pub struct App {
     /// Cross-session usage-statistics report (ADR-0129 [INV-USAGE-01]).
     /// Session-independent: it aggregates the durable store under `data/usage/`,
     /// which survives session cleanup.
-    pub usage_stats: Option<nuo_wire::usage_stats::UsageStatsReport>,
+    pub usage_stats: Option<nuo_protocol::usage_stats::UsageStatsReport>,
     /// Whether an on-demand usage report fetch is currently in flight.
     pub usage_loading: bool,
     /// Scroll offset for the model usage statistics report view.
     pub usage_scroll: usize,
     /// Provider quota pool snapshot (`QueryProviderQuotas`, ADR-0036).
-    pub provider_quotas: Option<nuo_wire::ProviderQuotaSnapshot>,
+    pub provider_quotas: Option<nuo_protocol::ProviderQuotaSnapshot>,
     /// Cached connection usage states for ambient indicators.
-    pub connection_usages: std::collections::HashMap<String, nuo_wire::ConnectionUsageState>,
+    pub connection_usages: std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
     /// The body (scrollable content) height of the currently-open overlay
     /// modal, captured each render from the rect the modal renderer paints
     /// its body into. This is the per-modal equivalent of `view_height` (which
@@ -426,9 +426,9 @@ pub struct App {
     /// **not** latch — Tab is meant to keep cycling path candidates.
     pub completion_dismissed: bool,
     /// Backend-owned slash-command vocabulary published by the server.
-    pub command_catalog: nuo_wire::CommandCatalog,
+    pub command_catalog: nuo_protocol::CommandCatalog,
     /// Latest race-checked completion rows returned by the server.
-    pub backend_completions: Vec<nuo_wire::InputCompletion>,
+    pub backend_completions: Vec<nuo_protocol::InputCompletion>,
     pub completion_response_input: Option<String>,
     pub completion_response_cursor: usize,
     pub completion_requested: Option<(String, usize)>,
@@ -481,17 +481,17 @@ pub struct App {
     /// the event loop to quiesce background animation redraws while active
     /// composition / typing is in progress.
     pub last_key_press: std::time::Instant,
-    /// Session DAG tree representation for `/tree` visualization.
-    pub session_tree: nuo_wire::SessionTree,
-    /// Full detail for the session under the info sub-view cursor. Populated by
-    /// an on-demand `QuerySessionDetail` round-trip when the sub-view opens
+    /// Thread DAG tree representation for `/tree` visualization.
+    pub session_tree: nuo_protocol::ThreadTree,
+    /// Full detail for the thread under the info sub-view cursor. Populated by
+    /// an on-demand `QueryThreadDetail` round-trip when the sub-view opens
     /// (`i`) and refreshed whenever the selection moves while in the sub-view.
     /// `None` while the round-trip is in flight.
-    pub session_detail: Option<nuo_wire::SessionDetail>,
+    pub session_detail: Option<nuo_protocol::ThreadDetail>,
     /// Full detail and usage for the connection under the detail sub-view. Populated by
     /// an on-demand `QueryConnectionDetail` round-trip when the sub-view opens (Enter).
     /// `None` while the round-trip is in flight.
-    pub connection_detail: Option<nuo_wire::ConnectionDetail>,
+    pub connection_detail: Option<nuo_protocol::ConnectionDetail>,
     /// Body scroll offset of the config category list.
     pub config_scroll: usize,
     /// Which pane of the `/config` Settings View currently owns the keyboard.
@@ -510,7 +510,7 @@ pub struct App {
     /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
     /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
     /// on every `WebSearchConfigUpdated` ack.
-    pub websearch_config: Option<nuo_wire::WebSearchConfigView>,
+    pub websearch_config: Option<nuo_protocol::WebSearchConfigView>,
     /// Floating dropdown state and anchor for settings popup selectors (e.g.
     /// Web Search provider and Web Fetch reader selectors).
     pub config_dropdown: Option<(
@@ -539,7 +539,7 @@ pub struct App {
     /// Latest session-context snapshot for the Tools / Mcp / Skills /
     /// Permissions managers, or `None` before the first `QuerySessionContext`
     /// round-trip completes. Refreshed each frame from the response listener.
-    pub session_context: Option<nuo_wire::SessionContextSnapshot>,
+    pub session_context: Option<nuo_protocol::ThreadContextSnapshot>,
     pub loop_status: LoopStatus,
     /// Whether the primary session has a stopped round parked for `/retry`
     /// Mirrored from the session-scoped harness snapshot — the
@@ -560,7 +560,7 @@ pub struct App {
     /// Durability-health banner state (D4): the server's
     /// persistence-writer degradation, folded from the monitor stream.
     /// `None` / `Healthy` renders no banner.
-    pub persistence_health: Option<nuo_wire::monitor::PersistenceHealth>,
+    pub persistence_health: Option<nuo_protocol::monitor::PersistenceHealth>,
     /// Whether all tool permissions are auto-approved this session
     /// (`--unattended` / `/unattended on`). Mirrored from the harness snapshot.
     pub unattended: bool,
@@ -593,7 +593,7 @@ pub struct App {
     /// The pending interactive-input request (L3.5 β) from an interactive
     /// `bash` command, or `None`. Set when a `RoundEvent::InputRequest` arrives;
     /// the input-injection modal reads it for its prompt/command/secret.
-    pub pending_input: Option<nuo_wire::InputRequest>,
+    pub pending_input: Option<nuo_protocol::InputRequest>,
     /// The open question (ask_user) modal's self-contained MVU state, or
     /// `None` when no question modal is open. Replaces the four separate
     /// `question_*` fields that previously scattered the modal's state across
@@ -610,21 +610,21 @@ pub struct App {
     /// option list freely, and re-set the moment they navigate again. Mirrors
     /// `session_modal_follow` / `history_modal_follow`.
     pub question_modal_follow: bool,
-    /// Rows shown in the sessions picker (`/sessions` or `nuo attach`).
-    pub sessions_overview: Vec<SessionOverview>,
-    /// When switching sessions, holds the short id of the target session being loaded.
+    /// Rows shown in the threads picker (`/threads` or `nuo attach`).
+    pub sessions_overview: Vec<nuo_protocol::ThreadOverview>,
+    /// When switching threads, holds the short id of the target thread being loaded.
     pub switching_session: Option<String>,
-    /// Server-attested readiness of the attached session (ADR-0133
+    /// Server-attested readiness of the attached thread (ADR-0133
     /// `[INV-ATTACH-04]`). Input is gated on `Ready`; `Failed` is a recoverable
     /// disclosure, never a reason to exit.
-    pub session_phase: nuo_wire::SessionPhase,
-    /// Requests the operator submitted before the session reached `Ready`.
+    pub session_phase: nuo_protocol::ThreadPhase,
+    /// Requests the operator submitted before the thread reached `Ready`.
     /// Flushed in order on the `Ready` transition; the server also buffers
     /// defensively, but the client-side queue keeps the UI honest.
-    pub pending_prompts: Vec<nuo_wire::AgentRequest>,
+    pub pending_prompts: Vec<nuo_protocol::AgentRequest>,
     /// Live monitor snapshot for the thread fleet orchestrator dashboard
     /// mirrored from `UiRuntime::host_sessions` each frame.
-    pub host_sessions: Vec<nuo_wire::MonitoredSession>,
+    pub host_sessions: Vec<nuo_protocol::MonitoredThread>,
     /// Live search filter substring for the dashboard thread fleet table.
     pub dashboard_filter: String,
     /// Whether the `/` inline filter search input is open on the dashboard.
@@ -704,7 +704,7 @@ pub struct App {
     pub permission_show_details: bool,
     pub permission_scroll: usize,
     pub permission_max_scroll: usize,
-    pub input_history: Vec<nuo_wire::HistoryEntry>,
+    pub input_history: Vec<nuo_protocol::HistoryEntry>,
     /// **Derived** prompt rows for the viewed session, reconstructed from the
     /// transcript (see [`Self::backfill_session_history`]). Never persisted:
     /// the session file is the durable source of truth for thread
@@ -714,7 +714,7 @@ pub struct App {
     /// [`Self::current_session_history`] — see [`Self::history_entry`].
     /// Ordered oldest-first (transcript append order) so growth never shifts
     /// existing indices.
-    pub session_history_backfill: Vec<nuo_wire::HistoryEntry>,
+    pub session_history_backfill: Vec<nuo_protocol::HistoryEntry>,
     /// How many transcript messages [`Self::backfill_session_history`] has
     /// already consumed for the current session, so a long streaming session
     /// rescans only its tail. Reset to `0` on every viewed-session change.
@@ -985,7 +985,7 @@ pub struct App {
     /// selector.
     pub custom_protocol_wire: String,
     /// Connection budget policy configured in create/edit modal (ADR-0065).
-    pub custom_budget: nuo_wire::ConnectionBudget,
+    pub custom_budget: nuo_protocol::ConnectionBudget,
     /// Models seeded by the active template (create mode). Submitted as the
     /// provider's model list unless the editor exposes a free-text Model field
     /// (then the single typed model is submitted instead). Empty in edit mode.
@@ -995,7 +995,7 @@ pub struct App {
     /// Template-specific user agent carried into newly-created channels.
     pub custom_user_agent: Option<String>,
     /// How newly-created connections authenticate (from the selected template).
-    pub custom_auth: nuo_wire::ConnectionAuth,
+    pub custom_auth: nuo_protocol::ConnectionAuth,
     /// The **model provider id** the active create flow was seeded from, or
     /// `None` in edit mode / when no template is active. Sent as
     /// `AddConnection::provider` (the wire field): it is the
@@ -1064,6 +1064,17 @@ pub struct App {
     /// swallowed send. It does not clear: with the driver gone nothing can
     /// acknowledge recovery, and pretending otherwise would be a lie.
     pub link_down: bool,
+    /// The link died and the attach loop should re-dial (ADR-0136).
+    ///
+    /// Distinct from [`Self::link_down`], which is a *rendered* state that
+    /// latches. This one is a *request*: the event loop ends the current
+    /// attachment, the runner re-checks the server and attaches again, and the
+    /// transcript/tabs survive because they live on `TuiOutcome`.
+    ///
+    /// Without it, `link_down` was a dead end — the chrome said "server link
+    /// lost" and stayed that way, because the only thing that could reconnect
+    /// was an operator restarting the client by hand.
+    pub relink_requested: bool,
     /// Background tasks tracking for the TasksBar.
     pub background_tasks: Vec<BackgroundTaskItem>,
 }

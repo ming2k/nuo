@@ -72,7 +72,7 @@ impl App {
     pub fn begin_oauth_add(
         &mut self,
         template: &ConnectionTemplate,
-        method: nuo_wire::LoginMethod,
+        method: nuo_protocol::LoginMethod,
     ) {
         self.seed_custom_provider_from_template(template);
         self.awaiting_oauth_add = true;
@@ -82,8 +82,8 @@ impl App {
         // overwrites this with the live URL/code as soon as the device-code
         // request returns.
         self.oauth_pending_message = match method {
-            nuo_wire::LoginMethod::Device => "Requesting device code…".to_string(),
-            nuo_wire::LoginMethod::Browser => {
+            nuo_protocol::LoginMethod::Device => "Requesting device code…".to_string(),
+            nuo_protocol::LoginMethod::Browser => {
                 "Complete authorization in your browser (or open the link below).".to_string()
             }
         };
@@ -140,14 +140,14 @@ impl App {
         self.custom_field = 0;
         self.custom_edit_id = None;
         let default_name = match &self.custom_auth {
-            nuo_wire::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
+            nuo_protocol::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
                 "chatgpt" => "ChatGPT Subscription",
                 "copilot" => "Copilot",
                 "google-antigravity" => "Google Antigravity",
                 "qoder" => "Qoder",
                 _ => "xAI",
             },
-            nuo_wire::ConnectionAuth::Static => "Custom",
+            nuo_protocol::ConnectionAuth::Static => "Custom",
         };
         self.custom_name = default_name.to_string();
         self.input = default_name.to_string();
@@ -169,7 +169,7 @@ impl App {
             .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending)
         {
-            self.send_intent(nuo_wire::AgentRequest::CancelAuthorizeOAuth);
+            self.send_intent(nuo_protocol::AgentRequest::CancelAuthorizeOAuth);
             self.awaiting_oauth_add = false;
             self.oauth_pending_url.clear();
             self.oauth_pending_user_code.clear();
@@ -242,7 +242,7 @@ impl App {
     }
 
     /// Auth mode of a provider picker row (for OAuth re-connect routing).
-    pub fn provider_row_auth(&self, id: &str) -> nuo_wire::ConnectionAuth {
+    pub fn provider_row_auth(&self, id: &str) -> nuo_protocol::ConnectionAuth {
         self.provider_picker
             .rows
             .iter()
@@ -271,7 +271,7 @@ impl App {
         base_url: String,
         auth: ConnectionAuth,
         curated: bool,
-        budget: nuo_wire::ConnectionBudget,
+        budget: nuo_protocol::ConnectionBudget,
     ) {
         self.surfaces
             .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
@@ -325,16 +325,16 @@ impl App {
     pub fn cycle_custom_choice(&mut self, forward: bool) {
         match self.current_custom_field() {
             Some(CustomField::Protocol) => {
-                const PROTOCOLS: &[nuo_wire::WireProtocol] = &[
-                    nuo_wire::WireProtocol::OpenAiChatCompletions,
-                    nuo_wire::WireProtocol::OpenAiResponses,
-                    nuo_wire::WireProtocol::AnthropicMessages,
-                    nuo_wire::WireProtocol::GoogleGenerateContent,
-                    nuo_wire::WireProtocol::GoogleInteractions,
+                const PROTOCOLS: &[nuo_protocol::WireProtocol] = &[
+                    nuo_protocol::WireProtocol::OpenAiChatCompletions,
+                    nuo_protocol::WireProtocol::OpenAiResponses,
+                    nuo_protocol::WireProtocol::AnthropicMessages,
+                    nuo_protocol::WireProtocol::GoogleGenerateContent,
+                    nuo_protocol::WireProtocol::GoogleInteractions,
                 ];
                 let current = self
                     .custom_protocol_wire
-                    .parse::<nuo_wire::WireProtocol>()
+                    .parse::<nuo_protocol::WireProtocol>()
                     .unwrap_or_default();
                 let index = PROTOCOLS
                     .iter()
@@ -349,10 +349,10 @@ impl App {
             }
             Some(CustomField::Budget) => {
                 let options = [
-                    nuo_wire::ConnectionBudget::Remote,
-                    nuo_wire::ConnectionBudget::local(1.0, nuo_wire::BudgetPeriod::Session),
-                    nuo_wire::ConnectionBudget::local(5.0, nuo_wire::BudgetPeriod::Daily),
-                    nuo_wire::ConnectionBudget::local(20.0, nuo_wire::BudgetPeriod::Total),
+                    nuo_protocol::ConnectionBudget::Remote,
+                    nuo_protocol::ConnectionBudget::local(1.0, nuo_protocol::BudgetPeriod::Session),
+                    nuo_protocol::ConnectionBudget::local(5.0, nuo_protocol::BudgetPeriod::Daily),
+                    nuo_protocol::ConnectionBudget::local(20.0, nuo_protocol::BudgetPeriod::Total),
                 ];
                 let index = options
                     .iter()
@@ -441,7 +441,7 @@ impl App {
 
     /// Return the authoritative model info for the currently active route
     /// (current_provider, current_model) as projected by the server.
-    pub fn active_model_info(&self) -> Option<&nuo_wire::ProviderModelInfo> {
+    pub fn active_model_info(&self) -> Option<&nuo_protocol::ProviderModelInfo> {
         self.provider_picker
             .rows
             .iter()
@@ -464,7 +464,7 @@ impl App {
         if let Some(info) = self.active_model_info() {
             return info.context_window;
         }
-        nuo_wire::model::resolve(&self.current_model).context_window
+        nuo_protocol::model::resolve(&self.current_model).context_window
     }
 
     /// Whether images would travel to the active route.

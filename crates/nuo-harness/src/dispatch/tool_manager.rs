@@ -2,7 +2,7 @@
 //!
 //! Tools are classified at runtime into two sources — `builtin` (collected
 //! from the registry + agent-owned instances like todo) and `mcp` (dynamic
-//! tools published through [`nuo_wire::DynamicToolSink`], today only MCP
+//! tools published through [`nuo_protocol::DynamicToolSink`], today only MCP
 //! servers). There is deliberately no third, config-driven source; see
 //! And.
 //!
@@ -23,7 +23,7 @@
 //!
 //! ### What it is *not*
 //!
-//! Not a replacement for [`nuo_wire::ToolSet`] (the capability-pool resolver) or
+//! Not a replacement for [`nuo_protocol::ToolSet`] (the capability-pool resolver) or
 //! [`DynamicToolRegistry`] (the sink). Those remain the storage; this is a
 //! read-side view over them. The storage layers keep their existing
 //! invariants (static > dynamic on name clash; dynamic source-keyed groups;
@@ -31,7 +31,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
 
-use nuo_wire::Tool;
+use nuo_protocol::Tool;
 
 use crate::dynamic_tools::DynamicToolRegistry;
 
@@ -43,7 +43,7 @@ pub enum ToolSource {
     /// Collected from the registry (`collect_toolset`) plus agent-owned
     /// instances (todo, subagent). Resolved per active model/variant.
     Builtin,
-    /// Published through [`nuo_wire::DynamicToolSink`] — today only MCP servers. Named
+    /// Published through [`nuo_protocol::DynamicToolSink`] — today only MCP servers. Named
     /// `mcp__<server>__<tool>` by convention (enforced at the publisher, not
     /// here).
     Mcp,
@@ -216,9 +216,9 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use async_trait::async_trait;
-    use nuo_wire::DynamicToolSink;
-    use nuo_wire::ScopeTarget;
-    use nuo_wire::ToolAccesses;
+    use nuo_protocol::DynamicToolSink;
+    use nuo_protocol::ScopeTarget;
+    use nuo_protocol::ToolAccesses;
 
     /// Minimal tool stub for classification tests.
     struct StubTool {

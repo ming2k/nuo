@@ -23,15 +23,15 @@
 //! and [`Connections::load`] share one schema: there is no separate legacy decode
 //! struct, so a field can never be emitted by the writer yet rejected by the
 //! reader (the failure mode that silently empties the whole store).
-use nuo_wire::model_providers::is_known_model_provider;
-use nuo_wire::{ConnectionAuth, ConnectionBudget};
+use nuo_protocol::model_providers::is_known_model_provider;
+use nuo_protocol::{ConnectionAuth, ConnectionBudget};
 use serde::{Deserialize, Serialize};
 
 use crate::fsutil;
 use crate::model_providers::ModelProviders;
 use crate::paths;
 
-pub use nuo_wire::model::{
+pub use nuo_protocol::model::{
     ConnectionFilterPolicy, DeclaredModel, ModelCapabilityPatch, ModelScopeConfig,
     NamedFilterPolicy,
 };
@@ -90,7 +90,7 @@ pub struct Connection {
     /// Economic entitlement and cost model for this connection (ADR-0095).
     /// FlatRate (subscription/included) vs Metered (pay-as-you-go).
     #[serde(default)]
-    pub entitlement: nuo_wire::Entitlement,
+    pub entitlement: nuo_protocol::Entitlement,
 }
 
 impl Default for Connection {
@@ -105,7 +105,7 @@ impl Default for Connection {
             models: ModelScopeConfig::default(),
             catalog_dimensions: std::collections::BTreeMap::new(),
             budget: ConnectionBudget::default(),
-            entitlement: nuo_wire::Entitlement::Metered,
+            entitlement: nuo_protocol::Entitlement::Metered,
         }
     }
 }
@@ -177,7 +177,7 @@ impl Connections {
                 continue;
             }
             if let Some(canonical) =
-                nuo_wire::model_providers::canonical_provider_id(&connection.provider)
+                nuo_protocol::model_providers::canonical_provider_id(&connection.provider)
             {
                 connection.provider = canonical;
             }
@@ -294,7 +294,7 @@ impl Connections {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::reasoning::ReasoningSupport;
+    use nuo_protocol::reasoning::ReasoningSupport;
 
     fn sandboxed_paths() -> (paths::TestDirsGuard, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();
@@ -384,15 +384,15 @@ mod tests {
                 "scene".to_string(),
                 "assistant".to_string(),
             )]),
-            budget: nuo_wire::ConnectionBudget::local(25.0, nuo_wire::BudgetPeriod::Daily),
-            entitlement: nuo_wire::Entitlement::FlatRate,
+            budget: nuo_protocol::ConnectionBudget::local(25.0, nuo_protocol::BudgetPeriod::Daily),
+            entitlement: nuo_protocol::Entitlement::FlatRate,
         };
         let store = Connections {
             connections: vec![
                 Connection {
                     name: "metered-conn".into(),
                     provider: "deepseek".into(),
-                    entitlement: nuo_wire::Entitlement::Metered,
+                    entitlement: nuo_protocol::Entitlement::Metered,
                     ..Default::default()
                 },
                 populated.clone(),
@@ -524,11 +524,11 @@ period = "session"
         assert!(conn.budget.is_local());
         assert_eq!(
             conn.budget.limit_nano_usd(),
-            Some(nuo_wire::pricing::NanoUsd::from_usd_f64(1.5))
+            Some(nuo_protocol::pricing::NanoUsd::from_usd_f64(1.5))
         );
         assert_eq!(
             conn.budget.period(),
-            Some(nuo_wire::budget::BudgetPeriod::Session)
+            Some(nuo_protocol::budget::BudgetPeriod::Session)
         );
 
         // Serialize back and verify round-trip

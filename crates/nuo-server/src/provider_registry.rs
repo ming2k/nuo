@@ -386,7 +386,7 @@ pub async fn fetch_provider_usage(
     provider: &str,
     base_url: &str,
     api_key: &str,
-) -> nuo_wire::ConnectionUsageState {
+) -> nuo_protocol::ConnectionUsageState {
     fetch_provider_usage_ext(provider, base_url, api_key, None).await
 }
 
@@ -396,19 +396,19 @@ pub async fn fetch_provider_usage_ext(
     base_url: &str,
     api_key: &str,
     project: Option<&str>,
-) -> nuo_wire::ConnectionUsageState {
+) -> nuo_protocol::ConnectionUsageState {
     let Some(spec) = model_provider_spec(provider) else {
-        return nuo_wire::ConnectionUsageState::Unsupported;
+        return nuo_protocol::ConnectionUsageState::Unsupported;
     };
     let Some(port) = spec.quota else {
-        return nuo_wire::ConnectionUsageState::Unsupported;
+        return nuo_protocol::ConnectionUsageState::Unsupported;
     };
     let key = api_key.trim();
     if key.is_empty() {
-        return nuo_wire::ConnectionUsageState::Error("API key is not configured".to_string());
+        return nuo_protocol::ConnectionUsageState::Error("API key is not configured".to_string());
     }
     let Ok(client) = nuo_provider::transport::Http::control_plane() else {
-        return nuo_wire::ConnectionUsageState::Error(
+        return nuo_protocol::ConnectionUsageState::Error(
             "could not build the HTTP client".to_string(),
         );
     };
@@ -421,7 +421,7 @@ pub async fn fetch_provider_usage_with_client(
     port: QuotaPort,
     base_url: &str,
     api_key: &str,
-) -> nuo_wire::ConnectionUsageState {
+) -> nuo_protocol::ConnectionUsageState {
     fetch_provider_usage_with_client_ext(client, port, base_url, api_key, None).await
 }
 
@@ -432,7 +432,7 @@ pub async fn fetch_provider_usage_with_client_ext(
     base_url: &str,
     api_key: &str,
     project: Option<&str>,
-) -> nuo_wire::ConnectionUsageState {
+) -> nuo_protocol::ConnectionUsageState {
     let result = match port {
         QuotaPort::DeepSeekBalance => {
             nuo_provider_deepseek::DeepSeekUsageFetcher
@@ -471,8 +471,8 @@ pub async fn fetch_provider_usage_with_client_ext(
         }
     };
     match result {
-        Ok(usage) => nuo_wire::ConnectionUsageState::Available(Box::new(usage)),
-        Err(err) => nuo_wire::ConnectionUsageState::Error(err),
+        Ok(usage) => nuo_protocol::ConnectionUsageState::Available(Box::new(usage)),
+        Err(err) => nuo_protocol::ConnectionUsageState::Error(err),
     }
 }
 

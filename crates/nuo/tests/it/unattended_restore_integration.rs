@@ -25,11 +25,11 @@ impl UiBridge for HeadlessProbe {
 }
 
 fn params(project_root: std::path::PathBuf, startup: SessionStart) -> BootstrapParams {
-    let identity = nuo_wire::AgentIdentity::new("probe", "unattended probe");
+    let identity = nuo_protocol::AgentIdentity::new("probe", "unattended probe");
     BootstrapParams {
         human_channel: None,
         identity: identity.clone(),
-        preset: nuo_wire::AgentRoleProfile::with_identity("probe", identity),
+        preset: nuo_protocol::AgentRoleProfile::with_identity("probe", identity),
         ui: Arc::new(HeadlessProbe),
         startup,
         project_root: Some(project_root),
@@ -60,8 +60,8 @@ async fn unattended_posture_survives_process_death_and_reopen() {
 
     let store = Arc::new(SessionStore::load_for_project(project.clone()));
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
             "mid-task when the server was killed",
         )])
         .await
@@ -88,8 +88,8 @@ async fn interactive_session_reopens_interactive() {
 
     let store = Arc::new(SessionStore::load_for_project(project.clone()));
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
             "interactive session",
         )])
         .await
@@ -111,8 +111,8 @@ async fn unattended_off_after_on_persists_the_de_escalation() {
 
     let store = Arc::new(SessionStore::load_for_project(project.clone()));
     store
-        .replace_messages(vec![nuo_wire::Message::new(
-            nuo_wire::Role::User,
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
             "toggle history",
         )])
         .await

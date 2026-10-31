@@ -62,7 +62,7 @@ mentions was "completion only fires at the start of the line".
 
 ### 1. The vocabulary is *slash commands* — thread-scoped by name and by rule
 
-The completion/handoff contract in `nuo-tool` (re-exported as `nuo_wire`) is renamed in its
+The completion/handoff contract in `nuo-tool` (re-exported as `nuo_protocol`) is renamed in its
 documentation and its types' doc contracts from "harness command" to **slash command**: a
 `/name` control-plane operation scoped to the current thread (its model, context, tools, and
 session). The name is the boundary: a workspace view is client navigation, is not

@@ -1,13 +1,13 @@
 //! Telemetry data extraction, aggregation models, and rate calculations.
 
-use nuo_wire::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
+use nuo_protocol::{RequestPerformance, RequestUsageStatus, TokenSourceReport};
 use std::collections::BTreeMap;
 
 /// View properties for contextual tokens when displaying context limits.
 #[derive(Debug, Clone, Copy, Default)]
 #[allow(dead_code)]
 pub struct ContextUsageProps {
-    pub snapshot: Option<nuo_wire::ContextTokenSnapshot>,
+    pub snapshot: Option<nuo_protocol::ContextTokenSnapshot>,
     pub window_tokens: Option<usize>,
     pub draft_content_tokens: usize,
     pub draft_tokens: usize,
@@ -35,14 +35,14 @@ pub struct TelemetryAttempt {
 }
 
 impl TelemetryAttempt {
-    pub fn snapshot(&self) -> Option<nuo_wire::TurnPerformanceSnapshot> {
+    pub fn snapshot(&self) -> Option<nuo_protocol::TurnPerformanceSnapshot> {
         let perf = self.performance?;
-        Some(nuo_wire::TurnPerformanceSnapshot {
+        Some(nuo_protocol::TurnPerformanceSnapshot {
             round: self.round,
             turn: self.turn,
             attempt: self.attempt,
             completion_tokens: self.completion_tokens,
-            usage_source: nuo_wire::RequestUsageSource::Reported,
+            usage_source: nuo_protocol::RequestUsageSource::Reported,
             performance: perf,
         })
     }
@@ -104,7 +104,8 @@ impl TelemetryRound {
             return None;
         }
         let tps = tokens as f64 * 1_000_000.0 / span_us as f64;
-        (tps.is_finite() && tps > 0.0 && tps <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS).then_some(tps)
+        (tps.is_finite() && tps > 0.0 && tps <= nuo_protocol::MAX_PLAUSIBLE_STREAM_TPS)
+            .then_some(tps)
     }
 }
 
@@ -266,7 +267,7 @@ pub(crate) fn fmt_duration_us(us: u64) -> String {
 pub(crate) fn fmt_tps(tps: Option<f64>) -> String {
     match tps {
         Some(rate)
-            if rate > 0.0 && rate.is_finite() && rate <= nuo_wire::MAX_PLAUSIBLE_STREAM_TPS =>
+            if rate > 0.0 && rate.is_finite() && rate <= nuo_protocol::MAX_PLAUSIBLE_STREAM_TPS =>
         {
             format!("{rate:.1} tok/s")
         }

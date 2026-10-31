@@ -32,7 +32,7 @@ use std::sync::{Arc, RwLock};
 use nuo_harness::cognition::skills::SkillRegistry;
 use nuo_harness::{Agent, RoundLifecycle};
 use nuo_persistence::{config::Config, connection_usage::ConnectionUsage, session::SessionStore};
-use nuo_wire::{AgentRequest, AgentResponse, Provider};
+use nuo_protocol::{AgentRequest, AgentResponse, Provider};
 
 use tokio::sync::mpsc;
 

@@ -36,8 +36,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use nuo_wire::PermissionDecision;
-use nuo_wire::human_request::{HumanReply, HumanRequestKind, ReplyProvenance};
+use nuo_protocol::PermissionDecision;
+use nuo_protocol::human_request::{HumanReply, HumanRequestKind, ReplyProvenance};
 
 use crate::runtime::sync::poison_lock;
 
@@ -201,7 +201,7 @@ impl HumanRequestBroker {
         &self,
         request_id: &str,
         reply: HumanReply,
-        policy: nuo_wire::human_request::AutonomousFallbackPolicy,
+        policy: nuo_protocol::human_request::AutonomousFallbackPolicy,
     ) -> bool {
         let Some(Parked {
             sender,
@@ -229,7 +229,7 @@ impl HumanRequestBroker {
         &self,
         request_id: String,
         reply: HumanReply,
-        policy: nuo_wire::human_request::AutonomousFallbackPolicy,
+        policy: nuo_protocol::human_request::AutonomousFallbackPolicy,
     ) -> bool {
         self.settle_by_policy(&request_id, reply, policy)
     }
@@ -260,7 +260,7 @@ impl HumanRequestBroker {
             let _ = sender.send(Settled {
                 reply: cancelled_reply,
                 provenance: ReplyProvenance::Policy {
-                    policy: nuo_wire::human_request::AutonomousFallbackPolicy::FailClosed,
+                    policy: nuo_protocol::human_request::AutonomousFallbackPolicy::FailClosed,
                 },
             });
         }
@@ -295,7 +295,7 @@ impl HumanRequestBroker {
             let _ = sender.send(Settled {
                 reply: cancelled_reply,
                 provenance: ReplyProvenance::Policy {
-                    policy: nuo_wire::human_request::AutonomousFallbackPolicy::FailClosed,
+                    policy: nuo_protocol::human_request::AutonomousFallbackPolicy::FailClosed,
                 },
             });
         }
@@ -324,7 +324,7 @@ impl HumanRequestBroker {
 
 #[cfg(test)]
 mod tests {
-    use nuo_wire::UserQuestionReply;
+    use nuo_protocol::UserQuestionReply;
 
     use super::*;
 
@@ -374,13 +374,13 @@ mod tests {
                 request_id: "q2".into(),
                 answers: vec![vec!["Recommended".into()]],
             })),
-            nuo_wire::human_request::AutonomousFallbackPolicy::RecommendedLabeled,
+            nuo_protocol::human_request::AutonomousFallbackPolicy::RecommendedLabeled,
         ));
         let settled = block_on_settled(rx);
         match settled.provenance {
             ReplyProvenance::Policy { policy } => assert_eq!(
                 policy,
-                nuo_wire::human_request::AutonomousFallbackPolicy::RecommendedLabeled
+                nuo_protocol::human_request::AutonomousFallbackPolicy::RecommendedLabeled
             ),
             ReplyProvenance::User => panic!("policy settlement must not resolve as User"),
         }

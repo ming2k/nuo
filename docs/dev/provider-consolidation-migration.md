@@ -153,7 +153,7 @@ Do **not** move these into `nuo-oauth` — that would make the engine own two ve
 device flows and re-create the coupling this migration removes.
 
 `Cargo.toml` deps: `nuo-provider`, `nuo-provider-transport`, `nuo-inference-wire`, `nuo-host`,
-`nuo-wire`, `async-trait`, `serde`, `serde_json`.
+`nuo-protocol`, `async-trait`, `serde`, `serde_json`.
 
 > **Circular-dependency guard — the one real edge (verified 2026-10-08).**
 > Only **one** import reaches a vendor crate from the OAuth engine:

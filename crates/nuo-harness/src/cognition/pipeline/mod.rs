@@ -12,12 +12,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_wire::{
+use nuo_protocol::{
     EnvironmentReminderOutput, EnvironmentSensorInput, EnvironmentSensorTask, ExecutionTier,
     Message, ModelRequest, PreFlightRouteInput, PreFlightRouteOutput, PreFlightRouterTask,
-    Provider, Role, SessionTitleInput, SessionTitleTask, StreamLoopReviewInput,
-    StreamLoopReviewerTask, StreamLoopVerdict, TrajectoryLoopReviewInput,
-    TrajectoryLoopReviewerTask, TrajectoryLoopVerdict,
+    Provider, Role, StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict,
+    ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask,
+    TrajectoryLoopVerdict,
 };
 
 /// Errors that can occur during a harness task consultation.
@@ -70,18 +70,19 @@ impl HarnessTaskPipeline {
         &self.provider
     }
 
-    /// Consult the harness task pipeline with a typed [`nuo_wire::HarnessTask`].
-    pub async fn consult<T: nuo_wire::HarnessTask>(
+    /// Consult the harness task pipeline with a typed [`nuo_protocol::HarnessTask`].
+    pub async fn consult<T: nuo_protocol::HarnessTask>(
         &self,
         task: T,
         input: T::Input,
     ) -> Result<T::Output, HarnessTaskError> {
         let timeout = Duration::from_millis(task.timeout_ms());
-        let instructions = nuo_wire::InstructionBundle::new(vec![nuo_wire::InstructionSlice::new(
-            "harness.cognitive_task",
-            nuo_wire::InstructionTier::Task,
-            task.system_prompt(),
-        )]);
+        let instructions =
+            nuo_protocol::InstructionBundle::new(vec![nuo_protocol::InstructionSlice::new(
+                "harness.cognitive_task",
+                nuo_protocol::InstructionTier::Task,
+                task.system_prompt(),
+            )]);
         let messages = vec![Message::new(Role::User, task.render_prompt(&input))];
         tracing::debug!(task = task.name(), "cognitive pipeline consult");
 
@@ -110,7 +111,7 @@ impl HarnessTaskPipeline {
     ///
     /// If the pipeline fails, times out, or returns invalid JSON, this logs a warning
     /// and returns `fallback` to prevent blocking the production loop.
-    pub async fn consult_with_fallback<T: nuo_wire::HarnessTask>(
+    pub async fn consult_with_fallback<T: nuo_protocol::HarnessTask>(
         &self,
         task: T,
         input: T::Input,
@@ -150,9 +151,9 @@ impl HarnessTaskPipeline {
             .await
     }
 
-    /// Distill an excerpt into a concise session title.
-    pub async fn generate_title(&self, input: SessionTitleInput) -> Option<String> {
-        match self.consult(SessionTitleTask, input).await {
+    /// Distill an excerpt into a concise thread title.
+    pub async fn generate_title(&self, input: ThreadTitleInput) -> Option<String> {
+        match self.consult(ThreadTitleTask, input).await {
             Ok(title) => Some(title),
             Err(err) => {
                 tracing::warn!(
@@ -198,7 +199,7 @@ impl HarnessTaskPipeline {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use nuo_wire::Message;
+    use nuo_protocol::Message;
 
     struct MockProvider {
         response: Result<String, String>,
@@ -209,15 +210,15 @@ mod tests {
         async fn chat(
             &self,
             _req: ModelRequest,
-        ) -> Result<nuo_wire::ProviderCompletion, nuo_wire::ProviderError> {
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             match &self.response {
-                Ok(content) => Ok(nuo_wire::ProviderCompletion::message(Message::new(
+                Ok(content) => Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                     Role::Assistant,
                     content,
                 ))),
-                Err(err) => Err(nuo_wire::ProviderError::new(
+                Err(err) => Err(nuo_protocol::ProviderError::new(
                     "mock",
-                    nuo_wire::ProviderErrorKind::Other,
+                    nuo_protocol::ProviderErrorKind::Other,
                     err.clone(),
                 )),
             }
@@ -227,8 +228,8 @@ mod tests {
             &self,
             _req: ModelRequest,
         ) -> Result<
-            futures::stream::BoxStream<'static, Result<String, nuo_wire::ProviderError>>,
-            nuo_wire::ProviderError,
+            futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
         > {
             Ok(Box::pin(futures::stream::empty()))
         }
@@ -240,7 +241,7 @@ mod tests {
             response: Ok("```\nFix auth loop\n```".to_string()),
         });
         let title = CognitivePipeline::new(provider)
-            .generate_title(SessionTitleInput {
+            .generate_title(ThreadTitleInput {
                 excerpt: "user: fix the login loop".to_string(),
             })
             .await
@@ -252,7 +253,7 @@ mod tests {
         });
         assert!(
             CognitivePipeline::new(provider)
-                .generate_title(SessionTitleInput {
+                .generate_title(ThreadTitleInput {
                     excerpt: "x".to_string(),
                 })
                 .await
@@ -263,7 +264,7 @@ mod tests {
         });
         assert!(
             CognitivePipeline::new(provider)
-                .generate_title(SessionTitleInput {
+                .generate_title(ThreadTitleInput {
                     excerpt: "x".to_string(),
                 })
                 .await
@@ -279,7 +280,7 @@ mod tests {
         let verdict = CognitivePipeline::new(provider)
             .review_stream_loop(StreamLoopReviewInput {
                 heuristic_candidate: "abab".to_string(),
-                channel: nuo_wire::StreamLoopChannel::AssistantText,
+                channel: nuo_protocol::StreamLoopChannel::AssistantText,
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
@@ -293,7 +294,7 @@ mod tests {
         let verdict = CognitivePipeline::new(provider)
             .review_stream_loop(StreamLoopReviewInput {
                 heuristic_candidate: "abab".to_string(),
-                channel: nuo_wire::StreamLoopChannel::AssistantText,
+                channel: nuo_protocol::StreamLoopChannel::AssistantText,
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
@@ -307,7 +308,7 @@ mod tests {
         let verdict = CognitivePipeline::new(provider)
             .review_stream_loop(StreamLoopReviewInput {
                 heuristic_candidate: "abab".to_string(),
-                channel: nuo_wire::StreamLoopChannel::AssistantText,
+                channel: nuo_protocol::StreamLoopChannel::AssistantText,
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),

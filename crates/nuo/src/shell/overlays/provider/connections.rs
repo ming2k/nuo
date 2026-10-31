@@ -40,14 +40,14 @@ pub struct ConnectionsModalProps<'a> {
     /// arbiter decides that, and this flag is its verdict threaded down.
     pub show_caret: bool,
     pub connection_info_detail: bool,
-    pub connection_detail: Option<&'a nuo_wire::ConnectionDetail>,
+    pub connection_detail: Option<&'a nuo_protocol::ConnectionDetail>,
     pub connection_info_scroll: &'a mut usize,
     pub spinner_phase: usize,
     pub connection_info_standalone: bool,
     pub refreshing: bool,
     /// Ambient quota balances keyed by connection id (ADR-0036).
     pub connection_usages:
-        Option<&'a std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
+        Option<&'a std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>>,
 }
 
 /// Draw the **Connections** modal — the provider-instance management surface (`/connections`).
@@ -261,7 +261,9 @@ pub fn draw_connections_modal(
 /// standard.
 pub(crate) fn provider_list_body(
     providers: &[RankedProvider],
-    connection_usages: Option<&std::collections::HashMap<String, nuo_wire::ConnectionUsageState>>,
+    connection_usages: Option<
+        &std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
+    >,
     _current_provider: &str,
     modal_index: usize,
     theme: &Theme,
@@ -301,7 +303,7 @@ pub(crate) fn provider_list_body(
         let mut row = ListRow::new(style, body_width).group(identity);
 
         if let Some(usages) = connection_usages
-            && let Some(nuo_wire::ConnectionUsageState::Available(usage)) = usages.get(&rp.id)
+            && let Some(nuo_protocol::ConnectionUsageState::Available(usage)) = usages.get(&rp.id)
             && let Some(balance) = &usage.primary_balance
         {
             row = row.group(RowGroup::trailing().styled(
@@ -397,7 +399,7 @@ pub(crate) fn format_reset_countdown(
 
 /// Render the detail body rows for one connection (configuration + caller identity + models + provider usage).
 pub(crate) fn connection_detail_body(
-    detail: &nuo_wire::ConnectionDetail,
+    detail: &nuo_protocol::ConnectionDetail,
     spinner_phase: usize,
     theme: &Theme,
 ) -> Vec<SelectableRow> {
@@ -410,7 +412,7 @@ pub(crate) fn connection_detail_body(
     let provider_display = if !detail.provider_label.is_empty() {
         detail.provider_label.as_str()
     } else {
-        nuo_wire::model_providers::model_provider_label(&detail.provider)
+        nuo_protocol::model_providers::model_provider_label(&detail.provider)
     };
 
     let mut layout = DetailLayout::new(theme)
@@ -422,10 +424,10 @@ pub(crate) fn connection_detail_body(
         .kv("Auth Type", &detail.auth_type);
 
     match &detail.budget {
-        nuo_wire::ConnectionBudget::Remote => {
+        nuo_protocol::ConnectionBudget::Remote => {
             layout = layout.kv("Budget Policy", "Remote (Upstream Managed)");
         }
-        nuo_wire::ConnectionBudget::Local { limit, period, .. } => {
+        nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
             let budget_str = format!("Local ({}, {} cap)", limit.format_usd(), period.label());
             layout = layout.kv_styled("Budget Policy", &budget_str, warning);
         }
@@ -507,7 +509,7 @@ pub(crate) fn connection_detail_body(
     layout = layout.section("Provider Usage & Quota");
 
     match &detail.usage {
-        nuo_wire::ConnectionUsageState::Available(usage) => {
+        nuo_protocol::ConnectionUsageState::Available(usage) => {
             if let Some(plan) = &usage.plan
                 && plan.len() <= 40
                 && !plan.contains('\n')
@@ -525,7 +527,7 @@ pub(crate) fn connection_detail_body(
 
             if let Some(quota_data) = &usage.quota {
                 match quota_data {
-                    nuo_wire::ProviderQuotaData::Periodic(periodic) => {
+                    nuo_protocol::ProviderQuotaData::Periodic(periodic) => {
                         rendered_quota = true;
                         layout = render_periodic_quota_buckets(
                             &periodic.buckets,
@@ -536,12 +538,12 @@ pub(crate) fn connection_detail_body(
                             theme,
                         );
                     }
-                    nuo_wire::ProviderQuotaData::Balance(balance) => {
+                    nuo_protocol::ProviderQuotaData::Balance(balance) => {
                         rendered_quota = true;
                         layout =
                             render_balance_quota_block(balance, layout, value, highlight, theme);
                     }
-                    nuo_wire::ProviderQuotaData::Composite {
+                    nuo_protocol::ProviderQuotaData::Composite {
                         balance,
                         periodic,
                         rate_limits,
@@ -594,19 +596,19 @@ pub(crate) fn connection_detail_body(
                     .raw_row(SelectableRow::styled(desc.clone(), muted));
             }
         }
-        nuo_wire::ConnectionUsageState::Unsupported => {
+        nuo_protocol::ConnectionUsageState::Unsupported => {
             layout = layout.raw_row(SelectableRow::styled(
                 "Usage and quota query is not supported for this provider endpoint.",
                 muted,
             ));
         }
-        nuo_wire::ConnectionUsageState::Error(err) => {
+        nuo_protocol::ConnectionUsageState::Error(err) => {
             layout = layout.raw_row(SelectableRow::from_segments(vec![
                 RowSegment::styled("⚠ Usage query failed: ", warning),
                 RowSegment::styled(err.clone(), value),
             ]));
         }
-        nuo_wire::ConnectionUsageState::Fetching => {
+        nuo_protocol::ConnectionUsageState::Fetching => {
             let spin = theme.glyphs.spinner_frame(spinner_phase);
             layout = layout.raw_row(SelectableRow::from_segments(vec![
                 RowSegment::styled(format!("{spin} "), Style::default().fg(theme.primary)),
@@ -634,7 +636,7 @@ pub(crate) fn connection_detail_body(
 }
 
 pub(crate) fn render_balance_quota_block<'a>(
-    balance: &nuo_wire::BalanceQuota,
+    balance: &nuo_protocol::BalanceQuota,
     mut layout: DetailLayout<'a>,
     value: Style,
     highlight: Style,
@@ -711,13 +713,13 @@ pub(crate) fn render_balance_quota_block<'a>(
 }
 
 /// Helper to rank windows by duration (shorter window first, e.g. 5h before daily before weekly).
-fn quota_window_rank(bucket: &nuo_wire::QuotaWindowBucket) -> (u8, u64) {
+fn quota_window_rank(bucket: &nuo_protocol::QuotaWindowBucket) -> (u8, u64) {
     let rank = match bucket.window {
-        Some(nuo_wire::QuotaWindowKind::Rolling5Hour) => 1,
-        Some(nuo_wire::QuotaWindowKind::Daily) => 2,
-        Some(nuo_wire::QuotaWindowKind::Weekly) => 3,
-        Some(nuo_wire::QuotaWindowKind::Monthly) => 4,
-        Some(nuo_wire::QuotaWindowKind::Custom) => 5,
+        Some(nuo_protocol::QuotaWindowKind::Rolling5Hour) => 1,
+        Some(nuo_protocol::QuotaWindowKind::Daily) => 2,
+        Some(nuo_protocol::QuotaWindowKind::Weekly) => 3,
+        Some(nuo_protocol::QuotaWindowKind::Monthly) => 4,
+        Some(nuo_protocol::QuotaWindowKind::Custom) => 5,
         None => {
             let lower = bucket.label.to_ascii_lowercase();
             if lower.contains("5h") || lower.contains("5-hour") || lower.contains("five hour") {
@@ -741,7 +743,7 @@ fn quota_window_rank(bucket: &nuo_wire::QuotaWindowBucket) -> (u8, u64) {
 pub(crate) fn normalize_quota_bucket_label(
     label: &str,
     group: Option<&str>,
-    window: Option<nuo_wire::QuotaWindowKind>,
+    window: Option<nuo_protocol::QuotaWindowKind>,
 ) -> String {
     let mut clean = label.trim().to_string();
 
@@ -782,22 +784,22 @@ pub(crate) fn normalize_quota_bucket_label(
     // 3. Append window tag only if not already specified in the clean label
     let lower = clean.to_ascii_lowercase();
     let contains_window = match window {
-        Some(nuo_wire::QuotaWindowKind::Rolling5Hour) => {
+        Some(nuo_protocol::QuotaWindowKind::Rolling5Hour) => {
             lower.contains("5h")
                 || lower.contains("5-hour")
                 || lower.contains("5 hour")
                 || lower.contains("five hour")
         }
-        Some(nuo_wire::QuotaWindowKind::Daily) => {
+        Some(nuo_protocol::QuotaWindowKind::Daily) => {
             lower.contains("daily") || lower.contains("24h") || lower.contains("day")
         }
-        Some(nuo_wire::QuotaWindowKind::Weekly) => {
+        Some(nuo_protocol::QuotaWindowKind::Weekly) => {
             lower.contains("weekly") || lower.contains("week") || lower.contains("7d")
         }
-        Some(nuo_wire::QuotaWindowKind::Monthly) => {
+        Some(nuo_protocol::QuotaWindowKind::Monthly) => {
             lower.contains("monthly") || lower.contains("month") || lower.contains("30d")
         }
-        Some(nuo_wire::QuotaWindowKind::Custom) => lower.contains("custom"),
+        Some(nuo_protocol::QuotaWindowKind::Custom) => lower.contains("custom"),
         None => true,
     };
 
@@ -811,7 +813,7 @@ pub(crate) fn normalize_quota_bucket_label(
 }
 
 pub(crate) fn render_periodic_quota_buckets<'a>(
-    buckets: &[nuo_wire::QuotaWindowBucket],
+    buckets: &[nuo_protocol::QuotaWindowBucket],
     mut layout: DetailLayout<'a>,
     value: Style,
     muted: Style,
@@ -834,7 +836,7 @@ pub(crate) fn render_periodic_quota_buckets<'a>(
         }
     }
 
-    let mut sorted_buckets: Vec<&nuo_wire::QuotaWindowBucket> = buckets.iter().collect();
+    let mut sorted_buckets: Vec<&nuo_protocol::QuotaWindowBucket> = buckets.iter().collect();
     sorted_buckets.sort_by_key(|b| {
         let grp_idx = group_order
             .iter()

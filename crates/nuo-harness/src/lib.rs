@@ -1,4 +1,4 @@
-//! The orchestration layer between the pure domain (`nuo-wire`) and the
+//! The orchestration layer between the pure domain (`nuo-protocol`) and the
 //! application services (`nuo-persistence`) on one side, and the frontends on the
 //! other.
 //!
@@ -29,7 +29,7 @@
 //!
 //! # Dependency posture
 //!
-//! `nuo-harness` is the runtime wiring layer: it depends on `nuo-wire` (domain
+//! `nuo-harness` is the runtime wiring layer: it depends on `nuo-protocol` (domain
 //! vocabulary), `nuo-persistence` (durable state: `SessionStore`, `Config`,
 //! `EmbeddingStore`), `nuo-model-routing`, and the capability tool crates. Concrete
 //! filesystem / process / web / AST tools live in `nuo-host` and `tools/nuo-tool-*`;
@@ -45,7 +45,7 @@
 //! fundamentally a runtime primitive that happens to satisfy the `Tool` trait,
 //! so it lives here, under `cognition::interop`.
 //!
-//! Everything `nuo-wire` exports is re-exported here so consumers can
+//! Everything `nuo-protocol` exports is re-exported here so consumers can
 //! `use nuo_harness::*` and get the full domain vocabulary alongside the
 //! orchestration API.
 
@@ -55,7 +55,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
-pub use nuo_wire::{
+pub use nuo_protocol::{
     AgentEvent, AgentIdentity, AgentNotice, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile,
     DynamicToolSink, Hook, HookContext, HookEvent, HookEventKind, HookOutcome, InstructionTier,
     LoopStatus, Message, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint, Role,
@@ -64,7 +64,7 @@ pub use nuo_wire::{
 };
 
 #[allow(unused_imports)]
-pub(crate) use nuo_wire::{
+pub(crate) use nuo_protocol::{
     ExecutionEnvironment, HarnessError, ImagePart, InjectionKind, InjectionOrigin, InputRequest,
     NoticeKind, NoticeSeverity, NoticeSource, QueuedMessage, StdinReply, TodoList, ToolCall,
     UserQuestion, UserQuestionReply, UserQuestionRequest, WorkspaceRoot, WorkspaceRoots, message,
@@ -72,7 +72,7 @@ pub(crate) use nuo_wire::{
 };
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
-// `nuo-wire`'s lib.rs (`use super::*`).
+// `nuo-protocol`'s lib.rs (`use super::*`).
 use futures::StreamExt;
 use std::collections::HashSet;
 use std::sync::Arc;

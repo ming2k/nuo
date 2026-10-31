@@ -4,7 +4,7 @@
 //! the transcript is the authority, the window is a derive, projections are
 //! append-only directives, and fork shares facts by identity.
 use crate::session::*;
-use nuo_wire::{Message, Role, ToolCall};
+use nuo_protocol::{Message, Role, ToolCall};
 use std::path::PathBuf;
 
 fn temp_dir(tag: &str) -> PathBuf {
@@ -397,7 +397,9 @@ async fn commit_turn_honors_the_revision_precondition() {
 
 #[tokio::test]
 async fn crash_residue_is_durably_settled_as_abandoned() {
-    use nuo_wire::{RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus};
+    use nuo_protocol::{
+        RequestUsageKey, RequestUsageRecord, RequestUsageSource, RequestUsageStatus,
+    };
     let dir = temp_dir("abandoned");
     let path = dir.join("session.json");
     let store = SessionStore::for_path(path.clone());
@@ -443,10 +445,13 @@ async fn crash_residue_is_durably_settled_as_abandoned() {
 /// delta does not clone it.
 #[test]
 fn row_checksum_and_delta_ignore_retained_attempts() {
-    use nuo_wire::{RequestUsageKey, RequestUsageRecord, RequestUsageStatus};
+    use nuo_protocol::{RequestUsageKey, RequestUsageRecord, RequestUsageStatus};
     let mut data = SessionData::default();
     data.transcript
-        .push(nuo_wire::TranscriptEntry::from_message(0, &user("hello")));
+        .push(nuo_protocol::TranscriptEntry::from_message(
+            0,
+            &user("hello"),
+        ));
     let baseline = compute_checksum(&data).unwrap();
 
     for attempt in 1..=1_000 {
@@ -485,9 +490,9 @@ async fn todos_round_trip_through_state_entries() {
     let dir = temp_dir("todos");
     let path = dir.join("session.json");
     let store = SessionStore::for_path(path.clone());
-    let mut list = nuo_wire::TodoList::default();
+    let mut list = nuo_protocol::TodoList::default();
     list.reconcile(
-        &[("write schema".into(), nuo_wire::TodoStatus::Pending)],
+        &[("write schema".into(), nuo_protocol::TodoStatus::Pending)],
         0,
         0,
     );
@@ -579,7 +584,7 @@ async fn fork_at_round_slices_transcript_and_preserves_parent() {
     // Sovereign invariant [INV-FORK-04]: parent pointer stays untouched!
     assert_eq!(store.id().await, parent_id_before);
     assert_eq!(parent_id, parent_id_before);
-    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_round(1));
+    assert_eq!(outcome.fork_point, nuo_protocol::ForkPoint::at_round(1));
     assert_ne!(child_id, parent_id);
 
     // Parent still has all 4 messages
@@ -618,7 +623,7 @@ async fn fork_at_turn_slices_intra_round_and_rejects_out_of_range() {
         .await
         .unwrap();
     // The recorded address is the one the command that produced it accepts.
-    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_turn(1, 0));
+    assert_eq!(outcome.fork_point, nuo_protocol::ForkPoint::at_turn(1, 0));
     assert_eq!(outcome.fork_point.label(), "r1.0");
     let child = SessionStore::for_path(dir.join(format!("{}.json", outcome.child_id)));
     let window = child.model_window().await;
@@ -674,7 +679,7 @@ async fn fork_records_the_fork_point_and_does_not_mint_a_title() {
         .fork_at(ForkTarget::Turn { round: 2, turn: 0 })
         .await
         .unwrap();
-    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_turn(2, 0));
+    assert_eq!(outcome.fork_point, nuo_protocol::ForkPoint::at_turn(2, 0));
     assert_eq!(outcome.fork_point.label(), "r2.0");
 
     // The child reloads with the provenance intact, and with no title the fork
@@ -682,7 +687,7 @@ async fn fork_records_the_fork_point_and_does_not_mint_a_title() {
     let child = SessionStore::for_path(dir.join(format!("{}.json", outcome.child_id)));
     assert_eq!(
         child.fork_point().await,
-        Some(nuo_wire::ForkPoint::at_turn(2, 0)),
+        Some(nuo_protocol::ForkPoint::at_turn(2, 0)),
         "the fork point survives a reload"
     );
     assert!(
@@ -718,7 +723,7 @@ async fn head_fork_records_the_parents_settled_round() {
     store.set_round_counter(3).await.unwrap();
 
     let outcome = store.fork_at(ForkTarget::Head).await.unwrap();
-    assert_eq!(outcome.fork_point, nuo_wire::ForkPoint::at_round(3));
+    assert_eq!(outcome.fork_point, nuo_protocol::ForkPoint::at_round(3));
 }
 
 /// The picker's snapshot is a *partition* query. A forked branch that lands in
@@ -757,7 +762,10 @@ async fn forked_branch_is_listed_in_the_same_partition_as_its_parent() {
         .find(|s| s.id == outcome.child_id)
         .expect("branch row");
     assert_eq!(child.parent_id.as_deref(), Some(outcome.parent_id.as_str()));
-    assert_eq!(child.fork_point, Some(nuo_wire::ForkPoint::at_turn(2, 0)));
+    assert_eq!(
+        child.fork_point,
+        Some(nuo_protocol::ForkPoint::at_turn(2, 0))
+    );
 }
 
 // ---------------------------------------------------------------
@@ -791,7 +799,7 @@ async fn provider_selection_round_trips() {
 async fn digest_round_trips() {
     let store = store("digest").await;
     store
-        .set_digest(Some(nuo_wire::SessionDigest::default()), Some(42))
+        .set_digest(Some(nuo_protocol::ThreadDigest::default()), Some(42))
         .await
         .unwrap();
     let (digest, anchor) = store.digest().await;
@@ -807,8 +815,8 @@ async fn digest_round_trips() {
 async fn round_interrupts_record_and_clear() {
     let store = store("interrupt").await;
     store
-        .record_round_interrupt(nuo_wire::RoundInterrupt {
-            reason: nuo_wire::RoundInterruptReason::User,
+        .record_round_interrupt(nuo_protocol::RoundInterrupt {
+            reason: nuo_protocol::RoundInterruptReason::User,
             at_ms: 1,
             round: Some(1),
             detail: None,
@@ -827,8 +835,8 @@ async fn round_interrupts_record_and_clear() {
 // Request-projection archive: durable forensics, never the window.
 // ---------------------------------------------------------------
 
-fn request_projection(round: u64, turn: u64) -> nuo_wire::RequestProjection {
-    nuo_wire::RequestProjection {
+fn request_projection(round: u64, turn: u64) -> nuo_protocol::RequestProjection {
+    nuo_protocol::RequestProjection {
         round,
         turn,
         created_at_ms: 42,
@@ -915,7 +923,7 @@ async fn command_ledger_round_trips() {
     let store = store("commands").await;
     store
         .mutate_commands(|ledger| {
-            ledger.push(nuo_wire::CommandRecord::new("models", ""));
+            ledger.push(nuo_protocol::CommandRecord::new("models", ""));
         })
         .await
         .unwrap();
@@ -978,7 +986,7 @@ async fn fresh_session_stays_unpersisted_until_content() {
 async fn tree_leaf_switch_rebuilds_transcript() {
     let store = store("tree").await;
     let root_id = store
-        .insert_tree_entry(nuo_wire::SessionEntry::new_message(
+        .insert_tree_entry(nuo_protocol::ThreadEntry::new_message(
             "root",
             None,
             0,
@@ -1009,7 +1017,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
     let mut parent = assistant("delegating");
     parent.tool_calls = Some(vec![call.clone()]);
     let child_messages = vec![user("child task"), assistant("child done")];
-    let subagent_meta = nuo_wire::message::SubagentMeta {
+    let subagent_meta = nuo_protocol::message::SubagentMeta {
         description: Some("do the thing".into()),
         duration_ms: Some(1234),
         toolset_count: 3,
@@ -1036,14 +1044,14 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
             .iter()
             .rev()
             .find_map(|entry| match &entry.payload {
-                nuo_wire::EntryPayload::Message(payload) => payload.subagent.clone(),
+                nuo_protocol::EntryPayload::Message(payload) => payload.subagent.clone(),
                 _ => None,
             })
             .expect("tool entry must carry a subagent pointer");
         entry.session_id
     };
     let subagent = reader.load_session_full(&subagent_id).unwrap().unwrap();
-    assert_eq!(subagent.fork_kind, nuo_wire::SessionForkKind::Subagent);
+    assert_eq!(subagent.fork_kind, nuo_protocol::ThreadForkKind::Subagent);
     assert_eq!(
         subagent.parent_id.as_deref(),
         Some(store.id().await.as_str())
@@ -1095,7 +1103,7 @@ fn excerpt_summary_respects_token_budget() {
         .collect();
     let summary = build_excerpt_summary(&archived, 120, None);
     assert!(!summary.is_empty());
-    assert!(nuo_wire::tokenizer::count_tokens(&summary) <= 120);
+    assert!(nuo_protocol::tokenizer::count_tokens(&summary) <= 120);
 }
 
 #[tokio::test]
@@ -1161,8 +1169,8 @@ async fn test_session_store_ir_and_compile_request() {
     assert_eq!(ir.history.nodes.len(), 1);
 
     // 2. Compile request using SessionStore::compile_request (4-pass pipeline)
-    let options = nuo_wire::CompilerOptions {
-        tool_specs: vec![nuo_wire::ToolSpec {
+    let options = nuo_protocol::CompilerOptions {
+        tool_specs: vec![nuo_protocol::ToolSpec {
             name: "execute_command".into(),
             description: "Run shell command".into(),
             parameters: serde_json::json!({"type": "object"}),
@@ -1170,7 +1178,7 @@ async fn test_session_store_ir_and_compile_request() {
         temporary_context: vec![],
         ephemeral_instruction: Some("Focus on correctness".into()),
         target_dialect: Some("anthropic".into()),
-        target_protocol: Some(nuo_wire::WireProtocol::AnthropicMessages),
+        target_protocol: Some(nuo_protocol::WireProtocol::AnthropicMessages),
     };
 
     let compiled = store.compile_request(options).await.unwrap();
@@ -1190,13 +1198,13 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
     let session_id = store.id().await;
 
     // 1. Create a native SessionIR and append a dialogue node
-    let policy = nuo_wire::SessionPolicy::default();
-    let mut ir = nuo_wire::SessionIR::new(&session_id, policy, 1000);
+    let policy = nuo_protocol::SessionPolicy::default();
+    let mut ir = nuo_protocol::SessionIR::new(&session_id, policy, 1000);
     let node_id = "test-node-1";
     ir.append_message(
         node_id,
         1001,
-        nuo_wire::Message::new(nuo_wire::Role::User, "Hello SessionIR native"),
+        nuo_protocol::Message::new(nuo_protocol::Role::User, "Hello SessionIR native"),
     );
 
     // 2. Commit SessionIR directly
@@ -1213,8 +1221,8 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
 
     // 4. Test Durable Suspension Delta (INV-EXEC-03)
     let mut suspended_ir = loaded_ir.clone();
-    suspended_ir.state.status = nuo_wire::ExecutionStatus::Suspended {
-        reason: nuo_wire::SuspensionReason::NeedsInput {
+    suspended_ir.state.status = nuo_protocol::ExecutionStatus::Suspended {
+        reason: nuo_protocol::SuspensionReason::NeedsInput {
             prompt: "Please select target environment".into(),
         },
     };
@@ -1226,8 +1234,8 @@ async fn test_session_store_direct_delta_and_ir_hydration() {
     let reloaded = fresh_reader.load_session_ir(&session_id).unwrap().unwrap();
     assert!(matches!(
         reloaded.state.status,
-        nuo_wire::ExecutionStatus::Suspended {
-            reason: nuo_wire::SuspensionReason::NeedsInput { .. }
+        nuo_protocol::ExecutionStatus::Suspended {
+            reason: nuo_protocol::SuspensionReason::NeedsInput { .. }
         }
     ));
 }

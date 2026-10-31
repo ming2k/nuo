@@ -3,12 +3,13 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::{Sink, SinkExt, Stream, StreamExt, TryStreamExt};
-use nuo_wire::{
-    AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitoredSession, MonitoredTask,
-    SessionOverview,
+use nuo_protocol::{
+    AgentRequest, AgentResponse, MonitorAction, MonitorEvent, MonitoredTask, MonitoredThread,
+    ThreadOverview, WireFrame,
 };
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
@@ -17,20 +18,21 @@ use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_util::codec::Framed;
 
 #[cfg(unix)]
-pub use nuo_wire::discovery::default_uds_path;
-pub use nuo_wire::discovery::{
+pub use nuo_protocol::discovery::default_uds_path;
+pub use nuo_protocol::discovery::{
     self, Discovery, ServerInfo, default_local_endpoint, global_discovery_path, global_lock_path,
     global_spawn_lock_path, instance_dir,
 };
-pub use nuo_wire::version::{
+pub use nuo_protocol::version::{
     ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, VersionRelation, compare_versions,
     incompatibility_error, protocol_accepts, protocol_mismatch, server_image_is_current,
     version_mismatch, versions_compatible,
 };
-pub use nuo_wire::{
+pub use nuo_protocol::{
     AttachAction, ControlRequest, MIN_PROTOCOL_VERSION, NativeWireCodec, PROTOCOL_VERSION,
-    ServerEndpointsReport, SessionInitOptions, Wire,
+    ServerEndpointsReport, ThreadInitOptions, Wire,
 };
+pub type SessionInitOptions = ThreadInitOptions;
 
 /// Initialize client logging guard.
 pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
@@ -55,7 +57,7 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
 }
 
 pub type BoxWireSink = Pin<Box<dyn Sink<Wire, Error = io::Error> + Send>>;
-pub type BoxWireStream = Pin<Box<dyn Stream<Item = Result<Wire, io::Error>> + Send>>;
+pub type BoxWireStream = Pin<Box<dyn Stream<Item = Result<WireFrame, io::Error>> + Send>>;
 
 pub fn native_framed_split<T>(stream: T) -> (BoxWireSink, BoxWireStream)
 where
@@ -95,23 +97,14 @@ where
         .map_err(|e| io::Error::new(io::ErrorKind::ConnectionReset, e))
         .filter_map(|msg_res| async move {
             match msg_res {
+                // A WebSocket text frame is self-delimiting, so an undecodable
+                // payload is reported per frame and the socket stays usable
+                // [ADR-0136]. `Err` remains reserved for the socket itself.
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                    match serde_json::from_str::<Wire>(&text) {
-                        Ok(wire) => Some(Ok(wire)),
-                        Err(e) => Some(Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Failed to deserialize Wire from text: {e}"),
-                        ))),
-                    }
+                    Some(Ok(nuo_protocol::decode_wire_payload(text.as_bytes())))
                 }
                 Ok(tokio_tungstenite::tungstenite::Message::Binary(bin)) => {
-                    match serde_json::from_slice::<Wire>(&bin) {
-                        Ok(wire) => Some(Ok(wire)),
-                        Err(e) => Some(Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Failed to deserialize Wire from binary: {e}"),
-                        ))),
-                    }
+                    Some(Ok(nuo_protocol::decode_wire_payload(&bin)))
                 }
                 Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => None,
                 Ok(_) => None,
@@ -124,18 +117,18 @@ where
 
 static POSTURE_OVERRIDE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
-pub fn set_posture(posture: nuo_wire::human_request::HumanChannelPosture) {
+pub fn set_posture(posture: nuo_protocol::human_request::HumanChannelPosture) {
     let code = match posture {
-        nuo_wire::human_request::HumanChannelPosture::Interactive => 0,
-        nuo_wire::human_request::HumanChannelPosture::Autonomous => 1,
+        nuo_protocol::human_request::HumanChannelPosture::Interactive => 0,
+        nuo_protocol::human_request::HumanChannelPosture::Autonomous => 1,
     };
     POSTURE_OVERRIDE.store(code, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn current_posture() -> nuo_wire::human_request::HumanChannelPosture {
+fn current_posture() -> nuo_protocol::human_request::HumanChannelPosture {
     match POSTURE_OVERRIDE.load(std::sync::atomic::Ordering::Relaxed) {
-        1 => nuo_wire::human_request::HumanChannelPosture::Autonomous,
-        _ => nuo_wire::human_request::HumanChannelPosture::Interactive,
+        1 => nuo_protocol::human_request::HumanChannelPosture::Autonomous,
+        _ => nuo_protocol::human_request::HumanChannelPosture::Interactive,
     }
 }
 
@@ -485,10 +478,19 @@ async fn wait_for_process_exit(
     !nuo_host::process::process_is_alive(identity)
 }
 
+/// Whether a discovered server is a stale image that should be replaced rather
+/// than reused.
+///
+/// The `same_version` guard this used to carry made the check unreachable for
+/// exactly the case ADR-0136 was filed for: `nuo` on disk had been upgraded
+/// while the old process kept running, so the versions *differed* and the drift
+/// was therefore never detected — the client attached to a server built from a
+/// binary that no longer exists on disk. A replaced image is drift whatever
+/// version it reports; the protocol window only decides whether the record is
+/// readable at all.
 fn is_dev_drift(info: &ServerInfo) -> bool {
-    let protocol_in_window = info.protocol.is_none_or(protocol_accepts);
-    let same_version = info.version.as_deref() == Some(env!("CARGO_PKG_VERSION"));
-    protocol_in_window && same_version && !server_image_is_current(info)
+    let protocol_readable = info.protocol.is_none_or(protocol_accepts);
+    protocol_readable && !server_image_is_current(info)
 }
 
 pub async fn reload(info: &ServerInfo) -> Result<(), String> {
@@ -523,7 +525,7 @@ pub async fn get_server_endpoints(info: &ServerInfo) -> Result<ServerEndpointsRe
 pub async fn get_usage_stats(
     info: &ServerInfo,
     event_cap: usize,
-) -> Result<nuo_wire::usage_stats::UsageStatsReport, String> {
+) -> Result<nuo_protocol::usage_stats::UsageStatsReport, String> {
     let reply = control_with_reply(info, ControlRequest::GetUsageStats { event_cap }).await?;
     serde_json::from_str(&reply).map_err(|e| format!("invalid usage stats reply: {e}"))
 }
@@ -892,13 +894,13 @@ impl AttachError {
     /// Whether the target session provably no longer exists
     /// (`ERR_SESSION_GONE`). The tab naming it must be retired.
     pub fn is_session_gone(&self) -> bool {
-        self.code() == Some(nuo_wire::ERR_SESSION_GONE)
+        self.code() == Some(nuo_protocol::ERR_SESSION_GONE)
     }
 
     /// Whether the target session exists durably but could not be assembled
     /// (`ERR_SESSION_UNRESUMABLE`). The tab must be kept — its history is real.
     pub fn is_session_unresumable(&self) -> bool {
-        self.code() == Some(nuo_wire::ERR_SESSION_UNRESUMABLE)
+        self.code() == Some(nuo_protocol::ERR_SESSION_UNRESUMABLE)
     }
 }
 
@@ -920,18 +922,33 @@ impl From<AttachError> for String {
 
 pub type AttachResult = Result<Handshake, AttachError>;
 
+/// Where an attached reader records the *transport* failure that ended it.
+///
+/// Deliberately not an [`AgentResponse`]: a socket death is not something the
+/// server said, and encoding it as one made a decode fault indistinguishable
+/// from a server instruction to stop (ADR-0136). The consumer reads this after
+/// the response stream closes — `None` means the connection ended cleanly.
+pub type LinkLostMarker = Arc<Mutex<Option<String>>>;
+
 #[allow(clippy::large_enum_variant)]
 pub enum Handshake {
     Attached {
         req_tx: mpsc::UnboundedSender<AgentRequest>,
         resp_rx: mpsc::UnboundedReceiver<AgentResponse>,
+        /// Where the reader's *transport* failure lands, when there is one.
+        ///
+        /// Separate from `resp_rx` by construction: a socket death is not an
+        /// `AgentResponse`, and spelling it `Exit` made a client click look
+        /// like a server instruction (ADR-0136). `None` when the reader ended
+        /// because the connection closed cleanly.
+        link_lost: LinkLostMarker,
         session_id: String,
         /// Readiness at the moment of the handshake. Informational only:
         /// `[INV-ATTACH-04]` (ADR-0133) makes the *post-snapshot*
-        /// `AgentResponse::SessionPhase(Ready)` the gate for input.
-        phase: nuo_wire::SessionPhase,
+        /// `AgentResponse::ThreadPhase(Ready)` the gate for input.
+        phase: nuo_protocol::ThreadPhase,
     },
-    Pick(Vec<SessionOverview>),
+    Pick(Vec<ThreadOverview>),
 }
 
 pub async fn connect(info: &ServerInfo, action: AttachAction) -> AttachResult {
@@ -991,11 +1008,12 @@ async fn finish_handshake_with_project(
 
     let reply = tokio::time::timeout(ATTACH_ACK_TIMEOUT, async {
         match wire_source.next().await {
-            Some(Ok(wire)) => match wire {
-                Wire::Welcome { session_id, phase } => {
-                    Ok(Reply::Welcome(Welcome { session_id, phase }))
-                }
-                Wire::Pick { sessions } => Ok(Reply::Pick(sessions)),
+            Some(Ok(WireFrame::Wire(wire))) => match wire {
+                Wire::Welcome { thread_id, phase } => Ok(Reply::Welcome(Welcome {
+                    session_id: thread_id,
+                    phase,
+                })),
+                Wire::Pick { threads } => Ok(Reply::Pick(threads)),
                 Wire::Error { message, code } => {
                     // `[INV-ATTACH-01]`: the code travels with the message.
                     // This is the hop that used to discard the taxonomy
@@ -1015,6 +1033,19 @@ async fn finish_handshake_with_project(
                     )))
                 }
             },
+            // The handshake is the one place where a frame we cannot model is
+            // still an attach refusal: no thread has been claimed yet, and a
+            // Welcome we cannot read is exactly the disagreement the protocol
+            // number exists to prevent. Refusing with the taxonomy lets the
+            // attach loop disclose it instead of dying on it.
+            Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                Err(AttachError::transport(format!(
+                    "server sent a frame this client cannot decode{}: {detail}",
+                    envelope
+                        .map(|tag| format!(" (envelope `{tag}`)"))
+                        .unwrap_or_default()
+                )))
+            }
             Some(Err(error)) => Err(AttachError::transport(format!(
                 "wire recv during handshake: {error}"
             ))),
@@ -1039,11 +1070,17 @@ async fn finish_handshake_with_project(
 
     let (req_out_tx, mut req_out_rx) = mpsc::unbounded_channel::<AgentRequest>();
     let (resp_in_tx, resp_in_rx) = mpsc::unbounded_channel::<AgentResponse>();
+    // Shared with the reader task: after `resp_rx` closes, this is *how* the
+    // consumer learns whether the link failed and why, without guessing.
+    let link_lost_marker = Arc::new(Mutex::new(None::<String>));
+    let link_lost_inner = Arc::clone(&link_lost_marker);
+    let exit_seen = Arc::new(Mutex::new(false));
+    let exit_seen_inner = Arc::clone(&exit_seen);
 
     tokio::spawn(async move {
         let mut end_pending = false;
         while let Some(request) = req_out_rx.recv().await {
-            if matches!(request, AgentRequest::EndSession) {
+            if matches!(request, AgentRequest::EndThread) {
                 end_pending = true;
             }
             if let Err(error) = wire_sink.send(Wire::Request { request }).await {
@@ -1060,24 +1097,61 @@ async fn finish_handshake_with_project(
     tokio::spawn(async move {
         while let Some(frame) = wire_source.next().await {
             match frame {
-                Ok(Wire::Response { response }) => {
+                Ok(WireFrame::Wire(Wire::Response { response })) => {
+                    // A server instruction to stop is recorded as such, so the
+                    // close that follows is not mistaken for a fault.
+                    if matches!(response, AgentResponse::Exit) {
+                        *exit_seen_inner.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                    }
                     if resp_in_tx.send(response).is_err() {
                         return;
                     }
                 }
-                Ok(_) => tracing::warn!("attach: unexpected post-handshake frame, ignored"),
+                // One frame this build cannot model. Both transports are
+                // self-delimiting, so the reader stays aligned and the session
+                // is untouched — disclose the skew and keep reading
+                // [ADR-0136]. Before this arm existed the frame arrived as
+                // `Err`, the loop ended, and the synthesized `Exit` closed the
+                // window mid-round.
+                Ok(WireFrame::Undecodable { envelope, detail }) => {
+                    tracing::warn!(
+                        envelope = envelope.as_deref().unwrap_or("<none>"),
+                        %detail,
+                        "attach: server sent a frame this client cannot decode; \
+                         connection retained"
+                    );
+                    let notice = AgentResponse::Error(format!(
+                        "The server sent a message this client does not understand{}. \
+                         The connection is still live — run `nuo stop` so both \
+                         sides come up on the same build.",
+                        envelope
+                            .map(|tag| format!(" (envelope `{tag}`)"))
+                            .unwrap_or_default()
+                    ));
+                    if resp_in_tx.send(notice).is_err() {
+                        return;
+                    }
+                }
+                Ok(WireFrame::Wire(_)) => {
+                    tracing::warn!("attach: unexpected post-handshake frame, ignored")
+                }
+                // The socket itself failed. This is *not* a response and must
+                // never be spelled `Exit`; it is recorded where the consumer
+                // can read the real reason after `resp_rx` closes [ADR-0136].
                 Err(error) => {
-                    tracing::warn!(%error, "attach: wire recv failed");
+                    tracing::warn!(%error, "attach: wire recv failed; link is down");
+                    *link_lost_inner.lock().unwrap_or_else(|e| e.into_inner()) =
+                        Some(error.to_string());
                     break;
                 }
             }
         }
-        let _ = resp_in_tx.send(AgentResponse::Exit);
     });
 
     Ok(Handshake::Attached {
         req_tx: req_out_tx,
         resp_rx: resp_in_rx,
+        link_lost: link_lost_marker,
         session_id: welcome.session_id,
         phase: welcome.phase,
     })
@@ -1136,7 +1210,7 @@ async fn finish_control(
     tokio::time::timeout(CONTROL_REPLY_TIMEOUT, async {
         loop {
             match wire_source.next().await {
-                Some(Ok(wire)) => match wire {
+                Some(Ok(WireFrame::Wire(wire))) => match wire {
                     Wire::ControlReply { ok, error, .. } => {
                         return if ok {
                             Ok(error.unwrap_or_default())
@@ -1147,6 +1221,18 @@ async fn finish_control(
                     Wire::Error { message, .. } => return Err(message),
                     _ => tracing::warn!("control: unexpected frame during handshake, ignored"),
                 },
+                // A control connection exists to carry one verb. A frame this
+                // build cannot model means the peer is a different build, and
+                // the caller needs that said plainly rather than as a timeout
+                // [ADR-0136].
+                Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                    return Err(format!(
+                        "control: server sent a frame this client cannot decode{}: {detail}",
+                        envelope
+                            .map(|tag| format!(" (envelope `{tag}`)"))
+                            .unwrap_or_default()
+                    ));
+                }
                 Some(Err(error)) => return Err(format!("wire recv during control: {error}")),
                 None => return Err("server closed the control connection".to_string()),
             }
@@ -1158,12 +1244,12 @@ async fn finish_control(
 
 struct Welcome {
     session_id: String,
-    phase: nuo_wire::SessionPhase,
+    phase: nuo_protocol::ThreadPhase,
 }
 
 enum Reply {
     Welcome(Welcome),
-    Pick(Vec<SessionOverview>),
+    Pick(Vec<ThreadOverview>),
 }
 
 pub async fn monitor_stream(
@@ -1215,11 +1301,19 @@ async fn finish_monitor(
     let first = tokio::time::timeout(MONITOR_FIRST_FRAME_TIMEOUT, async {
         loop {
             match wire_source.next().await {
-                Some(Ok(wire)) => match wire {
+                Some(Ok(WireFrame::Wire(wire))) => match wire {
                     Wire::Monitor { event } => return Ok(event),
                     Wire::Error { message, .. } => return Err(message),
                     _ => tracing::warn!("status: unexpected frame during handshake, ignored"),
                 },
+                Some(Ok(WireFrame::Undecodable { envelope, detail })) => {
+                    return Err(format!(
+                        "status: server sent a frame this client cannot decode{}: {detail}",
+                        envelope
+                            .map(|tag| format!(" (envelope `{tag}`)"))
+                            .unwrap_or_default()
+                    ));
+                }
                 Some(Err(error)) => return Err(format!("wire recv during handshake: {error}")),
                 None => return Err("server closed the connection".to_string()),
             }
@@ -1233,12 +1327,25 @@ async fn finish_monitor(
     tokio::spawn(async move {
         while let Some(frame) = wire_source.next().await {
             match frame {
-                Ok(Wire::Monitor { event }) => {
+                Ok(WireFrame::Wire(Wire::Monitor { event })) => {
                     if tx.send(event).is_err() {
                         return;
                     }
                 }
-                Ok(_) => tracing::warn!("status: unexpected post-handshake frame, ignored"),
+                Ok(WireFrame::Wire(_)) => {
+                    tracing::warn!("status: unexpected post-handshake frame, ignored")
+                }
+                // Monitor frames are independent; an unmodelled one is
+                // disclosed and skipped, exactly like the attach reader
+                // [ADR-0136].
+                Ok(WireFrame::Undecodable { envelope, detail }) => {
+                    tracing::warn!(
+                        envelope = envelope.as_deref().unwrap_or("<none>"),
+                        %detail,
+                        "status: server sent a frame this client cannot decode; \
+                         monitor stream retained"
+                    );
+                }
                 Err(error) => {
                     tracing::warn!(%error, "status: wire recv failed");
                     break;
@@ -1249,7 +1356,7 @@ async fn finish_monitor(
     Ok(rx)
 }
 
-pub fn upsert_session_row(rows: &mut Vec<MonitoredSession>, row: MonitoredSession) {
+pub fn upsert_session_row(rows: &mut Vec<MonitoredThread>, row: MonitoredThread) {
     match rows.iter_mut().find(|existing| existing.id == row.id) {
         Some(existing) => *existing = row,
         None => rows.push(row),
@@ -1268,6 +1375,167 @@ pub fn upsert_task_row(rows: &mut Vec<MonitoredTask>, row: MonitoredTask) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR-0136, control plane: an unmodelled frame must produce a *diagnosable
+    /// refusal naming the skew*, not a silent timeout.
+    ///
+    /// A control connection carries exactly one verb and one reply, so unlike
+    /// the attach path there is nothing to keep reading for: the correct
+    /// behaviour is to fail — but the failure must say what actually happened.
+    /// Before ADR-0136 the frame surfaced as `Err`, which this path reported as
+    /// `wire recv during control: ...`, telling an operator nothing about a
+    /// version skew and inviting them to go hunting for a network fault.
+    #[tokio::test]
+    async fn an_unmodelled_frame_on_the_control_plane_names_the_skew() {
+        let (client_side, server_side) = tokio::net::UnixStream::pair().unwrap();
+        // No handshake reply: the skewed frame arrives in place of the reply,
+        // which is exactly what a peer one revision ahead would send if the
+        // verb itself were renamed.
+        tokio::spawn(drifted_peer(server_side, Vec::new()));
+
+        let (sink, source) = crate::transport::native_framed_split(client_side);
+        let error = finish_control(
+            (sink, source),
+            AttachAction::Control(ControlRequest::Reload),
+        )
+        .await
+        .expect_err("a control connection cannot decode this verb's reply");
+
+        assert!(
+            error.contains("cannot decode"),
+            "the refusal must say the frame was unreadable rather than \
+             reporting a transport fault, got: {error}"
+        );
+        assert!(
+            error.contains("Response"),
+            "the refusal must name the envelope direction, so an operator can \
+             tell which side drifted, got: {error}"
+        );
+    }
+
+    /// ADR-0136, monitor plane: an unmodelled frame must be **skipped**, not
+    /// treated as the end of the stream.
+    ///
+    /// The monitor stream is long-lived — `nuo status --watch` and the dashboard
+    /// sit on it — so ending it on one unknown frame would silently blank a live
+    /// surface. The event *after* the skew must still arrive, which is the
+    /// assertion that proves the reader kept going instead of breaking.
+    #[tokio::test]
+    async fn an_unmodelled_frame_on_the_monitor_plane_is_skipped_not_fatal() {
+        use tokio::io::AsyncWriteExt;
+
+        let (client_side, mut server_side) = tokio::net::UnixStream::pair().unwrap();
+
+        // Handshake: the snapshot, which must arrive as the first frame.
+        let snapshot = Wire::Monitor {
+            event: MonitorEvent::Snapshot(nuo_protocol::monitor::MonitorSnapshot {
+                project_root: "/tmp/nuo-monitor-test".to_string(),
+                server_started_at: 0,
+                threads: Vec::new(),
+                tasks: Vec::new(),
+                persistence_health: None,
+            }),
+        };
+        let after = Wire::Monitor {
+            event: MonitorEvent::ServerDraining,
+        };
+
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut prefix = [0u8; 4];
+            server_side.read_exact(&mut prefix).await.unwrap();
+            let len = u32::from_be_bytes(prefix) as usize;
+            let mut select = vec![0u8; len];
+            server_side.read_exact(&mut select).await.unwrap();
+
+            let mut out = Vec::new();
+            let snap = serde_json::to_vec(&snapshot).unwrap();
+            out.extend_from_slice(&(snap.len() as u32).to_be_bytes());
+            out.extend_from_slice(&snap);
+
+            // The skew, sandwiched *between* two valid events.
+            const SKEWED: &[u8] = br#"{"type":"Response","NoSuchVariant":{}}"#;
+            out.extend_from_slice(&(SKEWED.len() as u32).to_be_bytes());
+            out.extend_from_slice(SKEWED);
+
+            let next = serde_json::to_vec(&after).unwrap();
+            out.extend_from_slice(&(next.len() as u32).to_be_bytes());
+            out.extend_from_slice(&next);
+
+            server_side.write_all(&out).await.unwrap();
+            server_side.flush().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let (sink, source) = crate::transport::native_framed_split(client_side);
+        let mut rx = finish_monitor(
+            (sink, source),
+            MonitorAction {
+                watch: true,
+                include_idle: true,
+            },
+            "test",
+        )
+        .await
+        .expect("the snapshot handshake succeeds");
+
+        // The snapshot is the seeded first frame.
+        let first = rx.recv().await.expect("snapshot arrives");
+        assert!(
+            matches!(first, MonitorEvent::Snapshot(_)),
+            "the handshake frame must be the snapshot, got {first:?}"
+        );
+
+        // The frame after the skew proves the reader did not stop on it.
+        let next = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("a frame after the skew must still arrive: the stream is alive")
+            .expect("the monitor channel must still be open");
+        assert!(
+            matches!(next, MonitorEvent::ServerDraining),
+            "the event behind the unmodelled frame must be delivered, got {next:?}"
+        );
+    }
+
+    /// A peer that answers the client's `Select` with whatever the caller
+    /// stages, then emits one frame this build cannot model — and finally stays
+    /// silent with the socket **open**.
+    ///
+    /// Hand-framed on purpose: the skewed envelope is one no encoder in this
+    /// build can produce, which is the whole condition being reproduced. The
+    /// socket is left open so a client that mistakes the frame for a disconnect
+    /// fails the assertion rather than passing by accident.
+    ///
+    /// `first_frames` are serialized normally (the handshake replies); the
+    /// skewed payload follows.
+    async fn drifted_peer(mut server_side: tokio::net::UnixStream, first_frames: Vec<Wire>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Consume the client's `Select`.
+        let mut prefix = [0u8; 4];
+        server_side.read_exact(&mut prefix).await.unwrap();
+        let len = u32::from_be_bytes(prefix) as usize;
+        let mut select = vec![0u8; len];
+        server_side.read_exact(&mut select).await.unwrap();
+
+        let mut out = Vec::new();
+        for frame in first_frames {
+            let bytes = serde_json::to_vec(&frame).unwrap();
+            out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+            out.extend_from_slice(&bytes);
+        }
+
+        // The exact shape that killed the client.
+        const SKEWED: &[u8] = br#"{"type":"Response","RetryResolved":{"attempt":1}}"#;
+        out.extend_from_slice(&(SKEWED.len() as u32).to_be_bytes());
+        out.extend_from_slice(SKEWED);
+
+        server_side.write_all(&out).await.unwrap();
+        server_side.flush().await.unwrap();
+
+        // Hold the connection open: a live server, not a closed socket.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
 
     /// `discover` must not park a Tokio worker.
     ///
@@ -1317,10 +1585,10 @@ mod tests {
     #[test]
     fn attach_refusal_preserves_code() {
         let gone = AttachError {
-            code: Some(nuo_wire::ERR_SESSION_GONE.to_string()),
+            code: Some(nuo_protocol::ERR_SESSION_GONE.to_string()),
             message: "server rejected the attach: session 'x' no longer exists".to_string(),
         };
-        assert_eq!(gone.code(), Some(nuo_wire::ERR_SESSION_GONE));
+        assert_eq!(gone.code(), Some(nuo_protocol::ERR_SESSION_GONE));
         assert!(gone.is_session_gone());
         assert!(
             !gone.is_session_unresumable(),
@@ -1328,7 +1596,7 @@ mod tests {
         );
 
         let unresumable = AttachError {
-            code: Some(nuo_wire::ERR_SESSION_UNRESUMABLE.to_string()),
+            code: Some(nuo_protocol::ERR_SESSION_UNRESUMABLE.to_string()),
             message: "server rejected the attach: could not resume session x: boom".to_string(),
         };
         assert!(unresumable.is_session_unresumable());
@@ -1347,7 +1615,7 @@ mod tests {
         // `Display` stays human prose — a caller must never parse the code back
         // out of the rendered message.
         assert_eq!(gone.to_string(), gone.message);
-        assert!(!gone.to_string().contains(nuo_wire::ERR_SESSION_GONE));
+        assert!(!gone.to_string().contains(nuo_protocol::ERR_SESSION_GONE));
     }
 
     /// An attach refusal's wire code round-trips through the frame the client
@@ -1356,13 +1624,13 @@ mod tests {
     fn wire_error_frame_carries_the_refusal_code() {
         let frame = Wire::Error {
             message: "session 'abc' no longer exists".to_string(),
-            code: Some(nuo_wire::ERR_SESSION_GONE.to_string()),
+            code: Some(nuo_protocol::ERR_SESSION_GONE.to_string()),
         };
         let json = serde_json::to_string(&frame).unwrap();
         let back: Wire = serde_json::from_str(&json).unwrap();
         match back {
             Wire::Error { code, .. } => {
-                assert_eq!(code.as_deref(), Some(nuo_wire::ERR_SESSION_GONE));
+                assert_eq!(code.as_deref(), Some(nuo_protocol::ERR_SESSION_GONE));
             }
             other => panic!("expected an Error frame, got {other:?}"),
         }
@@ -1590,5 +1858,99 @@ mod tests {
     #[test]
     fn stop_budget_follows_the_advertised_grace() {
         assert!(FALLBACK_GRACE >= Duration::from_secs(10));
+    }
+
+    /// ADR-0136, end to end: a server that sends a frame this build cannot
+    /// model must **not** end the client's attachment.
+    ///
+    /// The real incident: a server binary replaced on disk kept running and
+    /// kept emitting the deleted `RetryResolved` variant. The decoder reported
+    /// it as `Err`, the reader task read `Err` as "the socket died", and the
+    /// synthesized `Exit` closed the window — with the attach line
+    /// (`nuo: connecting to the session server…`) the only thing the operator
+    /// ever saw.
+    ///
+    /// This drives the actual attach path over a socket pair: a peer answers
+    /// `Select` with `Welcome`, then sends the unmodelled envelope. The
+    /// assertion that matters is that the response channel is still *open* and
+    /// a disclosure arrives — not that the stream ended.
+    #[tokio::test]
+    async fn an_unmodelled_frame_after_welcome_does_not_end_the_attachment() {
+        let (client_side, mut server_side) = tokio::net::UnixStream::pair().unwrap();
+
+        // Minimal server, hand-framed: it must be able to write an envelope no
+        // encoder in this build can produce, which is exactly the condition
+        // being reproduced.
+        tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            use tokio::io::AsyncWriteExt;
+
+            // Consume the client's `Select` (length prefix + payload).
+            let mut prefix = [0u8; 4];
+            server_side.read_exact(&mut prefix).await.unwrap();
+            let len = u32::from_be_bytes(prefix) as usize;
+            let mut select = vec![0u8; len];
+            server_side.read_exact(&mut select).await.unwrap();
+
+            let welcome = serde_json::to_vec(&Wire::Welcome {
+                thread_id: "thread-drifted".to_string(),
+                phase: nuo_protocol::ThreadPhase::Binding,
+            })
+            .unwrap();
+            let mut out = Vec::new();
+            out.extend_from_slice(&(welcome.len() as u32).to_be_bytes());
+            out.extend_from_slice(&welcome);
+
+            // The exact shape that killed the client: a `Response` envelope
+            // naming a variant this build no longer has.
+            const SKEWED: &[u8] = br#"{"type":"Response","RetryResolved":{"attempt":1}}"#;
+            out.extend_from_slice(&(SKEWED.len() as u32).to_be_bytes());
+            out.extend_from_slice(SKEWED);
+
+            server_side.write_all(&out).await.unwrap();
+            server_side.flush().await.unwrap();
+
+            // Hold the connection open so the client cannot mistake this for a
+            // disconnect — that separation is the whole point.
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+
+        let (sink, source) = crate::transport::native_framed_split(client_side);
+        let handshake =
+            finish_handshake_with_project((sink, source), AttachAction::Attach(None), None)
+                .await
+                .expect("the attach itself succeeds: Welcome arrived first");
+
+        let Handshake::Attached { mut resp_rx, .. } = handshake else {
+            panic!("expected an attached handshake");
+        };
+
+        // The skew must surface as a disclosure the operator can act on.
+        let response = tokio::time::timeout(Duration::from_secs(3), resp_rx.recv())
+            .await
+            .expect("a disclosure must arrive before the deadline")
+            .expect("the channel must still be open — the link is alive");
+
+        match response {
+            AgentResponse::Error(message) => {
+                assert!(
+                    message.contains("does not understand"),
+                    "the disclosure must say the frame was unreadable, got: {message}"
+                );
+                assert!(
+                    message.contains("still live"),
+                    "the disclosure must state the connection survived, got: {message}"
+                );
+            }
+            other => panic!("expected a disclosure, got {other:?}"),
+        }
+
+        // And crucially: no `Exit`. The old code synthesized one here, which the
+        // TUI applied as `should_quit`.
+        let next = tokio::time::timeout(Duration::from_millis(600), resp_rx.recv()).await;
+        assert!(
+            next.is_err(),
+            "a skewed frame must not terminate the session; the reader must simply              continue waiting for the next frame"
+        );
     }
 }

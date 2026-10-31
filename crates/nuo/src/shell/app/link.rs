@@ -1,6 +1,6 @@
 //! The server link state (D6): every outbox send is checked, and a
 //! dead link is a first-class chrome state, not noise.
-use nuo_wire::AgentRequest;
+use nuo_protocol::AgentRequest;
 
 use crate::shell::app::App;
 

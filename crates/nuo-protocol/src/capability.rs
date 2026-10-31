@@ -66,11 +66,11 @@ pub use nuo_tool::stream::InputHandler;
 /// here for existing call sites.
 pub use nuo_tool::context::ToolInvocation;
 
-// `nuo_wire::Tool` is now an alias of the single tool contract in the leaf
+// `nuo_protocol::Tool` is now an alias of the single tool contract in the leaf
 // (`nuo_tool::Tool`) per ADR-0008 §1. All vocabulary it needs (ToolOutput,
 // ScopeTarget, ToolAccesses, HazardLevel, ToolInvocation, InputHandler,
 // SubagentEvent, ToolStream) lives in `nuo-tool`; this re-export keeps every
-// existing `impl nuo_wire::Tool` and `dyn nuo_wire::Tool` site compiling.
+// existing `impl nuo_protocol::Tool` and `dyn nuo_protocol::Tool` site compiling.
 pub use nuo_tool::{BuiltinTool, Tool};
 
 /// What a tool call acts on, so the operation-scope gate can match it against

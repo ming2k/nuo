@@ -20,7 +20,7 @@ name = "storybook"
 required-features = ["interactive"]
 
 [dependencies]
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-harness = { workspace = true }

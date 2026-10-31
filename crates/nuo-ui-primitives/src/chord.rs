@@ -501,11 +501,22 @@ impl Key {
                     'x' => "alt-x",
                     'y' => "alt-y",
                     'z' => "alt-z",
+                    // Punctuation chords are bindings too (`scene_back` /
+                    // `scene_forward` / Settings). A hole here renders the
+                    // chord as `·` on every surface that asks the key what it
+                    // is called — the config token and the display string must
+                    // agree with what the input layer actually compares.
+                    '[' => "alt-[",
+                    ']' => "alt-]",
+                    ',' => "alt-,",
+                    '.' => "alt-.",
                     _ => "·",
                 },
                 KeyCode::Enter => "alt-enter",
                 KeyCode::Up => "alt-↑",
                 KeyCode::Down => "alt-↓",
+                KeyCode::Left => "alt-←",
+                KeyCode::Right => "alt-→",
                 _ => "·",
             }
         } else if shift {
@@ -604,11 +615,20 @@ impl Key {
                     'x' => "Alt-x",
                     'y' => "Alt-y",
                     'z' => "Alt-z",
+                    // See the config-token arm above: a chord that is not
+                    // named here renders as `·`, silently breaking every
+                    // surface that displays the key it advertises.
+                    '[' => "Alt-[",
+                    ']' => "Alt-]",
+                    ',' => "Alt-,",
+                    '.' => "Alt-.",
                     _ => "·",
                 },
                 KeyCode::Enter => "Alt-Enter",
                 KeyCode::Up => "Alt-↑",
                 KeyCode::Down => "Alt-↓",
+                KeyCode::Left => "Alt-←",
+                KeyCode::Right => "Alt-→",
                 _ => "·",
             }
         } else if shift {

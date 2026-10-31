@@ -57,7 +57,7 @@ async fn a_component_joining_a_stamped_turn_adopts_its_time() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: nuo_wire::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: thinking,
         },
     );
@@ -100,7 +100,7 @@ async fn adoption_is_scoped_to_the_component_own_turn() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: nuo_wire::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: first,
         },
     );
@@ -141,7 +141,7 @@ async fn an_explicit_stamp_is_never_overwritten() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: nuo_wire::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: thinking,
         },
     );
@@ -180,7 +180,7 @@ async fn an_admitted_turn_band_paints_the_turn_time() {
         &mut app,
         &runtime,
         TranscriptEdit::Append {
-            class: nuo_wire::EventClass::Dialogue,
+            class: nuo_protocol::EventClass::Dialogue,
             message: thinking,
         },
     );
@@ -236,6 +236,7 @@ fn render_grid(messages: &[TranscriptMessage], width: u16, height: u16) -> Strin
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
                 tasks_bar: Default::default(),
+                interrupt_key: None,
                 subagent_bar: None,
                 page_hints: None,
                 tab_bar: None,

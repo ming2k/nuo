@@ -5,9 +5,9 @@ use serde_json::json;
 
 use acp::{AgentAddress, AgentEnvelope, AgentManifest, Fabric, MessageIntent, SteerAction};
 use nuo_harness::{Agent, AgentIdentity};
-use nuo_wire::{MonitorAction, Tool};
+use nuo_protocol::{MonitorAction, Tool};
 
-use crate::registry::SessionRegistry;
+use crate::registry::ThreadRegistry;
 
 /// The hypervisor station's canonical ACP address. A literal constant, so the
 /// parse in [`Hypervisor::new`] is only ever handed a form the
@@ -22,7 +22,7 @@ const HYPERVISOR_ADDRESS: &str = "agent://local/hypervisor";
 pub struct Hypervisor {
     agent: Arc<Agent>,
     #[allow(dead_code)]
-    registry: SessionRegistry,
+    registry: ThreadRegistry,
     #[allow(dead_code)]
     fabric: Fabric,
     address: AgentAddress,
@@ -32,8 +32,8 @@ pub struct Hypervisor {
 impl Hypervisor {
     /// Create the singleton hypervisor station for the server.
     pub async fn new(
-        provider: Arc<dyn nuo_wire::Provider>,
-        registry: SessionRegistry,
+        provider: Arc<dyn nuo_protocol::Provider>,
+        registry: ThreadRegistry,
         fabric: Fabric,
     ) -> Self {
         // `HYPERVISOR_ADDRESS` is a literal pinned by
@@ -75,7 +75,7 @@ impl Hypervisor {
         );
 
         let agent = Arc::new(Agent::new(provider, tools, identity));
-        agent.set_kind(nuo_wire::AgentKind::Root);
+        agent.set_kind(nuo_protocol::AgentKind::Root);
 
         Self {
             agent,
@@ -97,11 +97,11 @@ impl Hypervisor {
 
 /// Tool for Hypervisor to list and monitor all hosted sessions across the server.
 pub struct HypervisorListSessionsTool {
-    registry: SessionRegistry,
+    registry: ThreadRegistry,
 }
 
 impl HypervisorListSessionsTool {
-    pub fn new(registry: SessionRegistry) -> Self {
+    pub fn new(registry: ThreadRegistry) -> Self {
         Self { registry }
     }
 }
@@ -142,7 +142,7 @@ impl Tool for HypervisorListSessionsTool {
             .await;
 
         let sessions: Vec<serde_json::Value> = snapshot
-            .sessions
+            .threads
             .iter()
             .map(|s| {
                 json!({
@@ -165,11 +165,11 @@ impl Tool for HypervisorListSessionsTool {
 
 /// Tool for Hypervisor to inspect a session's detailed state and messages.
 pub struct HypervisorInspectSessionTool {
-    registry: SessionRegistry,
+    registry: ThreadRegistry,
 }
 
 impl HypervisorInspectSessionTool {
-    pub fn new(registry: SessionRegistry) -> Self {
+    pub fn new(registry: ThreadRegistry) -> Self {
         Self { registry }
     }
 }
@@ -304,17 +304,13 @@ impl Tool for HypervisorInstructSessionTool {
 
 /// Tool for Hypervisor to coordinate joint debugging across multiple sessions.
 pub struct HypervisorCoordinateDebugTool {
-    registry: SessionRegistry,
+    registry: ThreadRegistry,
     fabric: Fabric,
     hypervisor_address: AgentAddress,
 }
 
 impl HypervisorCoordinateDebugTool {
-    pub fn new(
-        registry: SessionRegistry,
-        fabric: Fabric,
-        hypervisor_address: AgentAddress,
-    ) -> Self {
+    pub fn new(registry: ThreadRegistry, fabric: Fabric, hypervisor_address: AgentAddress) -> Self {
         Self {
             registry,
             fabric,
@@ -406,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn hypervisor_creation_and_tools() {
         let provider = Arc::new(nuo_harness::NoProvider);
-        let registry = SessionRegistry::prehost_only();
+        let registry = ThreadRegistry::prehost_only();
         let fabric = acp::Fabric::new("test-fabric");
 
         let hypervisor = Hypervisor::new(provider, registry.clone(), fabric).await;

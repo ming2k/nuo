@@ -10,7 +10,7 @@ nuo-tool = { workspace = true }
 nuo-provider = { workspace = true }
 nuo-model-routing = { workspace = true }
 nuo-inference-wire = { workspace = true }
-nuo-wire = { workspace = true }
+nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
 nuo-tool-fs = { workspace = true }

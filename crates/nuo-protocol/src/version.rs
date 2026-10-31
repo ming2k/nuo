@@ -159,19 +159,35 @@ pub fn versions_compatible(info: &Discovery) -> bool {
 }
 
 /// Pure compatibility decision helper.
+///
+/// The protocol number alone is **not** sufficient evidence of compatibility.
+/// ADR-0134 deleted a wire variant without bumping the protocol, so a server
+/// one revision away kept answering the same protocol number and then emitted a
+/// frame the client could not model — which the client, before ADR-0136,
+/// reported as a dead link. A protocol window can always be outrun by an
+/// in-window wire change, so the *image* has to agree too.
+///
+/// The previous rule read `!same_version || server_image_is_current`, i.e. any
+/// product-version difference was accepted outright. That is exactly how the
+/// stale process survived: `nuo` on disk was upgraded, the running server was
+/// not, and the client kept attaching to the old one for hours.
 pub fn local_pair_compatible(
     protocol: Option<u32>,
     version: Option<&str>,
     server_image_is_current: bool,
 ) -> bool {
-    if let Some(proto) = protocol {
-        if !protocol_accepts(proto) {
-            return false;
-        }
-        let same_version = version == Some(env!("CARGO_PKG_VERSION"));
-        return !same_version || server_image_is_current;
+    // A rebuilt or replaced binary is authoritative over every other signal:
+    // whatever it declares, it is no longer the image this client speaks to.
+    if !server_image_is_current {
+        return false;
     }
-    version.is_some_and(|v| v == env!("CARGO_PKG_VERSION")) && server_image_is_current
+    if let Some(proto) = protocol {
+        return protocol_accepts(proto);
+    }
+    // A pre-protocol record has nothing but its product version to offer, and
+    // unknown fields are ignored on the wire, so exact equality is the only
+    // claim that can be checked.
+    version.is_some_and(|v| v == env!("CARGO_PKG_VERSION"))
 }
 
 /// Whether the running server's executable is still the resolved `nuo` core image.
@@ -251,19 +267,45 @@ mod tests {
         );
     }
 
+    /// ADR-0136: the protocol window alone cannot certify compatibility.
+    ///
+    /// The two cases this test used to *require* — an in-window protocol paired
+    /// with a mismatched image — are precisely how a stale server survived an
+    /// upgrade while still emitting a variant the client had deleted. A drifted
+    /// image is now incompatible whatever it declares.
     #[test]
     fn test_local_pair_compatible() {
         let me = env!("CARGO_PKG_VERSION");
-        assert!(local_pair_compatible(
+
+        // A replaced/rebuilding binary is never compatible, however its record
+        // reads. This is the containment for an in-window wire change.
+        assert!(!local_pair_compatible(
             Some(PROTOCOL_VERSION),
             Some("0.0.1-much-older"),
             false,
         ));
-        assert!(local_pair_compatible(
+        assert!(!local_pair_compatible(
             Some(MIN_PROTOCOL_VERSION),
             Some("99.0.0"),
             false,
         ));
+        assert!(!local_pair_compatible(None, Some(me), false));
+
+        // In-window protocol + current image: compatible regardless of the
+        // product version, which is what lets a pinned client keep talking to a
+        // newer server across additive changes.
+        assert!(local_pair_compatible(
+            Some(PROTOCOL_VERSION),
+            Some("0.0.1-much-older"),
+            true,
+        ));
+        assert!(local_pair_compatible(
+            Some(MIN_PROTOCOL_VERSION),
+            Some("99.0.0"),
+            true,
+        ));
+
+        // Outside the window is incompatible on the number alone.
         assert!(!local_pair_compatible(
             Some(PROTOCOL_VERSION + 1),
             Some(me),

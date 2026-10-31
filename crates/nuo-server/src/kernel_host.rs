@@ -22,7 +22,7 @@ use nuo_harness::{
 use nuo_persistence::paths;
 use nuo_persistence::roles::RolesConfig;
 use nuo_persistence::session::SessionStore;
-use nuo_wire::CustomRole;
+use nuo_protocol::CustomRole;
 
 /// Role declarations from the product's files.
 ///
@@ -192,7 +192,7 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
         })
     }
 
-    fn picker_snapshot(&self) -> Option<nuo_wire::ProviderPickerSnapshot> {
+    fn picker_snapshot(&self) -> Option<nuo_protocol::ProviderPickerSnapshot> {
         let config = nuo_persistence::config::Config::load();
         let usage = nuo_persistence::connection_usage::ConnectionUsage::load();
         Some(nuo_model_routing::build_picker_state(&config, &usage))

@@ -18,11 +18,11 @@
 //! through [`Clock`], so the whole flow is deterministic and testable without a
 //! provider or a database. The commit helper takes an already-open `Connection`
 //! (one-door) and never opens its own.
-use nuo_wire::context_lifecycle::{
+use nuo_protocol::context_lifecycle::{
     Checkpoint, CheckpointId, ContextView, ExecutionGroup, FactId, FactNode, Representation,
     RepresentationEntry, SourceAuthority, SourceInterval, SourceManifest, Validity, ViewId,
 };
-use nuo_wire::tokenizer;
+use nuo_protocol::tokenizer;
 use sha2::{Digest, Sha256};
 
 /// Wall-clock access, injected so the builder stays pure and testable.
@@ -625,12 +625,12 @@ fn source_manifest(facts: &[FactNode]) -> Result<SourceManifest, CheckpointError
 
 /// The default CAS retry bound, re-exported from the domain
 /// contracts for callers of the persistence-door CAS helper.
-pub const DEFAULT_CAS_ATTEMPTS: u32 = nuo_wire::context_lifecycle::CAS_MAX_ATTEMPTS;
+pub const DEFAULT_CAS_ATTEMPTS: u32 = nuo_protocol::context_lifecycle::CAS_MAX_ATTEMPTS;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::context_lifecycle::{
+    use nuo_protocol::context_lifecycle::{
         ExternalExecution, FactPayload, GroupCall, ResultAcceptance, RoundId, TurnId,
     };
 
@@ -703,7 +703,7 @@ mod tests {
                 text: format!("message {seq}"),
             },
             source_authority: SourceAuthority::User,
-            sensitivity: nuo_wire::context_lifecycle::Sensitivity::Internal,
+            sensitivity: nuo_protocol::context_lifecycle::Sensitivity::Internal,
             artifact_refs: vec![],
         }
     }

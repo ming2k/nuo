@@ -1,5 +1,5 @@
 use crate::shell::client::{self, AttachAction, Handshake};
-use nuo_wire::{
+use nuo_protocol::{
     AgentRequest, AgentResponse, PermissionDecision, PermissionRequest, RoundEvent,
     UserQuestionRequest,
 };
@@ -62,9 +62,9 @@ pub async fn run_headless(
     // this client fabricate answers below (the old `options.first()` bug).
     {
         client::set_posture(if io::stderr().is_terminal() {
-            nuo_wire::human_request::HumanChannelPosture::Interactive
+            nuo_protocol::human_request::HumanChannelPosture::Interactive
         } else {
-            nuo_wire::human_request::HumanChannelPosture::Autonomous
+            nuo_protocol::human_request::HumanChannelPosture::Autonomous
         });
     }
     let init_options = client::SessionInitOptions::new(unattended, confined)
@@ -76,13 +76,14 @@ pub async fn run_headless(
         Some(init_options)
     });
     let handshake = target.connect(action.clone()).await?;
-    let (tx, mut rx, session_id, _phase) = match handshake {
+    let (tx, mut rx, link_lost, session_id, _phase) = match handshake {
         Handshake::Attached {
             req_tx,
             resp_rx,
+            link_lost,
             session_id,
             phase,
-        } => (req_tx, resp_rx, session_id, phase),
+        } => (req_tx, resp_rx, link_lost, session_id, phase),
         Handshake::Pick(_) => {
             return Err("unexpected session pick list when creating fresh headless session".into());
         }
@@ -100,14 +101,14 @@ pub async fn run_headless(
 
     while let Some(resp) = rx.recv().await {
         match &resp {
-            AgentResponse::SessionSnapshot(snapshot) => {
+            AgentResponse::ThreadSnapshot(snapshot) => {
                 provider = snapshot.provider.clone();
                 model = snapshot.model.clone();
                 continue;
             }
-            AgentResponse::SessionPhase(update) => {
+            AgentResponse::ThreadPhase(update) => {
                 match &update.phase {
-                    nuo_wire::SessionPhase::Ready if !prompt_sent => {
+                    nuo_protocol::ThreadPhase::Ready if !prompt_sent => {
                         if json {
                             let init_event = serde_json::json!({
                                 "type": "session_init",
@@ -128,7 +129,7 @@ pub async fn run_headless(
                         )?;
                         prompt_sent = true;
                     }
-                    nuo_wire::SessionPhase::Failed { message, .. } => {
+                    nuo_protocol::ThreadPhase::Failed { message, .. } => {
                         return Err(message.clone().into());
                     }
                     _ => {}
@@ -139,7 +140,7 @@ pub async fn run_headless(
         }
         match resp {
             AgentResponse::Round {
-                session_id: _,
+                thread_id: _,
                 event,
             } => match event {
                 RoundEvent::Text(delta) => {
@@ -183,11 +184,11 @@ pub async fn run_headless(
                 RoundEvent::ToolStream { id, stream } => {
                     if !json {
                         match stream {
-                            nuo_wire::ToolStream::Stdout(text) => {
+                            nuo_protocol::ToolStream::Stdout(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
-                            nuo_wire::ToolStream::Stderr(text) => {
+                            nuo_protocol::ToolStream::Stderr(text) => {
                                 let _ = io::stderr().write_all(text.as_bytes());
                                 let _ = io::stderr().flush();
                             }
@@ -220,10 +221,10 @@ pub async fn run_headless(
                     } else {
                         let is_error = matches!(
                             structured,
-                            nuo_wire::ToolOutput::Error { .. }
-                                | nuo_wire::ToolOutput::PermissionDenied { .. }
+                            nuo_protocol::ToolOutput::Error { .. }
+                                | nuo_protocol::ToolOutput::PermissionDenied { .. }
                         ) || match &structured {
-                            nuo_wire::ToolOutput::Shell { exit, .. } => {
+                            nuo_protocol::ToolOutput::Shell { exit, .. } => {
                                 exit.is_some_and(|code| code != 0)
                             }
                             _ => false,
@@ -335,9 +336,26 @@ pub async fn run_headless(
                         println!("{}", serde_json::to_string(&event_obj)?);
                         io::stdout().flush()?;
                     } else {
+                        // A headless stderr line is a *record*, not a live bar:
+                        // it is written once for a reader scrolling back, so it
+                        // takes the retained form (`retry 1 of 29`) from the same
+                        // vocabulary owner the interactive bar uses. Re-deriving
+                        // `attempt - 1` here would be a second attempt-ordinal
+                        // paint site — the exact split (`retry 5/29` beside
+                        // `retry 6/30`) this type exists to close.
+                        let progress = nuo_view::retry::RetryProgress::scheduled(
+                            attempt,
+                            max_attempts,
+                            std::time::Instant::now(),
+                            message.clone(),
+                        );
+                        // The receipt states the retry and the budget; the
+                        // configured backoff is not repeated here because a
+                        // record must not carry a decaying fact and the wait is
+                        // over by the time anyone reads this line.
                         eprintln!(
-                            "\n[retrying {attempt}/{max_attempts} in {}s — {}]",
-                            delay_ms.div_ceil(1_000),
+                            "\n[{} — {}]",
+                            progress.receipt_label(),
                             nuo_harness::runtime::retry::public_retry_reason(&message),
                         );
                         io::stderr().flush()?;
@@ -381,7 +399,17 @@ pub async fn run_headless(
         }
     }
 
-    Ok(())
+    // The stream ended without the server ever saying `Exit`. For a one-shot
+    // headless run that is a *failure*, not a completion: the prompt may never
+    // have been answered. The old code returned `Ok(())` here, so a script
+    // whose session died mid-run exited 0 with partial output — a silent lie
+    // of exactly the kind this ADR removes [ADR-0136].
+    let reason = link_lost
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .unwrap_or_else(|| "the server closed the connection before completing".to_string());
+    Err(format!("server link lost before the run completed: {reason}").into())
 }
 
 /// Tell the server the headless run's session is over and wait
@@ -395,7 +423,7 @@ async fn declare_session_end(
     tx: &tokio::sync::mpsc::UnboundedSender<AgentRequest>,
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<AgentResponse>,
 ) {
-    if tx.send(AgentRequest::EndSession).is_err() {
+    if tx.send(AgentRequest::EndThread).is_err() {
         return; // Connection already gone; the server sees the socket close.
     }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);

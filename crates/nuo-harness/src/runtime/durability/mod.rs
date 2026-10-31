@@ -2,7 +2,7 @@
 //! is allowed to claim about it.
 
 use futures::future::BoxFuture;
-use nuo_wire::SessionDelta;
+use nuo_protocol::SessionDelta;
 
 /// What a sink acknowledges after an append.
 #[derive(Debug, Clone, PartialEq, Eq)]

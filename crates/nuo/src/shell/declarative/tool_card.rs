@@ -194,7 +194,7 @@ impl ToolCardProps {
             nuo_view::tools::ResultKind::Diff => {
                 if let Some(tool_output) = structured {
                     match &**tool_output {
-                        nuo_wire::ToolOutput::Patch {
+                        nuo_protocol::ToolOutput::Patch {
                             old,
                             new,
                             start_line,
@@ -217,7 +217,7 @@ impl ToolCardProps {
             nuo_view::tools::ResultKind::Command => {
                 let cmd = if let Some(tool_output) = structured {
                     match &**tool_output {
-                        nuo_wire::ToolOutput::Shell { command, .. } => command.clone(),
+                        nuo_protocol::ToolOutput::Shell { command, .. } => command.clone(),
                         _ => arguments.clone(),
                     }
                 } else {
@@ -225,7 +225,7 @@ impl ToolCardProps {
                 };
                 let out = if let Some(tool_output) = structured {
                     match &**tool_output {
-                        nuo_wire::ToolOutput::Shell { stdout, stderr, .. } => {
+                        nuo_protocol::ToolOutput::Shell { stdout, stderr, .. } => {
                             if !stderr.is_empty() {
                                 format!("{stdout}\n{stderr}")
                             } else {
@@ -245,7 +245,7 @@ impl ToolCardProps {
             nuo_view::tools::ResultKind::Code => {
                 let (raw_content, start_line, explicit_lang) = match structured {
                     Some(tool_output) => match &**tool_output {
-                        nuo_wire::ToolOutput::Code {
+                        nuo_protocol::ToolOutput::Code {
                             text,
                             start_line,
                             lang,

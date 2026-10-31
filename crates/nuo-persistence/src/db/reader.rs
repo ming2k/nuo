@@ -25,8 +25,8 @@ impl DbReader {
             .map(|receipt| receipt.map(|(operation_id, _hash, revision)| (operation_id, revision)))
     }
 
-    /// Load the canonical [`nuo_wire::SessionIR`] for a session if it exists.
-    pub fn load_session_ir(&self, session_id: &str) -> Result<Option<nuo_wire::SessionIR>> {
+    /// Load the canonical [`nuo_protocol::SessionIR`] for a session if it exists.
+    pub fn load_session_ir(&self, session_id: &str) -> Result<Option<nuo_protocol::SessionIR>> {
         crate::db::session_ir::load_session_ir(&self.engine.conn, session_id)
     }
 
@@ -43,7 +43,7 @@ impl DbReader {
         &self,
         days: usize,
         limit: usize,
-    ) -> Result<Vec<nuo_wire::usage_stats::UsageStatRecord>> {
+    ) -> Result<Vec<nuo_protocol::usage_stats::UsageStatRecord>> {
         let mut stmt = self.engine.conn.prepare("SELECT payload,day,recorded_at_ms,project FROM usage_records
             WHERE day IN (SELECT DISTINCT day FROM usage_records ORDER BY day DESC LIMIT ?1)
             AND json_extract(payload,'$.status') != 'in_flight' ORDER BY recorded_at_ms DESC,session_id,actor_id,round,turn,attempt LIMIT ?2")?;
@@ -62,7 +62,7 @@ impl DbReader {
             .collect::<Result<Vec<_>>>()?;
         rows.into_iter()
             .map(|(payload, day, recorded_at_ms, project)| {
-                Ok(nuo_wire::usage_stats::UsageStatRecord {
+                Ok(nuo_protocol::usage_stats::UsageStatRecord {
                     record: decode_json(&payload)?,
                     day,
                     recorded_at_ms,
@@ -76,8 +76,8 @@ impl DbReader {
         &self,
         days: usize,
         event_cap: usize,
-    ) -> Result<nuo_wire::usage_stats::UsageStatsReport> {
-        use nuo_wire::usage_stats::*;
+    ) -> Result<nuo_protocol::usage_stats::UsageStatsReport> {
+        use nuo_protocol::usage_stats::*;
         let mut report = UsageStatsReport::default();
         let mut day_map = std::collections::BTreeMap::<String, UsageModelTotals>::new();
         let mut model_map = std::collections::BTreeMap::<(String, String), UsageModelTotals>::new();
@@ -155,28 +155,28 @@ impl DbReader {
 
     // -- sessions ----------------------------------------------------------
 
-    /// One session's header row, if it exists.
-    pub fn get_session(&self, session_id: &str) -> Result<Option<SessionRecord>> {
+    /// One thread's header row, if it exists.
+    pub fn get_session(&self, session_id: &str) -> Result<Option<ThreadRecord>> {
         crate::db::session_store::get_session(&self.engine.conn, session_id)
     }
 
-    /// Sessions matching a derived grouping, newest first.
+    /// Threads matching a derived grouping, newest first.
     pub fn list_sessions(
         &self,
-        filter: Option<&nuo_wire::WorkspaceFilter>,
-    ) -> Result<Vec<SessionRecord>> {
+        filter: Option<&nuo_protocol::WorkspaceFilter>,
+    ) -> Result<Vec<ThreadRecord>> {
         crate::db::session_store::list_sessions(&self.engine.conn, filter)
     }
 
-    /// Subagent sessions spawned by `parent_id`.
-    pub fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<SessionRecord>> {
+    /// Subagent threads spawned by `parent_id`.
+    pub fn list_subagent_sessions(&self, parent_id: &str) -> Result<Vec<ThreadRecord>> {
         crate::db::session_store::list_subagent_sessions(&self.engine.conn, parent_id)
     }
 
     /// Candidate sessions for switching, strictly excluding the active session.
     pub fn list_switch_candidates(
         &self,
-        partition: &nuo_wire::SessionPartition,
+        partition: &nuo_protocol::SessionPartition,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         crate::db::session_store::list_switch_candidates(&self.engine.conn, partition, active_id)
@@ -185,7 +185,7 @@ impl DbReader {
     /// List session summaries for a domain partition, with active session tagged.
     pub fn list_session_summaries_in_partition(
         &self,
-        partition: &nuo_wire::SessionPartition,
+        partition: &nuo_protocol::SessionPartition,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         crate::db::session_store::list_session_summaries_in_partition(
@@ -198,7 +198,7 @@ impl DbReader {
     /// The most recently updated session id in `partition` (`--resume`).
     pub fn latest_session_in_partition(
         &self,
-        partition: &nuo_wire::SessionPartition,
+        partition: &nuo_protocol::SessionPartition,
     ) -> Result<Option<String>> {
         crate::db::session_store::latest_session_in_partition(&self.engine.conn, partition)
     }
@@ -206,7 +206,7 @@ impl DbReader {
     /// Picker-facing summaries for a derived grouping, newest first.
     pub fn list_session_summaries(
         &self,
-        filter: Option<&nuo_wire::WorkspaceFilter>,
+        filter: Option<&nuo_protocol::WorkspaceFilter>,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         crate::db::session_store::list_session_summaries(&self.engine.conn, filter, active_id)
@@ -216,7 +216,7 @@ impl DbReader {
     /// to one persona (the `--resume` resolution leg).
     pub fn latest_session(
         &self,
-        filter: &nuo_wire::WorkspaceFilter,
+        filter: &nuo_protocol::WorkspaceFilter,
         persona: Option<&str>,
     ) -> Result<Option<String>> {
         crate::db::session_store::latest_session(&self.engine.conn, filter, persona)
@@ -226,7 +226,7 @@ impl DbReader {
     pub fn lookup_session_workspace(
         &self,
         session_id: &str,
-    ) -> Result<Option<(Option<nuo_wire::WorkspaceBinding>, Option<String>)>> {
+    ) -> Result<Option<(Option<nuo_protocol::WorkspaceBinding>, Option<String>)>> {
         crate::db::session_store::lookup_session_workspace(&self.engine.conn, session_id)
     }
 
@@ -234,7 +234,7 @@ impl DbReader {
     pub fn lookup_session_manifest(
         &self,
         session_id: &str,
-    ) -> Result<Option<nuo_wire::SessionRoleManifest>> {
+    ) -> Result<Option<nuo_protocol::SessionRoleManifest>> {
         crate::db::session_store::lookup_session_manifest(&self.engine.conn, session_id)
     }
 
@@ -242,7 +242,7 @@ impl DbReader {
     pub fn resolve_session_prefix(
         &self,
         prefix: &str,
-        filter: Option<&nuo_wire::WorkspaceFilter>,
+        filter: Option<&nuo_protocol::WorkspaceFilter>,
     ) -> Result<Vec<String>> {
         crate::db::session_store::resolve_session_prefix(&self.engine.conn, prefix, filter)
     }
@@ -252,7 +252,7 @@ impl DbReader {
         &self,
         session_id: &str,
         active_id: &str,
-    ) -> Result<Option<nuo_wire::SessionDetail>> {
+    ) -> Result<Option<nuo_protocol::ThreadDetail>> {
         crate::db::session_store::get_session_detail(&self.engine.conn, session_id, active_id)
     }
 
@@ -270,7 +270,7 @@ impl DbReader {
         &self,
         session_id: &str,
         tail: usize,
-    ) -> Result<Option<SessionTranscriptView>> {
+    ) -> Result<Option<ThreadTranscriptView>> {
         crate::db::session_store::read_session_transcript(&self.engine.conn, session_id, tail)
     }
 
@@ -287,7 +287,7 @@ impl DbReader {
     pub fn search_history(
         &self,
         query: &str,
-        filter: Option<&nuo_wire::WorkspaceFilter>,
+        filter: Option<&nuo_protocol::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
         crate::db::history_search::search_history(&self.engine.conn, query, filter, limit)
@@ -297,14 +297,14 @@ impl DbReader {
     pub fn search_history_relaxed(
         &self,
         query: &str,
-        filter: Option<&nuo_wire::WorkspaceFilter>,
+        filter: Option<&nuo_protocol::WorkspaceFilter>,
         limit: usize,
     ) -> Result<Vec<HistorySearchResult>> {
         crate::db::history_search::search_history_relaxed(&self.engine.conn, query, filter, limit)
     }
 
     /// The prompt history, oldest first, capped at `limit`.
-    pub fn load_input_history(&self, limit: usize) -> Result<Vec<nuo_wire::HistoryEntry>> {
+    pub fn load_input_history(&self, limit: usize) -> Result<Vec<nuo_protocol::HistoryEntry>> {
         crate::db::input_history::load_input_history(&self.engine.conn, limit)
     }
 
@@ -313,7 +313,7 @@ impl DbReader {
         &self,
         session_id: &str,
         limit: usize,
-    ) -> Result<Vec<nuo_wire::RequestProjection>> {
+    ) -> Result<Vec<nuo_protocol::RequestProjection>> {
         crate::db::usage_projection::load_request_projections(&self.engine.conn, session_id, limit)
     }
 
@@ -350,7 +350,7 @@ impl DbReader {
         &self,
         session_id: &str,
     ) -> std::result::Result<
-        Vec<nuo_wire::context_lifecycle::FactNode>,
+        Vec<nuo_protocol::context_lifecycle::FactNode>,
         crate::db::context_store::ContextCommitError,
     > {
         crate::db::context_store::load_facts(&self.engine.conn, session_id)

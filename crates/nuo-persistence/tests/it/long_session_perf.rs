@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use nuo_persistence::session::{CommitTurn, SessionStore};
-use nuo_wire::{Message, Role};
+use nuo_protocol::{Message, Role};
 
 #[tokio::test]
 async fn long_session_commit_turn_scales_with_delta_not_session_length() {

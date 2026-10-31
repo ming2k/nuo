@@ -1,11 +1,11 @@
 //! Session IR persistence bridge for DatabaseEngine.
 //!
 //! Implements isomorphic serialization and hydration between SQLite and
-//! [`nuo_wire::SessionIR`]:
+//! [`nuo_protocol::SessionIR`]:
 //! - `causal_nodes`: stores immutable fact nodes and DAG edges.
 //! - `session_policies`: stores declarative policy, capabilities, and budgets.
 //! - `sessions_v2`: stores session working cursor, execution status, and timestamps.
-use nuo_wire::{
+use nuo_protocol::{
     CausalNode, ExecutionStatus, NodeKind, NodePayload, SessionDelta, SessionIR, SessionPolicy,
     SessionState, SuspensionReason, SystemNoticePayload,
 };
@@ -292,10 +292,10 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
     let mut timelines = std::collections::HashMap::new();
     timelines.insert(
         "main".to_string(),
-        nuo_wire::TimelineCursor {
+        nuo_protocol::TimelineCursor {
             id: "main".to_string(),
             name: "Mainline".to_string(),
-            kind: nuo_wire::TimelineKind::Main,
+            kind: nuo_protocol::TimelineKind::Main,
             head_node: active_leaf.clone(),
             forked_from_node: None,
             created_at_s,
@@ -381,7 +381,7 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
         parent_session_id,
         created_at_s,
         updated_at_s,
-        history: nuo_wire::CausalGraph::new(),
+        history: nuo_protocol::CausalGraph::new(),
         state,
         policy,
     };
@@ -428,8 +428,8 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_wire::TerminationReason;
-    use nuo_wire::message::{Message, Role};
+    use nuo_protocol::TerminationReason;
+    use nuo_protocol::message::{Message, Role};
     use rusqlite::Connection;
 
     #[test]

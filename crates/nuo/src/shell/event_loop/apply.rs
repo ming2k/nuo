@@ -7,7 +7,7 @@
 //! `App` and maintains the two bookkeeping facts the render loop consumes —
 //! the height-cache invalidation and the "transcript changed" flag that
 //! drives bottom-follow scrolling.
-use nuo_wire::Role;
+use nuo_protocol::Role;
 
 use crate::shell::app::App;
 use crate::shell::event_loop::mutations::{AppMutation, ChromeEdit, TranscriptEdit};
@@ -103,14 +103,14 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         }
         AppMutation::SessionPhase(phase) => {
             let failed = match &phase {
-                nuo_wire::SessionPhase::Failed { message, .. } => Some(message.clone()),
+                nuo_protocol::ThreadPhase::Failed { message, .. } => Some(message.clone()),
                 _ => None,
             };
-            let ready = phase == nuo_wire::SessionPhase::Ready;
+            let ready = phase == nuo_protocol::ThreadPhase::Ready;
             app.session_phase = phase;
             if ready {
                 app.switching_session = None;
-                let queued: Vec<_> = app.pending_prompts.drain(..).collect();
+                let queued: Vec<_> = std::mem::take(&mut app.pending_prompts);
                 for request in queued {
                     let _ = app.send_intent(request);
                 }
@@ -595,6 +595,25 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             true
         }
+        AppMutation::LinkLost { reason } => {
+            // ADR-0136: a dead link is not an exit. The session is still hosted
+            // on the server; only this client's reader stopped, so intents can
+            // no longer be delivered — which is exactly what `link_down` already
+            // renders. Retaining the reason is what makes the fault answerable
+            // after a window that previously closed with no explanation at all.
+            app.link_down = true;
+            app.relink_requested = true;
+            app.record_notice(
+                nuo_view::model::document::NoticeSeverity::Error,
+                "link",
+                format!(
+                    "Lost the connection to the session server: {reason}. \
+                     The session is still running — reconnect with `nuo`."
+                ),
+                0,
+            );
+            true
+        }
         AppMutation::HostSessions(rows) => {
             for row in &rows {
                 if let Some(ref t) = row.title {
@@ -955,7 +974,7 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 let _ = messages
                     .iter_mut()
                     .find(|message| message.tool_step_call_id() == Some(parent_call_id.as_str()))
-                    .is_some_and(|message| message.push_subagent_event(&event));
+                    .is_some_and(|message| message.push_subagent_event(&event, &tui_config));
             }
             TranscriptEdit::SettleInserted {
                 insert_id,
@@ -998,7 +1017,7 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 // A rejected command name is the one command result that gives
                 // the user something back: nothing was dispatched, so the draft
                 // is still theirs. Hold it for the post-borrow restore below.
-                if let nuo_wire::CommandResult::UnknownCommand { .. } = &result {
+                if let nuo_protocol::CommandResult::UnknownCommand { .. } = &result {
                     rejected_invocation = Some(invocation.clone());
                 }
                 let mut settled_id: Option<u64> = None;
