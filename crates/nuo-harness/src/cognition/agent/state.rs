@@ -352,6 +352,7 @@ impl Agent {
                 .workspace_root()
                 .and_then(|p| detect_workspace_topology(&p)),
             workspace_root: self.workspace_root().map(|p| p.display().to_string()),
+            supports_parallel_tool_calls: self.provider.supports_parallel_tool_calls(),
         }
     }
 }

@@ -1856,6 +1856,7 @@ impl Config {
     /// 3. Glob pattern match in [`ModelGuidanceConfig`] (e.g. `"*deepseek*"`)
     /// 4. Family exact match in [`ModelGuidanceConfig`]
     /// 5. Glob pattern match against family
+    /// 6. Baseline default guidance for known model families (ADR-0130)
     pub fn resolve_model_guidance(
         &self,
         route_settings: Option<&RouteSettings>,
@@ -1870,7 +1871,23 @@ impl Config {
         self.model_guidance
             .resolve(model_id, family)
             .map(|s| s.to_string())
+            .or_else(|| Self::default_baseline_model_guidance(model_id, family).map(str::to_string))
             .unwrap_or_default()
+    }
+
+    /// Default baseline behavioral guidance for model families with known dialectal quirks (ADR-0130 Step 5).
+    pub fn default_baseline_model_guidance(model_id: &str, family: &str) -> Option<&'static str> {
+        let lower_model = model_id.to_ascii_lowercase();
+        let lower_family = family.to_ascii_lowercase();
+        if lower_family == "deepseek" || lower_model.contains("deepseek") {
+            Some(
+                "- Speak in direct, concise, natural technical language without bureaucratic filler, prefaces, or empty platitudes.\n\
+             - Never emit unprompted pseudo-tool markers, raw markdown command blocks, or fake command results in message text; all tool calls must be issued exclusively via structured tool calling.\n\
+             - After a tool or shell command finishes, carefully analyze the returned output rather than speculatively re-issuing similar command variations in a loop.",
+            )
+        } else {
+            None
+        }
     }
 
     /// Append project-local `[workspace].additional_roots` to this config's additional roots.
@@ -2251,6 +2268,11 @@ pub(crate) mod tests {
         // 5. Unmatched model returns empty string
         let unknown = cfg.resolve_model_guidance(None, "gpt-4o", "openai");
         assert_eq!(unknown, "");
+
+        // 6. Unconfigured DeepSeek returns baseline default guidance
+        let empty_cfg = Config::default();
+        let default_ds = empty_cfg.resolve_model_guidance(None, "deepseek-flash", "deepseek");
+        assert!(default_ds.contains("Never emit unprompted pseudo-tool markers"));
     }
 
     #[test]

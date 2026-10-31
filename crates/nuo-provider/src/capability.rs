@@ -545,6 +545,14 @@ pub trait Provider: Send + Sync {
     fn usage_supported(&self) -> bool {
         false
     }
+
+    /// Whether this provider channel supports parallel (batched) tool calling.
+    ///
+    /// Used by system prompt policies to avoid instructing models to batch concurrent
+    /// tool calls when the underlying channel or dialect disallows it (e.g. DeepSeek).
+    fn supports_parallel_tool_calls(&self) -> bool {
+        true
+    }
 }
 
 // `InputHandler` / `ToolInvocation` were relocated to `nuo-protocol::capability`

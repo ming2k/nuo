@@ -48,6 +48,8 @@ pub struct SystemPromptContext {
     pub workspace_root: Option<String>,
     /// Deterministic workspace architecture / crate topology summary (ADR-0052, [INV-INST-04]).
     pub workspace_topology: Option<String>,
+    /// Whether the active provider channel supports parallel tool calling.
+    pub supports_parallel_tool_calls: bool,
 }
 
 impl SystemPromptContext {

@@ -12,8 +12,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use nuo_tool::stream::{InputContract, ToolStream};
 use nuo_tool::{
-    BuiltinTool, RiskProfile, ShellLine, ShellStream, ShellTermination, Tool, ToolContext,
-    ToolError, ToolInvocation, ToolOutput, ToolSchema, ToolScope,
+    BuiltinTool, RiskProfile, ScopeTarget, ShellLine, ShellStream, ShellTermination, Tool,
+    ToolContext, ToolError, ToolInvocation, ToolOutput, ToolSchema, ToolScope,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -375,6 +375,16 @@ impl Tool for ExecuteCommandTool {
 
     fn scopes(&self) -> Vec<ToolScope> {
         vec![ToolScope::Workspace]
+    }
+
+    fn scope_target(&self, arguments: &str) -> ScopeTarget {
+        if let Ok(value) = serde_json::from_str::<Value>(arguments)
+            && let Some(cmd) = value.get("command").and_then(Value::as_str)
+        {
+            ScopeTarget::Command(cmd.to_string())
+        } else {
+            ScopeTarget::Unspecified
+        }
     }
 
     async fn execute(&self, ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
@@ -839,5 +849,20 @@ mod tests {
                 "Downstream should mark it truncated for cognitive context protection"
             );
         }
+    }
+
+    #[test]
+    fn scope_target_and_accesses_resolve_command() {
+        let ctx = Arc::new(ExecToolContext::new("."));
+        let tool = ExecuteCommandTool::new(ctx);
+        assert_eq!(
+            tool.scope_target(r#"{"command": "cargo test"}"#),
+            ScopeTarget::Command("cargo test".to_string())
+        );
+        assert_eq!(
+            tool.accesses(r#"{"command": "cargo test"}"#),
+            nuo_tool::ToolAccesses::all()
+        );
+        assert_eq!(tool.scope_target(r#"{}"#), ScopeTarget::Unspecified);
     }
 }

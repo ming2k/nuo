@@ -155,12 +155,15 @@ pub fn body_with_capabilities(
             instructions.push_str(&ephemeral_instructions);
         }
     }
-    for m in working {
+    let last_assistant_idx = working.iter().rposition(|m| m.role == Role::Assistant);
+    for (m_idx, m) in working.into_iter().enumerate() {
         match m.role {
             Role::User => {
                 input_items.push(InputItem::plain(message_item("user", &m, "input_text")));
             }
             Role::Assistant => {
+                let is_latest_assistant = Some(m_idx) == last_assistant_idx;
+                let is_deepseek = dialect == nuo_provider::OpenAiResponsesDialect::DeepSeek;
                 if matches!(delivery, nuo_provider::RequestDelivery::OpaqueReplay) {
                     match m.provider_meta.as_ref().and_then(|meta| {
                         meta.get(nuo_provider::OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY)
@@ -188,11 +191,14 @@ pub fn body_with_capabilities(
                                     item.get("type").and_then(Value::as_str) == Some("reasoning")
                                 })
                             {
-                                let reasoning_text = m
-                                    .reasoning_content
-                                    .as_deref()
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or("");
+                                let reasoning_text = if is_deepseek && !is_latest_assistant {
+                                    ""
+                                } else {
+                                    m.reasoning_content
+                                        .as_deref()
+                                        .filter(|s| !s.is_empty())
+                                        .unwrap_or("")
+                                };
                                 input_items.push(InputItem::plain(json!({
                                     "type": "reasoning",
                                     "content": [{
@@ -201,8 +207,32 @@ pub fn body_with_capabilities(
                                     }]
                                 })));
                             }
-                            input_items
-                                .extend(items.iter().cloned().map(InputItem::provider_owned));
+                            if is_deepseek && !is_latest_assistant {
+                                let pruned_items: Vec<Value> = items
+                                    .iter()
+                                    .map(|item| {
+                                        if item.get("type").and_then(Value::as_str)
+                                            == Some("reasoning")
+                                        {
+                                            json!({
+                                                "type": "reasoning",
+                                                "content": [{
+                                                    "type": "reasoning_text",
+                                                    "text": ""
+                                                }]
+                                            })
+                                        } else {
+                                            item.clone()
+                                        }
+                                    })
+                                    .collect();
+                                input_items.extend(
+                                    pruned_items.into_iter().map(InputItem::provider_owned),
+                                );
+                            } else {
+                                input_items
+                                    .extend(items.iter().cloned().map(InputItem::provider_owned));
+                            }
                             continue;
                         }
                         Some(_) => {
@@ -214,8 +244,22 @@ pub fn body_with_capabilities(
                 // When opaque artifact is not available (e.g. session reload, FullReplay,
                 // or message originated from a different provider), reconstruct the items.
                 // 1. Emit reasoning item if reasoning_content is present, or if tools were called
-                // on a thinking-enabled dialect requiring unencrypted reasoning:
-                if let Some(reasoning) = m.reasoning_content.as_deref().filter(|s| !s.is_empty()) {
+                // on a thinking-enabled dialect requiring unencrypted reasoning.
+                // For DeepSeek, older historical assistant turns have reasoning pruned to "" to prevent
+                // context saturation and V-shaped attention collapse while satisfying upstream schema verification.
+                if is_deepseek && !is_latest_assistant {
+                    if m.tool_calls.is_some() {
+                        input_items.push(InputItem::plain(json!({
+                            "type": "reasoning",
+                            "content": [{
+                                "type": "reasoning_text",
+                                "text": ""
+                            }]
+                        })));
+                    }
+                } else if let Some(reasoning) =
+                    m.reasoning_content.as_deref().filter(|s| !s.is_empty())
+                {
                     input_items.push(InputItem::plain(json!({
                         "type": "reasoning",
                         "content": [{
@@ -715,6 +759,55 @@ mod tests {
         assert_eq!(input[1]["content"][0]["text"], "thinking about tool");
         assert_eq!(input[2]["type"], "function_call");
         assert_eq!(input[3]["type"], "function_call_output");
+    }
+
+    #[test]
+    fn deepseek_dialect_prunes_historical_reasoning_items_on_older_turns() {
+        let mut assistant1 = Message::new(Role::Assistant, "");
+        assistant1.reasoning_content = Some("ancient reasoning".into());
+        assistant1.tool_calls = Some(vec![ToolCall {
+            id: "call_1".into(),
+            name: "tool_1".into(),
+            arguments: "{}".into(),
+        }]);
+        let mut tool1 = Message::new(Role::Tool, "out1");
+        tool1.tool_call_id = Some("call_1".into());
+
+        let mut assistant2 = Message::new(Role::Assistant, "");
+        assistant2.reasoning_content = Some("latest reasoning".into());
+        assistant2.tool_calls = Some(vec![ToolCall {
+            id: "call_2".into(),
+            name: "tool_2".into(),
+            arguments: "{}".into(),
+        }]);
+        let mut tool2 = Message::new(Role::Tool, "out2");
+        tool2.tool_call_id = Some("call_2".into());
+
+        let body = body_with_capabilities(
+            vec![
+                Message::new(Role::User, "run 1"),
+                assistant1,
+                tool1,
+                Message::new(Role::User, "run 2"),
+                assistant2,
+                tool2,
+            ],
+            deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let input = body["input"].as_array().unwrap();
+        // Index 0: user "run 1"
+        // Index 1: reasoning for assistant1 (pruned to empty string)
+        assert_eq!(input[1]["type"], "reasoning");
+        assert_eq!(input[1]["content"][0]["text"], "");
+        // Index 2: function_call "tool_1"
+        // Index 3: function_call_output "out1"
+        // Index 4: user "run 2"
+        // Index 5: reasoning for assistant2 (active/latest, preserved in full)
+        assert_eq!(input[5]["type"], "reasoning");
+        assert_eq!(input[5]["content"][0]["text"], "latest reasoning");
     }
 
     #[test]

@@ -137,7 +137,11 @@ const DEEPSEEK_FLASH_RETIRED_IDS: &[&str] = &["deepseek-v4-flash", "deepseek-v4-
 /// Relay spellings of the same Flash model (`opencode`, `commandcode`,
 /// `novita`). Never `api.deepseek.com` ids (ADR-0083), but a relay route serves
 /// the same model and bills it at Flash rates, so it resolves to that card.
-const DEEPSEEK_FLASH_RELAY_IDS: &[&str] = &["deepseek-v4.1-flash"];
+const DEEPSEEK_FLASH_RELAY_IDS: &[&str] = &[
+    "deepseek-v4.1-flash",
+    "deepseek-v4-flash-fast",
+    "deepseek-v4.1-flash-fast",
+];
 
 fn deepseek(id: &str) -> Option<ModelPricing> {
     if id == DEEPSEEK_FLASH_ID
@@ -584,9 +588,21 @@ mod tests {
             let retired = resolve_model_pricing("deepseek", id).unwrap();
             assert_eq!(retired, canonical, "{id} must price as deepseek-flash");
         }
+        for id in DEEPSEEK_FLASH_RELAY_IDS {
+            let relay = resolve_model_pricing("deepseek", id).unwrap();
+            assert_eq!(relay, canonical, "{id} must price as deepseek-flash");
+        }
         // Relays namespace the vendor: the prefix is not part of the rate key.
         assert_eq!(
             resolve_model_pricing("commandcode", "deepseek/deepseek-v4-flash").unwrap(),
+            canonical
+        );
+        assert_eq!(
+            resolve_model_pricing("commandcode", "deepseek/deepseek-v4-flash-fast").unwrap(),
+            canonical
+        );
+        assert_eq!(
+            resolve_model_pricing("commandcode", "deepseek/deepseek-v4.1-flash-fast").unwrap(),
             canonical
         );
     }

@@ -274,12 +274,27 @@ pub fn body_with_capabilities(
         )
     });
 
+    // DeepSeek CoT hygiene: upstream requires `reasoning_content` on tool-calling assistant
+    // messages. However, replaying historical CoT across older rounds saturates the context
+    // window and triggers V-shaped attention collapse / repetitive loops. We preserve the full
+    // reasoning_content on the active (latest) assistant turn only; older assistant turns with
+    // tool_calls have their reasoning pruned to "" (satisfying upstream schema verification
+    // without inflating the prompt with historical thinking).
+    let last_assistant_idx = messages.iter().rposition(|m| m.role == Role::Assistant);
+    let wire_messages: Vec<Value> = messages
+        .into_iter()
+        .enumerate()
+        .map(|(idx, mut message)| {
+            if dialect.replays_reasoning_content() && Some(idx) != last_assistant_idx {
+                message.reasoning_content = None;
+            }
+            message_obj(message, dialect)
+        })
+        .collect();
+
     let mut body = json!({
         "model": model_id,
-        "messages": messages
-            .into_iter()
-            .map(|message| message_obj(message, dialect))
-            .collect::<Vec<_>>(),
+        "messages": wire_messages,
         "stream": stream,
     });
     if stream {
@@ -621,6 +636,40 @@ mod tests {
             body["messages"][1]["reasoning_content"], "",
             "DeepSeek requires reasoning_content field on all tool calls even if reasoning was pruned"
         );
+    }
+
+    #[test]
+    fn deepseek_prunes_historical_reasoning_content_on_older_turns() {
+        let (mut assistant1, tool1) = assistant_that_thought();
+        assistant1.reasoning_content = Some("ancient thoughts".into());
+        let (mut assistant2, tool2) = assistant_that_thought();
+        assistant2.reasoning_content = Some("latest thoughts".into());
+
+        let body = body_with_capabilities(
+            vec![
+                Message::new(Role::User, "first"),
+                assistant1,
+                tool1,
+                Message::new(Role::User, "second"),
+                assistant2,
+                tool2,
+            ],
+            BodyInput {
+                model: "deepseek-flash",
+                stream: true,
+                instructions: None,
+                tool_specs: None,
+                reasoning_effort: None,
+                dialect: OpenAiChatDialect::DeepSeek,
+                cache_plan: &DEFAULT_CACHE_PLAN,
+            },
+            &deepseek_capabilities(),
+        );
+
+        // Older assistant turn (index 1): reasoning_content is pruned to ""
+        assert_eq!(body["messages"][1]["reasoning_content"], "");
+        // Latest assistant turn (index 4): reasoning_content is preserved in full
+        assert_eq!(body["messages"][4]["reasoning_content"], "latest thoughts");
     }
 
     #[test]

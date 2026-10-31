@@ -143,17 +143,12 @@ pub fn draw_connections_modal(
         }
         let rows = match connection_detail {
             None => {
-                let spin = theme.glyphs.spinner_frame(spinner_phase);
                 vec![
                     SelectableRow::empty(),
                     SelectableRow::styled(
-                        "Loading connection details and provider usage…",
+                        format_loading_dots(spinner_phase),
                         Style::default().fg(theme.muted()),
-                    )
-                    .with_prefix(RowSegment::styled(
-                        format!("{spin} "),
-                        Style::default().fg(theme.primary),
-                    )),
+                    ),
                 ]
             }
             Some(detail) => connection_detail_body(detail, spinner_phase, theme),
@@ -397,6 +392,31 @@ pub(crate) fn format_reset_countdown(
     None
 }
 
+/// Format an indeterminate loading dot sequence with fixed display width.
+///
+/// Guaranteed to produce pure ASCII characters (`.` and space) with constant length (10 columns)
+/// across all frames, ensuring compatibility with bare VT consoles and headless environments.
+pub(crate) fn format_loading_dots(spinner_phase: usize) -> &'static str {
+    match spinner_phase % 3 {
+        0 => "Loading.  ",
+        1 => "Loading.. ",
+        _ => "Loading...",
+    }
+}
+
+/// Format an indeterminate stepping dot sequence with fixed display width.
+///
+/// Guaranteed to produce pure ASCII characters (`.` and space) with constant length (11 columns)
+/// across all frames, ensuring compatibility with bare VT consoles, non-Unicode environments,
+/// and headless serial lines without layout jitter.
+pub(crate) fn format_fetching_dots(spinner_phase: usize) -> &'static str {
+    match spinner_phase % 3 {
+        0 => "Querying.  ",
+        1 => "Querying.. ",
+        _ => "Querying...",
+    }
+}
+
 /// Render the detail body rows for one connection (configuration + caller identity + models + provider usage).
 pub(crate) fn connection_detail_body(
     detail: &nuo_protocol::ConnectionDetail,
@@ -609,11 +629,10 @@ pub(crate) fn connection_detail_body(
             ]));
         }
         nuo_protocol::ConnectionUsageState::Fetching => {
-            let spin = theme.glyphs.spinner_frame(spinner_phase);
-            layout = layout.raw_row(SelectableRow::from_segments(vec![
-                RowSegment::styled(format!("{spin} "), Style::default().fg(theme.primary)),
-                RowSegment::styled("Querying upstream provider quota & balance…", muted),
-            ]));
+            layout = layout.raw_row(SelectableRow::styled(
+                format_fetching_dots(spinner_phase),
+                muted,
+            ));
         }
     }
 

@@ -750,6 +750,24 @@ mod tests {
     }
 
     #[test]
+    fn test_chinese_bold_middle_to_end() {
+        let text = "**粗体段落中间复制到最后**";
+        let msg = TranscriptMessage::new(Role::Assistant, text);
+        let messages = vec![msg];
+        // start at "中" (byte 14)
+        for head_byte in 15..=40 {
+            let sel = SelectionState::Range {
+                anchor: SemanticCursor::new(0, 0, 14),
+                head: SemanticCursor::new(0, 0, head_byte),
+            };
+            if let Some(res) = get_selected_text(&sel, &messages, &|_, _| None, None) {
+                println!("head {head_byte}: {res:?}");
+                assert!(!res.ends_with("**"), "failed at head {head_byte}: {res}");
+            }
+        }
+    }
+
+    #[test]
     fn test_range_selection_within_block() {
         let msg = TranscriptMessage::new(Role::Assistant, "Hello world");
         let messages = vec![msg];

@@ -308,6 +308,13 @@ impl Provider for ProxyProvider {
             .unwrap_or_else(|error| error.into_inner())
             .usage_supported()
     }
+
+    fn supports_parallel_tool_calls(&self) -> bool {
+        self.holder
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .supports_parallel_tool_calls()
+    }
 }
 
 // /debug trace

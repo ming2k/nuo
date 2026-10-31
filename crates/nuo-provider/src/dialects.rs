@@ -624,6 +624,11 @@ impl OpenAiChatDialect {
         matches!(self, OpenAiChatDialect::DeepSeek)
     }
 
+    /// Whether this dialect supports parallel (batched) tool calling.
+    pub const fn supports_parallel_tool_calls(self) -> bool {
+        !matches!(self, OpenAiChatDialect::DeepSeek)
+    }
+
     /// The declarative wire surface for this chat dialect, when it has one.
     ///
     /// A surface is the *data* form of a dialect: inference path, envelope,

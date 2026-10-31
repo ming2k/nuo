@@ -220,3 +220,34 @@ fn subagent_inherits_parent_model_guidance() {
 
     assert_eq!(sub.model_guidance(), "Inherited guidance from parent.");
 }
+
+#[test]
+fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
+    let reg = nuo_harness::default_system_prompt_registry();
+
+    // 1. Channel without parallel tool calls (e.g. DeepSeek) and without code_query:
+    let ctx_no_parallel = SystemPromptContext {
+        workspace_topology: Some("- crates/*\n- tools/*".to_string()),
+        supports_parallel_tool_calls: false,
+        tool_names: vec!["execute_command".to_string(), "read_text".to_string()],
+        ..Default::default()
+    };
+    let bundle1 = reg.build_bundle(&ctx_no_parallel);
+    let rendered1 = bundle1.render_system_instructions();
+    assert!(rendered1.contains("Workspace Architectural Topology"));
+    assert!(!rendered1.contains("Batch independent inspection"));
+    assert!(!rendered1.contains("code_query"));
+
+    // 2. Channel with parallel tool calls and with code_query admitted:
+    let ctx_full = SystemPromptContext {
+        workspace_topology: Some("- crates/*\n- tools/*".to_string()),
+        supports_parallel_tool_calls: true,
+        tool_names: vec!["code_query".to_string(), "execute_command".to_string()],
+        ..Default::default()
+    };
+    let bundle2 = reg.build_bundle(&ctx_full);
+    let rendered2 = bundle2.render_system_instructions();
+    assert!(rendered2.contains("Workspace Architectural Topology"));
+    assert!(rendered2.contains("Batch independent inspection and file examination operations"));
+    assert!(rendered2.contains("Prefer structural AST queries (`code_query` outline/symbol)"));
+}

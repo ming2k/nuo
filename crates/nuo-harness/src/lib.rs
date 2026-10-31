@@ -129,6 +129,7 @@ pub use cognition::interop::agent_slot::AgentSlot;
 pub use cognition::interop::human_broker::*;
 pub use cognition::interop::subagent_tool::{SubagentRegistry, SubagentTool};
 pub use cognition::interop::{agent_slot, human_broker, subagent_tool};
+pub use cognition::model_request::default_system_prompt_registry;
 pub use cognition::model_request::system_prompt::{
     InstructionOrder, SystemPromptContext, SystemPromptRegistry, SystemPromptRegistryError,
     SystemPromptSection,

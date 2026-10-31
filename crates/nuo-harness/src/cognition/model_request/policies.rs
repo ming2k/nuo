@@ -211,10 +211,19 @@ impl SystemPromptSection for WorkspaceTopologyGuidance {
     }
     fn render(&self, ctx: &SystemPromptContext) -> Option<String> {
         ctx.workspace_topology.as_ref().map(|topo| {
-            format!(
-                "\n# Workspace Architectural Topology\n{}\n\n## Exploration & Inspection Protocol\n- Batch independent inspection and file examination operations into multiple concurrent tool calls within a single round.\n- Prefer structural AST queries (`code_query` outline/symbol) to inspect declarations and module interfaces over reading raw files line-by-line.",
-                topo.trim()
-            )
+            let mut guidance = format!("\n# Workspace Architectural Topology\n{}", topo.trim());
+            let mut inspection_items = Vec::new();
+            if ctx.supports_parallel_tool_calls {
+                inspection_items.push("- Batch independent inspection and file examination operations into multiple concurrent tool calls within a single round.");
+            }
+            if ctx.tool_names.iter().any(|name| name == "code_query") {
+                inspection_items.push("- Prefer structural AST queries (`code_query` outline/symbol) to inspect declarations and module interfaces over reading raw files line-by-line.");
+            }
+            if !inspection_items.is_empty() {
+                guidance.push_str("\n\n## Exploration & Inspection Protocol\n");
+                guidance.push_str(&inspection_items.join("\n"));
+            }
+            guidance
         })
     }
 }
@@ -257,7 +266,7 @@ impl SystemPromptSection for WebUntrustedContentGuidance {
 }
 
 /// Build the registry with the default system-prompt sections.
-pub(crate) fn default_system_prompt_registry() -> SystemPromptRegistry {
+pub fn default_system_prompt_registry() -> SystemPromptRegistry {
     let mut registry = SystemPromptRegistry::new();
     registry.register(IdentityPreamble);
     registry.register(ToneGuidance);

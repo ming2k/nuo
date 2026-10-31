@@ -480,58 +480,62 @@ fn openrouter_connection_derives_gateway_dialect_and_nex_seed() {
 
 #[test]
 fn commandcode_flash_fast_effort_ladder_survives_a_live_catalog() {
-    // `deepseek/deepseek-v4.1-flash-fast` reaches the picker through the live
-    // `/models` payload. Commandcode's shaped catalog advertises no effort
-    // tiers (only name/context_length/supported_endpoints), so its discovered
-    // remote_metadata carries `effort_levels: None`. The channel must fall back
-    // to the compiled baseline's `LOW_HIGH_MAX` ladder so the effort
+    // Both `deepseek/deepseek-v4-flash-fast` and `deepseek/deepseek-v4.1-flash-fast`
+    // reach the picker through the live `/models` payload. Commandcode's shaped
+    // catalog advertises no effort tiers (only name/context_length/supported_endpoints),
+    // so its discovered remote_metadata carries `effort_levels: None`. The channel
+    // must fall back to the compiled baseline's `LOW_HIGH_MAX` ladder so the effort
     // (reasoning-degree) knob stays available after a sync — exactly like its
-    // siblings. Regression guard for the reasoning-effort knob on this model.
+    // siblings. Regression guard for the reasoning-effort knob on these models.
     ensure_test_init();
-    let connection = instance("cmd", Some("commandcode"));
-    let mut cache = RemoteCatalogCache::default();
-    cache.connection_models.insert(
-        "cmd".to_string(),
-        vec!["deepseek/deepseek-v4.1-flash-fast".to_string()],
-    );
-    // A faithful live sync: commandcode's shaped catalog advertises only
-    // name/context_length/supported_endpoints — no effort tiers — so the
-    // discovered remote_metadata carries `effort_levels: None`. The channel
-    // must fall back to the compiled baseline's `LOW_HIGH_MAX` ladder.
-    cache.remote_metadata.insert(
-        "cmd".to_string(),
-        std::collections::BTreeMap::from([(
-            "deepseek/deepseek-v4.1-flash-fast".to_string(),
-            nuo_protocol::RemoteModelMetadata {
-                context_window: Some(1_000_000),
-                effort_levels: None,
-                ..Default::default()
-            },
-        )]),
-    );
-    let channel = derive_channel(
-        &connection,
+    for id in [
+        "deepseek/deepseek-v4-flash-fast",
         "deepseek/deepseek-v4.1-flash-fast",
-        &inputs_of(
-            &cache,
-            &RouteSettingsStore::default(),
-            &Credentials::default(),
-        ),
-    )
-    .expect("flash-fast routes");
-    let caps = channel.capabilities();
-    assert!(
-        !caps.effort_levels.is_empty(),
-        "flash-fast must resolve an effort ladder from the baseline after a \
-         live sync that advertises none: {:?}",
-        caps.effort_levels
-    );
-    let info = channel_model_info(&channel);
-    assert!(
-        !info.effort_levels.is_empty(),
-        "the picker snapshot must expose an effort ladder for flash-fast: {:?}",
-        info.effort_levels
-    );
+    ] {
+        let connection = instance("cmd", Some("commandcode"));
+        let mut cache = RemoteCatalogCache::default();
+        cache
+            .connection_models
+            .insert("cmd".to_string(), vec![id.to_string()]);
+        // A faithful live sync: commandcode's shaped catalog advertises only
+        // name/context_length/supported_endpoints — no effort tiers — so the
+        // discovered remote_metadata carries `effort_levels: None`. The channel
+        // must fall back to the compiled baseline's `LOW_HIGH_MAX` ladder.
+        cache.remote_metadata.insert(
+            "cmd".to_string(),
+            std::collections::BTreeMap::from([(
+                id.to_string(),
+                nuo_protocol::RemoteModelMetadata {
+                    context_window: Some(1_000_000),
+                    effort_levels: None,
+                    ..Default::default()
+                },
+            )]),
+        );
+        let channel = derive_channel(
+            &connection,
+            id,
+            &inputs_of(
+                &cache,
+                &RouteSettingsStore::default(),
+                &Credentials::default(),
+            ),
+        )
+        .expect("flash-fast routes");
+        let caps = channel.capabilities();
+        assert!(
+            !caps.effort_levels.is_empty(),
+            "{id} must resolve an effort ladder from the baseline after a \
+             live sync that advertises none: {:?}",
+            caps.effort_levels
+        );
+        let info = channel_model_info(&channel);
+        assert!(
+            !info.effort_levels.is_empty(),
+            "the picker snapshot must expose an effort ladder for {id}: {:?}",
+            info.effort_levels
+        );
+    }
 }
 
 #[test]

@@ -7,7 +7,7 @@
 pub mod policies;
 pub(crate) mod system_prompt;
 
-pub(crate) use policies::default_system_prompt_registry;
+pub use policies::default_system_prompt_registry;
 
 use std::sync::Arc;
 

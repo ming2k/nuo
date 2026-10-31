@@ -354,9 +354,9 @@ impl TrajectoryLoopGuard {
             "You are repeating a tool call that already ran this round:\n{summary}\n\
              Re-running it cannot change the result you already have. This call is now \
              **blocked** for the rest of the turn — calling it again returns an error, \
-             not a fresh result. Act on what you already have, try a *different* \
-             command/file/query, or, if you genuinely cannot proceed, say so explicitly \
-             or call `abort`."
+             not a fresh result. Synthesize conclusions from the observations already obtained. \
+             Do not blindly generate repetitive command variations. If you genuinely cannot proceed, \
+             explain the blocker or call `ask_user`."
         );
         GuardAction::Block {
             signatures: repeated.to_vec(),

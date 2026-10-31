@@ -47,6 +47,18 @@ pub const MODELS: &[Model] = &[
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
     },
+    Model {
+        id: "deepseek/deepseek-v4-flash-fast",
+        family: "deepseek",
+        context_window: 1_000_000,
+        thinking: ReasoningSupport::ReasoningContent,
+        tool_call: true,
+        vision: true,
+        protocol: WireProtocol::OpenAiResponses,
+        effort_levels: effort_ladders::LOW_HIGH_MAX,
+        default_effort: Some(nuo_provider::Effort::High),
+        wire_entities: None,
+    },
     // CommandCode names its models `vendor/model`, and the server resolves the
     // upstream family per turn (ADR-0014): a declared `deepseek/deepseek-v4-flash`
     // is served as `deepseek-v4.1-flash` (`x-cli-constants.featureLaneModels`
@@ -125,6 +137,14 @@ mod tests {
             DisplayPolicy::Structural
         );
         assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4-flash"),
+            Some("DeepSeek V4 Flash".to_string())
+        );
+        assert_eq!(
+            MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4-flash-fast"),
+            Some("DeepSeek V4 Flash Fast".to_string())
+        );
+        assert_eq!(
             MODEL_PROVIDER_SPEC.resolve_display_label(None, "deepseek/deepseek-v4.1-flash"),
             Some("DeepSeek V4.1 Flash".to_string())
         );
@@ -141,6 +161,8 @@ mod tests {
     #[test]
     fn deepseek_and_gpt_models_route_via_responses_api() {
         for id in [
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4.1-flash-fast",
             "deepseek/deepseek-v4-pro",
@@ -176,6 +198,7 @@ mod tests {
     fn deepseek_flash_models_support_vision() {
         for id in [
             "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4.1-flash-fast",
         ] {
@@ -196,6 +219,7 @@ mod tests {
         // is available offline, before any catalog sync.
         for id in [
             "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4.1-flash-fast",
             "deepseek/deepseek-v4-pro",
@@ -217,6 +241,7 @@ mod tests {
         // depth knob until a sync happened to advertise it.
         for id in [
             "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-flash-fast",
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4.1-flash-fast",
             "deepseek/deepseek-v4-pro",

@@ -361,6 +361,10 @@ impl Provider for OpenAiChatCompletionsProvider {
         true
     }
 
+    fn supports_parallel_tool_calls(&self) -> bool {
+        self.dialect.supports_parallel_tool_calls()
+    }
+
     async fn chat(
         &self,
         request: ModelRequest,

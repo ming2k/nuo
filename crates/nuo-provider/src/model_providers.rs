@@ -77,6 +77,7 @@ pub const COMMANDCODE_BUILTIN_MODELS: &[&str] = &[
     "claude-sonnet-5-5",
     "gpt-5.6-sol",
     "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-flash-fast",
     "deepseek/deepseek-v4.1-flash",
     "deepseek/deepseek-v4.1-flash-fast",
     "deepseek/deepseek-v4-pro",

@@ -2079,7 +2079,107 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
 }
 
 #[test]
-fn connections_modal_detail_view_renders_inline_fetching_spinner() {
+fn loading_dots_pure_ascii_and_fixed_display_width() {
+    use crate::shell::overlays::provider::connections::format_loading_dots;
+
+    // Verify all 3 cyclical phases
+    assert_eq!(format_loading_dots(0), "Loading.  ");
+    assert_eq!(format_loading_dots(1), "Loading.. ");
+    assert_eq!(format_loading_dots(2), "Loading...");
+    assert_eq!(format_loading_dots(3), "Loading.  ");
+    assert_eq!(format_loading_dots(4), "Loading.. ");
+    assert_eq!(format_loading_dots(5), "Loading...");
+
+    // Extreme phases (overflow / large tick numbers)
+    for phase in [0, 1, 2, 99, 100, usize::MAX - 1, usize::MAX] {
+        let text = format_loading_dots(phase);
+        assert!(text.is_ascii(), "must be strictly ASCII: {text:?}");
+        assert_eq!(text.len(), 10, "byte length must be 10");
+        assert_eq!(text.chars().count(), 10, "char count must be 10");
+        assert!(text.starts_with("Loading."));
+    }
+}
+
+#[test]
+fn connections_modal_detail_view_renders_initial_loading_state_when_detail_is_none() {
+    let theme = Theme::default();
+    let mut terminal = nuotc::TestTerminal::new(80, 30);
+
+    for (phase, expected_trimmed, forbidden_next) in [
+        (0, "Loading.", Some("Loading..")),
+        (1, "Loading..", Some("Loading...")),
+        (2, "Loading...", None),
+    ] {
+        terminal.draw(|f| {
+            let mut lm = nuo_view::model::layout::LayoutMap::new();
+            let mut scroll = 0;
+            let selection = nuo_view::model::selection::SelectionState::None;
+            draw_connections_modal(
+                f,
+                &mut lm,
+                crate::shell::overlays::provider::connections::ConnectionsModalProps {
+                    providers: &[],
+                    current_provider: "",
+                    modal_index: 0,
+                    query: "",
+                    cursor_position: 0,
+                    scroll: &mut scroll,
+                    follow_selection: false,
+                    search: false,
+                    connection_info_detail: true,
+                    show_caret: true,
+                    connection_detail: None,
+                    connection_info_scroll: &mut 0,
+                    spinner_phase: phase,
+                    connection_info_standalone: false,
+                    refreshing: false,
+                    connection_usages: None,
+                },
+                &theme,
+                &selection,
+            );
+        });
+
+        let text = buffer_text(&terminal);
+        assert!(
+            text.contains(expected_trimmed),
+            "text must contain {expected_trimmed:?} at phase {phase}"
+        );
+        if let Some(forbidden) = forbidden_next {
+            assert!(
+                !text.contains(forbidden),
+                "text must not yet contain {forbidden:?} at phase {phase}"
+            );
+        }
+        assert!(!text.contains("Loading connection details and provider usage…"));
+        assert!(!text.contains('⠸'));
+    }
+}
+
+#[test]
+fn fetching_dots_pure_ascii_and_fixed_display_width() {
+    use crate::shell::overlays::provider::connections::format_fetching_dots;
+
+    // Verify all 3 cyclical phases
+    assert_eq!(format_fetching_dots(0), "Querying.  ");
+    assert_eq!(format_fetching_dots(1), "Querying.. ");
+    assert_eq!(format_fetching_dots(2), "Querying...");
+    assert_eq!(format_fetching_dots(3), "Querying.  ");
+    assert_eq!(format_fetching_dots(4), "Querying.. ");
+    assert_eq!(format_fetching_dots(5), "Querying...");
+
+    // Extreme phases (overflow / large tick numbers)
+    for phase in [0, 1, 2, 99, 100, usize::MAX - 1, usize::MAX] {
+        let text = format_fetching_dots(phase);
+        assert!(text.is_ascii(), "must be strictly ASCII: {text:?}");
+        assert_eq!(text.len(), 11, "byte length must be 11");
+        assert_eq!(text.chars().count(), 11, "char count must be 11");
+        assert!(text.starts_with("Querying."));
+    }
+}
+
+#[test]
+fn connections_modal_detail_view_renders_fetching_state() {
     let theme = Theme::default();
     let mut terminal = nuotc::TestTerminal::new(80, 30);
     let detail = nuo_protocol::ConnectionDetail {
@@ -2122,7 +2222,7 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
                 show_caret: true,
                 connection_detail: Some(&detail),
                 connection_info_scroll: &mut 0,
-                spinner_phase: 2,
+                spinner_phase: 0,
                 connection_info_standalone: false,
                 refreshing: false,
                 connection_usages: None,
@@ -2136,40 +2236,58 @@ fn connections_modal_detail_view_renders_inline_fetching_spinner() {
     assert!(text.contains("Configuration"));
     assert!(text.contains("Served Models"));
 
-    // Scroll to view usage section with inline spinner
-    terminal.draw(|f| {
-        let mut lm = nuo_view::model::layout::LayoutMap::new();
-        let mut scroll = 6;
-        let selection = nuo_view::model::selection::SelectionState::None;
-        draw_connections_modal(
-            f,
-            &mut lm,
-            crate::shell::overlays::provider::connections::ConnectionsModalProps {
-                providers: &[],
-                current_provider: "",
-                modal_index: 0,
-                query: "",
-                cursor_position: 0,
-                scroll: &mut scroll,
-                follow_selection: false,
-                search: false,
-                connection_info_detail: true,
-                show_caret: true,
-                connection_detail: Some(&detail),
-                connection_info_scroll: &mut 6,
-                spinner_phase: 2,
-                connection_info_standalone: false,
-                refreshing: false,
-                connection_usages: None,
-            },
-            &theme,
-            &selection,
-        );
-    });
+    // Scroll to view usage section across all 3 phases
+    // Note: buffer_text trims line-trailing whitespace, so we verify exact dot counts.
+    for (phase, expected_trimmed, forbidden_next) in [
+        (0, "Querying.", Some("Querying..")),
+        (1, "Querying..", Some("Querying...")),
+        (2, "Querying...", None),
+    ] {
+        terminal.draw(|f| {
+            let mut lm = nuo_view::model::layout::LayoutMap::new();
+            let mut scroll = 6;
+            let selection = nuo_view::model::selection::SelectionState::None;
+            draw_connections_modal(
+                f,
+                &mut lm,
+                crate::shell::overlays::provider::connections::ConnectionsModalProps {
+                    providers: &[],
+                    current_provider: "",
+                    modal_index: 0,
+                    query: "",
+                    cursor_position: 0,
+                    scroll: &mut scroll,
+                    follow_selection: false,
+                    search: false,
+                    connection_info_detail: true,
+                    show_caret: true,
+                    connection_detail: Some(&detail),
+                    connection_info_scroll: &mut 6,
+                    spinner_phase: phase,
+                    connection_info_standalone: false,
+                    refreshing: false,
+                    connection_usages: None,
+                },
+                &theme,
+                &selection,
+            );
+        });
 
-    let scrolled_text = buffer_text(&terminal);
-    assert!(scrolled_text.contains("Provider Usage & Quota"));
-    assert!(scrolled_text.contains("Querying upstream provider quota & balance…"));
+        let scrolled_text = buffer_text(&terminal);
+        assert!(scrolled_text.contains("Provider Usage & Quota"));
+        assert!(
+            scrolled_text.contains(expected_trimmed),
+            "scrolled text must contain {expected_trimmed:?} at phase {phase}"
+        );
+        if let Some(forbidden) = forbidden_next {
+            assert!(
+                !scrolled_text.contains(forbidden),
+                "scrolled text must not yet contain {forbidden:?} at phase {phase}"
+            );
+        }
+        assert!(!scrolled_text.contains("Querying upstream provider quota & balance…"));
+        assert!(!scrolled_text.contains('⠸'));
+    }
 }
 
 #[test]

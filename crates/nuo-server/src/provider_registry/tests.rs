@@ -225,6 +225,7 @@ fn commandcode_baselines_route_by_surface() {
 fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
     for id in [
         "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-flash-fast",
         "deepseek/deepseek-v4.1-flash",
         "deepseek/deepseek-v4.1-flash-fast",
         "deepseek/deepseek-v4-pro",

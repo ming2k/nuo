@@ -8,6 +8,20 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **Reasoning effort selection for CommandCode `deepseek/deepseek-v4-flash-fast`.**
+  - Registered `deepseek/deepseek-v4-flash-fast` (`DeepSeek V4 Flash Fast`) into `nuo-provider-commandcode-goat` baselines and `COMMANDCODE_BUILTIN_MODELS` with the `LOW_HIGH_MAX` reasoning-effort ladder.
+  - Previously, `deepseek/deepseek-v4.1-flash-fast` was seeded but its V4 sibling `deepseek/deepseek-v4-flash-fast` was missing from baseline registration, causing it to fall back to an empty effort ladder so reasoning depth could not be selected in the model editor.
+  - Added rate-card aliasing in `pricing::registry` for `deepseek-v4-flash-fast` and `deepseek-v4.1-flash-fast`.
+- **DeepSeek Context Hygiene, Capability Alignment, and CoT Windowing.**
+  - `WorkspaceTopologyGuidance`: dynamically gates parallel tool batching instructions on `Provider::supports_parallel_tool_calls` (false on DeepSeek dialects) and `code_query` references on actual tool availability in the active role, eliminating phantom tool hallucinations and conflicting batch directives.
+  - `strip_fallback_invocation_markup`: implemented range-based excision of text-fallback JSON tool calls and surrounding markdown code fences, completely preventing raw tool call JSON and command snippets from leaking into persistent assistant message content.
+  - DeepSeek CoT hygiene: windowed `reasoning_content` replay on OpenAI Chat Completions and Responses protocols so only the active latest assistant turn carries full chain-of-thought, while older turns with tool calls carry empty string placeholders, eliminating context saturation and V-shaped attention collapse.
+  - DeepSeek baseline model guidance: implemented ADR-0130 Step 5 default baseline guidance in `Config::resolve_model_guidance` to enforce concise technical language, prohibit conversational pseudo-tool markdown blocks, and require result synthesis over command retry loops.
+  - `TrajectoryGuard`: rephrased repeat tool block directives to instruct models to synthesize existing observations rather than encouraging speculative command variations.
+
+
 ## [0.0.64] - 2026-10-31
 
 ### Changed

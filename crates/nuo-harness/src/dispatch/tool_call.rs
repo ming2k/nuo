@@ -170,15 +170,74 @@ pub(crate) fn strip_fallback_invocation_markup(text: &str) -> String {
             break;
         }
     }
-    let trimmed = result.trim();
-    if trimmed.starts_with('{') && trimmed.ends_with('}') {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) {
-            if json.get("tool").or_else(|| json.get("name")).is_some() {
-                return String::new();
-            }
+    // Strip ChatML / Hermes tool sentinel tokens if present.
+    let special_tokens = [
+        "<|tool_calls_section_end|>",
+        "<|tool_call|>",
+        "<tool_call>",
+        "</tool_call>",
+    ];
+    for token in special_tokens {
+        while let Some(pos) = result.find(token) {
+            result.replace_range(pos..pos + token.len(), "");
         }
     }
-    result.trim().to_string()
+
+    // Excise embedded JSON tool call objects and any enclosing markdown code fences.
+    let mut start = 0;
+    while let Some(offset) = result[start..].find('{') {
+        let brace_at = start + offset;
+        if let Some(end) = find_balanced_object(&result, brace_at) {
+            let candidate = &result[brace_at..=end];
+            let is_tool_call = serde_json::from_str::<serde_json::Value>(candidate)
+                .map(|json| json.get("tool").or_else(|| json.get("name")).is_some())
+                .unwrap_or(false);
+            if is_tool_call {
+                let mut cut_start = brace_at;
+                let mut cut_end = end + 1;
+
+                // Expand backwards if preceded by a markdown code fence like ```json
+                let before = &result[..brace_at];
+                let trimmed_before = before.trim_end();
+                if let Some(fence_idx) = trimmed_before.rfind("```") {
+                    let fence_span = &trimmed_before[fence_idx..];
+                    if (fence_span.starts_with("```json") || fence_span.starts_with("```"))
+                        && before[fence_idx + 3..brace_at]
+                            .chars()
+                            .all(|c| c.is_ascii_alphabetic() || c.is_whitespace())
+                    {
+                        cut_start = fence_idx;
+                    }
+                }
+
+                // Expand forwards if followed by a closing code fence
+                if cut_start < brace_at {
+                    let after = &result[cut_end..];
+                    let leading_ws = after.len() - after.trim_start().len();
+                    let trimmed_after = &after[leading_ws..];
+                    if trimmed_after.starts_with("```") {
+                        cut_end += leading_ws + 3;
+                    }
+                }
+
+                result.replace_range(cut_start..cut_end, "");
+                start = cut_start;
+                continue;
+            }
+            start = end + 1;
+        } else {
+            start = brace_at + 1;
+        }
+    }
+
+    // Collapse leftover lines, filtering empty ones
+    let lines: Vec<&str> = result
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    lines.join("\n")
 }
 
 /// Promote a text-based (fallback) tool call onto the preceding assistant
@@ -410,5 +469,47 @@ mod tests {
 
         assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
         assert_eq!(messages[0].content, "Searching directory now:");
+    }
+
+    #[test]
+    fn attach_fallback_tool_call_excises_json_code_fence_and_preserves_prose() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            "I will inspect the workspace:\n```json\n{\"name\": \"execute_command\", \"arguments\": {\"command\": \"cargo check\"}}\n```\nPlease hold on.",
+        )];
+        let call = ToolCall::new("c1", "execute_command", r#"{"command":"cargo check"}"#);
+        attach_fallback_tool_call(&mut messages, &call);
+
+        assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            messages[0].content,
+            "I will inspect the workspace:\nPlease hold on."
+        );
+    }
+
+    #[test]
+    fn attach_fallback_tool_call_cleans_entire_message_when_only_code_fence() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            "```json\n{\"tool\": \"execute_command\", \"arguments\": {\"command\": \"ls\"}}\n```\n<|tool_calls_section_end|>",
+        )];
+        let call = ToolCall::new("c1", "execute_command", r#"{"command":"ls"}"#);
+        attach_fallback_tool_call(&mut messages, &call);
+
+        assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
+        assert_eq!(messages[0].content, "");
+    }
+
+    #[test]
+    fn attach_fallback_tool_call_preserves_non_tool_json() {
+        let mut messages = vec![Message::new(
+            Role::Assistant,
+            "Config: {\"mode\": \"fast\"}\n```json\n{\"name\": \"run\", \"arguments\": {}}\n```",
+        )];
+        let call = ToolCall::new("c1", "run", "{}");
+        attach_fallback_tool_call(&mut messages, &call);
+
+        assert_eq!(messages[0].tool_calls.as_ref().unwrap().len(), 1);
+        assert_eq!(messages[0].content, "Config: {\"mode\": \"fast\"}");
     }
 }
