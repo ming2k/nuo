@@ -1752,10 +1752,10 @@ async fn config_view_components_toggle_and_persistence() {
     ));
     assert!(app.reasoning_default_expanded);
 
-    // The command component opens by default, so activating collapses it — and
+    // The command component is collapsed by default, so activating expands it — and
     // the choice must land on every shell spelling, not just the canonical one.
     app.config_detail_index = command_row;
-    assert!(crate::shell::config::tool_default_expanded(
+    assert!(!crate::shell::config::tool_default_expanded(
         &app.tui_config,
         "execute_command"
     ));
@@ -1766,7 +1766,7 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(crate::shell::config::tool_default_expanded(
         &app.tui_config,
         "execute_command"
     ));
@@ -1831,7 +1831,7 @@ async fn config_view_components_toggle_and_persistence() {
     // Verify config file on disk has the persisted settings
     let loaded = crate::shell::config::TuiConfig::load();
     assert!(crate::shell::config::reasoning_default_expanded(&loaded));
-    assert!(!crate::shell::config::tool_default_expanded(
+    assert!(crate::shell::config::tool_default_expanded(
         &loaded,
         "execute_command"
     ));

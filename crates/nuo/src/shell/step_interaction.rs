@@ -99,8 +99,8 @@ pub fn summary_at(cursor: &SemanticCursor) -> Option<(usize, StepKind)> {
 ///   user stopped it deliberately; the summary line and the drill-in view
 ///   surface the recovered findings.
 /// - **Ok** → the per-tool default (from the tool's `[tui.default_expanded]` entry
-///   or built-in component default): `edit_text`, `write_file`, and `execute_command`
-///   show their bodies; `read_text` and the rest stay collapsed.
+///   or built-in component default): `edit_text` and `write_file`
+///   show their bodies; `execute_command`, `read_text` and the rest stay collapsed.
 pub fn default_tool_expanded(
     status: ToolStepStatus,
     name: &str,
@@ -184,9 +184,8 @@ mod tests {
     fn tool_running_follows_declared_default_failures_expand() {
         let cfg = config(&[]);
         // Running steps follow the declared component default: a shell command
-        // opens (its output is the point), a file read with no result yet stays
-        // collapsed; failures always force-expand.
-        assert!(default_tool_expanded(
+        // or file read with no result yet stays collapsed; failures always force-expand.
+        assert!(!default_tool_expanded(
             ToolStepStatus::Executing,
             "execute_command",
             &cfg
@@ -225,7 +224,7 @@ mod tests {
             "write_file",
             &cfg
         ));
-        assert!(default_tool_expanded(
+        assert!(!default_tool_expanded(
             ToolStepStatus::Ok,
             "execute_command",
             &cfg

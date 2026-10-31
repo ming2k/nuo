@@ -321,20 +321,24 @@ mod tests {
     }
 
     /// The declared policy the panel advertises: `edit_text` / `write_file`
-    /// (Diffs) and the shell family (Command) open; every other declared
-    /// component — and every undeclared tool — stays closed (ADR-0020 §5).
+    /// (Diffs) and `todo` open; every other declared component — including
+    /// the shell family (Command) and every undeclared tool — stays closed (ADR-0020 §5).
     #[test]
     fn declared_defaults_open_only_the_action_components() {
         let config = crate::shell::config::TuiConfig::default();
-        for name in ["edit_text", "write_file", "execute_command", "todo"] {
+        for name in ["edit_text", "write_file", "todo"] {
             assert!(
                 crate::shell::config::tool_default_expanded(&config, name),
                 "{name} must open by default"
             );
         }
+        assert!(!crate::shell::config::tool_default_expanded(
+            &config,
+            "execute_command"
+        ));
         for component in TOOL_COMPONENTS {
             for name in component.names() {
-                let expected = matches!(component.id, "command" | "diff" | "todo");
+                let expected = matches!(component.id, "diff" | "todo");
                 assert_eq!(
                     crate::shell::config::tool_default_expanded(&config, name),
                     expected,

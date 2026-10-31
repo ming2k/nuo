@@ -334,14 +334,14 @@ mod tests {
     }
 
     /// The declared component policy: `edit_text` / `write_file` (Diffs) and
-    /// the shell family (Command) open by default; everything else — including
-    /// an undeclared tool — stays collapsed (ADR-0020).
+    /// `todo` open by default; everything else — including the shell family
+    /// (Command) and undeclared tools — stays collapsed (ADR-0020).
     #[test]
     fn unlisted_tool_falls_back_to_declared_component_default() {
         let cfg = TuiConfig::default();
         assert!(tool_default_expanded(&cfg, "edit_text"));
         assert!(tool_default_expanded(&cfg, "write_file"));
-        assert!(tool_default_expanded(&cfg, "execute_command"));
+        assert!(!tool_default_expanded(&cfg, "execute_command"));
         assert!(tool_default_expanded(&cfg, "todo"));
         assert!(tool_default_expanded(&cfg, "write_todos"));
         assert!(!tool_default_expanded(&cfg, "read_text"));
@@ -353,11 +353,11 @@ mod tests {
     fn explicit_override_wins_over_declared_default() {
         let cfg = config(&[
             ("edit_text", false),
-            ("execute_command", false),
+            ("execute_command", true),
             ("read_text", true),
         ]);
         assert!(!tool_default_expanded(&cfg, "edit_text"));
-        assert!(!tool_default_expanded(&cfg, "execute_command"));
+        assert!(tool_default_expanded(&cfg, "execute_command"));
         assert!(tool_default_expanded(&cfg, "read_text"));
         // Still falls back for unlisted tools.
         assert!(!tool_default_expanded(&cfg, "search_text"));
@@ -591,18 +591,18 @@ error = "#dc322f"
     fn set_component_default_expanded_prunes_when_matching_default() {
         let mut cfg = TuiConfig::default();
         let comp = nuo_view::tools::component_for("execute_command").expect("command component");
-        assert!(comp.default_expanded());
+        assert!(!comp.default_expanded());
 
-        // Overriding to false inserts into map
-        set_component_default_expanded(&mut cfg, comp, false);
-        assert_eq!(cfg.default_expanded.get("execute_command"), Some(&false));
-
-        // Reverting to true (declared default) removes from map
+        // Overriding to true inserts into map
         set_component_default_expanded(&mut cfg, comp, true);
+        assert_eq!(cfg.default_expanded.get("execute_command"), Some(&true));
+
+        // Reverting to false (declared default) removes from map
+        set_component_default_expanded(&mut cfg, comp, false);
         assert!(!cfg.default_expanded.contains_key("execute_command"));
         assert!(cfg.default_expanded.is_empty());
 
-        // And tool_default_expanded still resolves to true via component fallback
-        assert!(tool_default_expanded(&cfg, "execute_command"));
+        // And tool_default_expanded still resolves to false via component fallback
+        assert!(!tool_default_expanded(&cfg, "execute_command"));
     }
 }

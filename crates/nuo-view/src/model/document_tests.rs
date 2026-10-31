@@ -1695,12 +1695,12 @@ fn subagent_reasoning_honours_the_configured_default_expansion() {
 fn nested_subagent_tool_steps_follow_the_lifecycle_default() {
     let mut task =
         TranscriptMessage::tool_step("c", "spawn_agent", r#"{"description":"d","prompt":"p"}"#);
-    // `execute_command` declares expanded-by-default, so a healthy result opens.
+    // `edit_text` declares expanded-by-default, so a healthy result opens.
     task.push_subagent_event(
         &SubagentEvent::ToolCall {
             id: "ok".into(),
-            name: "execute_command".into(),
-            arguments: r#"{"command":"true"}"#.into(),
+            name: "edit_text".into(),
+            arguments: r#"{"path":"lib.rs"}"#.into(),
             round: 1,
             turn: 0,
         },
@@ -1709,7 +1709,7 @@ fn nested_subagent_tool_steps_follow_the_lifecycle_default() {
     task.push_subagent_event(
         &SubagentEvent::ToolResult {
             id: "ok".into(),
-            name: "execute_command".into(),
+            name: "edit_text".into(),
             output: "done".into(),
             duration_ms: 1,
         },

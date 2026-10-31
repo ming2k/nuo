@@ -101,12 +101,16 @@ mod tests {
     #[test]
     fn tool_step_expanded_is_lifecycle_aware() {
         let cfg = source(&[]);
-        // `execute_command` declares expanded-by-default (its output is the
-        // point); `read_text` declares collapsed.
-        assert!(tool_step_expanded(
+        // `edit_text` declares expanded-by-default; `execute_command` and `read_text` declare collapsed.
+        assert!(!tool_step_expanded(
             &cfg,
             ToolStepStatus::Executing,
             "execute_command"
+        ));
+        assert!(tool_step_expanded(
+            &cfg,
+            ToolStepStatus::Executing,
+            "edit_text"
         ));
         assert!(!tool_step_expanded(
             &cfg,
@@ -150,9 +154,9 @@ mod tests {
     /// default for every non-terminal lifecycle.
     #[test]
     fn explicit_entry_overrides_declared_default() {
-        let cfg = source(&[("read_text", true), ("execute_command", false)]);
+        let cfg = source(&[("read_text", true), ("execute_command", true)]);
         assert!(tool_step_expanded(&cfg, ToolStepStatus::Ok, "read_text"));
-        assert!(!tool_step_expanded(
+        assert!(tool_step_expanded(
             &cfg,
             ToolStepStatus::Executing,
             "execute_command"

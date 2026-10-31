@@ -333,7 +333,7 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         label: "Command Execution Logs",
         description: "Expand shell execution output logs and terminal commands by default",
         members: &[("execute_command", &execute_command::ExecuteCommandPresenter)],
-        expanded_by_default: true,
+        expanded_by_default: false,
         has_inline_body: true,
     },
     ToolComponent {

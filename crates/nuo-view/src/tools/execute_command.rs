@@ -34,16 +34,13 @@ impl ToolPresenter for ExecuteCommandPresenter {
         ArgLayout::Command
     }
 
-    /// Expanded by default: a shell invocation is an action the user asked
-    /// for, and its output (exit status, diagnostics) is what they need to
-    /// see. The collapsed summary alone ("Run cargo") hides the outcome, and
-    /// the activity bar already tracks liveness separately.
-    ///
-    /// `[tui.default_expanded] execute_command = false` (or the Settings →
-    /// Components toggle) collapses it; failures and denials still force-expand
-    /// via the lifecycle rule in `step_interaction::default_tool_expanded`.
+    /// Collapsed by default: shell invocations can produce voluminous output
+    /// that pushes transcript context off-screen. Users can expand the step
+    /// on demand or enable auto-expansion via Settings → Components
+    /// (`[tui.default_expanded] execute_command = true`). Failures and denials
+    /// still force-expand via the lifecycle rule in `step_interaction::default_tool_expanded`.
     fn default_expanded(&self) -> bool {
-        true
+        false
     }
 }
 
