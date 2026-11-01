@@ -13,6 +13,48 @@
 
 use serde::{Deserialize, Serialize};
 
+/// What a slash command does, which is what decides whether it is *remembered*.
+///
+/// This is the one distinction the durable command ledger exists to make, and it
+/// is a property of the command — declared once, next to its summary, in the
+/// server's single vocabulary table — never a judgement re-made at a handler.
+///
+/// - [`CommandEffect::Mutation`] is an **act**: it changes durable state the
+///   thread must remember (posture, role, provider selection, trust grants,
+///   compaction, thread topology, workspace files, background jobs). Its truth
+///   does not decay, so it earns a durable record and a row at its timestamp
+///   seam in the rendered thread.
+/// - [`CommandEffect::Reading`] is a **report** of the state of the world at the
+///   instant it is asked (`/usage`, `/diff`, `/jobs`, `/help`, …). Re-running it
+///   produces a different answer by design, so it is stale the moment it exists.
+///   It earns no durable record and no thread row; its reply is an ephemeral
+///   receipt on the client.
+///
+/// Both classes still reply on the wire (`nuo_protocol::RoundEvent::CommandResult`
+/// carries the class). Ephemeral is not the same as silent: a reading is answered
+/// in full, it is simply not asserted later as still true. See ADR-0140.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandEffect {
+    /// An act: durable state changed, so the ledger keeps it.
+    Mutation,
+    /// A report: a measurement of the world, true only at the moment of asking.
+    ///
+    /// The `Default`, so a vocabulary row or a wire frame that states no effect
+    /// makes no claim to durability. Being wrong in this direction costs a
+    /// missing row; being wrong in the other direction asserts a stale
+    /// measurement as history.
+    #[default]
+    Reading,
+}
+
+impl CommandEffect {
+    /// Whether this class earns a durable ledger record.
+    pub fn is_durable(self) -> bool {
+        matches!(self, Self::Mutation)
+    }
+}
+
 /// One concrete example for a slash command (invoked as `/name`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandExample {
@@ -25,6 +67,12 @@ pub struct CommandExample {
 /// Exactly one prose field exists: [`CommandSpec::summary`]. It doubles as the
 /// menu line and the inspector/detail text, so keep it informative on its own
 /// (a second long-form field would just drift back into near-duplicate prose).
+///
+/// `effect` is the command's declared [`CommandEffect`] (ADR-0140): it tells a
+/// frontend, *before dispatch*, whether to stage an optimistic thread row. It is
+/// an optimisation only — [`crate::RoundEvent::CommandResult`] carries the
+/// authoritative class after the fact, so a client that never fetched a catalog
+/// still files the reply correctly.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandSpec {
     pub name: String,
@@ -37,6 +85,19 @@ pub struct CommandSpec {
     pub intent_keywords: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
+    /// Whether an invocation of this command is an act (recorded) or a reading
+    /// (ephemeral). This is the argument-less invocation's class.
+    #[serde(default)]
+    pub effect: CommandEffect,
+    /// The class of an invocation whose first argument token is not a declared
+    /// verb. A handler's `_` arm is what actually runs then, so this states *its*
+    /// effect — `/jobs whatever` lists jobs, hence `Reading`, even though `kill`
+    /// mutates. Mandatory (no default): a default is exactly how `/role <dynamic
+    /// role id>` would be silently misfiled as a reading, and the two errors are
+    /// not symmetric — a missing record is unrecoverable, a spurious one is only
+    /// noisy (ADR-0140 §Decision).
+    #[serde(default)]
+    pub verb_effect: CommandEffect,
     /// First-token verbs this command accepts (`/schedule list` → `list`),
     /// each with its own one-line introduction. Progressive disclosure: the
     /// parent's list stays lean; subcommand detail appears only after the
@@ -52,6 +113,11 @@ pub struct CommandSubcommandSpec {
     /// One-line introduction shown when completing `/cmd <cursor>`; keep it
     /// distinct from the sibling lines and from the parent summary.
     pub summary: String,
+    /// The verb's own declared effect. A verb mutates or reads independently of
+    /// its parent: `/jobs kill` is an act inside a reading command, `/trust
+    /// status` is a reading inside an act.
+    #[serde(default)]
+    pub effect: CommandEffect,
 }
 
 /// A non-command trigger that steers users to a canonical command.
@@ -108,6 +174,30 @@ impl CommandCatalog {
 
     pub fn alias(&self, name: &str) -> Option<&CommandAlias> {
         self.aliases.iter().find(|alias| alias.name == name)
+    }
+
+    /// The declared effect of `name` (with leading slash, e.g. `/jobs`) and its
+    /// first argument token, if any.
+    ///
+    /// This mirrors the server's `startup::effect_for` exactly, for the one
+    /// consumer that runs *before* dispatch (staging an optimistic row). A name
+    /// the catalog does not know — an application-registered handler, a project
+    /// command prompt — is `Mutation`: extension code may have mutated anything,
+    /// and over-recording is the safe direction. A declared verb uses its own
+    /// declaration; an undeclared argument uses the command's `verb_effect`, which
+    /// is the handler's `_` arm semantics (ADR-0140).
+    pub fn effect_for(&self, name: &str, sub: Option<&str>) -> CommandEffect {
+        let Some(spec) = self.find(name) else {
+            return CommandEffect::Mutation;
+        };
+        match sub {
+            Some(sub) => spec
+                .subcommands
+                .iter()
+                .find(|s| s.name == sub)
+                .map_or(spec.verb_effect, |verb| verb.effect),
+            None => spec.effect,
+        }
     }
 }
 

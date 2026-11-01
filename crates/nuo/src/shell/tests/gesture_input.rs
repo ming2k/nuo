@@ -93,6 +93,7 @@ async fn f1_and_alt_h_open_help_dialog() {
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
 
+    // F1 toggles open
     send(
         &mut app,
         &mut terminal,
@@ -104,14 +105,16 @@ async fn f1_and_alt_h_open_help_dialog() {
         Some(crate::shell::surfaces::DialogKind::Help)
     );
 
+    // F1 toggles closed
     send(
         &mut app,
         &mut terminal,
-        key(KeyCode::Esc, KeyModifiers::NONE),
+        key(KeyCode::F(1), KeyModifiers::NONE),
     )
     .await;
     assert_eq!(app.active_dialog(), None);
 
+    // Alt-h toggles open
     send(
         &mut app,
         &mut terminal,
@@ -121,6 +124,80 @@ async fn f1_and_alt_h_open_help_dialog() {
     assert_eq!(
         app.active_dialog(),
         Some(crate::shell::surfaces::DialogKind::Help)
+    );
+
+    // Alt-h toggles closed
+    send(
+        &mut app,
+        &mut terminal,
+        key(KeyCode::Char('h'), KeyModifiers::ALT),
+    )
+    .await;
+    assert_eq!(app.active_dialog(), None);
+
+    // Esc dismisses when open
+    send(
+        &mut app,
+        &mut terminal,
+        key(KeyCode::F(1), KeyModifiers::NONE),
+    )
+    .await;
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::Help)
+    );
+    send(
+        &mut app,
+        &mut terminal,
+        key(KeyCode::Esc, KeyModifiers::NONE),
+    )
+    .await;
+    assert_eq!(app.active_dialog(), None);
+}
+
+#[tokio::test]
+async fn help_dialog_mouse_row_click_executes_action() {
+    let (mut app, _tmp) = seeded_app();
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    paint(&mut app, &mut terminal);
+
+    // Open Help via F1
+    send(
+        &mut app,
+        &mut terminal,
+        key(KeyCode::F(1), KeyModifiers::NONE),
+    )
+    .await;
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::Help)
+    );
+
+    // Paint Help so UI tree and bounds are live
+    paint(&mut app, &mut terminal);
+
+    let modal_key = UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
+        crate::shell::surfaces::DialogKind::Help,
+    ));
+    let bounds = app.ui.bounds(modal_key).expect("help modal mounted");
+
+    // Line 1 in Thread scene is Notices (body_top is at bounds.y + 3, line 1 is at bounds.y + 4)
+    let notices_y = bounds.y + 4;
+    send(
+        &mut app,
+        &mut terminal,
+        mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            bounds.x + 5,
+            notices_y,
+        ),
+    )
+    .await;
+
+    // Clicking Notices row dismissed Help and opened Notices dialog
+    assert_eq!(
+        app.active_dialog(),
+        Some(crate::shell::surfaces::DialogKind::Notices)
     );
 }
 

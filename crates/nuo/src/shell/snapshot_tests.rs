@@ -616,76 +616,6 @@ fn edit_text_distant_changes_render_explicit_hunks() {
     insta::assert_snapshot!(render_grid(&m, 80, 40));
 }
 
-/// A `list_dir` step renders its **real** tool shape — the class-tagged
-/// entries — as a table: a `Name` / `Size` column header replacing the old
-/// count-summary band, then one row per entry with the name coloured by its
-/// `ls` class (blue directory, green executable, cyan symlink, plain file) and
-/// a directory carrying a trailing `/`, the byte size in a dim right-aligned
-/// column. The former per-row type glyph is gone.
-#[test]
-fn list_dir_expanded_renders_listing() {
-    let output = concat!(
-        "Directory: `.` (4 items):\n",
-        "[DIR]  src                      (4096 B)\n",
-        "[DIR]  tests                    (4096 B)\n",
-        "[FILE] Cargo.toml               (128 B)\n",
-        "[FILE] README.md                (2048 B)",
-    );
-    let m = tool_step("list_dir", r#"{"path":"."}"#, Some(output), true);
-    let grid = render_grid(&m, 80, 30);
-
-    // First line is a table header, not a count summary.
-    assert!(grid.contains("Name"), "column header renders: {grid}");
-    assert!(grid.contains("Size"), "column header renders: {grid}");
-    assert!(
-        !grid.contains("4 items"),
-        "the old count summary band is replaced by the header: {grid}"
-    );
-    // Directories carry a trailing `/`; no per-row type glyph remains.
-    assert!(grid.contains("src/"), "directory row keeps a `/`: {grid}");
-    assert!(grid.contains("tests/"), "directory row keeps a `/`: {grid}");
-    assert!(
-        !grid.contains("▸") && !grid.contains("· "),
-        "no per-row type glyph remains: {grid}"
-    );
-    assert!(grid.contains("Cargo.toml"), "file row renders: {grid}");
-    assert!(grid.contains("4.0 KB"), "directory size renders: {grid}");
-    assert!(grid.contains("128 B"), "file size renders: {grid}");
-    assert!(grid.contains("2.0 KB"), "file size renders: {grid}");
-    // The raw tags and the tool's header prefix are consumed, never dumped.
-    assert!(!grid.contains("[DIR]"), "raw tag must not leak: {grid}");
-    assert!(!grid.contains("[FILE]"), "raw tag must not leak: {grid}");
-    assert!(
-        !grid.contains("Directory: `"),
-        "header prefix must be consumed: {grid}"
-    );
-    // Visual lock on the table layout (header → class-coloured rows + size column).
-    insta::assert_snapshot!(render_grid(&m, 80, 30));
-}
-
-/// The `list_dir` omission trailer folds into a single dim summary band rather
-/// than being dumped as one more entry row.
-#[test]
-fn list_dir_expanded_folds_the_omission_trailer() {
-    let output = concat!(
-        "Directory: `.` (210 items):\n",
-        "[FILE] a.rs                     (10 B)\n",
-        "... (10 additional entries omitted)",
-    );
-    let m = tool_step("list_dir", r#"{"path":"."}"#, Some(output), true);
-    let grid = render_grid(&m, 80, 30);
-
-    assert!(grid.contains("a.rs"), "{grid}");
-    assert!(
-        grid.contains("10 more entries not shown"),
-        "trailer folds into a summary band: {grid}"
-    );
-    assert!(
-        !grid.contains("additional entries omitted"),
-        "raw trailer must not leak: {grid}"
-    );
-}
-
 /// A `find_files` step groups entries sharing a directory under one title band,
 /// so the shared prefix is not repeated on every row (the 27-ADR case).
 #[test]
@@ -2029,10 +1959,14 @@ fn different_tool_turns_have_one_vertical_gap() {
 /// must span the insert: exactly one `› turn 60` header for the whole turn, with
 /// the steer panel nested inside it, and the work that continued afterwards
 /// still under that same header. Left ungrouped, the turn would paint a second
-/// header and read as two turns numbered 60.
+/// ADR-0137: a steer is materialized only at a turn seam, so it TERMINATES the
+/// turn band rather than being absorbed into it. The band header is painted once
+/// per turn, and the steer sits between two turns — never inside one, where it
+/// would either split the band or (under the deleted absorption rule) be
+/// swallowed into a turn it does not belong to.
 #[test]
-fn steer_insert_mid_turn_keeps_one_turn_header() {
-    use nuo_view::model::document::{DeliveryStatus, UserMessageOrigin};
+fn seam_steer_terminates_the_turn_band() {
+    use nuo_view::model::document::{SteerOriginTag, UserMessageOrigin};
 
     let mut thinking = TranscriptMessage::reasoning("re-read the ADR").with_turn(60);
     thinking.set_reasoning_duration(10);
@@ -2051,107 +1985,87 @@ fn steer_insert_mid_turn_keeps_one_turn_header() {
         )
         .with_turn(60)
     };
-    // The queued form the live tail carries: no position yet, staged mid-turn.
+    // The admitted form: it landed at the seam after turn 60's output, and it
+    // is consumed by turn 61 — which is why it carries `turn 61`.
     let steer = TranscriptMessage::new(nuo_protocol::Role::User, "stop and re-read the ADR")
         .with_origin(UserMessageOrigin::Steer)
+        .with_round(1)
+        .with_turn(61)
         .with_sent_at_ms(1_700_000_000_000)
-        .queued();
-    assert_eq!(steer.delivery, DeliveryStatus::Queued);
+        .with_origin_tags(vec![SteerOriginTag::InRound]);
 
+    let mut resumed = step("b.rs");
+    resumed.turn = Some(61);
     let messages = vec![
         thinking,
         step("a.rs"),
         steer,
-        step("b.rs"),
-        TranscriptMessage::new(nuo_protocol::Role::Assistant, "done reading").with_turn(60),
+        resumed,
+        TranscriptMessage::new(nuo_protocol::Role::Assistant, "done reading").with_turn(61),
     ];
 
     let grid = render_transcript_grid(&messages, 72, 40);
     let rows: Vec<&str> = grid.lines().collect();
-    let header_rows: Vec<usize> = rows
+
+    // Turn 60 and turn 61 are two distinct bands, each with exactly one header.
+    let headers: Vec<&str> = rows
         .iter()
-        .enumerate()
-        .filter(|(_, row)| row.trim_start().starts_with("› turn"))
-        .map(|(index, _)| index)
+        .copied()
+        .filter(|row| row.trim_start().starts_with("› turn"))
         .collect();
-
     assert_eq!(
-        header_rows.len(),
-        1,
-        "the interrupted turn keeps exactly one header:\n{grid}"
+        headers.len(),
+        2,
+        "each turn keeps exactly one header (the steer splits the turns, it does \
+         not duplicate a header):\n{grid}"
     );
-    assert!(grid.contains("› turn 60"), "band labels the turn:\n{grid}");
     assert!(
-        grid.contains("› steer"),
-        "the steer panel still renders inside the band:\n{grid}"
+        headers[0].contains("turn 60") && headers[1].contains("turn 61"),
+        "the two bands are consecutive turns, never the same number twice:\n{grid}"
     );
 
-    // Both halves of the turn's work sit below that single header — the insert
-    // must not have pushed the resumed work into a new band.
-    let resumed = rows
+    // The steer renders as a one-row interjection, between the two bands.
+    let steer_row = rows
         .iter()
-        .position(|row| row.contains("Read b.rs"))
-        .expect("the turn's post-steer work renders");
+        .position(|row| row.contains("›  steer"))
+        .expect("steer interjection renders");
     let first_work = rows
         .iter()
         .position(|row| row.contains("Read a.rs"))
-        .expect("the turn's pre-steer work renders");
-    let steer_row = rows
+        .expect("pre-steer work renders");
+    let resumed_work = rows
         .iter()
-        .position(|row| row.contains("› steer"))
-        .expect("steer panel renders");
+        .position(|row| row.contains("Read b.rs"))
+        .expect("post-steer work renders");
     assert!(
-        first_work < steer_row && steer_row < resumed,
-        "the steer stays between the two halves of its turn:\n{grid}"
-    );
-    assert!(
-        resumed > header_rows[0],
-        "resumed work stays under the original header:\n{grid}"
+        first_work < steer_row && steer_row < resumed_work,
+        "the steer sits at the seam between the two turns' work:\n{grid}"
     );
 }
 
 /// A steer that was already admitted (delivered, stamped with the turn it
 /// interrupted) groups identically — the position stamp must not promote it to
-/// a group terminator.
+/// The same geometry holds for the follow-up weight class: a `RoundOpening`
+/// steer keeps full round-panel weight, so its provenance breadcrumb is
+/// visible — the tag, not the origin, chooses the weight (ADR-0137).
 #[test]
-fn delivered_steer_mid_turn_keeps_one_turn_header() {
-    use nuo_view::model::document::UserMessageOrigin;
+fn round_opening_steer_keeps_round_panel_weight() {
+    use nuo_view::model::document::{SteerOriginTag, UserMessageOrigin};
 
-    let step = |path: &str| {
-        tool_step_structured(
-            "read_text",
-            format!(r#"{{"path":"{path}"}}"#).as_str(),
-            nuo_protocol::ToolOutput::Code {
-                lang: None,
-                text: "a".into(),
-                start_line: 1,
-                prefix: None,
-                suffix: None,
-            },
-            false,
-        )
-        .with_turn(60)
-    };
-    let mut steer = TranscriptMessage::new(nuo_protocol::Role::User, "adjust the heading")
+    let steer = TranscriptMessage::new(nuo_protocol::Role::User, "adjust the heading")
         .with_origin(UserMessageOrigin::Steer)
         .with_round(3)
-        .with_turn(60)
-        .with_sent_at_ms(1_700_000_000_000);
-    steer.delivery = nuo_view::model::document::DeliveryStatus::Delivered;
+        .with_sent_at_ms(1_700_000_000_000)
+        .with_origin_tags(vec![SteerOriginTag::RoundOpening]);
 
-    let messages = vec![step("a.rs"), steer, step("b.rs")];
-    let grid = render_transcript_grid(&messages, 72, 40);
-
-    assert_eq!(
-        grid.lines()
-            .filter(|row| row.trim_start().starts_with("› turn"))
-            .count(),
-        1,
-        "a delivered steer stays inside its turn band:\n{grid}"
+    let grid = render_transcript_grid(&[steer], 72, 20);
+    assert!(
+        grid.contains("› steer"),
+        "the round-opening form renders the steer anchor:\n{grid}"
     );
     assert!(
-        grid.contains("› steer  round 3 › turn 60"),
-        "the steer keeps its provenance breadcrumb:\n{grid}"
+        grid.contains("round 3"),
+        "it keeps its round provenance — the panel form carries the breadcrumb:\n{grid}"
     );
 }
 
@@ -2284,7 +2198,7 @@ fn user_messages_render_timestamps_and_never_sent_marker() {
 
 #[test]
 fn user_steer_and_followup_render_clean_unified_headers() {
-    use nuo_view::model::document::{DeliveryStatus, UserMessageOrigin};
+    use nuo_view::model::document::UserMessageOrigin;
     let epoch_ms = 1_700_000_000_000;
 
     // Delivered steer with round & turn provenance
@@ -2304,18 +2218,6 @@ fn user_steer_and_followup_render_clean_unified_headers() {
         "must never use ↳ glyph in user prompt header:\n{grid_steer}"
     );
 
-    // Queued steer
-    let mut queued_steer =
-        TranscriptMessage::new(nuo_protocol::Role::User, "Pending steer").with_sent_at_ms(epoch_ms);
-    queued_steer.origin = UserMessageOrigin::Steer;
-    queued_steer.delivery = DeliveryStatus::Queued;
-
-    let grid_queued_steer = render_transcript_grid(&[queued_steer], 72, 18);
-    assert!(
-        grid_queued_steer.contains("› steer  queued"),
-        "must render queued steer with clean upright status:\n{grid_queued_steer}"
-    );
-
     // Delivered follow-up with round provenance
     let mut followup_msg = TranscriptMessage::new(nuo_protocol::Role::User, "Next step")
         .with_round(2)
@@ -2330,18 +2232,6 @@ fn user_steer_and_followup_render_clean_unified_headers() {
     assert!(
         !grid_followup.contains("↳"),
         "must never use ↳ glyph in follow-up header:\n{grid_followup}"
-    );
-
-    // Queued follow-up
-    let mut queued_followup = TranscriptMessage::new(nuo_protocol::Role::User, "Queued next step")
-        .with_sent_at_ms(epoch_ms);
-    queued_followup.origin = UserMessageOrigin::FollowUp;
-    queued_followup.delivery = DeliveryStatus::Queued;
-
-    let grid_queued_followup = render_transcript_grid(&[queued_followup], 72, 18);
-    assert!(
-        grid_queued_followup.contains("› follow-up  queued"),
-        "must render queued follow-up with clean upright status:\n{grid_queued_followup}"
     );
 }
 

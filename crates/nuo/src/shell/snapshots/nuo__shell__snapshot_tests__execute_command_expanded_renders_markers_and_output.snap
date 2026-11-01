@@ -1,15 +1,15 @@
 ---
-source: crates/nuo-tui/src/snapshot_tests.rs
+source: crates/nuo/src/shell/snapshot_tests.rs
 expression: "render_grid(&m, 80, 40)"
 ---
 - Run cargo
-  $ cargo test
-  running 3 tests
-  .
-  .
-  .
-  test result: ok. 3 passed
-  built ok
+  │ $ cargo test
+  │ running 3 tests
+  │ .
+  │ .
+  │ .
+  │ test result: ok. 3 passed
+  │ built ok
 
 backgrounds:
 A=#070808  B=#111312  .=reset

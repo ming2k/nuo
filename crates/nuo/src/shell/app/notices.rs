@@ -4,7 +4,8 @@
 //!
 //! Every disclosure the client surfaces — a routed `AgentNotice`, a failed
 //! clipboard write, a link that could not be opened — goes through
-//! `App::record_notice`. That function appends to the notice log first and
+//! `App::record_notice`, whose payload is the typed [`RenderedNotice`] of the
+//! notice catalog (ADR-0138). That function appends to the notice log first and
 //! only then decides whether to raise a bubble:
 //!
 //! - a **fault** (`Warning` / `Error`) raises a bubble whose hint row names the
@@ -16,6 +17,15 @@
 //!
 //! Producers call one function and cannot express "bubble without record",
 //! which is the mechanism that makes "you had to be watching" impossible.
+//!
+//! # The content is a closed catalog, not loose strings (ADR-0138)
+//!
+//! Retention without a content registry still lets every producer word its own
+//! sentence and invent its own topic inline — the "scattered string literals"
+//! smell. [`ClientNotice`] closes that: the funnel's payload is a
+//! [`RenderedNotice`] whose only constructors are the closed client enum and the
+//! closed wire projection, so a producer cannot fabricate a topic outside the
+//! vocabulary or fake a timestamp. Time is stamped here, once.
 //!
 //! # How long a bubble lives
 //!
@@ -47,6 +57,7 @@ use nuo_view::model::document::NoticeSeverity;
 use nuo_view::model::log::{LineStatus, SurfaceLine};
 
 use crate::shell::app::App;
+use crate::shell::app::notice_catalog::{ClientNotice, ClientTopic, RenderedNotice};
 use crate::shell::keymap::Key;
 
 /// Dwell floor for a fault. Above WCAG's 5 s perception threshold, so a user
@@ -87,36 +98,26 @@ impl App {
     /// The log append happens in every case: `severity` decides *how the bubble
     /// behaves*, never *whether the record exists*. That is the inversion —
     /// retention is unconditional, interruption is not.
-    pub(crate) fn record_notice(
-        &mut self,
-        severity: NoticeSeverity,
-        topic: impl Into<String>,
-        text: impl Into<String>,
-        at_ms: u64,
-    ) -> bool {
-        self.record_notice_with_detail(severity, topic, text, None, at_ms)
-    }
-
-    /// Record one disclosure together with its structured detail.
     ///
-    /// The detail is what the viewer's expanded row renders below the summary —
-    /// the full provider body of a retry, the context of a diagnostic. A
-    /// one-line summary alone is not enough for the content that most needs
-    /// pasting, and since that content no longer lives in the transcript this is
-    /// the only place it survives.
-    pub(crate) fn record_notice_with_detail(
-        &mut self,
-        severity: NoticeSeverity,
-        topic: impl Into<String>,
-        text: impl Into<String>,
-        detail: Option<String>,
-        at_ms: u64,
-    ) -> bool {
-        let topic = topic.into();
+    /// # Catalog-only producers (ADR-0138)
+    ///
+    /// The payload is a [`RenderedNotice`], whose only constructors are
+    /// [`ClientNotice::render`] and [`RenderedNotice::from_core`]. There is no
+    /// `record_notice(severity, topic, text, at_ms)` overload: a producer
+    /// cannot assemble a disclosure out of loose strings, invent a topic outside
+    /// the closed vocabulary, or fake a timestamp. Time is stamped here, once,
+    /// from the single client clock.
+    pub(crate) fn record_notice(&mut self, rendered: RenderedNotice) -> bool {
+        let at_ms = crate::shell::event_loop::now_epoch_ms();
         let log = self.notice_log();
-        let Some(line) =
-            crate::shell::app::receipts::record(log, severity, topic, text, detail, at_ms)
-        else {
+        let Some(line) = crate::shell::app::receipts::record(
+            log,
+            rendered.severity(),
+            rendered.topic(),
+            rendered.title().to_string(),
+            rendered.detail().map(str::to_string),
+            at_ms,
+        ) else {
             return false;
         };
         let line = line.clone();
@@ -124,17 +125,27 @@ impl App {
         true
     }
 
-    /// Record a local fault (a client-side action that failed) under a topic
-    /// tag. Local faults are always `Error`: there is no degraded-success shape
-    /// in the clipboard/link vocabulary, and inventing one here would let a
-    /// silent degradation look like success.
-    pub(crate) fn record_local_fault(&mut self, topic: impl Into<String>, text: impl Into<String>) {
-        self.record_notice(
-            NoticeSeverity::Error,
+    /// Record a catalog kind — the ergonomic producer entry point.
+    ///
+    /// Every structural client disclosure is recorded this way; the free-form
+    /// `record_notice` above exists only as the funnel the catalog itself (and
+    /// the wire projection) calls into.
+    pub(crate) fn record_client_notice(&mut self, kind: ClientNotice) -> bool {
+        self.record_notice(kind.render())
+    }
+
+    /// Record a local fault with client-authored wording under a closed topic.
+    ///
+    /// The bounded dynamic escape hatch: [`ClientNotice::LocalFault`] fixes the
+    /// severity (`Error`) and the topic from the closed [`ClientTopic`] set;
+    /// only the sentence is supplied. Local faults are always `Error` because
+    /// there is no degraded-success shape in the clipboard/link vocabulary, and
+    /// inventing one here would let a silent degradation look like success.
+    pub(crate) fn record_local_fault(&mut self, topic: ClientTopic, text: impl Into<String>) {
+        self.record_client_notice(ClientNotice::LocalFault {
             topic,
-            text,
-            crate::shell::event_loop::now_epoch_ms(),
-        );
+            message: text.into(),
+        });
     }
 
     /// Paint the notice bubble, superseding any in-flight one.
@@ -218,6 +229,19 @@ mod tests {
     use super::*;
     use nuo_view::model::log::LineStatus;
 
+    /// Build the funnel payload directly for a synthetic disclosure, the way a
+    /// catalog entry renders. Tests that exercise the funnel's *residency*
+    /// behaviour don't need a real catalog kind; they need a well-formed
+    /// [`RenderedNotice`], which is what this constructs.
+    fn disclosure(severity: NoticeSeverity, topic: ClientTopic, title: &str) -> RenderedNotice {
+        RenderedNotice::for_test(severity, topic, title)
+    }
+
+    /// A fault under the `link` topic — the shape most residency tests use.
+    fn link_fault(title: &str) -> RenderedNotice {
+        disclosure(NoticeSeverity::Error, ClientTopic::Link, title)
+    }
+
     #[test]
     fn a_fault_dwells_above_the_perception_threshold_and_below_the_ceiling() {
         // WCAG 2.2.1 draws the perception line at 5s; Material's snackbar max is
@@ -279,7 +303,7 @@ mod tests {
     #[test]
     fn an_error_is_retained_and_interrupts_with_a_hint() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        assert!(app.record_notice(NoticeSeverity::Error, "backend", "link down", 1));
+        assert!(app.record_notice(link_fault("link down")));
         assert_eq!(app.notice_count(), 1, "the record is the home");
         assert!(app.has_unread_notice_fault());
         assert!(
@@ -287,13 +311,17 @@ mod tests {
             "a fault interrupts while the user can still act on it"
         );
         assert_eq!(app.notice_toast_message, "link down");
-        assert_eq!(app.notice_toast_topic, "backend");
+        assert_eq!(app.notice_toast_topic, "link");
     }
 
     #[test]
     fn an_acknowledgement_is_retained_but_never_raises_the_fault_badge() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        assert!(app.record_notice(NoticeSeverity::Info, "command", "delegated on", 1));
+        assert!(app.record_notice(disclosure(
+            NoticeSeverity::Info,
+            ClientTopic::Command,
+            "delegated on",
+        )));
         assert_eq!(app.notice_count(), 1, "still readable a minute later");
         assert!(!app.has_unread_notice_fault(), "but not news");
         assert!(!app.has_notice_fault(), "an ack is not a fault");
@@ -306,21 +334,29 @@ mod tests {
     #[test]
     fn a_fault_bubble_advertises_the_viewer_but_an_ack_does_not() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.record_notice(NoticeSeverity::Error, "backend", "link down", 1);
+        app.record_notice(link_fault("link down"));
         let hint = app
             .notice_bubble_hint()
             .expect("a fault points at its record");
         assert!(hint.contains("all notices"), "{hint}");
-        app.record_notice(NoticeSeverity::Info, "command", "delegated on", 2);
+        app.record_notice(disclosure(
+            NoticeSeverity::Info,
+            ClientTopic::Command,
+            "delegated on",
+        ));
         assert!(app.notice_bubble_hint().is_none());
     }
 
     #[test]
     fn a_warning_is_a_fault_and_a_newer_fault_supersedes_the_bubble() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.record_notice(NoticeSeverity::Warning, "images", "withheld", 1);
+        app.record_notice(disclosure(
+            NoticeSeverity::Warning,
+            ClientTopic::Images,
+            "withheld",
+        ));
         assert_eq!(app.notice_toast_severity, NoticeSeverity::Warning);
-        app.record_notice(NoticeSeverity::Error, "backend", "gone", 2);
+        app.record_notice(link_fault("gone"));
         assert_eq!(
             app.notice_toast_message, "gone",
             "the one slot shows the newest fault"
@@ -332,7 +368,7 @@ mod tests {
     #[test]
     fn opening_the_viewer_acknowledges_the_log_but_keeps_it() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.record_notice(NoticeSeverity::Error, "backend", "link down", 1);
+        app.record_notice(link_fault("link down"));
         app.open_notice_viewer();
         assert!(app.notice_viewer_open());
         assert_eq!(app.unread_notices(), 0, "a viewer on screen is seen");
@@ -345,7 +381,7 @@ mod tests {
     #[test]
     fn clearing_forgets_the_notices_and_resets_the_viewer() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.record_notice(NoticeSeverity::Error, "backend", "link down", 1);
+        app.record_notice(link_fault("link down"));
         app.open_notice_viewer();
         app.surfaces
             .dlg_mut::<crate::shell::surfaces::NoticesDialog>()
@@ -363,7 +399,7 @@ mod tests {
     #[test]
     fn a_local_fault_is_recorded_as_an_error_under_its_topic() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        app.record_local_fault("copy", "clipboard is empty");
+        app.record_local_fault(ClientTopic::Copy, "clipboard is empty");
         let line = app.notice_lines().back().expect("recorded");
         assert_eq!(line.status, LineStatus::Failed);
         assert_eq!(line.label.as_deref(), Some("copy"));
@@ -372,7 +408,7 @@ mod tests {
     #[test]
     fn an_empty_disclosure_never_reaches_the_log_or_a_bubble() {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
-        assert!(!app.record_notice(NoticeSeverity::Error, "t", "   ", 1));
+        assert!(!app.record_notice(link_fault("   ")));
         assert!(!app.has_notices());
         assert!(app.notice_toast_until.is_none());
     }

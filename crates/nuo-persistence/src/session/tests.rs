@@ -930,6 +930,62 @@ async fn command_ledger_round_trips() {
     assert_eq!(store.commands().await.len(), 1);
 }
 
+/// ADR-0140 (schema v17): the pre-split ledger is retired, not migrated.
+///
+/// Every row written before the split mixed acts with readings, and the class was
+/// never recorded, so no load-time filter can separate them. A reading restored
+/// at its timestamp seam would assert a stale measurement as history, which is
+/// the exact defect the split removes — so the ledger is dropped, the ADR-0059
+/// precedent applied to the one field whose *contents* stopped being a claim the
+/// design makes.
+///
+/// The test drives the migration seam directly: a `SessionData` at the previous
+/// schema version carrying both classes loads as a v17 session with no ledger.
+#[test]
+fn pre_split_command_ledger_is_retired_on_load() {
+    let data = SessionData {
+        // An act and a reading, side by side — the shape a v16 session carries.
+        commands: vec![
+            nuo_protocol::CommandRecord::new("unattended", "on").with_result(
+                nuo_protocol::CommandResult::Ack {
+                    title: "Unattended mode ON".to_string(),
+                    detail: None,
+                },
+            ),
+            nuo_protocol::CommandRecord::new("usage", "")
+                .with_result(nuo_protocol::CommandResult::Text("1.2M tokens".to_string())),
+        ],
+        schema_version: CURRENT_SCHEMA_VERSION - 1,
+        ..Default::default()
+    };
+
+    let migrated = migrate_session_data(data);
+
+    assert!(
+        migrated.commands.is_empty(),
+        "a pre-split ledger must not survive into a v17 session"
+    );
+    assert_eq!(migrated.schema_version, CURRENT_SCHEMA_VERSION);
+}
+
+/// The narrowed ledger is still a ledger: a session written *at* the current
+/// schema keeps its acts across a reload.
+#[test]
+fn current_schema_keeps_acts_across_the_migration_seam() {
+    let data = SessionData {
+        commands: vec![nuo_protocol::CommandRecord::new("unattended", "on")],
+        schema_version: CURRENT_SCHEMA_VERSION,
+        ..Default::default()
+    };
+
+    let migrated = migrate_session_data(data);
+    assert_eq!(
+        migrated.commands.len(),
+        1,
+        "a v17 ledger is acts-only by construction and must not be dropped"
+    );
+}
+
 // ---------------------------------------------------------------
 // Legacy snapshots are retired, not migrated (clean break).
 // ---------------------------------------------------------------

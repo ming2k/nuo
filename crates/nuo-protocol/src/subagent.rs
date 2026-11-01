@@ -457,12 +457,6 @@ mod tests {
                 .tool_policy
                 .admits(&make("execute_command"))
         );
-        // Stepwise directory wandering is pruned (ADR-0064).
-        assert!(
-            !SubAgentProfile::EXPLORE
-                .tool_policy
-                .admits(&make("list_dir"))
-        );
     }
 
     #[test]
@@ -617,7 +611,6 @@ mod tests {
                 .admits(&make("write_file"))
         );
         assert!(!SubAgentProfile::DEBUG.tool_policy.admits(&make("todo")));
-        assert!(!SubAgentProfile::DEBUG.tool_policy.admits(&make("list_dir")));
 
         assert!(
             !SubAgentProfile::DEBUG
@@ -679,5 +672,11 @@ mod tests {
         assert_eq!(phil_subagents.len(), 1);
         let names: Vec<&str> = phil_subagents.iter().map(|p| p.name).collect();
         assert_eq!(names, vec!["explore"]);
+
+        let ops_delegation = crate::AgentRoleProfile::OPS;
+        let ops_subagents = SubAgentProfile::admitted_for_delegation(&ops_delegation);
+        assert_eq!(ops_subagents.len(), 4);
+        let names: Vec<&str> = ops_subagents.iter().map(|p| p.name).collect();
+        assert_eq!(names, vec!["explore", "title", "debug", "skill"]);
     }
 }

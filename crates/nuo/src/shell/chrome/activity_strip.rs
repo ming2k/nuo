@@ -32,6 +32,9 @@ pub struct ActivityStripProps<'a> {
     pub queued_count: usize,
     /// Text of the first staged follow-up message (for idle preview).
     pub queued_preview: Option<&'a str>,
+    /// The first queued item is a pending steer (not a next-round follow-up):
+    /// the idle preview labels it `steer:` instead of `Follow-up:` (ADR-0137).
+    pub queued_first_is_steer: bool,
     /// Number of active/undismissed background tasks.
     pub tasks_count: usize,
     /// Label of the first active task (for idle preview).
@@ -58,6 +61,7 @@ pub fn draw_activity_strip(
         awaiting_permission,
         queued_count,
         queued_preview,
+        queued_first_is_steer,
         tasks_count,
         tasks_preview,
         queue_key,
@@ -224,7 +228,12 @@ pub fn draw_activity_strip(
         let preview = queued_preview.unwrap_or("");
         let prefix_w: usize = left_spans.iter().map(|s| s.content.width()).sum();
         let budget = available_width.saturating_sub(prefix_w + right_w + 4);
-        let text = format!("Follow-up: \"{}\"", truncate_for_bar(preview, budget));
+        let label = if queued_first_is_steer {
+            "Steer"
+        } else {
+            "Follow-up"
+        };
+        let text = format!("{label}: \"{}\"", truncate_for_bar(preview, budget));
         left_spans.push(Span::styled(text, dim));
     } else if tasks_count > 0 {
         let preview = tasks_preview.unwrap_or("");

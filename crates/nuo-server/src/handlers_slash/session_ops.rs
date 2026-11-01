@@ -200,6 +200,19 @@ pub(crate) async fn switch_or_start_session_with_role(
                         provider_usage,
                     )
                     .await;
+                    let default_confined =
+                        if let Some(builtin) = nuo_protocol::MainAgentRole::parse(role_id) {
+                            builtin.default_confined()
+                        } else {
+                            true
+                        };
+                    if shared_confinement.is_confined() != default_confined {
+                        shared_confinement.set_confined(default_confined);
+                        let _ = resp_tx.send(round_response(
+                            &session.id().await,
+                            RoundEvent::ConfinementChanged(default_confined),
+                        ));
+                    }
                     let _ = resp_tx.send(round_response(
                         &session.id().await,
                         RoundEvent::HarnessState(nuo_protocol::HarnessSnapshot {

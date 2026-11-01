@@ -613,14 +613,15 @@ impl App {
         self.arm_ctrl_c(None);
     }
 
-    /// Mint the correlation id for an in-flight busy-Enter steer.
+    /// Mint the correlation id for a busy-Enter steer or a queued follow-up.
     ///
-    /// The insert is **transcript-owned**: it becomes a
-    /// `DeliveryStatus::Queued` entry the moment it is sent and never enters
-    /// the outbox — so this helper only mints the correlation id the loop
-    /// uses to settle that entry when the harness admits it
-    /// (`UserInputInserted`) or hands it back (`UserInputUnavailable` →
-    /// [`Self::requeue_dispatch`]).
+    /// The id is the **wire correlation** between the request the shell sends
+    /// (`AgentRequest::Steer` / `AgentRequest::FollowUp`) and the admission
+    /// event it observes (`SteerAdmitted` / `FollowUpStarted`). The message is
+    /// not "transcript-owned" while pending: it waits in the outbox, and the
+    /// transcript gains a row only at admission (ADR-0137). The same id is what
+    /// `SteerMissed` / `SteerCancelled` / `SteerCancelFailed` and
+    /// `DispatchRemoved` address.
     pub fn new_insert_id(&self) -> String {
         uuid::Uuid::new_v4().to_string()
     }

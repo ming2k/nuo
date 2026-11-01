@@ -8,53 +8,69 @@ Reference for the built-in slash commands available inside the Nuo terminal inte
 
 Type these at the composer to open the corresponding surface or perform the action.
 
-| Command | Summary |
-| :--- | :--- |
-| `/models` | Switch the active model (context preserved) |
-| `/connections` | Manage LLM provider connections |
-| `/tools` | Manage session tools (enable/disable) |
-| `/mcp` | Manage MCP servers (status, reconnect) |
-| `/compact` | Compact older rounds into durable context memory |
-| `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history |
-| `/permissions` | Show or clear always-allowed tool rules |
-| `/unattended` | Toggle unattended execution posture |
-| `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) |
-| `/role` | Switch agent role (identity, capability, and workspace) |
-| `/search` | Semantic search over session history |
-| `/threads` | Browse or resume past threads — a lineage forest, newest thread first: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) |
-| `/fork` | Fork thread into a child thread at head, at round (`/fork 2`), or after a turn (`/fork 2.1`); the address is persisted and shown in `/threads`, the dashboard dock, and `nuo thread ls` (ADR-0058, ADR-0120) |
-| `/tree` | Visual DAG thread tree and branch navigation |
-| `/diff` | View what this thread changed in the workspace, grouped by whether the change can be undone |
-| `/undo` | Undo the last round's reversible file changes; refuses anything that moved on since |
-| `/stats` | View context token accounting and thread stats |
-| `/trace` | Inspect session execution trace and latency waterfall |
-| `/usage` | Cross-session token usage statistics overlay |
-| `/quotas` | Provider quota pool and allowance dashboard |
-| `/jobs` | Inspect and manage background processes and sub-subagents |
-| `/skills` | Browse available skills and view trust status |
-| `/init` | Scaffold a project-local `.nuo/` config tree |
-| `/trust` | Trust project-authored asset domains |
-| `/trust deny` | Refuse the current content of a domain (recorded; not asked again until it changes) |
-| `/untrust` | Revoke every project asset grant |
-| `/export` | Export thread to clipboard as Markdown |
-| `/retry` | Retry last failed model request |
-| `/help` | Show available commands and keybindings |
-| `/exit` | Exit the program |
+The **Recorded** column states whether an invocation is kept in the thread's history
+([ADR-0140](../adr/0140-command-effect-classes-readings-are-receipts-not-records.md)):
+
+- **act** — it changed durable state, so the thread remembers it at the moment it happened.
+- **reading** — it reported the state of the world at the moment you asked. It is answered in
+  full, and its answer is kept in the client's receipt log for the session, but it is never
+  written into the thread: a token count from last Tuesday presented beside live dialogue reads
+  as current, and nothing in the row says otherwise.
+
+| Command | Summary | Recorded |
+| :--- | :--- | :--- |
+| `/models` | Switch the active model (context preserved) | act |
+| `/connections` | Manage LLM provider connections | act |
+| `/tools` | Manage session tools (enable/disable) | act |
+| `/mcp` | Manage MCP servers (status, reconnect) | act |
+| `/compact` | Compact older rounds into durable context memory | act |
+| `/new` | Start a fresh thread tab (or reset in-place if current thread is empty), preserving history | act |
+| `/permissions` | Show or clear always-allowed tool rules | reading |
+| `/unattended` | Toggle unattended execution posture | act |
+| `/confinement` | Toggle workspace filesystem confinement (confine file tools to workspace) | act |
+| `/role` | Switch agent role (identity, capability, and workspace) | reading (bare) / act (role id) |
+| `/search` | Semantic search over session history | reading |
+| `/threads` | Browse or resume past threads — a lineage forest, newest thread first: branches nest under their trunk at any depth, each labelled with the address it forked at (`⑂r2.1`) | reading (bare) / act (`/threads <id>`) |
+| `/fork` | Fork thread into a child thread at head, at round (`/fork 2`), or after a turn (`/fork 2.1`); the address is persisted and shown in `/threads`, the dashboard dock, and `nuo thread ls` (ADR-0058, ADR-0120) | act |
+| `/tree` | Visual DAG thread tree and branch navigation | reading |
+| `/diff` | View what this thread changed in the workspace, grouped by whether the change can be undone | reading |
+| `/undo` | Undo the last round's reversible file changes; refuses anything that moved on since | act |
+| `/stats` | View context token accounting and thread stats | reading |
+| `/trace` | Inspect session execution trace and latency waterfall | reading |
+| `/usage` | Cross-session token usage statistics overlay | reading |
+| `/quotas` | Provider quota pool and allowance dashboard | reading |
+| `/jobs` | Inspect and manage background processes and sub-subagents | reading (bare) / act (`kill`) |
+| `/skills` | Browse available skills and view trust status | reading |
+| `/init` | Scaffold a project-local `.nuo/` config tree | act |
+| `/trust` | Trust project-authored asset domains | act (`status` is a reading) |
+| `/trust deny` | Refuse the current content of a domain (recorded; not asked again until it changes) | act |
+| `/untrust` | Revoke every project asset grant | act |
+| `/export` | Export thread to clipboard as Markdown | reading |
+| `/retry` | Retry last failed model request | act |
+| `/help` | Show available commands and keybindings | reading |
+| `/exit` | Exit the program | reading |
 
 ---
 
 ## Subcommands
 
-Several commands take a subcommand argument:
+A verb carries its own class: it mutates or reads independently of its parent command.
 
-| Command | Subcommand | Effect |
-| :--- | :--- | :--- |
-| `/permissions` | `clear` | Clear all always-allowed tool rules |
-| `/unattended` | `on` / `off` | Enable / disable unattended decisions and tool auto-approval |
-| `/confinement` | `on` / `off` | Enable / disable workspace filesystem confinement |
-| `/jobs` | `kill` / `logs` | Terminate an active background job / show its recent output |
-| `/skills` | `list` / `status` | List discovered skills / show health and trust state |
-| `/trust` | `all`, `instructions`, `ex-workspace`, `mcp`, `skills`, `hooks`, `status`, `revoke`, `deny [domain]` | Trust, inspect, revoke, or refuse a project asset domain |
+| Command | Subcommand | Effect | Recorded |
+| :--- | :--- | :--- | :--- |
+| `/permissions` | `clear` | Clear all always-allowed tool rules | act |
+| `/permissions` | *(anything else)* | List the current rules | reading |
+| `/unattended` | `on` / `off` | Enable / disable unattended decisions and tool auto-approval | act |
+| `/confinement` | `on` / `off` | Enable / disable workspace filesystem confinement | act |
+| `/jobs` | `kill` | Terminate an active background job | act |
+| `/jobs` | `logs` | Show a background job's recent output | reading |
+| `/skills` | `list` / `status` | List discovered skills / show health and trust state | reading |
+| `/trust` | `all`, `instructions`, `ex-workspace`, `mcp`, `skills`, `hooks`, `revoke`, `deny [domain]` | Trust, revoke, or refuse a project asset domain | act |
+| `/trust` | `status` | Show the trust state of every asset domain | reading |
+
+An argument that is not a declared verb takes the command's own fallback class, which states what
+the handler does with it: `/jobs whatever` lists jobs, so an unrecognised `/jobs` argument is a
+reading.
 
 ---
 

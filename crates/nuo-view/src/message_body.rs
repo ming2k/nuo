@@ -29,7 +29,7 @@ use nuo_ui_primitives::design::{
 use nuo_ui_primitives::time::sent_time_label;
 
 fn display_width_u16(s: &str) -> u16 {
-    s.width() as u16
+    nuotc::str_len(s) as u16
 }
 
 /// Round / time label drawn *outside* a sent user-message panel (on the row
@@ -255,6 +255,7 @@ pub fn draw_message_body(
     record_layout: bool,
     wrap: &mut BlockWrapCache,
 ) {
+    let is_interjection = msg.has_origin_tag(crate::model::document::SteerOriginTag::InRound);
     for (bi, block) in msg.blocks.iter().enumerate() {
         let sel_range = block_selection_range(selection, mi, bi);
 
@@ -275,14 +276,10 @@ pub fn draw_message_body(
                     link_ranges,
                 } = inline;
                 let is_user = msg.role == nuo_protocol::Role::User;
-                // Both pending deliveries render as a waiting panel: a
-                // busy-Enter steer blocked on the running turn
-                // (`Queued`), and one whose round ended first and now
-                // waits to ship as the next round's prompt
-                // (`HeldNextRound`).
-                let is_queued = is_user
-                    && (msg.delivery == DeliveryStatus::Queued
-                        || msg.delivery == DeliveryStatus::HeldNextRound);
+                // There is no pending-delivery panel: a message appears in the
+                // document only after the harness admitted it, so a row here is
+                // never "queued" or "held". Pending queue items live in the
+                // outbox (ADR-0137).
                 let is_sending = is_user && msg.delivery == DeliveryStatus::Sending;
                 let is_cancelled = is_user && msg.delivery == DeliveryStatus::Cancelled;
                 // A `Role::Tool` body reaching here is a command result
@@ -330,13 +327,12 @@ pub fn draw_message_body(
                 // User messages get top/bottom padding rows (matching the input
                 // box's breathing room).  The padding is a full row of solid
                 // `user_panel_bg` so the message reads as a solid panel.
-                // Queued messages swap in the dimmer `user_surface_queued` so a
-                // pending send reads as more "pending" than delivered.
-                let user_bg = if is_cancelled || is_queued {
-                    theme.user_surface_queued()
-                } else {
-                    theme.user_surface()
-                };
+                // Every user message shares the one user surface: a pending
+                // send is distinguished by its upright `queued` status chip
+                // in the header, not by a second background token (ADR-0137 —
+                // the queued band was deleted with the held state it belonged
+                // to).
+                let user_bg = theme.user_surface();
                 let user_gutter = " ".repeat(USER_MESSAGE_OUTER_GUTTER_COLS);
                 let user_content_w = full_width.saturating_sub(2 * USER_MESSAGE_OUTER_GUTTER_COLS);
 
@@ -346,7 +342,10 @@ pub fn draw_message_body(
                     // user-message panel, on plain `surface`. A blank gap row
                     // (`USER_MESSAGE_HEADER_BODY_GAP_ROWS`) is placed between
                     // the header and the user-message panel.
-                    if bi == 0 {
+                    // For a turn-seam interjection this whole header block is
+                    // replaced by a single inline MetaStrip on the first body
+                    // row; only the full round-panel path draws the header row.
+                    if !is_interjection && bi == 0 {
                         *content_lines += 1;
                         if *skip_rows > 0 {
                             *skip_rows = skip_rows.saturating_sub(1);
@@ -379,12 +378,6 @@ pub fn draw_message_body(
                                 strip = strip.status_toned("cancelled", MetaTone::Warn);
                             } else if is_sending {
                                 strip = strip.status("sending");
-                            } else if is_queued {
-                                let label = match msg.delivery {
-                                    DeliveryStatus::HeldNextRound => "held for next round",
-                                    _ => "queued",
-                                };
-                                strip = strip.status(label);
                             } else {
                                 let context = sent_header_context(msg);
                                 if !context.is_empty() {
@@ -414,37 +407,39 @@ pub fn draw_message_body(
                             }
                         }
                     }
-                    for _ in 0..USER_MESSAGE_TRANSITION_ROWS {
-                        *content_lines += 1;
-                        if *skip_rows > 0 {
-                            *skip_rows = skip_rows.saturating_sub(1);
-                        } else if *current_y < area.y + area.height {
-                            // Top edge: a full user_panel_bg padding row (not
-                            // half-block `▄`), so the panel opens with a full
-                            // row of breathing room and the edge is identical
-                            // across terminals.
-                            let pad = Line::from(vec![
-                                Span::styled(
-                                    user_gutter.clone(),
-                                    Style::default().bg(theme.surface()),
-                                ),
-                                Span::styled(
-                                    " ".repeat(user_content_w),
-                                    Style::default().bg(user_bg),
-                                ),
-                                Span::styled(
-                                    user_gutter.clone(),
-                                    Style::default().bg(theme.surface()),
-                                ),
-                            ]);
-                            let rect = Rect::new(area.x, *current_y, area.width, 1);
-                            frame.render_widget(&mut Paragraph::new(pad), rect);
-                            *current_y += 1;
+                    if !is_interjection {
+                        for _ in 0..USER_MESSAGE_TRANSITION_ROWS {
+                            *content_lines += 1;
+                            if *skip_rows > 0 {
+                                *skip_rows = skip_rows.saturating_sub(1);
+                            } else if *current_y < area.y + area.height {
+                                // Top edge: a full user_panel_bg padding row (not
+                                // half-block `▄`), so the panel opens with a full
+                                // row of breathing room and the edge is identical
+                                // across terminals.
+                                let pad = Line::from(vec![
+                                    Span::styled(
+                                        user_gutter.clone(),
+                                        Style::default().bg(theme.surface()),
+                                    ),
+                                    Span::styled(
+                                        " ".repeat(user_content_w),
+                                        Style::default().bg(user_bg),
+                                    ),
+                                    Span::styled(
+                                        user_gutter.clone(),
+                                        Style::default().bg(theme.surface()),
+                                    ),
+                                ]);
+                                let rect = Rect::new(area.x, *current_y, area.width, 1);
+                                frame.render_widget(&mut Paragraph::new(pad), rect);
+                                *current_y += 1;
+                            }
                         }
                     }
                 }
 
-                for wl in lines.iter() {
+                for (wl_idx, wl) in lines.iter().enumerate() {
                     if *skip_rows > 0 {
                         *skip_rows = skip_rows.saturating_sub(1);
                         continue;
@@ -457,8 +452,13 @@ pub fn draw_message_body(
                         // Sent user messages render on a dimmer `user_panel_bg`
                         // band. Selection is character-level, not line-level,
                         // so the user can highlight arbitrary substrings.
+                        // A turn-seam interjection leads its first wrapped line
+                        // with the compact `› steer` embossed lead and the time
+                        // right-aligned; continuation lines carry the band and
+                        // the indented text under it (ADR-0137).
+                        let first = is_interjection && wl_idx == 0;
                         let bg = user_bg;
-                        let text_style = Style::default().bg(bg).fg(if is_cancelled || is_queued {
+                        let text_style = Style::default().bg(bg).fg(if is_cancelled {
                             theme.muted()
                         } else {
                             theme.user_text()
@@ -466,13 +466,40 @@ pub fn draw_message_body(
                         let sel_style = Style::default().bg(theme.selected()).fg(theme.fg());
                         let sel = line_selection(sel_range, wl);
 
-                        let mut spans = vec![
-                            Span::styled(user_gutter.clone(), Style::default().bg(theme.surface())),
-                            Span::styled(
-                                " ".repeat(USER_MESSAGE_TEXT_GAP_COLS),
-                                Style::default().bg(bg),
-                            ),
-                        ];
+                        let mut spans = if first {
+                            // The interjection's identity row: `› steer` in the
+                            // info-tone bold, matched by the same embossed lead
+                            // the round/turn headers use, with the text on the
+                            // same band row and the time right-aligned. This is
+                            // the entire block's "header" — no separate header
+                            // row exists (ADR-0137).
+                            // TODO(ADR-0137): the embossed lead advances the
+                            // first line's text start. For long steers the wrap
+                            // already budgeted `user_text_width` (which excludes
+                            // the lead), so the first line may under-fill and a
+                            // wrap falls to the continuation band; acceptable —
+                            // the row count stay true and no panel chrome is
+                            // added.
+                            let lead = format!("{USER_MESSAGE_GUTTER_GLYPH}  steer  ");
+                            vec![Span::styled(
+                                lead.clone(),
+                                Style::default()
+                                    .fg(theme.info())
+                                    .add_modifier(Modifier::BOLD)
+                                    .bg(bg),
+                            )]
+                        } else {
+                            vec![
+                                Span::styled(
+                                    user_gutter.clone(),
+                                    Style::default().bg(theme.surface()),
+                                ),
+                                Span::styled(
+                                    " ".repeat(USER_MESSAGE_TEXT_GAP_COLS),
+                                    Style::default().bg(bg),
+                                ),
+                            ]
+                        };
 
                         match sel {
                             None => {
@@ -489,15 +516,39 @@ pub fn draw_message_body(
                             }
                         }
 
-                        let used = USER_MESSAGE_TEXT_GAP_COLS + wl.text.width();
-                        spans.push(Span::styled(
-                            padded_tail(user_content_w, used),
-                            Style::default().bg(bg),
-                        ));
-                        spans.push(Span::styled(
-                            user_gutter.clone(),
-                            Style::default().bg(theme.surface()),
-                        ));
+                        if first {
+                            // Right-align the send time on the interjection's
+                            // single identity row: the text column ends where
+                            // `user_content_w` says, and the time sits at the
+                            // band's right edge (muted).
+                            if let Some(sent_at_ms) = msg.sent_at_ms {
+                                let time = sent_time_label(sent_at_ms);
+                                let used_w = wl.text.width();
+                                let pad = user_content_w
+                                    .saturating_sub(used_w)
+                                    .saturating_sub(time.width() + 2);
+                                spans.push(Span::styled(" ".repeat(pad), Style::default().bg(bg)));
+                                spans.push(Span::styled(
+                                    format!("  {time}"),
+                                    Style::default().fg(theme.muted()).bg(bg),
+                                ));
+                            }
+                            // Gutter closure (band edge).
+                            spans.push(Span::styled(
+                                user_gutter.clone(),
+                                Style::default().bg(theme.surface()),
+                            ));
+                        } else {
+                            let used = USER_MESSAGE_TEXT_GAP_COLS + nuotc::str_len(&wl.text);
+                            spans.push(Span::styled(
+                                padded_tail(user_content_w, used),
+                                Style::default().bg(bg),
+                            ));
+                            spans.push(Span::styled(
+                                user_gutter.clone(),
+                                Style::default().bg(theme.surface()),
+                            ));
+                        }
                         Line::from(spans)
                     } else {
                         let prefix = " ".repeat(TRANSCRIPT_BODY_LEADING_INDENT as usize);
@@ -573,7 +624,9 @@ pub fn draw_message_body(
                     *current_y += 1;
                 }
 
-                if is_user {
+                if is_user && !is_interjection {
+                    // The closing transition row is panel padding; a turn-seam
+                    // interjection has none (ADR-0137 [INV-STEER-03]).
                     for _ in 0..USER_MESSAGE_TRANSITION_ROWS {
                         *content_lines += 1;
                         if *skip_rows > 0 {
@@ -652,7 +705,6 @@ pub fn draw_message_body(
                         && cell.block_idx == bi
                         && selection.active_normalized_range().is_some()
                 });
-
                 *content_lines += table.lines.len();
                 let mut line_start_byte = 0usize;
                 for (line_idx, line_text) in table.lines.iter().enumerate() {
@@ -966,7 +1018,7 @@ pub fn draw_message_body(
                             }
                         }
                     }
-                    let used = indent + wl.text.width();
+                    let used = indent + nuotc::str_len(&wl.text);
                     spans.push(Span::styled(
                         padded_tail(full_width, used),
                         Style::default().bg(math_bg),
@@ -1337,7 +1389,17 @@ pub fn draw_message_body(
                 }
             }
             Block::Break => {
-                // Visual break, just skip a line
+                // Visual break, just skip a line — EXCEPT a trailing break on a
+                // turn-seam interjection: that row is panel padding, and the
+                // whole point of the interjection form is that it has none
+                // (ADR-0137 [INV-STEER-03]). An interior break still counts
+                // (it separates real content), only a trailing one is dropped.
+                let trailing_interjection_break = msg
+                    .has_origin_tag(crate::model::document::SteerOriginTag::InRound)
+                    && bi + 1 == msg.blocks.len();
+                if trailing_interjection_break {
+                    continue;
+                }
                 *content_lines += 1;
                 if *skip_rows > 0 {
                     *skip_rows = skip_rows.saturating_sub(1);

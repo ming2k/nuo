@@ -378,12 +378,15 @@ pub const CODE_BAND_GUTTER_MIN_WIDTH: usize = 2;
 pub const BASH_FOLD_HEAD_ROWS: usize = 2;
 /// Trailing output lines kept visible below a folded bash middle.
 pub const BASH_FOLD_TAIL_ROWS: usize = 6;
-/// Rows the fold's negative-space gap occupies (blank / label / blank).
-pub const BASH_FOLD_CHROME_ROWS: usize = 3;
+/// Rows the fold's compact chrome occupies (single embedded divider row).
+pub const BASH_FOLD_CHROME_ROWS: usize = 1;
 /// Row count at or below which an expanded body renders verbatim — the
 /// smallest body for which folding renders strictly fewer rows.
 pub const BASH_FOLD_MIN_VERBATIM_ROWS: usize =
     BASH_FOLD_HEAD_ROWS + BASH_FOLD_CHROME_ROWS + BASH_FOLD_TAIL_ROWS;
+
+/// Left rail vertical track glyph for command execution blocks (Left Rail style).
+pub const COMMAND_RAIL_GLYPH: &str = "│";
 
 // The bias is the point of the window: if this ever inverts, the fold would
 // hide the outcome it exists to preserve. Compile-time, so no test run is

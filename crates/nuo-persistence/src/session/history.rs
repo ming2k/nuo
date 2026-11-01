@@ -273,7 +273,7 @@ impl SessionStore {
         Ok(())
     }
 
-    /// The durable command ledger.
+    /// The durable command ledger: acts only (ADR-0140).
     pub async fn commands(&self) -> Vec<nuo_protocol::CommandRecord> {
         self.state.lock().await.data.commands.clone()
     }

@@ -171,6 +171,7 @@ pub(crate) fn live_chat_hints(
         HintState::EntryFocused { subagent: false } => &[
             LiveHint::nav(Key::ESC, "back"),
             LiveHint::nav(Key::plain(' '), "expand"),
+            LiveHint::action(Key::plain('o'), "view log"),
             LiveHint::action(Key::plain('y'), "copy"),
             LiveHint::action(Key::shift_code(KeyCode::Char('Y')), "diagnostic"),
         ],
@@ -284,6 +285,8 @@ pub(crate) fn resolve_chat_surface_key_motion(
                 // "focus swallows keys" branch below while the compaction card
                 // advertised it.
                 Some(InputAction::ActivateFocusedTarget)
+            } else if keys.focused_target && (c == 'o' || c == 'v' || c == 'O' || c == 'V') {
+                Some(InputAction::ViewFocusedTargetOutput)
             } else if keys.focused_target || keys.transcript_focused {
                 Some(InputAction::None)
             } else {

@@ -118,11 +118,10 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             if let Some(message) = failed {
                 // A post-Welcome failure is a disclosure, not a death
                 // (ADR-0133, extending `[INV-ATTACH-02]`).
-                app.record_notice(
-                    nuo_view::model::document::NoticeSeverity::Error,
-                    "attach",
-                    format!("The session could not be prepared: {message}"),
-                    0,
+                app.record_client_notice(
+                    crate::shell::app::notice_catalog::ClientNotice::SessionPrepFailed {
+                        detail: message,
+                    },
                 );
                 app.switching_session = None;
             }
@@ -278,6 +277,13 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             session_id,
             input_id,
         } => {
+            // The single terminal path for an outbox item. Clearing the
+            // deletion-intent flag here (rather than in each fate arm) is what
+            // makes the flag structurally unable to outlive its item: whichever
+            // event ends this id — admitted, missed, cancelled, cancel-failed —
+            // the row leaves through this mutation, so the flag leaves with it.
+            app.suppress_steer_restore
+                .remove(&(session_id.clone(), input_id.clone()));
             app.remove_dispatch(&session_id, &input_id);
             true
         }
@@ -286,14 +292,24 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             input_id,
         } => {
             // Steer is ephemeral to the targeted round. If admission
-            // missed the round window, purge the optimistic entry from transcript
-            // and restore text to the composer draft — never re-queue as follow-up.
+            // missed the round window, the outbox `Steering` row is removed
+            // and the text is restored to the composer draft — never
+            // re-queued as follow-up (ADR-0137). There is no transcript
+            // entry to purge: busy-Enter steers are never staged in the
+            // thread until `SteerAdmitted`.
+            //
+            // The deletion-intent flag cannot outlive the item: this arm ends
+            // the id directly (it does not route through `DispatchRemoved`), so
+            // it clears the flag itself.
+            app.suppress_steer_restore
+                .remove(&(session_id.clone(), input_id.clone()));
             let mut text_to_restore = None;
-            if let Some(pos) = app.messages.iter().rposition(|m| {
-                m.insert_id.as_deref() == Some(input_id.as_str()) && m.role == Role::User
+            if let Some(pos) = app.pending_dispatch.iter().position(|item| {
+                item.session_id == session_id
+                    && item.id == input_id
+                    && item.state == crate::shell::app::QueuedDispatchState::Steering
             }) {
-                let msg = app.messages.remove(pos);
-                text_to_restore = Some(msg.raw);
+                text_to_restore = app.pending_dispatch.remove(pos).map(|item| item.text);
             }
             if let Some(text) = text_to_restore
                 && app.live_session_id == session_id
@@ -304,15 +320,71 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                     Vec::new(),
                     crate::shell::app::DraftAdoption::OnlyIfIdle,
                 );
-                app.notice_toast_severity = nuo_view::model::document::NoticeSeverity::Info;
-                app.notice_toast_message =
-                    "Steer missed active round; restored to composer".to_string();
-                app.notice_toast_until =
-                    Some(std::time::Instant::now() + std::time::Duration::from_millis(2600));
+                // Through the catalog funnel ([INV-NOTICE-08]), so the ack is
+                // retained in the notice log rather than flashed from a raw
+                // field write and lost.
+                app.record_client_notice(
+                    crate::shell::app::notice_catalog::ClientNotice::SteerMissedRoundRestored,
+                );
             }
             app.remove_dispatch(&session_id, &input_id);
-            app.layout_height_cache.clear();
-            app.transcript_changed_pending = true;
+            true
+        }
+        AppMutation::SteerCancelledRestored {
+            session_id,
+            input_id,
+        } => {
+            // A pending steer was cancelled before admission (SteerCancelled).
+            // Remove the outbox `Steering` row; restore the text to the
+            // composer only for a *recall*, never for a deletion — the modal's
+            // `D` flags `suppress_steer_restore` so a deleted steer cannot
+            // resurrect itself (ADR-0137).
+            let suppress = app
+                .suppress_steer_restore
+                .remove(&(session_id.to_string(), input_id.to_string()));
+            let mut text_to_restore = None;
+            if let Some(pos) = app.pending_dispatch.iter().position(|item| {
+                item.session_id == session_id
+                    && item.id == input_id
+                    && item.state == crate::shell::app::QueuedDispatchState::Steering
+            }) {
+                if !suppress {
+                    text_to_restore = app.pending_dispatch.remove(pos).map(|item| item.text);
+                } else {
+                    app.pending_dispatch.remove(pos);
+                }
+            }
+            if let Some(text) = text_to_restore
+                && app.live_session_id == session_id
+            {
+                app.adopt_as_draft(
+                    text,
+                    Vec::new(),
+                    Vec::new(),
+                    crate::shell::app::DraftAdoption::OnlyIfIdle,
+                );
+            }
+            app.remove_dispatch(&session_id, &input_id);
+            true
+        }
+        AppMutation::SteerCancelFailedCleared {
+            session_id,
+            input_id,
+        } => {
+            // The cancel lost the race: the steer will be admitted after all.
+            // Drop the deletion-intent flag (it must not outlive the item) and
+            // tell the user, because a deletion that silently did not happen is
+            // the worst outcome of a race (ADR-0137).
+            app.suppress_steer_restore
+                .remove(&(session_id.clone(), input_id));
+            if app.live_session_id == session_id {
+                // Through the catalog funnel (ADR-0138 / [INV-NOTICE-05]), so
+                // the disclosure is *retained* in the notice log rather than
+                // flashed and lost, and its wording/topic live in one place.
+                app.record_client_notice(
+                    crate::shell::app::notice_catalog::ClientNotice::SteerCancelRaced,
+                );
+            }
             true
         }
         AppMutation::DispatchQueued {
@@ -508,19 +580,13 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             app.backend_completion_signal = Some(signal);
             true
         }
-        AppMutation::NoticeDisclosure {
-            severity,
-            topic,
-            text,
-            detail,
-            at_ms,
-        } => {
+        AppMutation::NoticeDisclosure(rendered) => {
             // Residency is decided here, once, for every producer: the notice
             // is retained first (the log is the home), and only a fault
             // additionally raises a bubble. A producer therefore cannot show a
             // bubble without leaving a record — the defect that made a missed
             // two-second toast unrecoverable.
-            app.record_notice_with_detail(severity, topic, text, detail, at_ms);
+            app.record_notice(rendered);
             true
         }
         AppMutation::Oauth(signal) => {
@@ -603,15 +669,15 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             // after a window that previously closed with no explanation at all.
             app.link_down = true;
             app.relink_requested = true;
-            app.record_notice(
-                nuo_view::model::document::NoticeSeverity::Error,
-                "link",
-                format!(
-                    "Lost the connection to the session server: {reason}. \
-                     The session is still running — reconnect with `nuo`."
-                ),
-                0,
+            nuo_host::diagnostics::record_event(
+                "client",
+                "link_lost",
+                &format!("session server link lost: {reason}"),
+                None,
             );
+            app.record_client_notice(crate::shell::app::notice_catalog::ClientNotice::LinkLost {
+                reason,
+            });
             true
         }
         AppMutation::HostSessions(rows) => {
@@ -687,7 +753,7 @@ fn apply_oauth(app: &mut App, signal: crate::shell::app::OauthAddSignal) {
 /// cached height; a structural replace clears the cache; metadata-only
 /// edits (delivery badges, round stamps) touch nothing, and newly appended
 /// messages have no cached entry to evict.
-fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
+pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
     let mut post = PostEdit::None;
     let mut changed = true;
     // A command name the dispatcher did not recognize. Its draft was consumed by
@@ -976,37 +1042,14 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     .find(|message| message.tool_step_call_id() == Some(parent_call_id.as_str()))
                     .is_some_and(|message| message.push_subagent_event(&event, &tui_config));
             }
-            TranscriptEdit::SettleInserted {
-                insert_id,
-                origin,
-                sent_at_ms,
-                fallback,
-            } => {
-                let mut settled = false;
-                if let Some(entry) = messages
-                    .iter_mut()
-                    .rev()
-                    .find(|m| m.insert_id.as_deref() == Some(insert_id.as_str()))
-                {
-                    entry.delivery = nuo_view::model::document::DeliveryStatus::Delivered;
-                    entry.origin = origin;
-                    if entry.sent_at_ms.is_none() {
-                        entry.sent_at_ms = sent_at_ms;
-                    }
-                    settled = true;
-                }
-                if !settled && let Some(message) = fallback {
-                    messages.push(message);
-                }
-            }
-            TranscriptEdit::HoldInserted { insert_id } => {
-                if let Some(entry) = messages
-                    .iter_mut()
-                    .rev()
-                    .find(|m| m.insert_id.as_deref() == Some(insert_id.as_str()))
-                {
-                    entry.hold_pending_round();
-                }
+            TranscriptEdit::InsertAdmittedSeam { message } => {
+                // ADR-0137 [INV-STEER-02]: an admitted steer lands at the turn
+                // seam, which is the buffer tail at admission time (the harness
+                // persisted it after the finished turn, and the next turn's
+                // components have not arrived yet). Appending reproduces the
+                // durable order; head insertion would put a round-N steer above
+                // round 1 in any thread with history.
+                messages.push(message);
             }
             TranscriptEdit::SettleCommandResult {
                 invocation,
@@ -1087,6 +1130,25 @@ fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 // mid-trace; the spinner would breathe forever). Streaming
                 // traces carry no height-cache entries — no invalidation.
                 crate::shell::finalize_streaming_reasoning(messages, duration_ms);
+            }
+            TranscriptEdit::WithdrawStagedCommand { invocation } => {
+                // Drop the staged optimistic row: the server's event declared the
+                // reply a reading, so no thread row will ever settle it. Removing
+                // it HERE — rather than leaving it for `CancelPendingCommands` to
+                // mark `Cancelled` — is what keeps the thread's contents identical
+                // whether or not the catalog had arrived before dispatch.
+                let invocation = invocation.trim().to_string();
+                let before = messages.len();
+                messages.retain(|message| {
+                    !(message.raw == invocation
+                        && message.command_result_phase()
+                            == Some(nuo_view::model::document::CommandPhase::Pending))
+                });
+                if messages.len() != before {
+                    // Every following row shifted a line; the layout cache is keyed
+                    // by message id, so a wholesale clear is the honest answer.
+                    post = PostEdit::ClearCache;
+                }
             }
             TranscriptEdit::CancelPendingCommands => {
                 for message in messages.iter_mut() {

@@ -39,7 +39,14 @@ pub(crate) async fn permissions(env: SlashEnv<'_>, name: &str, args: &str, parts
     } = env;
     if parts.get(1) == Some(&"clear") {
         agent.clear_allowed_tools();
-        record_ack(session, name, args, "Always-allowed tool rules cleared.").await;
+        record_ack(
+            session,
+            resp_tx,
+            name,
+            args,
+            "Always-allowed tool rules cleared.",
+        )
+        .await;
     } else {
         let allowed = agent.allowed_tools();
         record_command(
@@ -617,9 +624,10 @@ pub(crate) async fn tree(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&s
     let _ = resp_tx.send(AgentResponse::OpenTreePanel);
     record_ack(
         session,
+        resp_tx,
         name,
         args,
-        &format!(
+        format!(
             "Session DAG Tree has {} nodes and {} branch leaves.",
             tree.entries.len(),
             tree.leaves().len()
@@ -862,9 +870,12 @@ fn display_path(path: Option<&str>, workspace_root: Option<&std::path::Path>) ->
 }
 
 pub(crate) async fn stats(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv { session, .. } = env;
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
     record_ack(
         session,
+        resp_tx,
         name,
         args,
         "Thread stats are shown by the TUI overlay — run /stats in the terminal app.",
@@ -873,9 +884,12 @@ pub(crate) async fn stats(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
 }
 
 pub(crate) async fn trace(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv { session, .. } = env;
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
     record_ack(
         session,
+        resp_tx,
         name,
         args,
         "Session execution trace is shown by the TUI overlay — run /trace in the terminal app.",
@@ -884,7 +898,9 @@ pub(crate) async fn trace(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
 }
 
 pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv { session, .. } = env;
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
     // Handled in TUI: `/usage` opens the usage-statistics overlay
     // locally (intercepted in input.rs as `InputAction::OpenUsage`)
     // and issues `AgentRequest::QueryUsageStats`; it never arrives
@@ -893,6 +909,7 @@ pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
     // the command is never silently dropped.
     record_ack(
         session,
+        resp_tx,
         name,
         args,
         "Usage statistics are shown by the TUI overlay — open the terminal app and run /usage there.",
@@ -901,9 +918,12 @@ pub(crate) async fn usage(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&
 }
 
 pub(crate) async fn quota(env: SlashEnv<'_>, name: &str, args: &str, _parts: &[&str]) {
-    let SlashEnv { session, .. } = env;
+    let SlashEnv {
+        session, resp_tx, ..
+    } = env;
     record_ack(
         session,
+        resp_tx,
         name,
         args,
         "Provider quotas are shown by CLI or TUI — run `nuo quota [provider]` in your terminal.",
@@ -995,6 +1015,7 @@ pub(crate) async fn jobs(env: SlashEnv<'_>, name: &str, args: &str, parts: &[&st
                     Ok(()) => {
                         record_ack(
                             session,
+                            resp_tx,
                             name,
                             args,
                             format!("Terminated background job {}.", target_id),

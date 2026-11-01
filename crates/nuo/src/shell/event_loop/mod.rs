@@ -116,8 +116,8 @@ fn frozen_event_passthrough(event: &Event) -> bool {
 
 pub(crate) fn tool_verb_for(name: &str) -> nuo_view::phase::ToolVerb {
     match name {
-        "find_files" | "list_dir" | "read_image" | "read_text" | "read_file" | "read"
-        | "use_skill" | "read_url" => nuo_view::phase::ToolVerb::Exploring,
+        "find_files" | "read_image" | "read_text" | "read_file" | "read" | "use_skill"
+        | "read_url" => nuo_view::phase::ToolVerb::Exploring,
         "search_text" => nuo_view::phase::ToolVerb::Searching,
         "search_web" => nuo_view::phase::ToolVerb::WebSearching,
         "write_file" | "edit_text" => nuo_view::phase::ToolVerb::Editing,
@@ -460,8 +460,7 @@ pub(crate) async fn run_app_loop(
         // If the bottom moved, redraw immediately at the final offset. If it
         // did not, commit the already-final staged grid without a second layout.
         if stage_bottom_follow && needs_draw {
-            if app.scroll != app.max_scroll {
-                app.scroll = app.max_scroll;
+            if app.scroll != painted_scroll {
                 input_redraw_pending = true;
                 continue;
             }

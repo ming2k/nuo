@@ -899,6 +899,11 @@ pub fn draw_transcript(
                         0
                     },
                     queued_preview: queue_bar.items.first().map(|i| i.text.as_str()),
+                    queued_first_is_steer: queue_bar
+                        .items
+                        .first()
+                        .map(|i| i.is_steer)
+                        .unwrap_or(false),
                     tasks_count: if tasks_row_needed {
                         tasks_bar.tasks.iter().filter(|t| !t.dismissed).count()
                     } else {

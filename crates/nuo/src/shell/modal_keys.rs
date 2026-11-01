@@ -136,28 +136,45 @@ pub(crate) fn resolve_modal_key(
                 KeyCode::Esc => return Some(InputAction::CloseModal),
                 _ => return None,
             },
-            OverlaySurface::Dialog(DialogKind::Help) => match key.code {
-                KeyCode::Char('t') | KeyCode::Char('T') => {
-                    return Some(InputAction::CreateNewSession);
+            OverlaySurface::Dialog(DialogKind::Help) => {
+                if key.code == KeyCode::F(1)
+                    || key.code == KeyCode::Esc
+                    || (key.modifiers.contains(KeyModifiers::ALT)
+                        && (key.code == KeyCode::Char('h') || key.code == KeyCode::Char('H')))
+                {
+                    return Some(InputAction::CloseModal);
                 }
-                KeyCode::Char('w') | KeyCode::Char('W') => {
-                    return Some(InputAction::CloseTab);
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => return Some(InputAction::ScrollUp),
+                    KeyCode::Down | KeyCode::Char('j') => return Some(InputAction::ScrollDown),
+                    KeyCode::PageUp => return Some(InputAction::ScrollPageUp),
+                    KeyCode::PageDown => return Some(InputAction::ScrollPageDown),
+                    KeyCode::Home => return Some(InputAction::ScrollTop),
+                    KeyCode::End => return Some(InputAction::ScrollBottom),
+                    KeyCode::Char('t') | KeyCode::Char('T') => {
+                        return Some(InputAction::CreateNewSession);
+                    }
+                    KeyCode::Char('w') | KeyCode::Char('W') => {
+                        return Some(InputAction::CloseTab);
+                    }
+                    KeyCode::Char('d') | KeyCode::Char('D') => {
+                        return Some(InputAction::NavigateDashboard);
+                    }
+                    KeyCode::Char(',') => {
+                        return Some(InputAction::NavigateSettings);
+                    }
+                    KeyCode::Char('p') | KeyCode::Char('P') => {
+                        return Some(InputAction::ViewSwitcherToggle);
+                    }
+                    KeyCode::Char('s') | KeyCode::Char('S') => {
+                        return Some(InputAction::OpenSessions);
+                    }
+                    KeyCode::Char('o') | KeyCode::Char('O') => {
+                        return Some(InputAction::OpenNotices);
+                    }
+                    _ => return None,
                 }
-                KeyCode::Char('d') | KeyCode::Char('D') => {
-                    return Some(InputAction::NavigateDashboard);
-                }
-                KeyCode::Char(',') => {
-                    return Some(InputAction::NavigateSettings);
-                }
-                KeyCode::Char('p') | KeyCode::Char('P') => {
-                    return Some(InputAction::ViewSwitcherToggle);
-                }
-                KeyCode::Char('s') | KeyCode::Char('S') => {
-                    return Some(InputAction::OpenSessions);
-                }
-                KeyCode::Esc => return Some(InputAction::CloseModal),
-                _ => return None,
-            },
+            }
             OverlaySurface::Dialog(DialogKind::Notices) => match key.code {
                 KeyCode::Char('y') | KeyCode::Char('c') | KeyCode::Char('C') => {
                     return Some(InputAction::NoticesCopy);
@@ -271,9 +288,9 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::ScrollCustomProvider { forward: false }
                     }
-                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::ThreadStats) => {
-                        InputAction::ScrollUp
-                    }
+                    OverlaySurface::Dialog(
+                        DialogKind::UsageStats | DialogKind::ThreadStats | DialogKind::Help,
+                    ) => InputAction::ScrollUp,
                     _ => return None,
                 }
             } else {
@@ -311,9 +328,9 @@ pub(crate) fn resolve_modal_key(
                     OverlaySurface::Sheet(SheetKind::CustomProvider) => {
                         InputAction::ScrollCustomProvider { forward: true }
                     }
-                    OverlaySurface::Dialog(DialogKind::UsageStats | DialogKind::ThreadStats) => {
-                        InputAction::ScrollDown
-                    }
+                    OverlaySurface::Dialog(
+                        DialogKind::UsageStats | DialogKind::ThreadStats | DialogKind::Help,
+                    ) => InputAction::ScrollDown,
                     _ => return None,
                 }
             } else {
@@ -409,7 +426,12 @@ pub(crate) fn resolve_modal_key(
         let is_f1 = key.code == KeyCode::F(1);
         let is_alt_help = key.modifiers.contains(KeyModifiers::ALT)
             && (key.code == KeyCode::Char('?') || key.code == KeyCode::Char('/'));
-        if (is_f1 || is_alt_help) && matches!(overlay, OverlaySurface::Dialog(_)) {
+        if (is_f1 || is_alt_help)
+            && matches!(
+                overlay,
+                OverlaySurface::Dialog(kind) if kind != DialogKind::Help
+            )
+        {
             return Some(InputAction::ToggleDialogKeys);
         }
     }
@@ -426,7 +448,10 @@ pub(crate) fn resolve_modal_key(
 
     if let Some(overlay) = overlay {
         if c == '?'
-            && matches!(overlay, OverlaySurface::Dialog(_))
+            && matches!(
+                overlay,
+                OverlaySurface::Dialog(kind) if kind != DialogKind::Help
+            )
             && !modal_claims_composer_line(Some(overlay), scene, keys)
         {
             return Some(InputAction::ToggleDialogKeys);

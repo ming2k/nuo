@@ -86,9 +86,9 @@ pub mod mention;
 
 pub mod completion;
 pub use completion::{
-    CommandAlias, CommandCatalog, CommandExample, CommandSpec, CommandSubcommandSpec,
-    CommandSuggestion, ComposerCompletion, ComposerCompletionKind, InputCompletion,
-    InputCompletionKind,
+    CommandAlias, CommandCatalog, CommandEffect, CommandExample, CommandSpec,
+    CommandSubcommandSpec, CommandSuggestion, ComposerCompletion, ComposerCompletionKind,
+    InputCompletion, InputCompletionKind,
 };
 
 pub mod tool_output;
@@ -309,13 +309,15 @@ pub use policy_schema::*;
 
 /// Current protocol version.
 ///
-/// 19: Full-stack canonical thread nomenclature unification (ADR-0135).
-/// Wire protocol envelopes, phases, and snapshots purified from `session_id` to
-/// `thread_id`; `SessionPhase` -> `ThreadPhase`, `SessionSnapshot` -> `ThreadSnapshot`,
-/// `SessionOverview` -> `ThreadOverview`, `MonitoredSession` -> `MonitoredThread`.
-pub const PROTOCOL_VERSION: u32 = 19;
+/// 20: Command effect classes (ADR-0140). Every command declares whether it is an
+/// act (`Mutation`, recorded) or a reading (`Reading`, ephemeral); the class
+/// rides both `CommandSpec` and `RoundEvent::CommandResult`, so a client files a
+/// reply where the server says it belongs instead of inferring it. A mixed pair
+/// would disagree about which replies are durable rows, which is the exact
+/// asymmetry the field removes — hence a hard floor rather than a tolerant field.
+pub const PROTOCOL_VERSION: u32 = 20;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 19;
+pub const MIN_PROTOCOL_VERSION: u32 = 20;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

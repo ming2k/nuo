@@ -359,6 +359,10 @@ pub enum InputAction {
     FocusPrevTarget,
     /// Activate the current keyboard-focused target (`Enter`).
     ActivateFocusedTarget,
+    /// View the full execution output of the focused target in the dedicated log pager (`o` or `v`).
+    ViewFocusedTargetOutput,
+    /// Copy full command execution output from the command output modal inspector (`y` or `c`).
+    CommandOutputCopy,
     /// Send a key event to the focused transcript target at stack top.
     FocusedTargetKey(crate::shell::keymap::Key),
     /// Copy the content of the currently focused target (`y` or `c` while a step is focused).

@@ -1,4 +1,4 @@
-//! Usage projection batching, request projection archiving, and command ledger auditing.
+//! Usage projection batching and request projection archiving.
 //!
 //! Handles token usage materialization into `usage_contributions` and `request_projections` retention.
 use rusqlite::{Connection, Result, TransactionBehavior, params};
@@ -56,38 +56,6 @@ pub(crate) fn project_usage_batch(conn: &Connection, limit: usize) -> Result<usi
     }
     tx.commit()?;
     Ok(prepared.len())
-}
-
-/// Record a slash-command invocation in the durable command ledger.
-pub(crate) fn record_command(conn: &Connection, cmd: &nuo_protocol::CommandRecord) -> Result<()> {
-    let id = format!(
-        "{}:{}:{}",
-        cmd.name,
-        cmd.timestamp,
-        nuo_protocol::todos::unix_now()
-    );
-    conn.execute(
-        r#"
-        INSERT INTO commands (id, session_id, name, arguments, result, status, created_at_ms)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        "#,
-        params![
-            id,
-            "", // command ledger rows are session-agnostic audit records
-            cmd.name,
-            cmd.args,
-            cmd.result
-                .as_ref()
-                .and_then(|r| serde_json::to_string(r).ok()),
-            match cmd.status {
-                nuo_protocol::CommandStatus::Success => "ok",
-                nuo_protocol::CommandStatus::Error => "failed",
-                nuo_protocol::CommandStatus::UserCancelled => "cancelled",
-            },
-            cmd.timestamp as i64,
-        ],
-    )?;
-    Ok(())
 }
 
 /// Insert or replace one request-projection record. Keyed by

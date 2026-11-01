@@ -4,7 +4,6 @@
 //! This allows mouse events to be resolved back to semantic positions.
 use nuotc::Rect;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
 
 pub const TOOL_STEP_BLOCK_IDX: usize = usize::MAX;
 pub const REASONING_BLOCK_IDX: usize = usize::MAX - 1;
@@ -19,6 +18,8 @@ pub const COMMAND_RESULT_BLOCK_IDX: usize = usize::MAX - 3;
 pub const NOTICE_BLOCK_IDX: usize = usize::MAX - 4;
 /// Expandable compaction checkpoint card header rows.
 pub const COMPACTED_CARD_BLOCK_IDX: usize = usize::MAX - 6;
+/// Fold chrome row in expanded command step (opens log pager on click).
+pub const TOOL_FOLD_BLOCK_IDX: usize = usize::MAX - 7;
 /// Sentinel message index for live composer input regions.
 ///
 /// Distinct from every block sentinel above: these two id spaces are compared
@@ -543,7 +544,7 @@ impl LayoutMap {
             let w = if grapheme == "\n" {
                 0
             } else {
-                grapheme.width().max(1)
+                nuotc::grapheme_width(grapheme) as usize
             };
             if col < acc_width + w {
                 let target_byte = if col == acc_width || grapheme.len() <= 1 {

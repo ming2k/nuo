@@ -152,6 +152,34 @@ pub enum UserPromptKind {
     FollowUp,
 }
 
+/// Admission provenance of a user message, used by the renderer to choose the
+/// message's visual weight.
+///
+/// `UserMessageOrigin` answers *who/what* produced the message (`steer`,
+/// `follow-up`, `cmd`); this enum answers *where it landed causally*. The
+/// distinction matters because the two steer outcomes render differently:
+///
+/// ```text
+/// › steer   不要改协议层，只改 nuo-view 布局      14:21      ← InRound (one row)
+/// › round 4  follow-up                            14:22      ← RoundOpening (panel)
+/// ```
+///
+/// These tags are **render metadata, not dialogue**: they are never
+/// serialized and are reconstructed by the restore engine from the durable
+/// `InjectionKind` (ADR-0137). A message with no tags renders at round weight
+/// (the legacy default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SteerOriginTag {
+    /// Admitted at the turn seam of a *running* round (`SteerAdmitted`): a
+    /// tactical course-correction inside the ReAct chain. Renders as a
+    /// one-body-row interjection with no header/gap/transition rows.
+    InRound,
+    /// "Follow-up" content admitted as a fresh round's opening prompt
+    /// (`FollowUpStarted`): opens a new round, so it keeps the full
+    /// round-level user panel.
+    RoundOpening,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SystemNoticeTopic {
     Interrupted,
@@ -659,28 +687,20 @@ impl Block {
 /// Lifecycle of a user-authored message from the user's point of view.
 ///
 /// All other roles are inherently "delivered" (the harness only renders them
-/// once they exist), so this only matters on `Role::User` messages. The TUI
-/// uses it to draw a distinct "⏸ Queued" panel while a message is waiting for
-/// the in-flight turn to finish, and the event loop flips it back to
-/// [`DeliveryStatus::Delivered`] once the queued message is actually shipped
-/// to the agent.
+/// once they exist), so this only matters on `Role::User` messages.
+///
+/// There is deliberately **no** "pending in the outbox" and no "held for next
+/// round" state (ADR-0137): a message enters the thread only when the harness
+/// admitted it, so a row in the document is never waiting for anything. Pending
+/// queue items live in the outbox, not here — `SteerUnavailable` hands a missed
+/// steer back to the outbox or the composer, and it never remains in the
+/// transcript.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DeliveryStatus {
     /// The message has been handed off to the agent (or is an assistant /
     /// tool / system message that doesn't go through the queue).
     #[default]
     Delivered,
-    /// The user pressed Enter while a turn was still running, so the message
-    /// is staged in the TUI's send queue and will be dispatched automatically
-    /// when the harness returns to idle.
-    Queued,
-    /// A busy-Enter steer whose round ended — naturally or by an
-    /// interrupt (Esc Esc) — before it could be admitted at a turn boundary.
-    /// The entry stays in the transcript (it never leaves the thread)
-    /// but is re-queued as the **next round's** prompt: it renders with the
-    /// same pending treatment as [`DeliveryStatus::Queued`] and flips to
-    /// delivered when that round starts.
-    HeldNextRound,
     /// The prompt was sent and is waiting for a response from the agent.
     Sending,
     /// The prompt was cancelled / interrupted before the model responded.
@@ -739,18 +759,26 @@ pub struct TranscriptMessage {
     /// [`UserMessageOrigin::Chat`]; slash commands and shell passthroughs mark
     /// themselves so they are not mistaken for the round's driving prompt.
     pub origin: UserMessageOrigin,
-    /// Lifecycle of this message from the send queue's point of view. Only
-    /// `Role::User` messages ever carry [`DeliveryStatus::Queued`]; everything
-    /// else stays at the default [`DeliveryStatus::Delivered`]. The renderer
-    /// and the queue dispatch/recall paths key off this.
+    /// Lifecycle of this message from the user's point of view. Only
+    /// `Role::User` messages ever carry anything but the default
+    /// [`DeliveryStatus::Delivered`]. The renderer keys off this to draw a
+    /// sending or cancelled panel; there is no pending/queued variant because
+    /// a pending message is not in the document at all (ADR-0137).
     pub delivery: DeliveryStatus,
-    /// Correlation id for a busy-Enter steer (`AgentRequest::Steer`). Set when
-    /// the entry is staged into the
-    /// transcript as [`DeliveryStatus::Queued`]; the response listener uses it
-    /// to find and settle the entry when the harness reports
-    /// `UserInputInserted` / `NextRoundStarted` / `UserInputUnavailable`.
-    /// `None` for every non-insert message.
+    /// The harness-side input id this row was admitted under
+    /// (`AgentRequest::Steer` / `AgentRequest::FollowUp` -> `SteerAdmitted` /
+    /// `FollowUpStarted`). It is set **at admission**, never before, and it
+    /// exists so the outbox can drop the matching pending item and so a
+    /// restored transcript keeps the correlation. `None` for every row the
+    /// harness did not admit from the queue.
     pub insert_id: Option<String>,
+    /// Admission provenance for the renderer (ADR-0137): where this message
+    /// landed causally. An `InRound` steer renders as a one-body-row
+    /// interjection; `RoundOpening` (or no tags) renders at full round-panel
+    /// weight. This is **render metadata, never dialogue** — it is not
+    /// serialized, and the restore engine reconstructs it from the durable
+    /// `InjectionKind`.
+    pub origin_tags: Vec<SteerOriginTag>,
     /// Provider/solution id that produced this message, mirrored from the
     /// core [`nuo_protocol::Message`] so the transcript stays traceable across
     /// model switches. `None` for messages that don't carry attribution.
@@ -844,6 +872,7 @@ impl TranscriptMessage {
             kind: MessageKind::Text,
             delivery: DeliveryStatus::default(),
             insert_id: None,
+            origin_tags: Vec::new(),
             origin: UserMessageOrigin::Chat,
             provider: None,
             model: None,
@@ -871,6 +900,19 @@ impl TranscriptMessage {
         self
     }
 
+    /// Stamp admission provenance tags (ADR-0137). Render metadata only —
+    /// never serialized, reconstructed on restore from the durable
+    /// `InjectionKind`.
+    pub fn with_origin_tags(mut self, tags: Vec<SteerOriginTag>) -> Self {
+        self.origin_tags = tags;
+        self
+    }
+
+    /// Whether this message carries the given admission-provenance tag.
+    pub fn has_origin_tag(&self, tag: SteerOriginTag) -> bool {
+        self.origin_tags.contains(&tag)
+    }
+
     /// User prompt classification (Normal / Steer / FollowUp).
     pub fn prompt_kind(&self) -> UserPromptKind {
         match self.origin {
@@ -879,14 +921,6 @@ impl TranscriptMessage {
             UserMessageOrigin::FollowUp => UserPromptKind::FollowUp,
             _ => UserPromptKind::Normal,
         }
-    }
-
-    /// Mark this message as queued in the send queue (waiting for the
-    /// in-flight turn to finish before it is dispatched). Only meaningful on
-    /// `Role::User` messages; the renderer and dispatch logic key off this.
-    pub fn queued(mut self) -> Self {
-        self.delivery = DeliveryStatus::Queued;
-        self
     }
 
     /// Whether this message is currently sending / waiting for response.
@@ -914,7 +948,6 @@ impl TranscriptMessage {
     /// Cancel this prompt in place if it is sending, queued, or an unpositioned user prompt.
     pub fn cancel_prompt(&mut self) {
         if self.delivery == DeliveryStatus::Sending
-            || self.delivery == DeliveryStatus::Queued
             || (self.role == Role::User && self.round.is_none())
         {
             self.delivery = DeliveryStatus::Cancelled;
@@ -937,16 +970,6 @@ impl TranscriptMessage {
     pub fn with_insert_id(mut self, insert_id: impl Into<String>) -> Self {
         self.insert_id = Some(insert_id.into());
         self
-    }
-
-    /// Mark this insert entry as waiting for the **next** round: the round it
-    /// was steered into ended (naturally or interrupted) before admission, so
-    /// the content ships as a fresh round's prompt instead. Idempotent on
-    /// already-delivered messages — a late race can never un-deliver one.
-    pub fn hold_pending_round(&mut self) {
-        if self.delivery == DeliveryStatus::Queued {
-            self.delivery = DeliveryStatus::HeldNextRound;
-        }
     }
 
     /// Stamp the provider/solution id and model that produced this message.
@@ -1229,6 +1252,7 @@ impl TranscriptMessage {
             },
             delivery: DeliveryStatus::default(),
             insert_id: None,
+            origin_tags: Vec::new(),
             origin: UserMessageOrigin::Chat,
             provider: None,
             model: None,
@@ -1307,6 +1331,7 @@ impl TranscriptMessage {
             },
             delivery: DeliveryStatus::default(),
             insert_id: None,
+            origin_tags: Vec::new(),
             origin: UserMessageOrigin::Chat,
             provider: None,
             model: None,
@@ -1346,6 +1371,7 @@ impl TranscriptMessage {
             },
             delivery: DeliveryStatus::default(),
             insert_id: None,
+            origin_tags: Vec::new(),
             origin: UserMessageOrigin::Chat,
             provider: None,
             model: None,
@@ -2543,6 +2569,7 @@ impl TranscriptMessage {
             },
             delivery: DeliveryStatus::default(),
             insert_id: None,
+            origin_tags: Vec::new(),
             origin: UserMessageOrigin::Chat,
             provider: None,
             model: None,
@@ -2751,6 +2778,7 @@ impl TranscriptMessage {
             },
             delivery: DeliveryStatus::default(),
             insert_id: None,
+            origin_tags: Vec::new(),
             origin: UserMessageOrigin::Chat,
             provider: None,
             model: None,

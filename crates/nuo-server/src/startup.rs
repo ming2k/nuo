@@ -84,7 +84,12 @@ impl CommandCategory {
 /// - `examples`: Concrete practical invocations with inline explanations
 /// - `intent_keywords`: Synonyms and intent cues used to guess what command the user wants
 /// - `category`: Logical grouping
-/// - `subcommands`: First-token verbs with their own introductions
+/// - `effect`: Whether this command is an act (recorded) or a reading
+///   (ephemeral) — the argument-less invocation's class (ADR-0140)
+/// - `subcommands`: First-token verbs with their own introductions **and their
+///   own effects**, because a verb mutates or reads independently of its parent
+///   (`/jobs kill` is an act inside a reading command; `/trust status` is a
+///   reading inside an act)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
     pub name: &'static str,
@@ -93,7 +98,9 @@ pub struct CommandSpec {
     pub examples: &'static [(&'static str, &'static str)],
     pub intent_keywords: &'static [&'static str],
     pub category: CommandCategory,
-    pub subcommands: &'static [(&'static str, &'static str)],
+    pub effect: nuo_protocol::CommandEffect,
+    pub verb_effect: nuo_protocol::CommandEffect,
+    pub subcommands: &'static [(&'static str, &'static str, nuo_protocol::CommandEffect)],
 }
 
 /// Single source of truth for the built-in slash-command vocabulary.
@@ -114,8 +121,9 @@ macro_rules! define_builtin_commands {
             usage: [ $( $usage:literal ),* $(,)? ],
             examples: [ $( ($ex_cmd:literal, $ex_desc:literal) ),* $(,)? ],
             intent_keywords: [ $( $kw:literal ),* $(,)? ],
+            effect: { bare: $bare:ident, verb: $verb_effect:ident },
             category: $cat:ident,
-            $( subcommands: [ $( ($sub_name:literal, $sub_summary:literal) ),* $(,)? ] ,)?
+            $( subcommands: [ $( ($sub_name:literal, $sub_summary:literal, $sub_effect:ident) ),* $(,)? ] ,)?
         }
     ),+ $(,)? ) => {
         /// The set of built-in slash commands. Generated from a single
@@ -131,7 +139,7 @@ macro_rules! define_builtin_commands {
             pub const ALL: &[(&'static str, &'static str)] = &[ $( ($name, $summary) ),+ ];
 
             /// Every built-in command specification with usage signatures,
-            /// examples, intent keywords, and declared subcommands.
+            /// examples, intent keywords, declared effects, and subcommands.
             pub const SPECS: &'static [CommandSpec] = &[
                 $(
                     CommandSpec {
@@ -141,7 +149,9 @@ macro_rules! define_builtin_commands {
                         examples: &[ $( ($ex_cmd, $ex_desc) ),* ],
                         intent_keywords: &[ $( $kw ),* ],
                         category: CommandCategory::$cat,
-                        subcommands: &subcommands![ $($($sub_name, $sub_summary),*)? ],
+                        effect: nuo_protocol::CommandEffect::$bare,
+                        verb_effect: nuo_protocol::CommandEffect::$verb_effect,
+                        subcommands: &subcommands![ $($($sub_name, $sub_summary, $sub_effect),*)? ],
                     }
                 ),+
             ];
@@ -175,12 +185,63 @@ macro_rules! define_builtin_commands {
     };
 }
 
+/// Resolve the effect of a typed invocation.
+///
+/// This is **the only place a command's class is decided at runtime**, and it is
+/// the analogue of `RoundEvent::class`: one function, adjacent to the vocabulary,
+/// exhaustive over what the vocabulary can express.
+///
+/// - `parts[0]` is the command word *with* its leading slash; `parts[1]`, when
+///   present, is the first argument token (the verb). Aliases resolve here,
+///   because `from_slash` is the vocabulary's single owner (ADR-0119 §2b).
+/// - A name outside the built-in vocabulary — an application-registered handler,
+///   a project command prompt, the retired `/btw` steering — is
+///   [`CommandEffect::Mutation`]. Extension code may have mutated anything, and a
+///   missing record is unrecoverable while a spurious one is only noisy.
+///
+/// `/role` is why `effect: { bare, verb }` has no default: the bare invocation
+/// lists roles (a reading), while a role id switches identity, capability, and
+/// workspace (an act) — and user role ids are dynamic, so no verb table can
+/// enumerate them.
+pub fn effect_for(parts: &[&str]) -> nuo_protocol::CommandEffect {
+    match parts.first().and_then(|name| BuiltinCmd::from_slash(name)) {
+        Some(cmd) => cmd.effect_for(parts.get(1).copied()),
+        None => nuo_protocol::CommandEffect::Mutation,
+    }
+}
+
+impl BuiltinCmd {
+    /// This command's declared effect for the argument-less invocation.
+    pub fn effect(self) -> nuo_protocol::CommandEffect {
+        self.spec().effect
+    }
+
+    /// This command's effect given the first argument token, if any.
+    ///
+    /// A declared verb uses its own declaration; an undeclared argument falls
+    /// back to the command's own `effect`, which states what the handler's `_`
+    /// arm does (`/jobs whatever` lists jobs, so `/jobs`'s `verb` is `Reading`
+    /// even though `kill` mutates).
+    pub fn effect_for(self, sub: Option<&str>) -> nuo_protocol::CommandEffect {
+        let spec = self.spec();
+        match sub {
+            Some(sub) => spec
+                .subcommands
+                .iter()
+                .find(|(name, _, _)| *name == sub)
+                .map_or(spec.verb_effect, |(_, _, effect)| *effect),
+            None => spec.effect,
+        }
+    }
+}
+
 /// Helper behind `define_builtin_commands!`: an omitted `subcommands: […]`
 /// entry becomes an empty slice instead of a macro syntax error.
 macro_rules! subcommands {
-    () => { &[] as &[(&'static str, &'static str)] };
-    ( $($name:literal, $summary:literal),* $(,)? ) => {
-        &( [ $( ($name, $summary) ),* ] ) as &[(&'static str, &'static str)]
+    () => { &[] as &[(&'static str, &'static str, nuo_protocol::CommandEffect)] };
+    ( $($name:literal, $summary:literal, $effect:ident),* $(,)? ) => {
+        &( [ $( ($name, $summary, nuo_protocol::CommandEffect::$effect) ),* ] )
+            as &[(&'static str, &'static str, nuo_protocol::CommandEffect)]
     };
 }
 
@@ -190,6 +251,7 @@ define_builtin_commands! {
         usage: ["/models"],
         examples: [("/models", "Open model selector modal")],
         intent_keywords: ["model", "llm", "switch", "provider", "gpt", "claude", "gemini", "deepseek", "change-model"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Model,
     },
     Connections = "/connections" : {
@@ -197,6 +259,7 @@ define_builtin_commands! {
         usage: ["/connections"],
         examples: [("/connections", "Open provider connection manager")],
         intent_keywords: ["connection", "provider", "api-key", "auth", "endpoint", "credentials", "token", "login"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Model,
     },
     Tools = "/tools" : {
@@ -204,6 +267,7 @@ define_builtin_commands! {
         usage: ["/tools"],
         examples: [("/tools", "Open tool management overlay")],
         intent_keywords: ["tools", "tool", "function", "bash", "toggle", "disable", "enable", "mcp-tools"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Tools,
     },
     Mcp = "/mcp" : {
@@ -211,6 +275,7 @@ define_builtin_commands! {
         usage: ["/mcp"],
         examples: [("/mcp", "Inspect and manage MCP servers")],
         intent_keywords: ["mcp", "server", "protocol", "context", "reconnect", "mcp-server"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Tools,
     },
     Compact = "/compact" : {
@@ -218,6 +283,7 @@ define_builtin_commands! {
         usage: ["/compact"],
         examples: [("/compact", "Trigger immediate thread compaction")],
         intent_keywords: ["compact", "compress", "summarize", "prune", "truncate", "shrink", "clean-context", "context"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Session,
     },
     New = "/new" : {
@@ -225,6 +291,7 @@ define_builtin_commands! {
         usage: ["/new"],
         examples: [("/new", "Start a fresh session")],
         intent_keywords: ["clear", "reset", "clean", "restart", "fresh", "cls", "wipe", "blank", "new-session"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Session,
     },
     Permissions = "/permissions" : {
@@ -232,9 +299,10 @@ define_builtin_commands! {
         usage: ["/permissions", "/permissions clear"],
         examples: [("/permissions", "Show active permission rules"), ("/permissions clear", "Clear process-local auto-allow rules")],
         intent_keywords: ["permission", "allow", "rule", "policy", "security", "approve", "always-allow", "grant"],
+        effect: { bare: Reading, verb: Reading },
         category: Config,
         subcommands: [
-            ("clear", "Clear all always-allowed tool rules"),
+            ("clear", "Clear all always-allowed tool rules", Mutation),
         ],
     },
     Unattended = "/unattended" : {
@@ -242,10 +310,11 @@ define_builtin_commands! {
         usage: ["/unattended", "/unattended on", "/unattended off"],
         examples: [("/unattended on", "Enable unattended execution mode"), ("/unattended off", "Return to interactive confirmation mode")],
         intent_keywords: ["unattended", "auto", "autopilot", "yolo", "delegate", "autonomous", "headless", "skip-confirm", "auto-approve", "bypass"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Automation,
         subcommands: [
-            ("on", "Enable unattended decisions and tool auto-approval"),
-            ("off", "Return to interactive confirmation mode"),
+            ("on", "Enable unattended decisions and tool auto-approval", Mutation),
+            ("off", "Return to interactive confirmation mode", Mutation),
         ],
     },
     Confinement = "/confinement" : {
@@ -256,10 +325,11 @@ define_builtin_commands! {
             ("/confinement off", "Disable workspace confinement (allow full host filesystem access)"),
         ],
         intent_keywords: ["confinement", "confined", "unconfine", "unconfined", "jail", "escape", "sandbox"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Automation,
         subcommands: [
-            ("on", "Enable workspace confinement (confine file tools to workspace)"),
-            ("off", "Disable confinement (allow full host filesystem access)"),
+            ("on", "Enable workspace confinement (confine file tools to workspace)", Mutation),
+            ("off", "Disable confinement (allow full host filesystem access)", Mutation),
         ],
     },
     Role = "/role" : {
@@ -279,11 +349,12 @@ define_builtin_commands! {
             "role", "preset", "mode", "identity", "developer", "philosophist", "ops",
             "switch", "switch-role",
         ],
+        effect: { bare: Reading, verb: Mutation },
         category: Agent,
         subcommands: [
-            ("developer", "the default developer role (full native capabilities with workspace)"),
-            ("ops", "system administration, infrastructure maintenance & remote operations (workspace-free)"),
-            ("philosophist", "philosophical inquiry & reflection (workspace-free)"),
+            ("developer", "the default developer role (full native capabilities with workspace)", Mutation),
+            ("ops", "system administration, infrastructure maintenance & remote operations (workspace-free)", Mutation),
+            ("philosophist", "philosophical inquiry & reflection (workspace-free)", Mutation),
         ],
     },
     Search = "/search" : {
@@ -291,6 +362,7 @@ define_builtin_commands! {
         usage: ["/search <query>"],
         examples: [("/search auth token handling", "Find past discussions on authentication")],
         intent_keywords: ["search", "find", "query", "grep", "history", "lookup", "recall", "past-messages"],
+        effect: { bare: Reading, verb: Reading },
         category: Session,
     },
     Threads = "/threads" : {
@@ -298,6 +370,7 @@ define_builtin_commands! {
         usage: ["/threads", "/threads <id>"],
         examples: [("/threads", "Open interactive thread picker"), ("/threads 0195", "Resume thread matching prefix")],
         intent_keywords: ["threads", "thread", "sessions", "session", "resume", "continue", "history", "list", "reopen", "browse", "switch-thread"],
+        effect: { bare: Reading, verb: Mutation },
         category: Session,
     },
     Fork = "/fork" : {
@@ -309,6 +382,7 @@ define_builtin_commands! {
             ("/fork 2.1", "Branch after Turn 1 of Round 2 into a new tab"),
         ],
         intent_keywords: ["fork", "branch", "clone", "duplicate", "split", "copy-thread", "aside", "side", "btw"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Session,
     },
     Tree = "/tree" : {
@@ -316,6 +390,7 @@ define_builtin_commands! {
         usage: ["/tree"],
         examples: [("/tree", "Open interactive DAG thread tree")],
         intent_keywords: ["tree", "dag", "branch", "branches", "lineage", "timeline", "history-tree", "checkout"],
+        effect: { bare: Reading, verb: Reading },
         category: Session,
     },
     Diff = "/diff" : {
@@ -323,6 +398,7 @@ define_builtin_commands! {
         usage: ["/diff"],
         examples: [("/diff", "Show reversible, irreversible, and unknown changes")],
         intent_keywords: ["diff", "changes", "modified", "patch", "git-diff", "review-changes"],
+        effect: { bare: Reading, verb: Reading },
         category: Session,
     },
     Undo = "/undo" : {
@@ -330,6 +406,7 @@ define_builtin_commands! {
         usage: ["/undo"],
         examples: [("/undo", "Restore files to their pre-round content")],
         intent_keywords: ["undo", "revert", "rollback", "back", "pop", "discard-turn"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Session,
     },
     Stats = "/stats" : {
@@ -337,6 +414,7 @@ define_builtin_commands! {
         usage: ["/stats"],
         examples: [("/stats", "Open thread stats overlay")],
         intent_keywords: ["stats", "tokens", "context", "thread-stats", "tps", "streaming-rate"],
+        effect: { bare: Reading, verb: Reading },
         category: Session,
     },
     Trace = "/trace" : {
@@ -344,6 +422,7 @@ define_builtin_commands! {
         usage: ["/trace"],
         examples: [("/trace", "Open session execution trace overlay")],
         intent_keywords: ["trace", "waterfall", "latency", "ttft", "tps", "profiler", "execution"],
+        effect: { bare: Reading, verb: Reading },
         category: Session,
     },
     Usage = "/usage" : {
@@ -351,6 +430,7 @@ define_builtin_commands! {
         usage: ["/usage"],
         examples: [("/usage", "Open the usage statistics overlay")],
         intent_keywords: ["usage", "stats", "statistics", "tokens", "tokens-per-day", "daily", "consumption", "spend"],
+        effect: { bare: Reading, verb: Reading },
         category: System,
     },
     Quotas = "/quotas" : {
@@ -358,6 +438,7 @@ define_builtin_commands! {
         usage: ["/quotas", "/quotas <provider>"],
         examples: [("/quotas", "Open provider quota dashboard"), ("/quotas google-antigravity", "Inspect Google Antigravity quotas")],
         intent_keywords: ["quota", "quotas", "allowance", "capacity", "antigravity", "limits", "balance"],
+        effect: { bare: Reading, verb: Reading },
         category: System,
     },
     Jobs = "/jobs" : {
@@ -369,10 +450,11 @@ define_builtin_commands! {
             ("/jobs logs job_01a2b3c4", "Show tail logs for a background job"),
         ],
         intent_keywords: ["jobs", "job", "background", "process", "task", "tasks", "running", "kill", "ps", "async"],
+        effect: { bare: Reading, verb: Reading },
         category: Automation,
         subcommands: [
-            ("kill", "Terminate an active background job"),
-            ("logs", "Show recent stdout/stderr output of a background job"),
+            ("kill", "Terminate an active background job", Mutation),
+            ("logs", "Show recent stdout/stderr output of a background job", Reading),
         ],
     },
     Skills = "/skills" : {
@@ -380,10 +462,11 @@ define_builtin_commands! {
         usage: ["/skills", "/skills list", "/skills status"],
         examples: [("/skills", "List available skills"), ("/skills status", "Show skills health and trust state")],
         intent_keywords: ["skills", "skill", "capabilities", "extensions"],
+        effect: { bare: Reading, verb: Reading },
         category: Tools,
         subcommands: [
-            ("list", "List discovered project and user skills"),
-            ("status", "Show skills health and trust state"),
+            ("list", "List discovered project and user skills", Reading),
+            ("status", "Show skills health and trust state", Reading),
         ],
     },
     Init = "/init" : {
@@ -391,6 +474,7 @@ define_builtin_commands! {
         usage: ["/init [path]"],
         examples: [("/init", "Initialize .nuo in current directory")],
         intent_keywords: ["init", "scaffold", "bootstrap", "create-config"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Project,
     },
     Trust = "/trust" : {
@@ -409,17 +493,18 @@ define_builtin_commands! {
             ("/trust deny instructions", "Refuse AGENTS.md without revoking other grants"),
         ],
         intent_keywords: ["trust", "authorize", "deny", "refuse", "asset-trust", "project-assets", "security"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Project,
         subcommands: [
-            ("all", "Trust every present project asset domain"),
-            ("instructions", "Trust project instructions and AGENTS.md"),
-            ("ex-workspace", "Trust project external workspace roots"),
-            ("mcp", "Trust project MCP definitions only"),
-            ("skills", "Trust project skills only"),
-            ("hooks", "Trust project hooks only"),
-            ("status", "Show trust state for every asset domain"),
-            ("revoke", "Revoke every asset-domain grant"),
-            ("deny", "Refuse the current content so it stops being asked about"),
+            ("all", "Trust every present project asset domain", Mutation),
+            ("instructions", "Trust project instructions and AGENTS.md", Mutation),
+            ("ex-workspace", "Trust project external workspace roots", Mutation),
+            ("mcp", "Trust project MCP definitions only", Mutation),
+            ("skills", "Trust project skills only", Mutation),
+            ("hooks", "Trust project hooks only", Mutation),
+            ("status", "Show trust state for every asset domain", Reading),
+            ("revoke", "Revoke every asset-domain grant", Mutation),
+            ("deny", "Refuse the current content so it stops being asked about", Mutation),
         ],
     },
     Untrust = "/untrust" : {
@@ -427,6 +512,7 @@ define_builtin_commands! {
         usage: ["/untrust"],
         examples: [("/untrust", "Revoke all project asset trust")],
         intent_keywords: ["untrust", "revoke", "asset-trust"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Project,
     },
     Export = "/export" : {
@@ -434,6 +520,7 @@ define_builtin_commands! {
         usage: ["/export"],
         examples: [("/export", "Copy thread markdown to clipboard")],
         intent_keywords: ["export", "copy", "share", "clipboard", "markdown", "dump", "save"],
+        effect: { bare: Reading, verb: Reading },
         category: Session,
     },
     Retry = "/retry" : {
@@ -441,6 +528,7 @@ define_builtin_commands! {
         usage: ["/retry"],
         examples: [("/retry", "Retry last request")],
         intent_keywords: ["retry", "again", "resend", "redo", "re-run"],
+        effect: { bare: Mutation, verb: Mutation },
         category: Session,
     },
     Help = "/help" : {
@@ -448,6 +536,7 @@ define_builtin_commands! {
         usage: ["/help [topic]"],
         examples: [("/help", "Open help guide"), ("/help sessions", "Show help for /sessions")],
         intent_keywords: ["help", "man", "docs", "guide", "info", "usage", "?", "shortcuts", "keybindings"],
+        effect: { bare: Reading, verb: Reading },
         category: System,
     },
     Exit = "/exit" : {
@@ -455,6 +544,7 @@ define_builtin_commands! {
         usage: ["/exit"],
         examples: [("/exit", "Exit application")],
         intent_keywords: ["exit", "quit", "q", "leave", "bye", "shutdown"],
+        effect: { bare: Reading, verb: Reading },
         category: System,
     },
 }
@@ -640,16 +730,25 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_protocol::CommandCata
                 .map(|keyword| (*keyword).to_string())
                 .collect(),
             category: Some(spec.category.label().to_string()),
+            effect: spec.effect,
+            verb_effect: spec.verb_effect,
             subcommands: {
                 let mut subs: Vec<nuo_protocol::CommandSubcommandSpec> = spec
                     .subcommands
                     .iter()
-                    .map(|(name, summary)| nuo_protocol::CommandSubcommandSpec {
-                        name: (*name).to_string(),
-                        summary: (*summary).to_string(),
-                    })
+                    .map(
+                        |(name, summary, effect)| nuo_protocol::CommandSubcommandSpec {
+                            name: (*name).to_string(),
+                            summary: (*summary).to_string(),
+                            effect: *effect,
+                        },
+                    )
                     .collect();
                 if spec.name == "/role" {
+                    // A user role id is an act, exactly like a built-in role id:
+                    // it switches identity, capability and workspace. It carries
+                    // the command's `verb` effect rather than the `bare` one,
+                    // which is the whole reason `effect` has two fields.
                     let user_roles = nuo_persistence::roles::RolesConfig::load();
                     for (id, p) in user_roles.roles {
                         if !subs.iter().any(|s| s.name == id) {
@@ -657,6 +756,7 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_protocol::CommandCata
                             subs.push(nuo_protocol::CommandSubcommandSpec {
                                 name: id,
                                 summary: desc.to_string(),
+                                effect: BuiltinCmd::Role.effect_for(Some("")),
                             });
                         }
                     }
@@ -675,6 +775,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_protocol::CommandCata
                 examples: Vec::new(),
                 intent_keywords: Vec::new(),
                 category: Some("Project".to_string()),
+                // A project command prompt dispatches a model turn: an act, the
+                // same over-recording default `effect_for` applies to any name
+                // outside the built-in vocabulary.
+                effect: nuo_protocol::CommandEffect::Mutation,
+                verb_effect: nuo_protocol::CommandEffect::Mutation,
                 subcommands: Vec::new(),
             }),
     );
@@ -970,7 +1075,7 @@ mod tests {
             // Subcommand declarations must be unique per command: duplicates
             // would render as two completion rows with the same insert text.
             let mut seen_subs = std::collections::HashSet::new();
-            for (sub_name, sub_summary) in spec.subcommands {
+            for (sub_name, sub_summary, _effect) in spec.subcommands {
                 assert!(
                     seen_subs.insert(*sub_name),
                     "duplicate subcommand '{}' on {}",

@@ -242,6 +242,18 @@ pub(crate) fn format_diagnostics(diag: &ServerDiagnostics) -> String {
         }
     }
 
+    // Recent Runtime Diagnostics
+    if !diag.recent_events.is_empty() {
+        out.push_str("  Recent Runtime Diagnostics:\n");
+        for ev in &diag.recent_events {
+            let time_str = format_timestamp_ms(ev.timestamp_ms);
+            out.push_str(&format!(
+                "    | [{time_str}] [{}:{}] {}: {}\n",
+                ev.process_kind, ev.pid, ev.event_kind, ev.summary
+            ));
+        }
+    }
+
     // High level diagnosis
     out.push_str("  Diagnosis:        ");
     if diag.discovery_record.is_some() && !diag.server_image_current {
@@ -332,6 +344,14 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     println!();
 
     println!("{}", table(snapshot));
+}
+
+fn format_timestamp_ms(timestamp_ms: u64) -> String {
+    let secs = (timestamp_ms / 1000) as i64;
+    let nsecs = ((timestamp_ms % 1000) * 1_000_000) as u32;
+    chrono::DateTime::from_timestamp(secs, nsecs)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| timestamp_ms.to_string())
 }
 
 fn format_uptime(started_at_secs: u64) -> String {
@@ -664,6 +684,7 @@ mod tests {
             installed_image_digest: None,
             server_image_digest: None,
             server_image_current: true,
+            recent_events: Vec::new(),
         }
     }
 
@@ -799,6 +820,41 @@ mod tests {
         let text = format_diagnostics(&diag);
         assert!(
             text.contains("/tmp/nuo-dev/nuo/instance (default port 9801)"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn diagnostics_formatter_renders_runtime_events() {
+        let diag = ServerDiagnostics {
+            recent_events: vec![
+                nuo_host::diagnostics::DiagnosticEvent {
+                    timestamp_ms: 1730419200000,
+                    pid: 913105,
+                    process_kind: "server".to_string(),
+                    event_kind: "takeover".to_string(),
+                    summary: "terminating existing PID 138253".to_string(),
+                    details: None,
+                },
+                nuo_host::diagnostics::DiagnosticEvent {
+                    timestamp_ms: 1730419201000,
+                    pid: 913200,
+                    process_kind: "client".to_string(),
+                    event_kind: "link_lost".to_string(),
+                    summary: "outbox channel broken pipe".to_string(),
+                    details: None,
+                },
+            ],
+            ..base_diag()
+        };
+        let text = format_diagnostics(&diag);
+        assert!(text.contains("Recent Runtime Diagnostics:"), "{text}");
+        assert!(
+            text.contains("[server:913105] takeover: terminating existing PID 138253"),
+            "{text}"
+        );
+        assert!(
+            text.contains("[client:913200] link_lost: outbox channel broken pipe"),
             "{text}"
         );
     }

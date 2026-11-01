@@ -9,9 +9,11 @@ use super::base::{
 };
 use crate::shell::render::{CODE_BAND_GUTTER_GAP, CODE_BAND_GUTTER_MIN_WIDTH, Theme};
 use nuo_ui_primitives::components::inline_layout::SemanticLine;
-use nuo_ui_primitives::design::{JOIN_CAUSE, QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH};
+use nuo_ui_primitives::design::{
+    COMMAND_RAIL_GLYPH, JOIN_CAUSE, QUESTION_ANSWER_GAP_COLS, QUESTION_ANSWER_GLYPH,
+};
 use nuo_ui_primitives::theme::ListingClass;
-use nuo_view::model::layout::{BlockRegion, LinkHit};
+use nuo_view::model::layout::{BlockRegion, LinkHit, TOOL_FOLD_BLOCK_IDX};
 use nuo_view::model::selection::SelectionState;
 use nuo_view::text_layout::{
     CodeGutterParams, WrappedLine, block_selection_range, clamp_selection_range, code_gutter_line,
@@ -305,60 +307,6 @@ pub(crate) fn draw_code_content(
 }
 
 /// Draw a full-width decorative band row — a result heading (count band) or a
-/// group title — on `band_bg`, indented by `indent` and padded to the full
-/// width. Decoration only: the caller decides whether to *also* register a
-/// selectable region. Shared by the search ([`draw_matches_content`]) and
-/// listing ([`draw_listing_content`]) blocks so their heading tiers stay
-/// visually identical.
-fn draw_band_row(
-    ctx: &mut RenderCtx<'_, '_>,
-    indent: usize,
-    text: &str,
-    style: Style,
-    band_bg: Color,
-) {
-    let pad = Style::default().bg(band_bg);
-    let used = indent + text.width();
-    let line = Line::from(vec![
-        Span::styled(" ".repeat(indent), pad),
-        Span::styled(text.to_string(), style),
-        Span::styled(padded_tail(ctx.full_width, used), pad),
-    ]);
-    let _ = ctx.paint(line);
-}
-
-/// Draw the column-header row of a `list_dir` table — `Name` on the left and
-/// `Size` over the measured size column — replacing the former count-summary
-/// band so the top tier reads as a table head rather than a tally. Decoration
-/// only (it registers no selectable region); the name column reuses the exact
-/// `name_col` / `size_w` geometry the entry rows below are laid out with, so the
-/// labels always sit over their columns.
-fn draw_listing_header(
-    ctx: &mut RenderCtx<'_, '_>,
-    indent: usize,
-    name_col: usize,
-    size_w: usize,
-    style: Style,
-    pad: Style,
-) {
-    let name_label = "Name";
-    let size_label = "Size";
-    let name_label_w = name_label.width();
-    let size_label_w = size_label.width();
-    let pad_cols = name_col.saturating_sub(name_label_w) + 2;
-    let lead = size_w.saturating_sub(size_label_w);
-    let used = indent + name_label_w + pad_cols + lead + size_label_w;
-    let line = Line::from(vec![
-        Span::styled(" ".repeat(indent), pad),
-        Span::styled(name_label.to_string(), style),
-        Span::styled(" ".repeat(pad_cols), pad),
-        Span::styled(" ".repeat(lead), pad),
-        Span::styled(size_label.to_string(), style),
-        Span::styled(padded_tail(ctx.full_width, used), pad),
-    ]);
-    let _ = ctx.paint(line);
-}
-
 /// Draw a wrapped, selectable title band for a path heading, registering one
 /// region per wrapped line anchored at `abs_start` in the raw tool output. A
 /// title owns its own tier (the full inner width), not the gutter column the
@@ -398,112 +346,16 @@ fn draw_title_band(
     }
 }
 
-/// A `list_dir` entry row parsed from the tool's per-entry class tag.
-struct DirEntry<'a> {
-    class: ListingClass,
-    name: &'a str,
-    /// The formatted human-readable size for display (e.g. `"4.0 KB"`, `"128 B"`), if any.
-    size: Option<String>,
-}
-
-/// Format a raw size token (e.g. `"12201 B"`, `"4096 B"`, `"128 B"`) into
-/// a human-readable display string (e.g. `"11.9 KB"`, `"4.0 KB"`, `"128 B"`).
-///
-/// Plain integer byte strings or `"SIZE B"` strings are formatted through
-/// [`nuo_view::composer_attachments::human_size`]. Tokens that already carry a
-/// scaled unit (e.g. `"1.5 KB"`, `"10 MB"`) or cannot be parsed as a byte
-/// count are preserved as-is.
-fn format_human_size(raw: &str) -> String {
-    let trimmed = raw.trim();
-    let candidate = if let Some(rest) = trimmed.strip_suffix(" B") {
-        rest
-    } else if let Some(rest) = trimmed.strip_suffix('B') {
-        if rest.ends_with(|c: char| c.is_alphabetic()) {
-            return trimmed.to_string();
-        }
-        rest
-    } else {
-        trimmed
-    };
-    let clean = candidate.replace(',', "");
-    if let Ok(bytes) = clean.trim().parse::<usize>() {
-        nuo_view::composer_attachments::human_size(bytes)
-    } else {
-        trimmed.to_string()
-    }
-}
-
-/// Parse a `list_dir` entry — `[DIR]  name                    (4096 B)`.
-///
-/// The leading token is the entry's `ls`-style class (`[DIR]` / `[EXEC]` /
-/// `[LINK]` / `[FILE]`), which the tool emits so a listing can be coloured the
-/// way the shell's `ls` colours one. Returns `None` for any line that does not
-/// carry a recognised tag, so a listing without the tags (a restored session, or
-/// the `find_files` path shape) degrades to plain path rows instead of inventing
-/// a type.
-fn parse_dir_entry(line: &str) -> Option<DirEntry<'_>> {
-    let rest = line.trim_start();
-    let (class, rest) = if let Some(rest) = rest.strip_prefix("[DIR]") {
-        (ListingClass::Dir, rest)
-    } else if let Some(rest) = rest.strip_prefix("[EXEC]") {
-        (ListingClass::Exec, rest)
-    } else if let Some(rest) = rest.strip_prefix("[LINK]") {
-        (ListingClass::Link, rest)
-    } else {
-        let rest = rest.strip_prefix("[FILE]")?;
-        (ListingClass::File, rest)
-    };
-    let rest = rest.trim();
-    // The name is left-justified in a fixed-width field, then ` (SIZE B)` is
-    // appended, so splitting on the *last* ` (… )` group recovers the size even
-    // when the name itself contains ` (`.
-    let (name, size) = match rest.rfind(" (") {
-        Some(open) if rest.ends_with(')') => {
-            let raw_size = &rest[open + 2..rest.len() - 1];
-            (rest[..open].trim_end(), Some(format_human_size(raw_size)))
-        }
-        _ => (rest, None),
-    };
-    (!name.is_empty()).then_some(DirEntry { class, name, size })
-}
-
 /// Parse a listing block's leading header line into the label for its count
-/// band. Recognizes the two shapes the filesystem tools emit:
+/// band. Recognizes the shape emitted by `find_files`: `Found N matching files:`
 ///
-/// - `find_files`: `Found N matching files:`
-/// - `list_dir`:   ``Directory: `path` (N items):``
-///
-/// Returns `None` when the first line is neither (a restored session may start
+/// Returns `None` when the first line is not a header (a restored session may start
 /// at the first entry), in which case no band is invented.
 fn parse_listing_header(first: &str) -> Option<String> {
     let first = first.trim_end();
-    if let Some(rest) = first.strip_prefix("Found ") {
-        let n: usize = rest.strip_suffix("matching files:")?.trim().parse().ok()?;
-        return Some(format!("Found {} {}", n, plural(n, "file", "files")));
-    }
-    // `Directory: `path` (N items):` — the tool always prints `items` (never a
-    // pluralized `item`), and the count group is the final `(…)` before the `:`,
-    // so split on the last `(` to stay robust to a path containing parentheses.
-    let rest = first.strip_prefix("Directory: ")?.strip_suffix(':')?;
-    let open = rest.rfind('(')?;
-    let inner = rest[open + 1..].trim_end_matches(')');
-    let n: usize = inner.split_whitespace().next()?.parse().ok()?;
-    let path = rest[..open].trim().trim_matches('`');
-    Some(if path.is_empty() || path == "." {
-        format!("{} {}", n, plural(n, "item", "items"))
-    } else {
-        format!("{path} · {} {}", n, plural(n, "item", "items"))
-    })
-}
-
-/// Parse the `list_dir` omission trailer `... (N additional entries omitted)`.
-fn parse_listing_trailer(line: &str) -> Option<usize> {
-    line.trim()
-        .strip_prefix("... (")?
-        .strip_suffix(" additional entries omitted)")?
-        .trim()
-        .parse()
-        .ok()
+    let rest = first.strip_prefix("Found ")?;
+    let n: usize = rest.strip_suffix("matching files:")?.trim().parse().ok()?;
+    Some(format!("Found {} {}", n, plural(n, "file", "files")))
 }
 
 /// Split a listing path into its `(directory, leaf)` halves, where `directory`
@@ -517,20 +369,12 @@ fn split_dir_leaf(raw: &str) -> (Option<&str>, &str) {
     }
 }
 
-/// Render a `find_files` / `list_dir` result as a *layered* block, sharing the
+/// Render a `find_files` result as a *layered* block, sharing the
 /// three-tier contract of a search block (see [`draw_matches_content`]):
 ///
-/// - a **`list_dir`** (tagged-entry) listing is drawn as a table: a **header
-///   row** labelling the two columns (`Name` / `Size`) replaces the old
-///   count-summary band, and each entry is a row of **name + aligned size** —
-///   no per-row type glyph. The entry's class colours the name the way `ls`
-///   does (blue directory, green executable, cyan symlink) and a directory
-///   carries a trailing `/`; the byte size sits in a dim right-aligned column;
-/// - a **`find_files`** run renders directly with its per-directory **title band**
+/// - directory paths are grouped with a per-directory **title band**
 ///   on [`Theme::match_title_surface`], omitting redundant "Found N files" count
-///   bands so the hierarchy stays clean and transitions directly to file entries;
-/// - a dim **omission band** for the tool's `... (N additional entries
-///   omitted)` trailer.
+///   bands so the hierarchy stays clean and transitions directly to file entries.
 ///
 /// Rows carry no line-number gutter (a listing has no meaningful line index),
 /// and every selectable row's byte range stays anchored in the raw tool output.
@@ -546,19 +390,12 @@ pub(crate) fn draw_listing_content(
     let code_bg = ctx.theme.code_surface();
     let title_bg = ctx.theme.match_title_surface();
     let pad = Style::default().bg(code_bg);
-    let dim = ctx.theme.dim();
     let sel_range = block_selection_range(selection, mi, block_idx);
     let wrap_w = inner_w.max(1);
 
     let title_style = Style::default()
         .bg(title_bg)
         .fg(ctx.theme.heading())
-        .add_modifier(Modifier::BOLD);
-    let omitted_style = Style::default().bg(code_bg).fg(dim);
-    let size_style = Style::default().bg(code_bg).fg(dim);
-    let header_style = Style::default()
-        .bg(code_bg)
-        .fg(dim)
         .add_modifier(Modifier::BOLD);
 
     let mut logical: Vec<(usize, &str)> = Vec::new();
@@ -568,95 +405,14 @@ pub(crate) fn draw_listing_content(
         offset += line.len() + 1;
     }
 
-    // A tagged-entry body is a `list_dir` table; a bare set of paths is a
-    // `find_files` run. The distinction drives whether the top tier is a column
-    // header (table) or direct directory groups (find_files), and it is derived
-    // from the rows themselves so a restored session (header dropped) still resolves.
     let header_label = logical
         .first()
         .and_then(|(_, line)| parse_listing_header(line));
     let body_idx = if header_label.is_some() { 1 } else { 0 };
-    let table = logical[body_idx..]
-        .iter()
-        .any(|(_, line)| parse_dir_entry(line).is_some());
-
-    // Column geometry for a `list_dir` table, measured before any row is drawn
-    // so the header labels and every size land on one pair of columns. The name
-    // column is the widest entry (a directory's trailing `/` counts) clamped so
-    // the size column can always fit; the size column is the widest byte size.
-    let (name_col, max_size_w) = if table {
-        let mut name_w = 0usize;
-        let mut size_w = 0usize;
-        for (_, line) in &logical[body_idx..] {
-            if let Some(entry) = parse_dir_entry(line) {
-                let dir_slash = usize::from(entry.class == ListingClass::Dir);
-                name_w = name_w.max(entry.name.width() + dir_slash);
-                size_w = size_w.max(entry.size.as_ref().map(|s| s.width()).unwrap_or(0));
-            }
-        }
-        let name_col = name_w.min(ctx.full_width.saturating_sub(indent + size_w + 3).max(1));
-        (name_col, size_w)
-    } else {
-        (0, 0)
-    };
-
-    // Top tier: a column header for a table. Non-table listings (`find_files`)
-    // transition directly to directory title bands and entries, stripping the
-    // redundant "Found N files" count header to keep the hierarchy clean.
-    if table {
-        draw_listing_header(ctx, indent, name_col, max_size_w, header_style, pad);
-    }
 
     let mut current_dir: Option<&str> = None;
     for (line_start_byte, raw) in &logical[body_idx..] {
-        // `list_dir` omission trailer → dim summary band.
-        if let Some(n) = parse_listing_trailer(raw) {
-            let text = format!("⋯ {n} more {} not shown", plural(n, "entry", "entries"));
-            draw_band_row(ctx, indent, &text, omitted_style, code_bg);
-            continue;
-        }
-
-        // `list_dir` entry → class-coloured name (+ trailing `/` for a
-        // directory) and a right-aligned byte size, with no per-row glyph.
-        if let Some(entry) = parse_dir_entry(raw) {
-            let fg = ctx.theme.listing_color(entry.class);
-            let base = Style::default().bg(code_bg).fg(fg);
-            let mut display = nuo_ui_primitives::components::path::PathView::from_str(entry.name)
-                .maybe_base_dir(ctx.workspace_root)
-                .format_text();
-            if entry.class == ListingClass::Dir && !display.ends_with('/') {
-                display.push('/');
-            }
-            let display = truncate_to_width(&display, name_col.max(1));
-            let block_wl = WrappedLine {
-                text: display.clone(),
-                start_byte: *line_start_byte,
-                end_byte: *line_start_byte + raw.len(),
-            };
-            let mut line = line_spans(
-                &" ".repeat(indent),
-                pad,
-                &display,
-                line_selection(sel_range, &block_wl),
-                base,
-                ctx.theme.selected(),
-            );
-            let mut used = indent + display.width();
-            if let Some(size) = entry.size.as_deref() {
-                // Pad across the rest of the name column plus a two-cell gap,
-                // then right-align the size within the measured size column so
-                // every unit sits on the same column edge.
-                let pad_cols = name_col.saturating_sub(display.width()) + 2;
-                let size_w = size.width();
-                let lead = max_size_w.saturating_sub(size_w);
-                line.spans.push(Span::styled(" ".repeat(pad_cols), pad));
-                line.spans.push(Span::styled(" ".repeat(lead), pad));
-                line.spans.push(Span::styled(size.to_string(), size_style));
-                used += pad_cols + lead + size_w;
-            }
-            line.spans
-                .push(Span::styled(padded_tail(ctx.full_width, used), pad));
-            ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
+        if raw.is_empty() {
             continue;
         }
 
@@ -2249,19 +2005,22 @@ pub(crate) fn draw_command_content(
     let pad = Style::default().bg(result_bg);
     let base = Style::default().bg(result_bg).fg(ctx.theme.code_text());
     let sel_range = block_selection_range(selection, mi, block_idx);
-    let wrap_w = inner_w.max(1);
+    let rail_indent = indent + 2;
+    let wrap_w = inner_w.saturating_sub(2).max(1);
 
     // `$ command` prompt line(s) — the command may span multiple lines; only
-    // the first rendered row carries the `$ ` prompt.
+    // the first rendered row carries the `$ ` prompt. Rendered on the Left Rail track.
     if !command.is_empty() {
         let cmd_style = Style::default().bg(result_bg).fg(ctx.theme.fg());
         let mut rows = command.split('\n');
         if let Some(first) = rows.next() {
             let prompt = format!("$ {}", first);
             for wl in nonempty_wrapped(wrap_text(&prompt, wrap_w)) {
-                let used = indent + wl.text.width();
+                let used = rail_indent + wl.text.width();
                 let line = Line::from(vec![
                     Span::styled(" ".repeat(indent), pad),
+                    Span::styled(COMMAND_RAIL_GLYPH, pad.fg(ctx.theme.dim())),
+                    Span::styled(" ", pad),
                     Span::styled(wl.text.clone(), cmd_style),
                     Span::styled(padded_tail(ctx.full_width, used), pad),
                 ]);
@@ -2270,9 +2029,11 @@ pub(crate) fn draw_command_content(
         }
         for cont in rows {
             for wl in nonempty_wrapped(wrap_text(cont, wrap_w)) {
-                let used = indent + wl.text.width();
+                let used = rail_indent + wl.text.width();
                 let line = Line::from(vec![
                     Span::styled(" ".repeat(indent), pad),
+                    Span::styled(COMMAND_RAIL_GLYPH, pad.fg(ctx.theme.dim())),
+                    Span::styled(" ", pad),
                     Span::styled(wl.text.clone(), cmd_style),
                     Span::styled(padded_tail(ctx.full_width, used), pad),
                 ]);
@@ -2306,22 +2067,20 @@ pub(crate) fn draw_command_content(
         );
     }
 
-    // Part 2: Process Exit Outcome Strip (Flush underneath Part 1)
+    // Part 2: Process Exit Outcome Strip (Flush underneath Part 1 on the Left Rail)
     // Only non-zero exits paint a distinct marker with explanation (ADR-0070)
-    let footer_bg = ctx.theme.match_title_surface();
-    let footer_pad = Style::default().bg(footer_bg);
-    let footer_marker_style = Style::default().bg(footer_bg).fg(ctx.theme.warn());
     if let Some(code) = view.exit {
         if code != 0 {
             let expl = exit_code_explanation(code);
             let m = format!("exit {} ({})", code, expl);
-            let _ = emit_command_lines(
+            let footer_marker_style = Style::default().bg(result_bg).fg(ctx.theme.warn());
+            let _ = emit_command_lines_railed(
                 ctx,
                 mi,
                 block_idx,
                 indent,
                 wrap_w,
-                footer_pad,
+                pad,
                 sel_range,
                 &m,
                 footer_marker_style,
@@ -2330,7 +2089,7 @@ pub(crate) fn draw_command_content(
         }
     }
 
-    // Part 3: Harness Governance Strip (flush beneath Part 2)
+    // Part 3: Harness Governance Strip (flush beneath Part 2 on the Left Rail)
     // Only rendered when supervisor intervention occurred (timeout, output
     // limit, cancellation) or when a copy of this log was cut.
     let harness_bg = harness_intervention_surface(view.termination, ctx.theme);
@@ -2344,7 +2103,7 @@ pub(crate) fn draw_command_content(
         });
 
     if let Some((text, style)) = governance_entry {
-        let _ = emit_command_lines(
+        let _ = emit_command_lines_railed(
             ctx,
             mi,
             block_idx,
@@ -2392,7 +2151,7 @@ fn emit_command_output(
     mut byte_offset: usize,
 ) -> usize {
     let emit = |ctx: &mut RenderCtx<'_, '_>, row: &str, byte_offset: usize| {
-        emit_command_lines(
+        emit_command_lines_railed(
             ctx,
             mi,
             block_idx,
@@ -2422,47 +2181,86 @@ fn emit_command_output(
     for row in fold.hidden_rows(rows) {
         byte_offset += row.len() + 1;
     }
-    emit_fold_chrome(ctx, indent, pad, &fold, fold.hidden_rows(rows));
+    emit_fold_chrome(ctx, mi, indent, pad, &fold, fold.hidden_rows(rows));
     for row in &rows[fold.tail_start..] {
         byte_offset = emit(ctx, row, byte_offset);
     }
     byte_offset
 }
 
-/// The negative-space fold gap (ADR-0070): a blank row, one quiet indented
-/// label describing exactly what is hidden, and a blank row. The label carries
-/// the omitted line count, its size, and — when the hidden middle contains one
-/// — the first salient failure signature, so the diagnosis is on screen even
-/// though the rows are not (`[INV-FOLD-01]`).
+/// The modern, cohesive fold divider row on the Left Rail track.
 ///
-/// The gap is synthetic: nothing in it is selectable, and
-/// [`BASH_FOLD_CHROME_ROWS`] is the row count the fold geometry budgets for it.
+/// Occupies exactly one line (`BASH_FOLD_CHROME_ROWS = 1`): no visual cavities
+/// or blank gaps. Presents omitted stats and prominent keycap affordances:
+/// `[o] view log   [y] copy` separated by clean whitespace (no noisy `·` dots).
+///
+/// Registers [`TOOL_FOLD_BLOCK_IDX`] on the layout map so mouse clicks route
+/// directly to opening the full log pager inspector.
 fn emit_fold_chrome(
     ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
     indent: usize,
     pad: Style,
     fold: &BashFold,
     hidden_rows: &[String],
 ) {
-    let blank_row = Line::from(vec![Span::styled(padded_tail(ctx.full_width, 0), pad)]);
-    let _ = ctx.paint(blank_row.clone());
-
     let omitted_kb = fold.omitted_bytes as f64 / 1024.0;
-    let mut label = format!("  {} lines omitted ({omitted_kb:.1} KB)", fold.hidden);
+    let mut stats = format!("... {} lines hidden ({omitted_kb:.1} KB)", fold.hidden);
     if let Some(signature) = first_salient_signature(hidden_rows) {
-        label.push_str(" — ");
-        label.push_str(&signature);
+        stats.push_str(": ");
+        stats.push_str(&signature);
     }
-    let label_width = ctx.full_width.saturating_sub(indent).max(1);
-    let label = truncate_to_width(&label, label_width);
-    let used = indent + label.width();
-    let label_line = Line::from(vec![
+
+    let actions_text = "      [o] view log   [y] copy";
+    let actions_width = actions_text.width();
+    let rail_indent = indent + 2;
+    let avail = ctx.full_width.saturating_sub(rail_indent);
+
+    let (show_actions, max_stats_w) = if avail > actions_width + 15 {
+        (true, avail.saturating_sub(actions_width))
+    } else {
+        (false, avail)
+    };
+
+    let stats = truncate_to_width(&stats, max_stats_w.max(5));
+
+    let mut spans = vec![
         Span::styled(" ".repeat(indent), pad),
-        Span::styled(label, pad.fg(ctx.theme.dim())),
-        Span::styled(padded_tail(ctx.full_width, used), pad),
-    ]);
-    let _ = ctx.paint(label_line);
-    let _ = ctx.paint(blank_row);
+        Span::styled(COMMAND_RAIL_GLYPH, pad.fg(ctx.theme.dim())),
+        Span::styled(" ", pad),
+        Span::styled(stats.to_string(), pad.fg(ctx.theme.dim())),
+    ];
+
+    let mut used = rail_indent + stats.width();
+    if show_actions {
+        spans.push(Span::styled("      ", pad));
+        spans.push(Span::styled(
+            "[o]",
+            pad.fg(ctx.theme.brand()).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(" view log   ", pad.fg(ctx.theme.dim())));
+        spans.push(Span::styled(
+            "[y]",
+            pad.fg(ctx.theme.brand()).add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(" copy", pad.fg(ctx.theme.dim())));
+        used += actions_width;
+    }
+    spans.push(Span::styled(padded_tail(ctx.full_width, used), pad));
+
+    let line = Line::from(spans);
+    if let Some(rect) = ctx.paint(line) {
+        ctx.layout_map.push(BlockRegion {
+            message_idx: mi,
+            block_idx: TOOL_FOLD_BLOCK_IDX,
+            start_byte: 0,
+            end_byte: 0,
+            text: String::new(),
+            prefix_cols: 0,
+            rect,
+            hidden_ranges: Vec::new(),
+        });
+    }
 }
 
 /// First salient failure signature among the folded rows, if any.
@@ -2480,12 +2278,56 @@ fn first_salient_signature(hidden_rows: &[String]) -> Option<String> {
 /// Emit a (possibly multi-line) bash body section at `indent`, wrapping to
 /// `wrap_w`, all rows in `style`, anchoring selection byte ranges at
 /// `*byte_offset` (advanced past the section).
-///
-/// This is the paint boundary for both derived output rows and raw text
-/// snippets (error text, patch warnings, the exit / coverage footers), so it
-/// resolves carriage-return / backspace control sequences itself. Rows coming
-/// from [`ShellOutput`] are already normalized — the resolution is idempotent,
-/// so those pay only the fast-path check and both paths stay byte-identical.
+#[allow(clippy::too_many_arguments)]
+fn emit_command_lines_impl(
+    ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
+    block_idx: usize,
+    indent: usize,
+    wrap_w: usize,
+    pad: Style,
+    sel_range: Option<(usize, Option<usize>)>,
+    text: &str,
+    style: Style,
+    mut byte_offset: usize,
+    railed: bool,
+) -> usize {
+    let text = text.trim_end_matches(&['\r', '\n'][..]);
+    let rail_indent = if railed { indent + 2 } else { indent };
+    for logical_line in text.split('\n') {
+        let logical_line = nuo_protocol::tool_output::normalize_carriage_returns(logical_line);
+        let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
+        for wl in &wrapped {
+            let block_wl = WrappedLine {
+                text: wl.text.clone(),
+                start_byte: byte_offset + wl.start_byte,
+                end_byte: byte_offset + wl.end_byte,
+            };
+            let mut line = line_spans(
+                "",
+                pad,
+                &wl.text,
+                line_selection(sel_range, &block_wl),
+                style,
+                ctx.theme.selected(),
+            );
+            if railed {
+                line.spans
+                    .insert(0, Span::styled("│ ", pad.fg(ctx.theme.dim())));
+                line.spans.insert(0, Span::styled(" ".repeat(indent), pad));
+            } else {
+                line.spans.insert(0, Span::styled(" ".repeat(indent), pad));
+            }
+            let used = rail_indent + wl.text.width();
+            line.spans
+                .push(Span::styled(padded_tail(ctx.full_width, used), pad));
+            ctx.paint_text_row(line, mi, block_idx, &block_wl, rail_indent as u16, &[]);
+        }
+        byte_offset += logical_line.len() + 1;
+    }
+    byte_offset
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emit_command_lines(
     ctx: &mut RenderCtx<'_, '_>,
@@ -2497,37 +2339,49 @@ fn emit_command_lines(
     sel_range: Option<(usize, Option<usize>)>,
     text: &str,
     style: Style,
-    mut byte_offset: usize,
+    byte_offset: usize,
 ) -> usize {
-    // A payload like `date`'s stdout is `"Fri … 2026\n"`; the capture layer
-    // terminates every line with `\n`, so splitting without trimming would paint
-    // a phantom trailing blank row. Internal blank lines are preserved.
-    let text = text.trim_end_matches(&['\r', '\n'][..]);
-    for logical_line in text.split('\n') {
-        let logical_line = nuo_protocol::tool_output::normalize_carriage_returns(logical_line);
-        let wrapped = nonempty_wrapped(wrap_text(&logical_line, wrap_w));
-        for wl in &wrapped {
-            let block_wl = WrappedLine {
-                text: wl.text.clone(),
-                start_byte: byte_offset + wl.start_byte,
-                end_byte: byte_offset + wl.end_byte,
-            };
-            let mut line = line_spans(
-                &" ".repeat(indent),
-                pad,
-                &wl.text,
-                line_selection(sel_range, &block_wl),
-                style,
-                ctx.theme.selected(),
-            );
-            let used = indent + wl.text.width();
-            line.spans
-                .push(Span::styled(padded_tail(ctx.full_width, used), pad));
-            ctx.paint_text_row(line, mi, block_idx, &block_wl, indent as u16, &[]);
-        }
-        byte_offset += logical_line.len() + 1;
-    }
-    byte_offset
+    emit_command_lines_impl(
+        ctx,
+        mi,
+        block_idx,
+        indent,
+        wrap_w,
+        pad,
+        sel_range,
+        text,
+        style,
+        byte_offset,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_command_lines_railed(
+    ctx: &mut RenderCtx<'_, '_>,
+    mi: usize,
+    block_idx: usize,
+    indent: usize,
+    wrap_w: usize,
+    pad: Style,
+    sel_range: Option<(usize, Option<usize>)>,
+    text: &str,
+    style: Style,
+    byte_offset: usize,
+) -> usize {
+    emit_command_lines_impl(
+        ctx,
+        mi,
+        block_idx,
+        indent,
+        wrap_w,
+        pad,
+        sel_range,
+        text,
+        style,
+        byte_offset,
+        true,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2995,7 +2849,10 @@ pub(crate) fn draw_tool_error(
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
-fn command_for(structured: Option<&nuo_protocol::ToolOutput>, arguments: &str) -> String {
+pub(crate) fn command_for(
+    structured: Option<&nuo_protocol::ToolOutput>,
+    arguments: &str,
+) -> String {
     if let Some(nuo_protocol::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {
@@ -3517,7 +3374,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_listing_header_reads_both_tool_shapes() {
+    fn parse_listing_header_reads_find_files_shape() {
         // `find_files`: no scope path, so the band is just the file count.
         assert_eq!(
             parse_listing_header("Found 27 matching files:").as_deref(),
@@ -3527,17 +3384,6 @@ mod tests {
             parse_listing_header("Found 1 matching files:").as_deref(),
             Some("Found 1 file")
         );
-        // `list_dir`: path-led, with the count before the trailing colon.
-        assert_eq!(
-            parse_listing_header("Directory: `docs/adr` (27 items):").as_deref(),
-            Some("docs/adr · 27 items")
-        );
-        // A root listing names no scope (`.` is the default), and a single item
-        // is singular.
-        assert_eq!(
-            parse_listing_header("Directory: `.` (1 items):").as_deref(),
-            Some("1 item")
-        );
     }
 
     #[test]
@@ -3546,60 +3392,6 @@ mod tests {
         assert!(parse_listing_header("src/main.rs").is_none());
         assert!(parse_listing_header("src/a.rs\nsrc/b.rs").is_none());
         assert!(parse_listing_header("").is_none());
-    }
-
-    #[test]
-    fn parse_dir_entry_reads_class_name_and_size() {
-        let dir = parse_dir_entry("[DIR]  src                      (4096 B)").unwrap();
-        assert_eq!(dir.class, ListingClass::Dir);
-        assert_eq!(dir.name, "src");
-        assert_eq!(dir.size.as_deref(), Some("4.0 KB"));
-
-        let file = parse_dir_entry("[FILE] Cargo.toml               (128 B)").unwrap();
-        assert_eq!(file.class, ListingClass::File);
-        assert_eq!(file.name, "Cargo.toml");
-        assert_eq!(file.size.as_deref(), Some("128 B"));
-
-        // The two `ls` classes the tool distinguishes beyond a plain file.
-        let exec = parse_dir_entry("[EXEC] run.sh                   (42 B)").unwrap();
-        assert_eq!(exec.class, ListingClass::Exec);
-        assert_eq!(exec.size.as_deref(), Some("42 B"));
-        let link = parse_dir_entry("[LINK] current                  (7 B)").unwrap();
-        assert_eq!(link.class, ListingClass::Link);
-        assert_eq!(link.size.as_deref(), Some("7 B"));
-
-        // A name containing ` (` must not confuse the size split (last ` (` wins).
-        let tricky = parse_dir_entry("[FILE] weird (name).rs           (12 B)").unwrap();
-        assert_eq!(tricky.name, "weird (name).rs");
-        assert_eq!(tricky.size.as_deref(), Some("12 B"));
-
-        // Human-readable size conversions for various magnitudes.
-        let session =
-            parse_dir_entry("[FILE] BinarySessionRecords.ts           (12201 B)").unwrap();
-        assert_eq!(session.name, "BinarySessionRecords.ts");
-        assert_eq!(session.size.as_deref(), Some("11.9 KB"));
-
-        let target = parse_dir_entry("[FILE] BinaryTargetSummary.ts              (438 B)").unwrap();
-        assert_eq!(target.name, "BinaryTargetSummary.ts");
-        assert_eq!(target.size.as_deref(), Some("438 B"));
-
-        let router = parse_dir_entry("[FILE] SessionProviderRouter.ts           (6817 B)").unwrap();
-        assert_eq!(router.name, "SessionProviderRouter.ts");
-        assert_eq!(router.size.as_deref(), Some("6.7 KB"));
-
-        // Not a `list_dir` row → `None` (the `find_files` path shape).
-        assert!(parse_dir_entry("src/main.rs").is_none());
-        assert!(parse_dir_entry("Found 27 matching files:").is_none());
-    }
-
-    #[test]
-    fn parse_listing_trailer_reads_the_omitted_count() {
-        assert_eq!(
-            parse_listing_trailer("... (12 additional entries omitted)"),
-            Some(12)
-        );
-        assert_eq!(parse_listing_trailer("src/main.rs"), None);
-        assert_eq!(parse_listing_trailer("Directory: `src` (3 items):"), None);
     }
 
     #[test]

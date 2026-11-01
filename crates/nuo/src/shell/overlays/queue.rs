@@ -96,7 +96,10 @@ pub fn draw_queue_modal(
             } else {
                 one_line
             };
-            let left_w = GUTTER_W + TIME_W + 2 + text.width();
+            // A pending steer is a course correction of the running round,
+            // distinct from a next-round follow-up (ADR-0137).
+            let label = if item.is_steer { "steer" } else { "follow-up" };
+            let left_w = GUTTER_W + TIME_W + 2 + label.len() + 1 + text.width();
             let pad = body_width.saturating_sub(left_w);
             body.push(Line::from(vec![
                 Span::styled(" ".repeat(GUTTER_W), nuotc::Style::default().bg(style.bg)),
@@ -104,6 +107,15 @@ pub fn draw_queue_modal(
                     format!("{time}  "),
                     nuotc::Style::default().bg(style.bg).fg(style.dim),
                 ),
+                Span::styled(
+                    label,
+                    nuotc::Style::default().bg(style.bg).fg(if item.is_steer {
+                        theme.warn()
+                    } else {
+                        style.dim
+                    }),
+                ),
+                Span::styled(" ", nuotc::Style::default().bg(style.bg)),
                 Span::styled(text, nuotc::Style::default().bg(style.bg).fg(style.fg)),
                 Span::styled(" ".repeat(pad), nuotc::Style::default().bg(style.bg)),
             ]));

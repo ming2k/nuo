@@ -12,7 +12,9 @@
 //!   `SurfaceLog` and are reviewed in this sovereign card-stack dialog.
 //!
 //! The dialog presents notifications as distinct, formatted visual cards with:
-//! - Severity indicator badges (`[ERROR]`, `[WARN]`, `[INFO]`, `[OK]`) and glyphs.
+//! - Severity conveyed by a **color band** ([ADR-0139](docs/adr/0139-severity-band-language-color-only-severity-on-notice-cards.md)):
+//!   a derived background tint + tone foreground on the topic pill — no `▲`/`✗`/
+//!   `✓`/`ℹ` glyphs and no `[ERROR]`/`[WARN]`/`[OK]`/`[INFO]` text badges.
 //! - Topic pill indicators and right-aligned timestamp metadata.
 //! - Prominent headline titles with active-selection accent markers (`▌`).
 //! - Expandable detailed technical context (HTTP response bodies, stack traces).
@@ -116,12 +118,19 @@ pub fn draw_notices_modal(
                 selected_row = Some(body_lines.len());
             }
 
-            let (badge_text, glyph, tone) = match notice.status {
-                LineStatus::Failed => ("[ERROR]", theme.glyphs.cross, theme.err()),
-                LineStatus::Warn => ("[WARN]", "▲", theme.warn()),
-                LineStatus::Ok => ("[OK]", theme.glyphs.check, theme.ok()),
-                LineStatus::Info => ("[INFO]", "ℹ", theme.info()),
+            // Severity drives the band (ADR-0139): a derived tint pair
+            // (background wash + tone foreground) replaces the legacy
+            // `[ERROR]`/`[WARN]`/`[OK]`/`[INFO]` text badges and the `▲`/`✗`/
+            // `✓`/`ℹ` glyphs. Color carries severity alone on the card — except
+            // on a monochrome/vt100 profile, where the band carries a textual
+            // marker instead, since color there carries nothing.
+            let (accent, marker) = match notice.status {
+                LineStatus::Failed => (theme.err(), "error"),
+                LineStatus::Warn => (theme.warn(), "warn"),
+                LineStatus::Ok => (theme.ok(), "ok"),
+                LineStatus::Info => (theme.info(), "info"),
             };
+            let band = theme.severity_band(accent, marker);
 
             let time = nuo_ui_primitives::time::sent_time_label(notice.at_ms);
             let topic = notice.label.as_deref().unwrap_or("system");
@@ -135,22 +144,28 @@ pub fn draw_notices_modal(
                 Style::default()
             };
 
-            // 1. Card Header: [STATUS BADGE] [TOPIC PILL] ... at HH:MM
+            // 1. Card Header: [TOPIC PILL (severity band)] ... at HH:MM
+            // The topic pill carries the band as its surface: severity is the
+            // background+foreground pair, the topic is the word. No glyph, no
+            // bracketed badge — one color channel, one label. On a profile
+            // where color carries nothing the band's `marker` supplies the
+            // severity word instead (e.g. `topic error`).
+            let pill = if band.marker.is_empty() {
+                format!(" {topic} ")
+            } else {
+                format!(" {topic} {} ", band.marker)
+            };
             let mut header_spans = vec![
                 Span::styled(select_indicator, select_style),
                 Span::styled(
-                    format!("{glyph} {badge_text} "),
-                    Style::default().fg(tone).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!(" {topic} "),
+                    pill.clone(),
                     Style::default()
-                        .fg(theme.fg())
-                        .bg(theme.raised())
+                        .fg(band.fg)
+                        .bg(band.bg)
                         .add_modifier(Modifier::BOLD),
                 ),
             ];
-            let header_w = 2 + 1 + glyph.width() + 1 + badge_text.width() + 1 + topic.width() + 2;
+            let header_w = 2 + pill.width();
             let time_str = format!("at {time}");
             let right_pad = body_width
                 .saturating_sub(header_w + time_str.width() + 1)
@@ -404,7 +419,10 @@ mod tests {
     }
 
     #[test]
-    fn severity_glyphs_distinguish_failure_warning_and_acknowledgement() {
+    fn severity_band_conveys_severity_without_glyph_or_text_badge() {
+        // ADR-0139: the card header carries severity by color alone. The topic
+        // pill is painted on the derived band; no `▲`/`✗`/`✓`/`ℹ` glyph and no
+        // bracketed `[ERROR]`-style text badge may appear on the header row.
         let theme = Theme::default();
         let lines = vec![
             notice(LineStatus::Failed, "a", "boom", 1),
@@ -417,9 +435,70 @@ mod tests {
             draw_notices_modal(f, f.area(), &lines, &mut dialog, &theme);
         });
         let text = all_text(&terminal);
-        assert!(text.contains(theme.glyphs.cross), "error glyph");
-        assert!(text.contains('▲'), "warning glyph");
-        assert!(text.contains(theme.glyphs.check), "ok glyph");
+
+        // The topics are still present (the pill carries the word).
+        assert!(text.contains("a"), "renders first topic: {text}");
+        assert!(text.contains("b"), "renders second topic: {text}");
+        assert!(text.contains("c"), "renders third topic: {text}");
+
+        // Severity comes from the band, never from legacy markers.
+        assert!(
+            !text.contains("[ERROR]")
+                && !text.contains("[WARN]")
+                && !text.contains("[OK]")
+                && !text.contains("[INFO]"),
+            "text badges are gone: {text}"
+        );
+        assert!(
+            !text.contains("▲") && !text.contains("ℹ"),
+            "legacy raw glyphs are gone: {text}"
+        );
+        // On a color-capable theme the band is a real background wash on the
+        // topic pill — not a no-op. Assert the cell under the topic actually
+        // carries the derived band background.
+        let buf = terminal.buffer();
+        let band_bg = theme.severity_band(theme.err(), "error").bg;
+        let found_band = (0..30u16)
+            .any(|y| (0..100u16).any(|x| buf.get(x, y).is_some_and(|c| c.style.bg == band_bg)));
+        assert!(
+            found_band,
+            "the severity band background must actually be painted, not merely \
+             absent-glyph: {band_bg:?}"
+        );
+    }
+
+    #[test]
+    fn monochrome_still_names_severity_after_the_glyph_removal() {
+        // The regression this guards: the deleted `▲`/`!`/`ℹ` glyph was the
+        // ONLY severity signal on a monochrome/vt100 terminal. Color carries
+        // nothing there, so the band must fall back to a textual marker or
+        // severity becomes invisible on exactly the profile the glyph served.
+        let theme = Theme {
+            glyphs: nuotc::ASCII_GLYPHS,
+            ..Theme::from_color_scheme(
+                "monochrome",
+                &nuo_ui_primitives::color_scheme::ColorSchemeConfig::default(),
+            )
+        };
+        assert!(!theme.severity_is_color_distinguishable());
+        let lines = vec![
+            notice(LineStatus::Failed, "a", "boom", 1),
+            notice(LineStatus::Warn, "b", "degraded", 2),
+        ];
+        let mut dialog = NoticesDialog::default();
+        let mut terminal = nuotc::TestTerminal::new(100, 30);
+        terminal.draw(|f| {
+            draw_notices_modal(f, f.area(), &lines, &mut dialog, &theme);
+        });
+        let text = all_text(&terminal);
+        assert!(
+            text.contains("error"),
+            "monochrome must name the error severity in text: {text}"
+        );
+        assert!(
+            text.contains("warn"),
+            "monochrome must name the warning severity in text: {text}"
+        );
     }
 
     #[test]

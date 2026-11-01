@@ -215,6 +215,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         host_kill_confirm: None,
         host_kill_confirm_id: None,
         switch_to_target: None,
+        pending_help_action: None,
         switch_to_new: false,
         switch_to_new_prompt: None,
         switch_to_prompt: None,
@@ -241,6 +242,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         pending_dispatch: std::collections::VecDeque::new(),
         composer_send_mode: crate::shell::app::ComposerSendMode::default(),
         queue_blocked_sessions: std::collections::HashSet::new(),
+        suppress_steer_restore: std::collections::HashSet::new(),
         running_sessions: std::collections::HashSet::new(),
         selection: SelectionState::None,
         drag: SelectionDrag::default(),
@@ -462,6 +464,7 @@ mod notices;
 mod pre_attach_gate;
 mod provider_routes;
 mod runtime_views;
+mod steering_admission;
 mod transcript;
 mod transport_setback;
 mod turn_header_time;

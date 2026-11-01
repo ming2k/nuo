@@ -94,10 +94,7 @@ pub struct SemanticPalette {
 }
 
 /// The `ls(1)`-style class of a filesystem entry, used to colour a directory
-/// listing the way the shell's `ls` does. The classification is carried on the
-/// wire by the `list_dir` tool (its per-row `[DIR]` / `[EXEC]` / `[LINK]` /
-/// `[FILE]` tag) rather than guessed from the name, so the renderer colours the
-/// *fact* the tool observed and never invents a type.
+/// listing the way the shell's `ls` does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListingClass {
     /// A directory — `ls` renders it blue.
@@ -170,11 +167,6 @@ pub struct Theme {
     /// Used for sent user messages so they read as read-only compared to the
     /// live input box.
     pub user_panel_bg: Color,
-    /// Background for user messages staged in the send queue (waiting for
-    /// the in-flight turn to finish). Dimmer than `user_panel_bg` so a
-    /// queued message reads as more "pending" than a delivered one without
-    /// losing the panel affordance.
-    pub user_panel_bg_queued: Color,
     /// Slightly raised background for footer/option bars.
     pub element_bg: Color,
     /// Background for menus / suggestion popups.
@@ -256,12 +248,11 @@ impl Default for Theme {
             text: Color::Rgb(213, 213, 205),
             text_muted: Color::Rgb(119, 125, 117),
             text_hover: Color::Rgb(175, 180, 172),
-            affordance_fg: Color::Rgb(150, 163, 150),
+            affordance_fg: Color::Rgb(185, 192, 181),
             panel_bg: Color::Rgb(14, 15, 15),
             input_bg_active: Color::Rgb(26, 28, 27),
             input_bg_inactive: Color::Rgb(16, 17, 17),
             user_panel_bg: Color::Rgb(17, 22, 19),
-            user_panel_bg_queued: Color::Rgb(9, 12, 11),
             element_bg: Color::Rgb(21, 23, 22),
             menu_bg: Color::Rgb(17, 19, 18),
             toast_bg: Color::Rgb(36, 40, 38),
@@ -322,7 +313,6 @@ impl Theme {
             input_bg_active: Color::Reset,
             input_bg_inactive: Color::Reset,
             user_panel_bg: Color::Reset,
-            user_panel_bg_queued: Color::Reset,
             element_bg: Color::Reset,
             menu_bg: Color::Reset,
             toast_bg: Color::Reset,
@@ -379,7 +369,6 @@ impl Theme {
             input_bg_active: Color::Reset,
             input_bg_inactive: Color::Reset,
             user_panel_bg: Color::Reset,
-            user_panel_bg_queued: Color::Reset,
             element_bg: Color::Reset,
             menu_bg: Color::Reset,
             toast_bg: Color::Reset,
@@ -779,11 +768,10 @@ impl Theme {
             text,
             text_muted: muted,
             text_hover: mix(muted, text, 0.55),
-            // The affordance hue tints the muted resting tone toward the
-            // accent: same dimness family as `text_hover`, but visibly
-            // *tinted*, so the hover/focus cue reads as a hue channel that
-            // cannot be confused with the disclosure ladder's luminance rungs.
-            affordance_fg: mix(muted, accent, if light { 0.55 } else { 0.62 }),
+            // The affordance hue tints toward the accent token while guaranteeing a
+            // luminous contrast step above resting muted text so hover and focus cues
+            // are unmistakably legible across terminal displays.
+            affordance_fg: mix(accent, text, if light { 0.45 } else { 0.60 }),
             panel_bg: surface,
             // The input pair derives from `panel_bg`, keeping the two states
             // related (same hue family, two distinct luminance steps) while
@@ -794,7 +782,6 @@ impl Theme {
             input_bg_active: mix(surface, text, if light { 0.06 } else { 0.08 }),
             input_bg_inactive: mix(surface, text, if light { 0.015 } else { 0.02 }),
             user_panel_bg: user_bg,
-            user_panel_bg_queued: mix(background, user_bg, 0.45),
             element_bg: mix(surface, text, if light { 0.035 } else { 0.05 }),
             menu_bg,
             toast_bg: mix(surface, text, if light { 0.08 } else { 0.12 }),
@@ -846,31 +833,37 @@ impl Theme {
         self.element_bg
     }
     /// Tier 1: Client Global TabBar background (ADR-0062).
-    /// Subtly recessed below SceneBar (~2.8% luminance offset in dark mode),
+    /// Subtly recessed base (~0.8% luminance offset in dark mode),
     /// acting as a calm window shell that elevates active tab pills.
     pub fn tabbar_bg(&self) -> Color {
         match (self.app_bg, self.text) {
             (Color::Rgb(..), Color::Rgb(..)) => {
                 let light = luminance(self.app_bg) > 150.0;
-                mix(self.app_bg, self.text, if light { 0.02 } else { 0.028 })
+                mix(self.app_bg, self.text, if light { 0.006 } else { 0.008 })
             }
             _ => self.element_bg,
         }
     }
     /// Tier 2: Polymorphic SceneBar background (ADR-0062).
-    /// The primary focal plane of the top chrome (~5% luminance offset),
-    /// drawing immediate attention to the active task identity and drill-in stack.
+    /// The primary focal plane of the top chrome (~8.0% luminance offset in dark mode),
+    /// drawing immediate optical attention to the active task identity and drill-in stack.
     pub fn scenebar_bg(&self) -> Color {
-        self.element_bg
+        match (self.app_bg, self.text) {
+            (Color::Rgb(..), Color::Rgb(..)) => {
+                let light = luminance(self.app_bg) > 150.0;
+                mix(self.app_bg, self.text, if light { 0.055 } else { 0.080 })
+            }
+            _ => self.element_bg,
+        }
     }
     /// Tier 3: Sovereign ThreadContextBar background (ADR-0062).
-    /// Subordinate execution boundaries and posture (~4% luminance offset),
+    /// Subordinate execution boundaries and posture (~4.0% luminance offset in dark mode),
     /// gently transitioning down toward the main content surface.
     pub fn contextbar_bg(&self) -> Color {
         match (self.app_bg, self.text) {
             (Color::Rgb(..), Color::Rgb(..)) => {
                 let light = luminance(self.app_bg) > 150.0;
-                mix(self.app_bg, self.text, if light { 0.028 } else { 0.04 })
+                mix(self.app_bg, self.text, if light { 0.028 } else { 0.040 })
             }
             _ => self.element_bg,
         }
@@ -918,11 +911,6 @@ impl Theme {
     /// Sent-user-message surface.
     pub fn user_surface(&self) -> Color {
         self.user_panel_bg
-    }
-    /// Surface for a user message staged in the send queue. Dimmer than
-    /// [`Theme::user_surface`] so pending reads differently from delivered.
-    pub fn user_surface_queued(&self) -> Color {
-        self.user_panel_bg_queued
     }
     /// Dim overlay behind modals.
     pub fn backdrop(&self) -> Color {
@@ -1065,6 +1053,59 @@ impl Theme {
     }
     pub fn info(&self) -> Color {
         self.info
+    }
+
+    /// The severity-band tint pair for a notice card surface (ADR-0139).
+    ///
+    /// Severity is conveyed by **color alone** on cards: a subtle background
+    /// wash derived from the severity accent plus a tone foreground, never a
+    /// raw glyph or a bracketed text badge. `accent` is the already
+    /// severity-resolved tone (`err()`/`warn()`/`ok()`/`info()`), so the band
+    /// needs no second severity enum and retunes with the palette.
+    ///
+    /// On profiles with no RGB ladder (`app_bg == Reset`, i.e. ANSI-16 /
+    /// monochrome) the band falls back to the raised surface with the accent
+    /// foreground transposed onto the theme text — the severity survives as a
+    /// tone difference without inventing a color the terminal cannot paint.
+    ///
+    /// `marker` is the color-independent severity token the caller associates
+    /// with `accent` (`"error"`, `"warn"`, …); it is emitted **only** when the
+    /// theme cannot distinguish severities by color, so a monochrome terminal
+    /// keeps a real, textual severity signal after the glyph removal (ADR-0139).
+    pub fn severity_band(&self, accent: Color, marker: &'static str) -> SeverityBand {
+        let color_distinguishable = self.severity_is_color_distinguishable();
+        match self.app_bg {
+            Color::Rgb(..) if color_distinguishable => SeverityBand {
+                bg: mix(accent, self.app_bg, 0.86),
+                fg: mix(accent, self.text, 0.30),
+                marker: "",
+            },
+            _ => SeverityBand {
+                bg: self.raised(),
+                fg: if color_distinguishable {
+                    accent
+                } else {
+                    self.text
+                },
+                marker: if color_distinguishable { "" } else { marker },
+            },
+        }
+    }
+
+    /// Whether this theme can distinguish severities by color at all.
+    ///
+    /// `false` on profiles where every accent collapses to the terminal default
+    /// (`Color::Reset`) — monochrome/VT100 and the reset-based ANSI-16 presets.
+    /// On such a profile a color-only severity channel carries **no**
+    /// information, so the notice surfaces must fall back to a color-independent
+    /// marker (ADR-0139). This is the single predicate that decision reads, so
+    /// "does color carry severity here?" cannot drift between the dialog, the
+    /// transcript head and the toast.
+    pub fn severity_is_color_distinguishable(&self) -> bool {
+        !matches!(self.err(), Color::Reset)
+            || !matches!(self.warn(), Color::Reset)
+            || !matches!(self.ok(), Color::Reset)
+            || !matches!(self.info(), Color::Reset)
     }
 
     /// Resolve semantic syntax token to theme color.
@@ -1420,6 +1461,32 @@ pub struct InputTokens {
     pub caret: Color,
     pub selection: Color,
     pub placeholder: Color,
+}
+
+/// The severity-band tint pair for notice card surfaces (ADR-0139).
+///
+/// Produced by [`Theme::severity_band`]; consumed by the notice-center dialog
+/// (topic pill + selection rail) and the transcript notice head (left rail).
+///
+/// When the theme cannot distinguish severities by color
+/// ([`Theme::severity_is_color_distinguishable`] is `false` — monochrome/VT100),
+/// the band's `marker` carries a **color-independent** severity token so the
+/// signal survives where the physical color does not. On a color-capable theme
+/// `marker` is empty and severity rides the tint alone. This is what keeps the
+/// glyph removal from being a regression on the very profile where the deleted
+/// `!`/`▲`/`ℹ` was the only working marker.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SeverityBand {
+    /// The background wash: the severity accent mixed toward the app
+    /// background (subtle), or the raised surface on ANSI-16/monochrome.
+    pub bg: Color,
+    /// The on-band foreground: the accent pulled toward the text tone so the
+    /// topic label stays readable on `bg`.
+    pub fg: Color,
+    /// A color-independent severity token (`""` on a color-capable theme;
+    /// `"error"`/`"warn"`/`"ok"`/`"info"` when color cannot carry it). ASCII, so
+    /// it needs no glyph-set fallback.
+    pub marker: &'static str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1846,6 +1913,66 @@ hover_bg = "#282828"
         }
     }
 
+    /// `[INV-HEAD-06]` The top chrome tiers must exhibit a discrete, in-family micro-elevation
+    /// ladder across all preset color schemes.
+    #[test]
+    fn header_tiers_micro_elevation_is_guaranteed_in_every_scheme() {
+        let custom = ColorSchemeConfig::default();
+        for scheme in &COLOR_SCHEMES {
+            if scheme.id == "ansi16" || scheme.id == "monochrome" {
+                continue;
+            }
+            let theme = Theme::from_color_scheme(&scheme.id, &custom);
+            let tabbar = theme.tabbar_bg();
+            let scenebar = theme.scenebar_bg();
+            let contextbar = theme.contextbar_bg();
+
+            assert_ne!(
+                tabbar, scenebar,
+                "{scheme:?}: tabbar and scenebar must not share identical fill"
+            );
+            assert_ne!(
+                scenebar, contextbar,
+                "{scheme:?}: scenebar and contextbar must not share identical fill"
+            );
+            assert_ne!(
+                tabbar, contextbar,
+                "{scheme:?}: tabbar and contextbar must not share identical fill"
+            );
+
+            let tab_lum = luminance(tabbar);
+            let scene_lum = luminance(scenebar);
+            let ctx_lum = luminance(contextbar);
+            let base_lum = luminance(theme.surface());
+
+            if base_lum <= 150.0 {
+                // Dark mode: SceneBar is the elevated spotlight, ContextBar is intermediate, TabBar is base.
+                assert!(
+                    scene_lum > ctx_lum,
+                    "{scheme:?}: scenebar must have higher luminance than contextbar"
+                );
+                assert!(
+                    ctx_lum > tab_lum,
+                    "{scheme:?}: contextbar must have higher luminance than tabbar"
+                );
+                assert!(
+                    scene_lum - tab_lum >= 4.0,
+                    "{scheme:?}: scenebar and tabbar must have perceptible contrast"
+                );
+            } else {
+                // Light mode: surfaces mix toward dark text, so elevation steps down in luminance.
+                assert!(
+                    scene_lum < ctx_lum,
+                    "{scheme:?}: scenebar must step darker than contextbar in light mode"
+                );
+                assert!(
+                    ctx_lum < tab_lum,
+                    "{scheme:?}: contextbar must step darker than tabbar in light mode"
+                );
+            }
+        }
+    }
+
     #[test]
     fn spatial_surfaces_and_feedback_tokens_contract() {
         let theme = Theme::default();
@@ -1952,6 +2079,62 @@ warn_fg = "#ff8800"
         assert_eq!(mono.app_bg, Color::Reset);
         assert_eq!(mono.text, Color::Reset);
         assert_eq!(mono.error_fg, Color::Reset);
+    }
+
+    #[test]
+    fn severity_band_tints_toward_the_accent_and_falls_back_on_reset_surfaces() {
+        // Dark RGB profile: the band is a subtle wash of the accent over the
+        // app background — never the raw accent (too loud for a card band) and
+        // never the plain background (severity invisible). The foreground pulls
+        // the accent toward text so the label stays readable.
+        let dark = Theme::default();
+        assert!(
+            dark.severity_is_color_distinguishable(),
+            "a dark RGB theme carries severity in color"
+        );
+        let err = dark.severity_band(dark.err(), "error");
+        assert_ne!(err.bg, dark.err(), "band bg must not be the raw accent");
+        assert_ne!(err.bg, dark.app_bg, "band bg must not be the plain surface");
+        assert_ne!(err.fg, dark.err(), "band fg must not be the raw accent");
+        assert_ne!(err.bg, err.fg, "bg and fg must stay distinct");
+        assert_eq!(err.marker, "", "color carries it; no textual marker needed");
+
+        // The three severity accents produce mutually distinct bands, so
+        // color-only severity never collapses two severities into one tint.
+        let warn = dark.severity_band(dark.warn(), "warn");
+        let ok = dark.severity_band(dark.ok(), "ok");
+        let info = dark.severity_band(dark.info(), "info");
+        assert_ne!(err.bg, warn.bg);
+        assert_ne!(warn.bg, ok.bg);
+        assert_ne!(ok.bg, info.bg);
+
+        // ANSI-16: `app_bg` is Reset but the accents are real ANSI colors, so
+        // severity is still distinguishable by color; the band uses the raised
+        // surface and keeps the accent, and emits no textual marker.
+        let ansi = Theme::from_color_scheme("ansi16", &ColorSchemeConfig::default());
+        assert_eq!(ansi.app_bg, Color::Reset);
+        assert!(ansi.severity_is_color_distinguishable());
+        let band = ansi.severity_band(ansi.err(), "error");
+        assert_eq!(band.bg, ansi.raised());
+        assert_eq!(band.fg, ansi.err());
+        assert_eq!(band.marker, "");
+
+        // Monochrome/VT100: every accent is `Reset`, so color carries NOTHING.
+        // The band must not pretend a tint exists — it emits a textual marker
+        // instead, or severity would be invisible after the glyph removal.
+        let mono = Theme::from_color_scheme("monochrome", &ColorSchemeConfig::default());
+        assert!(
+            !mono.severity_is_color_distinguishable(),
+            "monochrome cannot carry severity in color"
+        );
+        let err = mono.severity_band(mono.err(), "error");
+        let warn = mono.severity_band(mono.warn(), "warn");
+        assert_eq!(err.marker, "error");
+        assert_eq!(warn.marker, "warn");
+        assert_ne!(
+            err.marker, warn.marker,
+            "monochrome severities stay distinct via the textual marker"
+        );
     }
 
     #[test]

@@ -424,24 +424,6 @@ fn is_turn_component(message: &TranscriptMessage) -> bool {
         || message.role == nuo_protocol::Role::Assistant
 }
 
-/// Whether a message is a *steer insert*: a user steering entry staged for, or
-/// admitted at, an inner turn boundary of a running round.
-///
-/// A steer insert is **transparent** to turn grouping: it is absorbed into the
-/// turn it interrupted. It is typed *while* that turn is still producing
-/// output, so the transcript stages it at the live tail and the turn then keeps
-/// appending its own components *after* it. Left to terminate the group — the
-/// default for user messages and notices — the interrupted turn would paint a
-/// second header and read as two turns with the same number
-/// (`› turn 60 … › steer … › turn 60`).
-///
-/// It also never *opens* a group: the band header carries the producing model's
-/// identity (`provider`/`effort`/send time), which only an assistant-side
-/// component owns.
-fn is_steer_insert(message: &TranscriptMessage) -> bool {
-    message.origin == crate::model::document::UserMessageOrigin::Steer
-}
-
 fn is_tool_like(message: &TranscriptMessage) -> bool {
     message.is_tool_step() || message.is_subagent_task()
 }
@@ -465,13 +447,11 @@ fn default_group_start(messages: &[TranscriptMessage], index: usize) -> bool {
 /// forward for a tool-like step. This makes the presence or absence of optional
 /// thinking content irrelevant to the group's outer geometry.
 ///
-/// Steer inserts ([`is_steer_insert`]) are absorbed rather than treated as
-/// terminators — but only when this same turn *resumes* after them. That is the
-/// mid-turn case the absorption exists for: a steer typed while the turn is
-/// still producing output lands between the turn's two halves, and treating it
-/// as a boundary would paint a second header for the same turn number. A steer
-/// that arrived too late for this turn and was held for the next round has no
-/// resumption after it, so it ends the group and stays outside the band.
+/// A user message always ends the group. That is now the *only* rule: a steer is
+/// materialized exclusively at a turn seam (ADR-0137), so it can never appear
+/// between two halves of the same turn — the mid-turn absorption this function
+/// used to perform existed to paper over the optimistic staging that ADR-0137
+/// removed.
 pub(super) fn default_group_end(messages: &[TranscriptMessage], start: usize) -> Option<usize> {
     if !default_group_start(messages, start) {
         return None;
@@ -480,19 +460,6 @@ pub(super) fn default_group_end(messages: &[TranscriptMessage], start: usize) ->
     let mut end = start;
     while end < messages.len() {
         let message = &messages[end];
-        if is_steer_insert(message) {
-            // Absorb only if the turn picks up again on the far side of the
-            // insert; otherwise the insert is a trailing held steer.
-            let resumes = messages[end + 1..]
-                .iter()
-                .find(|next| !is_steer_insert(next))
-                .is_some_and(|next| (next.round, next.turn) == position && is_turn_component(next));
-            if !resumes {
-                break;
-            }
-            end += 1;
-            continue;
-        }
         if (message.round, message.turn) != position || !is_turn_component(message) {
             break;
         }
@@ -845,47 +812,6 @@ mod tests {
         assert_eq!(default_boundary_gap(&text, &next_round), MESSAGE_GAP_ROWS);
     }
 
-    /// A steer typed while turn 4 is producing output is staged at the live tail
-    /// and the turn keeps appending after it. Absorbing it keeps the group whole:
-    /// without the rule, turn 4 would be split into two bands with one header
-    /// each. The insert never opens a group either — the header's model identity
-    /// belongs to the producing model, not to the user.
-    #[test]
-    fn steer_insert_is_transparent_to_turn_grouping() {
-        let thinking = TranscriptMessage::reasoning("check the layout").with_turn(4);
-        let mut tool = TranscriptMessage::tool_step("call", "read_text", "{}").with_turn(4);
-        tool.set_tool_step_expanded(true);
-        // Delivered form (position stamped by admission) and the queued form the
-        // live tail carries before admission — both stay in the group.
-        let delivered = TranscriptMessage::new(Role::User, "steer")
-            .with_origin(UserMessageOrigin::Steer)
-            .with_round(1)
-            .with_turn(4);
-        let queued = TranscriptMessage::new(Role::User, "steer")
-            .with_origin(UserMessageOrigin::Steer)
-            .queued();
-        let next_tool = TranscriptMessage::tool_step("next", "search_text", "{}").with_turn(4);
-
-        let messages = vec![
-            thinking.clone(),
-            tool.clone(),
-            delivered.clone(),
-            queued.clone(),
-            next_tool.clone(),
-        ];
-        assert_eq!(default_group_end(&messages, 0), Some(5));
-        assert!(
-            !default_group_start(&messages, 2),
-            "a steer insert must never anchor a turn band header"
-        );
-
-        // Around the insert, a normal segment boundary — never the flush
-        // same-turn tool-batch gap.
-        assert_eq!(default_boundary_gap(&tool, &delivered), MESSAGE_GAP_ROWS);
-        assert_eq!(default_boundary_gap(&delivered, &queued), MESSAGE_GAP_ROWS);
-        assert_eq!(default_boundary_gap(&queued, &next_tool), MESSAGE_GAP_ROWS);
-    }
-
     /// A notice still terminates the group: only steer inserts are transparent.
     #[test]
     fn notice_still_terminates_a_turn_group() {
@@ -899,34 +825,28 @@ mod tests {
         assert_eq!(default_group_end(&messages, 0), Some(1));
     }
 
-    /// Absorption requires the turn to actually resume. A steer that arrived too
-    /// late for its turn — held for the next round — sits at the tail with no
-    /// same-turn component after it, so it must end the band rather than be
-    /// swallowed into it.
+    /// ADR-0137: a steer is materialized only at a turn seam, so a user message
+    /// — steer or not — terminates the band. The old mid-turn absorption is
+    /// gone; keeping it would let a seam-ordered steer be swallowed into the
+    /// band it now sits *after*.
     #[test]
-    fn trailing_held_steer_is_not_absorbed() {
+    fn any_user_message_terminates_the_band_including_a_steer() {
         let tool = TranscriptMessage::tool_step("call", "read_text", "{}").with_turn(4);
-        let mut held = TranscriptMessage::new(Role::User, "too late")
+        let steer = TranscriptMessage::new(Role::User, "pivot")
             .with_origin(UserMessageOrigin::Steer)
             .with_round(1)
-            .with_turn(4);
-        held.hold_pending_round();
-        let messages = vec![tool, held];
-
-        assert_eq!(default_group_end(&messages, 0), Some(1));
-    }
-
-    /// Two steers staged before the turn resumes are both absorbed, and the
-    /// resumed half still belongs to the original band.
-    #[test]
-    fn consecutive_mid_turn_steers_are_absorbed_together() {
-        let first = TranscriptMessage::tool_step("call", "read_text", "{}").with_turn(4);
-        let steer = |text: &str| {
-            TranscriptMessage::new(Role::User, text).with_origin(UserMessageOrigin::Steer)
-        };
+            .with_turn(5);
         let resumed = TranscriptMessage::tool_step("next", "search_text", "{}").with_turn(4);
-        let messages = vec![first, steer("one"), steer("two"), resumed];
+        let messages = vec![tool, steer, resumed];
 
-        assert_eq!(default_group_end(&messages, 0), Some(4));
+        assert_eq!(
+            default_group_end(&messages, 0),
+            Some(1),
+            "the band must stop before the steer, not span it"
+        );
+        assert!(
+            !default_group_start(&messages, 1),
+            "a user message never anchors a turn band header"
+        );
     }
 }

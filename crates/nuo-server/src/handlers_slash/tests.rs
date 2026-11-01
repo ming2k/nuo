@@ -688,3 +688,458 @@ mod retired_aside_redirect_tests {
         assert_eq!(prompt_seen, Some(None), "a bare /btw carries no prompt");
     }
 }
+
+/// ADR-0140 `[INV-CMD-05]`/`[INV-CMD-06]`: a reading is not a record.
+///
+/// The classification lives in the one vocabulary table, and the recorder funnel
+/// decides residency from it — so these tests check the *mechanism*, not a
+/// handler's discipline: the same helper call that records an act must record
+/// nothing for a reading, and must still emit the reply in both cases.
+mod command_effect_tests {
+    use std::sync::Arc;
+
+    use nuo_harness::orchestration::round_response;
+    use nuo_persistence::session::SessionStore;
+    use nuo_protocol::{AgentNotice, AgentResponse, CommandEffect, CommandResult, RoundEvent};
+    use tokio::sync::mpsc;
+
+    use crate::handlers_slash::record::{
+        record_ack, record_command, record_error, record_invocation, record_surface_only,
+    };
+    use crate::startup::{BuiltinCmd, effect_for};
+
+    fn store(dir: &tempfile::TempDir) -> Arc<SessionStore> {
+        Arc::new(SessionStore::for_path(dir.path().join("session.json")))
+    }
+
+    /// Every `CommandResult` a fake reading emits, so the test cannot pass by
+    /// emitting a shape the funnel happens to ignore.
+    fn drain(rx: &mut mpsc::UnboundedReceiver<AgentResponse>) -> Vec<RoundEvent> {
+        let mut out = Vec::new();
+        while let Ok(resp) = rx.try_recv() {
+            // A round envelope carries other events too; only command results
+            // matter here, and only `CommandResult` frames are collected.
+            if let AgentResponse::Round { event, .. } = resp
+                && matches!(event, RoundEvent::CommandResult { .. })
+            {
+                out.push(event);
+            }
+        }
+        out
+    }
+
+    /// `[INV-CMD-05]`: every built-in declares a class, and the resolver agrees
+    /// with the declaration. The macro makes omission a compile error, so this
+    /// pins the *resolution* — the part a wildcard arm could silently break.
+    #[test]
+    fn every_builtin_declares_an_effect() {
+        for (name, _summary) in BuiltinCmd::ALL {
+            let cmd = BuiltinCmd::from_slash(name).unwrap_or_else(|| {
+                panic!("{name} is in BuiltinCmd::ALL but does not resolve through from_slash")
+            });
+            let declared = cmd.effect();
+            assert_eq!(
+                effect_for(&[name]),
+                declared,
+                "{name}: effect_for must resolve the declared bare effect"
+            );
+            assert_eq!(
+                cmd.effect_for(None),
+                declared,
+                "{name}: an argument-less invocation takes the bare effect"
+            );
+            // Every declared verb must resolve to its own declaration.
+            for (verb, _summary, verb_effect) in cmd.spec().subcommands {
+                assert_eq!(
+                    effect_for(&[name, verb]),
+                    *verb_effect,
+                    "{name} {verb}: the declared verb effect must win"
+                );
+            }
+        }
+    }
+
+    /// The classification itself, pinned. Changing a command's class is a design
+    /// decision (ADR-0140 §2), so it must be a visible diff here rather than a
+    /// quiet edit in the table.
+    #[test]
+    fn effect_table_is_pinned() {
+        // Acts: durable state the thread must remember.
+        for name in [
+            "/models",
+            "/connections",
+            "/tools",
+            "/mcp",
+            "/compact",
+            "/new",
+            "/unattended",
+            "/confinement",
+            "/fork",
+            "/undo",
+            "/init",
+            "/trust",
+            "/untrust",
+            "/retry",
+        ] {
+            assert_eq!(
+                effect_for(&[name]),
+                CommandEffect::Mutation,
+                "{name} must be an act"
+            );
+        }
+        // Readings: the state of the world at the moment of asking.
+        for name in [
+            "/permissions",
+            "/search",
+            "/tree",
+            "/diff",
+            "/stats",
+            "/trace",
+            "/usage",
+            "/quotas",
+            "/jobs",
+            "/skills",
+            "/export",
+            "/help",
+            "/exit",
+        ] {
+            assert_eq!(
+                effect_for(&[name]),
+                CommandEffect::Reading,
+                "{name} must be a reading"
+            );
+        }
+        // The two fields exist because these differ.
+        assert_eq!(
+            effect_for(&["/role"]),
+            CommandEffect::Reading,
+            "bare /role lists the vocabulary"
+        );
+        assert_eq!(
+            effect_for(&["/role", "ops"]),
+            CommandEffect::Mutation,
+            "a role id switches identity — and ids are dynamic, so no verb table enumerates them"
+        );
+        assert_eq!(
+            effect_for(&["/threads"]),
+            CommandEffect::Reading,
+            "bare /threads opens the picker"
+        );
+        assert_eq!(
+            effect_for(&["/threads", "0195"]),
+            CommandEffect::Mutation,
+            "opening a thread switches it"
+        );
+        // A verb mutates inside a reading command, and reads inside an act.
+        assert_eq!(
+            effect_for(&["/jobs", "kill"]),
+            CommandEffect::Mutation,
+            "/jobs kill is an act inside a reading command"
+        );
+        assert_eq!(
+            effect_for(&["/jobs", "logs"]),
+            CommandEffect::Reading,
+            "/jobs logs is a read"
+        );
+        assert_eq!(
+            effect_for(&["/trust", "status"]),
+            CommandEffect::Reading,
+            "/trust status is a read inside an act"
+        );
+        assert_eq!(
+            effect_for(&["/permissions", "clear"]),
+            CommandEffect::Mutation,
+            "/permissions clear is an act inside a reading command"
+        );
+        // An undeclared argument takes the handler's `_` arm semantics: `/jobs`
+        // lists jobs whatever the argument, so it is a reading.
+        assert_eq!(
+            effect_for(&["/jobs", "whatever"]),
+            CommandEffect::Reading,
+            "an undeclared /jobs argument lists jobs"
+        );
+    }
+
+    /// `[INV-CMD-06]`: a reading leaves the ledger empty and still replies.
+    ///
+    /// `/help`, `/usage`, `/stats`, `/trace`, `/jobs`, `/jobs logs`, `/diff`,
+    /// `/search`, `/skills list`, `/skills status`, `/trust status`,
+    /// `/permissions`, `/role`, `/tree`, `/threads`, and `/export` all reach the
+    /// funnel through one of the helpers exercised here; the point is that the
+    /// *helper* refuses, so no handler can opt in.
+    #[tokio::test]
+    async fn readings_leave_the_ledger_empty() {
+        let cases: &[(&str, &str)] = &[
+            ("help", ""),
+            ("usage", ""),
+            ("stats", ""),
+            ("trace", ""),
+            ("quotas", ""),
+            ("jobs", ""),
+            ("jobs", "logs job_1"),
+            ("diff", ""),
+            ("search", "parser bug"),
+            ("skills", "list"),
+            ("skills", "status"),
+            ("trust", "status"),
+            ("permissions", ""),
+            ("role", ""),
+            ("tree", ""),
+            ("threads", ""),
+            ("export", ""),
+        ];
+        for (name, args) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let session = store(&dir);
+            let (tx, mut rx) = mpsc::unbounded_channel();
+
+            record_command(
+                &session,
+                &tx,
+                name,
+                args,
+                CommandResult::Text("a snapshot".to_string()),
+            )
+            .await;
+
+            assert!(
+                session.commands().await.is_empty(),
+                "/{name} {args} is a reading and must not reach the ledger"
+            );
+            let events = drain(&mut rx);
+            assert_eq!(
+                events.len(),
+                1,
+                "/{name} {args} must still reply on the wire — ephemeral is not silent"
+            );
+            match &events[0] {
+                RoundEvent::CommandResult { effect, .. } => assert_eq!(
+                    *effect,
+                    CommandEffect::Reading,
+                    "/{name} {args}: the reply must declare the reading class"
+                ),
+                other => panic!("expected a CommandResult, got {other:?}"),
+            }
+        }
+    }
+
+    /// The ack path used to persist *silently*: four commands were invisible to
+    /// any client that could not intercept them locally. Both halves are pinned
+    /// here — a reading ack records nothing, an act ack records and emits.
+    #[tokio::test]
+    async fn ack_emits_and_records_only_for_an_act() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = store(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        // `/stats` is a reading.
+        record_ack(&session, &tx, "stats", "", "stats live in the overlay").await;
+        assert!(
+            session.commands().await.is_empty(),
+            "a reading ack is not a record"
+        );
+        assert_eq!(drain(&mut rx).len(), 1, "a reading ack must still reply");
+
+        // `/unattended on` is an act.
+        record_ack(&session, &tx, "unattended", "on", "Unattended mode ON").await;
+        let records = session.commands().await;
+        assert_eq!(records.len(), 1, "an act ack is a record");
+        assert_eq!(records[0].name, "unattended");
+        assert_eq!(drain(&mut rx).len(), 1, "an act ack still replies");
+    }
+
+    /// `[INV-CMD-06]`: acts still record — the gate must not become a filter that
+    /// silently drops the audit trail.
+    #[tokio::test]
+    async fn acts_still_record() {
+        let cases: &[(&str, &str)] = &[
+            ("unattended", "on"),
+            ("confinement", "off"),
+            ("permissions", "clear"),
+            ("compact", ""),
+            ("fork", ""),
+            ("init", ""),
+            ("undo", ""),
+            ("retry", ""),
+            ("trust", "deny"),
+            ("new", ""),
+        ];
+        for (name, args) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            let session = store(&dir);
+            let (tx, mut rx) = mpsc::unbounded_channel();
+
+            record_command(
+                &session,
+                &tx,
+                name,
+                args,
+                CommandResult::Text("done".to_string()),
+            )
+            .await;
+
+            let records = session.commands().await;
+            assert_eq!(
+                records.len(),
+                1,
+                "/{name} {args} is an act and must be recorded"
+            );
+            let events = drain(&mut rx);
+            match &events[0] {
+                RoundEvent::CommandResult { effect, .. } => assert_eq!(
+                    *effect,
+                    CommandEffect::Mutation,
+                    "/{name} {args}: the reply must declare the act class"
+                ),
+                other => panic!("expected a CommandResult, got {other:?}"),
+            }
+        }
+    }
+
+    /// `[INV-CMD-06]`: a rejected command leaves no scar — of either class.
+    ///
+    /// Nothing ran and nothing reached the model (ADR-0119 §3), and the draft is
+    /// handed back to the composer, so the ledger owes nothing. This holds
+    /// regardless of the declared class, which is why it is the funnel's
+    /// condition rather than a handler's.
+    #[tokio::test]
+    async fn a_rejection_is_never_durable() {
+        for (name, args) in [("models", "nope"), ("help", "nope")] {
+            let dir = tempfile::tempdir().unwrap();
+            let session = store(&dir);
+            let (tx, mut rx) = mpsc::unbounded_channel();
+
+            record_command(
+                &session,
+                &tx,
+                name,
+                args,
+                CommandResult::UnknownCommand {
+                    name: format!("/{name}"),
+                    suggestion: None,
+                },
+            )
+            .await;
+
+            assert!(
+                session.commands().await.is_empty(),
+                "a rejected /{name} must not leave a record"
+            );
+            assert_eq!(drain(&mut rx).len(), 1, "the rejection still replies");
+        }
+    }
+
+    /// A failed act is a record; a failed reading is not. `/undo` refusing is
+    /// something the user attempted and must be able to re-read; `/diff` failing
+    /// is an answer that could not be produced.
+    #[tokio::test]
+    async fn failure_follows_the_class() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = store(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        record_error(&session, &tx, "diff", "", "could not read the journal").await;
+        assert!(
+            session.commands().await.is_empty(),
+            "a reading that could not be produced changed nothing"
+        );
+        drain(&mut rx);
+
+        record_error(&session, &tx, "undo", "", "could not read the journal").await;
+        let records = session.commands().await;
+        assert_eq!(records.len(), 1, "an attempted act belongs in the record");
+        assert_eq!(
+            records[0].status,
+            nuo_protocol::CommandStatus::Error,
+            "the refusal is recorded as a failure"
+        );
+    }
+
+    /// An invocation-only reply for a reading (`/exit` is the live case) writes
+    /// nothing; for an act (`/compact`) it writes the invocation.
+    #[tokio::test]
+    async fn invocation_only_follows_the_class() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = store(&dir);
+
+        record_invocation(&session, "exit", "").await;
+        assert!(
+            session.commands().await.is_empty(),
+            "/exit is a reading: quitting writes nothing"
+        );
+
+        record_invocation(&session, "compact", "").await;
+        assert_eq!(
+            session.commands().await.len(),
+            1,
+            "/compact is an act whose success is its own state event"
+        );
+    }
+
+    /// A surface-owned command answers and records nothing: the client performs
+    /// the act, this process never touched the state, and a record for it would
+    /// be a lie in the audit.
+    #[tokio::test]
+    async fn a_surface_only_command_answers_and_records_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = store(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        record_surface_only(
+            &session,
+            &tx,
+            "models",
+            "",
+            "The model picker is a client surface",
+        )
+        .await;
+
+        assert!(session.commands().await.is_empty());
+        assert_eq!(
+            drain(&mut rx).len(),
+            1,
+            "a surface command must not be silently dropped"
+        );
+    }
+
+    /// A name outside the built-in vocabulary is an act: extension code and
+    /// project command prompts may have mutated anything, and over-recording is
+    /// the safe direction.
+    #[test]
+    fn unknown_vocabulary_is_an_act() {
+        assert_eq!(effect_for(&["/pursue", "ship it"]), CommandEffect::Mutation);
+        assert_eq!(effect_for(&["/btw", "q"]), CommandEffect::Mutation);
+    }
+
+    /// The notice-bus defect this ADR fixes: a `CommandResult` frame must never
+    /// be mistaken for an `AgentNotice` (the old ack path emitted the latter and
+    /// persisted the former, so a non-TUI client saw neither).
+    #[tokio::test]
+    async fn a_reply_is_a_command_result_not_a_notice() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = store(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        record_ack(&session, &tx, "usage", "", "usage lives in the overlay").await;
+
+        // The only frames are the round envelope carrying a CommandResult.
+        let mut saw_notice = false;
+        while let Ok(resp) = rx.try_recv() {
+            if let AgentResponse::Round { event, .. } = resp
+                && matches!(event, RoundEvent::Notice(_))
+            {
+                saw_notice = true;
+            }
+        }
+        assert!(!saw_notice, "a command reply is not a notice");
+        let _ = round_response(
+            "s",
+            RoundEvent::Notice(AgentNotice::new(
+                nuo_protocol::NoticeKind::CommandAck,
+                nuo_protocol::NoticeSeverity::Info,
+                "x",
+                nuo_protocol::NoticeSource::Harness,
+            )),
+        );
+    }
+}

@@ -2,6 +2,48 @@
 use super::*;
 
 impl App {
+    /// Whether one outbox row is addressable/manipulable in the queue modal.
+    ///
+    /// **This is the single definition of the outbox's visible set.** Every
+    /// addressing helper ([`Self::queued_at`], [`Self::remove_queued_at`],
+    /// [`Self::recall_queued_at`], [`Self::move_queued`]) and every projection
+    /// (the queue modal, the activity strip) MUST filter through it, because a
+    /// display index and a mutation index that disagree silently mutate the
+    /// wrong row — `D` deleting a different item than the highlighted one.
+    ///
+    /// `Dispatching` is excluded: the request is in flight and the item is
+    /// waiting on its ack, so removing or reordering it locally would outrun
+    /// the server's answer.
+    pub fn is_outbox_visible(item: &QueuedDispatch) -> bool {
+        item.state != QueuedDispatchState::Dispatching
+    }
+
+    /// The viewed session's visible outbox rows, in dispatch order. The one
+    /// projection every surface and every index-based mutation agrees on.
+    fn outbox_rows(&self, session_id: &str) -> impl Iterator<Item = (usize, &QueuedDispatch)> {
+        self.pending_dispatch
+            .iter()
+            .enumerate()
+            .filter(move |(_, item)| item.session_id == session_id && Self::is_outbox_visible(item))
+    }
+
+    /// The visible outbox rows as surfaces consume them: the queue modal and the
+    /// activity strip both project from here, so "what the strip counts" and
+    /// "what the modal lists" cannot drift from "what `D` deletes".
+    pub fn outbox_projection(&self, session_id: &str) -> Vec<&QueuedDispatch> {
+        self.outbox_rows(session_id).map(|(_, item)| item).collect()
+    }
+
+    /// Total visible outbox rows across every session. The keymap context's
+    /// `queue_count` answers "is there outbox work anywhere", which must be the
+    /// same population every per-session surface counts.
+    pub fn outbox_total(&self) -> usize {
+        self.pending_dispatch
+            .iter()
+            .filter(|item| Self::is_outbox_visible(item))
+            .count()
+    }
+
     /// Reconcile [`App::pending_images`] / [`App::pending_text_pastes`]
     /// against the chips that currently survive in [`App::input`], and
     /// relabel the surviving chips so their `#N` matches their new 1-based
@@ -25,10 +67,15 @@ impl App {
     /// How many staged messages are waiting in this session's outbox (front
     /// pops first). All entries are next-round items; a busy Enter always
     /// queues rather than injecting mid-round.
+    /// How many staged messages are visible in this session's outbox (front
+    /// pops first). Counts exactly the rows the queue modal and the activity
+    /// strip render — see [`Self::is_outbox_visible`]. A count that disagreed
+    /// with the rendered rows would make `N queued` name items the operator
+    /// cannot address.
     pub fn pending_count(&self, session_id: &str) -> usize {
         self.pending_dispatch
             .iter()
-            .filter(|item| item.session_id == session_id)
+            .filter(|item| item.session_id == session_id && Self::is_outbox_visible(item))
             .count()
     }
 
@@ -72,10 +119,7 @@ impl App {
     /// The id of the queue-modal-highlighted item (M4: queue verbs
     /// address the server queue by id).
     pub fn queued_at(&self, session_id: &str, idx: usize) -> Option<&QueuedDispatch> {
-        self.pending_dispatch
-            .iter()
-            .filter(|item| item.session_id == session_id)
-            .nth(idx)
+        self.outbox_rows(session_id).nth(idx).map(|(_, item)| item)
     }
 
     /// Set (not toggle) the local pause projection; the server verb is
@@ -89,15 +133,7 @@ impl App {
     }
 
     pub fn remove_queued_at(&mut self, session_id: &str, idx: usize) -> Option<QueuedDispatch> {
-        let position = self
-            .pending_dispatch
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| {
-                item.session_id == session_id && item.state == QueuedDispatchState::Waiting
-            })
-            .nth(idx)
-            .map(|(pos, _)| pos)?;
+        let position = self.outbox_rows(session_id).nth(idx).map(|(pos, _)| pos)?;
         self.pending_dispatch.remove(position)
     }
 
@@ -110,15 +146,7 @@ impl App {
     pub fn move_queued(&mut self, session_id: &str, idx: usize, delta: i32) {
         // Collect the positions (into the global deque) of this session's
         // Waiting items in display order — the selectable range.
-        let positions: Vec<usize> = self
-            .pending_dispatch
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| {
-                item.session_id == session_id && item.state == QueuedDispatchState::Waiting
-            })
-            .map(|(pos, _)| pos)
-            .collect();
+        let positions: Vec<usize> = self.outbox_rows(session_id).map(|(pos, _)| pos).collect();
         let count = positions.len();
         if count == 0 {
             return;
@@ -212,15 +240,7 @@ impl App {
     /// can be pulled back to the composer too. The item is removed from the
     /// outbox, exactly like [`Self::recall_queued`].
     pub fn recall_queued_at(&mut self, session_id: &str, idx: usize) -> Option<RecallQueued> {
-        let position = self
-            .pending_dispatch
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| {
-                item.session_id == session_id && item.state == QueuedDispatchState::Waiting
-            })
-            .nth(idx)
-            .map(|(pos, _)| pos)?;
+        let position = self.outbox_rows(session_id).nth(idx).map(|(pos, _)| pos)?;
         self.pending_dispatch
             .remove(position)
             .map(RecallQueued::Restored)

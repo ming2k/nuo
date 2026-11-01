@@ -204,7 +204,8 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         | DialogKind::Switcher
         | DialogKind::PortShare
         | DialogKind::Help
-        | DialogKind::Notices => ContentModalSpec::TOOLS.modal_spec(),
+        | DialogKind::Notices
+        | DialogKind::CommandOutput => ContentModalSpec::TOOLS.modal_spec(),
     }
 }
 
@@ -407,13 +408,15 @@ fn render_dialog(
                 .as_any_mut()
                 .downcast_mut::<QueueDialog>()
                 .expect("kind");
+            // Project through the one outbox definition, so the listed rows and
+            // the rows `D`/`Enter` address are the same set by construction.
             let items: Vec<crate::shell::render::QueueItemProps> = app
-                .pending_dispatch
-                .iter()
-                .filter(|item| item.session_id == ctx.viewed_session_id)
+                .outbox_projection(ctx.viewed_session_id)
+                .into_iter()
                 .map(|item| crate::shell::render::QueueItemProps {
                     queued_at_ms: item.queued_at_ms,
                     text: item.text.clone(),
+                    is_steer: item.state == crate::shell::app::QueuedDispatchState::Steering,
                 })
                 .collect();
             let blocked = app.pending_count(ctx.viewed_session_id) > 0
@@ -587,7 +590,7 @@ fn render_dialog(
                 has_running_task: app.viewed_chrome().responding,
                 has_notices: !!app.has_notices(),
                 has_focused_entry: app.focused_target.is_some(),
-                queue_count: app.pending_dispatch.len(),
+                queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             };
@@ -648,6 +651,7 @@ fn render_dialog(
                 &app.key_overrides,
                 &app.surface_overrides,
                 &mut d.scroll,
+                &mut d.actions,
                 ctx.theme,
             ))
         }
@@ -662,6 +666,15 @@ fn render_dialog(
                 &app.notice_lines().iter().cloned().collect::<Vec<_>>(),
                 d,
                 ctx.theme,
+            ))
+        }
+        DialogKind::CommandOutput => {
+            let d = view
+                .as_any_mut()
+                .downcast_mut::<CommandOutputDialog>()
+                .expect("kind");
+            Some(crate::shell::overlays::draw_command_output_modal(
+                frame, area, d, ctx.theme,
             ))
         }
     }
@@ -862,11 +875,26 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             DialogOutcome::Consumed
         }
         DialogKind::PortShare => DialogOutcome::Consumed,
-        DialogKind::Help => DialogOutcome::Consumed,
+        DialogKind::Help => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<HelpDialog>()
+                .expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
         DialogKind::Notices => {
             let e = view
                 .as_any_mut()
                 .downcast_mut::<NoticesDialog>()
+                .expect("kind");
+            apply_delta(&mut e.scroll, delta);
+            DialogOutcome::Consumed
+        }
+        DialogKind::CommandOutput => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<CommandOutputDialog>()
                 .expect("kind");
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
@@ -884,7 +912,7 @@ fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u16) {
             modal_rect.y + 5,
             modal_rect.y + modal_rect.height.saturating_sub(3),
         ),
-        DialogKind::Help | DialogKind::Notices => (
+        DialogKind::Notices | DialogKind::CommandOutput => (
             modal_rect.y + 2,
             modal_rect.y + modal_rect.height.saturating_sub(2),
         ),
@@ -1176,7 +1204,7 @@ fn handle_dialog_click(
                 has_running_task: app.viewed_chrome().responding,
                 has_notices: !!app.has_notices(),
                 has_focused_entry: app.focused_target.is_some(),
-                queue_count: app.pending_dispatch.len(),
+                queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             };
@@ -1189,6 +1217,18 @@ fn handle_dialog_click(
             if target_idx < entries.len() {
                 e.selected = target_idx;
                 e.follow = true;
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::Help => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<HelpDialog>()
+                .expect("kind");
+            let target_line = e.scroll + visual_row;
+            if let Some(Some(action_kind)) = e.actions.get(target_line) {
+                app.pending_help_action = Some(*action_kind);
+                return DialogOutcome::Dismiss;
             }
             DialogOutcome::Consumed
         }
@@ -1243,6 +1283,14 @@ fn input_dialog(
             {
                 let visual_row = (*y - body_top) as usize;
                 return handle_dialog_click(view, visual_row, app, viewed_session_id);
+            }
+            if view.kind() == DialogKind::Help
+                && *y >= modal_rect.y + modal_rect.height.saturating_sub(2)
+                && *y < modal_rect.y + modal_rect.height
+                && *x >= modal_rect.x
+                && *x < modal_rect.x + modal_rect.width
+            {
+                return DialogOutcome::Dismiss;
             }
         }
         return DialogOutcome::Consumed;
@@ -1517,11 +1565,11 @@ fn input_dialog(
                 }
                 e.follow = false;
             } else {
-                let count = app
-                    .pending_dispatch
-                    .iter()
-                    .filter(|item| item.session_id == viewed_session_id)
-                    .count();
+                // Address the same rows the modal lists (see
+                // `App::outbox_projection`): a count that included
+                // `Dispatching` rows would let the highlight move onto an item
+                // the surface does not show.
+                let count = app.pending_count(viewed_session_id);
                 if count == 0 {
                     return DialogOutcome::Unhandled;
                 }
@@ -1547,7 +1595,19 @@ fn input_dialog(
             e.selected = rotate(e.selected, count, forward);
             DialogOutcome::Consumed
         }
-        DialogKind::PortShare | DialogKind::Help => DialogOutcome::Consumed,
+        DialogKind::Help => {
+            let e = view
+                .as_any_mut()
+                .downcast_mut::<HelpDialog>()
+                .expect("kind");
+            if forward {
+                e.scroll = e.scroll.saturating_add(1);
+            } else {
+                e.scroll = e.scroll.saturating_sub(1);
+            }
+            DialogOutcome::Consumed
+        }
+        DialogKind::PortShare | DialogKind::CommandOutput => DialogOutcome::Consumed,
         DialogKind::Notices => {
             let e = view
                 .as_any_mut()
@@ -1617,7 +1677,7 @@ fn switcher_app_ctx(app: &crate::shell::App) -> crate::shell::keymap::AppContext
         has_running_task: app.viewed_chrome().responding,
         has_notices: !!app.has_notices(),
         has_focused_entry: app.focused_target.is_some(),
-        queue_count: app.pending_dispatch.len(),
+        queue_count: app.outbox_total(),
         has_session: app.has_session(),
         scene: app.current_scene(),
     }
@@ -1828,13 +1888,27 @@ impl PortShareDialog {
     }
 }
 
-dialog_entity!(HelpDialog, Help, {});
+dialog_entity!(HelpDialog, Help, {
+    /// Cached actions for each row in the rendered help dialog.
+    actions: Vec<Option<crate::shell::overlays::help::HelpActionKind>> = Vec::new(),
+});
 
 dialog_entity!(NoticesDialog, Notices, {
     /// Whether the focused notice's detail view is expanded.
     detail: bool = false,
     /// Body height of the modal list.
     body_height: u16 = 0,
+});
+
+dialog_entity!(CommandOutputDialog, CommandOutput, {
+    /// Command invocation string.
+    command: String = String::new(),
+    /// Process exit code.
+    exit: Option<i32> = None,
+    /// Output lines in arrival order.
+    lines: Vec<String> = Vec::new(),
+    /// Message index in the transcript.
+    message_idx: Option<usize> = None,
 });
 
 /// A snapshot of every session-scoped dialog entity, archived under a
@@ -1877,6 +1951,7 @@ pub struct Dialogs {
     pub port_share: PortShareDialog,
     pub help: HelpDialog,
     pub notices: NoticesDialog,
+    pub command_output: CommandOutputDialog,
     /// Per-session archives of the session-scoped entities.
     session_archive: std::collections::HashMap<String, SessionSnapshot>,
     /// The session whose live state the session-scoped entities currently
@@ -1965,6 +2040,7 @@ impl Dialogs {
             DialogKind::PortShare => &self.port_share,
             DialogKind::Help => &self.help,
             DialogKind::Notices => &self.notices,
+            DialogKind::CommandOutput => &self.command_output,
         }
     }
 
@@ -1989,6 +2065,7 @@ impl Dialogs {
             DialogKind::PortShare => &mut self.port_share,
             DialogKind::Help => &mut self.help,
             DialogKind::Notices => &mut self.notices,
+            DialogKind::CommandOutput => &mut self.command_output,
         }
     }
 
@@ -2020,6 +2097,7 @@ impl Dialogs {
             DialogKind::PortShare => Box::new(std::mem::take(&mut self.port_share)),
             DialogKind::Help => Box::new(std::mem::take(&mut self.help)),
             DialogKind::Notices => Box::new(std::mem::take(&mut self.notices)),
+            DialogKind::CommandOutput => Box::new(std::mem::take(&mut self.command_output)),
         }
     }
 
@@ -2100,6 +2178,12 @@ impl Dialogs {
             DialogKind::Notices => {
                 self.notices = *view.into_any().downcast::<NoticesDialog>().expect("kind")
             }
+            DialogKind::CommandOutput => {
+                self.command_output = *view
+                    .into_any()
+                    .downcast::<CommandOutputDialog>()
+                    .expect("kind")
+            }
         }
     }
 
@@ -2124,6 +2208,7 @@ impl Dialogs {
             DialogKind::PortShare => 0,
             DialogKind::Help => 0,
             DialogKind::Notices => self.notices.index,
+            DialogKind::CommandOutput => self.command_output.index,
         }
     }
 
@@ -2148,6 +2233,7 @@ impl Dialogs {
             DialogKind::PortShare => {}
             DialogKind::Help => {}
             DialogKind::Notices => self.notices.index = value,
+            DialogKind::CommandOutput => self.command_output.index = value,
         }
     }
 
@@ -2172,6 +2258,7 @@ impl Dialogs {
             DialogKind::PortShare => false,
             DialogKind::Help => false,
             DialogKind::Notices => self.notices.follow,
+            DialogKind::CommandOutput => self.command_output.follow,
         }
     }
 
@@ -2196,6 +2283,7 @@ impl Dialogs {
             DialogKind::PortShare => false,
             DialogKind::Help => false,
             DialogKind::Notices => self.notices.keys_open,
+            DialogKind::CommandOutput => false,
         }
     }
 
@@ -2221,6 +2309,7 @@ impl Dialogs {
             DialogKind::PortShare => {}
             DialogKind::Help => {}
             DialogKind::Notices => self.notices.keys_open = open,
+            DialogKind::CommandOutput => {}
         }
         if !open {
             *self.keys_scroll_mut(kind) = 0;
@@ -2248,6 +2337,7 @@ impl Dialogs {
             DialogKind::PortShare => &mut self.port_share.scroll,
             DialogKind::Help => &mut self.help.scroll,
             DialogKind::Notices => &mut self.notices.keys_scroll,
+            DialogKind::CommandOutput => &mut self.command_output.scroll,
         }
     }
 

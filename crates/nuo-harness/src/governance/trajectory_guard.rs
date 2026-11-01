@@ -27,7 +27,6 @@ pub(crate) fn covers(name: &str) -> bool {
             BuiltinTool::EditText
                 | BuiltinTool::ExecuteCommand
                 | BuiltinTool::FindFiles
-                | BuiltinTool::ListDir
                 | BuiltinTool::ReadImage
                 | BuiltinTool::ReadText
                 | BuiltinTool::ReadUrl

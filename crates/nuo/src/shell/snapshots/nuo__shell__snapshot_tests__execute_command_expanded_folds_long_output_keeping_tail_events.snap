@@ -1,25 +1,22 @@
 ---
 source: crates/nuo/src/shell/snapshot_tests.rs
-assertion_line: 461
 expression: "render_grid(&m, 80, 40)"
 ---
 - Run cargo (failed 0ms)
-  $ cargo build
-  line 1
-  line 2
-
-    12 lines omitted (0.1 KB)
-
-  line 15
-  line 16
-  line 17
-  line 18
-  line 19
-  line 20
-  exit 1 (general error)
+  │ $ cargo build
+  │ line 1
+  │ line 2
+  │ ... 12 lines hidden (0.1 KB)      [o] view log   [y] copy
+  │ line 15
+  │ line 16
+  │ line 17
+  │ line 18
+  │ line 19
+  │ line 20
+  │ exit 1 (general error)
 
 backgrounds:
-A=#070808  B=#111312  C=#1C1E1C  .=reset
+A=#070808  B=#111312  .=reset
 0: A80
 1: B80
 2: B80
@@ -32,5 +29,3 @@ A=#070808  B=#111312  C=#1C1E1C  .=reset
 9: B80
 10: B80
 11: B80
-12: B80
-13: C80

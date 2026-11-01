@@ -34,6 +34,7 @@ fn activity_row_text_with_clause(
                 awaiting_permission: awaiting,
                 queued_count: 0,
                 queued_preview: None,
+                queued_first_is_steer: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -67,6 +68,7 @@ fn activity_row_colors(width: u16, status: &str, awaiting: bool, phase: usize) -
                 awaiting_permission: awaiting,
                 queued_count: 0,
                 queued_preview: None,
+                queued_first_is_steer: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -222,6 +224,7 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
                 awaiting_permission: false,
                 queued_count: 2,
                 queued_preview: Some("Check edge cases"),
+                queued_first_is_steer: false,
                 tasks_count: 1,
                 tasks_preview: Some("indexer"),
                 queue_key: Some(Key::CTRL_Q),
@@ -281,6 +284,7 @@ fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
                 awaiting_permission: false,
                 queued_count: 0,
                 queued_preview: None,
+                queued_first_is_steer: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -335,6 +339,7 @@ fn activity_strip_renders_idle_queued_preview() {
                 awaiting_permission: false,
                 queued_count: 1,
                 queued_preview: Some("Check edge cases"),
+                queued_first_is_steer: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -386,6 +391,7 @@ fn activity_strip_keycaps_are_the_resolved_bindings() {
                     awaiting_permission: false,
                     queued_count: 1,
                     queued_preview: Some("next"),
+                    queued_first_is_steer: false,
                     tasks_count: 1,
                     tasks_preview: Some("indexer"),
                     queue_key: queue,
@@ -440,6 +446,7 @@ fn activity_strip_returns_none_when_all_idle() {
                 awaiting_permission: false,
                 queued_count: 0,
                 queued_preview: None,
+                queued_first_is_steer: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -1236,214 +1243,4 @@ fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
         "flyout header should show `/auto -> /unattended`, got buffer:\n{}",
         full_text.join("\n")
     );
-}
-
-/// Read back the one-row bar as joined text for assertion.
-fn queue_row_text(props: QueueBarProps<'_>, width: u16, theme: &Theme) -> String {
-    let mut terminal = nuotc::TestTerminal::new(width, 1);
-    terminal.draw(|f| {
-        draw_queue_bar(f, Rect::new(0, 0, width, 1), props, theme);
-    });
-    let buf = terminal.buffer();
-    let mut out = String::new();
-    for x in 0..width as usize {
-        out.push_str(buf.cells()[x].symbol.as_str());
-    }
-    out.push('\n');
-    out
-}
-
-#[test]
-fn queue_bar_leads_with_brand_tag_on_a_plain_surface() {
-    // Matching the todo bar: the `FOLLOW-UPS` tag leads at the gutter in the
-    // brand accent on the plain frame surface — no tray glyph, no raised
-    // tint — so the two bars read as one quiet family.
-    let theme = Theme::default();
-    let item = QueueItemProps {
-        queued_at_ms: 1_700_000_000_000,
-        text: "fix the flaky test".to_string(),
-    };
-    let mut terminal = nuotc::TestTerminal::new(70, 1);
-    terminal.draw(|f| {
-        draw_queue_bar(
-            f,
-            Rect::new(0, 0, 70, 1),
-            QueueBarProps {
-                items: &[item],
-                paused: false,
-                blocked: false,
-                expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
-            },
-            &theme,
-        );
-    });
-    let cells = terminal.buffer().cells().to_vec();
-
-    // (1) The tag leads at the gutter, brand-colored.
-    assert_eq!(
-        cells[0].symbol.as_str(),
-        "F",
-        "expected 'FOLLOW-UPS' tag at col 0"
-    );
-    assert_eq!(
-        cells[0].style.fg,
-        theme.brand(),
-        "FOLLOW-UPS tag not brand-colored"
-    );
-
-    // (2) The bar sits on the plain surface: no raised tint anywhere
-    // (sample the row's trailing cell too).
-    assert_eq!(
-        cells[0].style.bg,
-        Color::Reset,
-        "tag must not sit on a tint"
-    );
-    assert_eq!(cells[69].style.bg, Color::Reset, "the row must stay plain");
-}
-
-#[test]
-fn queue_bar_legend_renders_the_resolved_chord_and_nothing_when_unbound() {
-    // The legend is a promise: it renders the chord the registry resolves for
-    // the expand command, so a remap shows through…
-    let item = QueueItemProps {
-        queued_at_ms: 1_700_000_000_000,
-        text: "fix the flaky test".to_string(),
-    };
-    let remapped = queue_row_text(
-        QueueBarProps {
-            items: std::slice::from_ref(&item),
-            paused: false,
-            blocked: false,
-            expand_key: Some(crate::shell::keymap::Key::ctrl('e')),
-        },
-        70,
-        &Theme::default(),
-    );
-    assert!(remapped.contains("Ctrl-e"), "remap must show: {remapped:?}");
-    assert!(
-        !remapped.contains("Ctrl-q"),
-        "the literal chord must not be hardcoded: {remapped:?}"
-    );
-
-    // …and a command with no binding renders no keycap at all, rather than
-    // advertising a chord that resolves to nothing (the defect this guards).
-    let unbound = queue_row_text(
-        QueueBarProps {
-            items: std::slice::from_ref(&item),
-            paused: false,
-            blocked: false,
-            expand_key: None,
-        },
-        70,
-        &Theme::default(),
-    );
-    assert!(
-        unbound.contains("FOLLOW-UPS 1"),
-        "identity survives: {unbound:?}"
-    );
-    assert!(
-        !unbound.contains("Ctrl-") && !unbound.contains("expand"),
-        "an unbound affordance must not be advertised: {unbound:?}"
-    );
-
-    // The default registry binding is the documented Ctrl-q expand.
-    let default_binding = queue_row_text(
-        QueueBarProps {
-            items: &[item],
-            paused: false,
-            blocked: false,
-            expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
-        },
-        70,
-        &Theme::default(),
-    );
-    assert!(
-        default_binding.contains("Ctrl-q expand"),
-        "row was {default_binding:?}"
-    );
-}
-
-#[test]
-fn queue_bar_empty_state_hints_how_to_stage() {
-    let text = queue_row_text(
-        QueueBarProps {
-            items: &[],
-            paused: false,
-            blocked: false,
-            expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
-        },
-        70,
-        &Theme::default(),
-    );
-    // Identity + zero count on the single row; no time label anymore.
-    assert!(text.contains("FOLLOW-UPS 0"), "row was {text:?}");
-    assert!(!text.contains("--:--"), "time label leaked: {text:?}");
-    // The layout hides an empty queue, so the bar renders no hint for it.
-    assert!(!text.contains("queue empty"), "empty hint leaked: {text:?}");
-}
-
-#[test]
-fn queue_bar_previews_next_item_with_count_and_text() {
-    let item = QueueItemProps {
-        queued_at_ms: 1_700_000_000_000,
-        text: "fix the flaky test in parser".to_string(),
-    };
-    let text = queue_row_text(
-        QueueBarProps {
-            items: &[item],
-            paused: true,
-            blocked: false,
-            expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
-        },
-        92,
-        &Theme::default(),
-    );
-    // Identity + count reflects the one item; no time label anymore.
-    assert!(text.contains("FOLLOW-UPS 1"), "row was {text:?}");
-    assert!(!text.contains(":"), "time label leaked: {text:?}");
-    // Legend: the keycap unit is same-rank peers (R2) — joined by plain
-    // whitespace, never a `·`. `Ctrl-p` no longer rides the top-level bar
-    // (it now opens the Command Palette); the only bar affordance is
-    // `Ctrl-q expand`, since the block toggle lives inside the queue panel.
-    assert!(
-        text.contains("Ctrl-q expand"),
-        "expand affordance missing: {text:?}"
-    );
-    assert!(
-        !text.contains("Ctrl-p"),
-        "top-level block toggle moved into the queue panel: {text:?}"
-    );
-    assert!(!text.contains('·'), "no R1 dot between peers: {text:?}");
-    // A live insert is transcript-owned and never rides the
-    // bar, so every bar item previews plainly — no `steer›` badge.
-    assert!(!text.contains("steer›"), "steer badge leaked: {text:?}");
-    // The preview rides inline on the same row.
-    assert!(
-        text.contains("fix the flaky test"),
-        "preview text missing: {text:?}"
-    );
-}
-
-#[test]
-fn queue_bar_never_renders_the_tab_affordance() {
-    // The Tab toggle for the insert/next-round send target was removed —
-    // a busy Enter always queues for the next round — so the queue bar's
-    // legend must never mention Tab.
-    let item = QueueItemProps {
-        queued_at_ms: 1_700_000_000_000,
-        text: "add a comment".to_string(),
-    };
-    let text = queue_row_text(
-        QueueBarProps {
-            items: &[item],
-            paused: false,
-            blocked: false,
-            expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
-        },
-        70,
-        &Theme::default(),
-    );
-    assert!(!text.contains("Tab"), "tab legend leaked: {text:?}");
-    // A non-steering item never wears the mid-round `steer›` badge.
-    assert!(!text.contains("steer›"), "steer badge leaked: {text:?}");
 }

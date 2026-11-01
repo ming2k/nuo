@@ -43,7 +43,7 @@ pub enum ScopeTarget {
     /// A shell command string (e.g. `bash`). Checked against the scope's command
     /// allowlist, when one is set.
     Command(String),
-    /// The tool declares no locatable target (e.g. `search_text`, `list_dir`).
+    /// The tool declares no locatable target (e.g. `search_text`, `execute_command`).
     /// Admitted by the scope gate without a dimension check.
     #[default]
     Unspecified,

@@ -597,6 +597,7 @@ impl AgentRoleDelegation {
         role_id: "ops",
         subagent_roles: &[
             SubAgentProfile::EXPLORE.name,
+            SubAgentProfile::DEBUG.name,
             SubAgentProfile::TITLE.name,
             SubAgentProfile::SKILL.name,
         ],
@@ -816,7 +817,6 @@ mod tests {
         );
         assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::AskUser));
         assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::Todo));
-        assert!(!ops_manifest.builtin_tools().contains(&BuiltinTool::ListDir));
         assert!(
             !ops_manifest
                 .builtin_tools()
@@ -855,7 +855,6 @@ mod tests {
         assert!(names.contains(BuiltinTool::ReadText.as_str()));
         assert!(names.contains(BuiltinTool::EditText.as_str()));
         assert!(names.contains(BuiltinTool::WriteFile.as_str()));
-        assert!(!names.contains(BuiltinTool::ListDir.as_str()));
         assert!(names.contains(BuiltinTool::FindFiles.as_str()));
         assert!(names.contains(BuiltinTool::SearchText.as_str()));
         assert!(names.contains(BuiltinTool::ReadUrl.as_str()));

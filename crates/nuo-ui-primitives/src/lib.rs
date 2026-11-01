@@ -25,4 +25,4 @@ pub mod time;
 
 pub use color_scheme::*;
 pub use components::action::ActionStatus;
-pub use theme::Theme;
+pub use theme::{SeverityBand, Theme};

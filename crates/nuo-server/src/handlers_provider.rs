@@ -16,8 +16,7 @@ use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_persistence::session::{ProviderSelection, SessionStore};
 use nuo_protocol::model::ModelTargetScope;
 use nuo_protocol::{
-    AgentNotice, AgentResponse, CommandRecord, CommandResult, Provider, RoundEvent, SecretString,
-    WireProtocol,
+    AgentNotice, AgentResponse, CommandResult, Provider, RoundEvent, SecretString, WireProtocol,
 };
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
@@ -1546,16 +1545,23 @@ async fn run_oauth(
 }
 
 /// Record a provider switch's acknowledgment in the durable command ledger.
+///
+/// Routed through the slash-command funnel rather than writing the ledger
+/// directly (ADR-0140): `/models` is an **act**, and the funnel is the one place
+/// that decides what is durable. This path deliberately emits no `CommandResult`
+/// — the switch is acknowledged by the `CommandAck` notice the caller already
+/// sent, and a second reply would duplicate it.
 async fn record_provider_ack(session: &SessionStore, provider: &str, model: &str, ack: String) {
-    let record = CommandRecord::new("models", format!("{provider} {model}")).with_result(
+    crate::handlers_slash::record::record_act_only(
+        session,
+        "models",
+        &format!("{provider} {model}"),
         CommandResult::Ack {
             title: ack,
             detail: None,
         },
-    );
-    if let Err(error) = session.mutate_commands(|c| c.push(record)).await {
-        tracing::warn!(?error, "could not persist provider-switch ack");
-    }
+    )
+    .await;
 }
 
 /// Shared tail of [`switch`] and [`add`]: rebuild the active provider through the

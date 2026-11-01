@@ -81,11 +81,8 @@ pub(super) async fn handle_send_chat(
                 sent_at_ms: Some(now_epoch_ms()),
             });
             app.clear_history_draft();
-            app.record_notice(
-                nuo_view::model::document::NoticeSeverity::Info,
-                "attach",
-                "Session is still preparing; your message will be sent when it is ready.",
-                now_epoch_ms(),
+            app.record_client_notice(
+                crate::shell::app::notice_catalog::ClientNotice::QueuedWhilePreparing,
             );
             return;
         }
@@ -96,19 +93,26 @@ pub(super) async fn handle_send_chat(
                     let expanded =
                         composer_attachments::strip_orphan_image_chips(&expanded, images.len());
                     let id = app.new_insert_id();
-                    app.record_input_history(text.clone(), images.clone(), text_pastes);
+                    app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
                     app.clear_history_draft();
                     app.follow_bottom = true;
                     app.pin_summary_line = None;
-                    let sent_at_ms = now_epoch_ms();
-                    let entry = TranscriptMessage::new(Role::User, text.clone())
-                        .with_origin(nuo_view::model::document::UserMessageOrigin::Steer)
-                        .with_sent_at_ms(sent_at_ms)
-                        .with_insert_id(id.clone())
-                        .queued();
-                    app.messages.push(entry);
-                    app.layout_height_cache.clear();
-                    app.transcript_changed_pending = true;
+                    let queued_at_ms = now_epoch_ms();
+                    // ADR-0137: a busy-Enter steer is staged in the outbox,
+                    // never in the transcript. The transcript gains a row only
+                    // when the harness admits it (`SteerAdmitted`), at the
+                    // seam head; the optimistic in-thread panel was removed so
+                    // the live story cannot diverge from the persisted one.
+                    app.pending_dispatch
+                        .push_back(crate::shell::app::QueuedDispatch {
+                            id: id.clone(),
+                            session_id: viewed_session_id.to_string(),
+                            state: crate::shell::app::QueuedDispatchState::Steering,
+                            text: text.clone(),
+                            queued_at_ms,
+                            images: images.clone(),
+                            text_pastes: text_pastes.clone(),
+                        });
                     app.send_intent(AgentRequest::Steer {
                         thread_id: viewed_session_id.to_string(),
                         message: nuo_protocol::QueuedMessage {
@@ -116,7 +120,7 @@ pub(super) async fn handle_send_chat(
                             text: expanded,
                             display_text: Some(text),
                             images,
-                            sent_at_ms: Some(sent_at_ms),
+                            sent_at_ms: Some(queued_at_ms),
                         },
                     });
                 }
@@ -250,15 +254,26 @@ pub(crate) async fn handle_send_slash(
     app.follow_bottom = true;
     app.pin_summary_line = None;
     let sent_at_ms = now_epoch_ms();
-    // The command component owns its input AND its output: the
-    // optimistic row pushed here is the input half — `⌘ /cmd` in the muted
-    // running tone — and the `RoundEvent::CommandResult` handler settles the
-    // same row in place when the typed reply arrives. A command is therefore
-    // never echoed as a user bubble (the old `▌ cmd` panel duplicated the
-    // invocation in a second row and split the effect across a seam), and the
-    // transcript keeps one row per command, live and after resume alike.
-    // The invocation is still recorded in input history for ↑/Ctrl+R recall.
+    // The command component owns its input AND its output, but only for an
+    // **act** (ADR-0140): a mutation stages the optimistic row pushed below —
+    // `⌘ /cmd` in the muted running tone — and the `RoundEvent::CommandResult`
+    // handler settles the same row in place when the typed reply arrives. An act
+    // is therefore never echoed as a user bubble (the old `▌ cmd` panel
+    // duplicated the invocation in a second row and split the effect across a
+    // seam), and the transcript keeps one row per act, live and after resume
+    // alike.
+    //
+    // A **reading** stages nothing: it has no durable row, and painting one would
+    // promise a membership in the thread that the server is about to decline.
+    // Its reply lands as a receipt in the notice log instead. When the name is
+    // unknown to the catalog (an extension handler, a project command prompt) the
+    // class is `Mutation` — the over-recording default — so the optimistic row is
+    // staged and the server's authoritative event settles it as usual.
     let (cmd_name, cmd_args) = split_command_word(&cmd);
+    let effect = app
+        .command_catalog
+        .effect_for(&format!("/{cmd_name}"), cmd_args.split_whitespace().next());
+    let stages_row = effect == nuo_protocol::CommandEffect::Mutation;
 
     let is_new_session_cmd = cmd_name == "new"
         || (cmd_name == "session" && cmd_args.split_whitespace().next() == Some("new"));
@@ -318,14 +333,17 @@ pub(crate) async fn handle_send_slash(
         app.transcript_changed_pending = true;
         app.scroll = 0;
     }
-    app.messages
-        .push(TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms));
+    if stages_row {
+        app.messages.push(
+            TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms),
+        );
+    }
     app.record_input_history(cmd.clone(), Vec::new(), Vec::new());
     app.send_intent(AgentRequest::SlashCommand(cmd));
     ActionFlow::Handled
 }
 
-pub(super) async fn handle_send_steer(
+pub(crate) async fn handle_send_steer(
     app: &mut App,
     runtime: &UiRuntime,
     viewed_session_id: &str,

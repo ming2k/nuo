@@ -5,7 +5,6 @@
 use nuotc::{
     floor_grapheme_boundary, inclusive_grapheme_end, {Color, Modifier, Style}, {Line, Span},
 };
-use unicode_width::UnicodeWidthStr;
 
 use crate::model::document::LinkRange;
 use crate::model::selection::SelectionState;
@@ -228,7 +227,7 @@ pub fn visible_width(text: &str, hidden_ranges: &[(usize, usize)]) -> usize {
         .iter()
         .map(|&(lo, hi)| hi.saturating_sub(lo))
         .sum();
-    text.width().saturating_sub(hidden)
+    nuotc::str_len(text).saturating_sub(hidden)
 }
 
 /// Visible (markup-elided) display width of a text window. `text` is a slice of
@@ -774,7 +773,7 @@ pub fn code_gutter_line(params: CodeGutterParams<'_>) -> Line<'static> {
             }
         }
     }
-    let used = indent + text.width();
+    let used = indent + nuotc::str_len(text);
     spans.push(Span::styled(
         padded_tail(full_width, used),
         Style::default().bg(code_bg),
@@ -1433,5 +1432,31 @@ mod tests {
 
         let clean = strip_inline_markup_delimiters(text, 0, text.len(), &hidden);
         assert_eq!(clean, "important note");
+    }
+
+    #[test]
+    fn warning_symbol_and_cjk_wrap_and_width_remain_synchronized() {
+        use super::wrap_text_markup;
+        use crate::model::document::scan_inline;
+        use crate::text_layout::block_hidden_ranges;
+
+        let s = "⚠️ 一个未经证实的前提：wright 组装多 source 时是真实解压目录平级、`../optics` 可解析（ccache 的 `source/xxhash-src` 是嵌套的，但本方案是平级，ccache/dbus-broker 均未直接演示平级二源码树）。";
+        let scan = scan_inline(s);
+        let hidden = block_hidden_ranges(
+            s,
+            &scan.code_ranges,
+            &scan.bold_ranges,
+            &scan.math_ranges,
+            &scan.link_ranges,
+        );
+
+        // In terminals, ⚠️ is 1 column wide, followed by space (1 col) and 10 CJK characters (10*2=20 cols),
+        // so "⚠️ 一个未经证实的前提：" is 1 + 1 + 10*2 = 22 columns!
+        assert_eq!(nuotc::grapheme_width("⚠️"), 1);
+        assert_eq!(nuotc::str_len("⚠️ 一个未经证实的前提："), 22);
+
+        let lines = wrap_text_markup(s, 76, &hidden);
+        assert!(!lines.is_empty());
+        assert!(lines[0].text.starts_with("⚠️ 一个未经证实的前提："));
     }
 }

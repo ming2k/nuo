@@ -1,12 +1,12 @@
 ---
-source: crates/nuo-tui/src/snapshot_tests.rs
+source: crates/nuo/src/shell/snapshot_tests.rs
 expression: "render_grid(&m, 80, 40)"
 ---
 - Run cargo (0ms)
-  $ cargo build
-  Compiling a
-  warning: b
-  Compiling c
+  │ $ cargo build
+  │ Compiling a
+  │ warning: b
+  │ Compiling c
 
 backgrounds:
 A=#070808  B=#111312  .=reset

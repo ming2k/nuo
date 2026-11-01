@@ -11,6 +11,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod clipboard;
+pub mod diagnostics;
 pub mod environment;
 pub mod fs;
 pub mod fs_watcher;

@@ -188,13 +188,8 @@ fn unpredictable_tools_have_no_preview() {
             .is_none()
     );
     assert!(
-        FindFilesTool::new(ctx.clone())
+        FindFilesTool::new(ctx)
             .preview(&json!({ "pattern": "*.rs" }))
-            .is_none()
-    );
-    assert!(
-        ListDirTool::new(ctx)
-            .preview(&json!({ "path": "." }))
             .is_none()
     );
 }

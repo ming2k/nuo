@@ -146,7 +146,7 @@ pub fn summary_text_color(
 /// change, not a subtle drift).
 const ACCENT_IDLE_BLEND: f32 = 0.0;
 const ACCENT_EXPANDED_BLEND: f32 = 0.6;
-const INTERACTION_HOVER_BLEND: f32 = 0.65;
+const INTERACTION_HOVER_BLEND: f32 = 0.70;
 
 #[cfg(test)]
 mod tests {

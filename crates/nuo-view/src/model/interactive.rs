@@ -121,40 +121,22 @@ impl InteractiveEntry for TranscriptMessage {
     }
 
     fn toggle_expanded(&mut self) -> bool {
-        // Command steps walk a three-rung ladder (ADR-0115): expand → reveal the
-        // folded output middle → collapse. Folded-ness is asked of the same
-        // derivation the renderer paints, so the reveal rung exists exactly
-        // when there is something hidden to reveal.
-        let ladder = match &self.kind {
+        // Pure binary toggle for all collapsible entries (expand ↔ collapse).
+        // Step headers never hijack the toggle to dump raw logs into the transcript;
+        // deep output inspection is delegated to dedicated pager / copy affordances.
+        match &mut self.kind {
             MessageKind::ToolStep {
-                expanded,
-                output_revealed,
-                ..
-            } => Some(TranscriptMessage::bash_disclosure_ladder(
-                *expanded,
-                *output_revealed,
-                self.tool_step_folded_rows().is_some(),
-            )),
-            _ => None,
-        };
-        if let Some((next_expanded, next_revealed)) = ladder {
-            if let MessageKind::ToolStep {
                 expanded,
                 user_pinned,
                 output_revealed,
                 ..
-            } = &mut self.kind
-            {
-                *expanded = next_expanded;
-                *output_revealed = next_revealed;
+            } => {
+                *expanded = !*expanded;
+                *output_revealed = false;
                 *user_pinned = true;
+                self.refresh_tool_step();
+                true
             }
-            self.refresh_tool_step();
-            return true;
-        }
-        match &mut self.kind {
-            // Handled by the ladder above.
-            MessageKind::ToolStep { .. } => false,
             MessageKind::Reasoning {
                 expanded,
                 user_pinned,

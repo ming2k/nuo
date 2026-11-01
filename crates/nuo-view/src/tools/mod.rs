@@ -377,7 +377,6 @@ pub static TOOL_COMPONENTS: &[ToolComponent] = &[
         members: &[
             ("search_text", &search::SearchTextPresenter),
             ("find_files", &search::FindFilesPresenter),
-            ("list_dir", &search::ListDirPresenter),
         ],
         expanded_by_default: false,
         has_inline_body: true,

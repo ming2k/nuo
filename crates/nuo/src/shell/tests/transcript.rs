@@ -654,3 +654,360 @@ async fn tool_result_does_not_forge_reasoning_phase() {
     assert_eq!(app.phase, Some(nuo_view::phase::Phase::Preparing));
     assert_eq!(app.phase.as_ref().unwrap().label(), "preparing context");
 }
+
+#[test]
+fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+    app.follow_bottom = true;
+
+    // Fill initial transcript with an assistant message followed by a queued user message
+    let mut messages = Vec::new();
+    for i in 0..20 {
+        messages.push(TranscriptMessage::new(Role::User, format!("History {i}")));
+    }
+    let mut assistant =
+        TranscriptMessage::new(Role::Assistant, "Assistant streaming response line 1\n");
+    assistant.round = Some(1);
+    assistant.turn = Some(1);
+    messages.push(assistant);
+
+    // Steer / queued prompt at the bottom
+    let queued = TranscriptMessage::new(Role::User, "Queued follow-up / steer")
+        .with_origin(nuo_view::model::document::UserMessageOrigin::Steer);
+    messages.push(queued);
+    app.messages = messages;
+
+    // Frame 1: first layout pass calculates initial max_scroll under follow_bottom
+    let mut terminal = nuotc::TestTerminal::new(80, 24);
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "test-session");
+    });
+
+    let initial_max_scroll = app.max_scroll;
+    assert!(initial_max_scroll > 0);
+    app.scroll = initial_max_scroll;
+
+    // Render at max_scroll (bottom-follow steady state)
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "test-session");
+    });
+    let initial_content_lines = app.content_lines;
+
+    // Frame 2 simulation: stream text delta arrives for assistant message above the queued message
+    let id = crate::shell::append_stream_text_delta(
+        &mut app.messages,
+        Some(1),
+        Some(1),
+        "\n\nLine 2\n\nLine 3\n\nLine 4\n\nLine 5\n\n",
+    )
+    .expect("must append to streaming assistant message");
+    app.layout_height_cache
+        .invalidate_messages(std::iter::once(id));
+
+    // Measure what stage pass produces:
+    let painted_scroll = app.scroll;
+    terminal.draw(|f| {
+        crate::shell::event_loop::render_frame(&mut app, f, "test-session");
+    });
+
+    assert!(
+        app.content_lines > initial_content_lines,
+        "content lines must have grown from streaming delta"
+    );
+    assert!(
+        app.max_scroll > initial_max_scroll,
+        "max_scroll must have grown from streaming delta"
+    );
+    // Under bottom-follow, app.scroll is updated to app.max_scroll.
+    // The event loop must detect that `app.scroll != painted_scroll` (bottom moved),
+    // and skip committing the staged frame to avoid flickering the queued message.
+    app.scroll = app.max_scroll;
+    assert_ne!(
+        app.scroll, painted_scroll,
+        "stage_bottom_follow must detect that painted_scroll is stale"
+    );
+}
+
+/// ADR-0137 [INV-STEER-01]: a busy-Enter steer never enters the transcript
+/// while it is pending. It is staged in the outbox as a `Steering` item; the
+/// transcript gains a row only when the harness admits it (`SteerAdmitted`).
+#[test]
+fn busy_enter_steer_is_staged_out_of_thread() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.current_session_id = "test-session".to_string();
+    app.running_sessions.insert("test-session".to_string());
+    app.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
+    app.input = "use rg instead".to_string();
+    let before = app.messages.len();
+
+    futures::executor::block_on(
+        crate::shell::event_loop::actions::commands::handle_send_steer(
+            &mut app,
+            &crate::shell::event_loop::UiRuntime::minimal_for_test(),
+            "test-session",
+            "use rg instead".to_string(),
+        ),
+    );
+
+    // The transcript is untouched.
+    assert_eq!(
+        app.messages.len(),
+        before,
+        "a pending steer must not enter the transcript (ADR-0137 [INV-STEER-01])"
+    );
+    // The outbox holds exactly one Steering item for the session.
+    assert_eq!(app.pending_count("test-session"), 1);
+    let item = app
+        .pending_dispatch
+        .iter()
+        .find(|d| d.session_id == "test-session")
+        .expect("steer staged in outbox");
+    assert_eq!(
+        item.state,
+        crate::shell::app::QueuedDispatchState::Steering,
+        "the staged steer must wear the Steering state"
+    );
+    assert_eq!(item.text, "use rg instead");
+}
+
+/// ADR-0140 `[INV-CMD-08]`: one reply, two homes, no overlap.
+///
+/// The server's declared class alone decides where a reply is filed. An **act**
+/// settles the staged thread row (it holds a position in the conversation); a
+/// **reading** appends a receipt and leaves the thread untouched. This is the
+/// behaviour half of the invariant — the corridor lives in
+/// `crates/nuo/src/shell/mod.rs`, and these tests drive its two branches the way
+/// the event loop does.
+mod command_reply_filing {
+    use super::*;
+
+    use crate::shell::app::notice_catalog::{ClientNotice, RenderedNotice};
+    use nuo_protocol::CommandEffect;
+
+    /// Render the receipt a reading produces, exactly as the event arm does.
+    fn receipt(invocation: &str, body: &str, failed: bool) -> RenderedNotice {
+        ClientNotice::CommandReceipt {
+            invocation: invocation.to_string(),
+            body: body.to_string(),
+            failed,
+        }
+        .render()
+    }
+
+    /// A reading files a receipt and leaves the thread alone.
+    #[test]
+    fn reading_appends_a_receipt_and_no_thread_row() {
+        let mut app = new_app_for_relay_tests();
+        app.messages
+            .push(TranscriptMessage::new(Role::User, "why is it slow?").with_round(1));
+        let before = app.messages.len();
+        let receipts_before = app.notice_count();
+
+        // The filing decision the event arm makes for a reading.
+        let rendered = receipt("/usage", "1.2M tokens across 14 threads", false);
+        app.record_notice(rendered);
+
+        assert_eq!(
+            app.messages.len(),
+            before,
+            "a reading must never enter the thread — it is not a thing that was said"
+        );
+        assert_eq!(
+            app.notice_count(),
+            receipts_before + 1,
+            "the reply is retained in the receipt log, not dropped"
+        );
+        let line = app.notice_lines().back().expect("the receipt line");
+        assert_eq!(line.label.as_deref(), Some("command"));
+        assert_eq!(line.text, "/usage", "the invocation names the receipt");
+        assert_eq!(
+            line.detail.as_deref(),
+            Some("1.2M tokens across 14 threads"),
+            "the full body rides in the detail, so nothing is truncated away"
+        );
+    }
+
+    /// The mirror case: an act produces a thread row and no receipt.
+    #[test]
+    fn mutation_settles_a_thread_row_and_files_no_receipt() {
+        let mut app = new_app_for_relay_tests();
+        let receipts_before = app.notice_count();
+
+        // Stage the optimistic row, as `handle_send_slash` does for an act.
+        app.messages.push(
+            TranscriptMessage::pending_command("unattended", "on")
+                .with_sent_at_ms(1_700_000_000_000),
+        );
+        let before = app.messages.len();
+
+        // The reply settles that row in place.
+        let applied = crate::shell::event_loop::apply::apply_transcript(
+            &mut app,
+            crate::shell::event_loop::mutations::TranscriptEdit::SettleCommandResult {
+                invocation: "/unattended on".to_string(),
+                result: nuo_protocol::CommandResult::Ack {
+                    title: "Unattended mode ON".to_string(),
+                    detail: None,
+                },
+                fallback: None,
+            },
+        );
+
+        assert!(applied);
+        assert_eq!(
+            app.messages.len(),
+            before,
+            "the row is settled, not appended"
+        );
+        assert_eq!(
+            app.messages.last().and_then(|m| m.command_result_text()),
+            Some("Unattended mode ON".to_string()),
+            "the act's reply is the row's body"
+        );
+        assert_eq!(
+            app.notice_count(),
+            receipts_before,
+            "an act produces no receipt: it already holds a thread row"
+        );
+    }
+
+    /// A failed reading is a fault receipt (it raises a bubble); a successful one
+    /// is information. Both stay in the same log, so a user reading back finds
+    /// the failure where the answers are.
+    #[test]
+    fn a_failed_reading_is_a_fault_receipt() {
+        let ok = receipt("/diff", "3 files changed", false);
+        let failed = receipt("/diff", "could not read the workspace journal", true);
+        assert_eq!(
+            ok.severity(),
+            nuo_view::model::document::NoticeSeverity::Info
+        );
+        assert_eq!(
+            failed.severity(),
+            nuo_view::model::document::NoticeSeverity::Error,
+            "a reading that could not be produced is a fault, not information"
+        );
+    }
+
+    /// The class is not consultable twice: `CommandEffect::is_durable` is the one
+    /// predicate, and it agrees with the wire vocabulary's default.
+    #[test]
+    fn only_mutation_is_durable() {
+        assert!(CommandEffect::Mutation.is_durable());
+        assert!(!CommandEffect::Reading.is_durable());
+        assert_eq!(
+            CommandEffect::default(),
+            CommandEffect::Reading,
+            "a frame or vocabulary row that states no class makes no durability claim"
+        );
+    }
+
+    /// `[INV-CMD-08]`, the staging half: what gets staged before dispatch.
+    ///
+    /// The catalog is an optimisation, and it is an *asynchronous* one — a client
+    /// can dispatch before the catalog arrives, and `CommandCatalog::default()` is
+    /// empty. An unknown name is `Mutation` there (the safe direction for the
+    /// *residency* question, since a lost act is unrecoverable), which means a
+    /// reading may be staged by mistake. That mistake must be reversible; the
+    /// withdrawal is pinned below.
+    #[test]
+    fn an_unknown_name_is_staged_and_a_known_reading_is_not() {
+        let catalog = nuo_server::startup::command_catalog(&[]);
+
+        // A reading is not staged.
+        assert_eq!(
+            catalog.effect_for("/usage", None),
+            CommandEffect::Reading,
+            "a known reading stages no row"
+        );
+        // An act is staged.
+        assert_eq!(
+            catalog.effect_for("/unattended", Some("on")),
+            CommandEffect::Mutation,
+            "a known act stages its optimistic row"
+        );
+        // An unknown name stages a row: `Mutation` is the over-recording default,
+        // and the event will withdraw it if the reply turns out to be a reading.
+        assert_eq!(
+            catalog.effect_for("/pursue", Some("ship it")),
+            CommandEffect::Mutation,
+            "an extension handler may mutate anything"
+        );
+        // An *empty* catalog — the pre-attach state — stages everything, which is
+        // exactly why the withdrawal below has to exist.
+        assert_eq!(
+            nuo_protocol::CommandCatalog::default().effect_for("/usage", None),
+            CommandEffect::Mutation,
+            "an empty catalog cannot know, so it predicts an act"
+        );
+    }
+
+    /// `[INV-CMD-08]`, the withdrawal: a row staged on a wrong prediction is
+    /// removed when the authoritative event says "reading".
+    ///
+    /// Without this the row is left `Pending`, `CancelPendingCommands` later marks
+    /// it `Cancelled`, and the thread keeps a permanent ghost telling the reader
+    /// that a command never answered — for a command that answered in full.
+    #[test]
+    fn a_reading_withdraws_its_own_staged_row() {
+        let mut app = new_app_for_relay_tests();
+        app.messages
+            .push(TranscriptMessage::new(Role::User, "why is it slow?").with_round(1));
+        let dialogue_before = app.messages.len();
+
+        // Staged on a wrong prediction (empty catalog at dispatch time).
+        app.messages.push(
+            TranscriptMessage::pending_command("usage", "").with_sent_at_ms(1_700_000_000_000),
+        );
+        assert_eq!(app.messages.len(), dialogue_before + 1);
+
+        // The event is authority: withdraw, then file the receipt.
+        let applied = crate::shell::event_loop::apply::apply_transcript(
+            &mut app,
+            crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
+                invocation: "/usage".to_string(),
+            },
+        );
+
+        assert!(applied);
+        assert_eq!(
+            app.messages.len(),
+            dialogue_before,
+            "the predicted row is gone — the thread holds only what was said"
+        );
+        assert!(
+            app.messages.iter().all(|m| m.command_result_phase()
+                != Some(nuo_view::model::document::CommandPhase::Pending)),
+            "no pending row survives, so `CancelPendingCommands` has nothing to mark cancelled"
+        );
+    }
+
+    /// The withdrawal is surgical: it removes only the matching pending row, so a
+    /// concurrent act's staged row is untouched.
+    #[test]
+    fn withdrawal_leaves_other_pending_rows_alone() {
+        let mut app = new_app_for_relay_tests();
+        app.messages.push(
+            TranscriptMessage::pending_command("unattended", "on")
+                .with_sent_at_ms(1_700_000_000_000),
+        );
+        app.messages.push(
+            TranscriptMessage::pending_command("usage", "").with_sent_at_ms(1_700_000_000_001),
+        );
+
+        crate::shell::event_loop::apply::apply_transcript(
+            &mut app,
+            crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
+                invocation: "/usage".to_string(),
+            },
+        );
+
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(
+            app.messages[0].command_result_summary().as_deref(),
+            Some("/unattended on"),
+            "the act's optimistic row must survive a reading's withdrawal"
+        );
+    }
+}

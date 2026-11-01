@@ -395,7 +395,7 @@ pub async fn run_attached(
     // Disclosures produced *between* TUI runs — a retired stale tab, a session
     // that could not be reopened (ADR-0123 `[INV-ATTACH-02]`). Handed to the next
     // run so the notice log owns them instead of a lost stderr line.
-    let mut retire_notice: Option<(nuo_view::model::document::NoticeSeverity, String)> = None;
+    let mut retire_notice: Option<crate::shell::app::notice_catalog::ClientNotice> = None;
     let init_options = client::SessionInitOptions::new(unattended_at_start, confined_at_start)
         .with_role(role.clone())
         .with_resume(resume);
@@ -425,6 +425,7 @@ pub async fn run_attached(
     // while the next attachment handshook — a lost first click or chord stroke
     // is indistinguishable from "the gesture needs two attempts".
     let mut input = crate::shell::event_loop::input_reader::InputSource::spawn()?;
+    let mut consecutive_relinks: u32 = 0;
 
     loop {
         let action = match &target {
@@ -458,13 +459,11 @@ pub async fn run_attached(
                 if let Some(gone) = target.take() {
                     retire_preserved_tab(&mut preserved_tabs, &gone);
                 }
-                retire_notice = Some((
-                    nuo_view::model::document::NoticeSeverity::Warning,
-                    format!(
-                        "That tab's session no longer exists; it has been removed. ({})",
-                        error.message
-                    ),
-                ));
+                retire_notice = Some(
+                    crate::shell::app::notice_catalog::ClientNotice::AttachSessionGone {
+                        detail: error.message,
+                    },
+                );
                 pick_pending = true;
                 continue;
             }
@@ -477,10 +476,11 @@ pub async fn run_attached(
                     "attach refused: session could not be assembled; tab retained"
                 );
                 target = None;
-                retire_notice = Some((
-                    nuo_view::model::document::NoticeSeverity::Error,
-                    format!("Could not reopen that tab's session: {}", error.message),
-                ));
+                retire_notice = Some(
+                    crate::shell::app::notice_catalog::ClientNotice::AttachSessionUnresumable {
+                        detail: error.message,
+                    },
+                );
                 pick_pending = true;
                 continue;
             }
@@ -502,22 +502,21 @@ pub async fn run_attached(
                         if let Some(gone) = target.take() {
                             retire_preserved_tab(&mut preserved_tabs, &gone);
                         }
-                        retire_notice = Some((
-                            nuo_view::model::document::NoticeSeverity::Warning,
-                            format!(
-                                "That tab's session no longer exists; it has been removed. ({})",
-                                error.message
-                            ),
-                        ));
+                        retire_notice = Some(
+                            crate::shell::app::notice_catalog::ClientNotice::AttachSessionGone {
+                                detail: error.message,
+                            },
+                        );
                         pick_pending = true;
                         continue;
                     }
                     Err(error) if error.is_session_unresumable() => {
                         target = None;
-                        retire_notice = Some((
-                            nuo_view::model::document::NoticeSeverity::Error,
-                            format!("Could not reopen that tab's session: {}", error.message),
-                        ));
+                        retire_notice = Some(
+                            crate::shell::app::notice_catalog::ClientNotice::AttachSessionUnresumable {
+                                detail: error.message,
+                            },
+                        );
                         pick_pending = true;
                         continue;
                     }
@@ -601,8 +600,18 @@ pub async fn run_attached(
         // re-attach in place: the transcript and tabs ride `TuiOutcome`, so the
         // operator keeps their view across the gap instead of losing the window.
         if outcome.relink_requested {
+            consecutive_relinks += 1;
+            if consecutive_relinks > 10 {
+                return Err("server connection repeatedly lost; aborting attach loop after 10 re-dial attempts".into());
+            }
+            if consecutive_relinks > 1 {
+                let delay =
+                    std::time::Duration::from_millis((consecutive_relinks as u64 * 50).min(500));
+                tokio::time::sleep(delay).await;
+            }
             tracing::warn!(
                 target = ?target,
+                attempt = consecutive_relinks,
                 "attach loop: re-dialing after link loss"
             );
             // Re-resolve the server: a link that died because the server was
@@ -631,6 +640,7 @@ pub async fn run_attached(
             }
             continue;
         }
+        consecutive_relinks = 0;
         match outcome.switch_to {
             Some(id) => {
                 target = Some(id);

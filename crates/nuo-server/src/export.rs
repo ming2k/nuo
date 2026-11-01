@@ -287,15 +287,6 @@ fn format_tool_activity(
             let (status, lines) = format_generic_result(result_output);
             (header, status, lines)
         }
-        "list_dir" => {
-            let path = json_args
-                .as_ref()
-                .and_then(|v| v.get("path").and_then(|p| p.as_str()))
-                .unwrap_or(".");
-            let header = format!("list dir: {path}");
-            let (status, lines) = format_generic_result(result_output);
-            (header, status, lines)
-        }
         "code_query" => {
             let mode = json_args
                 .as_ref()

@@ -159,9 +159,68 @@ fn registry_collects_all_self_registered_tools() {
         "developer role failed to resolve execute_command from collected toolset"
     );
     // ADR-0064: pruned tools must never resolve for developer role
-    assert!(!resolved_names.contains(nuo_protocol::BuiltinTool::ListDir.as_str()));
     assert!(!resolved_names.contains(nuo_protocol::BuiltinTool::AskUser.as_str()));
     assert!(!resolved_names.contains(nuo_protocol::BuiltinTool::Todo.as_str()));
+
+    // Role-to-ToolSet integration invariant: ops role must resolve execute_command and fs tools
+    let ops = nuo_protocol::AgentRoleProfile::ops();
+    let ops_resolved = collected.resolve_for(
+        &model,
+        &ops.tools,
+        &nuo_protocol::ToolSelection::unrestricted(),
+    );
+    let ops_resolved_names: std::collections::HashSet<&str> =
+        ops_resolved.iter().map(|t| t.name()).collect();
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::ExecuteCommand.as_str()),
+        "ops role failed to resolve execute_command from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::ReadText.as_str()),
+        "ops role failed to resolve read_text from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::EditText.as_str()),
+        "ops role failed to resolve edit_text from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::WriteFile.as_str()),
+        "ops role failed to resolve write_file from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::FindFiles.as_str()),
+        "ops role failed to resolve find_files from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::SearchText.as_str()),
+        "ops role failed to resolve search_text from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::ReadUrl.as_str()),
+        "ops role failed to resolve read_url from collected toolset"
+    );
+    assert!(
+        ops_resolved_names.contains(nuo_protocol::BuiltinTool::SearchWeb.as_str()),
+        "ops role failed to resolve search_web from collected toolset"
+    );
+    assert!(!ops_resolved_names.contains(nuo_protocol::BuiltinTool::AskUser.as_str()));
+    assert!(!ops_resolved_names.contains(nuo_protocol::BuiltinTool::Todo.as_str()));
+
+    // Role-to-ToolSet integration invariant: philosophist role must NOT resolve execute_command or fs tools
+    let phil = nuo_protocol::AgentRoleProfile::philosophist();
+    let phil_resolved = collected.resolve_for(
+        &model,
+        &phil.tools,
+        &nuo_protocol::ToolSelection::unrestricted(),
+    );
+    let phil_resolved_names: std::collections::HashSet<&str> =
+        phil_resolved.iter().map(|t| t.name()).collect();
+    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::ExecuteCommand.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::ReadText.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::EditText.as_str()));
+    assert!(!phil_resolved_names.contains(nuo_protocol::BuiltinTool::WriteFile.as_str()));
+    assert!(phil_resolved_names.contains(nuo_protocol::BuiltinTool::ReadUrl.as_str()));
+    assert!(phil_resolved_names.contains(nuo_protocol::BuiltinTool::SearchWeb.as_str()));
 }
 
 #[async_trait]

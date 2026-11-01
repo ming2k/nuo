@@ -180,3 +180,27 @@ fn the_link_loss_disclosure_repeats_the_transport_error() {
         record.text
     );
 }
+
+/// A failed outbox send must latch `link_down`, set `relink_requested`, and record a notice
+/// so the client never gets stuck in a dead-end unrecoverable state.
+#[test]
+fn failed_outbox_send_requests_relink_and_records_notice() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+
+    assert!(!app.link_down);
+    assert!(!app.relink_requested);
+    let notices_before = app.notice_log().len();
+
+    let delivered = app.send_intent(AgentRequest::Interrupt);
+    assert!(!delivered, "send to dropped receiver must fail");
+    assert!(app.link_down, "link_down must latch on send failure");
+    assert!(
+        app.relink_requested,
+        "relink_requested must be set so runner can auto-relink"
+    );
+    assert_eq!(
+        app.notice_log().len(),
+        notices_before + 1,
+        "an error notice must be appended to the notice log"
+    );
+}

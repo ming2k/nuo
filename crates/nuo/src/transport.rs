@@ -36,6 +36,18 @@ pub type SessionInitOptions = ThreadInitOptions;
 
 /// Initialize client logging guard.
 pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    init_tracing_for("client.log", "client")
+}
+
+/// Initialize server logging guard.
+pub fn init_server_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    init_tracing_for("nuo.log", "server")
+}
+
+fn init_tracing_for(
+    file_name: &str,
+    role: &str,
+) -> Option<tracing_appender::non_blocking::WorkerGuard> {
     let level = std::env::var("NUO_LOG").unwrap_or_else(|_| String::from("info"));
     if level.eq_ignore_ascii_case("off") {
         return None;
@@ -44,7 +56,7 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
     }
-    let file_appender = tracing_appender::rolling::daily(&dir, "client.log");
+    let file_appender = tracing_appender::rolling::daily(&dir, file_name);
     let (writer, guard) = tracing_appender::non_blocking(file_appender);
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
@@ -52,7 +64,10 @@ pub fn init_tracing() -> Option<tracing_appender::non_blocking::WorkerGuard> {
         .with_env_filter(filter)
         .with_writer(writer)
         .with_ansi(false)
+        .with_thread_ids(true)
+        .with_target(true)
         .try_init();
+    tracing::info!(pid = std::process::id(), role, "tracing initialized");
     Some(guard)
 }
 
@@ -783,6 +798,7 @@ pub struct ServerDiagnostics {
     pub installed_image_digest: Option<String>,
     pub server_image_digest: Option<String>,
     pub server_image_current: bool,
+    pub recent_events: Vec<nuo_host::diagnostics::DiagnosticEvent>,
 }
 
 pub async fn diagnose_server() -> ServerDiagnostics {
@@ -858,6 +874,7 @@ pub async fn diagnose_server() -> ServerDiagnostics {
         installed_image_digest,
         server_image_digest,
         server_image_current,
+        recent_events: nuo_host::diagnostics::recent_events(8),
     }
 }
 
@@ -1074,6 +1091,7 @@ async fn finish_handshake_with_project(
     // consumer learns whether the link failed and why, without guessing.
     let link_lost_marker = Arc::new(Mutex::new(None::<String>));
     let link_lost_inner = Arc::clone(&link_lost_marker);
+    let link_lost_for_writer = Arc::clone(&link_lost_marker);
     let exit_seen = Arc::new(Mutex::new(false));
     let exit_seen_inner = Arc::clone(&exit_seen);
 
@@ -1085,6 +1103,12 @@ async fn finish_handshake_with_project(
             }
             if let Err(error) = wire_sink.send(Wire::Request { request }).await {
                 tracing::warn!(%error, "attach: wire send failed");
+                let mut marker = link_lost_for_writer
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                if marker.is_none() {
+                    *marker = Some(format!("wire send failed: {error}"));
+                }
                 break;
             }
         }
@@ -1145,6 +1169,12 @@ async fn finish_handshake_with_project(
                     break;
                 }
             }
+        }
+        let exit_seen = *exit_seen_inner.lock().unwrap_or_else(|e| e.into_inner());
+        let mut marker = link_lost_inner.lock().unwrap_or_else(|e| e.into_inner());
+        if !exit_seen && marker.is_none() {
+            tracing::warn!("attach: connection closed by server unexpectedly without Exit frame");
+            *marker = Some("server closed connection unexpectedly".to_string());
         }
     });
 

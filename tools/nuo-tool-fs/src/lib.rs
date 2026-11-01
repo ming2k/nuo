@@ -660,170 +660,6 @@ fn diagnose_edit_failure(content: &str, old_str: &str, path: &str) -> String {
     )
 }
 
-/// The `ls`-style class of one directory entry, carried as the leading tag of a
-/// `list_dir` row so a presentation layer can colour a listing the way the
-/// shell's `ls` does (blue directories, green executables, cyan symlinks, plain
-/// files) without re-statting the path itself.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum EntryClass {
-    Dir,
-    Exec,
-    Link,
-    File,
-}
-
-impl EntryClass {
-    /// Classify an entry. A symlink wins over every other class (its own type is
-    /// the fact worth surfacing), a directory next, then the executable bit,
-    /// else a plain file. The executable bit is consulted only where the host
-    /// exposes a POSIX mode; elsewhere every non-dir, non-link entry is a file.
-    fn classify(is_symlink: bool, is_dir: bool, metadata: Option<&fs::Metadata>) -> Self {
-        if is_symlink {
-            Self::Link
-        } else if is_dir {
-            Self::Dir
-        } else if metadata.is_some_and(is_executable) {
-            Self::Exec
-        } else {
-            Self::File
-        }
-    }
-
-    /// The leading tag printed for this class, parsed back by the TUI renderer.
-    fn tag(self) -> &'static str {
-        match self {
-            Self::Dir => "[DIR]",
-            Self::Exec => "[EXEC]",
-            Self::Link => "[LINK]",
-            Self::File => "[FILE]",
-        }
-    }
-}
-
-/// Whether `metadata` carries an executable bit for any principal.
-#[cfg(unix)]
-fn is_executable(metadata: &fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    metadata.permissions().mode() & 0o111 != 0
-}
-
-/// Without a POSIX permission model nothing is reported as executable.
-#[cfg(not(unix))]
-fn is_executable(_metadata: &fs::Metadata) -> bool {
-    false
-}
-
-/// Typed parameters for [`ListDirTool`].
-#[derive(Debug, Clone, Deserialize, ToolSchema)]
-pub struct ListDirArgs {
-    #[tool(desc = "Directory to list immediate children of (default '.')")]
-    pub path: Option<String>,
-    #[tool(desc = "Maximum entries cap (default 200)")]
-    pub limit: Option<usize>,
-}
-
-/// Lists immediate children of a directory.
-pub struct ListDirTool {
-    ctx: Arc<SystemToolContext>,
-}
-
-impl ListDirTool {
-    pub fn new(ctx: Arc<SystemToolContext>) -> Self {
-        Self { ctx }
-    }
-}
-
-#[async_trait]
-impl Tool for ListDirTool {
-    fn name(&self) -> &str {
-        BuiltinTool::ListDir.as_str()
-    }
-
-    fn description(&self) -> &str {
-        "List the immediate children of a directory (non-recursive)."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        ListDirArgs::parameters_schema()
-    }
-
-    fn risk_profile(&self) -> RiskProfile {
-        RiskProfile::ReadOnly
-    }
-
-    fn scopes(&self) -> Vec<ToolScope> {
-        vec![ToolScope::ReadOnly, ToolScope::Workspace]
-    }
-
-    fn accesses(&self, arguments: &str) -> ToolAccesses {
-        // A directory listing reads one node, not the whole subtree.
-        match path_argument(arguments) {
-            Some(path) => ToolAccesses::read_file(path),
-            None => ToolAccesses::none(),
-        }
-    }
-
-    async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
-        let args: ListDirArgs = serde_json::from_value(arguments).map_err(|err| {
-            ToolError::execution(self.name(), format!("invalid arguments: {err}"))
-        })?;
-
-        let raw_path = args.path.as_deref().unwrap_or(".");
-        let limit = args.limit.unwrap_or(200).max(1);
-
-        let path = self.ctx.resolve_path(raw_path);
-        if !path.exists() {
-            return Err(ToolError::execution(
-                self.name(),
-                format!("directory does not exist: `{raw_path}`"),
-            ));
-        }
-        if !path.is_dir() {
-            return Err(ToolError::execution(
-                self.name(),
-                format!("path is not a directory: `{raw_path}`"),
-            ));
-        }
-
-        let entries = fs::read_dir(&path).map_err(|err| {
-            ToolError::execution(
-                self.name(),
-                format!("failed to read directory `{raw_path}`: {err}"),
-            )
-        })?;
-
-        let mut items = Vec::new();
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            // `file_type` reports a symlink's *own* type (never followed), so a
-            // link is classified as a link even when it points at a directory.
-            let file_type = entry.file_type().ok();
-            let is_symlink = file_type.map(|t| t.is_symlink()).unwrap_or(false);
-            let is_dir = file_type.map(|t| t.is_dir()).unwrap_or(false);
-            let metadata = entry.metadata().ok();
-            let size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
-
-            let class = EntryClass::classify(is_symlink, is_dir, metadata.as_ref());
-            items.push(format!("{:<6} {:<25} ({size} B)", class.tag(), file_name));
-        }
-
-        items.sort();
-        let total = items.len();
-        let truncated = items.into_iter().take(limit).collect::<Vec<_>>();
-
-        let mut summary = format!(
-            "Directory: `{raw_path}` ({total} items):\n{}",
-            truncated.join("\n")
-        );
-        if total > limit {
-            let omitted = total - limit;
-            summary.push_str(&format!("\n... ({omitted} additional entries omitted)"));
-        }
-
-        Ok(ToolOutput::success(summary))
-    }
-}
-
 /// Directories that are almost never interesting to search or list and can be
 /// enormous: VCS metadata, dependency trees, and build output.
 pub(crate) const IGNORED_DIRS: &[&str] = &[
@@ -1173,7 +1009,7 @@ mod tests {
         let write_tool = WriteFileTool::new(ctx.clone());
         let read_tool = ReadTextTool::new(ctx.clone());
         let edit_tool = EditTextTool::new(ctx.clone());
-        let list_tool = ListDirTool::new(ctx.clone());
+        let find_tool = FindFilesTool::new(ctx.clone());
         let search_tool = SearchTextTool::new(ctx.clone());
 
         // 1. Write file
@@ -1236,54 +1072,12 @@ mod tests {
             .unwrap();
         assert!(search_res.content().contains("hello.txt:2: line 2: nuo"));
 
-        // 5. List dir
-        let list_res = list_tool
+        // 5. Find files
+        let find_res = find_tool
             .execute(&t_ctx, json!({"path": "."}))
             .await
             .unwrap();
-        assert!(list_res.content().contains("hello.txt"));
-        // The listing tags each entry with its class so the TUI can colour it.
-        assert!(
-            list_res.content().contains("[FILE] hello.txt"),
-            "a plain file is tagged `[FILE]`; got:\n{}",
-            list_res.content()
-        );
-    }
-
-    #[test]
-    fn entry_class_prefers_link_then_dir_then_executable() {
-        // A symlink wins over the type it points at (a link to a dir is a link).
-        assert_eq!(EntryClass::classify(true, true, None), EntryClass::Link);
-        assert_eq!(EntryClass::classify(true, false, None), EntryClass::Link);
-        // A real directory next.
-        assert_eq!(EntryClass::classify(false, true, None), EntryClass::Dir);
-        // No metadata → a plain file (nothing is guessed as executable).
-        assert_eq!(EntryClass::classify(false, false, None), EntryClass::File);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn list_dir_tags_executables_and_directories() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempdir().unwrap();
-        let ctx = Arc::new(SystemToolContext::new(dir.path()));
-        let t_ctx = ToolContext::default();
-        fs::create_dir(dir.path().join("nested")).unwrap();
-        fs::write(dir.path().join("plain.txt"), "hi").unwrap();
-        let script = dir.path().join("run.sh");
-        fs::write(&script, "#!/bin/sh\n").unwrap();
-        let mut perms = fs::metadata(&script).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script, perms).unwrap();
-
-        let out = ListDirTool::new(ctx)
-            .execute(&t_ctx, json!({"path": "."}))
-            .await
-            .unwrap();
-        let text = out.content();
-        assert!(text.contains("[DIR]  nested"), "dir tag: {text}");
-        assert!(text.contains("[EXEC] run.sh"), "exec tag: {text}");
-        assert!(text.contains("[FILE] plain.txt"), "file tag: {text}");
+        assert!(find_res.content().contains("hello.txt"));
     }
 
     #[tokio::test]

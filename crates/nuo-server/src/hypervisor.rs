@@ -216,12 +216,17 @@ impl Tool for HypervisorInspectSessionTool {
             .workspace_root
             .as_ref()
             .map(|p| p.to_string_lossy().to_string());
-        let turns = host.session.commands().await.len();
+        // `rounds`, not a row count: the command ledger holds **acts**, and has
+        // never been a turn counter (ADR-0140 narrowed it from "every invocation"
+        // to "every act", which made the old `commands().len()` silently
+        // under-report). The session's own round counter is the authoritative
+        // answer to "how far along is this thread".
+        let rounds = host.session.round_counter().await;
 
         let details = json!({
             "session_id": session_id,
             "project_root": project_root,
-            "turn_count": turns,
+            "round_count": rounds,
         });
 
         Ok(serde_json::to_string_pretty(&details).unwrap_or_default())

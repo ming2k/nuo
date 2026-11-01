@@ -214,9 +214,8 @@ pub fn render_selectable_body(
                     } else {
                         wl.text[start_byte..end_byte].to_string()
                     };
-                let x_offset = unicode_width::UnicodeWidthStr::width(&wl.text[..start_byte]);
-                let w =
-                    unicode_width::UnicodeWidthStr::width(&wl.text[start_byte..end_byte]).max(1);
+                let x_offset = nuotc::str_len(&wl.text[..start_byte]);
+                let w = nuotc::str_len(&wl.text[start_byte..end_byte]).max(1);
                 layout_map.push_link_hit(LinkHit {
                     message_idx: MODAL_DOC_MSG_IDX,
                     block_idx: logical_idx,

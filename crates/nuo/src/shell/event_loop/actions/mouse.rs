@@ -5,7 +5,6 @@ use crate::shell::input;
 use crate::shell::interaction::{self, ClickTarget};
 use crate::shell::step_interaction::StepKind;
 use crate::shell::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
-use nuo_view::model::document::NoticeSeverity;
 use nuo_view::model::layout::{InteractiveTarget, SemanticCursor};
 use nuo_view::model::selection::{CellDragInfo, SelectionState, floor_grapheme_boundary};
 
@@ -264,6 +263,9 @@ pub(super) async fn handle_selection_start(
                     app.surfaces.put_active_view(ent);
                     if outcome == crate::shell::surfaces::DialogOutcome::Dismiss {
                         app.surfaces.pop_overlay();
+                        if let Some(help_action) = app.pending_help_action.take() {
+                            execute_help_action(app, runtime, help_action, viewed_session_id).await;
+                        }
                         return;
                     }
                     if outcome.is_consumed() {
@@ -468,13 +470,13 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                         // A failed launch is an operation receipt, not
                         // dialogue: it must not enter the conversation.
                         mutations.blocking_send(
-                            crate::shell::event_loop::AppMutation::NoticeDisclosure {
-                                severity: NoticeSeverity::Warning,
-                                topic: "link".to_string(),
-                                text: format!("Failed to open link {url_for_open}: {err}"),
-                                detail: None,
-                                at_ms: crate::shell::event_loop::now_epoch_ms(),
-                            },
+                            crate::shell::event_loop::AppMutation::NoticeDisclosure(
+                                crate::shell::app::notice_catalog::ClientNotice::LinkOpenFailed {
+                                    url: url_for_open,
+                                    error: err.to_string(),
+                                }
+                                .render(),
+                            ),
                         );
                     }
                 });
@@ -647,6 +649,68 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
         };
     } else {
         app.hovered_step = None;
+    }
+}
+
+async fn execute_help_action(
+    app: &mut App,
+    runtime: &UiRuntime,
+    action: crate::shell::overlays::help::HelpActionKind,
+    viewed_session_id: &str,
+) {
+    use crate::shell::overlays::help::HelpActionKind as K;
+    match action {
+        K::NewTab => {
+            app.startup_overlay = crate::shell::StartupOverlay::None;
+            if app.is_current_thread_empty() {
+                app.send_intent(nuo_protocol::AgentRequest::SlashCommand("/new".to_string()));
+            } else {
+                app.switch_to_new = true;
+                app.should_quit
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        K::CloseTab => {
+            let idx = app.surfaces.active_tab_index();
+            app.close_tab(idx);
+        }
+        K::Dashboard => {
+            app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
+        }
+        K::Settings => {
+            app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
+        }
+        K::Switcher => {
+            super::enter_panel(
+                app,
+                crate::shell::surfaces::DialogKind::Switcher,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        K::Sessions => {
+            super::enter_panel(
+                app,
+                crate::shell::surfaces::DialogKind::Threads,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        K::Notices => {
+            app.open_notice_viewer();
+        }
+        K::ThreadStats => {
+            super::enter_panel(
+                app,
+                crate::shell::surfaces::DialogKind::ThreadStats,
+                runtime,
+                viewed_session_id,
+            );
+        }
+        K::Connections => {
+            super::open_active_connection_detail(app, runtime, viewed_session_id);
+        }
+        K::CloseHelp => {}
     }
 }
 

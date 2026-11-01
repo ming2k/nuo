@@ -43,6 +43,13 @@ pub enum QueuedDispatchState {
     /// A fresh round is being started for this item (`FollowUp` sent,
     /// `FollowUpStarted` not yet received).
     Dispatching,
+    /// A busy-Enter steer admitted into a running round at its next safe
+    /// turn boundary. Unlike `Waiting`/`Dispatching` (follow-up queue items),
+    /// a `Steering` item is never dispatched as a fresh round by the
+    /// client: admission is observed from the wire (`SteerAdmitted`), which
+    /// materializes the message in the transcript at the seam head and
+    /// removes this outbox row (ADR-0137).
+    Steering,
 }
 
 /// Target queue mode for the live composer while a round is running.
@@ -673,6 +680,8 @@ pub struct App {
     /// `/host` Enter on a hosted session: the id to switch to, read by the
     /// caller after the TUI exits to re-attach.
     pub switch_to_target: Option<String>,
+    /// Pending action requested by clicking a row in the Help dialog.
+    pub pending_help_action: Option<crate::shell::overlays::help::HelpActionKind>,
     /// Request the runner to create and attach to a brand-new thread.
     pub switch_to_new: bool,
     /// Optional opening prompt to submit immediately upon attaching to the new thread.
@@ -791,6 +800,11 @@ pub struct App {
     /// Independent of the transient "paused" coloring: a session can be idle
     /// (visibly paused) without being blocked, and vice versa.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
+    /// Pending steer items the user *deleted* (QueueDelete `D` in the modal)
+    /// rather than recalled. `SteerCancelled` restores the text to the
+    /// composer for a recall, but a deletion must not resurrect the text; the
+    /// cancelled arm consults this set and skips the restore (ADR-0137).
+    pub suppress_steer_restore: std::collections::HashSet<(String, String)>,
     /// Sessions whose last interactive round reached its natural completion
     /// event and whose harness has subsequently reported idle. Both facts are
     /// tracked separately so errors/interrupts never auto-run follow-ups.
@@ -1082,6 +1096,7 @@ pub struct App {
 mod composer;
 mod history;
 mod link;
+pub mod notice_catalog;
 pub mod notices;
 pub mod providers;
 mod queue;

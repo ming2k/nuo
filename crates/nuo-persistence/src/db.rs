@@ -875,10 +875,6 @@ pub(crate) enum PersistenceCommand {
         manual: bool,
         ack: oneshot::Sender<Result<bool, PersistenceError>>,
     },
-    RecordCommand {
-        cmd: nuo_protocol::CommandRecord,
-        ack: oneshot::Sender<Result<(), PersistenceError>>,
-    },
     /// Append a write-ahead workspace effect and return its journal id
     /// (ADR-0125). Sent *after* the pre-image is durably stored and *before*
     /// the tool mutates the path, so a crash mid-mutation leaves a record.

@@ -22,17 +22,18 @@ fn runtime() -> UiRuntime {
 }
 
 /// Deliver one disclosure the way the translator does.
-fn disclose(app: &mut App, severity: NoticeSeverity, topic: &str, text: &str, at_ms: u64) {
+fn disclose(
+    app: &mut App,
+    severity: NoticeSeverity,
+    topic: crate::shell::app::notice_catalog::ClientTopic,
+    text: &str,
+) {
     apply(
         app,
         &runtime(),
-        AppMutation::NoticeDisclosure {
-            severity,
-            topic: topic.to_string(),
-            text: text.to_string(),
-            at_ms,
-            detail: None,
-        },
+        AppMutation::NoticeDisclosure(crate::shell::app::notice_catalog::RenderedNotice::for_test(
+            severity, topic, text,
+        )),
     );
 }
 
@@ -45,9 +46,8 @@ fn a_fault_that_fades_from_the_bubble_is_still_in_the_log_and_flagged_unread() {
     disclose(
         &mut app,
         NoticeSeverity::Error,
-        "backend",
+        crate::shell::app::notice_catalog::ClientTopic::Client,
         "could not reach the backend",
-        1,
     );
 
     // While the bubble is up.
@@ -78,16 +78,14 @@ fn a_second_fault_does_not_erase_the_first() {
     disclose(
         &mut app,
         NoticeSeverity::Error,
-        "link",
+        crate::shell::app::notice_catalog::ClientTopic::Link,
         "could not open link",
-        1,
     );
     disclose(
         &mut app,
         NoticeSeverity::Error,
-        "copy",
+        crate::shell::app::notice_catalog::ClientTopic::Copy,
         "clipboard write timed out",
-        2,
     );
 
     assert_eq!(
@@ -109,9 +107,8 @@ fn opening_the_viewer_clears_the_badge_without_discarding_the_record() {
     disclose(
         &mut app,
         NoticeSeverity::Warning,
-        "images",
+        crate::shell::app::notice_catalog::ClientTopic::Images,
         "image withheld",
-        1,
     );
     assert!(app.has_unread_notice_fault());
 
@@ -141,9 +138,8 @@ fn the_viewer_opens_at_the_newest_notice() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i}"),
-            i,
         );
     }
     app.open_notice_viewer();
@@ -163,9 +159,8 @@ fn an_acknowledgement_is_retained_but_never_lights_the_badge() {
     disclose(
         &mut app,
         NoticeSeverity::Info,
-        "command",
+        crate::shell::app::notice_catalog::ClientTopic::Command,
         "delegated mode on",
-        1,
     );
     assert_eq!(app.notice_count(), 1);
     assert!(!app.has_unread_notice_fault());
@@ -179,16 +174,14 @@ fn the_copied_block_carries_every_notice_with_severity_time_and_topic() {
     disclose(
         &mut app,
         NoticeSeverity::Error,
-        "link",
+        crate::shell::app::notice_catalog::ClientTopic::Link,
         "could not open link",
-        1_700_000_000_000,
     );
     disclose(
         &mut app,
         NoticeSeverity::Info,
-        "command",
+        crate::shell::app::notice_catalog::ClientTopic::Command,
         "delegated mode on",
-        1_700_000_060_000,
     );
 
     let block = app
@@ -216,7 +209,12 @@ fn clearing_forgets_the_notices_and_the_badge_together() {
     // The viewer's `x` verb. A clear that left the badge lit would be a lie the
     // user cannot dismiss.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     app.open_notice_viewer();
     app.clear_notices();
     assert_eq!(app.notice_count(), 0);
@@ -230,7 +228,10 @@ fn a_local_fault_takes_the_same_path_as_a_routed_notice() {
     // The clipboard/link family never had a `RoundEvent`; it must not need a
     // second retention mechanism.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.record_local_fault("copy", "clipboard is empty");
+    app.record_local_fault(
+        crate::shell::app::notice_catalog::ClientTopic::Copy,
+        "clipboard is empty",
+    );
     let line = app.notice_lines().back().expect("retained");
     assert_eq!(line.status, LineStatus::Failed);
     assert_eq!(line.label.as_deref(), Some("copy"));
@@ -242,7 +243,12 @@ fn the_log_survives_a_scene_switch() {
     // `[INV-NOTICE-02]`: a fault is a fact about the client, so leaving the
     // thread must not discard the record the user is about to go looking for.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     let count = app.notice_count();
 
     app.surfaces
@@ -260,7 +266,12 @@ fn the_log_survives_a_session_switch() {
     // archived per session, and the notice log must not be one of them.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "a".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     let count = app.notice_count();
 
     app.surfaces.dialogs.switch_session("b");
@@ -278,9 +289,8 @@ fn the_viewer_paints_over_the_transcript_when_opened() {
     disclose(
         &mut app,
         NoticeSeverity::Error,
-        "backend",
+        crate::shell::app::notice_catalog::ClientTopic::Client,
         "could not reach the backend",
-        1_700_000_000_000,
     );
     app.open_notice_viewer();
 
@@ -293,7 +303,7 @@ fn the_viewer_paints_over_the_transcript_when_opened() {
         text.contains("Notices"),
         "the panel header is on screen: {text}"
     );
-    assert!(text.contains("backend"), "the topic is shown: {text}");
+    assert!(text.contains("client"), "the topic is shown: {text}");
     assert!(
         text.contains("could not reach the backend"),
         "the retained notice is readable: {text}"
@@ -307,7 +317,12 @@ fn the_unread_fault_badge_paints_on_the_tabbar() {
     // leaving the model bar 100% pure telemetry.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
 
     let mut terminal = nuotc::TestTerminal::new(110, 30);
     terminal.draw(|f| {
@@ -333,9 +348,8 @@ fn the_badge_is_absent_when_only_acknowledgements_are_unread() {
     disclose(
         &mut app,
         NoticeSeverity::Info,
-        "command",
+        crate::shell::app::notice_catalog::ClientTopic::Command,
         "delegated mode on",
-        1,
     );
 
     let mut terminal = nuotc::TestTerminal::new(110, 30);
@@ -353,7 +367,12 @@ fn the_badge_is_absent_when_only_acknowledgements_are_unread() {
 fn the_badge_clears_once_the_viewer_has_been_opened() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     app.open_notice_viewer();
     app.close_notice_viewer();
 
@@ -390,9 +409,8 @@ async fn paging_steps_by_the_panels_real_body_height() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i}"),
-            i,
         );
     }
     app.open_notice_viewer();
@@ -497,9 +515,8 @@ async fn the_viewer_owns_its_keys_while_open() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i}"),
-            i,
         );
     }
     app.open_notice_viewer();
@@ -559,7 +576,12 @@ async fn esc_closes_the_viewer_before_it_reaches_a_dialog_beneath() {
     // *behind* the panel — which looks like the key did nothing at all.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     app.open_notice_viewer();
 
@@ -588,7 +610,12 @@ async fn typing_does_not_kill_a_fault_bubble_but_esc_does() {
     // Typing is how a user resumes work; it must not cost them the message.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     assert!(app.notice_toast_until.is_some());
 
     // A printable key.
@@ -636,9 +663,8 @@ async fn typing_does_dismiss_an_acknowledgement_bubble() {
     disclose(
         &mut app,
         NoticeSeverity::Info,
-        "command",
+        crate::shell::app::notice_catalog::ClientTopic::Command,
         "delegated mode on",
-        1,
     );
     assert!(app.notice_toast_until.is_some());
 
@@ -666,9 +692,8 @@ async fn a_fault_bubble_outlives_the_wcag_perception_threshold() {
     disclose(
         &mut app,
         NoticeSeverity::Error,
-        "backend",
+        crate::shell::app::notice_catalog::ClientTopic::Client,
         "could not reach the backend",
-        1,
     );
     let remaining = app
         .notice_toast_until
@@ -691,7 +716,12 @@ async fn esc_in_the_viewer_closes_only_the_panel_not_the_bubble_it_points_at() {
     // already moot because the user is reading the record.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     app.open_notice_viewer();
 
     crate::shell::event_loop::process_event_for_test(
@@ -722,9 +752,8 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i} with enough words to make the detail block wrap"),
-            i,
         );
     }
     app.open_notice_viewer();
@@ -788,7 +817,12 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     });
     let initial_text = frame_text(&terminal);
 
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
@@ -815,7 +849,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
         modal_text.contains("Notices & Disclosures"),
         "sovereign dialog title"
     );
-    assert!(modal_text.contains("backend"), "renders topic");
+    assert!(modal_text.contains("client"), "renders topic");
     assert!(modal_text.contains("link down"), "renders notice content");
 
     app.close_notice_viewer();
@@ -826,7 +860,12 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
 fn the_composer_stays_live_below_and_unaffected_by_notices() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "test-session".to_string();
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
 
     let mut terminal = nuotc::TestTerminal::new(100, 40);
     terminal.draw(|f| {
@@ -854,7 +893,12 @@ fn the_conversation_stays_visible_when_notice_arrives() {
                 format!("visible-turn-{i}"),
             ));
     }
-    disclose(&mut app, NoticeSeverity::Error, "backend", "link down", 1);
+    disclose(
+        &mut app,
+        NoticeSeverity::Error,
+        crate::shell::app::notice_catalog::ClientTopic::Client,
+        "link down",
+    );
 
     let mut terminal = nuotc::TestTerminal::new(100, 40);
     terminal.draw(|f| {
@@ -881,9 +925,8 @@ fn notices_arrival_never_alters_footer_height() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i}"),
-            i,
         );
         terminal.draw(|f| {
             crate::shell::event_loop::render_frame(&mut app, f, "test-session");
@@ -902,9 +945,8 @@ fn expanding_a_detail_toggles_dialog_detail() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i} with enough words to wrap across several rows in the dialog"),
-            i,
         );
     }
     app.open_notice_viewer();
@@ -932,9 +974,8 @@ async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
         disclose(
             &mut app,
             NoticeSeverity::Error,
-            "t",
+            crate::shell::app::notice_catalog::ClientTopic::Client,
             &format!("fault {i}"),
-            i,
         );
     }
     app.open_notice_viewer();
@@ -1016,9 +1057,8 @@ fn a_retry_receipt_records_the_retry_and_the_budget_but_never_a_countdown() {
     disclose(
         &mut app,
         NoticeSeverity::Warning,
-        "retry",
+        crate::shell::app::notice_catalog::ClientTopic::Retry,
         &format!("{} — {fault}", progress.receipt_label()),
-        1_700_000_000_000,
     );
 
     let line = app.notice_lines().back().expect("the receipt is retained");

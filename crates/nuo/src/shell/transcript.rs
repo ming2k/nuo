@@ -110,6 +110,11 @@ pub(super) fn transcript_message_from_core(message: Message) -> Option<Transcrip
                 msg.origin = UserMessageOrigin::Slash;
             } else if is_insert {
                 msg.origin = UserMessageOrigin::Steer;
+                // ADR-0137: durable steers were persisted only at the turn
+                // seam, so every restored steer is an in-round interjection.
+                // The render tag is rebuilt here so any consumer of the
+                // restored document sees the one-body-row form.
+                msg.origin_tags = vec![nuo_view::model::document::SteerOriginTag::InRound];
             }
         }
         Some(msg)
@@ -180,12 +185,14 @@ pub(super) fn merge_round_interrupt_rows(
     out
 }
 
-/// Rebuild the command rows of the durable command ledger into the
-/// TUI document model: one compact, dimmed, non-conversational row per
-/// invocation, with the typed result as its expandable body. The ledger is the
-/// source of truth for commands on resume — the message stream is pure
-/// dialogue. Rows carry no round/turn position (a command is not a turn); the
-/// caller rebases round positions over the returned slice as usual.
+/// Rebuild the act rows of the durable command ledger into the
+/// TUI document model: one compact, dimmed, non-conversational row per act, with
+/// the typed result as its expandable body. The ledger is the source of truth for
+/// acts on resume — the message stream is pure dialogue, and a *reading* has no
+/// row here at all (ADR-0140: a measurement of the world is a receipt, never a
+/// statement that stays true). Rows carry no round/turn position (a command is
+/// not a turn); the caller rebases round positions over the returned slice as
+/// usual.
 ///
 /// Each row is stamped with the record's invocation `timestamp` (via
 /// `sent_at_ms`) so [`merge_command_rows`] can place it at its turn seam; the
@@ -495,6 +502,18 @@ fn transcript_from_core_inner(
                         || transcript_message.origin == UserMessageOrigin::FollowUp)
                 {
                     transcript_message.round = (restored_round > 0).then_some(restored_round);
+                }
+                // ADR-0137: the durable store only ever contains *admitted*
+                // steers — the harness persists them at the turn seam — so a
+                // restored steer is always an in-round interjection, and the
+                // restore engine rebuilds the render tag the live path stamps
+                // from `SteerAdmitted`. Follow-ups admitted as fresh rounds
+                // keep round-panel weight (no tag).
+                if transcript_message.role == Role::User
+                    && transcript_message.origin == UserMessageOrigin::Steer
+                {
+                    transcript_message.origin_tags =
+                        vec![nuo_view::model::document::SteerOriginTag::InRound];
                 }
             }
             restored.push(transcript_message);

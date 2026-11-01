@@ -286,19 +286,6 @@ impl PersistenceHandle {
         ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
     }
 
-    /// Asynchronously record a command invocation.
-    pub async fn record_command(
-        &self,
-        cmd: nuo_protocol::CommandRecord,
-    ) -> Result<(), PersistenceError> {
-        let (ack_tx, ack_rx) = oneshot::channel();
-        self.supervisor
-            .send(PersistenceCommand::RecordCommand { cmd, ack: ack_tx })
-            .await
-            .map_err(|_| PersistenceError::WriterDown)?;
-        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
-    }
-
     /// Append a write-ahead workspace effect, returning its journal id
     /// (ADR-0125).
     ///

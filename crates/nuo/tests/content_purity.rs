@@ -146,3 +146,100 @@ fn round_event_classification_has_no_wildcard_arm() {
         "the transcript edit applier must gate admission on the event class (ADR-0117)"
     );
 }
+
+/// `[INV-CMD-06]`: the command ledger has exactly **one** writer.
+///
+/// The residency decision ("is this reply remembered?") is a mechanism only if it
+/// is made in one place. A second writer with its own judgement is how the old
+/// design drifted: forty call sites each choosing a helper, and a provider path
+/// that bypassed them entirely. This is a module-graph check, so a new writer
+/// cannot be added without deleting the invariant.
+#[test]
+fn command_ledger_has_exactly_one_writer() {
+    let root = workspace_root();
+    let server = root.join("crates/nuo-server/src");
+    let mut writers = Vec::new();
+    for file in rust_files(&server) {
+        let text = read(&file);
+        for (n, line) in text.lines().enumerate() {
+            // Prose may name the primitive (negative knowledge, doc comments).
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
+            if !line.contains("mutate_commands(") {
+                continue;
+            }
+            // Two legal sites: the funnel's persist step, and the dispatch
+            // completeness net (which writes an invocation-only row when a
+            // handler recorded nothing at all).
+            let legal = file.ends_with("handlers_slash/record.rs")
+                || file.ends_with("handlers_slash/dispatch.rs");
+            if !legal {
+                writers.push(format!("{}:{}", file.display(), n + 1));
+            }
+        }
+    }
+    assert!(
+        writers.is_empty(),
+        "the command ledger must have exactly one writer (the reply funnel in \
+         handlers_slash/record.rs) plus the dispatch completeness net; a third writer \
+         re-derives the residency policy (ADR-0140):\n{}",
+        writers.join("\n")
+    );
+}
+
+/// `[INV-CMD-05]`: the class is *declared*, never inferred.
+///
+/// Two failure shapes are excluded mechanically:
+///
+/// 1. A dispatcher that decides an effect itself — `effect_for` is the single
+///    resolver, and every handler's reply must flow through a helper that calls
+///    it.
+/// 2. A vocabulary entry that does not state both `bare` and `verb`, or a declared
+///    verb without its class. The macro makes omission a compile error, so this
+///    test guards the *shape* of the declaration block that the macro accepts.
+#[test]
+fn command_effects_are_declared_not_inferred() {
+    let root = workspace_root();
+    let startup = read(&root.join("crates/nuo-server/src/startup.rs"));
+
+    // Every entry states both effects.
+    let entries = startup.matches("effect: { bare:").count();
+    let verbs_with_effects =
+        startup.matches(", Mutation),").count() + startup.matches(", Reading),").count();
+    assert!(
+        entries >= 29,
+        "every built-in must declare `effect: {{ bare, verb }}` (found {entries})"
+    );
+    assert!(
+        verbs_with_effects >= 21,
+        "every declared verb must carry its own effect (found {verbs_with_effects})"
+    );
+
+    // The resolver is one function over the vocabulary, not a per-command match.
+    let resolver = startup
+        .find("pub fn effect_for(parts: &[&str]) -> nuo_protocol::CommandEffect {")
+        .expect("startup::effect_for must exist as the single resolver");
+    let body = &startup[resolver..];
+    let end = body.find("\n}\n").expect("effect_for body must close");
+    assert!(
+        body[..end].contains("BuiltinCmd::from_slash"),
+        "the resolver must fold aliases through the vocabulary's single owner (ADR-0119 §2b)"
+    );
+    assert!(
+        !body[..end].contains("match name"),
+        "the resolver must not re-derive a class from the name: the declaration is the source"
+    );
+
+    // A reply that reached the client always carries the class.
+    let events = read(&root.join("crates/nuo-protocol/src/events.rs"));
+    let variant = events
+        .find("    CommandResult {")
+        .expect("RoundEvent::CommandResult must exist");
+    let tail = &events[variant..];
+    let close = tail.find("\n    },").expect("variant must close");
+    assert!(
+        tail[..close].contains("effect: crate::CommandEffect"),
+        "RoundEvent::CommandResult must carry the declared effect (ADR-0140 [INV-CMD-08])"
+    );
+}

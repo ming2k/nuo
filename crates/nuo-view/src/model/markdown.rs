@@ -875,7 +875,7 @@ fn pad_cell(cell: &str, width: usize, align: TableAlignment) -> String {
 }
 
 fn display_width(s: &str) -> usize {
-    unicode_width::UnicodeWidthStr::width(s)
+    nuotc::str_len(s)
 }
 
 /// Drop ranges that fall entirely past `len` and clamp the end of any range

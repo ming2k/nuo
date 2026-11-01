@@ -48,9 +48,9 @@ pub use approval::{AlwaysApprove, ApprovalDecision, ApprovalHandler, ToolCallReq
 pub use builtin::BuiltinTool;
 pub use command::{CommandTool, ShellKind};
 pub use completion::{
-    CommandAlias, CommandCatalog, CommandExample, CommandSpec, CommandSubcommandSpec,
-    CommandSuggestion, ComposerCompletion, ComposerCompletionKind, InputCompletion,
-    InputCompletionKind,
+    CommandAlias, CommandCatalog, CommandEffect, CommandExample, CommandSpec,
+    CommandSubcommandSpec, CommandSuggestion, ComposerCompletion, ComposerCompletionKind,
+    InputCompletion, InputCompletionKind,
 };
 pub use context::{ServiceMap, ServiceMapBuilder, ToolContext, ToolInvocation, ToolStreamSink};
 pub use descriptor::{ToolDescriptor, ToolDescriptorBuilder};

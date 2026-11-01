@@ -2,7 +2,6 @@
 
 use nuotc::Color;
 use std::time::Duration;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::shell::render::Theme;
 
@@ -85,7 +84,7 @@ pub fn tilde_home(path: &std::path::Path) -> String {
 
 /// Truncate `s` to at most `max` display cells, appending `…` when cut.
 pub(crate) fn truncate_for_bar(s: &str, max: usize) -> String {
-    if UnicodeWidthStr::width(s) <= max {
+    if nuotc::str_len(s) <= max {
         s.to_string()
     } else if max == 0 {
         String::new()
@@ -94,12 +93,12 @@ pub(crate) fn truncate_for_bar(s: &str, max: usize) -> String {
     } else {
         let mut used = 0usize;
         let mut head = String::new();
-        for ch in s.chars() {
-            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        for piece in nuotc::graphemes(s) {
+            let width = piece.width as usize;
             if used + width > max - 1 {
                 break;
             }
-            head.push(ch);
+            head.push_str(piece.text);
             used += width;
         }
         format!("{head}…")

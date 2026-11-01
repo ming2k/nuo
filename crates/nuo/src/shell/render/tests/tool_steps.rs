@@ -36,7 +36,11 @@ fn subagent_view_groups_children_into_turn_bands() {
         duration_ms: 5,
     };
     // Turn 1: a 3-call concurrent batch.
-    for (id, name) in [("a", "read_text"), ("b", "search_text"), ("c", "list_dir")] {
+    for (id, name) in [
+        ("a", "read_text"),
+        ("b", "search_text"),
+        ("c", "find_files"),
+    ] {
         task.push_subagent_event(&call(id, name, 1, 0), &disclosure());
         task.push_subagent_event(&result(id, name), &disclosure());
     }
@@ -547,6 +551,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let queue_items = [crate::shell::chrome::QueueItemProps {
         queued_at_ms: 1_700_000_000_000,
         text: "next".into(),
+        is_steer: false,
     }];
 
     let mut terminal = nuotc::TestTerminal::new(80, 30);
@@ -746,79 +751,6 @@ fn search_text_block_layers_title_and_content_backgrounds() {
         content_bg,
         "match row surface background"
     );
-}
-
-/// A `list_dir` table colours each row's name the way the shell's `ls` does:
-/// a directory in the `Dir` blue, an executable in the `Exec` green, a symlink
-/// in the `Link` cyan, and a plain file in the scheme's ordinary content tone —
-/// so the class the tool observed survives into the rendered row.
-#[test]
-fn list_dir_table_colors_names_by_ls_class() {
-    let theme = Theme::default();
-    let output = concat!(
-        "Directory: `.` (4 items):\n",
-        "[DIR]  src                      (4096 B)\n",
-        "[EXEC] run.sh                   (42 B)\n",
-        "[LINK] current                  (7 B)\n",
-        "[FILE] notes.md                 (128 B)",
-    );
-    let mut m = TranscriptMessage::tool_step("call_test", "list_dir", r#"{"path":"."}"#);
-    if let nuo_view::model::document::MessageKind::ToolStep {
-        output: out,
-        expanded,
-        ..
-    } = &mut m.kind
-    {
-        *out = Some(output.to_string());
-        *expanded = true;
-    }
-    let terminal = render_full_view(80, 24, &[m], None);
-    let buffer = terminal.buffer();
-
-    // The name starts at the row indent; read the fg of the first cell of the
-    // row whose text opens with the entry name.
-    let name_fg = |needle: &str| -> Option<nuotc::Color> {
-        for y in 0..buffer.area().height {
-            let row = grid_row(&terminal, y);
-            if let Some(col) = row.find(needle) {
-                return Some(buffer.get(col as u16, y).unwrap().style.fg);
-            }
-        }
-        None
-    };
-
-    assert_eq!(
-        name_fg("src/"),
-        Some(theme.listing_color(nuo_ui_primitives::theme::ListingClass::Dir)),
-        "directory name is the ls blue"
-    );
-    assert_eq!(
-        name_fg("run.sh"),
-        Some(theme.listing_color(nuo_ui_primitives::theme::ListingClass::Exec)),
-        "executable name is the ls green"
-    );
-    assert_eq!(
-        name_fg("current"),
-        Some(theme.listing_color(nuo_ui_primitives::theme::ListingClass::Link)),
-        "symlink name is the ls cyan"
-    );
-    assert_eq!(
-        name_fg("notes.md"),
-        Some(theme.code_text()),
-        "plain file name is the content tone"
-    );
-    // The four hues are genuinely distinct (blue ≠ green ≠ cyan ≠ file).
-    let distinct = [
-        theme.listing_color(nuo_ui_primitives::theme::ListingClass::Dir),
-        theme.listing_color(nuo_ui_primitives::theme::ListingClass::Exec),
-        theme.listing_color(nuo_ui_primitives::theme::ListingClass::Link),
-        theme.code_text(),
-    ];
-    for (i, a) in distinct.iter().enumerate() {
-        for b in &distinct[i + 1..] {
-            assert_ne!(a, b, "listing classes must be visually distinct");
-        }
-    }
 }
 
 /// A single-file `search_text` result omits the redundant count band row

@@ -1577,114 +1577,23 @@ fn composer_focused_and_unfocused_panels_render_distinct_backgrounds() {
     }
 }
 
-/// A queued user message (one staged in the send queue waiting for the
-/// in-flight turn to finish) must render with the dimmer
-/// `user_panel_bg_queued` band and a visible "⏸ Queued" badge so the user
-/// can tell their message is pending, not delivered.
+/// ADR-0137: an admitted turn-seam interjection (InRound steer) renders as a
+/// one-body-row block: no separate header row, no header/body gap row, no
+/// solid transition padding rows. A one-line steer therefore costs exactly
+/// one body row (plus the shared inter-message gap), and its identity reads
+/// as `› steer` on that row.
 #[test]
-fn queued_user_message_renders_badge_and_dimmer_bg() {
+fn in_round_interjection_renders_one_body_row() {
+    use nuo_view::model::document::SteerOriginTag;
     let theme = Theme::default();
-    let _queued_bg = theme.user_surface_queued();
-    let delivered_bg = theme.user_surface();
-    let width = 46u16;
-    let mut terminal = nuotc::TestTerminal::new(width, 20);
+    let width = 72u16;
+    let mut terminal = nuotc::TestTerminal::new(width, 24);
 
-    let messages = vec![
-        TranscriptMessage::new(nuo_protocol::Role::User, "first steer message").queued(),
-        TranscriptMessage::new(nuo_protocol::Role::User, "second steer message").queued(),
-    ];
-    terminal.draw(|f| {
-        let mut layout_map = LayoutMap::new();
-        let _ = draw_transcript(
-            f,
-            &mut layout_map,
-            TranscriptProps {
-                messages: &messages,
-                scroll: 0,
-                selection: &SelectionState::None,
-                cell_selection: None,
-                backoff: None,
-                activity: "",
-                awaiting_permission: false,
-                spinner_phase: 0,
-                input: "",
-                chrome_hidden: false,
-                queue_bar: QueueBarProps {
-                    items: &[],
-                    paused: false,
-                    blocked: false,
-                    expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
-                },
-                tasks_bar: Default::default(),
-                interrupt_key: None,
-                subagent_bar: None,
-                page_hints: None,
-                tab_bar: None,
-                thread_id: None,
-                thread_context: None,
-                round_started_at: None,
-                hovered_step: None,
-                focused_target: None,
-                logo: None,
-                guidance: EmptyStateGuidance::Tour,
-                carousel_index: 0,
-                theme: &theme,
-                layout: nuo_view::layout::Strategy::default(),
-                height_cache: None,
-            },
-        );
-    });
-
-    let buffer = terminal.buffer();
-
-    // Both queued panels must carry the queued bg, never the delivered bg.
-    // Scan the inner-pad columns (2,3) of every row for any cell painted
-    // with the delivered bg — that would mean a queued message leaked the
-    // wrong surface.
-    for y in 0..buffer.area().height {
-        for x in 2..4 {
-            let bg = buffer.get(x, y).unwrap().style.bg;
-            assert_ne!(
-                bg, delivered_bg,
-                "queued panels must never carry the delivered bg, found at ({},{})",
-                x, y
-            );
-        }
-    }
-
-    // Each queued user message renders one queued status strip OUTSIDE
-    // the panel (on plain `surface`, above the panel's top transition).
-    let row_text = |y: u16| -> String {
-        (0..buffer.area().width)
-            .map(|x| buffer.get(x, y).unwrap().symbol.as_str().to_string())
-            .collect()
-    };
-    let queued_headers = (0..buffer.area().height)
-        .filter(|&y| row_text(y).contains("queued"))
-        .count();
-    assert_eq!(
-        queued_headers, 2,
-        "each queued user message must render one queued header row, got {}",
-        queued_headers
-    );
-}
-
-/// A *held* insert — one whose round ended (naturally or by an
-/// Esc Esc interrupt) before admission — renders the same pending panel
-/// as a queued message, with a label that spells out the different fate:
-/// `⏸ Held for next round`, not the plain `⏸ Queued`.
-#[test]
-fn held_insert_renders_the_held_label_and_dimmer_bg() {
-    use nuo_view::model::document::DeliveryStatus;
-    let theme = Theme::default();
-    let delivered_bg = theme.user_surface();
-    let width = 56u16;
-    let mut terminal = nuotc::TestTerminal::new(width, 16);
-
-    let mut held = TranscriptMessage::new(nuo_protocol::Role::User, "held steer");
-    held.delivery = DeliveryStatus::HeldNextRound;
-    held.origin = nuo_view::model::document::UserMessageOrigin::Steer;
-    let messages = vec![held];
+    let steer = TranscriptMessage::new(nuo_protocol::Role::User, "use rg, not find")
+        .with_origin(nuo_view::model::document::UserMessageOrigin::Steer)
+        .with_sent_at_ms(1_700_000_000_000)
+        .with_origin_tags(vec![SteerOriginTag::InRound]);
+    let messages = vec![steer];
 
     terminal.draw(|f| {
         let mut layout_map = LayoutMap::new();
@@ -1729,31 +1638,40 @@ fn held_insert_renders_the_held_label_and_dimmer_bg() {
     });
 
     let buffer = terminal.buffer();
-    // The held panel carries the dimmer pending band, never the delivered
-    // one.
-    for y in 0..buffer.area().height {
-        for x in 2..4 {
-            assert_ne!(
-                buffer.get(x, y).unwrap().style.bg,
-                delivered_bg,
-                "a held panel must never carry the delivered bg, found at ({},{})",
-                x,
-                y
-            );
-        }
-    }
-    // The full label renders (spelled out as upright status).
     let row_text = |y: u16| -> String {
         (0..buffer.area().width)
             .map(|x| buffer.get(x, y).unwrap().symbol.as_str().to_string())
             .collect()
     };
-    let rendered = (0..buffer.area().height)
-        .map(row_text)
-        .any(|row| row.contains("held for next round"));
+    let grid = (0..buffer.area().height).map(row_text).collect::<Vec<_>>();
+    // Sanity: the tag must be honored (the message claims InRound).
     assert!(
-        rendered,
-        "the held entry must spell out its fate (held for next round)"
+        messages[0].has_origin_tag(SteerOriginTag::InRound),
+        "test message must carry the InRound tag"
+    );
+    let rendered = grid.clone().join("\n");
+    assert!(
+        rendered.contains("›") && rendered.contains("steer"),
+        "interjection identity must render the steer lead:\n{rendered}"
+    );
+    // Row 0..1 is the stream-top gap; the interjection body is row 2.
+    let first = grid[2].clone();
+    let rest = grid[3..].to_vec();
+    assert!(
+        first.contains("steer") && first.contains("use rg, not find"),
+        "interjection identity row must carry the steer lead and text: {first:?}  grid:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("›  steer"),
+        "the steer lead must be the embossed `›  steer` prefix:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("queued") && !rendered.contains("› round 1"),
+        "an admitted interjection is not a pending queued panel and carries no round header row:\n{rendered}"
+    );
+    assert!(
+        rest.iter().all(|row| row.trim().is_empty()),
+        "a one-line interjection must not add rows below it: {rest:?}"
     );
 }
 

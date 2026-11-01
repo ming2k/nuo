@@ -22,7 +22,7 @@ use super::runtime::UiRuntime;
 use super::sync::show_local_toast;
 use super::transcript::extract_selection_text;
 
-mod commands;
+pub(crate) mod commands;
 mod host;
 mod modals;
 pub(crate) mod mouse;
@@ -1690,6 +1690,26 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 );
             }
         }
+        input::InputAction::ViewFocusedTargetOutput => {
+            if let Some(target) = app.focused_target {
+                app.open_command_output_dialog(target.message_idx);
+            }
+        }
+        input::InputAction::CommandOutputCopy => {
+            let dlg = app
+                .surfaces
+                .dlg::<crate::shell::surfaces::CommandOutputDialog>();
+            let text = dlg.lines.join("\n");
+            if !text.is_empty() {
+                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+                show_local_toast(
+                    app,
+                    "command output copied to clipboard",
+                    false,
+                    std::time::Duration::from_millis(1500),
+                );
+            }
+        }
         input::InputAction::CopyFocusedDiagnostic => {
             if let Some(request) = crate::shell::copy::diagnostic_for_current_focus(app) {
                 clipboard_ops::copy(app, request, viewed_session_id, copy_tx, copy_pending);
@@ -1972,7 +1992,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 has_running_task: is_busy,
                 has_notices: !!app.has_notices(),
                 has_focused_entry: app.focused_target.is_some(),
-                queue_count: app.pending_dispatch.len(),
+                queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             };
@@ -2129,9 +2149,33 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // (the `↑/↓` highlight, not always the newest) into the
             // composer and closes the modal. Closing resumes the
             // auto-block the modal set on open.
+            //
+            // A pending steer is recalled by cancelling it: `CancelSteer`
+            // is the protocol verb whose linearized outcome (`SteerCancelled`)
+            // restores the text to the composer (ADR-0137). A recall is the
+            // one cancel that must NOT suppress the restore.
             let idx = app.active_index();
             app.dismiss_active_dialog();
-            if let Some(crate::shell::app::RecallQueued::Restored(dispatch)) =
+            let steer_item = app
+                .queued_at(viewed_session_id, idx)
+                .filter(|it| it.state == crate::shell::app::QueuedDispatchState::Steering)
+                .cloned();
+            if let Some(item) = steer_item {
+                app.send_intent(AgentRequest::CancelSteer {
+                    thread_id: viewed_session_id.to_string(),
+                    input_id: item.id.clone(),
+                });
+                app.recall_queued_at(viewed_session_id, idx);
+                // SteerCancelled will restore the text to the composer; keep
+                // the local action immediate by pushing it into the draft now
+                // (the async restore is a no-op once the composer is busy).
+                app.adopt_as_draft(
+                    item.text,
+                    item.images,
+                    item.text_pastes,
+                    crate::shell::app::DraftAdoption::OnlyIfIdle,
+                );
+            } else if let Some(crate::shell::app::RecallQueued::Restored(dispatch)) =
                 app.recall_queued_at(viewed_session_id, idx)
             {
                 app.restore_dispatch(dispatch);
@@ -2154,8 +2198,24 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // item outright. The queue is auto-blocked on open, so the
             // index can't drift under us. Clamp the selection to the
             // now-shorter list.
+            //
+            // A pending steer is removed by cancelling it (`CancelSteer`),
+            // and the restore is suppressed: a deletion must not resurrect
+            // the text in the composer (ADR-0137).
             if app.active_dialog() == Some(DialogKind::Queue) {
                 let idx = app.active_index();
+                let steer_id = app
+                    .queued_at(viewed_session_id, idx)
+                    .filter(|it| it.state == crate::shell::app::QueuedDispatchState::Steering)
+                    .map(|it| it.id.clone());
+                if let Some(input_id) = steer_id {
+                    app.send_intent(AgentRequest::CancelSteer {
+                        thread_id: viewed_session_id.to_string(),
+                        input_id: input_id.clone(),
+                    });
+                    app.suppress_steer_restore
+                        .insert((viewed_session_id.to_string(), input_id));
+                }
                 let _removed = app.remove_queued_at(viewed_session_id, idx);
                 let count = app.pending_count(viewed_session_id);
                 if count == 0 {

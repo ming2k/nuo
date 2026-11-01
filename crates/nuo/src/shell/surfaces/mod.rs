@@ -28,8 +28,8 @@ mod dialogs;
 
 #[allow(unused_imports)]
 pub use dialogs::{
-    ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HelpDialog,
-    HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PermissionsDialog,
+    CommandOutputDialog, ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs,
+    HelpDialog, HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PermissionsDialog,
     PortShareDialog, QueueDialog, QuotasDialog, SessionTraceDialog, SessionTreeDialog,
     SessionsDialog, SkillsDialog, SwitcherDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog,
     UsageStatsDialog,
@@ -107,6 +107,7 @@ pub enum DialogKind {
     PortShare,
     Help,
     Notices,
+    CommandOutput,
 }
 
 impl DialogKind {
@@ -156,6 +157,7 @@ impl DialogKind {
             DialogKind::PortShare => "Port & sharing",
             DialogKind::Help => "Help & Shortcuts",
             DialogKind::Notices => "Notices & Disclosures",
+            DialogKind::CommandOutput => "Command output",
         }
     }
 
@@ -180,6 +182,7 @@ impl DialogKind {
             DialogKind::PortShare => "/port",
             DialogKind::Help => "F1 / Alt-h",
             DialogKind::Notices => "Alt-o / /notices",
+            DialogKind::CommandOutput => "o / v",
         }
     }
 
@@ -206,7 +209,8 @@ impl DialogKind {
             | DialogKind::Mcp
             | DialogKind::Skills
             | DialogKind::Permissions
-            | DialogKind::Queue => DialogScope::Session,
+            | DialogKind::Queue
+            | DialogKind::CommandOutput => DialogScope::Session,
             // Scene: bound to one workspace capability.
             DialogKind::HistorySearch => DialogScope::Scene(SceneKind::Thread),
         }
@@ -226,7 +230,9 @@ impl DialogKind {
     /// dialogs are retained per session; everything else is retained globally.
     pub fn retention_policy(self) -> RetentionPolicy {
         match self {
-            DialogKind::Switcher | DialogKind::PortShare => RetentionPolicy::Ephemeral,
+            DialogKind::Switcher | DialogKind::PortShare | DialogKind::CommandOutput => {
+                RetentionPolicy::Ephemeral
+            }
             _ => match self.scope() {
                 DialogScope::Session => RetentionPolicy::SessionScoped,
                 _ => RetentionPolicy::Retained,
@@ -1413,6 +1419,7 @@ mod tests {
             DialogKind::Skills,
             DialogKind::Permissions,
             DialogKind::Queue,
+            DialogKind::CommandOutput,
         ] {
             assert_eq!(id.scope(), DialogScope::Session, "{id:?}");
         }

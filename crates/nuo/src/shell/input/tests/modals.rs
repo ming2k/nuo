@@ -350,6 +350,126 @@ fn f1_on_chat_surface_triggers_open_help() {
 }
 
 #[test]
+fn f1_and_alt_h_in_help_dialog_toggle_closed() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let dispatch = Dispatch {
+        overlay: Some(OverlaySurface::Dialog(DialogKind::Help)),
+        ..Default::default()
+    };
+    let action_f1 = route_event(
+        Event::Key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
+        &mut input,
+        &mut cursor,
+        dispatch.clone(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action_f1, InputAction::CloseModal);
+
+    let action_alt_h = route_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::ALT)),
+        &mut input,
+        &mut cursor,
+        dispatch,
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action_alt_h, InputAction::CloseModal);
+}
+
+#[test]
+fn help_dialog_keyboard_navigation_and_scrolling() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+    let dispatch = Dispatch {
+        overlay: Some(OverlaySurface::Dialog(DialogKind::Help)),
+        ..Default::default()
+    };
+
+    for (key, expected) in [
+        (
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            InputAction::ScrollUp,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+            InputAction::ScrollUp,
+        ),
+        (
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            InputAction::ScrollDown,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+            InputAction::ScrollDown,
+        ),
+        (
+            KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
+            InputAction::ScrollPageUp,
+        ),
+        (
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+            InputAction::ScrollPageDown,
+        ),
+        (
+            KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
+            InputAction::ScrollTop,
+        ),
+        (
+            KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
+            InputAction::ScrollBottom,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+            InputAction::CreateNewSession,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
+            InputAction::CloseTab,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+            InputAction::NavigateDashboard,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE),
+            InputAction::NavigateSettings,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
+            InputAction::ViewSwitcherToggle,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+            InputAction::OpenSessions,
+        ),
+        (
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
+            InputAction::OpenNotices,
+        ),
+    ] {
+        let action = route_event(
+            Event::Key(key),
+            &mut input,
+            &mut cursor,
+            dispatch.clone(),
+            &ModalKeys::default(),
+            &SheetKeys::default(),
+            &SceneKeys::default(),
+            &mut drag,
+        );
+        assert_eq!(action, expected);
+    }
+}
+
+#[test]
 fn alt_question_mark_silent_alias_toggles_dialog_keys() {
     let mut input = String::new();
     let mut cursor = 0;

@@ -1,7 +1,7 @@
 //! Comprehensive unit tests for Capability Seams and Middlewares.
 
 use super::*;
-use crate::tools::{EditTextTool, ListDirTool, ReadTextTool, WriteFileTool};
+use crate::tools::{EditTextTool, FindFilesTool, ReadTextTool, WriteFileTool};
 use nuo_protocol::execution::{ExecutionEnvironment, ToolMiddleware};
 use nuo_protocol::{Tool, ToolOutput};
 use std::path::PathBuf;
@@ -106,10 +106,10 @@ async fn tools_running_on_system_tool_context() {
     let updated = std::fs::read_to_string(dir.path().join("lib.rs")).unwrap();
     assert!(updated.contains("a + b + 1"));
 
-    // 4. ListDirTool lists directory
-    let list_tool = ListDirTool::new(ctx.clone());
-    let list_res = list_tool.call_structured(r#"{"path":"."}"#).await.unwrap();
-    assert!(list_res.to_text().contains("lib.rs"));
+    // 4. FindFilesTool finds files in directory
+    let find_tool = FindFilesTool::new(ctx.clone());
+    let find_res = find_tool.call_structured(r#"{"path":"."}"#).await.unwrap();
+    assert!(find_res.to_text().contains("lib.rs"));
 }
 
 #[tokio::test]

@@ -1126,13 +1126,13 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
-        crate::shell::event_loop::AppMutation::NoticeDisclosure {
-            severity: nuo_view::model::document::NoticeSeverity::Info,
-            topic: "models".to_string(),
-            text: "Model list refreshed (up to date)".to_string(),
-            detail: None,
-            at_ms: 1_700_000_000_000,
-        },
+        crate::shell::event_loop::AppMutation::NoticeDisclosure(
+            crate::shell::app::notice_catalog::ClientNotice::LocalAck {
+                topic: crate::shell::app::notice_catalog::ClientTopic::Models,
+                message: "Model list refreshed (up to date)".to_string(),
+            }
+            .render(),
+        ),
     );
     assert!(app.copy_toast_until.is_none());
     assert_eq!(

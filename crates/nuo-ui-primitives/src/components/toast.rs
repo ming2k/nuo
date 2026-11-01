@@ -70,13 +70,10 @@ impl ToastKind {
         match *self {
             ToastKind::CopyOk => theme.glyphs.check,
             ToastKind::CopyFailed | ToastKind::Error => theme.glyphs.cross,
-            ToastKind::Armed | ToastKind::Warning => {
-                if is_ascii {
-                    "[!]"
-                } else {
-                    "▲"
-                }
-            }
+            // Warning: `!` is universal — no ASCII fallback needed, and it
+            // ends the raw-`▲` literal that used to render `?` on VT100. The
+            // severity accent still colors it via `ToastKind::color()`.
+            ToastKind::Armed | ToastKind::Warning => "!",
             ToastKind::Info => {
                 if is_ascii {
                     "[i]"
@@ -359,7 +356,7 @@ mod tests {
             "row 1 should be borderless: {row_1}"
         );
         assert!(
-            row_1.contains("  ▲  Some additional workspace roots could not be loaded"),
+            row_1.contains("  !  Some additional workspace roots could not be loaded"),
             "row 1 must have icon and title: {row_1}"
         );
 

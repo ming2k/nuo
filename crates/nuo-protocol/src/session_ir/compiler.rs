@@ -574,7 +574,7 @@ mod tests {
         ir.append_message("t1", 1_002_000, tool_msg);
 
         // Turn from Gemini with valid thought signature
-        let gemini_call = ToolCall::new("call_gemini_1", "list_dir", r#"{"path":"."}"#);
+        let gemini_call = ToolCall::new("call_gemini_1", "find_files", r#"{"path":"."}"#);
         let mut gemini_assistant = Message::new(Role::Assistant, "Listing files");
         gemini_assistant.tool_calls = Some(vec![gemini_call.clone()]);
         let mut meta = serde_json::Map::new();

@@ -23,7 +23,7 @@
 //! |------------------------|-------------|-----|
 //! | `Dialogue`             | fact        | someone said something |
 //! | `TurnOutcome`          | anchor      | it must hold a position in time (completion, interrupt, retry, compaction, job lifecycle) |
-//! | `Operation`            | never       | it lives in the durable command ledger and is joined at render time |
+//! | `Operation`            | never       | an *act* lives in the durable command ledger and is joined at render time; a *reading* is a receipt |
 //! | `Telemetry`            | never       | it drives chrome, not conversation |
 //! | `Ephemera`             | never       | it belongs to a surface layer (see `nuo_view::model::layer`) |
 //!

@@ -49,6 +49,13 @@ Nuo organizes automated verification across four structured tiers:
 cargo test --workspace
 
 # Run tests for a specific crate
-cargo test -p nuo-tui
+cargo test -p nuo
 cargo test -p nuo-server
+cargo test -p nuo-ui-primitives
 ```
+
+---
+
+## 4. Manual & Exploratory Verification
+
+For running and manually testing the interactive TUI, headless prompt execution, and server lifecycle from source, see the [Manual Testing Guide](manual-testing.md).

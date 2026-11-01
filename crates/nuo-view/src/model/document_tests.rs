@@ -42,10 +42,10 @@ fn inline_code_keeps_its_backtick_quotes_in_prose() {
     ));
 
     // Heading.
-    let blocks = parse_blocks("# Use `list_dir` for directories");
+    let blocks = parse_blocks("# Use `find_files` for files");
     assert!(matches!(
         &blocks[0],
-        Block::Heading { level: 1, inline } if inline.content == "Use `list_dir` for directories"
+        Block::Heading { level: 1, inline } if inline.content == "Use `find_files` for files"
     ));
 
     // List item.
@@ -126,7 +126,7 @@ fn inline_code_records_byte_ranges_for_every_prose_context() {
     assert_eq!(inline.code_ranges, expected);
 
     // Heading.
-    let text = "Use `list_dir` for directories";
+    let text = "Use `find_files` for files";
     let expected = code_ranges_of(text);
     let blocks = parse_blocks(&format!("# {text}"));
     let Block::Heading { inline, .. } = &blocks[0] else {

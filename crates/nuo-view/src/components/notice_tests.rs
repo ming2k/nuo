@@ -93,7 +93,7 @@ fn entry_head_is_chrome_and_body_is_indented_document_text() {
     // Head (row 0) + 1-row gap (row 1) + body (row 2).
     assert_eq!(painted.content_lines, 3);
     assert_eq!(painted.current_y, 3);
-    assert!(painted.row(0, 20).starts_with("! notification"));
+    assert!(painted.row(0, 20).starts_with("▎notification"));
     assert!(
         painted.row(2, 25).starts_with("  Connection refused"),
         "body must be indented past the entry head: {:?}",
@@ -174,7 +174,7 @@ fn core_notice_head_names_the_topic_and_body_keeps_the_structured_split() {
     let msg = TranscriptMessage::notice_from_core(&core);
     let painted = paint(&msg, 60, 10, SelectionState::None);
 
-    assert!(painted.row(0, 58).starts_with("▲ trust"));
+    assert!(painted.row(0, 58).starts_with("▎trust"));
     assert!(!painted.row(0, 58).contains("notification"));
     assert!(
         painted
@@ -210,7 +210,7 @@ fn a_notice_head_carries_only_settled_facts_never_a_ticking_counter() {
     let painted = paint(&msg, 80, 20, SelectionState::None);
 
     let head = painted.row(0, 80);
-    assert!(head.starts_with("▲ notification"), "head: {head:?}");
+    assert!(head.starts_with("▎notification"), "head: {head:?}");
     assert!(
         !head.contains("retry"),
         "a settled notice carries no live retry counter: {head:?}"

@@ -412,6 +412,12 @@ async fn run_inner(
         }
     }
     tracing::info!(%bind, port, "nuo server: listening");
+    nuo_host::diagnostics::record_event(
+        "server",
+        "started",
+        &format!("server listening on bind={bind} port={port}"),
+        None,
+    );
 
     // Boot rehost: every service task in the durable task ledger
     // that carries a restart policy is re-spawned on the **registry's
@@ -516,6 +522,13 @@ async fn run_inner(
     }
     drop(_instance_lock);
 
+    nuo_host::diagnostics::record_event(
+        "server",
+        "exiting",
+        &format!("server stopped ({reason})"),
+        None,
+    );
+
     if forced {
         tracing::warn!(
             %reason,
@@ -602,6 +615,12 @@ async fn takeover_conflicting_server(
             tracing::warn!(
                 pid,
                 "interface or lock conflict detected; terminating existing instance for takeover"
+            );
+            nuo_host::diagnostics::record_event(
+                "server",
+                "takeover",
+                &format!("terminating existing PID {pid} due to interface or lock conflict"),
+                None,
             );
             let _ =
                 nuo_host::process::takeover_pid(pid, nuo_host::process::TakeoverOptions::default())

@@ -8,6 +8,119 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added & Changed
+
+- **Command effect classes: a reading is not an act, so only state mutations are recorded (ADR-0140).**
+  - Every built-in slash command now declares a `CommandEffect` — `Mutation` (an act: durable state
+    changed, remembered at its timestamp seam in the thread) or `Reading` (a report of the world at the
+    moment it was asked: answered in full, never recorded). The declaration lives in the one vocabulary
+    table that already generates completion, `/help`, the catalog and dispatch, as `effect: { bare, verb }`
+    plus a per-verb effect, and omission is a compile error.
+  - `verb_effect` is a separate, mandatory field because the fallback is the handler's `_` arm, not its bare
+    arm: `/jobs` lists with no argument *and* with an unrecognised one, while `/role` lists bare and
+    switches identity on any argument (user role ids are dynamic, so no verb table can enumerate them).
+  - The recorder collapsed into one funnel — **emit always, persist iff durable** — so a handler can no
+    longer decide whether it is remembered. Three conditions: an act happened in this process, the command
+    is an act, and the reply is not a rejection. `record_ack` gained `resp_tx`: it used to persist silently,
+    which made `/stats`, `/trace`, `/usage` and `/quotas` invisible to every non-TUI client.
+  - A dispatch completeness net brackets every mutation arm by a ledger mark, so an act that runs always
+    leaves at least an invocation-only row.
+  - The client files a reading's reply as a typed `ClientNotice::CommandReceipt` in the retained notice log
+    instead of a thread row, and stages no optimistic row for it. Because the catalog arrives asynchronously
+    (and `CommandCatalog::default()` is empty, which predicts an act), a `Reading` reply also **withdraws** any
+    row staged on that stale prediction — otherwise the row was later marked `Cancelled` and stayed in the
+    thread as a ghost claiming a command never answered. Surface-owned commands
+    (`/models`, `/connections`, `/tools`, `/mcp`) now answer with guidance instead of being silent, and
+    record nothing — this process never touched that state.
+  - Wire: `CommandSpec.effect`/`.verb_effect`, `CommandSubcommandSpec.effect`, `RoundEvent::CommandResult.effect`;
+    `PROTOCOL_VERSION` and `MIN_PROTOCOL_VERSION` 19 → 20, census re-blessed.
+  - Bound invariants `[INV-CMD-05..08]`.
+- **The pre-split command ledger is retired, not filtered (ADR-0140, schema v17).**
+  - Rows written before the boundary mixed acts with readings and the class was never recorded, so no
+    load-time filter can separate them. `CURRENT_SCHEMA_VERSION` 16 → 17 and the ledger is cleared on load,
+    the ADR-0059 clean-break precedent: a thread's acts are reconstructible from its own state, a stale
+    measurement is useful to nobody.
+
+- **Notice catalog: one typed registry for every client disclosure (ADR-0138).**
+  - The notice funnel now accepts only a typed `RenderedNotice`, whose only constructors are the closed `ClientNotice`/`ClientTopic` catalog and the closed wire projection. The free-form `record_notice(severity, topic, text, at_ms)` / `record_notice_with_detail` entry points are removed, so a producer can no longer invent a topic outside the vocabulary or fake a timestamp.
+  - Every structural client disclosure (link loss, link-send failure, session-prep failure, queued-while-preparing, tab retirement, clipboard faults, provider-retry receipts, OAuth steps, catalog-sync warnings, link-open failures) is now a catalog variant with fixed severity, topic, and wording; local topics join the closed wire vocabulary, so the client's own rows no longer fall back to the generic `notification` topic.
+  - Timestamps are stamped once by the funnel from the single client clock; the historical `at_ms: 0` call sites are gone. `AppMutation::NoticeDisclosure` carries the typed payload, and `startup_notices` carries catalog kinds. Binding invariant `[INV-NOTICE-08]`.
+
+- **Severity-band notice cards: color-only severity, triangle eradicated (ADR-0139).**
+  - Notice severity is now conveyed by color alone. A theme-derived `SeverityBand` (background wash + tone foreground from the palette's own severity accents) paints the notice-center topic pill, and a tone-colored left rail replaces the transcript head's lead glyph. The `[ERROR]`/`[WARN]`/`[OK]`/`[INFO]` text badges and the `▲`/`ℹ`/`✗`/`✓` header glyphs are deleted from the cards.
+  - Monochrome/VT100, where every accent collapses to the terminal default and color carries nothing, falls back to an explicit textual severity marker (`topic error` / `topic warn`) — the exact profile the deleted glyph used to serve, so the removal is not a color-blind regression.
+  - The raw `▲` literal — which had no `GlyphSet`/ASCII fallback and rendered `?` on VT100 — is eradicated, including from the transient toast (now `!`). Binding invariant `[INV-NOTICE-09]`.
+
+- **Steering admission provenance: nothing enters the thread until the harness admits it (ADR-0137).**
+  - Busy-Enter steering no longer appends an optimistic `DeliveryStatus::Queued` message at the transcript
+    tail. It is staged **out-of-thread** in the session's existing outbox (`QueuedDispatchState::Steering`),
+    and is materialized only by `RoundEvent::SteerAdmitted` via `TranscriptEdit::InsertAdmittedSeam`, which
+    *appends* at the seam the harness persisted. Appending is load-bearing: `App::messages` holds the whole
+    thread, so head insertion would put a round-N steer above round 1 of any conversation with history.
+  - Pending steers are disclosed by the surfaces that already exist — the single-row `ActivityStrip` and the
+    `Ctrl+Q` queue modal — so no new footer row is added (`[INV-FOOTER-02]`). The queue dialog now projects
+    through `App::outbox_projection`, so the rows listed and the rows `D`/`Enter` address are the same set by
+    construction, and a steer row is tagged as such.
+  - An admitted in-round interjection renders as a **one-body-row** `› steer` block: no header row, no
+    header/body gap, no top/bottom transition rows. `default_group_end` accordingly lost its steer-absorption
+    branch — a steer can no longer fall between two halves of one turn, and the absorption existed to paper
+    over exactly the optimistic staging this change removes.
+  - Dead lifecycle state deleted rather than documented around: `DeliveryStatus::HeldNextRound`,
+    `TranscriptEdit::HoldInserted`, and the `user_surface_queued` path had no producer on any production
+    path. `CancelSteer` is now wired client-side, restoring pending-steer recall without a new verb.
+  - Bound invariants `[INV-STEER-01..04]`.
+
+- **Dedicated command-output pager, replacing inline transcript explosions.**
+  - A focused tool step opens a full-terminal `DialogKind::CommandOutput` pager (`o`/`v`): line-numbered
+    output, continuous `j`/`k`, `PgUp`/`PgDn`, `Home`/`End`, `g`/`G` navigation, `y`/`c` to copy the whole
+    log, and `q`/`Esc` to return to the exact prior transcript position.
+  - The pager reuses the shared `ContentModalSpec::TOOLS` frame, scrollbar, and footer primitives rather
+    than carrying its own chrome.
+
+- **Workspace-free sessions get a baseline tool surface.**
+  - The native capability suite (fs/exec/ast) was previously admitted only when a session was bound to a
+    project workspace, so a workspace-free session (e.g. `ops`) had no filesystem or exec tools at all. The
+    suite now anchors to the session's workspace root when bound, and to the current working directory
+    otherwise, with scope admission left to each role's declarative tool policy.
+  - Switching to a role now applies that role's `default_confined()` posture and emits
+    `RoundEvent::ConfinementChanged`, instead of inheriting whatever posture the tab was in.
+  - The `ops` role gains the `debug` subagent profile.
+
+- **Runtime diagnostics journal.** `nuo-host` gains a bounded (`1 MB`, `~500` retained entries)
+  JSON-lines journal under the host log directory that records lifecycle, takeover, and transport-disconnect
+  events across processes without contending on the database. Server start/exit are recorded.
+
+- **Manual testing guide rewritten to match the unified binary.** `docs/dev/manual-testing.md` collapses a
+  651-line runbook into a direct build-and-run guide (TUI, headless one-shot, server lifecycle, sandbox
+  isolation), and `docs/dev/testing.md` drops the retired `nuo-tui` crate from its examples.
+
+### Removed
+
+- **`list_dir` is gone from the tool surface.** It had already been pruned from every role's capability set
+  (ADR-0064) but remained implemented in `nuo-tool-fs` and `BuiltinTool`; the tool, its `EntryClass`
+  `[DIR]`/`[EXEC]`/`[LINK]`/`[FILE]` tag machinery, its `ls`-parity table renderer, and its snapshot are
+  deleted. Exploration is pattern globbing (`find_files`) and content search (`search_text`), which answer
+  the same question without a stepwise browsing loop.
+
+- **Dead SQLite command path.** `PersistenceHandle::record_command`,
+  `PersistenceCommand::RecordCommand`, and `db::usage_projection::record_command` had zero callers, and the
+  row they wrote violated the `commands` table's own `REFERENCES sessions(id)` constraint (`session_id = ""`
+  with `foreign_keys = ON`) — the write could never have succeeded. The session file is the ledger;
+  `[INV-PROV-07]`.
+
+### Fixed
+
+- **`hypervisor` reported the command-ledger length as `turn_count`.** It was never a turn counter, and
+  narrowing the ledger to acts (ADR-0140) made it silently under-report; the session's own `round_counter` is
+  the authoritative answer, reported as `round_count`.
+- **Two stale artefacts from the ADR-0137 steering change**, found while landing ADR-0140: a dead debug
+  `eprintln!` pair in `nuo-view/src/message_body.rs` (one of which referenced a variable out of scope, so
+  the crate did not build), a `NoticeSeverity::Warn`/`Cell::bg` pair in the notice tests, and tests still
+  constructing `DeliveryStatus::Queued` (deleted with the outbox move). The obsolete
+  `admitted_steer_inserts_at_document_head` test asserted head insertion — the exact behaviour ADR-0137
+  names as the original bug, superseded by `InsertAdmittedSeam` and covered by
+  `shell/tests/steering_admission.rs` — and is removed.
+
 ## [0.0.65] - 2026-10-31
 
 ### Fixed

@@ -12,7 +12,6 @@ Host machine execution environment, platform abstraction layer (PAL), sandboxing
   - `read_text`: Paginated file reader with line-offset navigation.
   - `write_file`: Atomic file writer with parent directory auto-creation.
   - `edit_text`: Surgical exact-match text replacer with optimistic concurrency checks.
-  - `list_dir`: Directory child enumerator.
   - `find_files`: Glob-based recursive file finder with `.gitignore` filtering.
   - `search_text`: High-speed regex and literal text search.
   - `execute_command`: Bounded asynchronous shell command execution with StreamGuard flood protection.

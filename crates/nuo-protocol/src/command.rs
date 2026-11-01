@@ -1,16 +1,18 @@
-//! Typed slash-command records and results.
+//! Typed slash-command effects, records, and results.
 //!
-//! A `/` command is an *operation on the session*, not a conversation turn.
-//! Therefore records each invocation in a durable **command ledger**
-//! ([`CommandRecord`]) on the session instead of in the message stream, and
-//! gives every command a typed [`CommandResult`] — the schema for its reply,
-//! its text rendering ([`CommandResult::to_text`]), and its persisted form —
+//! A `/` command is an *operation on the session*, not a conversation turn, and
+//! it is one of exactly two kinds ([`CommandEffect`], ADR-0140):
+//!
+//! - an **act** (`Mutation`) that changes durable state. Only an act is recorded
+//!   in the durable **command ledger** ([`CommandRecord`]);
+//! - a **reading** (`Reading`) that reports the world at the instant it is asked.
+//!   A reading never reaches the ledger, because a measurement kept beside
+//!   dialogue asserts something false the moment the world moves.
+//!
+//! Every command, of either kind, gets a typed [`CommandResult`] — the schema for
+//! its reply, its text rendering ([`CommandResult::to_text`]), and its wire form —
 //! following the ADR-0001 `ToolOutput` precedent (Strangler migration from the
 //! `Text` / `Error` bridge variants).
-//!
-//! Legacy sessions that still carry `Message::command_echo` rows fold into
-//! this ledger at schema migration time with `result: None` (the invocation is
-//! recorded, the reply was never persisted).
 use serde::{Deserialize, Serialize};
 
 /// Terminal status of a slash-command invocation.
@@ -277,16 +279,17 @@ impl CommandResult {
     }
 }
 
-/// One durable slash-command invocation with its structured result.
+/// One durable slash-command record, with its structured result.
 ///
-/// Persisted on the session as the `commands` ledger. The message
-/// stream is pure dialogue; these records are the operations that happened.
-/// `result: None` means the invocation is recorded but the reply was never
-/// persisted (the legacy-echo fold and the shell-passthrough case).
+/// Persisted on the session as the `commands` ledger. The message stream is pure
+/// dialogue; these records are the **acts** that happened — a command declared
+/// [`CommandEffect::Reading`] never reaches this ledger (ADR-0140), so every row
+/// here is a fact whose truth does not decay. `result: None` means the invocation
+/// is recorded but the reply could not be read back (an invocation-only row
+/// written by the dispatch completeness net).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandRecord {
-    /// Command word without the leading slash (e.g. `"search"`), or `"shell"`
-    /// for a `!command` passthrough.
+    /// Command word without the leading slash (e.g. `"search"`).
     pub name: String,
     /// Raw argument remainder after the command word (empty when none).
     pub args: String,

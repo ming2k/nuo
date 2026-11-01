@@ -568,7 +568,7 @@ mod tests {
         // `{"path":"."}{"path":"."}` and `call_1call_1`).
         let mut s = ResponsesStream::new();
         s.parse(
-            r#"{"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"list_dir"}}"#,
+            r#"{"type":"response.output_item.added","item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"find_files"}}"#,
         ).unwrap();
         let delta = serde_json::json!({
             "type": "response.function_call_arguments.delta",
@@ -580,7 +580,7 @@ mod tests {
             "type": "response.function_call_arguments.done",
             "item_id": "fc_1",
             "call_id": "call_1",
-            "name": "list_dir",
+            "name": "find_files",
             "arguments": "{\"path\":\".\",\"max_results\":100}"
         })
         .to_string();
@@ -602,7 +602,7 @@ mod tests {
             "type": "response.function_call_arguments.done",
             "item_id": "fc_1",
             "call_id": "call_1",
-            "name": "list_dir",
+            "name": "find_files",
             "arguments": "{\"path\":\".\"}"
         })
         .to_string();
@@ -616,7 +616,7 @@ mod tests {
                 arguments,
             } => {
                 assert_eq!(id.as_deref(), Some("call_1"));
-                assert_eq!(name.as_deref(), Some("list_dir"));
+                assert_eq!(name.as_deref(), Some("find_files"));
                 assert_eq!(arguments, "{\"path\":\".\"}");
             }
             _ => panic!("expected one tool-call delta"),
@@ -704,7 +704,7 @@ mod tests {
             "id": "fc_1",
             "type": "function_call",
             "call_id": "call_1",
-            "name": "list_dir",
+            "name": "find_files",
             "arguments": "{\"path\":\".\"}",
             "status": "completed"
         });

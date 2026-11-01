@@ -28,3 +28,6 @@ pub mod retry;
 pub mod text_layout;
 pub mod tools;
 pub mod trust_gate;
+
+#[cfg(test)]
+mod message_body_interjection_tests;

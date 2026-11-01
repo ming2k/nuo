@@ -354,7 +354,7 @@ impl ToolCard {
                 // Invariant [INV-TUI-RUNNING-01]: Active info hue, never dimmed
                 (glyphs[spinner_frame % glyphs.len()], theme.info())
             }
-            ToolStatus::Success { .. } => ("✓", theme.system_fg),
+            ToolStatus::Success { .. } => ("✓", theme.ok()),
             ToolStatus::Failed { .. } => ("✗", theme.error_fg),
         };
 
@@ -385,7 +385,7 @@ impl ToolCard {
             header_spans.push(Span::raw(" ("));
             header_spans.push(Span::styled(
                 format!("+{added}"),
-                Style::default().fg(theme.system_fg),
+                Style::default().fg(theme.ok()),
             ));
             header_spans.push(Span::raw(" "));
             header_spans.push(Span::styled(
@@ -490,7 +490,7 @@ impl ToolCard {
                 let mut rendered_rows = Vec::new();
                 for dl in visible_lines {
                     let (op_char, op_color, op_bg) = match dl.op {
-                        DiffOp::Add => ("+", theme.system_fg, Color::Reset),
+                        DiffOp::Add => ("+", theme.ok(), Color::Reset),
                         DiffOp::Remove => ("-", theme.error_fg, Color::Reset),
                         DiffOp::Context => (" ", theme.text_muted, Color::Reset),
                     };

@@ -1731,6 +1731,37 @@ mod tests {
             theme.contextbar_bg(),
             "tier 1 tabbar background must differ from tier 3 contextbar"
         );
+
+        let (r1, g1, b1) = match theme.tabbar_bg() {
+            nuotc::Color::Rgb(r, g, b) => (r, g, b),
+            _ => panic!("RGB expected"),
+        };
+        let (r2, g2, b2) = match theme.scenebar_bg() {
+            nuotc::Color::Rgb(r, g, b) => (r, g, b),
+            _ => panic!("RGB expected"),
+        };
+        let (r3, g3, b3) = match theme.contextbar_bg() {
+            nuotc::Color::Rgb(r, g, b) => (r, g, b),
+            _ => panic!("RGB expected"),
+        };
+
+        // Monotonic elevation ladder: SceneBar (focal spotlight) > ContextBar (intermediate) > TabBar (base)
+        assert!(
+            r2 > r3 && r3 > r1,
+            "scenebar must be elevated above contextbar above tabbar: r2={r2}, r3={r3}, r1={r1}"
+        );
+        assert!(
+            g2 > g3 && g3 > g1,
+            "scenebar must be elevated above contextbar above tabbar: g2={g2}, g3={g3}, g1={g1}"
+        );
+        assert!(
+            b2 > b3 && b3 > b1,
+            "scenebar must be elevated above contextbar above tabbar: b2={b2}, b3={b3}, b1={b1}"
+        );
+        assert!(
+            r2.saturating_sub(r1) >= 10,
+            "scenebar and tabbar must have at least 10 units of perceptible contrast: r2={r2}, r1={r1}"
+        );
     }
 
     #[test]

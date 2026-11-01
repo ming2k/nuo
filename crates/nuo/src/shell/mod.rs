@@ -104,7 +104,6 @@ use tokio::sync::{Mutex, mpsc};
 
 use nuo_view::model::document::{
     DeliveryStatus, MessageKind, NoticeSeverity, TranscriptMessage, UserMessageOrigin,
-    notice_severity_from_core,
 };
 use nuo_view::model::selection::{SelectionDrag, SelectionState};
 pub use transcript::{finalize_streaming_reasoning, rebase_transcript_rounds};
@@ -276,7 +275,12 @@ pub struct TuiLaunchConfig {
     /// Opening prompt (`-p`) dispatched on the `Ready` transition rather than
     /// at handshake time (ADR-0133).
     pub initial_prompt: Option<String>,
-    pub startup_notices: Vec<(NoticeSeverity, String)>,
+    /// Pre-mount disclosures from the attach loop (ADR-0123
+    /// `[INV-ATTACH-02]`): a retired/unresumable tab is *retained* in the notice
+    /// log rather than merely flashed and lost. Carried as catalog kinds
+    /// (ADR-0138) so the wording and topic are owned in one place, not formatted
+    /// by the attach loop.
+    pub startup_notices: Vec<crate::shell::app::notice_catalog::ClientNotice>,
 }
 
 /// Install the panic hook so abnormal main-thread termination restores the terminal.
@@ -670,16 +674,38 @@ pub(crate) async fn run_tui_with_input(
                                     .display_text
                                     .clone()
                                     .unwrap_or_else(|| input.text.clone());
-                                let mut fallback = TranscriptMessage::new(Role::User, visible);
-                                fallback.insert_id = Some(input_id.clone());
-                                fallback.sent_at_ms = input.sent_at_ms;
-                                fallback.origin = UserMessageOrigin::Steer;
-                                transcript!(E::SettleInserted {
-                                    insert_id: input_id.clone(),
-                                    origin: UserMessageOrigin::Steer,
-                                    sent_at_ms: input.sent_at_ms,
-                                    fallback: Some(fallback),
-                                });
+                                // ADR-0137: admission is the materialization
+                                // point, and the buffer tail is the turn seam
+                                // (the harness persisted the steer after the
+                                // finished turn; the next turn's components
+                                // have not arrived). The message is APPENDED —
+                                // never head-inserted, which would put a
+                                // round-N steer above round 1.
+                                //
+                                // Position: the steer is *consumed* by the turn
+                                // that is about to start, so it carries that
+                                // turn's number — the same coordinate the
+                                // restored transcript derives, keeping live and
+                                // resume identical. `positions_by_session` still
+                                // holds the turn that just finished, so the
+                                // coordinate is that turn plus one; the round is
+                                // unchanged (a steer never opens a round).
+                                let mut admitted = TranscriptMessage::new(Role::User, visible);
+                                admitted.insert_id = Some(input_id.clone());
+                                admitted.sent_at_ms = input.sent_at_ms;
+                                admitted.origin = UserMessageOrigin::Steer;
+                                if let Some((round, turn)) =
+                                    positions_by_session.get(&session_id).copied()
+                                {
+                                    admitted.round = Some(round);
+                                    admitted.turn = Some(turn.saturating_add(1));
+                                }
+                                // In-round provenance: the renderer draws it as
+                                // a one-body-row interjection (ADR-0137).
+                                admitted = admitted.with_origin_tags(vec![
+                                    nuo_view::model::document::SteerOriginTag::InRound,
+                                ]);
+                                transcript!(E::InsertAdmittedSeam { message: admitted });
                                 mutations
                                     .send(M::DispatchRemoved {
                                         session_id,
@@ -687,8 +713,42 @@ pub(crate) async fn run_tui_with_input(
                                     })
                                     .await;
                             }
-                            RoundEvent::SteerCancelled { .. } => {}
-                            RoundEvent::SteerCancelFailed { .. } => {}
+                            RoundEvent::SteerCancelled { input_id } => {
+                                // The pending steer was cancelled before
+                                // admission (its only legal fate beside
+                                // SteerAdmitted, per the protocol's
+                                // linearization contract). Restore the text to
+                                // the composer and drop the outbox row; the
+                                // transcript never held it (ADR-0137).
+                                mutations
+                                    .send(M::SteerCancelledRestored {
+                                        session_id,
+                                        input_id,
+                                    })
+                                    .await;
+                            }
+                            RoundEvent::SteerCancelFailed { input_id } => {
+                                // Cancellation lost the race with admission (or
+                                // the id was unknown): the protocol guarantees
+                                // that `SteerAdmitted` / `SteerUnavailable`
+                                // still follows and is authoritative.
+                                //
+                                // What must be repaired here is the client-side
+                                // intent recorded by a deletion: the suppress
+                                // flag exists so a *deleted* steer cannot
+                                // resurrect into the composer. If the cancel
+                                // failed, the steer is going to land after all,
+                                // so keeping the flag would silently swallow a
+                                // future recall for this id. Clear it and say
+                                // what happened — a deletion that lost the race
+                                // must not be a silent surprise (ADR-0137).
+                                mutations
+                                    .send(M::SteerCancelFailedCleared {
+                                        session_id,
+                                        input_id,
+                                    })
+                                    .await;
+                            }
                             RoundEvent::FollowUpQueued { input_id } => {
                                 // The server admitted the follow-up into its
                                 // queue: the optimistic entry settles back to
@@ -717,16 +777,24 @@ pub(crate) async fn run_tui_with_input(
                                     .display_text
                                     .clone()
                                     .unwrap_or_else(|| input.text.clone());
-                                let mut fallback = TranscriptMessage::new(Role::User, visible);
-                                fallback.insert_id = Some(input_id.clone());
-                                fallback.sent_at_ms = input.sent_at_ms;
-                                fallback.origin = UserMessageOrigin::FollowUp;
-                                transcript!(E::SettleInserted {
-                                    insert_id: input_id.clone(),
-                                    origin: UserMessageOrigin::FollowUp,
-                                    sent_at_ms: input.sent_at_ms,
-                                    fallback: Some(fallback),
-                                });
+                                // ADR-0137: a follow-up opens a *fresh round*, so
+                                // its admission is the same materialization
+                                // point as a steer's — one transcript fact,
+                                // appended at the seam the harness persisted it
+                                // at. The former `SettleInserted` path settled an
+                                // optimistic in-thread row that no longer exists
+                                // (follow-ups live in the outbox until now), so
+                                // both admission kinds share one edit.
+                                let mut admitted = TranscriptMessage::new(Role::User, visible);
+                                admitted.insert_id = Some(input_id.clone());
+                                admitted.sent_at_ms = input.sent_at_ms;
+                                admitted.origin = UserMessageOrigin::FollowUp;
+                                // A follow-up opens its own round, so it keeps
+                                // full round-panel weight.
+                                admitted = admitted.with_origin_tags(vec![
+                                    nuo_view::model::document::SteerOriginTag::RoundOpening,
+                                ]);
+                                transcript!(E::InsertAdmittedSeam { message: admitted });
                                 mutations
                                     .send(M::DispatchRemoved {
                                         session_id,
@@ -807,18 +875,16 @@ pub(crate) async fn run_tui_with_input(
                                 if layer != nuo_view::model::layer::ContentLayer::Absorbed {
                                     // `RetryScheduled` owns the retry disclosure;
                                     // an absorbed receipt is dropped rather than
-                                    // written into the conversation.
+                                    // written into the conversation. The catalog
+                                    // projects the wire notice into the funnel
+                                    // payload (ADR-0138), taking the topic from
+                                    // the closed wire vocabulary.
                                     mutations
-                                        .send(M::NoticeDisclosure {
-                                            severity: notice_severity_from_core(notice.severity),
-                                            topic: nuo_view::model::document::notice_topic_label(
-                                                notice.kind,
-                                            )
-                                            .to_string(),
-                                            text: notice.render_text(),
-                                            detail: None,
-                                            at_ms: now_ms!(),
-                                        })
+                                        .send(M::NoticeDisclosure(
+                                            crate::shell::app::notice_catalog::RenderedNotice::from_core(
+                                                &notice,
+                                            ),
+                                        ))
                                         .await;
                                 }
                             }
@@ -860,7 +926,12 @@ pub(crate) async fn run_tui_with_input(
                                     mutations.send(M::SetPhase(Some(Phase::Answering))).await;
                                 }
                             }
-                            RoundEvent::CommandResult { name, args, result } => {
+                            RoundEvent::CommandResult {
+                                name,
+                                args,
+                                result,
+                                effect,
+                            } => {
                                 mutations.send(M::ClearSwitchingSession).await;
                                 retry_progress = None;
                                 let invocation = if args.is_empty() {
@@ -868,23 +939,62 @@ pub(crate) async fn run_tui_with_input(
                                 } else {
                                     format!("/{} {}", name, args)
                                 };
-                                let mut fallback = TranscriptMessage::command_result(
-                                    name.clone(),
-                                    args.clone(),
-                                    Some(result.clone()),
-                                )
-                                .with_sent_at_ms(now_ms!());
-                                if let Some((round, turn)) =
-                                    positions_by_session.get(&session_id).copied()
-                                {
-                                    fallback.round = Some(round);
-                                    fallback.turn = Some(turn);
+                                // The server's declared class decides where the
+                                // reply is filed, and nothing else does
+                                // (ADR-0140, `[INV-CMD-08]`). An **act** holds a
+                                // position in the thread, so it settles the staged
+                                // row in place (or materialises the fallback bt
+                                // the act happened before this view was watching).
+                                // A **reading** never touches the thread: its
+                                // reply is a receipt in the client's notice log,
+                                // beside every other disclosure, because a
+                                // measurement of the world is not a thing that was
+                                // said.
+                                match effect {
+                                    nuo_protocol::CommandEffect::Mutation => {
+                                        let mut fallback = TranscriptMessage::command_result(
+                                            name.clone(),
+                                            args.clone(),
+                                            Some(result.clone()),
+                                        )
+                                        .with_sent_at_ms(now_ms!());
+                                        if let Some((round, turn)) =
+                                            positions_by_session.get(&session_id).copied()
+                                        {
+                                            fallback.round = Some(round);
+                                            fallback.turn = Some(turn);
+                                        }
+                                        transcript!(E::SettleCommandResult {
+                                            invocation,
+                                            result,
+                                            fallback: Some(fallback),
+                                        });
+                                    }
+                                    nuo_protocol::CommandEffect::Reading => {
+                                        // The staged row (if any) was a *prediction*
+                                        // made from the catalog before dispatch. The
+                                        // event is authority: withdraw it, because no
+                                        // thread row will ever settle it.
+                                        transcript!(E::WithdrawStagedCommand {
+                                            invocation: invocation.clone()
+                                        });
+                                        let failed = matches!(
+                                            result,
+                                            nuo_protocol::CommandResult::Error { .. }
+                                                | nuo_protocol::CommandResult::UnknownCommand { .. }
+                                        );
+                                        mutations
+                                            .send(M::NoticeDisclosure(
+                                                crate::shell::app::notice_catalog::ClientNotice::CommandReceipt {
+                                                    invocation,
+                                                    body: result.to_text(),
+                                                    failed,
+                                                }
+                                                .render(),
+                                            ))
+                                            .await;
+                                    }
                                 }
-                                transcript!(E::SettleCommandResult {
-                                    invocation,
-                                    result,
-                                    fallback: Some(fallback),
-                                });
                                 if harness.loop_status.is_idle() {
                                     mutations.send(M::SetResponding(false)).await;
                                     mutations.send(M::SetPhase(None)).await;
@@ -1538,28 +1648,28 @@ pub(crate) async fn run_tui_with_input(
                                 // conversation. One line per scheduled attempt,
                                 // tagged with the route that failed.
                                 let (provider, model) = attribution!();
+                                let summary = if provider.is_empty() {
+                                    format!("{receipt} — {fault}")
+                                } else if model.is_empty() {
+                                    format!("{receipt} — {provider}: {fault}")
+                                } else {
+                                    format!("{receipt} — {provider}/{model}: {fault}")
+                                };
                                 mutations
-                                    .send(M::NoticeDisclosure {
-                                        severity: NoticeSeverity::Warning,
-                                        topic: "retry".to_string(),
-                                        // The summary is the receipt plus the
-                                        // fault's lead line; the detail is the
-                                        // fault verbatim, so the provider's
-                                        // full body stays readable and pasteable
-                                        // in the viewer now that the transcript
-                                        // no longer carries it.
-                                        text: if provider.is_empty() {
-                                            format!("{receipt} — {fault}")
-                                        } else if model.is_empty() {
-                                            format!("{receipt} — {provider}: {fault}")
-                                        } else {
-                                            format!("{receipt} — {provider}/{model}: {fault}")
-                                        },
-                                        detail: Some(nuo_view::model::notice_text::display_text(
-                                            &message,
-                                        )),
-                                        at_ms: now_ms!(),
-                                    })
+                                    .send(M::NoticeDisclosure(
+                                        crate::shell::app::notice_catalog::ClientNotice::ProviderRetryScheduled {
+                                            summary,
+                                            // The detail is the fault verbatim so
+                                            // the provider's full body stays
+                                            // readable and pasteable in the viewer
+                                            // now that the transcript no longer
+                                            // carries it.
+                                            detail: nuo_view::model::notice_text::display_text(
+                                                &message,
+                                            ),
+                                        }
+                                        .render(),
+                                    ))
                                     .await;
                             }
                             RoundEvent::Error(e) => {
@@ -1942,23 +2052,15 @@ pub(crate) async fn run_tui_with_input(
                                 // notice there. Only the reconnect flow gets it.
                                 let in_add_flow = awaiting_oauth_add_clone.load(Ordering::SeqCst);
                                 if !in_add_flow {
-                                    let body = if user_code.is_empty() {
-                                        format!(
-                                            "{message}\n  Open: {url}\n  Waiting for authorization…"
-                                        )
-                                    } else {
-                                        format!(
-                                            "{message}\n  Open: {url}\n  Code: {user_code}\n  Waiting for authorization…"
-                                        )
-                                    };
                                     mutations
-                                        .send(M::NoticeDisclosure {
-                                            severity: NoticeSeverity::Info,
-                                            topic: "oauth".to_string(),
-                                            text: body,
-                                            detail: None,
-                                            at_ms: now_ms!(),
-                                        })
+                                        .send(M::NoticeDisclosure(
+                                            crate::shell::app::notice_catalog::ClientNotice::OauthPending {
+                                                message: message.clone(),
+                                                url: url.clone(),
+                                                user_code: user_code.clone(),
+                                            }
+                                            .render(),
+                                        ))
                                         .await;
                                 }
                             }
@@ -1967,13 +2069,12 @@ pub(crate) async fn run_tui_with_input(
                                     .send(M::Oauth(crate::shell::app::OauthAddSignal::Done))
                                     .await;
                                 mutations
-                                    .send(M::NoticeDisclosure {
-                                        severity: NoticeSeverity::Info,
-                                        topic: "oauth".to_string(),
-                                        text: format!("{provider} authorized."),
-                                        detail: None,
-                                        at_ms: now_ms!(),
-                                    })
+                                    .send(M::NoticeDisclosure(
+                                        crate::shell::app::notice_catalog::ClientNotice::OauthAuthorized {
+                                            provider,
+                                        }
+                                        .render(),
+                                    ))
                                     .await;
                             }
                             nuo_protocol::ConnectStatus::CatalogSyncWarning {
@@ -1984,22 +2085,17 @@ pub(crate) async fn run_tui_with_input(
                                 // A refusal is actionable and permanent (the
                                 // account may not use this provider); a
                                 // transient failure is not. Say which.
-                                let text = match kind {
-                                    nuo_protocol::CatalogSyncFailure::Refused => format!(
-                                        "{provider}: the upstream refused the model-list request ({message}). This connection is not usable with the current credentials or plan; the previously cached list is still shown."
-                                    ),
-                                    nuo_protocol::CatalogSyncFailure::Transient => format!(
-                                        "{provider}: could not refresh the model list ({message}). Showing the previous list."
-                                    ),
-                                };
+                                let refused =
+                                    matches!(kind, nuo_protocol::CatalogSyncFailure::Refused);
                                 mutations
-                                    .send(M::NoticeDisclosure {
-                                        severity: NoticeSeverity::Warning,
-                                        topic: "models".to_string(),
-                                        text,
-                                        detail: None,
-                                        at_ms: now_ms!(),
-                                    })
+                                    .send(M::NoticeDisclosure(
+                                        crate::shell::app::notice_catalog::ClientNotice::CatalogSyncWarning {
+                                            provider,
+                                            message,
+                                            refused,
+                                        }
+                                        .render(),
+                                    ))
                                     .await;
                             }
                             nuo_protocol::ConnectStatus::Failed { provider, message } => {
@@ -2009,13 +2105,13 @@ pub(crate) async fn run_tui_with_input(
                                     }))
                                     .await;
                                 mutations
-                                    .send(M::NoticeDisclosure {
-                                        severity: NoticeSeverity::Error,
-                                        topic: "oauth".to_string(),
-                                        text: format!("{provider} connect failed: {message}"),
-                                        detail: None,
-                                        at_ms: now_ms!(),
-                                    })
+                                    .send(M::NoticeDisclosure(
+                                        crate::shell::app::notice_catalog::ClientNotice::OauthConnectFailed {
+                                            provider,
+                                            message,
+                                        }
+                                        .render(),
+                                    ))
                                     .await;
                             }
                         }
@@ -2025,13 +2121,13 @@ pub(crate) async fn run_tui_with_input(
                         // A control-plane error is a receipt: the toast
                         // surface carries it, the conversation does not.
                         mutations
-                            .send(M::NoticeDisclosure {
-                                severity: NoticeSeverity::Error,
-                                topic: "backend".to_string(),
-                                text: msg,
-                                detail: None,
-                                at_ms: now_ms!(),
-                            })
+                            .send(M::NoticeDisclosure(
+                                crate::shell::app::notice_catalog::ClientNotice::LocalFault {
+                                    topic: crate::shell::app::notice_catalog::ClientTopic::Client,
+                                    message: msg,
+                                }
+                                .render(),
+                            ))
                             .await;
                     }
                     AgentResponse::TuiLayoutUpdated(_value) => {
@@ -2300,6 +2396,7 @@ pub(crate) async fn run_tui_with_input(
         host_kill_confirm: None,
         host_kill_confirm_id: None,
         switch_to_target: None,
+        pending_help_action: None,
         switch_to_new: false,
         switch_to_new_prompt: None,
         switch_to_prompt: None,
@@ -2338,6 +2435,7 @@ pub(crate) async fn run_tui_with_input(
         pending_dispatch: std::collections::VecDeque::new(),
         composer_send_mode: crate::shell::app::ComposerSendMode::default(),
         queue_blocked_sessions: std::collections::HashSet::new(),
+        suppress_steer_restore: std::collections::HashSet::new(),
         running_sessions: std::collections::HashSet::new(),
         selection: SelectionState::None,
         drag: SelectionDrag::default(),
@@ -2459,13 +2557,10 @@ pub(crate) async fn run_tui_with_input(
             .open(crate::shell::surfaces::DialogKind::Sessions);
     }
     // Replay the attach loop's pre-mount disclosures (ADR-0123
-    // `[INV-ATTACH-02]`). They went through `App::record_notice`, so the reason a
+    // `[INV-ATTACH-02]`). They go through the notice funnel, so the reason a
     // tab was retired is in the notice log — not merely flashed and lost.
-    if !startup_notices.is_empty() {
-        let at_ms = event_loop::now_epoch_ms();
-        for (severity, text) in startup_notices {
-            app.record_notice(severity, "attach", text, at_ms);
-        }
+    for notice in startup_notices {
+        app.record_client_notice(notice);
     }
     if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
         app.send_intent(AgentRequest::QueryWebSearchConfig);

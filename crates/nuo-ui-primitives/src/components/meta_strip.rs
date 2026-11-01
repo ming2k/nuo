@@ -125,7 +125,7 @@ impl<'a> MetaStrip<'a> {
         self.chip(text, MetaTone::Accent)
     }
 
-    /// Add an upright status chip such as `queued` or `held for next round`.
+    /// Add an upright status chip such as `queued` or `sending`.
     pub fn status(mut self, text: impl Into<Cow<'a, str>>) -> Self {
         let text = text.into();
         if !text.as_ref().is_empty() {

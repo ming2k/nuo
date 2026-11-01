@@ -104,28 +104,6 @@ impl ToolPresenter for FindFilesPresenter {
     }
 }
 
-pub struct ListDirPresenter;
-
-impl ToolPresenter for ListDirPresenter {
-    fn render_summary<'a>(&self, view: &'a ToolView) -> SemanticLine<'a> {
-        if let Some(path) = view.str("path") {
-            SemanticLine::new()
-                .push_fixed("List ")
-                .push_path(PathView::from_str(path).maybe_base_dir(view.workspace_root))
-        } else {
-            SemanticLine::plain("List directory")
-        }
-    }
-
-    fn summary(&self, view: &ToolView) -> String {
-        self.render_summary(view).to_plain_text()
-    }
-
-    fn result_kind(&self) -> ResultKind {
-        ResultKind::Listing
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

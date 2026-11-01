@@ -25,7 +25,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     nuo_server::provider_registry::init();
     #[cfg(feature = "interactive")]
     nuo::shell::runner::ensure_dev_environment();
-    let _tracing_guard = transport::init_tracing();
+    let is_server_mode = std::env::args().any(|arg| arg == "server");
+    let _tracing_guard = if is_server_mode {
+        transport::init_server_tracing()
+    } else {
+        transport::init_tracing()
+    };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .thread_stack_size(WORKER_STACK_BYTES)
         .enable_all()

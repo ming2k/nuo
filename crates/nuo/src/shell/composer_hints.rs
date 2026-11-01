@@ -441,7 +441,7 @@ mod tests {
             Some(FocusedEntryKind::Disclosable),
         );
         assert_eq!(text(&left), "Esc back   Space expand");
-        assert_eq!(text(&right), "y copy   Shift-y diagnostic");
+        assert_eq!(text(&right), "o view log   y copy   Shift-y diagnostic");
     }
 
     /// The narrowest width keeps only the verb that justified parking focus

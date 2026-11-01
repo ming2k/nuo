@@ -336,13 +336,16 @@ fn compose_frame(
     // transcript-owned and never passes through
     // the outbox, so there is no `steering` slice to
     // exclude from the modal either.
+    // One outbox definition feeds the strip and the modal (see
+    // `App::outbox_projection`): the preview cannot name an item the modal
+    // does not list.
     let queue_items: Vec<render::QueueItemProps> = app
-        .pending_dispatch
-        .iter()
-        .filter(|item| item.session_id == viewed_session_id)
+        .outbox_projection(viewed_session_id)
+        .into_iter()
         .map(|item| render::QueueItemProps {
             queued_at_ms: item.queued_at_ms,
             text: item.text.clone(),
+            is_steer: item.state == crate::shell::app::QueuedDispatchState::Steering,
         })
         .collect();
 
@@ -370,9 +373,12 @@ fn compose_frame(
                     items: &queue_items,
                     // "Paused" = items waiting on the server's round boundary
                     // (M4: the server decides when they ship).
-                    paused: app.pending_dispatch.iter().any(|item| {
-                        item.session_id == viewed_session_id
-                            && item.state == crate::shell::app::QueuedDispatchState::Waiting
+                    // "Paused" means: there is visible outbox work that the
+                    // server has not started shipping. Both classes qualify —
+                    // a pending steer is also waiting on the round boundary.
+                    paused: app.outbox_projection(viewed_session_id).iter().any(|item| {
+                        item.state == crate::shell::app::QueuedDispatchState::Waiting
+                            || item.state == crate::shell::app::QueuedDispatchState::Steering
                     }),
                     blocked: app.pending_count(viewed_session_id) > 0
                         && app.is_queue_blocked(viewed_session_id),
@@ -917,7 +923,7 @@ fn compose_frame(
                     has_running_task: viewed_running,
                     has_notices: !!app.has_notices(),
                     has_focused_entry: app.focused_target.is_some(),
-                    queue_count: app.pending_dispatch.len(),
+                    queue_count: app.outbox_total(),
                     has_session: app.has_session(),
                     scene: app.current_scene(),
                 };

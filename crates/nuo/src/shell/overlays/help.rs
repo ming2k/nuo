@@ -94,27 +94,68 @@ impl Chords {
     }
 }
 
-/// Render the sovereign Help dialog.
-#[allow(clippy::too_many_arguments)]
-pub fn draw_help_modal(
-    frame: &mut Frame,
-    _area: Rect,
+/// Action kind that can be executed directly by single-key accelerator or row click in HelpDialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HelpActionKind {
+    NewTab,
+    CloseTab,
+    Dashboard,
+    Settings,
+    Switcher,
+    Sessions,
+    Notices,
+    ThreadStats,
+    Connections,
+    CloseHelp,
+}
+
+/// A structured entry in the help dialog body.
+#[derive(Debug, Clone)]
+pub struct HelpEntry {
+    pub line: Line<'static>,
+    pub action: Option<HelpActionKind>,
+}
+
+/// Build the structured entries for the help dialog.
+pub fn build_help_entries(
     scene: SceneKind,
     viewed_session_id: Option<&str>,
     unread_faults: usize,
     global: &GlobalOverrides,
     surface: &SurfaceOverrides,
-    scroll: &mut usize,
     theme: &Theme,
-) -> Rect {
-    let geometry = ContentModalSpec::TOOLS;
-    let bounds = content_modal_area(frame, geometry, 22);
-    let f = modal_frame(frame, bounds, theme, true, true);
-
-    modal_header(frame, f.header, "Help & Keybindings", theme);
-
+) -> Vec<HelpEntry> {
     let keys = Chords::resolve(global, surface);
-    let mut body = Vec::new();
+
+    struct EntryBuilder<'a> {
+        entries: Vec<HelpEntry>,
+        theme: &'a Theme,
+    }
+    impl<'a> EntryBuilder<'a> {
+        fn header(&mut self, title: &str) {
+            self.entries.push(HelpEntry {
+                line: section_header(title, self.theme),
+                action: None,
+            });
+        }
+        fn separator(&mut self) {
+            self.entries.push(HelpEntry {
+                line: Line::from(""),
+                action: None,
+            });
+        }
+        fn row(&mut self, key: &str, desc: &str, action: Option<HelpActionKind>) {
+            self.entries.push(HelpEntry {
+                line: binding_row(key, desc, self.theme),
+                action,
+            });
+        }
+    }
+
+    let mut b = EntryBuilder {
+        entries: Vec::new(),
+        theme,
+    };
 
     // 1. Current Scene Contextual Actions (ADR-0131 [INV-HELP-01])
     match scene {
@@ -129,135 +170,162 @@ pub fn draw_help_modal(
                     format!("Thread #{}", tail)
                 })
                 .unwrap_or_else(|| "Thread (Active Conversation)".to_string());
-            body.push(section_header(&session_tag, theme));
+            b.header(&session_tag);
             let notice_desc = if unread_faults > 0 {
                 format!("Notices & diagnostic faults ({} unread)", unread_faults)
             } else {
                 "Notices & diagnostic fault log".to_string()
             };
-            body.push(binding_row(&keys.notices, &notice_desc, theme));
-            body.push(binding_row(&keys.open_history, "Recall a prompt", theme));
-            body.push(binding_row(
+            b.row(
+                &format!("o, {}", keys.notices),
+                &notice_desc,
+                Some(HelpActionKind::Notices),
+            );
+            b.row(&keys.open_history, "Recall a prompt", None);
+            b.row(
                 "/stats",
                 "Context window & token telemetry",
-                theme,
-            ));
-            body.push(binding_row(
+                Some(HelpActionKind::ThreadStats),
+            );
+            b.row(
                 "/connections",
                 "Model route & connection details",
-                theme,
-            ));
+                Some(HelpActionKind::Connections),
+            );
         }
         SceneKind::Subagent => {
-            body.push(section_header("Subagent Execution View", theme));
-            body.push(binding_row(
-                &keys.scene_back,
-                "Step back to the parent thread",
-                theme,
-            ));
+            b.header("Subagent Execution View");
+            b.row(&keys.scene_back, "Step back to the parent thread", None);
         }
         SceneKind::Dashboard => {
-            body.push(section_header("Dashboard (Thread Orchestration)", theme));
-            body.push(binding_row("Enter", "Inspect a thread's dossier", theme));
-            body.push(binding_row("/", "Filter threads by id or status", theme));
-            body.push(binding_row("Esc", "Leave the dashboard", theme));
+            b.header("Dashboard (Thread Orchestration)");
+            b.row("Enter", "Inspect a thread's dossier", None);
+            b.row("/", "Filter threads by id or status", None);
+            b.row("Esc", "Leave the dashboard", None);
         }
         SceneKind::Settings => {
-            body.push(section_header("Settings & Preferences", theme));
-            body.push(binding_row(
-                "Enter",
-                "Select a category or toggle a setting",
-                theme,
-            ));
-            body.push(binding_row("Esc", "Leave settings", theme));
+            b.header("Settings & Preferences");
+            b.row("Enter", "Select a category or toggle a setting", None);
+            b.row("Esc", "Leave settings", None);
         }
     }
-    // Esc is the universal dismiss/step-back chord, resolved from the same
-    // table as everything else rather than assumed.
-    body.push(Line::from(""));
+    b.separator();
 
     // 2. Scene Navigation — the intra-tab history stack.
-    //
-    // This is *not* tab switching: `Alt-[`/`Alt-]` walk the active tab's
-    // scene history (thread → subagent → back), and their chords are remappable
-    // surface verbs. The SceneBar draws only a chevron for them; this block is
-    // where the chords are documented, which is why chrome no longer has to.
-    body.push(section_header("Scene Navigation", theme));
-    body.push(binding_row(
+    b.header("Scene Navigation");
+    b.row(
         &format!("{} / {}", keys.scene_back, keys.scene_forward),
         "Step back / forward through this tab's scene history",
-        theme,
-    ));
-    body.push(binding_row(
+        None,
+    );
+    b.row(
         &format!("{} / {}", keys.focus_prev, keys.focus_next),
         "Focus the previous / next transcript step",
-        theme,
-    ));
-    body.push(binding_row(
+        None,
+    );
+    b.row(
         &keys.clear_focus,
         "Clear step focus; interrupt a running turn when nothing is focused",
-        theme,
-    ));
-    body.push(Line::from(""));
+        None,
+    );
+    b.separator();
 
     // 3. Client Domain: Tabs & Workspaces
-    body.push(section_header("Tabs & Workspaces", theme));
-    body.push(binding_row(&keys.new_tab, "New thread in a new tab", theme));
-    body.push(binding_row(&keys.close_tab, "Close the active tab", theme));
-    body.push(binding_row(
-        "Alt-1..9",
-        "Jump directly to tab 1 through 9",
-        theme,
-    ));
-    body.push(Line::from(""));
+    b.header("Tabs & Workspaces");
+    b.row(
+        &format!("t, {}", keys.new_tab),
+        "New thread in a new tab",
+        Some(HelpActionKind::NewTab),
+    );
+    b.row(
+        &format!("w, {}", keys.close_tab),
+        "Close the active tab",
+        Some(HelpActionKind::CloseTab),
+    );
+    b.row("Alt-1..9", "Jump directly to tab 1 through 9", None);
+    b.separator();
 
     // 4. Client Domain: Views & Navigation
-    body.push(section_header("Views & Navigation", theme));
-    body.push(binding_row(
-        "/dashboard",
-        "Navigate to the dashboard",
-        theme,
-    ));
-    body.push(binding_row(
-        "/threads",
-        "Open the saved threads overview picker",
-        theme,
-    ));
-    body.push(binding_row(
-        &keys.settings,
+    b.header("Views & Navigation");
+    b.row(
+        "d",
+        "Navigate to the dashboard (/dashboard)",
+        Some(HelpActionKind::Dashboard),
+    );
+    b.row(
+        "s",
+        "Open the saved threads overview picker (/threads)",
+        Some(HelpActionKind::Sessions),
+    );
+    b.row(
+        &format!(",, {}", keys.settings),
         "Open Settings & appearance",
-        theme,
-    ));
-    body.push(Line::from(""));
+        Some(HelpActionKind::Settings),
+    );
+    b.separator();
 
     // 5. Client Domain: Composer & System
-    body.push(section_header("Composer & System", theme));
-    body.push(binding_row("Enter", "Send the prompt", theme));
-    body.push(binding_row(
+    b.header("Composer & System");
+    b.row("Enter", "Send the prompt", None);
+    b.row(
         &keys.toggle_send_mode,
         "Switch between steer and follow-up while a turn runs",
-        theme,
-    ));
-    body.push(binding_row(
-        "/commands",
-        "Open the command palette (quick switcher)",
-        theme,
-    ));
-    body.push(binding_row(
-        "/",
-        "Slash commands & tool execution in the composer",
-        theme,
-    ));
-    body.push(binding_row(
+        None,
+    );
+    b.row(
+        "p",
+        "Open the command palette (quick switcher, /commands)",
+        Some(HelpActionKind::Switcher),
+    );
+    b.row("/", "Slash commands & tool execution in the composer", None);
+    b.row(
         &keys.help,
         "Toggle this Help & Keybindings dialog",
+        Some(HelpActionKind::CloseHelp),
+    );
+
+    b.entries
+}
+
+/// Render the sovereign Help dialog.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_help_modal(
+    frame: &mut Frame,
+    _area: Rect,
+    scene: SceneKind,
+    viewed_session_id: Option<&str>,
+    unread_faults: usize,
+    global: &GlobalOverrides,
+    surface: &SurfaceOverrides,
+    scroll: &mut usize,
+    actions: &mut Vec<Option<HelpActionKind>>,
+    theme: &Theme,
+) -> Rect {
+    let entries = build_help_entries(
+        scene,
+        viewed_session_id,
+        unread_faults,
+        global,
+        surface,
         theme,
-    ));
+    );
+
+    actions.clear();
+    actions.extend(entries.iter().map(|e| e.action));
+
+    let geometry = ContentModalSpec::TOOLS;
+    let desired_rows = (entries.len() as u16).saturating_add(4);
+    let bounds = content_modal_area(frame, geometry, desired_rows);
+    let f = modal_frame(frame, bounds, theme, true, true);
+
+    modal_header(frame, f.header, "Help & Keybindings", theme);
+
+    let body_lines: Vec<Line<'static>> = entries.into_iter().map(|e| e.line).collect();
 
     render_body(
         frame,
         f.body,
-        body,
+        body_lines,
         scroll,
         nuo_ui_primitives::primitives::BodyRenderOptions::new(None, 0, false),
         theme,
@@ -265,8 +333,9 @@ pub fn draw_help_modal(
 
     if let Some(fo) = f.footer {
         let hints = [
-            FooterHint::primary("Key", "direct action"),
-            FooterHint::always("Esc", "close"),
+            FooterHint::secondary("↑/↓", "scroll"),
+            FooterHint::primary("Key/Click", "direct action"),
+            FooterHint::always("Esc/F1", "close"),
         ];
         render_modal_footer(frame, fo, &hints, theme);
     }
@@ -326,5 +395,64 @@ mod tests {
         for chord in [&keys.help, &keys.new_tab, &keys.close_tab, &keys.notices] {
             assert_ne!(chord, "·", "an advertised chord must be displayable");
         }
+    }
+
+    #[test]
+    fn help_entries_structure_and_action_mapping() {
+        let theme = Theme::default();
+        let entries = build_help_entries(
+            SceneKind::Thread,
+            Some("thread-abc1234"),
+            2,
+            &GlobalOverrides::default(),
+            &SurfaceOverrides::default(),
+            &theme,
+        );
+
+        // Header has None action
+        assert_eq!(entries[0].action, None);
+
+        // Find action entries
+        let action_kinds: Vec<HelpActionKind> = entries.iter().filter_map(|e| e.action).collect();
+        assert!(action_kinds.contains(&HelpActionKind::Notices));
+        assert!(action_kinds.contains(&HelpActionKind::ThreadStats));
+        assert!(action_kinds.contains(&HelpActionKind::Connections));
+        assert!(action_kinds.contains(&HelpActionKind::NewTab));
+        assert!(action_kinds.contains(&HelpActionKind::CloseTab));
+        assert!(action_kinds.contains(&HelpActionKind::Dashboard));
+        assert!(action_kinds.contains(&HelpActionKind::Sessions));
+        assert!(action_kinds.contains(&HelpActionKind::Settings));
+        assert!(action_kinds.contains(&HelpActionKind::Switcher));
+        assert!(action_kinds.contains(&HelpActionKind::CloseHelp));
+    }
+
+    #[test]
+    fn help_modal_adaptive_height_on_large_frame() {
+        let mut terminal = nuotc::TestTerminal::new(100, 60);
+        let mut scroll = 0;
+        let mut actions = Vec::new();
+        let mut bounds = Rect::default();
+        terminal.draw(|f| {
+            bounds = draw_help_modal(
+                f,
+                Rect::new(0, 0, 100, 60),
+                SceneKind::Thread,
+                Some("session-1"),
+                0,
+                &GlobalOverrides::default(),
+                &SurfaceOverrides::default(),
+                &mut scroll,
+                &mut actions,
+                &Theme::default(),
+            );
+        });
+
+        // The modal height adapts to the content and is greater than the legacy hardcoded 22
+        assert!(
+            bounds.height > 22,
+            "expected adaptive height > 22 on 60-row frame, got {}",
+            bounds.height
+        );
+        assert_eq!(actions.len(), 27);
     }
 }

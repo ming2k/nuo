@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HazardLevel {
-    /// Safe / Read-Only (e.g. view_file, grep, find, list_dir).
+    /// Safe / Read-Only (e.g. view_file, grep, find).
     /// Does not mutate files, run arbitrary binaries, or alter system state.
     Safe,
     /// File Mutation / Overwrite risk (e.g. write_to_file, replace_file_content, patch).

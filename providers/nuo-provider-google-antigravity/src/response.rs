@@ -684,7 +684,7 @@ mod tests {
                   "parts": [
                     {
                       "thoughtSignature": "sig-1",
-                      "functionCall": {"id": "abc", "name": "list_dir", "args": {"path": "."}}
+                      "functionCall": {"id": "abc", "name": "find_files", "args": {"path": "."}}
                     },
                     {"thoughtSignature": "text-sig", "text": "done"}
                   ]
@@ -698,7 +698,7 @@ mod tests {
         assert_eq!(message.content, "done");
         let calls = message.tool_calls.unwrap();
         assert_eq!(calls[0].id, "abc");
-        assert_eq!(calls[0].name, "list_dir");
+        assert_eq!(calls[0].name, "find_files");
         assert_eq!(calls[0].arguments, r#"{"path":"."}"#);
         assert_eq!(
             message.provider_meta.unwrap()[THOUGHT_SIGNATURES_META_KEY]["abc"],
@@ -754,7 +754,7 @@ mod tests {
         );
 
         let payload = stream_payload(
-            r#"{"candidates":[{"content":{"parts":[{"thought_signature":"sig-3","functionCall":{"id":"xyz","name":"list_dir","args":{}}}]}}]}"#,
+            r#"{"candidates":[{"content":{"parts":[{"thought_signature":"sig-3","functionCall":{"id":"xyz","name":"find_files","args":{}}}]}}]}"#,
         );
         assert_eq!(
             payload.thought_signatures,

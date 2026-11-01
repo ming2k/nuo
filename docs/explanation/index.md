@@ -12,6 +12,7 @@ Discursive documentation that explains how and why Nuo is built the way it is. R
 | [The Terminal UI](tui.md) | The rendering philosophy, retained canvas diffing, and zero-layout-jitter zone design. |
 | [Terminal Shortcuts and Conflicts](terminal-shortcuts-and-conflicts.md) | Keyboard shortcut design trade-offs, POSIX line discipline collisions, and terminal emulator configurations. |
 | [Interrupt Semantics](interrupt-semantics.md) | Signal propagation, turn interruption, and cooperative cancellation lifecycle. |
+| [Command Records and Receipts](command-records-and-receipts.md) | Why only commands that change state are remembered, and where a report of the world's state goes instead. |
 | [OpenCode Provider Integration](opencode-provider-integration.md) | Protocol contracts, session continuation, and tool execution topology. |
 
 For the *why* behind each ratified decision, consult the [Architectural Decision Records](../adr/index.md).

@@ -238,7 +238,8 @@ impl App {
                 | DialogKind::SessionTrace
                 | DialogKind::PortShare
                 | DialogKind::Switcher
-                | DialogKind::Help => {}
+                | DialogKind::Help
+                | DialogKind::CommandOutput => {}
             }
         }
     }
@@ -637,6 +638,44 @@ impl App {
         self.surface_store.open(id);
         self.surfaces.present_dialog(id);
         first
+    }
+
+    /// Open the dedicated command output log pager modal for the tool step at `mi`.
+    pub(crate) fn open_command_output_dialog(&mut self, mi: usize) {
+        let (command, lines, exit) = {
+            let Some(message) = self.focused_messages().get(mi) else {
+                return;
+            };
+            if let nuo_view::model::document::MessageKind::ToolStep {
+                arguments,
+                output,
+                structured,
+                ..
+            } = &message.kind
+            {
+                let cmd = crate::shell::disclosure::renderers::payloads::command_for(
+                    structured.as_deref(),
+                    arguments,
+                );
+                let view = nuo_view::tools::shell_output::ShellOutput::derive(
+                    output.as_deref().unwrap_or(""),
+                    structured.as_deref(),
+                );
+                (cmd, view.rows, view.exit)
+            } else {
+                return;
+            }
+        };
+
+        self.open_dialog(crate::shell::surfaces::DialogKind::CommandOutput);
+        let dlg = self
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::CommandOutputDialog>();
+        dlg.command = command;
+        dlg.lines = lines;
+        dlg.exit = exit;
+        dlg.scroll = 0;
+        dlg.message_idx = Some(mi);
     }
 
     /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).

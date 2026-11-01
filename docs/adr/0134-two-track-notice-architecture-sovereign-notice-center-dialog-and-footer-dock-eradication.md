@@ -10,7 +10,7 @@ negative_knowledge: true
 
 # 0134. Two-Track Notice Architecture, Sovereign Notice Center Dialog, and Footer Dock Eradication
 
-- Status: Accepted
+- Status: Accepted (Amended by [ADR-0139](0139-severity-band-language-color-only-severity-on-notice-cards.md) — card severity is now conveyed by a color band, not `▲`/`[ERROR]` glyph+text badges; and by [ADR-0138](0138-notice-catalog-typed-registry-of-every-client-disclosure.md) — card content originates in the typed catalog, never ad-hoc literals)
 - Date: 2026-12-12
 - Deciders: Nuo Architecture Working Group
 - Amends: [ADR-0116](0116-content-residency-and-surface-layer-topology.md) (Content residency layer routing), [ADR-0121](0121-notice-log-residency-retained-disclosure-record-and-bubble-as-pointer.md) §4 (Abolishes the `NoticeDock` footer row), [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md) §2 (Relinks the TabBar `[!N]` badge to the sovereign Notice Center dialog)

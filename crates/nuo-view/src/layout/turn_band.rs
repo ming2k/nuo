@@ -6,13 +6,10 @@
 //! A "turn group" is a maximal run of consecutive assistant-side messages
 //! (tool steps, reasoning traces, subagent tasks, assistant text) that share the
 //! same `(round, turn)` stamp and contain at least one tool-like step. User messages
-//! and notices are *not* grouped and act as group terminators — with one
-//! exception: a **steer insert** (a user entry staged for, or admitted at, an
-//! inner boundary of the running turn). It is typed *while* the turn is still
-//! producing output, so it lands mid-turn in append order; it is therefore
-//! absorbed into the turn it interrupted, and the band spans it, instead of
-//! splitting that turn into two bands carrying the same `› turn N` header.
-//! See `super::is_steer_insert`.
+//! and notices are *not* grouped and act as group terminators — with no
+//! exception. (A **steer** is materialized only at a turn seam, so it can never
+//! land between two halves of one turn; the band never has to absorb one.
+//! ADR-0137.)
 //!
 //! Assistant-side components carry a 1-indexed ReAct `turn`, plus the enclosing
 //! user `round`. When a position is unknown (legacy sessions predating the

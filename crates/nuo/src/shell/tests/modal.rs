@@ -686,56 +686,59 @@ fn move_queued_swaps_within_session_and_clamps_at_edges() {
 }
 
 #[test]
-fn inserts_are_transcript_owned_not_outbox_items() {
-    // A live busy-Enter steer never enters the outbox. It
-    // becomes a transcript entry (`DeliveryStatus::Queued`) the moment it is
-    // sent, so the outbox cannot dispatch, recall, delete, or reorder it —
-    // and `UserInputUnavailable` hands it back by *staging a new outbox item*
-    // (same id), at which point it becomes an ordinary manageable entry.
+fn a_handed_back_steer_becomes_an_ordinary_outbox_item() {
+    // ADR-0137 replaced the old "inserts are transcript-owned" contract. A
+    // busy-Enter steer now waits in the outbox, and a steer whose round closed
+    // before admission (`SteerUnavailable`) is *already* there — it is handed
+    // back in place, not staged anew. What must hold is that the handed-back
+    // item is an ordinary manageable outbox row: FIFO dispatch pops it, the
+    // modal can recall it, and the in-flight dispatch marker is not addressable
+    // as outbox work.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.pending_dispatch
         .push_back(queued_dispatch("w1", "session-a", "waiting one"));
 
-    // Race loss: the harness hands the insert back. There is no outbox item
-    // to flip, so the content is staged as a fresh `Waiting` item under the
-    // same id.
-    app.requeue_dispatch(
-        "session-a",
-        "steer-1",
-        Some(("steer this".to_string(), Vec::new(), Vec::new())),
-    );
-    assert_eq!(app.pending_count("session-a"), 2);
-    let order: Vec<&str> = app
+    // Hand back a steer that was already staged as `Steering`.
+    let mut staged = queued_dispatch("steer-1", "session-a", "steer this");
+    staged.state = QueuedDispatchState::Steering;
+    app.pending_dispatch.push_back(staged);
+
+    // The hand-back flips the existing row to `Waiting`; it does not stage a
+    // duplicate under the same id.
+    app.requeue_dispatch("session-a", "steer-1", None);
+    let ids: Vec<(&str, QueuedDispatchState)> = app
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-a")
-        .map(|d| d.id.as_str())
+        .map(|d| (d.id.as_str(), d.state))
         .collect();
     assert_eq!(
-        order,
-        vec!["w1", "steer-1"],
-        "handed-back insert joins the FIFO tail"
+        ids,
+        vec![
+            ("w1", QueuedDispatchState::Waiting),
+            ("steer-1", QueuedDispatchState::Waiting),
+        ],
+        "the hand-back flips the existing row to Waiting instead of duplicating it"
     );
+    assert_eq!(app.pending_count("session-a"), 2);
 
-    // The handed-back item is an ordinary queue item now: FIFO dispatch pops
-    // the front (w1)…
+    // The handed-back item is ordinary now: FIFO dispatch pops the front (w1)…
     let popped = app
         .begin_next_round_dispatch("session-a")
         .expect("a Waiting item pops first");
     assert_eq!(popped.id, "w1");
-    // …and the modal can recall it like any other entry.
+    // …and the modal can recall the remaining one like any other entry.
     assert!(
         app.recall_queued_at("session-a", 0).is_some(),
-        "the handed-back insert is modal-addressable"
+        "the handed-back steer is modal-addressable"
     );
 
-    // Only the Dispatching leftover (w1) remains; a live insert never
-    // touched the outbox at any point in its lifecycle.
-    assert_eq!(app.pending_count("session-a"), 1);
-    assert!(
-        app.pending_dispatch
-            .iter()
-            .all(|d| d.state == QueuedDispatchState::Dispatching)
+    // The in-flight `Dispatching` row is not counted as outbox work: the strip,
+    // the modal and the addressable set exclude it (one population, INV-STEER-05).
+    assert_eq!(
+        app.pending_count("session-a"),
+        0,
+        "a Dispatching row is not addressable outbox work"
     );
 }
 
@@ -1040,7 +1043,35 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
         10
     );
 
-    // 6. Under [INV-SURFACE-06], modal_scroll_field returns None for dialogs
+    // 6. HelpDialog: pure-scroll dialog, ScrollDown increments and ScrollUp decrements.
+    app.open_dialog(crate::shell::surfaces::DialogKind::Help);
+    app.surfaces
+        .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+        .scroll = 3;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll,
+        4
+    );
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollUp, &mut app, "");
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll,
+        3
+    );
+
+    // 7. Under [INV-SURFACE-06], modal_scroll_field returns None for dialogs
     // (since they do not leak pointers), but continues to serve scenes/sheets.
     assert!(
         app.modal_scroll_field().is_none(),
@@ -1056,6 +1087,131 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
 
     app.reset_to_thread();
     assert!(app.modal_scroll_field().is_none());
+}
+
+#[test]
+fn help_dialog_scroll_and_footer_click_lifecycle() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    app.open_dialog(crate::shell::surfaces::DialogKind::Help);
+
+    // Initial scroll is 0
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll,
+        0
+    );
+
+    // ModalDown (arrow down) scrolls down
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::shell::input::InputAction::ModalDown, &mut app, "");
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll,
+        1
+    );
+
+    // ModalUp (arrow up) scrolls up
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::shell::input::InputAction::ModalUp, &mut app, "");
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll,
+        0
+    );
+
+    // Page scrolling
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(
+            &crate::shell::input::InputAction::ScrollPageDown,
+            &mut app,
+            "",
+        );
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll
+            > 0
+    );
+
+    // ScrollTop
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollTop, &mut app, "");
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.surfaces
+            .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+            .scroll,
+        0
+    );
+
+    // Mount Help overlay on UI and test footer dismissal click
+    let modal_rect = nuotc::layout::Rect::new(10, 5, 60, 20);
+    app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.ui.mount(
+        crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
+            crate::shell::surfaces::DialogKind::Help,
+        )),
+        modal_rect,
+    );
+    app.ui.commit();
+    let footer_y = modal_rect.y + modal_rect.height - 1;
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(
+            &crate::shell::input::InputAction::SelectionStart {
+                x: modal_rect.x + 5,
+                y: footer_y,
+            },
+            &mut app,
+            "",
+        );
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Dismiss);
+        app.surfaces.put_active_view(ent);
+    }
+
+    // Populate HelpDialog.actions and test row-click to execute
+    let entries = crate::shell::overlays::help::build_help_entries(
+        crate::shell::surfaces::SceneKind::Thread,
+        Some("session-1"),
+        0,
+        &app.key_overrides,
+        &app.surface_overrides,
+        &app.theme,
+    );
+    app.surfaces
+        .dlg_mut::<crate::shell::surfaces::HelpDialog>()
+        .actions = entries.iter().map(|e| e.action).collect();
+
+    // Line 1 is Notices in Thread scene (body_top is y = 5 + 3 = 8, so line 1 is y = 8 + 1 = 9)
+    if let Some(mut ent) = app.surfaces.take_active_view() {
+        let outcome = ent.handle_input(
+            &crate::shell::input::InputAction::SelectionStart {
+                x: modal_rect.x + 5,
+                y: 9,
+            },
+            &mut app,
+            "",
+        );
+        assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Dismiss);
+        app.surfaces.put_active_view(ent);
+    }
+    assert_eq!(
+        app.pending_help_action,
+        Some(crate::shell::overlays::help::HelpActionKind::Notices)
+    );
 }
 
 /// ADR-0047 [INV-SURFACE-07]: DialogView entities autonomously handle spatial

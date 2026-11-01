@@ -1125,8 +1125,10 @@ pub enum EventClass {
     /// background-job lifecycle). Admitted only as a turn anchor.
     TurnOutcome,
     /// An operation on the session (slash-command result, configuration
-    /// mutation). Never admitted: it lives in the durable command ledger and is
-    /// joined into the rendering by timestamp.
+    /// mutation). Never admitted: an *act* lives in the durable command ledger
+    /// and is joined into the rendering by timestamp, while a *reading* — a
+    /// report of the world at the moment it was asked — lives only as an
+    /// ephemeral receipt on the client (ADR-0117, ADR-0140).
     Operation,
     /// Counters, timings, phase transitions. Never admitted.
     Telemetry,
@@ -1284,23 +1286,34 @@ pub enum RoundEvent {
     /// event covers the round as a whole on every interrupt phase.
     RoundInterrupted(RoundInterrupt),
     Text(String),
-    /// A typed slash-command result. Replaces the `Text` replies
-    /// commands used to emit: the TUI renders it as a distinct command block
-    /// (dimmed header + expandable result), never as assistant prose, and the
-    /// same value is recorded in the session's command ledger for resume/
-    /// export/audit.
-    /// A typed slash-command result. Replaces the `Text` replies
-    /// commands used to emit: the TUI renders it as a distinct command block
-    /// (dimmed invocation header + expandable result), never as assistant
-    /// prose, and the same value is recorded in the session's command ledger
-    /// for resume/export/audit.
+    /// A typed slash-command result.
+    ///
+    /// Replaces the `Text` replies commands used to emit: a frontend renders it
+    /// as a command row (dimmed invocation + expandable reply), never as
+    /// assistant prose.
+    ///
+    /// `effect` is the server's authoritative class for this invocation
+    /// (ADR-0140) and it decides where the reply is filed — nothing else does:
+    ///
+    /// - [`CommandEffect::Mutation`] — an act. A durable row already exists in
+    ///   the session's command ledger; the client settles the staged thread row
+    ///   in place, so the act holds its position in the conversation.
+    /// - [`CommandEffect::Reading`] — a report of the world at the moment of
+    ///   asking. **No** ledger row exists and none may be fabricated: the reply
+    ///   is an ephemeral receipt on the client. A reading is answered in full,
+    ///   it is simply never asserted later as still true.
+    ///
+    /// Carrying the class on the event (rather than making the client consult the
+    /// catalog) is what keeps a frontend that never fetched a catalog honest, and
+    /// it is the analogue of ADR-0119 §2: admission belongs to the dispatcher.
     CommandResult {
-        /// Command word without the leading slash (e.g. `"search"`), or
-        /// `"shell"` for a `!command` passthrough.
+        /// Command word without the leading slash (e.g. `"search"`).
         name: String,
         /// Raw argument remainder after the command word.
         args: String,
         result: crate::command::CommandResult,
+        /// Whether this invocation was an act (recorded) or a reading (ephemeral).
+        effect: crate::CommandEffect,
     },
     /// Turn-level error (e.g. a provider failure mid-turn). Distinct from the
     /// global [`AgentResponse::Error`] only in that it belongs to a specific
@@ -1914,7 +1927,13 @@ pub struct ThreadSnapshot {
     pub provider_picker: Option<ProviderPickerSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_keys: Option<Vec<(String, bool)>>,
-    /// The durable command ledger, projected into the transcript by the client.
+    /// The durable command ledger, projected into the thread by the client.
+    ///
+    /// Every record here is an **act** (ADR-0140): a replication of the ledger's
+    /// own residency contract, since a reading never reaches the ledger. The
+    /// client joins these rows into the rendered thread at their timestamp seam;
+    /// an act therefore appears in the conversation at the moment it happened,
+    /// without being dialogue.
     #[serde(default)]
     pub commands: Vec<crate::command::CommandRecord>,
     /// Round-interrupt records at their timestamp seams.

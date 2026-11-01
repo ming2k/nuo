@@ -1125,7 +1125,7 @@ mod tests {
             vec![Message::new(Role::User, "list files")],
             test_body_input(
                 Some(&[nuo_provider::capability::ToolSpec {
-                    name: "list_dir".to_string(),
+                    name: "find_files".to_string(),
                     description: "List files".to_string(),
                     parameters: json!({
                         "type": "object",
@@ -1140,7 +1140,7 @@ mod tests {
 
         assert_eq!(
             body["tools"][0]["functionDeclarations"][0]["name"],
-            "list_dir"
+            "find_files"
         );
         assert_eq!(
             body["tools"][0]["functionDeclarations"][0]["parameters"]["properties"]["path"]["type"],
@@ -1175,7 +1175,7 @@ mod tests {
     fn replays_tool_calls_and_results_as_function_parts() {
         let call = nuo_tool::ToolCall {
             id: "call_1".to_string(),
-            name: "list_dir".to_string(),
+            name: "find_files".to_string(),
             arguments: r#"{"path":"."}"#.to_string(),
         };
         let mut provider_meta = serde_json::Map::new();
@@ -1202,7 +1202,7 @@ mod tests {
 
         assert_eq!(
             body["contents"][1]["parts"][1]["functionCall"]["name"],
-            "list_dir"
+            "find_files"
         );
         assert_eq!(
             body["contents"][1]["parts"][1]["functionCall"]["args"]["path"],
@@ -1215,7 +1215,7 @@ mod tests {
         assert_eq!(body["contents"][1]["parts"][1]["thoughtSignature"], "sig-1");
         assert_eq!(
             body["contents"][2]["parts"][0]["functionResponse"]["name"],
-            "list_dir"
+            "find_files"
         );
         assert_eq!(
             body["contents"][2]["parts"][0]["functionResponse"]["response"]["content"],
@@ -1227,7 +1227,7 @@ mod tests {
     fn strips_unanswered_tool_calls_and_orphan_results() {
         let answered = nuo_tool::ToolCall {
             id: "answered".to_string(),
-            name: "list_dir".to_string(),
+            name: "find_files".to_string(),
             arguments: "{}".to_string(),
         };
         let unanswered = nuo_tool::ToolCall {
@@ -1503,7 +1503,7 @@ mod tests {
     fn replays_mixed_signed_and_unsigned_tool_calls_natively() {
         let signed_call = nuo_tool::ToolCall {
             id: "call_signed".to_string(),
-            name: "list_dir".to_string(),
+            name: "find_files".to_string(),
             arguments: r#"{"path":"."}"#.to_string(),
         };
         let unsigned_call = nuo_tool::ToolCall {
@@ -1535,7 +1535,7 @@ mod tests {
         assert_eq!(model_parts.len(), 3);
         assert_eq!(model_parts[0]["text"], "Running tools");
         // Signed call remains native functionCall with signature
-        assert_eq!(model_parts[1]["functionCall"]["name"], "list_dir");
+        assert_eq!(model_parts[1]["functionCall"]["name"], "find_files");
         assert_eq!(model_parts[1]["thoughtSignature"], "sig-signed-call");
         // Unsigned call replays natively with skip sentinel
         assert_eq!(
@@ -1550,7 +1550,7 @@ mod tests {
         let user_parts = body["contents"][2]["parts"].as_array().unwrap();
         assert_eq!(user_parts.len(), 2);
         // Both results are native functionResponses
-        assert_eq!(user_parts[0]["functionResponse"]["name"], "list_dir");
+        assert_eq!(user_parts[0]["functionResponse"]["name"], "find_files");
         assert_eq!(
             user_parts[1]["functionResponse"]["name"],
             "default_api:execute_command"

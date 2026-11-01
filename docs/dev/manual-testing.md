@@ -1,651 +1,174 @@
-# Manual Testing & Full-Stack Verification Guide
+# Manual Testing Guide
 
-This document defines the comprehensive manual testing procedures, exploratory testing playbooks, and release walk-through runbooks for **Nuo** — the unified AI session server, control plane, and semantic terminal client.
+This guide describes how to run and manually verify **Nuo** directly from source.
 
-It ensures that developers, QA engineers, and release gatekeepers can verify end-to-end functionality, user experience ergonomics, interactive approval workflows, and fault recovery from a clean cold start without synthetic test harnesses or internal backdoor bypasses.
-
----
-
-## 1. Principles & Testing Philosophy
-
-Manual verification complements automated testing (`cargo test --workspace`, snapshot tests) by focusing on cognitive and perceptual dimensions that machines cannot evaluate:
-
-1. **`[INV-VAL-01]` Real User Journey Parity**:
-   All manual verifications must be performed through the public unified CLI interface (`nuo`) and standard HTTP/IPC endpoints from a cold start. Using private test harness fixtures or mock overrides is strictly prohibited during manual sign-off.
-2. **`[INV-CLI-01]` / `[INV-CLI-02]` Unified Binary Singleton**:
-   The workspace produces a single public executable: `nuo`. Interactive terminal sessions, headless scripts, and server servers are all accessed through this single binary entrypoint.
-3. **Ergonomics & Visual Polish**:
-   Validate terminal layout responsiveness, border integrity, CJK wide-character alignment, ANSI color fidelity, breathing animations, and cursor state restoration powered by `nuo-tui` and `nuotc`.
-4. **Interactive Safety & Approval Barriers**:
-   Verify that high-hazard operations (destructive bash commands, file modifications) pause cleanly for explicit human confirmation and never execute prematurely.
-5. **Host Isolation & Posture Invariant**:
-   Manual test runs must never pollute the operator's host configuration (`~/.config/nuo`) or collide with running production servers. Every test session must explicitly run inside an isolated sandbox directory using `NUO_HOME`. Furthermore, testing must strictly distinguish between the two dual hosting postures (ADR-0033):
-   - **Native Scheme (`nuo`)**: Client-bound interactive sessions run purely over local Unix Domain Sockets (UDS) / Named Pipes with zero TCP port binding (`[INV-SERVER-03]`).
-   - **Port Scheme (`nuo server start --fg` / `nuo server start`)**: Standalone hosted servers bind a dedicated TCP port (`NUO_PORT`, default `9800`) plus UDS for network control planes, HTTP probes, and remote clients.
+Nuo requires no synthetic harnesses, test runners, or multi-step ceremony for manual testing: **compile the unified binary with `cargo`, inject your provider environment variables, and run.**
 
 ---
 
-## 2. Environment Preparation & Sandbox Setup
+## 1. Quick Start: Build & Run
 
-### Prerequisites
-
-- **Rust Toolchain**: Rust 1.85+ (pinned via `Cargo.toml`).
-- **Terminal Emulator**: Modern terminal supporting UTF-8 and truecolor (e.g. Ghostty, Alacritty, iTerm2, WezTerm, or Kitty).
-- **Model Provider API Key**: At least one valid API key (e.g. DeepSeek, OpenRouter, Anthropic, or OpenAI).
-
-### Cold-Start Sandbox Setup
-
-Run these commands in your shell to prepare an isolated environment:
+### Interactive Terminal (TUI) Mode
 
 ```bash
-# 1. Compile the unified binary
-cargo build -p nuo
-
-# 2. Establish isolated instance root and non-conflicting TCP port
-export NUO_HOME=$(mktemp -d /tmp/nuo-manual.XXXXXX)
-export NUO_PORT=9820
-
-# 3. Expose debug binary on PATH for canonical command execution
-export PATH="$PWD/target/debug:$PATH"
-
-echo "Sandbox initialized at: $NUO_HOME (Port: $NUO_PORT)"
+# Pass your provider key and launch the interactive terminal
+DEEPSEEK_API_KEY="sk-..." cargo run -p nuo
 ```
 
-> **Posture Configuration Note**:
-> - `NUO_HOME` is mandatory for all test suites: it roots all configuration, database state, and local UDS instance sockets (`$NUO_HOME/nuo/instance/server.sock`) into the sandbox.
-> - `NUO_PORT` is used by the **Port Scheme** (`nuo server start`, HTTP probes, and remote clients) to avoid colliding with default port `9800`. The **Native Scheme** (`nuo` standalone) runs exclusively over UDS and ignores TCP ports.
+> **First Run Note (Connection Setup)**:
+> Nuo is connection-oriented ([ADR-0087](../adr/0087-model-wire-aperture-purification-and-provider-connection-orthogonality.md)). When launching inside a clean sandbox for the first time:
+> 1. Type `/connections` in the prompt composer to open the connection manager.
+> 2. Pick your provider (e.g. `deepseek`) and press `Enter` to activate it.
+> 3. Your `DEEPSEEK_API_KEY` from the environment is automatically bound, and the connection persists in `$NUO_HOME/nuo/state/connections.toml`.
+> 4. After this initial one-time selection, subsequent runs immediately resume dialogue.
 
-To clean up after testing:
+### Headless (One-Shot Prompt) Mode
+
+Once a provider connection exists (or if pre-seeding `connections.toml` in your sandbox state directory):
 
 ```bash
-nuo server stop >/dev/null 2>&1
-rm -rf "$NUO_HOME"
+# Execute non-interactively and stream to stdout
+DEEPSEEK_API_KEY="sk-..." cargo run -p nuo -- --headless -p "Explain the workspace structure in 2 sentences"
+```
+
+To allow tools to execute without interactive keyboard confirmation:
+
+```bash
+cargo run -p nuo -- --headless --unattended -p "Read Cargo.toml and print the workspace version"
 ```
 
 ---
 
-## 3. Step-by-Step Verification Scenarios
+## 2. Environment Variables Reference
 
-### Suite 1: Build & CLI Baseline Verification
+### Provider API Keys
 
-#### Scenario 1.1: Binary Execution & Help Surface
-- **Action**:
-  ```bash
-  nuo --help
-  nuo --version
-  nuo run --help
-  nuo server --help
-  ```
-- **Expected Outcome**:
-  - Help text renders cleanly with accurate usage patterns, subcommands, and environment variable documentation (`NUO_HOME`, `NUO_PORT`).
-  - Version strings print matching the workspace version (e.g., `0.0.9`).
-  - Commands exit with status `0`.
+Nuo reads credentials directly from environment variables. Export any of the following:
 
-#### Scenario 1.2: Shell Completions Generation
-- **Action**:
-  ```bash
-  nuo completions bash | head -n 15
-  nuo completions zsh | head -n 15
-  nuo completions fish | head -n 15
-  ```
-- **Expected Outcome**:
-  - Valid completion scripts for `bash`, `zsh`, and `fish` print to stdout without panic.
-  - Exit code `0`.
+| Provider | Environment Variable | Notes |
+| :--- | :--- | :--- |
+| **DeepSeek** | `DEEPSEEK_API_KEY` | Official DeepSeek Chat & Reasoner |
+| **OpenAI** | `OPENAI_API_KEY` | OpenAI GPT-4o / o1 / o3 models |
+| **Anthropic** | `ANTHROPIC_API_KEY` | Claude 3.5 Sonnet / Haiku / Opus |
+| **OpenRouter** | `OPENROUTER_API_KEY` | Aggregated multi-provider router |
+| **Qianwen (Aliyun)** | `QIANWEN_API_KEY` | Qwen Turbo / Plus / Max models |
+| **Kimi (Moonshot)** | `MOONSHOT_API_KEY` | Moonshot / Kimi models |
+| **xAI** | `XAI_API_KEY` | Grok models |
+| **CodeBuddy** | `CODEBUDDY_API_KEY` | Tencent CodeBuddy relay |
+| **OpenCode** | `OPENCODE_API_KEY` | OpenCode relay models |
 
----
+### Development & Sandbox Overrides
 
-### Suite 2: Standalone Hosted Server Lifecycle & Port Scheme (`nuo server start`)
+By default, debug builds (`cargo run` without `--release`) automatically isolate state to `target/nuo-dev`, preventing manual tests from polluting your host system (`~/.config/nuo` or production databases).
 
-#### Scenario 2.1: Foreground Server Container Execution (`nuo server start --fg`)
-- **Action**:
-  1. In Terminal A, start the standalone server service in foreground mode (Port Scheme):
-     ```bash
-     nuo server start --fg --port "$NUO_PORT"
-     ```
-  2. In Terminal B, query status:
-     ```bash
-     nuo status
-     ```
-  3. Send `Ctrl+C` (SIGINT) to Terminal A.
-- **Expected Outcome**:
-  - Terminal A logs startup details, active TCP port `$NUO_PORT`, and domain socket path. Standalone posture binds both TCP (`127.0.0.1:$NUO_PORT`) and local UDS.
-  - Terminal B outputs the active server endpoint and zero active sessions.
-  - Upon `Ctrl+C`, the server performs a graceful drain, shuts down worker threads, removes Unix domain sockets, and exits cleanly.
-
-#### Scenario 2.2: Detached Server Lifecycle (`start` / `status` / `token` / `stop`)
-- **Action**:
-  ```bash
-  # 1. Start server detached (Port Scheme)
-  nuo server start --port "$NUO_PORT"
-
-  # 2. Inspect status
-  nuo status --diagnostic
-
-  # 3. Retrieve bearer token
-  TOKEN=$(nuo server token)
-  echo "Server token: $TOKEN"
-
-  # 4. Graceful stop
-  nuo server stop
-  ```
-- **Expected Outcome**:
-  - `server start` prints server PID and port, then returns control to the shell immediately.
-  - `status --diagnostic` reports process PID, socket path, runtime state, and active sessions.
-  - `server token` outputs a 64-character hexadecimal bearer token.
-  - `server stop` signals the server to drain active connections, removes the lockfile, and exits 0.
-
-#### Scenario 2.3: HTTP Health & Probe Endpoint
-- **Action**:
-  ```bash
-  nuo server start --port "$NUO_PORT"
-
-  # Health probe
-  curl -i "http://127.0.0.1:$NUO_PORT/healthz"
-
-  # CORS Preflight
-  curl -i -X OPTIONS "http://127.0.0.1:$NUO_PORT/healthz"
-
-  # Non-existent route
-  curl -i "http://127.0.0.1:$NUO_PORT/invalid-route"
-
-  nuo server stop
-  ```
-- **Expected Outcome**:
-  - `/healthz` returns `HTTP/1.1 200 OK`, `Content-Type: application/json`, and body containing `{"version":"...","auth":true}`.
-  - `OPTIONS` returns `HTTP/1.1 204 No Content` with `Access-Control-Allow-Origin: *`.
-  - `/invalid-route` returns `HTTP/1.1 404 Not Found`.
-
-#### Scenario 2.4: Server Double-Start Mutual Exclusion
-- **Action**:
-  ```bash
-  nuo server start --port "$NUO_PORT"
-  # Attempt second start on the same instance
-  nuo server start --port "$NUO_PORT"
-  nuo server stop
-  ```
-- **Expected Outcome**:
-  - The second invocation fails immediately with an informative error (e.g. `server lock already held` or already running) and exit code `1`.
-  - The first server process remains undisturbed.
-
-#### Scenario 2.5: Dual Hosting Posture & Opportunistic Attachment (`[INV-SERVER-03]`, `[INV-SERVER-05]`)
-- **Action**:
-  1. Start the standalone hosted server on TCP `$NUO_PORT`:
-     ```bash
-     nuo server start --port "$NUO_PORT"
-     ```
-  2. In a second command, verify that client CLI attached opportunistically to the hosted server instead of spawning a new instance:
-     ```bash
-     nuo run "echo opportunistic attachment test"
-     ```
-  3. Query status to ensure the session was hosted by the standalone server:
-     ```bash
-     nuo status
-     ```
-  4. Gracefully terminate the standalone server:
-     ```bash
-     nuo server stop
-     ```
-- **Expected Outcome**:
-  - `nuo run` attaches to the already-running standalone server without spawning an isolated process (`[INV-SERVER-05]`).
-  - `nuo status` confirms the hosted server handled the execution.
-  - `nuo server stop` shuts down the standalone server cleanly.
+| Variable | Default (Debug) | Purpose |
+| :--- | :--- | :--- |
+| `NUO_DEV` | `1` (on debug) | Enables automatic sandbox isolation under `target/nuo-dev`. Set `NUO_NO_DEV=1` to disable. |
+| `NUO_HOME` | `target/nuo-dev` | Explicitly override the instance root (holds db, logs, and sockets). E.g. `NUO_HOME=$(mktemp -d)`. |
+| `NUO_PORT` | `9800` | Port for standalone server mode. Useful if port 9800 is already in use. |
+| `NUO_LOG` | `info` | Log level for tracing output (`error`, `warn`, `info`, `debug`, `trace`, or `off`). |
+| `NUO_BIN` | Sibling binary | Path to `nuo` executable if overriding client-server binary discovery. |
 
 ---
 
-### Suite 3: Configuration & Provider Authentication
+## 3. Manual Testing Workflows
 
-#### Scenario 3.1: Configuration Schema Validation
-- **Action**:
-  ```bash
-  nuo config path
-  nuo config list
-  nuo config check
-  ```
-- **Expected Outcome**:
-  - `config path` prints `$NUO_HOME/nuo/config/config.toml`.
-  - `config check` validates configuration against schema with 0 errors.
+### Workflow A: Interactive Terminal Interface (TUI)
 
-#### Scenario 3.2: Configuration Mutation (`set` & `get`)
-- **Action**:
-  ```bash
-  nuo config set server.shutdown_grace_secs 15
-  nuo config get server.shutdown_grace_secs
-  ```
-- **Expected Outcome**:
-  - Key `server.shutdown_grace_secs` updates to `15`.
-  - `config get` outputs `15`.
-
-#### Scenario 3.3: Provider Credentials & Configuration Setup
-- **Action**:
-  ```bash
-  nuo config ls
-  nuo config set providers.deepseek.api_key "sk-test-key-mock-123456"
-  nuo config get providers.deepseek.api_key
-  ```
-- **Expected Outcome**:
-  - `config set` stores the configuration under the isolated config directory.
-  - `config get` displays the configured value.
-
----
-
-### Suite 4: Semantic Terminal Experience & Native Scheme (`nuo` Interactive TUI)
-
-#### Scenario 4.1: Cold-Start Interactive TUI Launch (Native IPC Scheme)
-- **Action**:
-  ```bash
-  # 1. Verify no standalone server is active
-  nuo status
-
-  # 2. Launch interactive terminal
-  nuo
-  ```
-- **Expected Outcome**:
-  - Because no standalone server is active, `nuo` automatically bootstraps an isolated client-bound server in the background using the **Native Scheme** (`--client-driven`).
-  - **Zero TCP listener (`[INV-SERVER-03]`)**: The client-bound server binds strictly to the local Unix Domain Socket (`$NUO_HOME/nuo/instance/server.sock` or Named Pipe) and listens on **zero** TCP ports. Port `$NUO_PORT` and default port `9800` remain completely unopened.
-  - Terminal enters alternate screen buffer and raw mode.
-  - Header displays active model/role, thread status, and session indicator.
-  - Input composer sits at bottom ready for prompt entry.
-  - Typing characters displays smoothly with zero cursor lag.
-  - Exiting the TUI (via `/exit` or `Ctrl+C` twice) triggers graceful automatic teardown of the client-bound server shortly after client disconnection.
-
-#### Scenario 4.2: Dialogue Turn & Streaming Rendering
-- **Action**:
-  1. Inside `nuo`, type a greeting or simple question:
-     ```text
-     Hello! What is your role and system status?
-     ```
-  2. Press `Enter`.
-- **Expected Outcome**:
-  - User message renders as a styled block.
-  - Streaming thinking blocks (if reasoning model) or response text stream in real time without screen flicker.
-  - Status indicator shifts from `Idle` -> `Thinking` / `Generating` -> `Idle`.
-  - Context token usage increments in header/status bar.
-
-#### Scenario 4.3: Tool Approval Barrier & Permission Sheet
-- **Action**:
-  1. In `nuo`, ask the assistant to perform a safe filesystem inspection:
-     ```text
-     Please list the files in the current workspace directory.
-     ```
-  2. Observe the tool approval card when the agent requests `execute_command` or filesystem tools.
-  3. Inspect approval sheet:
-     - Use `←` / `→` or `Tab` to toggle between `[Approve Once]`, `[Always Allow]`, and `[Reject]`.
-  4. Select `[Approve Once]` and press `Enter`.
-- **Expected Outcome**:
-  - Tool execution does NOT run until explicit Enter is pressed.
-  - Once approved, stdout/stderr stream into an expandable disclosure block.
-  - Agent synthesizes the directory listing into its final reply.
-
-#### Scenario 4.4: Slash Commands & In-Session Controls
-- **Action**:
-  - Type `/help` and press Enter.
-  - Type `/models` or press `Ctrl+M` to inspect the model catalog.
-  - Press `C-x ,` or `Ctrl+T` -> `Settings` to open the Settings tab.
-  - Type `/exit` or press `Ctrl+C` twice to exit.
-- **Expected Outcome**:
-  - `/help` renders available commands without invoking the LLM provider.
-  - Model selector modal overlays cleanly and dismisses upon `Esc`.
-  - `/exit` cleanly exits TUI, restores standard terminal screen buffer, unhides cursor, and returns to shell prompt.
-
-#### Scenario 4.5: Settings → Components Reflects the Declared Registry (ADR-0020)
-- **Action**:
-  - Open Settings (`C-x ,` or `nuo settings`) and select the **Components** category.
-  - Confirm the pane lists one row per declared tool component (`Command
-    Execution Logs`, `File Changes (Diffs)`, `File Content Previews`, `Image
-    Reads`, `Search & Grep Results`, `Web Article Reads`, `Web Search Results`,
-    `Todo & Task Checklists`, `Subagent Delegations`, `Skill Activations`,
-    `Clarifying Questions`) followed by `Global Step Density` and
-    `Auto-Scroll on Expand`, with `Reasoning Traces (Thinking)` first.
-  - Confirm the badges match the declared defaults: `Command Execution Logs`
-    and `File Changes (Diffs)` read `[ Expanded ]`; every other component reads
-    `[ Collapsed ]`.
-  - Toggle `Command Execution Logs`, then run a shell command; confirm the step
-    collapses.
-  - Run the same shell command under its legacy spelling (a restored session
-    persisted as `bash` or `run_command`) and confirm it collapses too.
-  - Restart `nuo` and confirm every toggle persisted.
-- **Expected Outcome**:
-  - The pane's row count and order are derived from `tools::TOOL_COMPONENTS`;
-    adding a presenter plus one registry entry makes its row appear with no
-    other edit.
-  - A component's toggle applies to **every** name that component claims, so an
-    alias spelling never ignores the user's choice.
-  - Toggling one component never changes another's state.
-  - `[default_expanded]` in `$XDG_CONFIG_HOME/nuo/terminal.toml` carries one
-    entry per alias of each toggled component.
-
-#### Scenario 4.6: Interactive Markers Are Honest
-- **Action**:
-  - Send a turn that produces thinking, a file edit, a shell command, and a
-    web search; hover each summary and press `Ctrl+N` / `Ctrl+P` to walk them
-    with the keyboard.
-  - Click a compaction card (appears after a context compaction) and press
-    `Enter` / `Space` on it while focused.
-  - Press `Enter` and `Space` on a focused notice (e.g. a provider-retry entry).
-- **Expected Outcome**:
-  - Every summary that shows a `+`/`-` marker is focusable, clickable, and
-    lights up with the affordance hue on hover/focus (ADR-0020).
-  - The compaction card toggles on click and on `Enter`/`Space`; its hint names
-    only those chords.
-  - Notices and command entries carry no `+`/`-` marker — their body is fully
-    disclosed — and neither advertises a folding chord.
-  - A click on prose selects text rather than toggling anything.
-
-#### Scenario 4.7: `ask_user` Steps Render as a Question→Answer List
-- **Action**:
-  - Prompt the agent so it calls `ask_user` with more than one question (e.g.
-    "Ask me two questions to pin down the scope before you start"). Answer the
-    questions, then expand the resulting step (`Enter` / click its summary).
-  - Repeat, but cancel the question sheet (`Esc`) instead of answering.
-- **Expected Outcome**:
-  - The collapsed header is **count-led** (`Ask 2 questions · Scope · Layout`
-    when the questions carry `header` chips; `Ask 1 question` when they do not)
-    and never privileges one question over the others.
-  - The expanded body is a question→answer list, **not** a JSON blob: each
-    question shows its header chip (if any) and its text with an option-count tag
-    (`Which layout pieces? (3 options, multi-select)`), with the selected labels
-    on dim `↳` rows beneath it.
-  - A multi-select answer lists each pick; continuations align under the first
-    label rather than repeating the `↳` glyph.
-  - A cancelled request renders `↳ cancelled — no answer` — never an empty array.
-  - Selecting the block and copying yields the questions and answers in reading
-    order (the option-count tag is decoration and is not copied).
-
-#### Scenario 4.8: Listing Steps (`find_files` / `list_dir`) Render Layered
-- **Action**:
-  - Prompt the agent to find files (e.g. "list every ADR") so it calls
-    `find_files`, then expand the resulting step (`Enter` / click its summary).
-  - Prompt it to list a directory so it calls `list_dir`, and expand that step.
-- **Expected Outcome**:
-  - **`list_dir`** opens with a **column header** (`Name` … `Size`) — a table
-    head, not a count tally — and renders one row per entry with no per-row type
-    glyph. Each directory name carries a trailing `/` and is colored the `ls`
-    blue, an executable the `ls` green, a symlink the cyan, and a plain file the
-    scheme's normal content tone; the byte size sits in a dim right-aligned
-    column. The raw `[DIR]` / `[EXEC]` / `[LINK]` / `[FILE]` tags never appear.
-  - **`find_files`** opens directly with siblings grouped under per-directory
-    **title bands** (`docs/adr/`), stripping the redundant count header line
-    so the shared prefix appears once without an unnecessary intermediate count tally.
-  - A truncated `list_dir` shows a dim `⋯ N more entries not shown` band, not
-    the raw `... (N additional entries omitted)` line.
-  - Selecting a listing and copying still yields the underlying paths in reading
-    order (the header and bands are decoration; the byte ranges stay anchored in
-    the raw output).
-
-#### Scenario 4.9: Dynamic Port & Network Sharing Palette (`C-x p`, ADR-0045)
-- **Action**:
-  1. Inside an active `nuo` terminal session, press `C-x p`.
-  2. Inspect the **Port & Remote Sharing** palette modal:
-     - Verify TCP listener status shows `○ Disabled` under native client-bound posture with zero TCP attack surface.
-     - Verify local IPC endpoint is displayed.
-  3. Press `Space` to dynamically hot-enable the TCP listener.
-     - Verify status switches to `● Active` with bound port (default 9800).
-     - Verify bearer token is generated and remote connect command is displayed (`nuo --remote 127.0.0.1:9800 --token ...`).
-  4. Press `y` to copy the connection command to clipboard; verify feedback notice appears.
-  5. Press `Space` again to dynamically close the TCP listener; verify status reverts cleanly to `○ Disabled`.
-  6. Press `Esc` to dismiss the palette. Verify active thread prompt and history remain completely unaffected.
-
-#### Scenario 4.10: Static Lifecycle Handoff (`nuo --port "$NUO_PORT"`, ADR-0045)
-- **Action**:
-  1. Launch interactive TUI declaring a port:
-     ```bash
-     nuo --port "$NUO_PORT"
-     ```
-  2. Confirm interactive TUI launches smoothly.
-  3. Exit the TUI (`Ctrl+C` twice or `/exit`).
-- **Expected Outcome**:
-  - The client detaches non-destructively, printing the explicit handoff notice:
-    ```text
-    nuo: detached from hosted server (PID <pid>, port <port>).
-      • Reconnect:   nuo
-      • Terminate:   nuo server stop
-    ```
-  - `nuo status` confirms the hosted server remains active in the background.
-  - Terminate the background server with `nuo server stop`.
-
----
-
-### Suite 5: Headless Execution & CLI Automation (`nuo run` / `nuo -p`)
-
-#### Scenario 5.1: Headless One-Shot Prompt
-- **Action**:
-  ```bash
-  nuo run "Explain the difference between TCP and UDP in 2 sentences"
-  ```
-  *(or equivalently: `nuo -p "Explain the difference between TCP and UDP in 2 sentences"`)*
-- **Expected Outcome**:
-  - Runs without launching the interactive TUI screen.
-  - Connects to the server (auto-starting if necessary).
-  - Streams markdown response directly to stdout.
-  - Exits with status `0` upon completion.
-
-#### Scenario 5.2: Pipeline & Stdin Ingestion
-- **Action**:
-  ```bash
-  echo "fn calculate_sum(a: i32, b: i32) -> i32 { a + b }" | nuo run "Add doc comments to this Rust function"
-  ```
-- **Expected Outcome**:
-  - Input from stdin is concatenated into the agent context prompt.
-  - Agent produces documentation comments for the code snippet.
-  - Exits code `0`.
-
-#### Scenario 5.3: Unattended Mode (`--unattended`)
-- **Action**:
-  ```bash
-  nuo run --unattended "Read Cargo.toml and output the workspace version"
-  ```
-- **Expected Outcome**:
-  - Tool approvals within the safe execution sandbox execute without prompting for keyboard confirmation.
-  - Output is printed and process terminates cleanly.
-
-#### Scenario 5.4: Structured JSON Output (`--json`)
-- **Action**:
-  ```bash
-  nuo run --json "List 3 programming languages"
-  ```
-- **Expected Outcome**:
-  - Output is emitted as structured JSON stream / envelope.
-  - Easily parsable with `jq`.
-
----
-
-### Suite 6: Multi-Session, Remote Attach & Dashboard
-
-#### Scenario 6.1: Detached Session & Fleet Monitoring
-- **Action**:
-  ```bash
-  # 1. Start server
-  nuo server start --port "$NUO_PORT"
-
-  # 2. Spawn a long-running prompt in headless or background
-  nuo run "List all crates in the workspace and explain their dependencies" &
-
-  # 3. Monitor server sessions
-  nuo status --watch
-  ```
-- **Expected Outcome**:
-  - `nuo status --watch` streams real-time session state transitions (`running`, `active`, `idle`).
-  - Press `Ctrl+C` to exit monitor stream.
-
-#### Scenario 6.2: Remote Server Connection over TCP + Token
-- **Action**:
-  ```bash
-  TOKEN=$(nuo token)
-  nuo --remote "127.0.0.1:$NUO_PORT" --token "$TOKEN" run "Respond with 'PONG'"
-  ```
-- **Expected Outcome**:
-  - `nuo` connects over TCP using the bearer token rather than local Unix domain sockets.
-  - Output streams successfully; server processes the request on the remote port.
-
-#### Scenario 6.3: Session Resume (`nuo -r`)
-- **Action**:
-  ```bash
-  # Resume recent session
-  nuo -r
-  ```
-- **Expected Outcome**:
-  - Resumes the most recent session in interactive TUI and replays recent message history.
-
-#### Scenario 6.4: Thread Listing (`nuo thread ls`)
-- **Action**:
-  ```bash
-  nuo thread ls
-  ```
-- **Expected Outcome**:
-  - Renders tabular list of hosted threads with ID, status, rounds, tokens, updated timestamp, and title.
-
-#### Scenario 6.5: Explicit Thread Termination (`nuo thread rm`)
-- **Action**:
-  ```bash
-  THREAD_ID=$(nuo thread ls --json | grep -o '"id":"[^"]*' | head -n 1 | cut -d'"' -f4)
-  nuo thread rm "$THREAD_ID"
-  ```
-  if [ -n "$SESSION_ID" ]; then
-    nuo session rm "$SESSION_ID"
-    nuo status
-  fi
-  ```
-- **Expected Outcome**:
-  - Session is terminated immediately and evicted from the active sessions table.
-
----
-
-### Suite 7: Extensibility & System Diagnostics (MCP, Skills & Doctor)
-
-#### Scenario 7.1: Skills Discovery & Inspection
-- **Action**:
-  ```bash
-  nuo skill ls
-  ```
-- **Expected Outcome**:
-  - Lists built-in and workspace-discovered skills with namespace, version, and description.
-- **Action**:
-  ```bash
-  # Inspect specific skill
-  nuo skill info "sample" || true
-  nuo skill show "sample" || true
-  ```
-
-#### Scenario 7.2: Skill Scaffolding (`nuo skill init`)
-- **Action**:
-  ```bash
-  nuo skill init "smoke-test-skill"
-  ls -la "smoke-test-skill"
-  rm -rf "smoke-test-skill"
-  ```
-- **Expected Outcome**:
-  - Scaffolds a new skill directory with standard skill templates and metadata.
-
-#### Scenario 7.3: MCP Server Inspection & Probe
-- **Action**:
-  ```bash
-  nuo mcp ls
-  ```
-- **Expected Outcome**:
-  - Lists configured Model Context Protocol (MCP) servers defined in `config.toml`.
-  - If a server (e.g. `filesystem` or `fetch`) is configured, `nuo mcp probe <server>` connects and enumerates advertised tool schemas.
-
-#### Scenario 7.4: Configuration & Diagnostic Check (`nuo config check` / `nuo status --diagnostic`)
-- **Action**:
-  ```bash
-  nuo config check
-  nuo status --diagnostic
-  ```
-- **Expected Outcome**:
-  - Verifies local session database schemas, storage directories, and configuration consistency.
-  - Reports zero corruption or configuration issues.
-
----
-
-### Suite 8: Failure Injection, Edge Cases & Resilience
-
-#### Scenario 8.1: Occupied Port Handling
-- **Action**:
-  ```bash
-  # Bind a dummy listener to port 9821
-  nc -l 9821 &
-  NC_PID=$!
-
-  # Attempt to start server on occupied port
-  nuo server start --port 9821 || true
-
-  kill $NC_PID 2>/dev/null || true
-  ```
-- **Expected Outcome**:
-  - The server detects port collision gracefully and reports an error, without crashing the shell or corrupting database files.
-
-#### Scenario 8.2: Abrupt Client Disconnect / Reconnect
-- **Action**:
-  1. Run `nuo` and submit a prompt requiring deep reasoning.
-  2. While the model is streaming, forcefully kill the `nuo` process (`kill -9`).
-  3. Re-launch `nuo --resume`.
-- **Expected Outcome**:
-  - Server survives client disconnect without panicking.
-  - `--resume` reconnects to the existing session, recovers the transcript up to the last persisted turn, and allows continuing the thread.
-
-#### Scenario 8.3: Rebuilt-Binary Server Self-Heal (ADR-0021)
-- **Action**:
-  ```bash
-  # 1. Start a server and leave it idle
-  nuo server start
-  nuo status --diagnostic   # note "Core Image" digests; they should match
-
-  # 2. Rebuild the binary under the live server (same version, no protocol change)
-  cargo build -p nuo
-
-  # 3. Discover it, then start again
-  nuo status --diagnostic   # "Server sha256" now differs -> "REBUILT/STALE" + drift diagnosis
-  nuo                        # must reclaim the idle server automatically, no manual `nuo server stop`
-  ```
-- **Expected Outcome**:
-  - `nuo status --diagnostic` shows a `Core Image` block naming the installed path and both short digests; after the rebuild the server digest is flagged `differs from installed — REBUILT/STALE` and the top-level diagnosis reads `Rebuilt-binary drift`.
-  - With **no active sessions and no server tasks**, the next `nuo` invocation reclaims the stale server and respawns the freshly built image transparently — no `client/server binary mismatch` error.
-  - With a **live session** running, the same invocation instead refuses with `client/server binary mismatch … still hosting N active session(s)` and does **not** interrupt the work.
-
-#### Scenario 8.4: Terminal Resize Stress Testing
-- **Action**:
-  - In `nuo`, repeatedly rapidly resize the terminal window between 80x24 and 160x50 columns while a response is streaming.
-- **Expected Outcome**:
-  - Layout recalculates without panicking (`nuotc` flexbox distribution clamps properly).
-  - Text reflows cleanly without border artifacts or character truncation.
-
----
-
-## 4. Release Verification Checklist
-
-Prior to tagging and publishing a new release, verify each item:
-
-| Check Category | Verification Step | Pass Criteria | Status |
-| :--- | :--- | :--- | :--- |
-| **Clean Build** | `cargo build --release -p nuo` | Zero compilation warnings or errors | [ ] |
-| **Unit & E2E Tests** | `cargo test --workspace` | All automated tests pass | [ ] |
-| **Port Scheme Service** | `nuo server start --fg --port "$NUO_PORT"` | Foreground server starts, binds TCP port & UDS, drains gracefully on SIGINT | [ ] |
-| **Detached Port Server** | `nuo server start` -> `nuo status` -> `nuo server token` -> `nuo server stop` | Background PID managed cleanly, TCP port listening, token generated, clean stop | [ ] |
-| **Native Scheme TUI** | Cold-start `nuo` (no server running) | Client-bound server spawns on pure UDS with zero TCP listeners `[INV-SERVER-03]` | [ ] |
-| **Opportunistic Attach** | `nuo` while `nuo server start` is running | Attaches to existing hosted server instance without duplicate daemon `[INV-SERVER-05]` | [ ] |
-| **TUI Ergonomics** | Interactive `nuo` prompt and tool approval | Crisp rendering, no CJK glitches, clean exit | [ ] |
-| **Headless CLI** | `nuo run "prompt"` and stdin pipe | Non-interactive execution, correct exit code 0 | [ ] |
-| **Thread Management** | `nuo thread ls` and `nuo -r` | Interactive resume & thread listing function smoothly | [ ] |
-| **System Integrity** | `nuo config check` & `nuo status --diagnostic` | Stored database and configuration check report zero errors | [ ] |
-| **Cleanup** | Shell exit & sandbox teardown | Terminal state restored, temporary files removed | [ ] |
-
----
-
-## 5. Teardown & Environment Cleanup
-
-When testing is complete, tear down the test environment:
+Launch the interface:
 
 ```bash
-# Terminate any running test servers
-nuo server stop >/dev/null 2>&1 || true
+cargo run -p nuo
+```
 
-# Remove temporary instance directory
-if [ -n "$NUO_HOME" ] && [ -d "$NUO_HOME" ]; then
-  rm -rf "$NUO_HOME"
-  echo "Cleaned up sandbox at: $NUO_HOME"
-fi
+**Key verification points:**
+1. **Cold Start & Layout**: Alternate screen activates cleanly, status bar shows model and thread status, composer is focused.
+2. **Conversation & Streaming**: Type a prompt, press `Enter`. Verify tokens stream smoothly, thinking/reasoning blocks fold/unfold, and markdown renders with correct ANSI colors.
+3. **Tool Approval Barrier**: Request a filesystem or command operation (e.g. "List files in the current folder"). Verify an approval card appears and does **not** execute until explicitly approved (`Enter` on `[Approve Once]`).
+4. **In-Session Slash Commands**:
+   - `/help`: Print built-in commands.
+   - `/models` (or `Ctrl+M`): Open the interactive model selector.
+   - `/connections`: View and verify configured provider lanes.
+   - `/exit` (or `Ctrl+C` twice): Restore standard terminal cleanly, unhide cursor, exit 0.
+5. **Terminal Resizing**: Resize terminal window while streaming. Layout should dynamically reflow without panics or border clipping.
 
-# Unset environment overrides
-unset NUO_HOME
-unset NUO_PORT
+### Workflow B: Headless Execution & Pipelines
+
+Test scriptable, non-interactive execution:
+
+```bash
+# Single prompt
+cargo run -p nuo -- --headless -p "Say hello"
+
+# Stdin pipeline
+echo "fn add(a: i32, b: i32) -> i32 { a + b }" | cargo run -p nuo -- --headless -p "Add rustdoc"
+
+# Unattended execution (tools auto-approved)
+cargo run -p nuo -- --headless --unattended -p "Check git status of this repository"
+```
+
+### Workflow C: Server Daemon & Lifecycle Verification
+
+Test standalone server lifecycle and diagnostics:
+
+```bash
+# 1. Start server in foreground (view live daemon logs)
+cargo run -p nuo -- server start --fg --port 9820
+
+# 2. In another terminal, inspect health and diagnostics
+cargo run -p nuo -- status
+cargo run -p nuo -- status --diagnostic
+
+# 3. Retrieve bearer token
+cargo run -p nuo -- server token
+
+# 4. Attach client to the running server
+cargo run -p nuo
+
+# 5. Stop detached or background server
+cargo run -p nuo -- server stop
+```
+
+### Workflow D: Thread Management & Resumption
+
+Test persistence and session reconnects:
+
+```bash
+# List stored threads
+cargo run -p nuo -- thread ls
+
+# Resume the most recent thread
+cargo run -p nuo -- --resume
+
+# Attach to a specific thread
+cargo run -p nuo -- -t <thread_id>
+
+# Delete a thread
+cargo run -p nuo -- thread rm <thread_id>
+```
+
+---
+
+## 4. Completely Clean Sandbox Testing
+
+If you want a 100% sterile manual test run that touches zero existing state:
+
+```bash
+# One-liner disposable sandbox for interactive testing
+NUO_HOME=$(mktemp -d) DEEPSEEK_API_KEY="sk-..." cargo run -p nuo
+```
+
+To run a headless test in a completely sterile sandbox from scratch, pre-seed a minimal connection:
+
+```bash
+SANDBOX=$(mktemp -d)
+mkdir -p "$SANDBOX/state"
+cat << 'EOF' > "$SANDBOX/state/connections.toml"
+[[connections]]
+name = "deepseek"
+provider = "deepseek"
+EOF
+
+NUO_HOME="$SANDBOX" DEEPSEEK_API_KEY="sk-..." cargo run -p nuo -- --headless -p "Say hello"
+rm -rf "$SANDBOX"
 ```

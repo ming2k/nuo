@@ -9,9 +9,10 @@
 //! mirroring: a mutation is the state change, delivered as data.
 //!
 //! Design rules:
-//! - Mutations are **semantic**, not raw cell pokes: `SettleInserted` (a
-//!   steer was admitted) carries the settle *and* its fallback append, so
-//!   the translator never needs to read the transcript document to decide.
+//! - Mutations are **semantic**, not raw cell pokes: `InsertAdmittedSeam` (a
+//!   steer or follow-up crossed the turn boundary) carries the fully built
+//!   message, so the translator never needs to read the transcript document to
+//!   decide.
 //! - Transcript payloads are **pre-built by the translator** (attribution,
 //!   effort, round/turn stamping, reasoning disclosure defaults) so the
 //!   applier stays a mechanical executor of document edits.
@@ -27,7 +28,7 @@ use nuo_protocol::{
 
 use crate::shell::app::{OauthAddSignal, ProviderRetryState};
 use crate::shell::pre_attach::PreAttachSignal;
-use nuo_view::model::document::{NoticeSeverity, TranscriptMessage};
+use nuo_view::model::document::TranscriptMessage;
 use nuo_view::phase::Phase;
 
 /// A backend completion round-trip awaiting consumption by the loop
@@ -161,19 +162,18 @@ pub(crate) enum TranscriptEdit {
         parent_call_id: String,
         event: SubagentEvent,
     },
-    /// A staged (optimistic) user message was admitted by the server:
-    /// settle the newest entry with this correlation id, or append the
-    /// fallback message.
-    SettleInserted {
-        insert_id: String,
-        origin: nuo_view::model::document::UserMessageOrigin,
-        sent_at_ms: Option<u64>,
-        fallback: Option<TranscriptMessage>,
-    },
-    /// A steer could not be admitted before the round closed: the staged
-    /// entry waits for the next round.
-    #[allow(dead_code)]
-    HoldInserted { insert_id: String },
+    /// A steering message crossed the safe turn boundary and is now dialogue.
+    ///
+    /// It is **appended** — not inserted at the head. At the instant
+    /// `SteerAdmitted` arrives, the buffer tail IS the turn seam: the harness
+    /// persisted the steer after the finished turn's last component and before
+    /// the next turn's provider request, and the next `TurnStarted` has not yet
+    /// delivered that turn's components. Appending therefore reproduces the
+    /// durable order exactly (ADR-0137 `[INV-STEER-02]`).
+    ///
+    /// Head insertion was the original bug: `App::messages` holds the whole
+    /// thread, so index 0 put a round-N steer above round 1.
+    InsertAdmittedSeam { message: TranscriptMessage },
     /// A typed slash-command reply: settle the newest *pending* row with
     /// this invocation, or append the fallback component.
     SettleCommandResult {
@@ -203,6 +203,19 @@ pub(crate) enum TranscriptEdit {
     /// Freeze any orphaned still-streaming reasoning trace (its round ended
     /// mid-trace; the spinner would breathe forever).
     FinalizeOrphanedReasoning { duration_ms: Option<u64> },
+    /// Settle a staged optimistic row when the server's authoritative event says
+    /// the reply is **not** a thread row after all.
+    ///
+    /// The class staged before dispatch is a prediction: the client reads it from
+    /// the command catalog, which arrives asynchronously and defaults to
+    /// `Mutation` for a name it does not yet know. When the reply's declared
+    /// class is `Reading`, the row must be **withdrawn**, not merely left
+    /// unsettled — an unsettled row is later marked `Cancelled` by
+    /// `CancelPendingCommands` and stays in the thread as a ghost that says "this
+    /// command never answered", which is the opposite of what happened
+    /// (ADR-0140 `[INV-CMD-08]`: the event is authority, the catalog is only an
+    /// optimisation, and a wrong optimisation must be reversible).
+    WithdrawStagedCommand { invocation: String },
     /// Cancel every still-Pending command row (round boundary with no reply
     /// on this pass).
     CancelPendingCommands,
@@ -344,6 +357,22 @@ pub(crate) enum AppMutation {
         session_id: String,
         input_id: String,
     },
+    /// A pending steering message was cancelled before admission
+    /// (SteerCancelled): remove the outbox `Steering` row and restore the
+    /// text to the composer draft. Identical lifecycle to `SteerMissed` —
+    /// both are "this steer will never enter the thread".
+    SteerCancelledRestored {
+        session_id: String,
+        input_id: String,
+    },
+    /// The cancel lost its race with admission (`SteerCancelFailed`): the steer
+    /// will land after all. Clear the deletion-intent flag it may have set so
+    /// the flag cannot outlive the item, and disclose the outcome rather than
+    /// silently dropping the user's deletion (ADR-0137).
+    SteerCancelFailedCleared {
+        session_id: String,
+        input_id: String,
+    },
     /// The server admitted an optimistic follow-up into its queue: the local
     /// item settles from `Dispatching` back to `Waiting`.
     DispatchQueued {
@@ -392,19 +421,13 @@ pub(crate) enum AppMutation {
     /// appended to the notice log, and only a fault additionally raises a
     /// bubble (`app::receipts`). Producers therefore cannot forget the log —
     /// there is no mutation that shows a bubble without recording it.
-    NoticeDisclosure {
-        severity: NoticeSeverity,
-        /// The subsystem tag the viewer paints (`backend`, `copy`, `link`, …).
-        topic: String,
-        text: String,
-        /// Optional structured detail the viewer's expanded row renders under
-        /// the summary (a retry receipt's full provider body, a diagnostic's
-        /// context). Without it a one-line summary is all that is retained, and
-        /// the payload a user actually needs to paste would be lost when the
-        /// transcript stopped carrying it.
-        detail: Option<String>,
-        at_ms: u64,
-    },
+    ///
+    /// The payload is a [`RenderedNotice`](crate::shell::app::notice_catalog::RenderedNotice)
+    /// (ADR-0138): its only constructors are the closed
+    /// [`ClientNotice`](crate::shell::app::notice_catalog::ClientNotice) enum
+    /// and the closed wire projection, so this cross-thread funnel cannot carry
+    /// an ad-hoc topic string or a faked timestamp either.
+    NoticeDisclosure(crate::shell::app::notice_catalog::RenderedNotice),
     Oauth(OauthAddSignal),
     WebSearchConfig(Option<nuo_protocol::WebSearchConfigView>),
     ServerEndpoints(nuo_protocol::ServerEndpointsReport),

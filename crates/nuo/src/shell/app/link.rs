@@ -3,6 +3,7 @@
 use nuo_protocol::AgentRequest;
 
 use crate::shell::app::App;
+use crate::shell::app::notice_catalog::ClientNotice;
 
 impl App {
     /// Deliver one user intent to the session driver (D6).
@@ -17,6 +18,14 @@ impl App {
             Err(_) => {
                 if !self.link_down {
                     self.link_down = true;
+                    self.relink_requested = true;
+                    self.record_client_notice(ClientNotice::LinkSendFailed);
+                    nuo_host::diagnostics::record_event(
+                        "client",
+                        "link_lost",
+                        "outbox channel closed while delivering intent; auto-relink requested",
+                        None,
+                    );
                     tracing::error!(
                         "server link lost: a user intent could not be delivered; \
                          the TUI cannot reach the session driver"

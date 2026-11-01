@@ -49,7 +49,16 @@ use tokio::sync::Mutex;
 /// v16 (ADR-0120): the fork point becomes part of the session row, so a
 /// reloaded branch still knows where it diverged. Legacy rows load with `None`,
 /// which is the truthful "unrecorded" value.
-pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 16;
+/// v17 (ADR-0140): the command ledger carries **acts only**. Rows written before
+/// the split mixed acts with readings (a token count, a job list, a workspace
+/// diff), and a reading replayed at its timestamp seam asserts a stale
+/// measurement as history with no freshness signal. Because the two classes were
+/// never distinguished at write time, no load-time filter can recover which row
+/// was which from prose alone — so the ledger is dropped on load, the ADR-0059
+/// clean-break precedent: the acts a thread took are reconstructible from its
+/// state (posture, role, provider pin, trust grants), while a false measurement
+/// is not recoverable by any later reader.
+pub(crate) const CURRENT_SCHEMA_VERSION: u32 = 17;
 
 /// A session-scoped connection + model pin (C6). `connection`
 /// carries the **connection id** (provider + account + endpoint, per
@@ -325,7 +334,20 @@ fn default_workspace() -> Option<nuo_protocol::WorkspaceBinding> {
 /// JSON) are **not migrated**. serde's missing-field defaults load them as an
 /// empty transcript — the session content is retired, the identity remains.
 /// `schema_version` is stamped to the current version on load.
+///
+/// v17 (ADR-0140) retires the pre-split command ledger for the same reason,
+/// applied to the one field whose *contents* became a claim the design no longer
+/// makes: every row written before the split mixed acts with readings, and a
+/// reading restored at its timestamp seam asserts a stale measurement as history.
+/// No load-time filter can separate them after the fact — the class was never
+/// recorded — so the ledger is dropped. Acts the thread took are still
+/// reconstructible from its own state (posture, role, provider pin, trust
+/// grants); a false measurement is not recoverable by any later reader. This is
+/// the ADR-0059 precedent: retired content is retired, not quarantined.
 fn migrate_session_data(mut data: SessionData) -> SessionData {
+    if data.schema_version < CURRENT_SCHEMA_VERSION {
+        data.commands.clear();
+    }
     data.schema_version = CURRENT_SCHEMA_VERSION;
     data
 }

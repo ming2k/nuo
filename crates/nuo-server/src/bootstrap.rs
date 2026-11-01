@@ -195,7 +195,7 @@ pub async fn assemble_with_store(
         ui,
         startup,
         project_root: project_override,
-        role: _,
+        role,
         unattended: unattended_at_start,
         confined: confined_at_start,
         human_channel,
@@ -357,6 +357,7 @@ pub async fn assemble_with_store(
     // unified server belongs to whichever client first spawned it.
     let mut skills_config = config.skills.clone();
     skills_config.project_root = workspace_root.clone();
+    skills_config.role = role.clone();
     // Readiness is local-only: discover local/role/project skill roots now, and
     // let the network-backed remote repositories refresh behind the running
     // session. A remote outage must never delay `Ready` (ADR-0133).
@@ -505,15 +506,12 @@ pub async fn assemble_with_store(
         ));
         builder.provide(session.clone());
         builder.provide(execution_env.clone());
-        // The session's workspace root: every workspace-relative tool
-        // operation (bash cwd, relative path resolution, search bases)
-        // anchors here instead of the server process's cwd. Under the
-        // unified server one process hosts sessions for many
-        // projects, so the process cwd is whichever directory the first
-        // client spawned it from — correct only by coincidence. This is the
-        // fix for "launched in project A, session edits project B".
-        // A workspace-free session provides no root, so
-        // workspace-relative tools are not admitted against a directory.
+        // The session's workspace root: when bound to a project workspace,
+        // every workspace-relative tool operation anchors here instead of the
+        // server process's cwd. Under the unified server one process hosts sessions
+        // for many projects, so the process cwd is whichever directory the first
+        // client spawned it from. For workspace-free sessions (e.g. ops, philosophist),
+        // no WorkspaceRoot is provided to signal the absence of a project boundary.
         if let Some(root) = &workspace_root {
             builder.provide(nuo_protocol::WorkspaceRoot(root.clone()));
             builder.provide(nuo_protocol::WorkspaceRoots::new(
@@ -533,22 +531,28 @@ pub async fn assemble_with_store(
         session.blob_store().clone(),
     );
 
-    // Official native capability tool suite (ADR-0013, ADR-0070 VFS projection)
-    if let Some(root) = &workspace_root {
-        let sys_ctx = Arc::new(
-            nuo_tool_fs::SystemToolContext::new(root.clone())
-                .with_vfs_resolver(offstream_reg.clone()),
-        );
-        for tool in nuo_tool_fs::create_fs_tools(sys_ctx) {
-            toolset.upsert(tool);
-        }
-        let exec_ctx = Arc::new(nuo_tool_exec::ExecToolContext::new(root.clone()));
-        for tool in nuo_tool_exec::create_exec_tools(exec_ctx) {
-            toolset.upsert(tool);
-        }
-        for tool in nuo_tool_ast::create_ast_tools(Some(root.clone())) {
-            toolset.upsert(tool);
-        }
+    // Official native capability tool suite (ADR-0013, ADR-0070 VFS projection).
+    // Workspace-bound sessions anchor to their project root. Workspace-free sessions
+    // (such as ops or unconfined system administration) anchor baseline tools to the
+    // current working directory, granting full host operational capabilities while
+    // delegating scope admission strictly to each role's declarative tool policy.
+    let effective_tool_root = workspace_root
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    let sys_ctx = Arc::new(
+        nuo_tool_fs::SystemToolContext::new(effective_tool_root.clone())
+            .with_vfs_resolver(offstream_reg.clone()),
+    );
+    for tool in nuo_tool_fs::create_fs_tools(sys_ctx) {
+        toolset.upsert(tool);
+    }
+    let exec_ctx = Arc::new(nuo_tool_exec::ExecToolContext::new(effective_tool_root));
+    for tool in nuo_tool_exec::create_exec_tools(exec_ctx) {
+        toolset.upsert(tool);
+    }
+    for tool in nuo_tool_ast::create_ast_tools(workspace_root.clone()) {
+        toolset.upsert(tool);
     }
     if let Ok(store) = nuo_persistence::get_role_memory_store() {
         let p_tools = nuo_persistence::create_persistence_tools(Arc::new(store));
@@ -1268,7 +1272,7 @@ mod tests {
         );
 
         // Give watcher thread a moment to initialize
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
 
         // Write an MCP server into .nuo/mcp.json
         let mcp_json = dot_nuo.join("mcp.json");
@@ -1424,5 +1428,167 @@ mod tests {
         assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Quarantined);
         snapshot.user_assets = WorkspaceTrustState::Trusted;
         assert_eq!(snapshot.aggregate(), WorkspaceTrustState::Trusted);
+    }
+
+    #[tokio::test]
+    async fn test_ops_role_assembles_with_full_operational_toolset() {
+        struct HeadlessProbe;
+        #[async_trait::async_trait]
+        impl crate::UiBridge for HeadlessProbe {
+            async fn copy_to_clipboard(&self, _text: &str) -> Result<crate::CopyOutcome, String> {
+                Err("probe: headless".to_string())
+            }
+        }
+
+        let base_identity = nuo_protocol::AgentIdentity::new("ops", "system operator");
+        let ops_profile = nuo_protocol::AgentRoleProfile::ops();
+        let params = BootstrapParams {
+            human_channel: None,
+            identity: base_identity,
+            preset: ops_profile,
+            ui: Arc::new(HeadlessProbe),
+            startup: SessionStart::Fresh,
+            project_root: None,
+            role: Some("ops".to_string()),
+            unattended: false,
+            confined: false,
+            teardown_token: None,
+            shared_config: None,
+            shared_provider_usage: None,
+            phase_sink: None,
+        };
+        let boot = assemble(params).await.expect("ops assemble succeeds");
+        assert_eq!(boot.session.role().as_deref(), Some("ops"));
+        assert!(boot.session.workspace().is_none());
+
+        let tool_names: std::collections::HashSet<String> = boot
+            .agent
+            .installed_tools()
+            .into_iter()
+            .map(|t| t.name().to_string())
+            .collect();
+
+        // Host system and remote operational capabilities must be admitted:
+        assert!(
+            tool_names.contains("execute_command"),
+            "ops must have execute_command"
+        );
+        assert!(tool_names.contains("read_text"), "ops must have read_text");
+        assert!(tool_names.contains("edit_text"), "ops must have edit_text");
+        assert!(
+            tool_names.contains("write_file"),
+            "ops must have write_file"
+        );
+        assert!(
+            tool_names.contains("find_files"),
+            "ops must have find_files"
+        );
+        assert!(
+            tool_names.contains("search_text"),
+            "ops must have search_text"
+        );
+        assert!(tool_names.contains("read_url"), "ops must have read_url");
+        assert!(
+            tool_names.contains("search_web"),
+            "ops must have search_web"
+        );
+        assert!(
+            tool_names.contains("spawn_agent"),
+            "ops must have spawn_agent"
+        );
+
+        // AST-level code parsing and dialog memory are excluded by design:
+        assert!(
+            !tool_names.contains("code_query"),
+            "ops must not have code_query"
+        );
+        assert!(
+            !tool_names.contains("recall_memory"),
+            "ops must not have recall_memory"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_philosophist_role_assembles_with_only_philosophist_tools() {
+        struct HeadlessProbe;
+        #[async_trait::async_trait]
+        impl crate::UiBridge for HeadlessProbe {
+            async fn copy_to_clipboard(&self, _text: &str) -> Result<crate::CopyOutcome, String> {
+                Err("probe: headless".to_string())
+            }
+        }
+
+        let base_identity = nuo_protocol::AgentIdentity::new("philosophist", "philosopher");
+        let profile = nuo_protocol::AgentRoleProfile::philosophist();
+        let params = BootstrapParams {
+            human_channel: None,
+            identity: base_identity,
+            preset: profile,
+            ui: Arc::new(HeadlessProbe),
+            startup: SessionStart::Fresh,
+            project_root: None,
+            role: Some("philosophist".to_string()),
+            unattended: false,
+            confined: true,
+            teardown_token: None,
+            shared_config: None,
+            shared_provider_usage: None,
+            phase_sink: None,
+        };
+        let boot = assemble(params)
+            .await
+            .expect("philosophist assemble succeeds");
+        assert_eq!(boot.session.role().as_deref(), Some("philosophist"));
+        assert!(boot.session.workspace().is_none());
+
+        let tool_names: std::collections::HashSet<String> = boot
+            .agent
+            .installed_tools()
+            .into_iter()
+            .map(|t| t.name().to_string())
+            .collect();
+
+        assert!(
+            tool_names.contains("read_url"),
+            "philosophist must have read_url"
+        );
+        assert!(
+            tool_names.contains("search_web"),
+            "philosophist must have search_web"
+        );
+        assert!(
+            tool_names.contains("recall_memory"),
+            "philosophist must have recall_memory"
+        );
+
+        // System operations and fs tools must NOT be admitted to philosophist:
+        assert!(
+            !tool_names.contains("execute_command"),
+            "philosophist must not have execute_command"
+        );
+        assert!(
+            !tool_names.contains("read_text"),
+            "philosophist must not have read_text"
+        );
+        assert!(
+            !tool_names.contains("edit_text"),
+            "philosophist must not have edit_text"
+        );
+        assert!(
+            !tool_names.contains("write_file"),
+            "philosophist must not have write_file"
+        );
+        assert!(
+            !tool_names.contains("find_files"),
+            "philosophist must not have find_files"
+        );
+        assert!(
+            !tool_names.contains("search_text"),
+            "philosophist must not have search_text"
+        );
+        assert!(
+            !tool_names.contains("spawn_agent"),
+            "philosophist must not have spawn_agent"
+        );
     }
 }

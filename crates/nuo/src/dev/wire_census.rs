@@ -357,7 +357,12 @@ pub enum Wire {
         );
         let blessed = bless_census(&root).unwrap();
         let text = std::fs::read_to_string(&blessed).unwrap();
-        assert!(text.contains("protocol 19"), "{text}");
+        // The census records the *live* protocol number, so the assertion
+        // follows it rather than pinning a literal that every bump invalidates.
+        assert!(
+            text.contains(&format!("protocol {}", nuo_protocol::PROTOCOL_VERSION)),
+            "{text}"
+        );
 
         // Same number, one variant gone — the ADR-0134 shape exactly.
         write_events(
@@ -390,16 +395,19 @@ pub enum Wire {
              pub enum RoundEvent {\n    Text,\n}\n",
         );
         let blessed = bless_census(&root).unwrap();
-        // Rewrite the recorded protocol to an older number, simulating a bump
-        // that never touched the surface.
-        let text = std::fs::read_to_string(&blessed)
-            .unwrap()
-            .replace("protocol 19", "protocol 18");
+        // Rewind the recorded protocol one step, simulating a bump that never
+        // touched the surface.
+        let current = nuo_protocol::PROTOCOL_VERSION;
+        let previous = current - 1;
+        let text = std::fs::read_to_string(&blessed).unwrap().replace(
+            &format!("protocol {current}"),
+            &format!("protocol {previous}"),
+        );
         std::fs::write(&blessed, text).unwrap();
 
         let err = check_wire_census(&root).unwrap_err();
         assert!(
-            err.contains("advanced 18 -> 19") && err.contains("unchanged"),
+            err.contains(&format!("advanced {previous} -> {current}")) && err.contains("unchanged"),
             "must report a bump with nothing behind it: {err}"
         );
     }

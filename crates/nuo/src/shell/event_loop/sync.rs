@@ -166,17 +166,18 @@ pub(crate) fn show_local_toast(
 ) {
     let message = message.into();
     if failed {
-        app.record_local_fault("client", message);
+        app.record_local_fault(
+            crate::shell::app::notice_catalog::ClientTopic::Client,
+            message,
+        );
         return;
     }
     // Retained as an acknowledgement (no bubble from the funnel — the caller is
     // painting one), then the caller's own duration wins.
-    app.record_notice(
-        nuo_view::model::document::NoticeSeverity::Info,
-        "client",
-        message.clone(),
-        crate::shell::event_loop::now_epoch_ms(),
-    );
+    app.record_client_notice(crate::shell::app::notice_catalog::ClientNotice::LocalAck {
+        topic: crate::shell::app::notice_catalog::ClientTopic::Client,
+        message: message.clone(),
+    });
     app.copy_toast_message = message;
     app.copy_toast_failed = false;
     app.copy_toast_until = Some(std::time::Instant::now() + duration);

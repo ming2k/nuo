@@ -2339,24 +2339,24 @@ async fn doom_block_is_surgical_across_files() {
     // different file under the same tool nor a different tool is masked.
     let reader = RecordingTool::read("read_text", "READ");
     let reader_calls = reader.calls_handle();
-    let lister = RecordingTool::read("list_dir", "LIST");
-    let lister_calls = lister.calls_handle();
+    let finder = RecordingTool::read("find_files", "FIND");
+    let finder_calls = finder.calls_handle();
     // Three reads of big.rs (3rd reaches the default threshold → blocked),
-    // then a read of small.rs (must succeed — different path), then a list_dir
+    // then a read of small.rs (must succeed — different path), then a find_files
     // (must succeed — different tool), then done.
     let read_big = || turn(&[("c", "read_text", r#"{"path":"big.rs"}"#)]);
     let read_small = || turn(&[("c", "read_text", r#"{"path":"small.rs"}"#)]);
-    let list = || turn(&[("c", "list_dir", r#"{"path":"."}"#)]);
+    let find = || turn(&[("c", "find_files", r#"{"path":"."}"#)]);
     let agent = Arc::new(Agent::new(
         Arc::new(ScriptedProvider::new(vec![
             read_big(),
             read_big(),
             read_big(),
             read_small(),
-            list(),
+            find(),
             text_turn("done"),
         ])),
-        vec![Arc::new(reader), Arc::new(lister)],
+        vec![Arc::new(reader), Arc::new(finder)],
         crate::AgentIdentity::default(),
     ));
     agent.set_trajectory_guard_config(nuo_protocol::TrajectoryGuardConfig {
@@ -2382,7 +2382,7 @@ async fn doom_block_is_surgical_across_files() {
     );
     // The different tool is entirely outside the big.rs block mask.
     assert_eq!(
-        lister_calls.lock().unwrap().len(),
+        finder_calls.lock().unwrap().len(),
         1,
         "a different tool must not be blocked by a big.rs block"
     );

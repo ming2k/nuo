@@ -54,11 +54,6 @@ impl PersistenceCommand {
                 });
                 let _ = ack.send(res);
             }
-            Self::RecordCommand { cmd, ack } => {
-                let res =
-                    guarded(|| crate::db::usage_projection::record_command(&engine.conn, &cmd));
-                let _ = ack.send(res);
-            }
             Self::AppendWorkspaceEffect { effect, ack } => {
                 let res = guarded(|| {
                     crate::workspace_effects::append_effect(&engine.conn, &effect.as_borrowed())
@@ -353,7 +348,6 @@ impl PersistenceCommand {
                 let _ = ack.send(Err(nuo_protocol::context_lifecycle::InspectError::Corrupt));
             }
             Self::UpsertSession { ack, .. }
-            | Self::RecordCommand { ack, .. }
             | Self::RecordRequestProjection { ack, .. }
             | Self::SetKV { ack, .. }
             | Self::SaveInputHistory { ack, .. }
