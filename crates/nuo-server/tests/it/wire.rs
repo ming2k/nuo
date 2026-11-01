@@ -1429,3 +1429,102 @@ async fn opencode_go_anthropic_wire_request_carries_session_headers() {
         .message;
     assert_eq!(msg.content, "qwen3.6-plus response");
 }
+
+/// End-to-end wire proof for the Go channel's portable Responses lane
+/// (ADR-0142). Three things are asserted together because they are the three
+/// ways this surface differs from a native Responses backend, and each one is a
+/// hard 400 upstream rather than a preference:
+///
+/// - the request reaches `/responses`, not `/chat/completions`;
+/// - session affinity rides on `x-opencode-session` (the gateway answers
+///   `400 MissingSessionID` without it);
+/// - the body carries flattened tools and **no** `store` field.
+#[tokio::test]
+async fn opencode_go_portable_responses_lane_sends_flat_tools_and_session() {
+    let mut server = Server::new_async().await;
+    let channel = Channel {
+        id: "deepseek-v4.1-flash".into(),
+        transport: Transport::OpenAiResponses {
+            base_url: format!("{}/v1/responses", server.url()),
+            dialect: nuo_provider::OpenAiResponsesDialect::Portable,
+            state: nuo_provider::ResponsesState::Stateless,
+            user_agent: "opencode/2.0.32".into(),
+            headers: vec![("x-opencode-client".into(), "cli".into())],
+        },
+        credentials: nuo_provider::static_credential("opencode-token"),
+        model: "deepseek-v4.1-flash".into(),
+        remote: None,
+        user_overrides: None,
+        tunings: Default::default(),
+        prompt_cache: nuo_provider::PromptCacheCapabilities::unsupported(),
+        prompt_cache_preference: Default::default(),
+    };
+
+    let tool = nuo_provider::capability::ToolSpec {
+        name: "get_weather".into(),
+        description: "weather".into(),
+        parameters: json!({"type": "object", "properties": {"city": {"type": "string"}}}),
+    };
+    let mut request =
+        nuo_provider::capability::ModelRequest::new(vec![Message::new(Role::User, "weather?")]);
+    request.tool_specs = vec![tool];
+
+    // Assertions ride on a request predicate rather than a post-hoc read of the
+    // recorded body (mockito 1.7 exposes no accessor). The predicate is where the
+    // three contract facts are actually proven: flat tool shape, absent `store`,
+    // and the reasoning summary grant this transcode surface honors.
+    let contract = std::sync::Arc::new(std::sync::Mutex::new(None::<Value>));
+    let captured = contract.clone();
+    let _mock = server
+        .mock("POST", "/v1/responses")
+        .match_header("x-opencode-session", "ses_portable_go_555")
+        .match_header("x-opencode-client", "cli")
+        .match_header("user-agent", "opencode/2.0.32")
+        .match_request(move |request| {
+            let Ok(bytes) = request.body() else {
+                return false;
+            };
+            let Ok(body) = serde_json::from_slice::<Value>(bytes) else {
+                return false;
+            };
+            *captured.lock().expect("capture lock") = Some(body.clone());
+            let flat_tool = body["tools"][0]["name"] == "get_weather"
+                && body["tools"][0].get("function").is_none();
+            flat_tool
+                && body.get("store").is_none()
+                && body["reasoning"]["summary"] == "detailed"
+                && body["tool_choice"] == "auto"
+                && body["parallel_tool_calls"].is_boolean()
+        })
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            r#"{"id":"resp_go_1","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"portable ok"}]}],"usage":{"input_tokens":9,"output_tokens":2,"total_tokens":11}}"#,
+        )
+        .create_async()
+        .await;
+
+    let provider = build_provider_for_channel(&channel, "opencode-go", Some("ses_portable_go_555"));
+    let completion = provider
+        .chat(request)
+        .await
+        .expect("portable Responses lane must complete");
+    assert_eq!(completion.message.content, "portable ok");
+
+    // A non-matching predicate would have left the mock unanswered and failed
+    // the call above; assert the capture so a silently-unused matcher can never
+    // pass this test.
+    let body = contract
+        .lock()
+        .expect("capture lock")
+        .clone()
+        .expect("the mock must have received and captured the request body");
+    assert!(
+        body.get("store").is_none(),
+        "the surface is Stateless: `store` must never be emitted (ADR-0114): {body}"
+    );
+    assert!(
+        body["tools"][0].get("function").is_none(),
+        "the nested tool shape is DeepSeek's native one; this gateway rejects it: {body}"
+    );
+}

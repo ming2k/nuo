@@ -18,7 +18,7 @@ fn steer_dispatch(id: &str, session_id: &str, text: &str) -> QueuedDispatch {
         session_id: session_id.to_string(),
         state: QueuedDispatchState::Steering,
         text: text.to_string(),
-        queued_at_ms: 0,
+        queued_at_ms: Some(0),
         images: Vec::new(),
         text_pastes: Vec::new(),
     }
@@ -132,7 +132,7 @@ fn recall_index_matches_the_displayed_row() {
         .push_back(queued_dispatch("f-up", "s", "follow-up second"));
 
     let recalled = app.recall_queued_at("s", 0).expect("row 0");
-    let crate::shell::app::RecallQueued::Restored(dispatch) = recalled;
+    let dispatch = recalled;
     assert_eq!(
         dispatch.id, "st-1",
         "recall row 0 must yield the item the modal shows at row 0"
@@ -225,5 +225,251 @@ fn deletion_intent_is_cleared_when_the_item_leaves() {
         app.suppress_steer_restore.is_empty(),
         "a flag for a departed item is a leak: it would suppress a later \
          recall for a reused id"
+    );
+}
+
+/// `[INV-STEER-08]` — a `QueueUpdated` snapshot replaces only what the server
+/// owns, so a pending steer survives it.
+///
+/// The driver emits a snapshot after *every* queue change, including the
+/// `QueuePaused(true)` echo of merely opening the queue modal. The old merge
+/// preserved `Dispatching` rows only, so every snapshot deleted every pending
+/// steer: the client lost the row that *is* the message payload, and the later
+/// `SteerUnavailable` had nothing to restore. The user's prompt disappeared
+/// with no transcript row, no composer draft, and no receipt.
+#[test]
+fn queue_snapshot_preserves_client_owned_rows() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    app.pending_dispatch
+        .push_back(steer_dispatch("st-1", "s", "use rg not find"));
+    let mut dispatching = queued_dispatch("in-flight", "s", "follow up");
+    dispatching.state = QueuedDispatchState::Dispatching;
+    app.pending_dispatch.push_back(dispatching);
+    // A `Waiting` row IS the server's — the snapshot is authoritative for it.
+    app.pending_dispatch
+        .push_back(queued_dispatch("srv-old", "s", "stale projection"));
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::QueueSnapshot {
+            session_id: "s".to_string(),
+            items: vec![nuo_protocol::QueuedMessage {
+                id: "srv-new".to_string(),
+                text: "authoritative".to_string(),
+                display_text: None,
+                images: Vec::new(),
+                sent_at_ms: Some(7),
+            }],
+            paused: false,
+        },
+    );
+
+    let ids: Vec<(&str, QueuedDispatchState)> = app
+        .pending_dispatch
+        .iter()
+        .map(|d| (d.id.as_str(), d.state))
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            ("srv-new", QueuedDispatchState::Waiting),
+            ("st-1", QueuedDispatchState::Steering),
+            ("in-flight", QueuedDispatchState::Dispatching),
+        ],
+        "the server's list replaces its own rows; client-owned rows survive \
+         (a snapshot must not be able to delete a steer the server never saw, \
+         and the removed `srv-old` must not linger)"
+    );
+}
+
+/// The steer payload survives the whole snapshot → `SteerUnavailable` sequence.
+///
+/// This is the end-to-end shape of the loss above: the row must still be there
+/// when the round reports that the steer missed, so the text reaches the
+/// composer instead of vanishing.
+#[test]
+fn steer_text_survives_a_snapshot_then_a_missed_round() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    app.live_session_id = "s".to_string();
+    app.current_session_id = "s".to_string();
+
+    let mut steer = steer_dispatch("st-1", "s", "use rg not find");
+    steer.images = vec![nuo_protocol::ImagePart {
+        mime: "image/png".to_string(),
+        data: "base64".to_string(),
+    }];
+    app.pending_dispatch.push_back(steer);
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::QueueSnapshot {
+            session_id: "s".to_string(),
+            items: Vec::new(),
+            paused: true,
+        },
+    );
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SteerMissed {
+            session_id: "s".to_string(),
+            input_id: "st-1".to_string(),
+        },
+    );
+
+    assert_eq!(
+        app.input, "use rg not find",
+        "the steer text must come back to the composer"
+    );
+    assert_eq!(
+        app.pending_images.len(),
+        1,
+        "and so must its attachments: the row is the payload"
+    );
+    assert!(
+        app.pending_dispatch.is_empty(),
+        "the row is consumed once its content is restored"
+    );
+}
+
+/// A steer that ends after its row is gone is *disclosed*, never dropped.
+///
+/// The row is the only copy of the text, so an ending with no row means the
+/// message is unrecoverable. Silence would be a prompt vanishing with no
+/// transcript row, no draft, and no receipt — the worst possible outcome.
+#[test]
+fn an_unrecoverable_steer_is_disclosed_in_the_notice_log() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    app.live_session_id = "s".to_string();
+    app.current_session_id = "s".to_string();
+    let before = app.notice_log().len();
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SteerMissed {
+            session_id: "s".to_string(),
+            input_id: "never-staged".to_string(),
+        },
+    );
+
+    assert!(
+        app.notice_log().len() > before,
+        "an unrecoverable steer must leave a retained disclosure \
+         ([INV-NOTICE-05]): a prompt must never disappear silently"
+    );
+    assert!(app.input.is_empty(), "there was nothing to restore");
+}
+
+/// The deletion intent survives a lost race while its item is still staged, and
+/// dies with the item.
+///
+/// Clearing it on `SteerCancelFailed` made "the cancel lost" indistinguishable
+/// from "no cancel was requested": a later `SteerCancelled` for the same id would
+/// find no flag and restore text the user had deliberately deleted.
+#[test]
+fn a_lost_cancel_keeps_the_deletion_intent_until_the_item_leaves() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    app.live_session_id = "s".to_string();
+    app.current_session_id = "s".to_string();
+
+    // Case 1: the row is still staged, so the admission that follows will end
+    // the id — the flag is still meaningful.
+    app.pending_dispatch
+        .push_back(steer_dispatch("st-1", "s", "delete me"));
+    app.suppress_steer_restore
+        .insert(("s".to_string(), "st-1".to_string()));
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SteerCancelFailedCleared {
+            session_id: "s".to_string(),
+            input_id: "st-1".to_string(),
+        },
+    );
+    assert!(
+        app.suppress_steer_restore
+            .contains(&("s".to_string(), "st-1".to_string())),
+        "a lost race must not forget that the user asked to delete this steer"
+    );
+
+    // The admission ends the item, and the flag goes with it.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::DispatchRemoved {
+            session_id: "s".to_string(),
+            input_id: "st-1".to_string(),
+        },
+    );
+    assert!(
+        app.suppress_steer_restore.is_empty(),
+        "the flag cannot outlive its item"
+    );
+
+    // Case 2: the row is already gone (deleted before the race resolved), so
+    // nothing will end this id again — the flag must be released here.
+    app.suppress_steer_restore
+        .insert(("s".to_string(), "st-2".to_string()));
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SteerCancelFailedCleared {
+            session_id: "s".to_string(),
+            input_id: "st-2".to_string(),
+        },
+    );
+    assert!(
+        app.suppress_steer_restore.is_empty(),
+        "an id that can never end again must not leave a flag behind"
+    );
+}
+
+/// A steer the user deleted must not resurrect its text when its round ends.
+///
+/// `SteerMissed` removed the deletion-intent flag and then restored
+/// unconditionally, so every deletion of a missed steer undid itself: the text
+/// came back into the composer with a "restored" notice, and the user's explicit
+/// `D` or `/queue clear` was silently reversed.
+#[test]
+fn a_deleted_steer_is_not_restored_when_its_round_ends() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    app.live_session_id = "s".to_string();
+    app.current_session_id = "s".to_string();
+
+    app.pending_dispatch
+        .push_back(steer_dispatch("st-1", "s", "delete me"));
+    app.suppress_steer_restore
+        .insert(("s".to_string(), "st-1".to_string()));
+
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::SteerMissed {
+            session_id: "s".to_string(),
+            input_id: "st-1".to_string(),
+        },
+    );
+
+    assert!(
+        app.input.is_empty(),
+        "a deleted steer must not reappear in the composer (got {:?})",
+        app.input
+    );
+    assert!(
+        app.pending_dispatch.is_empty(),
+        "and its row is gone either way"
+    );
+    assert!(
+        app.suppress_steer_restore.is_empty(),
+        "the flag still cannot outlive the item"
     );
 }

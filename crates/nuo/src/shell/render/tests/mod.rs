@@ -68,7 +68,6 @@ fn render_full_view_with_context(
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
-                    paused: false,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
@@ -81,7 +80,7 @@ fn render_full_view_with_context(
                 thread_context: context,
                 round_started_at: None,
                 hovered_step: None,
-                focused_target: None,
+                focused_entry: None,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,

@@ -138,6 +138,31 @@ pub fn save_session_delta(conn: &Connection, delta: &SessionDelta) -> Result<()>
             }
         }
 
+        // 2b. A fold advances the cursor onto its checkpoint.
+        //
+        // `append_compaction` deliberately leaves the live `active_leaf` alone
+        // (the preserved tail stays the cursor), but the checkpoint it creates
+        // still has to become reachable: `linear_path` only walks `parent_id`
+        // edges from the cursor, and the checkpoint hangs off the folded head —
+        // a sibling of the tail, not an ancestor of it. Persisting the horizon
+        // without a pointer to it left the summary as a dangling node that no
+        // projection could ever surface.
+        if let Some(compaction) = delta
+            .new_nodes
+            .iter()
+            .find(|node| node.kind == NodeKind::Compaction)
+        {
+            conn.execute(
+                r#"
+                UPDATE threads
+                   SET active_leaf = COALESCE(active_leaf, ?2),
+                       updated_at_ms = ?3 * 1000
+                 WHERE id = ?1
+                "#,
+                params![delta.session_id, compaction.id, delta.updated_at_s],
+            )?;
+        }
+
         // 3. Upsert policy if modified
         if let Some(ref policy) = delta.policy_update {
             let rules_str = serde_json::to_string(&policy.rules)
@@ -304,10 +329,13 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
     );
 
     let state = SessionState {
-        active_leaf,
+        active_leaf: active_leaf.or(crate::db::ir_mirror::newest_leaf(conn, session_id)?),
         active_timeline: "main".to_string(),
         timelines,
-        compaction_horizon: None,
+        // The horizon is a fact the graph carries, not a column: a fold that
+        // survives a reload is the difference between a compacted session and
+        // one that silently un-folds every time it is reopened.
+        compaction_horizon: crate::db::ir_mirror::read_horizon(conn, session_id)?,
         status,
         pending_notifications,
         pruning_exhausted: false,
@@ -315,6 +343,13 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
     };
 
     // 3. Load SessionPolicy
+    //
+    // A policy column is *configuration*, and configuration must never be able
+    // to make a session's fact graph unloadable. Each column is decoded
+    // independently and falls back to its documented default: an older binary's
+    // `{}`, a NULL, or a payload this build cannot parse degrades one policy
+    // field instead of failing the whole hydrate (which is what happened when a
+    // missing `unattended` key threw away every causal node with it).
     let policy = conn
         .query_row(
             r#"
@@ -323,49 +358,43 @@ pub fn load_session_ir(conn: &Connection, session_id: &str) -> Result<Option<Ses
             "#,
             params![session_id],
             |row| {
-                let rules_json: String = row.get(0)?;
-                let caps_json: String = row.get(1)?;
-                let guard_json: String = row.get(2)?;
-                let budget_json: String = row.get(3)?;
-
-                let rules = serde_json::from_str(&rules_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        0,
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                let capabilities = serde_json::from_str(&caps_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        1,
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                let guardrails = serde_json::from_str(&guard_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        2,
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                let budget = serde_json::from_str(&budget_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        3,
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-
-                Ok(SessionPolicy {
-                    rules,
-                    capabilities,
-                    guardrails,
-                    budget,
-                })
+                Ok((
+                    row.get::<_, Option<String>>(0).ok().flatten(),
+                    row.get::<_, Option<String>>(1).ok().flatten(),
+                    row.get::<_, Option<String>>(2).ok().flatten(),
+                    row.get::<_, Option<String>>(3).ok().flatten(),
+                ))
             },
         )
         .optional()?
+        .map(|(rules, caps, guard, budget)| {
+            // Re-serializing the decoded object lets the typed policy apply its
+            // own field defaults for anything the stored column omitted.
+            let object = |raw: Option<String>, label: &str| -> serde_json::Value {
+                match raw
+                    .as_deref()
+                    .map(serde_json::from_str::<serde_json::Value>)
+                {
+                    Some(Ok(value @ serde_json::Value::Object(_))) => value,
+                    _ => {
+                        tracing::debug!(
+                            session = %session_id,
+                            column = label,
+                            "policy column absent or not a JSON object; using defaults"
+                        );
+                        serde_json::Value::Object(serde_json::Map::new())
+                    }
+                }
+            };
+            SessionPolicy {
+                rules: serde_json::from_value(object(rules, "rules_json")).unwrap_or_default(),
+                capabilities: serde_json::from_value(object(caps, "capabilities_json"))
+                    .unwrap_or_default(),
+                guardrails: serde_json::from_value(object(guard, "guardrails_json"))
+                    .unwrap_or_default(),
+                budget: serde_json::from_value(object(budget, "budget_json")).unwrap_or_default(),
+            }
+        })
         .unwrap_or_default();
 
     // 4. Load CausalNodes ordered by seq

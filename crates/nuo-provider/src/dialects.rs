@@ -56,6 +56,32 @@ pub enum OpenAiResponsesDialect {
     /// DeepSeek's OpenAI-compatible Responses surface is stateless: it
     /// ignores `store` and does not support `previous_response_id`.
     DeepSeek,
+    /// A gateway that mounts `/responses` and *translates* it onto
+    /// heterogeneous upstreams — some speaking this protocol natively, others
+    /// only chat-completions (OpenCode Go's Console routes every Go model
+    /// through one `/responses` URL this way).
+    ///
+    /// Distinct from [`Standard`](Self::Standard) on three counts, each of them
+    /// established by probe rather than assumption (ADR-0142):
+    ///
+    /// - **Flattened tools.** The gateway validates the OpenAI tool shape; the
+    ///   nested form DeepSeek's native platform accepts is rejected here with
+    ///   `400 tools[0].function: this tool feature requires a native Responses
+    ///   target`.
+    /// - **No state.** `store: true` and `previous_response_id` both answer
+    ///   `400 … requires a native Responses target; portable routing requires
+    ///   the full conversation in input` **on the converted rows**, which is
+    ///   most of them. The vendor names the mode "portable", which is where this
+    ///   variant's name comes from. A minority of rows behind the same URL are
+    ///   true passthroughs that do store responses — so the client's safe
+    ///   contract is the intersection (never store), because it cannot know
+    ///   which it is talking to until the catalog answers (ADR-0142 §6).
+    /// - **Dual-form reasoning replay.** Behind one URL are two replay
+    ///   contracts that contradict each other: one upstream 400s when a
+    ///   reasoning item carries no `summary` array, another 400s when the
+    ///   raw `reasoning_text` is not passed back. Only emitting both parts in
+    ///   one item satisfies every upstream behind the URL.
+    Portable,
     ChatGpt,
     Copilot,
 }
@@ -89,7 +115,10 @@ impl OpenAiResponsesDialect {
     }
 
     pub const fn supports_store(self) -> bool {
-        !matches!(self, OpenAiResponsesDialect::DeepSeek)
+        !matches!(
+            self,
+            OpenAiResponsesDialect::DeepSeek | OpenAiResponsesDialect::Portable
+        )
     }
 
     pub const fn nested_tool_definitions(self) -> bool {
@@ -102,6 +131,20 @@ impl OpenAiResponsesDialect {
 
     pub const fn supports_parallel_tool_calls(self) -> bool {
         !matches!(self, OpenAiResponsesDialect::DeepSeek)
+    }
+
+    /// Whether a *replayed* reasoning item must carry the `summary` parts and
+    /// the raw `reasoning_text` content parts **together**.
+    ///
+    /// A translating gateway fronts upstreams with contradictory replay
+    /// contracts behind one URL: one 400s with `input[N].summary: expected an
+    /// array` when `summary` is absent, another with ``The `reasoning_text` in
+    /// the thinking mode must be passed back`` when the content parts are.
+    /// Emitting both parts in one item is the only shape every upstream behind
+    /// that URL accepts (ADR-0142). Every other dialect has a single contract,
+    /// so it keeps its own single-form replay.
+    pub const fn dual_form_reasoning_replay(self) -> bool {
+        matches!(self, OpenAiResponsesDialect::Portable)
     }
 }
 
@@ -136,6 +179,13 @@ pub enum ProviderDialect {
     DeepSeek,
     #[serde(rename = "openrouter")]
     OpenRouter,
+    /// A multi-vendor gateway that translates every protocol family onto
+    /// heterogeneous upstreams (OpenCode Go's Console). Its `/responses`
+    /// surface is portable-only: flattened tools, no stored state, and a
+    /// replay shape that must satisfy both reasoning contracts at once
+    /// (ADR-0142).
+    #[serde(rename = "portable")]
+    Portable,
     Qoder,
     #[serde(rename = "codebuddy")]
     CodeBuddy,
@@ -563,7 +613,7 @@ impl ProviderDialect {
                 protocol != WireProtocol::GoogleGenerateContent
                     && protocol != WireProtocol::GoogleInteractions
             }
-            Self::Standard | Self::DeepSeek | Self::OpenRouter => true,
+            Self::Standard | Self::DeepSeek | Self::OpenRouter | Self::Portable => true,
         }
     }
 
@@ -598,6 +648,7 @@ impl ProviderDialect {
             Self::ChatGpt => OpenAiResponsesDialect::ChatGpt,
             Self::Copilot => OpenAiResponsesDialect::Copilot,
             Self::DeepSeek => OpenAiResponsesDialect::DeepSeek,
+            Self::Portable => OpenAiResponsesDialect::Portable,
             _ => OpenAiResponsesDialect::Standard,
         }
     }
@@ -1005,6 +1056,7 @@ mod tests {
             ProviderDialect::Copilot,
             ProviderDialect::DeepSeek,
             ProviderDialect::OpenRouter,
+            ProviderDialect::Portable,
             ProviderDialect::Qoder,
             ProviderDialect::CodeBuddy,
         ] {
@@ -1016,6 +1068,39 @@ mod tests {
                 "{bare} must parse back to {dialect:?}"
             );
         }
+    }
+
+    /// The portable gateway's contract, pinned field by field: flattened tools,
+    /// no `store`, dual-form reasoning replay. Each flag was established by
+    /// probing the live endpoint (ADR-0142), so a change here is a change to
+    /// the wire contract, not a preference.
+    #[test]
+    fn portable_surface_declares_its_probed_contract() {
+        let portable = ProviderDialect::Portable.openai_responses();
+        assert_eq!(portable, OpenAiResponsesDialect::Portable);
+        // Flattened OpenAI tool shape: the gateway rejects DeepSeek's nested
+        // form with `400 tools[0].function: requires a native Responses target`.
+        assert!(!portable.nested_tool_definitions());
+        assert!(portable.supports_tool_choice());
+        assert!(portable.supports_parallel_tool_calls());
+        assert!(portable.supports_developer_role());
+        // No state: `store: true` and `previous_response_id` both answer 400,
+        // so `store` is never emitted and the full context is replayed.
+        assert!(!portable.supports_store());
+        // Both reasoning part families, because the upstreams behind the one URL
+        // enforce opposite replay rules.
+        assert!(portable.dual_form_reasoning_replay());
+        // It is a transcoding gateway, not DeepSeek's native platform, so it
+        // keeps the cached-reasoning grant a translating surface understands.
+        assert!(portable.encrypted_reasoning());
+        assert!(portable.reasoning_summary());
+
+        // DeepSeek's native surface keeps the opposite answers.
+        let native = ProviderDialect::DeepSeek.openai_responses();
+        assert!(native.nested_tool_definitions());
+        assert!(!native.supports_store());
+        assert!(!native.dual_form_reasoning_replay());
+        assert!(!native.encrypted_reasoning());
     }
 
     #[test]

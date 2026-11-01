@@ -248,7 +248,7 @@ pub fn cursor_screen_pos(
 /// `focused` selects the panel palette (the input's dedicated active /
 /// inactive background pair). The live composer passes `true` when
 /// no transcript step carries keyboard focus, and `false` when the user has
-/// navigated into the transcript with Ctrl+↑/↓ — the recessed "read-only"
+/// crossed to the transcript peer plane with ⇧Tab — the recessed "read-only"
 /// band signals that the next keypress targets the step, not the input box.
 ///
 /// `image_count` / `paste_count` are the numbers of attachments actually
@@ -790,8 +790,13 @@ fn draw_composer_impl(
 
             spans.extend(right_spans);
         } else {
+            // The composer is not the only surface of this scene: the transcript
+            // is its peer and currently holds the keyboard (ADR-0145). The row
+            // that would have advertised the composer's own verbs therefore
+            // advertises the one gesture that comes back — a symmetric exit,
+            // named where the user is looking.
             spans.push(Span::styled(
-                "(Composer inactive)",
+                "⇧Tab composer",
                 Style::default().bg(panel_bg).fg(theme.muted()),
             ));
         }

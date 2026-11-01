@@ -4,18 +4,19 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Pure wire-level vendor dialect codecs, SSE stream demuxing, and canonical block IR for external model APIs"
+description = "Model wire substrate: protocol identity, shared decoders, and the wire vocabulary shipped code consumes"
 
+# Dependency pruning is the aperture's *mechanism*, not a style preference
+# ([INV-AP-01], ADR-0084 as amended by ADR-0088 and ADR-0143). `http`,
+# `async-trait`, and `thiserror` were dropped with the layers they existed for —
+# the last one went when `WireError` was deleted, since no surviving line derives
+# an error. `tokio` was never a dependency here. What remains is data-shaping
+# only: this crate cannot perform I/O, so it structurally cannot host a cognitive
+# contract or a second transport.
 [dependencies]
-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-async-trait = { workspace = true }
-thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

@@ -1,8 +1,7 @@
 use futures::{SinkExt, StreamExt};
 use nuo_protocol::{AgentRequest, AgentResponse, MonitorAction, MonitorEvent};
 use nuo_protocol::{
-    ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION,
-    protocol_accepts,
+    ERR_PROTOCOL_MISMATCH, MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, protocol_accepts,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -335,31 +334,6 @@ fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> String 
              this command (or `nuo start` to bring it up explicitly){builds}.",
             current = PROTOCOL_VERSION
         )
-    }
-}
-
-/// Refuse a version-skewed attach with an actionable both-versions message
-/// (rule 4), with directional recommendations. Returned before any
-/// session work happens. Applies only to clients that predate the protocol
-/// field — a client that declares a protocol number is judged on
-/// the window alone, its product version never enters the decision.
-fn version_mismatch_error(client: &str, server: &str) -> String {
-    use nuo_protocol::{VersionRelation, compare_versions};
-    match compare_versions(client, server) {
-        VersionRelation::ClientOlder => format!(
-            "client/server version mismatch: client ({client}) is older than server ({server}). \
-             Please update your nuo client to version {server} or newer."
-        ),
-        VersionRelation::ClientNewer => format!(
-            "client/server version mismatch: server ({server}) is older than client ({client}). \
-             Stop the server and let it restart on demand: `nuo stop`, then rerun \
-             this command (or `nuo start` to bring it up explicitly)."
-        ),
-        VersionRelation::Equal | VersionRelation::Unknown => format!(
-            "client/server version mismatch: client {client} vs server {server}. \
-             Stop the server and let it restart on demand: `nuo stop`, then rerun \
-             this command (or `nuo start` to bring it up explicitly)."
-        ),
     }
 }
 
@@ -1432,35 +1406,20 @@ async fn handle_wire_stream(
             None => return Ok(()),
         };
     // Protocol negotiation, enforced before any session work.
-    // The protocol number is the authority when present: the server serves
-    // any number in [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] regardless of
-    // the product build — this is what lets a pinned client keep talking to
-    // a newer server across additive wire changes. A client that sends no
-    // protocol number predates the field, so it is judged
-    // rule 4's exact product-version equality instead (unknown fields are
-    // ignored by serde, so this server's newer frames never break it).
-    if let Some(client) = client_protocol
-        && !protocol_accepts(client)
-    {
+    //
+    // `[INV-WIRE-04]` — the protocol number is the **only** admission authority.
+    // The server serves any number in `[MIN_PROTOCOL_VERSION, PROTOCOL_VERSION]`
+    // regardless of the product build, which is what lets a pinned client keep
+    // talking to a newer server across additive changes. There is no second
+    // lane: the field is required, so a peer that omits it fails to decode
+    // above (and is answered with the protocol taxonomy) instead of being judged
+    // by a different rule. The product version is advisory identity, used only
+    // to make the refusal name both builds.
+    if !protocol_accepts(client_protocol) {
         send_error_with_code(
             &mut wire_sink,
-            &protocol_mismatch_error(client, client_version.as_deref()),
+            &protocol_mismatch_error(client_protocol, client_version.as_deref()),
             Some(ERR_PROTOCOL_MISMATCH),
-        )
-        .await?;
-        return Ok(());
-    }
-    // Legacy product-version gate (rule 4) for pre-protocol
-    // clients only. A protocol-declaring client has already been judged on
-    // the window; its product version is advisory identity, not a gate.
-    if client_protocol.is_none()
-        && let Some(client) = client_version
-        && client != gate.version_of_server()
-    {
-        send_error_with_code(
-            &mut wire_sink,
-            &version_mismatch_error(&client, gate.version_of_server()),
-            Some(ERR_VERSION_MISMATCH),
         )
         .await?;
         return Ok(());
@@ -2306,12 +2265,12 @@ mod tests {
     fn error_frame_carries_an_optional_code() {
         let with_code = serde_json::to_string(&Wire::Error {
             message: "m".to_string(),
-            code: Some(ERR_VERSION_MISMATCH.to_string()),
+            code: Some(ERR_PROTOCOL_MISMATCH.to_string()),
         })
         .unwrap();
         assert_eq!(
             with_code,
-            r#"{"type":"Error","message":"m","code":"version_mismatch"}"#
+            r#"{"type":"Error","message":"m","code":"protocol_mismatch"}"#
         );
         // Absent code stays absent on the wire (older clients unaffected).
         let without = serde_json::to_string(&Wire::Error {

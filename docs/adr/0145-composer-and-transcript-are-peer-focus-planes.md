@@ -1,0 +1,157 @@
+---
+id: ADR-0145
+title: "Composer and Transcript Are Peer Focus Planes: One Symmetric Crossing Chord, and Esc Never Navigates"
+status: accepted
+date: 2026-02-14
+scope: tui/nuo, interaction/keyboard, tui/event-loop, tui/input, presentation/nuo-view, docs/reference/tui
+superseded_by: null
+negative_knowledge: true
+---
+
+# 0145. Composer and Transcript Are Peer Focus Planes: One Symmetric Crossing Chord, and Esc Never Navigates
+
+- Status: Accepted
+- Date: 2026-02-14
+- Deciders: Nuo Architecture Working Group
+- Consulted: Interaction Design, TUI Runtime, Presentation Substrate
+- Amends: [ADR-0025](0025-scene-scoped-interrupt-chord.md) (Esc keeps its interrupt and loses its focus-clearing arm), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md) `[INV-KEY-02]` (Esc leaves the bidirectional-navigation set), [ADR-0042](0042-client-viewport-routing-ownership-tab-history-and-scene-self-projection.md) `[INV-NAV-02]` (Esc's navigation role narrows to overlays and scene steps inside a tab), [ADR-0051](0051-composer-canonical-quadrant-modality-atomic-draft-capsule-and-in-place-recall-topology.md) (the composer owns modes; it is not a mode of the scene), [ADR-0091](0091-sovereign-tab-context-isolation-and-tabbar-boundary-purity.md) §Checkpoint (the checkpointed pair of focus booleans becomes one `Focus` value), [ADR-0092](0092-uncompromising-scenebar-breadcrumb-topology-bidirectional-navigation-and-symmetric-keybindings.md) `[INV-NAV-03]` (the symmetry argument extends from scene history to focus planes), [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md) §Scene Navigation (the Help block documents a crossing, not a clearing)
+
+---
+
+## Context and Problem Statement
+
+The Thread scene hosts two surfaces: the **composer**, where a prompt is drafted, and the **transcript**, where execution is inspected. Both are permanent. Neither is a temporary state the other returns from. Yet the input model treated them asymmetrically in every dimension that matters:
+
+1. **The entry direction had a chord; the exit direction had a different, overloaded one.** `Ctrl+P` / `Ctrl+N` (`SurfaceVerb::FocusPrevTarget` / `FocusNextTarget`) and bare `↑`/`↓` moved attention onto the transcript. Coming back required `Esc` (`SurfaceVerb::ClearFocusedTarget`, canonical chord hard-coded to `Key::ESC`). Two unrelated gestures for one reversible operation: the model had a forward map and no inverse.
+2. **`Esc` accumulated five jobs on one keystroke.** In dispatch order: dismiss an open completion, clear the transcript focus, interrupt a running round (via the double-press window, [ADR-0025](0025-scene-scoped-interrupt-chord.md)), dismiss an overlay, or step back inside the scene. Which one fired depended on four independent predicates, and the first match consumed the key. A user pressing `Esc` to stop a runaway tool call could instead find themselves back in the composer with the round still running — or vice versa.
+3. **The exit chord could not be configured, and the reason was circular.** `SurfaceOverrides::from_config` refuses to assign `Esc` to any verb (it is "the universal escape hatch"), yet `ClearFocusedTarget`'s *canonical* chord was `Esc`. So `session.clear_focus` appeared in the Help dialog and in the config schema while being unassignable in practice. Meanwhile a remap to another chord did not retire the canonical `Esc` arm, so the same verb had two live chords — a direct contradiction of the registry's own "a remapped verb's canonical chord goes inactive" rule.
+4. **The state was two independent booleans.** `focused_target: Option<InteractiveTarget>` and `transcript_focused: bool` could express combinations with no meaning ("an entry is highlighted **and** the composer is live"). Fifty-six write sites hand-maintained the pair; eight mouse branches each wrote `focused_target = None; transcript_focused = true;` by hand. The notion of "browse focus" was not a state at all but a blur condition on the composer.
+5. **A stated principle was contradicted by the code.** `keymap.rs` declared "zero loss of printable characters: typing in transcript bounces back to composer", and `App::transcript_focused`'s own doc comment repeated it — while `resolve_printable` returned `InputAction::None`, enrolling the opposite behaviour in a test. The documentation promised a symmetric exit that did not exist.
+6. **The prose drifted from the canonical chords.** Five sites described the entry direction as `Alt+↑`/`Alt+↓` while the canonical chords were `Ctrl+P`/`Ctrl+N`, and the scene resolver's `Up`/`Down` arms read `key.code` without inspecting modifiers, so every modifier combination of `↑`/`↓` behaved as the bare key.
+
+The root cause is conceptual, not incidental: the model never said what the two surfaces **are** to each other. It modeled one privileged surface (the composer) plus a mode it could fall into, and then tried to represent the mode's exit with the same chord that means "cancel" everywhere else. Every defect above is a consequence.
+
+## Decision Drivers
+
+- **Peer surfaces need a symmetric operator.** If entering a surface and leaving it are different gestures, the model is wrong — not the gesture. Reversibility must be structural, not a convention the next contributor has to remember.
+- **One chord, one job.** `Esc` is the product's cancel/interrupt vocabulary ([ADR-0025](0025-scene-scoped-interrupt-chord.md), [ADR-0110](0110-running-state-interaction-topology-and-action-permissibility-discipline.md)). A chord that cancels *and* navigates is a chord whose behaviour cannot be predicted from its label.
+- **Unrepresentable beats forbidden.** The state space should not contain "an entry is highlighted while the composer is live". A compiler-enforced shape removes the class of bug rather than the instance.
+- **Chord choice is a physical constraint, not a taste.** The chord must survive the four collision domains documented in `docs/explanation/terminal-shortcuts-and-conflicts.md`: no POSIX line-discipline key, no emulator-reserved sequence, no macOS Option dead key, no dependence on the Kitty enhanced-keyboard protocol.
+- **Zero legacy burden.** The obsolete verb, its config name, and its Help row are deleted, not deprecated behind a flag.
+
+## Architectural Decisions
+
+### 1. `Focus` is one value with two planes
+
+`crate::shell::focus::Focus` replaces both booleans:
+
+```rust
+pub enum FocusPlane { Composer, Transcript }
+
+pub enum TranscriptFocus {
+    Browse,                      // viewport attention (click into the transcript)
+    Entry(InteractiveTarget),    // one activatable entry is highlighted
+}
+
+pub struct Focus { plane: FocusPlane, transcript: TranscriptFocus }
+```
+
+`App::focus: Focus` is the single owner. `Focus::entry()` is the **only** reader allowed to answer "is an entry focused": it returns `Some` exactly when the plane is `Transcript` *and* the sub-state is `Entry`, so the two facts cannot disagree. Both fields are private; callers transition through `enter_composer`, `enter_transcript`, `browse`, `toggle`, and `retain_entry`.
+
+`TabContextState::focus` carries the same value across tab switches, so a tab is restored with one coherent plane — [ADR-0091](0091-sovereign-tab-context-isolation-and-tabbar-boundary-purity.md)'s checkpoint contract now has one field where it had two.
+
+### 2. `⇧Tab` is the sole explicit crossing, and it is an involution
+
+`Key::BACKTAB` resolves to `InputAction::ToggleFocusPlane`, which calls `Focus::toggle()`. The operation flips the plane and changes nothing else, so:
+
+```text
+f(f(x)) == x            // plane AND remembered entry
+```
+
+That is `[INV-FOCUS-01]`, and it is why the transcript's sub-state is **remembered while the composer owns the keyboard**: leaving for the composer to re-read a draft and returning must land on the same highlighted entry, not force a re-walk of `Ctrl+P`.
+
+`⇧Tab` was chosen over every alternative for reasons that are checkable, not aesthetic:
+
+| Candidate | Rejected because |
+| --- | --- |
+| `Esc` | Already the cancel/interrupt chord ([ADR-0025](0025-scene-scoped-interrupt-chord.md)); see decision 3. |
+| `Tab` | Means "act inside the composer" (completion commit, `Tab` steer/follow-up toggle while running). A key whose meaning depends on `is_responding` is the asymmetry being removed. |
+| `Ctrl+O` | POSIX `VDISCARD`; named as a hazard in `docs/explanation/terminal-shortcuts-and-conflicts.md` §2. |
+| `Ctrl+Tab` | Intercepted by terminal-emulator tab switching; never reaches stdin. |
+| `Alt+<letter>` | macOS Option composes diacritics (`∂`, `†`, `∑`) unless the user remaps the modifier. |
+| `F6`–`F8` | Off the home row and undiscoverable; a two-pane scene needs no panel-cycle ring. |
+| `Ctrl+G` | Free here, but `Ctrl+` space is already dense with readline bindings and `Ctrl+G` is `get-out` in adjacent tools — a near-miss hazard rather than a pairing. |
+
+`⇧Tab` is a dedicated CSI sequence (not a Kitty-only report), collides with nothing globally, and pairs with `Tab` literally: `Tab` acts *within* the composer plane, `⇧Tab` crosses out of it. The two are advertised together in the composer hint row.
+
+### 3. `Esc` never crosses planes
+
+`resolve_esc`'s focus-clearing arm is deleted. `Esc` now resolves to, in order: dismiss an open completion, or interrupt a running round (scene-scoped, double-press confirmed, [ADR-0025](0025-scene-scoped-interrupt-chord.md)), or nothing. The `CommandId::CancelOrBack` executor loses its `focused_target.is_some()` branch for the same reason: `Esc` from a palette entry must not silently relocate the keyboard either.
+
+`SurfaceVerb::ClearFocusedTarget` and its `session.clear_focus` config key are **deleted**, not deprecated. `InputAction::ClearFocusedTarget` survives with a narrower meaning — *demote the entry highlight to browse focus, staying on the transcript* — because pointer paths and transcript-mutation paths genuinely need to say that, and expressing it as an explicit action keeps them from writing the focus struct directly.
+
+### 4. Implicit crossings stay, and they are gestures, not chords
+
+Two gestures cross without a chord, because in each the crossing is what the gesture already means:
+
+- **Clicking:** a click into the transcript content or a step summary enters the transcript plane (Browse / Entry respectively); a click into the composer's input box enters the composer plane. Clicking inert chrome (tab bar background, links) changes no plane.
+- **Walking off the end:** `Ctrl+N` / `↓` past the last entry with nothing left to scroll returns to the composer; `Ctrl+P` / `↑` past the first entry with nothing left to scroll walks the entry list from the other end (unchanged). The transcript has nothing left to offer, so the keyboard goes where there is something to do.
+
+Both are *accelerations* onto the same `Focus` value — no parallel state, no separate "mouse mode".
+
+### 5. The sub-state degrades; the plane does not
+
+`Focus::retain_entry` rewrites a stranded entry selection to `Browse` when the transcript mutates under the user (a step collapses, a round appends). The **plane is never touched**: the user's attention is still on the transcript, and silently reverting the keyboard to the composer is precisely the asymmetry this ADR removes.
+
+### 6. Hints and Help derive from the same origin
+
+`live_chat_hints` gains the crossing on every composer-plane row (`⇧Tab transcript`) and replaces `Esc back` with `⇧Tab composer` on the entry rows. The Help dialog's Scene Navigation block documents `Switch focus` and the entry walk; the `clear_focus` row is gone. Since `⇧Tab` is grammar rather than a shortcut, `GlobalOverrides::from_config` refuses to reassign `CommandId::ToggleFocusPlane` — but `canonical_global_chord` still returns `Key::BACKTAB`, so the registry table, the chrome, and the Help dialog read one value.
+
+### Normative Invariants Established
+
+- **[INV-FOCUS-01] Single symmetric crossing**: A chat scene has exactly two peer focus planes. `⇧Tab` MUST be the only explicit crossing chord, it MUST be an involution (`toggle` twice restores plane *and* remembered sub-state), and `Esc` MUST NOT cross planes. Enforced by `crate::shell::focus` unit tests (`toggle_is_an_involution_from_either_plane`, `crossing_keeps_the_highlighted_entry`), by `shell::input::tests::paste_escape::escape_never_crosses_focus_planes`, and by `shell::session::tests::focus_navigation_and_interrupt_react_to_mode`.
+- **[INV-FOCUS-02] No typing into an unfocused draft**: a printable keystroke MUST be inserted only while the composer plane owns the keyboard; on the transcript plane it MUST be inert rather than absorbed into the draft. Enforced by the `Char` arm of `resolve_chat_surface_key_motion` and `shell::session::tests::typed_character_in_transcript_is_inert_and_does_not_bounce`.
+- **[INV-FOCUS-03] One value, one truth**: the focus state is a single `Focus` value. No second field, flag, or `bool` may describe it, so "an entry is highlighted while the composer is live" is unrepresentable. Enforced by the type: the fields are private and `Focus::entry()` is the only entry accessor.
+
+## Consequences
+
+- **Positive**: the crossing is reversible by construction, so the "how do I get back?" question has one answer that is the same gesture both ways. `Esc` regains a single, predictable job, which restores the interrupt's reliability during a runaway round. The 56 hand-maintained focus write sites collapse onto one value with five named transitions, and the eight mouse branches that each hand-wrote the pair now call `enter_transcript` / `enter_composer`. Two defects fall out for free: `ClearFocusedTarget`'s double-chord behaviour after a remap disappears with the verb, and the "docs say typing bounces, code says otherwise" contradiction is resolved in the code's favour with the promise removed rather than silently broken.
+- **Negative & Trade-offs**: `Esc`-to-return is muscle memory for anyone who has used the previous model, and it now leaves the plane alone. Mitigation: the composer hint row advertises `⇧Tab` on every row, the entry row's first nav chord is `⇧Tab composer`, the Help dialog documents it, and the implicit exits (click the composer; walk off the end of the entry list) still work. `⇧Tab` is a two-key chord where `Esc` was one — accepted, because a one-key crossing is what made the collision possible. `session.clear_focus` disappears from the config schema: a config carrying it is ignored (unknown verbs are skipped, not errors), so no migration is required.
+
+## Rejected Alternatives & Negative Knowledge
+
+### Alternative A: Keep `Esc`, add a symmetric twin for entry (Rejected)
+
+- **Why considered**: zero migration; the chord is already in muscle memory; no new grammar.
+- **Why rejected**: `Esc` cannot be the crossing *and* the interrupt. Any twin (`Ctrl+P` as "enter", `Esc` as "leave") leaves the two directions as different chords, which is the defect itself, and it keeps the interrupt hostage to a focus predicate.
+
+### Alternative B: `Ctrl+G` as the crossing (Rejected)
+
+- **Why considered**: unused in this codebase, reachable from the home row, no line-discipline collision.
+- **Why rejected**: it does not pair with anything, so it must be memorised; and `Ctrl+G` is the conventional get-out chord in adjacent terminal tools, making a mis-press land on "what does this do?" rather than on a predictable crossing. `⇧Tab` needs no teaching because `Tab` is already documented as the composer-plane verb.
+
+### Alternative C: Make it a remappable `SurfaceVerb` (Rejected)
+
+- **Why considered**: every other surface chord is remappable; consistency argues for one more.
+- **Why rejected**: `SurfaceVerb`s are shortcuts over state the user can also reach otherwise; the crossing is the plane's *only* exit, and the file already refuses to remap `Esc`/`BackTab` on the grounds that they are grammar. A remappable crossing would also have to solve "what happens to a half-remapped `Tab`/`⇧Tab` pair" — a problem created solely by making it remappable.
+
+### Alternative D: Enter the transcript at the last entry on every crossing (Rejected)
+
+- **Why considered**: one fewer piece of state; the toggle becomes a pure plane flip.
+- **Why rejected**: it makes the crossing lossy. A user who highlights a failing step, glances at the composer to check what they typed, and crosses back would land somewhere else and have to re-walk. The remembered sub-state is the difference between a symmetric operator and a reset.
+
+### Alternative E: Keep `transcript_focused` as `FocusPlane::Transcript(Browse)` only (Rejected)
+
+- **Why considered**: smaller diff; reuse the existing boolean as a plane discriminant.
+- **Why rejected**: it cannot represent the entry highlight, so `focused_target` would have to stay alive as a second field — reintroducing the two-source state that `[INV-FOCUS-03]` forbids and keeping every one of the 56 write sites on manual consistency.
+
+### Alternative F: Separate verbs for "enter" and "leave" that happen to be bound to the same chord (Rejected)
+
+- **Why considered**: keeps the action vocabulary explicit about direction; each side could carry different guards.
+- **Why rejected**: the guards would diverge (as they did: only the leave side was reachable while running), and two actions mapped to one chord mean the vocabulary no longer names what the user did. The user pressed one key; the model records one act.
+
+## Links
+
+- Amends: [ADR-0025](0025-scene-scoped-interrupt-chord.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0051](0051-composer-canonical-quadrant-modality-atomic-draft-capsule-and-in-place-recall-topology.md), [ADR-0092](0092-uncompromising-scenebar-breadcrumb-topology-bidirectional-navigation-and-symmetric-keybindings.md), [ADR-0131](0131-help-dialog-architecture-tabbar-status-cluster-and-model-bar-purification.md)
+- Complements: [ADR-0110](0110-running-state-interaction-topology-and-action-permissibility-discipline.md) (read inspection stays open while a round runs), [ADR-0035](0035-domain-scoped-surface-architecture-and-encapsulated-dialog-lifecycle.md) (overlays trap focus above the planes)
+- Documentation: `docs/reference/tui/interaction.md`, `docs/explanation/terminal-shortcuts-and-conflicts.md`

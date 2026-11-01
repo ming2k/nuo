@@ -467,7 +467,7 @@ async fn server_persists_when_interactive_client_disconnects() {
         project: Some(proj_dir),
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         version: None,
-        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .await
     .unwrap();
@@ -558,7 +558,7 @@ async fn client_detach_spares_active_autonomous_work() {
         project: Some(proj_dir),
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
         version: None,
-        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .await
     .unwrap();

@@ -73,7 +73,10 @@ fn caret_owner_composer_by_default() {
 #[test]
 fn caret_owner_none_when_step_focused() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.focused_target = Some(InteractiveTarget::tool_step(0));
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+            InteractiveTarget::tool_step(0),
+        ));
     assert_eq!(app.caret_owner(), CaretOwner::None);
     assert!(
         !app.caret_visible(),
@@ -335,7 +338,10 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
     // A transcript step holding focus means the composer no longer owns the
     // caret: arrows mean step navigation, so the relay must stand down even
     // though a selection is technically active.
-    app.focused_target = Some(nuo_view::model::layout::InteractiveTarget::tool_step(0));
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+            nuo_view::model::layout::InteractiveTarget::tool_step(0),
+        ));
     assert!(
         !app.input_selection_relays_arrows(),
         "arrows belong to step navigation while a step holds focus"
@@ -909,7 +915,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     app.ui.commit();
 
     assert_eq!(app.surfaces.active_tab_index(), 0);
-    assert!(!app.transcript_focused, "composer starts focused");
+    assert!(app.focus.is_composer(), "composer starts focused");
 
     // 1. Single click on Dashboard tab at col 15, row 0 -> switches immediately on first click
     let click_down = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
@@ -953,7 +959,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
         crate::shell::surfaces::SceneKind::Thread
     );
     assert!(
-        !app.transcript_focused,
+        app.focus.is_composer(),
         "entering thread scene activates composer"
     );
 
@@ -972,7 +978,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_tabbar_bg, "s1").await;
     assert!(
-        !app.transcript_focused,
+        app.focus.is_composer(),
         "clicking tabbar background must not blur composer"
     );
     assert_eq!(
@@ -990,7 +996,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_active_tab, "s1").await;
     assert!(
-        !app.transcript_focused,
+        app.focus.is_composer(),
         "clicking active tab is idempotent and preserves composer focus"
     );
 
@@ -1003,7 +1009,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_transcript, "s1").await;
     assert!(
-        app.transcript_focused,
+        app.focus.is_transcript(),
         "clicking transcript content blurs composer"
     );
     assert_eq!(
@@ -1025,12 +1031,133 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_composer, "s1").await;
     assert!(
-        !app.transcript_focused,
+        app.focus.is_composer(),
         "clicking composer restores active focus"
     );
     assert_eq!(
         app.caret_owner(),
         crate::shell::CaretOwner::Composer,
         "composer owns caret again"
+    );
+}
+
+// Peer focus planes (ADR-0145)
+// `[INV-FOCUS-01]`: `⇧Tab` is the only explicit crossing and it is an
+// involution — the same press goes both ways, and the transcript's highlighted
+// entry survives the round trip. These drive the real event pipeline (routing →
+// dispatch → apply) rather than the resolver, because the crossing is a
+// Global-scope chord: a resolver-only test would prove nothing about whether a
+// keypress actually moves the keyboard.
+
+#[tokio::test]
+async fn shift_tab_crosses_planes_and_the_same_press_returns() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let sid = app.current_session_id.clone();
+    let back_tab = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::BackTab,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    // Start: the composer owns the keyboard.
+    assert!(app.focus.is_composer());
+    assert_eq!(app.caret_owner(), CaretOwner::Composer);
+
+    // Cross into the transcript.
+    crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
+    assert!(app.focus.is_transcript());
+    assert_eq!(
+        app.caret_owner(),
+        CaretOwner::None,
+        "the composer hides its caret when its peer owns the keyboard"
+    );
+
+    // The same press returns — this is the symmetry, not an escape.
+    crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
+    assert!(app.focus.is_composer());
+    assert_eq!(app.caret_owner(), CaretOwner::Composer);
+}
+
+#[tokio::test]
+async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
+    use nuo_view::model::layout::InteractiveTarget;
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let sid = app.current_session_id.clone();
+    let back_tab = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::BackTab,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+            InteractiveTarget::tool_step(2),
+        ));
+    assert_eq!(app.focus.entry(), Some(InteractiveTarget::tool_step(2)));
+
+    // Glance at the composer…
+    crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
+    assert!(app.focus.is_composer());
+    assert_eq!(
+        app.focus.entry(),
+        None,
+        "the composer plane reports no entry"
+    );
+
+    // …and come back to the same step, not to the top of the list.
+    crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
+    assert_eq!(
+        app.focus.entry(),
+        Some(InteractiveTarget::tool_step(2)),
+        "the crossing is lossless: the highlighted entry is restored"
+    );
+}
+
+#[tokio::test]
+async fn escape_never_moves_the_keyboard_off_the_transcript() {
+    use nuo_view::model::layout::InteractiveTarget;
+
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let sid = app.current_session_id.clone();
+    let esc = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+            InteractiveTarget::tool_step(1),
+        ));
+    // Idle: Esc is spent, and the plane is untouched.
+    crate::shell::event_loop::process_event_for_test(&mut app, &esc, &sid).await;
+    assert!(
+        app.focus.is_transcript(),
+        "a spent Esc must not relocate the keyboard to the composer"
+    );
+    assert_eq!(app.focus.entry(), Some(InteractiveTarget::tool_step(1)));
+}
+
+#[tokio::test]
+async fn typing_on_the_transcript_plane_never_reaches_the_draft() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let sid = app.current_session_id.clone();
+    let key = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('x'),
+        crossterm::event::KeyModifiers::NONE,
+    ));
+
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
+    app.input.clear();
+    app.set_cursor(0);
+    crate::shell::event_loop::process_event_for_test(&mut app, &key, &sid).await;
+
+    assert!(
+        app.input.is_empty(),
+        "the draft must not absorb the keystroke"
+    );
+    assert!(
+        app.focus.is_transcript(),
+        "typing on the transcript plane does not hand the keyboard back — \
+         only ⇧Tab and the implicit gestures do"
     );
 }

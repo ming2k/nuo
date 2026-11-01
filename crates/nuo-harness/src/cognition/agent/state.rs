@@ -785,6 +785,27 @@ impl Agent {
             .unwrap_or_else(|e| e.into_inner()) = gate;
     }
 
+    /// Whether a mid-turn projection gate is installed.
+    ///
+    /// Exposed so a composition root (and its tests) can assert the wiring instead
+    /// of trusting that `bind_session` ran: a gate that was never installed fails
+    /// silently, because `project_context_if_needed` treats a missing gate as
+    /// "nothing to do".
+    pub fn has_context_projection_gate(&self) -> bool {
+        self.context_projection_gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+    }
+
+    /// The mid-turn prune threshold in tokens (`0` = relief disabled).
+    pub fn context_prune_threshold_tokens(&self) -> usize {
+        *self
+            .context_prune_threshold_tokens
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Install the shared token-source ledger so this agent books each turn's
     /// token counts (reported vs. estimated) into it. The embedding shares the
     /// same `Arc` with the TUI so the token-source report modal reads live.

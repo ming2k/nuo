@@ -291,12 +291,23 @@ pub(crate) async fn queue_reorder(
 }
 
 /// `AgentRequest::QueuePaused`.
+///
+/// A resume also **wakes** the ship loop. Setting the flag alone is not enough:
+/// shipping is driven by round-boundary wakes, so un-pausing a session whose
+/// round already ended left the queue parked until some unrelated event fired —
+/// the user resumed and nothing happened. Pausing needs no wake (the gate is
+/// re-read on every ship attempt); resuming is the transition that has to look
+/// for work.
 pub(crate) async fn queue_paused(
     tx: &mpsc::UnboundedSender<AgentResponse>,
     queue: &mut crate::session_driver::FollowUpQueue,
+    wake: &mpsc::Sender<String>,
     session_id: String,
     paused: bool,
 ) {
     queue.set_paused(&session_id, paused);
+    if !paused && queue.has_items_for(&session_id) {
+        let _ = wake.send(session_id.clone()).await;
+    }
     emit_queue_snapshot(tx, queue, &session_id);
 }

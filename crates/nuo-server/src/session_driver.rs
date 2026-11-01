@@ -52,6 +52,12 @@ pub async fn send_harness_state_for_session(
     ));
 }
 
+/// Compact a session's history in place.
+///
+/// A **delegation**, not a second implementation. This used to be a verbatim
+/// copy of the harness's compactor, which meant every compaction fix had to be
+/// written twice — and the copy is what `/compact` actually calls, so a fix that
+/// landed only in the harness would have left the user-facing command broken.
 pub async fn compact_round_history(
     history: &mut Vec<nuo_protocol::Message>,
     session: &SessionStore,
@@ -59,36 +65,14 @@ pub async fn compact_round_history(
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
 ) -> Result<Option<nuo_protocol::ContextProjectionCheckpoint>, String> {
-    let mut ir = session.session_ir().await;
-    let preserve_rounds = settings.preserve_rounds.max(1);
-    let mode =
-        nuo_harness::cognition::compaction::CompactionCutMode::PreserveTailRounds(preserve_rounds);
-    let provider = if settings.summarize { provider } else { None };
-    if let Some(outcome) = nuo_harness::cognition::compaction::CausalCompactor::compact_session_ir(
-        &mut ir,
+    nuo_harness::orchestration::compact_round_history(
+        history,
+        session,
+        settings,
         provider,
-        mode,
         extra_context,
     )
-    .await?
-    {
-        session.commit_session_ir(&ir).await?;
-        let active_msgs = ir.resolve_active_messages();
-        let tokens_after = nuo_protocol::pressure::estimate_tokens(&active_msgs);
-        let checkpoint = nuo_protocol::ContextProjectionCheckpoint {
-            operation: nuo_protocol::ContextProjectionKind::Compact,
-            archived_messages: outcome.nodes_folded,
-            active_messages: active_msgs.len(),
-            window_tokens_before: outcome.tokens_before,
-            window_tokens_after: tokens_after,
-            summary: Some(outcome.summary),
-            tracked_files: outcome.tracked_files,
-        };
-        *history = active_msgs;
-        Ok(Some(checkpoint))
-    } else {
-        Ok(None)
-    }
+    .await
 }
 
 use std::path::PathBuf;
@@ -646,61 +630,41 @@ impl SessionDriver {
                             &wake_target,
                         );
                     }
-                    // Ship the next queued item for any idle, un-paused target
-                    // the queue knows about (in queue order).
-                    let targets: Vec<String> = {
-                        let mut seen = Vec::new();
-                        // order-preserving distinct scan of the queue's targets
-                        for item in &followup_queue.items {
-                            if !seen.contains(&item.session_id) {
-                                seen.push(item.session_id.clone());
-                            }
-                        }
-                        seen
-                    };
-                    for target_id in targets {
-                        if !followup_queue.has_items_for(&target_id) {
-                            continue;
-                        }
-                        if session.id().await != target_id {
-                            followup_queue.clear(&target_id);
-                            crate::handlers_chat::emit_queue_snapshot(
-                                &resp_tx,
-                                &followup_queue,
-                                &target_id,
-                            );
-                            continue;
-                        }
-                        if lifecycle.is_running().await || followup_queue.is_paused(&target_id) {
-                            continue;
-                        }
-                        if let Some(message) = followup_queue.dequeue_front(&target_id) {
-                            let config = shared_config.read().await;
-                            crate::handlers_chat::start_queued_follow_up(
-                                ChatEnv {
-                                    agent: &agent,
-                                    session: &session,
-                                    lifecycle: &lifecycle,
-                                    tx: &resp_tx,
-                                    config: &config,
-                                },
-                                target_id.clone(),
-                                message,
-                                &mut followup_queue,
-                            )
-                            .await;
-                            // Watch this round's boundary so the *next* queued
-                            // item ships when it ends.
-                            crate::handlers_chat::spawn_boundary_watcher(
-                                lifecycle.clone(),
-                                followup_wake_tx.clone(),
-                                target_id.clone(),
-                            );
-                        }
-                    }
+                    // The ship pass itself is NOT here: it is evaluated once per
+                    // loop iteration below (see `ship_queued_follow_ups`). A wake
+                    // is a *hint* that a boundary may have opened, and hints are
+                    // lossy by nature: `Notify::notified()` only resolves once
+                    // per stored permit, and the boundary watcher drops a wake
+                    // when nobody is listening. Making the pass depend on
+                    // receiving a hint meant the queue could park forever after a
+                    // lost notification, an interrupted-then-resumed round, or a
+                    // wake that arrived while the channel was full.
+                    let _ = wake_target;
                     continue;
                 }
             };
+            // `[INV-OUTBOX-07]` — the ship pass is a per-iteration invariant, not
+            // a branch of the wake arm.
+            //
+            // Everything it needs is checkable here (`is_running`, `is_paused`,
+            // queue depth), and this loop iterates on every request, every wake,
+            // and every background completion — so the queue cannot be left
+            // parked by a missed notification, and a `resume` cannot be
+            // overtaken by a request that was already queued on the channel.
+            // It runs for every iteration *except* when the request about to be
+            // dispatched will start a round itself; that path decides inline.
+            if !request_starts_a_round(&req) {
+                ship_queued_follow_ups(
+                    &agent,
+                    &session,
+                    &lifecycle,
+                    &resp_tx,
+                    &shared_config,
+                    &mut followup_queue,
+                    &followup_wake_tx,
+                )
+                .await;
+            }
             let pre_session_id = session.id().await;
             let pre_provider = agent.provider.provider_id();
             let pre_model = agent.provider.model();
@@ -1535,10 +1499,22 @@ impl SessionDriver {
                     crate::handlers_chat::queue_paused(
                         &resp_tx,
                         &mut followup_queue,
+                        &followup_wake_tx,
                         thread_id,
                         paused,
                     )
                     .await;
+                }
+                AgentRequest::QueueSnapshot { thread_id } => {
+                    // A read, not a change: the snapshot is the same one every
+                    // mutation emits, so the client's projection is rebuilt from
+                    // the driver's record (attaching to a live session would
+                    // otherwise start empty while items sit queued).
+                    crate::handlers_chat::emit_queue_snapshot(
+                        &resp_tx,
+                        &followup_queue,
+                        &thread_id,
+                    );
                 }
                 AgentRequest::QueryInputHistory => {
                     crate::handlers_history::query_input_history(&resp_tx);
@@ -1714,6 +1690,81 @@ fn round_owned_request(req: &AgentRequest) -> bool {
             | AgentRequest::FollowUp { .. }
             | AgentRequest::Steer { .. }
             | AgentRequest::CancelSteer { .. }
+    )
+}
+
+/// Ship the next queued follow-up for every idle, un-paused target.
+///
+/// Extracted from the wake branch so the *scheduler* is not the owner of the
+/// invariant: `[INV-OUTBOX-07]` requires this to be evaluated on every driver
+/// iteration, because a wake is a lossy hint (`Notify` stores one permit, and a
+/// boundary watcher drops its send when the channel is full). Making shipment
+/// depend on receiving a hint left the queue parked forever after a lost
+/// notification — and the user's only symptom was a message that never ran.
+async fn ship_queued_follow_ups(
+    agent: &Arc<Agent>,
+    session: &Arc<nuo_persistence::session::SessionStore>,
+    lifecycle: &Arc<RoundLifecycle>,
+    resp_tx: &mpsc::UnboundedSender<AgentResponse>,
+    shared_config: &crate::SharedConfig,
+    followup_queue: &mut crate::session_driver::FollowUpQueue,
+    wake_tx: &mpsc::Sender<String>,
+) {
+    // Order-preserving distinct scan of the queue's targets.
+    let mut targets: Vec<String> = Vec::new();
+    for item in &followup_queue.items {
+        if !targets.contains(&item.session_id) {
+            targets.push(item.session_id.clone());
+        }
+    }
+    for target_id in targets {
+        if !followup_queue.has_items_for(&target_id) {
+            continue;
+        }
+        if session.id().await != target_id {
+            // The queue's target is not this driver's session: the items can
+            // never ship from here, so drop them and say so.
+            followup_queue.clear(&target_id);
+            crate::handlers_chat::emit_queue_snapshot(resp_tx, followup_queue, &target_id);
+            continue;
+        }
+        if lifecycle.is_running().await || followup_queue.is_paused(&target_id) {
+            continue;
+        }
+        if let Some(message) = followup_queue.dequeue_front(&target_id) {
+            let config = shared_config.read().await;
+            crate::handlers_chat::start_queued_follow_up(
+                crate::handlers_chat::ChatEnv {
+                    agent,
+                    session,
+                    lifecycle,
+                    tx: resp_tx,
+                    config: &config,
+                },
+                target_id.clone(),
+                message,
+                followup_queue,
+            )
+            .await;
+            // Watch this round's boundary so the *next* queued item ships when
+            // it ends. The watch is an optimisation now, not the mechanism: the
+            // next iteration re-evaluates regardless.
+            crate::handlers_chat::spawn_boundary_watcher(
+                lifecycle.clone(),
+                wake_tx.clone(),
+                target_id.clone(),
+            );
+        }
+    }
+}
+
+/// Whether dispatching `req` will start (or feed) a round, in which case the
+/// pre-dispatch ship pass must stand aside: starting a second round on top of
+/// one this request is about to open would race the lifecycle.
+fn request_starts_a_round(req: &AgentRequest) -> bool {
+    matches!(
+        req,
+        AgentRequest::Prompt { .. } | AgentRequest::FollowUp { .. }
     )
 }
 
@@ -2313,6 +2364,120 @@ mod followup_queue_tests {
         assert!(!queue.is_paused("thread-2"));
         queue.set_paused("primary", false);
         assert!(!queue.is_paused("primary"));
+    }
+
+    /// A **resume** must reach the ship pass; a pause must not.
+    ///
+    /// `[INV-OUTBOX-07]`: the pass is evaluated on every driver iteration, so a
+    /// resume only has to change the gate — it does not have to *deliver* a
+    /// signal. This test pins the weaker (sufficient) contract the hint
+    /// provides: a resume with items schedules one pass, a pause schedules none,
+    /// and an empty queue is not worth a pass.
+    #[tokio::test]
+    async fn resuming_a_paused_queue_schedules_a_ship_pass() {
+        let mut queue = FollowUpQueue::new();
+        queue.enqueue("primary", message("a", "1"));
+        queue.set_paused("primary", true);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let (wake_tx, mut wake_rx) = mpsc::channel::<String>(8);
+
+        // Pausing: no wake — nothing can ship while paused anyway.
+        crate::handlers_chat::queue_paused(&tx, &mut queue, &wake_tx, "primary".to_string(), true)
+            .await;
+        assert!(
+            wake_rx.try_recv().is_err(),
+            "a pause must not schedule a ship pass"
+        );
+        assert!(queue.is_paused("primary"));
+
+        // Resuming: exactly one wake for the target.
+        crate::handlers_chat::queue_paused(&tx, &mut queue, &wake_tx, "primary".to_string(), false)
+            .await;
+        assert_eq!(
+            wake_rx.try_recv().ok(),
+            Some("primary".to_string()),
+            "a resume must wake the ship loop, or the queue stalls silently"
+        );
+        assert!(
+            wake_rx.try_recv().is_err(),
+            "and exactly once: a wake storm would fight the boundary watchers"
+        );
+
+        // Resuming an empty queue is not worth a pass.
+        crate::handlers_chat::queue_paused(&tx, &mut queue, &wake_tx, "nobody".to_string(), false)
+            .await;
+        assert!(
+            wake_rx.try_recv().is_err(),
+            "no items, no wake: the ship pass would find nothing"
+        );
+    }
+
+    /// `[INV-OUTBOX-07]` — shipment does not depend on the wake hint.
+    ///
+    /// A wake is a lossy hint: `Notify::notified()` resolves once per stored
+    /// permit, and the boundary watcher drops its send when the channel is full.
+    /// While shipment lived *inside* the wake arm, a lost hint parked the queue
+    /// forever and the only symptom was a message that never ran. The pass is now
+    /// taken on every iteration, so this test can drive it with the wake channel
+    /// deliberately absent: an idle, un-paused target with work must ship.
+    #[tokio::test]
+    async fn an_idle_target_ships_without_any_wake_hint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(nuo_persistence::session::SessionStore::for_workspace(
+            None, None,
+        ));
+        let id = store.id().await;
+        let lifecycle = Arc::new(RoundLifecycle::new());
+        let mut queue = FollowUpQueue::new();
+        queue.enqueue(&id, message("pending-1", "run me"));
+        // No pause, no live round — the gate is open and there is work.
+        assert!(!queue.is_paused(&id));
+        assert!(!lifecycle.is_running().await);
+
+        // The wake channel is never used: nothing is sent on it, and every
+        // permit it could have carried is drained here.
+        let (wake_tx, mut wake_rx) = mpsc::channel::<String>(1);
+        while wake_rx.try_recv().is_ok() {}
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let config: crate::SharedConfig = Arc::new(tokio::sync::RwLock::new(
+            nuo_persistence::config::Config::default(),
+        ));
+        let agent = Arc::new(nuo_harness::Agent::new(
+            Arc::new(nuo_harness::NoProvider),
+            Vec::new(),
+            nuo_protocol::AgentIdentity::default(),
+        ));
+
+        ship_queued_follow_ups(
+            &agent, &store, &lifecycle, &tx, &config, &mut queue, &wake_tx,
+        )
+        .await;
+
+        // The item left the queue: the pass acted on the invariant, with no hint
+        // in sight. (The round itself then refuses for lack of a provider, which
+        // is exactly why the child fixture is a no-provider agent and why only
+        // the *dequeue* is asserted here: what is under test is the scheduler,
+        // not the provider.)
+        assert!(
+            !queue.has_items_for(&id),
+            "an idle un-paused queue must ship on the invariant alone"
+        );
+        // And the attempt announced itself on the wire.
+        assert!(
+            std::iter::from_fn(|| rx.try_recv().ok()).any(|response| matches!(
+                response,
+                AgentResponse::Round {
+                    event: nuo_protocol::RoundEvent::RoundInterrupted(_),
+                    ..
+                } | AgentResponse::Round {
+                    event: nuo_protocol::RoundEvent::Error(_),
+                    ..
+                }
+            )),
+            "a refused start is disclosed, never silent"
+        );
+        drop(tmp);
     }
 
     /// The boundary contract (M4): the round lifecycle's interrupt

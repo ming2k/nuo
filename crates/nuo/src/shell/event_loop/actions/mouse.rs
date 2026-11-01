@@ -329,7 +329,12 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::Sticky) => {
             if let Some(mi) = app.sticky_step {
-                app.focused_target = app.focused_messages().get(mi).and_then(|message| {
+                // Clicking the pinned summary is a pointer acceleration onto the
+                // transcript plane: it highlights the entry it names
+                // (ADR-0145). A sticky summary that maps to no focusable kind
+                // lands on browse focus rather than leaving the plane
+                // unspecified.
+                let target = app.focused_messages().get(mi).and_then(|message| {
                     if message.is_reasoning() {
                         Some(InteractiveTarget::reasoning(mi))
                     } else if message.is_tool_step() || message.is_subagent_task() {
@@ -337,6 +342,10 @@ pub(super) async fn handle_selection_start(
                     } else {
                         None
                     }
+                });
+                app.focus.enter_transcript(match target {
+                    Some(target) => crate::shell::focus::TranscriptFocus::Entry(target),
+                    None => crate::shell::focus::TranscriptFocus::Browse,
                 });
                 let mut messages = std::mem::take(&mut app.messages);
                 app.toggle_step_pinned(&mut messages, mi);
@@ -355,7 +364,7 @@ pub(super) async fn handle_selection_start(
         _ => {}
     }
     app.selection = SelectionState::None;
-    app.focused_target = None;
+    app.focus.enter_composer();
     app.drag.cancel();
     app.ui.runtime.release_pointer();
 }
@@ -369,12 +378,10 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
         // only needs a single match.
         match interaction::classify_click(&app.ui.document, x, y) {
             ClickTarget::InputBox { cursor } => {
-                // Click inside the live input box: clear any
-                // focused step so the next keypress edits rather
-                // than acting on a step, and return keyboard
-                // attention to the composer.
-                app.focused_target = None;
-                app.transcript_focused = false;
+                // Click inside the live input box: hand the keyboard to the
+                // composer plane so the next keypress edits rather than acting
+                // on a transcript entry (ADR-0145).
+                app.focus.enter_composer();
                 // Relay hand-off: place the (possibly hidden) caret at the
                 // clicked character so any pending whole-input selection is
                 // broken exactly where the user clicked, and the next
@@ -397,7 +404,10 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Clicked a step summary: navigate into a subagent
                 // task, otherwise toggle that step's disclosure.
                 let mi = message_idx;
-                app.focused_target = Some(kind.focus_target(mi));
+                app.focus
+                    .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+                        kind.focus_target(mi),
+                    ));
                 let mut messages = std::mem::take(&mut app.messages);
                 match kind {
                     StepKind::ToolStep => {
@@ -430,7 +440,6 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                     }
                 }
                 app.selection = SelectionState::None;
-                app.transcript_focused = true;
                 app.drag.cancel();
             }
             ClickTarget::TableCell {
@@ -456,12 +465,14 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                         segments: cell_segments,
                     },
                 );
-                app.focused_target = None;
-                app.transcript_focused = true;
+                app.focus
+                    .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             }
             ClickTarget::Link { url, .. } => {
+                // Opening a link is not an act on the transcript's content, so
+                // it neither claims nor releases the plane: the plane the user
+                // was in is the one the next keypress lands in.
                 app.selection = SelectionState::None;
-                app.focused_target = None;
                 app.drag.cancel();
                 let url_for_open = url.clone();
                 let mutations = runtime.mutations.clone();
@@ -488,8 +499,8 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // clicks also park attention on the transcript
                 // (browse focus).
                 app.drag.begin_range(&mut app.selection, cursor);
-                app.focused_target = None;
-                app.transcript_focused = true;
+                app.focus
+                    .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             }
             ClickTarget::ContentGap => {
                 // Click inside the content band but not on a
@@ -499,8 +510,8 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // browse focus): the composer dims until a composer
                 // click or a keystroke hands focus back.
                 app.selection = SelectionState::None;
-                app.focused_target = None;
-                app.transcript_focused = true;
+                app.focus
+                    .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
                 app.drag.cancel();
             }
             ClickTarget::Dead => {
@@ -508,12 +519,14 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // below content). Parks attention on browse focus so the composer
                 // becomes inactive.
                 app.selection = SelectionState::None;
-                app.focused_target = None;
                 if app.current_scene() == crate::shell::surfaces::SceneKind::Thread
                     && app.surfaces.active_overlay().is_none()
                     && app.active_sheet().is_none()
                 {
-                    app.transcript_focused = true;
+                    app.focus
+                        .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
+                } else {
+                    app.focus.enter_composer();
                 }
                 app.drag.cancel();
             }
@@ -532,7 +545,10 @@ pub(super) async fn handle_right_click(app: &mut App, _runtime: &UiRuntime, x: u
         kind: StepKind::ToolStep,
     } = interaction::classify_click(&app.ui.document, x, y)
     {
-        app.focused_target = Some(InteractiveTarget::tool_step(message_idx));
+        app.focus
+            .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+                InteractiveTarget::tool_step(message_idx),
+            ));
         let mut messages = std::mem::take(&mut app.messages);
         app.toggle_step_pinned(&mut messages, message_idx);
         app.messages = messages;

@@ -44,6 +44,20 @@ impl App {
             .count()
     }
 
+    /// Remove one client-owned steer row by id, returning its full payload.
+    ///
+    /// Only `Steering` rows match: the arm that ends a steer must never consume
+    /// a `Waiting` follow-up that happens to share an id, because that row is a
+    /// projection of the server's queue and still has a life of its own.
+    pub fn take_steer_row(&mut self, session_id: &str, input_id: &str) -> Option<QueuedDispatch> {
+        let position = self.pending_dispatch.iter().position(|item| {
+            item.session_id == session_id
+                && item.id == input_id
+                && item.state == QueuedDispatchState::Steering
+        })?;
+        self.pending_dispatch.remove(position)
+    }
+
     /// Reconcile [`App::pending_images`] / [`App::pending_text_pastes`]
     /// against the chips that currently survive in [`App::input`], and
     /// relabel the surviving chips so their `#N` matches their new 1-based
@@ -64,14 +78,17 @@ impl App {
         self.input = new_input;
     }
 
-    /// How many staged messages are waiting in this session's outbox (front
-    /// pops first). All entries are next-round items; a busy Enter always
-    /// queues rather than injecting mid-round.
     /// How many staged messages are visible in this session's outbox (front
     /// pops first). Counts exactly the rows the queue modal and the activity
     /// strip render — see [`Self::is_outbox_visible`]. A count that disagreed
     /// with the rendered rows would make `N queued` name items the operator
     /// cannot address.
+    ///
+    /// The count is **per session**, deliberately: the strip above the composer
+    /// speaks about the session on screen, while the command registry's
+    /// `AppContext::queue_count` uses [`Self::outbox_total`] to answer the
+    /// different question "is there outbox work anywhere". Two names, two
+    /// scopes, never one.
     pub fn pending_count(&self, session_id: &str) -> usize {
         self.pending_dispatch
             .iter()
@@ -87,35 +104,38 @@ impl App {
         self.pending_dispatch.remove(position)
     }
 
-    /// Is this session's outbox hard-blocked? While blocked, no queued message
-    /// auto-drains — not even after natural completion + idle. The Queue panel
-    /// blocks on open and resumes on close; `Ctrl+P` toggles the block from
-    /// inside that panel (at the top level `Ctrl+P` is the chat surface's
-    /// step-focus verb, not a queue control).
-    /// A no-op (and leaves the block off) for a session with no staged items.
+    /// Is this session's outbox paused? While paused the **driver** ships
+    /// nothing for it (M4: `FollowUpQueue::is_paused` gates the round-boundary
+    /// ship), even after natural completion + idle.
+    ///
+    /// This set is the client's optimistic projection of the server's
+    /// authoritative flag — [`Self::set_queue_blocked`] always accompanies the
+    /// `QueuePaused` verb, and the `QueueUpdated` snapshot overwrites it. The
+    /// queue modal pauses on open and resumes on close; `Ctrl+P` and
+    /// `/queue block` toggle it.
     pub fn is_queue_blocked(&self, session_id: &str) -> bool {
         self.queue_blocked_sessions.contains(session_id)
     }
 
-    /// Force the block on, regardless of its current state. Used when the
-    /// queue modal opens so items can be managed safely (delete / reorder /
-    /// re-edit) without one auto-draining mid-edit.
+    /// Force the pause on, regardless of its current state. Used when the queue
+    /// modal opens so items can be managed safely (delete / reorder / re-edit)
+    /// without the driver shipping one mid-edit.
+    ///
+    /// Local projection only — the caller sends `QueuePaused`.
     pub fn block_queue(&mut self, session_id: &str) {
         self.queue_blocked_sessions.insert(session_id.to_string());
     }
 
-    /// Force the block off. Used when the queue panel closes (auto-resume), so
-    /// the outbox returns to its normal auto-drain behavior the moment the
-    /// user stops managing it — unless they explicitly blocked it from inside
-    /// the panel with `Ctrl+P` (that toggle is honored because the panel's
-    /// close path only resumes what its own open path blocked).
+    /// Force the pause off, releasing what [`Self::block_queue`] set.
+    ///
+    /// Every close path is a *symmetric* release of the open path's pause — but
+    /// a release that stops at this set leaves the driver paused forever, so
+    /// the exit hooks that call it also send `QueuePaused{paused:false}`. Local
+    /// projection only, like `block_queue`.
     pub fn resume_queue(&mut self, session_id: &str) {
         self.queue_blocked_sessions.remove(session_id);
     }
 
-    /// Remove the viewed session's outbox item at display index `idx`. Used by
-    /// the queue modal's `D` delete. Returns the removed dispatch (mostly for
-    /// tests).
     /// The id of the queue-modal-highlighted item (M4: queue verbs
     /// address the server queue by id).
     pub fn queued_at(&self, session_id: &str, idx: usize) -> Option<&QueuedDispatch> {
@@ -132,6 +152,13 @@ impl App {
         }
     }
 
+    /// Remove the viewed session's outbox item at display index `idx`. Used by
+    /// the queue modal's `D` delete. Returns the removed dispatch (mostly for
+    /// tests).
+    ///
+    /// Local projection only: pair it with `QueueRemove` (or `CancelSteer` for a
+    /// steer row), or the server keeps the item and ships it later
+    /// (`[INV-OUTBOX-03]`).
     pub fn remove_queued_at(&mut self, session_id: &str, idx: usize) -> Option<QueuedDispatch> {
         let position = self.outbox_rows(session_id).nth(idx).map(|(pos, _)| pos)?;
         self.pending_dispatch.remove(position)
@@ -172,98 +199,49 @@ impl App {
         }
     }
 
-    /// A staged next-round item failed to start its round (e.g. no provider
-    /// configured), or a busy-Enter steer's round ended before admission.
+    /// Remove and return the viewed session's newest `Waiting` row (LIFO).
     ///
-    /// For an item still in the outbox this just flips it back to `Waiting`.
-    /// For a **transcript-owned steer** (busy Enter handed back by
-    /// `UserInputUnavailable`) there is no outbox item — the content lives in
-    /// the transcript entry — so the caller stages one here (`text` /
-    /// attachments from the held entry) under the same id: the queue then
-    /// owns its auto-dispatch / pointer-recall lifecycle, and the entry is
-    /// dropped from the outbox when its round starts (`NextRoundStarted`),
-    /// exactly like a busy-Enter item. Pushes to the back (FIFO among
-    /// handed-back inserts; they left the running round in send order).
-    pub fn requeue_dispatch(
-        &mut self,
-        session_id: &str,
-        input_id: &str,
-        held: Option<(String, Vec<ImagePart>, Vec<String>)>,
-    ) {
-        if let Some(item) = self
-            .pending_dispatch
-            .iter_mut()
-            .find(|item| item.session_id == session_id && item.id == input_id)
-        {
-            item.state = QueuedDispatchState::Waiting;
-            return;
-        }
-        if let Some((text, images, text_pastes)) = held {
-            self.pending_dispatch.push_back(QueuedDispatch {
-                id: input_id.to_string(),
-                session_id: session_id.to_string(),
-                state: QueuedDispatchState::Waiting,
-                text,
-                queued_at_ms: crate::shell::event_loop::now_epoch_ms(),
-                images,
-                text_pastes,
-            });
-        }
-    }
-
-    /// FIFO next-round dispatch within one session. The entry remains in the
-    /// outbox until its fresh round has actually started; route failure can
-    /// therefore return it to `Waiting` without reconstructing user content.
-    pub fn begin_next_round_dispatch(&mut self, session_id: &str) -> Option<QueuedDispatch> {
-        let item = self.pending_dispatch.iter_mut().find(|item| {
-            item.session_id == session_id && item.state == QueuedDispatchState::Waiting
-        })?;
-        item.state = QueuedDispatchState::Dispatching;
-        Some(item.clone())
-    }
-
-    /// LIFO undo for the viewed session. Every queued dispatch is a
-    /// next-round item, so recall pops the newest staged message and restores
-    /// it into the composer immediately — no agent roundtrip to cancel.
-    pub fn recall_queued(&mut self, session_id: &str) -> Option<RecallQueued> {
+    /// **Local projection only.** A `Waiting` row is the client's view of the
+    /// driver's `FollowUpQueue`, so a caller that wants the removal to be real
+    /// must also send `QueueRemove`; a removal that only touches the projection
+    /// leaves the message queued server-side, where it ships at the next round
+    /// boundary and duplicates the prompt the user is editing. The queue
+    /// modal's `Enter` (`RecallQueuedSelected`) does exactly that.
+    pub fn recall_queued(&mut self, session_id: &str) -> Option<QueuedDispatch> {
         let position = self.pending_dispatch.iter().rposition(|item| {
             item.session_id == session_id && item.state == QueuedDispatchState::Waiting
         })?;
-        self.pending_dispatch
-            .remove(position)
-            .map(RecallQueued::Restored)
+        self.pending_dispatch.remove(position)
     }
 
-    /// Recall a specific outbox item by display index (front-of-queue = 0).
-    /// Used by the queue modal's `Enter` re-edit, which keys off the `↑/↓`
-    /// selection rather than always targeting the newest — so a mid-queue item
-    /// can be pulled back to the composer too. The item is removed from the
-    /// outbox, exactly like [`Self::recall_queued`].
-    pub fn recall_queued_at(&mut self, session_id: &str, idx: usize) -> Option<RecallQueued> {
+    /// Remove and return the outbox item at display index `idx`
+    /// (front-of-queue = 0). Used by the queue modal's `Enter` re-edit, which
+    /// keys off the `↑/↓` selection rather than always targeting the newest —
+    /// so a mid-queue item can be pulled back to the composer too.
+    pub fn recall_queued_at(&mut self, session_id: &str, idx: usize) -> Option<QueuedDispatch> {
         let position = self.outbox_rows(session_id).nth(idx).map(|(pos, _)| pos)?;
-        self.pending_dispatch
-            .remove(position)
-            .map(RecallQueued::Restored)
+        self.pending_dispatch.remove(position)
     }
 
-    /// Recall an outbox item back into the composer. A user gesture (queue
-    /// recall / modal re-edit), so it replaces whatever the composer holds.
+    /// Put a recalled outbox item back into the composer.
+    ///
+    /// A queue recall is a user gesture aimed at *this* row, so the recalled
+    /// text becomes the live buffer — but it uses `StashCurrent`, not `Replace`:
+    /// a recall is exactly the case where the composer may hold a draft the user
+    /// was writing, and discarding it was the silent-loss shape this policy
+    /// retired. The draft goes to the capsule, where ↓ returns it.
     pub fn restore_dispatch(&mut self, dispatch: QueuedDispatch) {
         self.adopt_as_draft(
             dispatch.text,
             dispatch.images,
             dispatch.text_pastes,
-            DraftAdoption::Replace,
+            DraftAdoption::StashCurrent,
         );
     }
 
-    /// Clear the remembered draft (text + attachments). Called when the
-    /// draft's content is successfully sent: the input has been historicised
-    /// (`record_input_history` already recorded it), so it is no longer the
-    /// "unsent" slot and must not come back on a later ↓. A Phase-1 unsend
-    /// re-adopts it via [`Self::adopt_as_draft`] with
-    /// [`DraftAdoption::OnlyIfIdle`].
-    /// Clear the stashed draft capsule when a historical prompt is committed.
+    /// Clear the stashed draft capsule when a prompt is committed: its content
+    /// is historicised, so it is no longer the "unsent" slot and must not come
+    /// back on a later ↓.
     pub fn clear_history_draft(&mut self) {
         self.clear_stashed_draft();
     }

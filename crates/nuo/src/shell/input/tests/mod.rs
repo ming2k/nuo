@@ -156,13 +156,14 @@ fn key_with_focus(code: KeyCode) -> InputAction {
         &mut input,
         &mut cursor,
         Dispatch {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
+            entry_focus: Some(nuo_view::model::layout::InteractiveTarget::tool_step(0)),
             ..Default::default()
         },
         &mut drag,
@@ -293,7 +294,11 @@ fn run_key(
         Dispatch {
             overlay,
             scene,
-            focused_target: has_focus,
+            focus: if has_focus {
+                crate::shell::focus::FocusPlane::Transcript
+            } else {
+                crate::shell::focus::FocusPlane::Composer
+            },
             ..Default::default()
         },
         &ModalKeys {
@@ -331,12 +336,16 @@ fn run_sheet_key(
         Dispatch {
             overlay: None,
             sheet: Some(kind),
-            focused_target: has_focus,
+            focus: if has_focus {
+                crate::shell::focus::FocusPlane::Transcript
+            } else {
+                crate::shell::focus::FocusPlane::Composer
+            },
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys {
-            focused_target: has_focus,
+            transcript_plane: has_focus,
             ..Default::default()
         },
         &SceneKeys::default(),

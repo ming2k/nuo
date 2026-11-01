@@ -390,11 +390,13 @@ impl StackEntry {
 }
 
 /// Autonomous per-tab intra-scene interaction context (ADR-0091 [INV-TAB-12]).
-/// Tracks focus mode, scroll, input drafts, and cursor position across workspace switches.
+/// Tracks focus, scroll, input drafts, and cursor position across workspace switches.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TabContextState {
-    pub transcript_focused: bool,
-    pub focused_target: Option<nuo_view::model::layout::InteractiveTarget>,
+    /// The peer focus plane of the tab's chat scene (ADR-0145). One value, so a
+    /// tab can never be restored with an entry highlighted while the composer
+    /// was supposedly live.
+    pub focus: crate::shell::focus::Focus,
     pub scroll: u16,
     pub input: String,
     pub cursor_position: usize,

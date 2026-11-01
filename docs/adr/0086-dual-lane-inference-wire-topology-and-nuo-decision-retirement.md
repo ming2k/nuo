@@ -10,12 +10,14 @@ negative_knowledge: true
 
 # 0086. Dual-Lane Inference Wire Topology (Generative and Discriminative) and `nuo-decision` Retirement
 
-- Status: Accepted
+- Status: Accepted, **superseded in part by [ADR-0143](0143-codec-aperture-completed-delete-the-unwired-codec-lane.md)**
 - Date: 2026-11-23
 - Deciders: Nuo Architecture Working Group
 - Consulted: Provider Integration, Agent Runtime, Protocol Governance
 - Amends: [ADR-0084](0084-model-aperture-shrink-to-pure-codec-and-rename-to-nuo-inference-wire.md) (modifies Stage S2 dedicated crate allocation into in-crate dual-lane isolation)
 - Amends: [ADR-0066](0066-canonical-protocol-nomenclature-and-codec-purity.md) (reinforces East-West protocol decoupling from North-South discriminative engines)
+
+> **Superseded in part by [ADR-0143](0143-codec-aperture-completed-delete-the-unwired-codec-lane.md).** §1 (dual-lane separation) and `[INV-AP-04]` are withdrawn, and the shared transport substrate named below (`WireClient`, `Endpoint`, `CredentialsProvider`, `WireError`) plus the whole `discriminative/` lane are deleted. The reason is this ADR's own evidence: it recorded that lane as having **"Zero Production Consumers"**, then relocated it instead of removing it. Relocation does not create a consumer. The crate tree drawn in §1 was always a plan, not a description — ten of its files never existed. `[INV-AP-05]` (protocol purity) survives and now holds by absence. What remains of this ADR as live doctrine is §3 (retire `nuo-decision`; decouple `nuo-protocol`) and §4 (nomenclature: no `Decision*` hedging aliases).
 
 ---
 
@@ -124,8 +126,8 @@ Types are migrated to unambiguous domain nomenclature without keeping hedging le
 
 ## Normative Invariants Established
 
-- **`[INV-WIRE-01] Dual-Lane Modality Separation`**: `nuo-inference-wire` models generative (Chat/Streaming) and discriminative (Probabilistic/Scoring) as structurally independent, non-intersecting lanes sharing only transport substrate (connection pooling, credentials, endpoint telemetry). Neither lane may import or compromise the type domain of the other.
-- **`[INV-WIRE-02] Protocol Purity`**: `nuo-protocol` (East-West IPC) shall contain zero dependencies on or re-exports of non-generative or discriminative external model engines.
+- **`[INV-AP-04] Dual-Lane Modality Separation`**: `nuo-inference-wire` models generative (Chat/Streaming) and discriminative (Probabilistic/Scoring) as structurally independent, non-intersecting lanes sharing only transport substrate (connection pooling, credentials, endpoint telemetry). Neither lane may import or compromise the type domain of the other.
+- **`[INV-AP-05] Protocol Purity`**: `nuo-protocol` (East-West IPC) shall contain zero dependencies on or re-exports of non-generative or discriminative external model engines.
 
 ---
 

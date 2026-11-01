@@ -61,7 +61,7 @@ struct Chords {
     scene_forward: String,
     focus_prev: String,
     focus_next: String,
-    clear_focus: String,
+    switch_focus: String,
     open_history: String,
     toggle_send_mode: String,
 }
@@ -87,7 +87,7 @@ impl Chords {
             scene_forward: verb(SurfaceVerb::SceneHistoryForward),
             focus_prev: verb(SurfaceVerb::FocusPrevTarget),
             focus_next: verb(SurfaceVerb::FocusNextTarget),
-            clear_focus: verb(SurfaceVerb::ClearFocusedTarget),
+            switch_focus: command(CommandId::ToggleFocusPlane),
             open_history: verb(SurfaceVerb::OpenHistory),
             toggle_send_mode: verb(SurfaceVerb::ToggleSendMode),
         }
@@ -219,13 +219,13 @@ pub fn build_help_entries(
         None,
     );
     b.row(
-        &format!("{} / {}", keys.focus_prev, keys.focus_next),
-        "Focus the previous / next transcript step",
+        &keys.switch_focus,
+        "Switch focus between the composer and the transcript",
         None,
     );
     b.row(
-        &keys.clear_focus,
-        "Clear step focus; interrupt a running turn when nothing is focused",
+        &format!("{} / {}", keys.focus_prev, keys.focus_next),
+        "Walk the highlighted transcript entry (↑ / ↓ do the same once one is held)",
         None,
     );
     b.separator();

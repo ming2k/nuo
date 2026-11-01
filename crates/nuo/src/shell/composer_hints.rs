@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn prompt_hint_shows_only_enter_send() {
+    fn prompt_hint_shows_the_plane_crossing_then_send() {
         let theme = Theme::default();
         let (left, right) = hint_row_parts(
             false,
@@ -363,7 +363,9 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             None,
         );
-        assert_eq!(text(&left), "", "idle row carries no nav chords");
+        // The idle row's one nav chord is the crossing to the peer plane
+        // (ADR-0145): a user who never learns it cannot inspect the transcript.
+        assert_eq!(text(&left), "⇧Tab transcript");
         assert_eq!(text(&right), "Enter send");
         // ADR-0054: "Enter" span must use theme.keycap_accent() and BOLD
         assert_eq!(right[0].content, "Enter");
@@ -386,7 +388,7 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             None,
         );
-        assert_eq!(text(&left), "Tab follow-up mode");
+        assert_eq!(text(&left), "Tab follow-up mode   ⇧Tab transcript");
         assert_eq!(text(&right), "Enter send steer");
     }
 
@@ -402,7 +404,7 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             None,
         );
-        assert_eq!(text(&left), "Tab steer mode");
+        assert_eq!(text(&left), "Tab steer mode   ⇧Tab transcript");
         assert_eq!(text(&right), "Enter queue follow-up");
     }
 
@@ -420,7 +422,7 @@ mod tests {
         );
         assert_eq!(
             text(&left),
-            "Ctrl-t follow-up mode",
+            "Ctrl-t follow-up mode   ⇧Tab transcript",
             "the hint must advertise the effective toggle binding, not the canonical"
         );
     }
@@ -440,7 +442,7 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             Some(FocusedEntryKind::Disclosable),
         );
-        assert_eq!(text(&left), "Esc back   Space expand");
+        assert_eq!(text(&left), "⇧Tab composer   Space expand");
         assert_eq!(text(&right), "o view log   y copy   Shift-y diagnostic");
     }
 

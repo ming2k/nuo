@@ -114,6 +114,15 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 for request in queued {
                     let _ = app.send_intent(request);
                 }
+                // A snapshot is an event, so a client that attaches to an
+                // already-live session never saw the queue changes that
+                // produced the driver's current queue: without this read the
+                // projection stays empty while items sit queued and ship at the
+                // next boundary — the user is shown "nothing pending" and then
+                // gets prompt they did not see coming.
+                let _ = app.send_intent(nuo_protocol::AgentRequest::QueueSnapshot {
+                    thread_id: app.current_session_id.clone(),
+                });
             }
             if let Some(message) = failed {
                 // A post-Welcome failure is a disclosure, not a death
@@ -300,32 +309,42 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             //
             // The deletion-intent flag cannot outlive the item: this arm ends
             // the id directly (it does not route through `DispatchRemoved`), so
-            // it clears the flag itself.
-            app.suppress_steer_restore
+            // it clears the flag itself — **after** consulting it. A steer the
+            // user deleted (or cleared) must not resurrect its text here; the
+            // old code removed the flag first and then restored unconditionally,
+            // which made every deletion of a missed steer undo itself.
+            let suppress = app
+                .suppress_steer_restore
                 .remove(&(session_id.clone(), input_id.clone()));
-            let mut text_to_restore = None;
-            if let Some(pos) = app.pending_dispatch.iter().position(|item| {
-                item.session_id == session_id
-                    && item.id == input_id
-                    && item.state == crate::shell::app::QueuedDispatchState::Steering
-            }) {
-                text_to_restore = app.pending_dispatch.remove(pos).map(|item| item.text);
-            }
-            if let Some(text) = text_to_restore
-                && app.live_session_id == session_id
-            {
-                app.adopt_as_draft(
-                    text,
-                    Vec::new(),
-                    Vec::new(),
-                    crate::shell::app::DraftAdoption::OnlyIfIdle,
-                );
-                // Through the catalog funnel ([INV-NOTICE-08]), so the ack is
-                // retained in the notice log rather than flashed from a raw
-                // field write and lost.
-                app.record_client_notice(
-                    crate::shell::app::notice_catalog::ClientNotice::SteerMissedRoundRestored,
-                );
+            // The **row is the payload** (text + attachments), so the restore
+            // must read it before it leaves. If it is already gone the message
+            // is unrecoverable and the user must be told: silence here is a
+            // prompt vanishing with no transcript row, no draft, and no
+            // receipt. (A full-replace `QueueSnapshot` used to delete pending
+            // steers, which made this arm silently drop the text.)
+            let restored = app.take_steer_row(&session_id, &input_id);
+            if app.live_session_id == session_id && !suppress {
+                match restored {
+                    Some(item) => {
+                        app.adopt_as_draft(
+                            item.text,
+                            item.images,
+                            item.text_pastes,
+                            crate::shell::app::DraftAdoption::StashCurrent,
+                        );
+                        // Through the catalog funnel ([INV-NOTICE-08]), so the
+                        // ack is retained in the notice log rather than flashed
+                        // from a raw field write and lost.
+                        app.record_client_notice(
+                            crate::shell::app::notice_catalog::ClientNotice::SteerMissedRoundRestored,
+                        );
+                    }
+                    None => {
+                        app.record_client_notice(
+                            crate::shell::app::notice_catalog::ClientNotice::SteerContentLost,
+                        );
+                    }
+                }
             }
             app.remove_dispatch(&session_id, &input_id);
             true
@@ -342,27 +361,27 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             let suppress = app
                 .suppress_steer_restore
                 .remove(&(session_id.to_string(), input_id.to_string()));
-            let mut text_to_restore = None;
-            if let Some(pos) = app.pending_dispatch.iter().position(|item| {
-                item.session_id == session_id
-                    && item.id == input_id
-                    && item.state == crate::shell::app::QueuedDispatchState::Steering
-            }) {
-                if !suppress {
-                    text_to_restore = app.pending_dispatch.remove(pos).map(|item| item.text);
-                } else {
-                    app.pending_dispatch.remove(pos);
+            let restored = app.take_steer_row(&session_id, &input_id);
+            if app.live_session_id == session_id && !suppress {
+                match restored {
+                    Some(item) => {
+                        app.adopt_as_draft(
+                            item.text,
+                            item.images,
+                            item.text_pastes,
+                            crate::shell::app::DraftAdoption::StashCurrent,
+                        );
+                    }
+                    // A *recall* that finds no row lost the content the user
+                    // asked to get back. Say so instead of no-oping. (A
+                    // deletion is different: `suppress` is set, and consuming
+                    // the content is exactly what was asked for.)
+                    None => {
+                        app.record_client_notice(
+                            crate::shell::app::notice_catalog::ClientNotice::SteerContentLost,
+                        );
+                    }
                 }
-            }
-            if let Some(text) = text_to_restore
-                && app.live_session_id == session_id
-            {
-                app.adopt_as_draft(
-                    text,
-                    Vec::new(),
-                    Vec::new(),
-                    crate::shell::app::DraftAdoption::OnlyIfIdle,
-                );
             }
             app.remove_dispatch(&session_id, &input_id);
             true
@@ -372,12 +391,31 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             input_id,
         } => {
             // The cancel lost the race: the steer will be admitted after all.
-            // Drop the deletion-intent flag (it must not outlive the item) and
-            // tell the user, because a deletion that silently did not happen is
-            // the worst outcome of a race (ADR-0137).
-            app.suppress_steer_restore
-                .remove(&(session_id.clone(), input_id));
-            if app.live_session_id == session_id {
+            //
+            // The deletion-intent flag may not outlive its **item**
+            // (`[INV-STEER-07]`). While the row is still staged, the admission
+            // that follows ends the id and clears the flag in `DispatchRemoved`,
+            // so clearing it here would be premature: it would make "the cancel
+            // lost" indistinguishable from "no cancel was requested", and a
+            // later `SteerCancelled` in the same id's life would restore text
+            // the user had deliberately deleted. If the row is already gone
+            // (a delete removed it before the race resolved), nothing will ever
+            // end this id again, so the flag must go now or it leaks.
+            let row_alive = app.pending_dispatch.iter().any(|item| {
+                item.session_id == session_id
+                    && item.id == input_id
+                    && item.state == crate::shell::app::QueuedDispatchState::Steering
+            });
+            if !row_alive {
+                app.suppress_steer_restore
+                    .remove(&(session_id.clone(), input_id.clone()));
+            }
+            // One outcome, one disclosure. The row being gone means the user's
+            // own gesture (delete / clear) already consumed the content and said
+            // so; the admission that follows will end the id again and must not
+            // add a "text lost" receipt for a loss that never happened. So the
+            // race is disclosed only while the item is still live.
+            if app.live_session_id == session_id && row_alive {
                 // Through the catalog funnel (ADR-0138 / [INV-NOTICE-05]), so
                 // the disclosure is *retained* in the notice log rather than
                 // flashed and lost, and its wording/topic live in one place.
@@ -405,36 +443,67 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             items,
             paused,
         } => {
-            // Authoritative replace, preserving in-flight optimistic entries
-            // (state `Dispatching`, id not yet in the snapshot — the server
-            // ack for those is still in flight).
-            let optimistic: Vec<crate::shell::app::QueuedDispatch> = app
+            // Authoritative replace **of the rows the server owns**, preserving
+            // every client-owned row it has never heard of.
+            //
+            // Ownership is a property of the state, not a heuristic:
+            // `Waiting` is a projection of the server's `FollowUpQueue` (the
+            // snapshot is the only writer that creates those rows outside a
+            // test), while `Dispatching` (a `FollowUp` whose ack is still in
+            // flight) and `Steering` (a busy-Enter steer, which the server
+            // tracks in the *round*, never in this queue) exist only here.
+            //
+            // The old merge kept `Dispatching` alone, so any snapshot — and the
+            // server sends one after *every* queue change, including the
+            // `QueuePaused(true)` echo of merely opening the modal — silently
+            // deleted every pending steer. The text then had nowhere to come
+            // back from when `SteerUnavailable` arrived: the user's message was
+            // lost with no transcript row, no composer draft, and no notice.
+            let server_ids: std::collections::HashSet<&str> =
+                items.iter().map(|queued| queued.id.as_str()).collect();
+            let client_owned: Vec<crate::shell::app::QueuedDispatch> = app
                 .pending_dispatch
                 .iter()
                 .filter(|item| {
                     item.session_id == session_id
-                        && item.state == crate::shell::app::QueuedDispatchState::Dispatching
-                        && !items.iter().any(|queued| queued.id == item.id)
+                        && match item.state {
+                            crate::shell::app::QueuedDispatchState::Waiting => false,
+                            crate::shell::app::QueuedDispatchState::Dispatching
+                            | crate::shell::app::QueuedDispatchState::Steering => {
+                                !server_ids.contains(item.id.as_str())
+                            }
+                        }
                 })
                 .cloned()
                 .collect();
-            app.pending_dispatch
-                .retain(|item| item.session_id != session_id);
-            for item in optimistic {
-                app.pending_dispatch.push_back(item);
+            // Preserve the other sessions' relative order verbatim; this
+            // session's block is rebuilt at the tail (all addressing is
+            // session-filtered, so the global slot is not observable).
+            let mut rebuilt: std::collections::VecDeque<crate::shell::app::QueuedDispatch> =
+                std::collections::VecDeque::new();
+            for item in app.pending_dispatch.drain(..) {
+                if item.session_id != session_id {
+                    rebuilt.push_back(item);
+                }
             }
             for queued in items {
-                app.pending_dispatch
-                    .push_back(crate::shell::app::QueuedDispatch {
-                        id: queued.id,
-                        session_id: session_id.clone(),
-                        state: crate::shell::app::QueuedDispatchState::Waiting,
-                        text: queued.display_text.unwrap_or(queued.text),
-                        queued_at_ms: queued.sent_at_ms.unwrap_or(0),
-                        images: queued.images,
-                        text_pastes: Vec::new(),
-                    });
+                rebuilt.push_back(crate::shell::app::QueuedDispatch {
+                    id: queued.id,
+                    session_id: session_id.clone(),
+                    state: crate::shell::app::QueuedDispatchState::Waiting,
+                    text: queued.display_text.unwrap_or(queued.text),
+                    queued_at_ms: queued.sent_at_ms,
+                    images: queued.images,
+                    text_pastes: Vec::new(),
+                });
             }
+            // Client-owned rows last: they are the newest, and a pending steer
+            // is not the next item to ship (it waits on a turn boundary, not on
+            // a round boundary).
+            for item in client_owned {
+                rebuilt.push_back(item);
+            }
+            app.pending_dispatch = rebuilt;
             if paused {
                 app.queue_blocked_sessions.insert(session_id);
             } else {
@@ -623,7 +692,7 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
                 // PreAttach claims the keyboard; reset the composer/sheet
                 // state the way an ordinary sheet mount does.
                 app.modal_index = 0;
-                app.park_transcript_focus_for_sheet();
+                app.park_focus_for_sheet();
             }
             true
         }

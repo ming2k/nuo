@@ -199,7 +199,7 @@ impl OpencodeGoUsageFetcher {
 ///
 /// The caller supplies the *connection's* `base_url`, which is whatever its
 /// default channel reaches and therefore depends on the active model's wire
-/// protocol: `https://opencode.ai/zen/go/v1/chat/completions` for an OpenAI
+/// protocol: `https://opencode.ai/zen/go/v1/responses` for an OpenAI-family
 /// model, but `https://opencode.ai/inference/go/anthropic/v1/messages` for a
 /// Claude model and `.../inference/go/google/v1beta` for a Gemini one (the
 /// spec's `protocol_roots`). Anchoring on the origin is what keeps all three

@@ -501,7 +501,7 @@ fn recall_queued_is_lifo_and_restores_input() {
         .push_back(queued_dispatch("2", "session-a", "second"));
 
     // First recall: most-recently-queued = "second".
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued("session-a") else {
+    let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
@@ -512,7 +512,7 @@ fn recall_queued_is_lifo_and_restores_input() {
         "history cursor must be cleared so ↓ returns to empty input"
     );
     // Second recall: now "first".
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued("session-a") else {
+    let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
@@ -540,7 +540,7 @@ fn recall_queued_restores_staged_images() {
     dispatch.images = vec![image.clone()];
     app.pending_dispatch.push_back(dispatch);
 
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued("session-a") else {
+    let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
@@ -1006,7 +1006,7 @@ fn recall_queued_adopts_content_as_draft() {
     dispatch.images = vec![image];
     app.pending_dispatch.push_back(dispatch);
 
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued("session-a") else {
+    let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
@@ -1030,7 +1030,7 @@ fn recall_queued_always_restores_locally() {
     app.pending_dispatch
         .push_back(queued_dispatch("queued-1", "session-a", "queued"));
 
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued("session-a") else {
+    let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore, not an agent cancel");
     };
     assert_eq!(dispatch.id, "queued-1");
@@ -1053,7 +1053,7 @@ fn recall_queued_latches_completion_dismissal() {
     app.pending_dispatch
         .push_back(queued_dispatch("1", "session-a", "/help"));
 
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued("session-a") else {
+    let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
@@ -1087,7 +1087,7 @@ fn recall_queued_at_targets_selected_index_not_newest() {
         .push_back(queued_dispatch("back", "session-a", "second"));
 
     // idx 0 = front = "first".
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued_at("session-a", 0) else {
+    let Some(dispatch) = app.recall_queued_at("session-a", 0) else {
         panic!("expected restore of selected item");
     };
     assert_eq!(dispatch.id, "front");
@@ -1100,7 +1100,7 @@ fn recall_queued_at_targets_selected_index_not_newest() {
     );
 
     // Now the only remaining item is "second"; idx 0 still works.
-    let Some(RecallQueued::Restored(dispatch)) = app.recall_queued_at("session-a", 0) else {
+    let Some(dispatch) = app.recall_queued_at("session-a", 0) else {
         panic!("expected restore");
     };
     assert_eq!(dispatch.id, "back");
@@ -1551,8 +1551,8 @@ fn esc_preserves_recalled_history_and_interrupts_when_running() {
         in_history_recall: true,
         composer_text_width: 0,
         surface_overrides: Default::default(),
-        focused_target: false,
-        transcript_focused: false,
+        focus: crate::shell::focus::FocusPlane::Composer,
+        entry_focus: None,
         focused_subagent_running: false,
     };
 
@@ -1638,10 +1638,11 @@ async fn test_history_search_keeps_composer_active_and_shows_hints() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Composer must NOT be marked inactive
+    // The composer must NOT be marked as handed over to the transcript: the
+    // history-search extension keeps the composer plane live (ADR-0145).
     assert!(
-        !screen.contains("(Composer inactive)"),
-        "composer must remain active in history search, found inactive marker: {screen}"
+        !screen.contains("⇧Tab composer"),
+        "the composer plane must stay live in history search: {screen}"
     );
 
     // Composer top row must show history search badge
@@ -2396,7 +2397,10 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
     assert!(app.dialog_available(crate::shell::surfaces::DialogKind::HistorySearch));
 
     // 1. Simulate step focus: composer becomes inactive
-    app.focused_target = Some(InteractiveTarget::tool_step(0));
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+            InteractiveTarget::tool_step(0),
+        ));
     assert!(!app.is_composer_focused());
     assert!(!app.dialog_available(crate::shell::surfaces::DialogKind::HistorySearch));
     assert!(!app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch));
@@ -2411,15 +2415,17 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
         "Ctrl-r must not open history search when step is focused"
     );
 
-    // 2. Press Esc to clear step focus -> composer becomes active again
-    let esc = Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    crate::shell::event_loop::process_event_for_test(&mut app, &esc, "session-test").await;
-    assert!(app.focused_target.is_none());
+    // 2. ⇧Tab crosses back to the composer (Esc deliberately does not — it is
+    // the interrupt chord and never moves the keyboard; ADR-0145).
+    let back_tab = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
+    crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, "session-test").await;
+    assert!(app.focus.entry().is_none());
     assert!(app.is_composer_focused());
     assert!(app.dialog_available(crate::shell::surfaces::DialogKind::HistorySearch));
 
     // 3. Simulate transcript browse focus: composer becomes inactive
-    app.transcript_focused = true;
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
     assert!(!app.is_composer_focused());
     assert!(!app.dialog_available(crate::shell::surfaces::DialogKind::HistorySearch));
     assert!(!app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch));
@@ -2433,9 +2439,9 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
         "Ctrl-r must not open history search when transcript is focused"
     );
 
-    // 4. Press Esc to clear transcript browse focus -> composer becomes active again
-    crate::shell::event_loop::process_event_for_test(&mut app, &esc, "session-test").await;
-    assert!(!app.transcript_focused);
+    // 4. ⇧Tab crosses back from browse focus too.
+    crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, "session-test").await;
+    assert!(app.focus.is_composer());
     assert!(app.is_composer_focused());
 
     // 5. With composer active, Ctrl-R opens HistorySearch

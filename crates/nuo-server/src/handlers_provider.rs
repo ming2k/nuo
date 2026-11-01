@@ -1614,6 +1614,9 @@ async fn activate(
         .unwrap_or_else(|error| error.into_inner()) = new_p;
 
     reseed_prune_threshold(agent, config);
+    // The gate itself needs no re-install: its settings closure resolves the
+    // window from the live provider on every projection, so the thresholds already
+    // follow this switch.
     reseed_tool_variants(agent, config);
     reseed_model_guidance(agent, config);
 

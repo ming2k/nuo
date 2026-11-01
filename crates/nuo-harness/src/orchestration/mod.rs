@@ -48,6 +48,8 @@ use nuo_protocol::{
 /// envelope. Every round-scoped emitter routes through this so the
 /// session id is attached uniformly, letting the TUI key transcript buffers
 /// by `session_id` correctly.
+pub mod context_gate;
+
 pub fn round_response(session_id: &str, event: RoundEvent) -> AgentResponse {
     AgentResponse::Round {
         thread_id: session_id.to_string(),
@@ -1971,16 +1973,21 @@ pub async fn compact_round_history(
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
 ) -> Result<Option<ContextProjectionCheckpoint>, String> {
-    // Universal Causal Compaction:
-    // Preserves the latest complete user round (Round N) as volatile tail,
-    // and folds all completed prior rounds [0..N-1].
-    let preserve_rounds = settings.preserve_rounds.max(1);
+    // Automatic compaction is budget-driven: it must shrink the window *to* the
+    // post-compaction target. `PreserveTailRounds` cannot do that — it keeps a
+    // fixed number of rounds verbatim regardless of their size, so on a session
+    // whose last six rounds exceed the target it folds a few nodes, adds a
+    // summary, and hands back a window that is *larger* than the one it was
+    // called to relieve. `TargetTokens` is the mode that bounds the tail by the
+    // budget, which is what `CompactionCutMode`'s own documentation reserves for
+    // this backstop role; `/compact` keeps the round-shaped variant.
+    let target_tokens = settings.budget.target_tokens.max(1);
     compact_round_history_with_mode(
         history,
         session,
         settings,
         provider,
-        crate::cognition::compaction::CompactionCutMode::PreserveTailRounds(preserve_rounds),
+        crate::cognition::compaction::CompactionCutMode::TargetTokens(target_tokens),
         extra_context,
     )
     .await
@@ -1997,7 +2004,26 @@ pub async fn compact_round_history_with_mode(
     let provider = if settings.summarize { provider } else { None };
 
     // Canonical path: Session IR Native Causal Compaction
+    //
+    // The window the caller is actually holding — that is the number an operator
+    // reads off the compression card, and the only one that answers "did this
+    // shrink my context?". `outcome.tokens_before` is the folded *prefix*, which
+    // on any real session is a small fraction of the window and made every
+    // successful fold look like it reclaimed nothing.
+    let window_tokens_before = nuo_protocol::pressure::estimate_tokens(history);
     let mut ir = session.session_ir().await;
+    // Entries the caller holds but the session has not committed yet, resolved
+    // against the **pre-compaction** IR. The live round's history is
+    // `model_window()` plus the prompt being admitted right now, so seeding the
+    // window from storage and assigning it back wholesale would drop that prompt
+    // — the model would answer the previous turn's question.
+    //
+    // Resolved before folding because the anchor is a property of the caller's
+    // state, not of the fold's outcome. It happens to agree afterwards too (the
+    // cut point always retains at least one node), but deriving it from the
+    // window that has already been rewritten is the kind of coupling that breaks
+    // silently the first time the retention floor changes.
+    let uncommitted = uncommitted_tail(history, &ir);
     if let Some(outcome) = crate::cognition::compaction::CausalCompactor::compact_session_ir(
         &mut ir,
         provider,
@@ -2007,13 +2033,14 @@ pub async fn compact_round_history_with_mode(
     .await?
     {
         session.commit_session_ir(&ir).await?;
-        let active_msgs = ir.resolve_active_messages();
+        let mut active_msgs = ir.resolve_active_messages();
+        active_msgs.extend(uncommitted);
         let tokens_after = nuo_protocol::pressure::estimate_tokens(&active_msgs);
         let checkpoint = ContextProjectionCheckpoint {
             operation: nuo_persistence::session::ContextProjectionKind::Compact,
             archived_messages: outcome.nodes_folded,
             active_messages: active_msgs.len(),
-            window_tokens_before: outcome.tokens_before,
+            window_tokens_before,
             window_tokens_after: tokens_after,
             summary: Some(outcome.summary),
             tracked_files: outcome.tracked_files,
@@ -2023,6 +2050,32 @@ pub async fn compact_round_history_with_mode(
     } else {
         Ok(None)
     }
+}
+
+/// The messages a caller holds that the committed IR does not.
+///
+/// Matched on wire identity from the end of the caller's history, so a session
+/// whose IR was persisted mid-round keeps exactly the tail it has not committed.
+/// An empty result means the caller's view is fully durable.
+fn uncommitted_tail(history: &[Message], ir: &nuo_protocol::SessionIR) -> Vec<Message> {
+    let committed = ir.resolve_active_messages();
+    if committed.is_empty() {
+        return history.to_vec();
+    }
+    // Walk back from the end of `history` looking for the last committed
+    // message; everything after it is uncommitted.
+    let anchor = committed.last();
+    let split = history
+        .iter()
+        .rposition(|message| Some(message) == anchor)
+        .map(|index| index + 1)
+        .unwrap_or_else(|| {
+            // The committed tail is not present in the caller's window (a
+            // projection removed it): fall back to appending nothing rather than
+            // duplicating the whole window.
+            history.len()
+        });
+    history[split..].to_vec()
 }
 
 /// Prune old tool results in place and durably commit the change. Pruning is an

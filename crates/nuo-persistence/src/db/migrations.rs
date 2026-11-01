@@ -5,14 +5,14 @@
 use super::*;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 26;
+pub const CURRENT_DB_VERSION: u32 = 27;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "7a6787d93cf3319622030a71caac903729a00df0422df76c507e1424d32e2416";
+    "fd2ca6684a71f723221bcc5382dd6b2b44c45f9f404dd764503df713a29f703f";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
@@ -543,6 +543,24 @@ pub const MIGRATIONS: &[Migration] = &[
         // rewrite is not evidence, and `/undo` reads it as the sole authority
         // on "what was here before". DDL is idempotent.
         version: 26,
+        sql: "",
+    },
+    Migration {
+        // Backfill the causal fact graph for existing sessions.
+        //
+        // The transcript save path never mirrored `entries` into `causal_nodes`,
+        // so every session created before that mirror existed has a complete
+        // transcript and an empty graph. Compaction reads the graph, so those
+        // sessions keep growing until the provider rejects the request — the
+        // mirror only fills in on their *next* commit, and a session at the
+        // context ceiling cannot reach a next commit.
+        //
+        // The DDL is a Rust step (`apply_causal_fact_backfill_schema`) rather than
+        // inline `sql`, because it must run *after* migration 26 created the
+        // tables verification requires: inline SQL is applied before the Rust
+        // steps of the same batch, so a backfill there would run against a
+        // pre-migration schema.
+        version: 27,
         sql: "",
     },
 ];
@@ -1601,6 +1619,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 }
                 if migration.version == 26 {
                     apply_workspace_effect_journal_schema(&tx)?;
+                }
+                if migration.version == 27 {
+                    apply_causal_fact_backfill_schema(&tx)?;
                 }
             }
         }
@@ -2694,6 +2715,75 @@ pub fn apply_workspace_effect_journal_schema(tx: &rusqlite::Transaction) -> Resu
         BEGIN
             SELECT RAISE(ABORT, 'workspace journal rows are append-only; prune by retention policy, not delete (INV-EFFECT-01)');
         END;
+        "#,
+    )?;
+    Ok(())
+}
+
+/// Backfill `causal_nodes` from the transcript (migration 27).
+///
+/// `entry_memberships` already holds the conversation's identity, order and
+/// parent-free sequence; the live mirror writes `dialogue` nodes keyed by the same
+/// entry id at the same `seq`. `INSERT OR IGNORE` therefore completes a
+/// partially-mirrored database and leaves a complete one untouched.
+///
+/// Parent edges are left NULL on purpose. The true causal parent of an entry is
+/// the previous entry *within one lineage*, and a database holding forked branches
+/// cannot answer that without risking a cross-lineage edge — a wrong edge is worse
+/// than none, because `linear_path` would follow it. The live mirror repairs the
+/// edge for every session that commits again (it writes `parent_id` on conflict: a
+/// fact's payload is immutable, its lineage was simply never recorded). Until then
+/// `newest_leaf` and `read_horizon` order by `seq`, so such a graph is usable
+/// rather than silently empty.
+///
+/// `state` entries are projections with no node kind, so they are excluded —
+/// exactly as the live mirror excludes them. A `checkpoint` entry becomes a
+/// `compaction` node, matching the serializer.
+pub fn apply_causal_fact_backfill_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    if !table_exists(tx, "entry_memberships")? || !table_exists(tx, "entries")? {
+        return Ok(());
+    }
+    tx.execute_batch(
+        r#"
+        INSERT OR IGNORE INTO causal_nodes (
+            id, session_id, parent_id, seq, kind, payload_json, timestamp_ms
+        )
+        SELECT
+            e.id,
+            m.session_id,
+            NULL,
+            m.seq,
+            CASE WHEN e.origin = 'checkpoint' THEN 'compaction' ELSE 'dialogue' END,
+            -- `NodePayload` is internally tagged (`#[serde(tag = "type",
+            -- rename_all = "snake_case")]`), so the durable shape is
+            -- `{"type":"message","message":{...}}`. A node in any other shape is
+            -- not merely unreadable: `load_session_ir` fails the whole hydrate on
+            -- it, which is the failure mode this backfill exists to end.
+            --
+            -- `Role` carries NO `rename_all`, so its wire form is capitalized
+            -- (`User` / `Assistant` / `System` / `Tool`). Lowercase here would
+            -- produce exactly the undecodable node described above.
+            json_object(
+                'type', 'message',
+                'message', json_object(
+                    'role', CASE lower(COALESCE(e.role, 'user'))
+                                WHEN 'user' THEN 'User'
+                                WHEN 'assistant' THEN 'Assistant'
+                                WHEN 'system' THEN 'System'
+                                WHEN 'tool' THEN 'Tool'
+                                ELSE 'User'
+                            END,
+                    'content', COALESCE(e.content, '')
+                )
+            ),
+            COALESCE(e.created_at_ms, 0)
+        FROM entry_memberships m
+        JOIN entries e ON e.id = m.entry_id
+        WHERE e.kind = 'message'
+          AND NOT EXISTS (
+              SELECT 1 FROM causal_nodes c
+               WHERE c.session_id = m.session_id AND c.id = e.id
+          );
         "#,
     )?;
     Ok(())

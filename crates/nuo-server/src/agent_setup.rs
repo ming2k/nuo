@@ -4,6 +4,8 @@
 
 use nuo_harness::Agent;
 use nuo_persistence::config::Config;
+use nuo_persistence::session::SessionStore;
+use std::sync::Arc;
 
 /// Resolve the active channel's context window (tokens) from the live provider.
 /// A trusted remote catalogue wins over the static model baseline; `0` means
@@ -24,6 +26,37 @@ pub fn reseed_prune_threshold(agent: &Agent, config: &Config) {
     let window = active_context_window(agent);
     let budget = config.context.resolve_budget(window);
     agent.set_context_prune_threshold(budget.prune_threshold_tokens);
+}
+
+/// Install the mid-turn projection gate for `session`.
+///
+/// `project_context_if_needed` asks a gate to relieve pressure between ReAct
+/// turns, and nothing ever installed one — so long single rounds, including every
+/// subagent (which runs one round to completion and never passes through
+/// `execute_round`'s pre-round prune or compaction), had no relief valve.
+///
+/// The gate needs the session to archive what it clears, and the agent's token
+/// weights so its re-estimates reuse the content-addressed cache instead of
+/// re-tokenizing the window. `settings` is a closure, not a value: the thresholds
+/// are model-relative and the active model can change at any time, so a captured
+/// value would freeze the gate on the startup model's window.
+pub fn install_projection_gate(
+    agent: &Agent,
+    session: &Arc<SessionStore>,
+    config: &Config,
+    settings: nuo_harness::SettingsForWindow,
+) {
+    if !config.context.lightweight_degradation_enabled {
+        // Gate removed, not merely idle: a stale gate would project against a
+        // window it no longer tracks.
+        agent.set_context_projection_gate(None);
+        return;
+    }
+    agent.set_context_projection_gate(Some(Arc::new(nuo_harness::PruningProjectionGate::new(
+        Arc::clone(session),
+        settings,
+        agent.token_weights_handle(),
+    ))));
 }
 
 /// Re-seed the per-model tool-variant selection so the resolved toolset (and

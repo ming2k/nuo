@@ -614,6 +614,35 @@ pub async fn assemble_with_store(
     subagent_tool_handle.bind_model_guidance(agent.model_guidance_handle());
     subagent_tool_handle.bind_workspace_security(agent.workspace_security_handle());
     subagent_tool_handle.bind_execution_policy(agent.execution_policy());
+    // Every subagent opens its own session beneath this one, so its transcript is
+    // durable while it runs and the mid-turn projection gate has a real target.
+    // Without this a child ran session-free: no crash recovery, and no way for
+    // pruning/compaction to reach a round that has no inner boundary.
+    //
+    // The relief closure is supplied here because the gate lives in
+    // `orchestration`, above `cognition` (`[INV-HARNESS-04]`); the dispatch layer
+    // only knows *that* a child needs relief, not what it is made of.
+    let subagent_context_policy = config.context.clone();
+    subagent_tool_handle.bind_session(
+        Arc::clone(&session),
+        Arc::new(move |child: &Agent, child_session: Arc<SessionStore>| {
+            let window = child.provider.model_capabilities().context_window;
+            let budget = subagent_context_policy.resolve_budget(window);
+            child.set_context_prune_threshold(budget.prune_threshold_tokens);
+            let policy = subagent_context_policy.clone();
+            child.set_context_projection_gate(Some(Arc::new(
+                nuo_harness::PruningProjectionGate::new(
+                    child_session,
+                    Arc::new(move || {
+                        nuo_harness::orchestration::ContextProjectionSettings::from_context_policy(
+                            &policy, window,
+                        )
+                    }),
+                    child.token_weights_handle(),
+                ),
+            )));
+        }),
+    );
     // Subagents inherit the session's live human channel.
     if let Some(accountant) = human_channel.as_ref() {
         subagent_tool_handle.bind_human_channel(Arc::clone(accountant));
@@ -792,9 +821,29 @@ pub async fn assemble_with_store(
     // `nuo attach <id>` loads eagerly as before.
     let is_picker = matches!(startup, SessionStart::Picker);
 
-    // Mid-turn context projection: when pruning is enabled, install a gate that
+    // Mid-turn context projection: when pruning is enabled, install the gate that
+    // relieves pressure between ReAct turns. Without it, `project_context_if_needed`
+    // took its `let Some(gate) = gate else { return }` early return on every turn —
+    // so a long single round had no relief valve, and neither did a subagent (which
+    // runs one round to completion and never reaches `execute_round`'s pre-round
+    // prune or compaction).
     if config.context.lightweight_degradation_enabled {
         crate::agent_setup::reseed_prune_threshold(&agent, &config);
+        // The settings closure resolves the window from the *live* provider each
+        // time the gate runs, so a `/model` switch needs no re-install.
+        let config_for_settings = config.clone();
+        let agent_for_settings = Arc::clone(&agent);
+        crate::agent_setup::install_projection_gate(
+            &agent,
+            &session,
+            &config,
+            Arc::new(move || {
+                nuo_harness::orchestration::ContextProjectionSettings::from_context_policy(
+                    &config_for_settings.context,
+                    crate::agent_setup::active_context_window(&agent_for_settings),
+                )
+            }),
+        );
     }
 
     // Seed per-model tool-variant selection for the startup model. Each listed

@@ -1,20 +1,30 @@
-//! The Conversation scene's self-owned keyboard scheme and resolver
-//! (plane-less per, Stage-Scene-Overlay per).
+//! The chat scenes' self-owned keyboard scheme and resolver.
 //!
 //! The Conversation scene — and its chat sibling, the zoomed TaskInspection —
-//! owns the keys that act on its surface across its run states.
-//! The keyboard is **plane-less**: there is no composer/transcript
-//! mode to enter or leave. Every chord has one meaning; the focused step is a
-//! transient selection driven by the `FocusPrevTarget`/`ClearFocusedTarget`
-//! verbs (canonical `Alt+↑`/`Alt+↓`), typing always bounces to the draft, and
-//! transcript scrolling (PgUp/PgDn/Home/End) is handled unconditionally by the
-//! router. Before this module those keys were
-//! scattered through the central `input` match as bare `active_modal == None`
-//! branches that silently applied to every scene (that mirror is gone with
-//! the router's overlay stack is the only foreground authority). They now live here as the
-//! surface's own keybinding scheme: an executable resolver,
-//! `resolve_chat_surface_key`, whose advertised hints
-//! (`live_chat_hints`) share its single semantic origin.
+//! owns the keys that act on its surface across its run states, and owns them
+//! as **two peer focus planes** ([ADR-0145]): the composer (drafting) and the
+//! transcript (inspecting). Neither is a mode of the other.
+//!
+//! - `⇧Tab` is the sole explicit crossing chord and is an **involution**: the
+//!   same press returns, remembering the transcript's highlighted entry
+//!   (`[INV-FOCUS-01]`).
+//! - `Esc` never crosses planes. It dismisses an overlay, dismisses a
+//!   completion, interrupts a running round — and nothing else. The legacy
+//!   "Esc gets you back to the composer" arm is deleted, not deprecated.
+//! - `Ctrl+P`/`Ctrl+N` walk the transcript's entry highlight; walking off
+//!   either end with nothing left to scroll is the *implicit* crossing back.
+//! - Printable characters are inserted only while the composer plane owns the
+//!   keyboard; on the transcript plane they are inert (never silently dropped
+//!   into a hidden draft).
+//!
+//! Before this module those keys were scattered through the central `input`
+//! match as bare `active_modal == None` branches that silently applied to every
+//! scene (that mirror is gone with the router's overlay stack is the only
+//! foreground authority). They now live here as the surface's own keybinding
+//! scheme: an executable resolver, `resolve_chat_surface_key`, whose advertised
+//! hints (`live_chat_hints`) share its single semantic origin.
+//!
+//! [ADR-0145]: ../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md
 //!
 //! ## Layer contract
 //!
@@ -67,11 +77,17 @@ pub struct SceneKeys {
     /// keys). The scene resolvers consult it; the composer hint row
     /// renders its effective bindings.
     pub surface_overrides: crate::shell::keymap::SurfaceOverrides,
-    /// Whether a transcript step/action target holds keyboard focus behind
-    /// the scene scheme.
-    pub focused_target: bool,
-    /// Whether the transcript holds browse focus.
-    pub transcript_focused: bool,
+    /// Which peer focus plane of the chat scene owns the keyboard
+    /// ([`crate::shell::focus::FocusPlane`], ADR-0145).
+    ///
+    /// One value replaces the legacy `focused_target`/`transcript_focused`
+    /// pair. To the resolver the two transcript sub-states (browse, entry
+    /// highlight) are indistinguishable — they agree on every arbitration
+    /// question — so the plane is all this bundle needs to carry.
+    pub focus: crate::shell::focus::FocusPlane,
+    /// The highlighted entry, when the transcript plane holds an entry
+    /// highlight. `None` on the composer plane and while browsing.
+    pub entry_focus: Option<nuo_view::model::layout::InteractiveTarget>,
     /// The width the composer lays its text out at, i.e. the grid the caret's
     /// ↑/↓ walk (see [`crate::shell::composer_grid::TextGrid`]). `0` before the
     /// first frame has published a composer rect, in which case the grid falls
@@ -90,10 +106,14 @@ pub struct SceneKeys {
 }
 
 impl SceneKeys {
-    /// Whether the composer currently has keyboard focus on the chat surface.
-    /// When a transcript step or transcript browse is focused, the composer is inactive.
+    /// Whether the composer plane owns the keyboard on the chat surface.
     pub fn is_composer_active(&self) -> bool {
-        !self.focused_target && !self.transcript_focused
+        self.focus == crate::shell::focus::FocusPlane::Composer
+    }
+
+    /// Whether the transcript plane owns the keyboard (browse or entry).
+    pub fn is_transcript_active(&self) -> bool {
+        self.focus == crate::shell::focus::FocusPlane::Transcript
     }
 }
 
@@ -147,16 +167,23 @@ pub(crate) fn live_chat_hints(
     toggle_mode_key: crate::shell::keymap::Key,
 ) -> Vec<LiveHint> {
     use crate::shell::keymap::Key;
+    // Every row on the composer plane names the chord that crosses to the
+    // transcript, because that crossing is the plane's only exit and the row is
+    // where a user learns it (ADR-0145). `⇧Tab` is grammar rather than a
+    // remappable verb, so the keycap is the literal `Key::BACKTAB`.
     let hints: &[LiveHint] = match state {
-        HintState::Idle | HintState::Command | HintState::Recall => {
-            &[LiveHint::action(Key::ENTER, "send")]
-        }
+        HintState::Idle | HintState::Command | HintState::Recall => &[
+            LiveHint::nav(Key::BACKTAB, "transcript"),
+            LiveHint::action(Key::ENTER, "send"),
+        ],
         HintState::Running(crate::shell::app::ComposerSendMode::Steer) => &[
             LiveHint::nav(toggle_mode_key, "follow-up mode"),
+            LiveHint::nav(Key::BACKTAB, "transcript"),
             LiveHint::action(Key::ENTER, "send steer"),
         ],
         HintState::Running(crate::shell::app::ComposerSendMode::FollowUp) => &[
             LiveHint::nav(toggle_mode_key, "steer mode"),
+            LiveHint::nav(Key::BACKTAB, "transcript"),
             LiveHint::action(Key::ENTER, "queue follow-up"),
         ],
         HintState::Completion => &[
@@ -165,11 +192,12 @@ pub(crate) fn live_chat_hints(
             LiveHint::action(Key::ENTER, "select"),
         ],
         // Entry focus: the copy verbs lead (they are the reason a user parks
-        // focus here), then the universal toggle, then the way back. Every
-        // chord here resolves in `resolve_chat_surface_key`'s focused-target
-        // arm (asserted by `focused_entry_hints_are_resolvable`).
+        // attention here), then the universal toggle, then the way back — and
+        // the way back is `⇧Tab`, never `Esc`: `Esc` does not cross planes.
+        // Every chord here resolves in `resolve_chat_surface_key`'s entry arm
+        // (asserted by `focused_entry_hints_are_resolvable`).
         HintState::EntryFocused { subagent: false } => &[
-            LiveHint::nav(Key::ESC, "back"),
+            LiveHint::nav(Key::BACKTAB, "composer"),
             LiveHint::nav(Key::plain(' '), "expand"),
             LiveHint::action(Key::plain('o'), "view log"),
             LiveHint::action(Key::plain('y'), "copy"),
@@ -178,7 +206,7 @@ pub(crate) fn live_chat_hints(
         // A subagent task has no inline body: activation enters its scene. The
         // row must say `open`, not `expand`.
         HintState::EntryFocused { subagent: true } => &[
-            LiveHint::nav(Key::ESC, "back"),
+            LiveHint::nav(Key::BACKTAB, "composer"),
             LiveHint::nav(Key::plain(' '), "open subagent"),
             LiveHint::action(Key::plain('y'), "copy"),
             LiveHint::action(Key::shift_code(KeyCode::Char('Y')), "diagnostic"),
@@ -230,20 +258,16 @@ pub(crate) fn resolve_chat_surface_key_motion(
     if ov.matches(key, SurfaceVerb::FocusNextTarget) {
         return Some(InputAction::FocusNextTarget);
     }
-    if ov.matches(key, SurfaceVerb::ClearFocusedTarget)
-        && (keys.focused_target || keys.transcript_focused)
-    {
-        return Some(InputAction::ClearFocusedTarget);
-    }
-    // Home / End scroll the transcript when target or browse focus is active (or if explicitly remapped).
-    // When composer is active, bare Home / End fall through to readline line-start/end.
+    // Home / End scroll the transcript when the transcript plane owns the
+    // keyboard (or if explicitly remapped). On the composer plane, bare
+    // Home / End fall through to readline line-start/end.
     if ov.is_remapped(SurfaceVerb::ScrollTop) && ov.matches(key, SurfaceVerb::ScrollTop) {
         return Some(InputAction::ScrollTop);
     }
     if ov.is_remapped(SurfaceVerb::ScrollBottom) && ov.matches(key, SurfaceVerb::ScrollBottom) {
         return Some(InputAction::ScrollBottom);
     }
-    if keys.focused_target || keys.transcript_focused {
+    if keys.is_transcript_active() {
         if ov.matches(key, SurfaceVerb::ScrollTop) {
             return Some(InputAction::ScrollTop);
         }
@@ -253,6 +277,10 @@ pub(crate) fn resolve_chat_surface_key_motion(
     }
 
     match key.code {
+        // ⇧Tab is *not* resolved here: the crossing is a Global-scope chord, so
+        // the router's global arm claims it before scene dispatch (ADR-0145
+        // `[INV-FOCUS-01]`). Resolving it in both places would give one gesture
+        // two producers that could disagree about overlays and sheets.
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
             resolve_enter(keys, input, cursor_position)
         }
@@ -274,20 +302,24 @@ pub(crate) fn resolve_chat_surface_key_motion(
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER) =>
         {
-            if keys.focused_target && (c == 'y' || c == 'c') {
+            let entry_focused = keys.entry_focus.is_some();
+            if entry_focused && (c == 'y' || c == 'c') {
                 Some(InputAction::CopyFocusedTarget)
-            } else if keys.focused_target && (c == 'Y' || c == 'C') {
+            } else if entry_focused && (c == 'Y' || c == 'C') {
                 Some(InputAction::CopyFocusedDiagnostic)
-            } else if keys.focused_target && c == ' ' {
+            } else if entry_focused && c == ' ' {
                 // Space is the universal toggle in this TUI's dialogs
                 // (MCP servers, permission rules), so it activates the focused
                 // entry too. Without this arm Space silently fell into the
-                // "focus swallows keys" branch below while the compaction card
-                // advertised it.
+                // "transcript swallows keys" branch below while the compaction
+                // card advertised it.
                 Some(InputAction::ActivateFocusedTarget)
-            } else if keys.focused_target && (c == 'o' || c == 'v' || c == 'O' || c == 'V') {
+            } else if entry_focused && (c == 'o' || c == 'v' || c == 'O' || c == 'V') {
                 Some(InputAction::ViewFocusedTargetOutput)
-            } else if keys.focused_target || keys.transcript_focused {
+            } else if keys.is_transcript_active() {
+                // The transcript plane owns the keyboard: a printable key is
+                // inert. It must never be inserted into a draft the user is
+                // not looking at (ADR-0145 `[INV-FOCUS-02]`).
                 Some(InputAction::None)
             } else {
                 resolve_printable(keys, c, input, cursor_position)
@@ -317,17 +349,16 @@ pub(crate) fn resolve_subagent_key_motion(
     if ov.matches(key, SurfaceVerb::SceneHistoryForward) {
         return Some(InputAction::TabHistoryForward);
     }
-    // Esc in the Subagent scene interrupts the *viewed child* (scene
-    // scope) once a completion and step/browse focus are clear — never the
-    // enclosing primary round. It keys off [`SceneKeys::focused_subagent_running`]
-    // (this child's own liveness), not the primary `is_responding`, so a
-    // finished child under a still-running parent advertises no interrupt and
-    // falls through to the shared chat core (which clears step focus and is
-    // idle-inert otherwise): `Esc` still never leaves the Scene
-    // (`[INV-TUI-CLEAN-02]`). Every other key is the shared chat core —
-    // `↑`/`↓` and `Alt+↑`/`Alt+↓` walk steps, `Enter` activates the focused
-    // one, `Esc` clears focus, and printables reach the shared editing layer
-    // exactly as they always have.
+    // Esc in the Subagent scene interrupts the *viewed child* (scene scope)
+    // once an open completion is dismissed — never the enclosing primary round.
+    // It keys off [`SceneKeys::focused_subagent_running`] (this child's own
+    // liveness), not the primary `is_responding`, so a finished child under a
+    // still-running parent advertises no interrupt and `Esc` is simply spent:
+    // `Esc` still never leaves the Scene (`[INV-TUI-CLEAN-02]`). Every other
+    // key is the shared chat core — `⇧Tab` crosses planes, `Ctrl+P`/`Ctrl+N` and
+    // `↑`/`↓` walk the highlighted entry, `Enter` activates it, and printables
+    // reach the shared editing layer from the composer plane. `Esc` never
+    // crosses planes (ADR-0145).
     if key.code == KeyCode::Esc {
         return resolve_esc(
             keys,
@@ -368,10 +399,10 @@ fn resolve_enter(
     input: &mut String,
     cursor_position: &mut usize,
 ) -> Option<InputAction> {
-    if keys.focused_target {
+    if keys.entry_focus.is_some() {
         return Some(InputAction::ActivateFocusedTarget);
     }
-    if keys.transcript_focused {
+    if keys.is_transcript_active() {
         return Some(InputAction::None);
     }
     // Slash-only: Enter on a unique prefix auto-accepts the first suggestion
@@ -499,26 +530,30 @@ fn resolve_tab(keys: &SceneKeys) -> Option<InputAction> {
     }
 }
 
-/// Esc on the Conversation scene. Priority order mirrors the pre- central
-/// arm: dismiss an open completion first, then clear step focus, then interrupt
-/// a running round. Inline history recall is preserved across Esc (so edits
-/// are not lost and interrupt is not intercepted; Ctrl-c clears the input).
+/// `Esc` on the chat scenes, in one priority order: dismiss an open completion,
+/// then interrupt a running round, then nothing. Inline history recall is
+/// preserved across `Esc` (so edits are not lost and the interrupt is not
+/// intercepted; `Ctrl+C` clears the input).
 ///
 /// `responding` and `interrupt` are the caller's scene-scoped liveness and
 /// interrupt target: the Conversation scene passes its own `is_responding` and
 /// [`InputAction::Interrupt`]; the Subagent scene passes the *viewed child's*
 /// liveness and [`InputAction::InterruptSubagent`], so a finished child never
-/// emits the primary interrupt (scene scope). The earlier priority
-/// arms (dismiss completion, clear focus) are identical in both cases.
+/// emits the primary interrupt (scene scope).
+///
+/// **`Esc` never crosses focus planes** ([ADR-0145]). The legacy arm
+/// "`Esc` while a transcript entry is focused → clear the focus" is deleted:
+/// it gave one chord two unrelated jobs (dismiss and *navigate*), which is
+/// exactly why the remove direction had no symmetric twin. `Esc` dismisses a
+/// completion, or interrupts a running round, or is spent — the plane stays
+/// where the user put it and `⇧Tab` is the way back.
+///
+/// [ADR-0145]: ../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md
 fn resolve_esc(keys: &SceneKeys, responding: bool, interrupt: InputAction) -> Option<InputAction> {
+    // One completion arm, not two: the deleted focus arm sat between them, and
+    // its removal exposed that the second arm's extra `suggestion_count > 0`
+    // guard was already unreachable behind the first.
     if keys.completion_kind != crate::shell::completion::CompletionKind::None
-        && !keys.completion_dismissed
-    {
-        Some(InputAction::CloseCompletion)
-    } else if keys.focused_target || keys.transcript_focused {
-        Some(InputAction::ClearFocusedTarget)
-    } else if keys.completion_kind != crate::shell::completion::CompletionKind::None
-        && keys.suggestion_count > 0
         && !keys.completion_dismissed
     {
         Some(InputAction::CloseCompletion)
@@ -541,9 +576,9 @@ fn composer_grid(keys: &SceneKeys, input: &str) -> TextGrid {
 }
 
 /// ↑ on the chat surface:
-/// - When a transcript step is focused, walk focus to the previous step.
-/// - When transcript browse focus is active, scroll the transcript up.
-/// - Otherwise, walk completion suggestions, move the caret one **visual row**
+/// - On the transcript plane with an entry highlighted, walk to the previous
+///   entry; while browsing, scroll the transcript up.
+/// - On the composer plane, walk completion suggestions, move the caret one **visual row**
 ///   up (keeping its display column), or at the top row hand off to inline
 ///   history recall.
 ///
@@ -556,9 +591,9 @@ fn resolve_up(
     cursor_position: &mut usize,
     motion: &mut CaretMotion,
 ) -> Option<InputAction> {
-    if keys.focused_target {
+    if keys.entry_focus.is_some() {
         Some(InputAction::FocusPrevTarget)
-    } else if keys.transcript_focused {
+    } else if keys.is_transcript_active() {
         Some(InputAction::ScrollUp)
     } else if keys.completion_kind != crate::shell::completion::CompletionKind::None
         && keys.suggestion_count > 0
@@ -577,9 +612,9 @@ fn resolve_up(
 }
 
 /// ↓ on the chat surface:
-/// - When a transcript step is focused, walk focus to the next step.
-/// - When transcript browse focus is active, scroll the transcript down.
-/// - Otherwise, walk completion suggestions, move the caret one **visual row**
+/// - On the transcript plane with an entry highlighted, walk to the next
+///   entry; while browsing, scroll the transcript down.
+/// - On the composer plane, walk completion suggestions, move the caret one **visual row**
 ///   down (keeping its display column), or at the bottom row hand off to newer
 ///   history recall / the stashed draft.
 fn resolve_down(
@@ -588,9 +623,9 @@ fn resolve_down(
     cursor_position: &mut usize,
     motion: &mut CaretMotion,
 ) -> Option<InputAction> {
-    if keys.focused_target {
+    if keys.entry_focus.is_some() {
         Some(InputAction::FocusNextTarget)
-    } else if keys.transcript_focused {
+    } else if keys.is_transcript_active() {
         Some(InputAction::ScrollDown)
     } else if keys.completion_kind != crate::shell::completion::CompletionKind::None
         && keys.suggestion_count > 0
@@ -609,19 +644,22 @@ fn resolve_down(
     }
 }
 
-/// A printable character on the chat surface. When transcript or a step target is focused,
-/// characters do not bounce to the composer: focus returns to the composer only explicitly
-/// via `Esc` or a mouse click. Subagent sibling navigation (`[`/`]`) is owned by the Subagent
-/// scene's resolver.
+/// A printable character on the chat surface.
+///
+/// The caller has already established that the composer plane owns the
+/// keyboard, so the character belongs to the draft: returning `None` hands it
+/// to the shared readline editing layer. The transcript plane is inert (see the
+/// `Char` arm in [`resolve_chat_surface_key_motion`]): a keystroke aimed at the
+/// transcript must never land in a hidden draft
+/// ([ADR-0145](../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md)
+/// `[INV-FOCUS-02]`). Subagent sibling navigation (`[`/`]`) is owned by the
+/// Subagent scene's resolver.
 fn resolve_printable(
-    keys: &SceneKeys,
+    _keys: &SceneKeys,
     _c: char,
     _input: &mut String,
     _cursor_position: &mut usize,
 ) -> Option<InputAction> {
-    if keys.focused_target || keys.transcript_focused {
-        return Some(InputAction::None);
-    }
     None
 }
 
@@ -669,6 +707,9 @@ mod tests {
         Idle,
         Running,
         FocusedTarget,
+        /// The transcript plane with no entry highlighted (pointer-parked
+        /// attention).
+        Browsing,
         Completion,
         Subagent,
     }
@@ -680,7 +721,13 @@ mod tests {
         match mode {
             Mode::Idle => {}
             Mode::Running => c.is_responding = true,
-            Mode::FocusedTarget => c.focused_target = true,
+            Mode::FocusedTarget => {
+                c.focus = crate::shell::focus::FocusPlane::Transcript;
+                c.entry_focus = Some(nuo_view::model::layout::InteractiveTarget::tool_step(0));
+            }
+            Mode::Browsing => {
+                c.focus = crate::shell::focus::FocusPlane::Transcript;
+            }
             Mode::Completion => {
                 c.completion_kind = crate::shell::completion::CompletionKind::Slash;
                 c.suggestion_count = 3;
@@ -704,6 +751,42 @@ mod tests {
     /// Route a chord through the real `route_event` pipeline to confirm the
     /// resolver is reached for the chat surface (layer wiring).
     use crate::shell::keymap::Key;
+
+    /// Resolve `key` through the **whole** input pipeline (global chords, then
+    /// sheet/modal arms, then the scene scheme) for `mode`, which is what a
+    /// user's keypress actually traverses.
+    ///
+    /// The hint-resolvability checks use this rather than the scene resolver
+    /// alone: a hint may legitimately be served by any layer — `⇧Tab` is a
+    /// Global-scope chord that the scene scheme deliberately declines — and a
+    /// test that only exercised one layer would report that as a dead key.
+    fn resolves_end_to_end(
+        key: crate::shell::keymap::Key,
+        mode: Mode,
+        seed: &str,
+        tune: impl FnOnce(&mut SceneKeys),
+    ) -> (InputAction, String) {
+        let mut input = seed.to_string();
+        let mut cursor = input.chars().count();
+        let mut drag = nuo_view::model::selection::SelectionDrag::default();
+        let keys = ctx(mode, tune);
+        let action = crate::shell::input::route_event_motion(
+            Event::Key(crate::shell::input::keystroke::event_from_chord(key)),
+            &mut input,
+            &mut cursor,
+            &mut crate::shell::composer_grid::CaretMotion::default(),
+            crate::shell::input::Dispatch {
+                scene: scene_of(mode),
+                focus: keys.focus,
+                ..Default::default()
+            },
+            &crate::shell::modal_keys::ModalKeys::default(),
+            &crate::shell::sheet::SheetKeys::default(),
+            &keys,
+            &mut drag,
+        );
+        (action, input)
+    }
 
     fn process(
         scene: SceneKind,
@@ -740,13 +823,13 @@ mod tests {
         // The chat surface's owned chords, paired with the run state they act
         // in. Each must resolve (an owned chord is never dead).
         // Esc is an *interrupt* on every scene, so its owned entries are the
-        // running states — a scene exit is not an Esc arm.
+        // running states — a scene exit is not an Esc arm, and since ADR-0145
+        // a plane crossing is not one either.
         let owned: &[(crate::shell::keymap::Key, Mode)] = &[
             (crate::shell::keymap::Key::ENTER, Mode::Idle),
             (crate::shell::keymap::Key::ENTER, Mode::Running),
             (crate::shell::keymap::Key::ENTER, Mode::FocusedTarget),
             (crate::shell::keymap::Key::ESC, Mode::Running),
-            (crate::shell::keymap::Key::ESC, Mode::FocusedTarget),
             (crate::shell::keymap::Key::TAB, Mode::Running),
             (crate::shell::keymap::Key::CTRL_R, Mode::Idle),
             (crate::shell::keymap::Key::ALT_P, Mode::Idle),
@@ -928,7 +1011,8 @@ mod tests {
             ),
             Some(InputAction::Interrupt)
         );
-        // Esc clears focus while a step is focused, even when running.
+        // Esc never crosses planes, even while a step is focused and a round
+        // runs: it is the interrupt and nothing else (ADR-0145).
         assert_eq!(
             resolve_chat_surface_key(
                 crate::shell::keymap::Key::ESC,
@@ -936,8 +1020,35 @@ mod tests {
                 &mut String::new(),
                 &mut 0,
             ),
-            Some(InputAction::ClearFocusedTarget)
+            Some(InputAction::Interrupt),
+            "Esc interrupts regardless of which plane holds the keyboard"
         );
+        // …and with nothing running it is spent, leaving the plane untouched.
+        assert_eq!(
+            resolve_chat_surface_key(
+                crate::shell::keymap::Key::ESC,
+                &ctx(Mode::FocusedTarget, |_| {}),
+                &mut String::new(),
+                &mut 0,
+            ),
+            None,
+            "a spent Esc does not move the keyboard off the transcript"
+        );
+        // ⇧Tab is the crossing, and it is *not* a scene-owned chord: the
+        // router's global arm claims it before scene dispatch, so the scene
+        // scheme must decline it (one gesture, one producer).
+        for mode in [Mode::Idle, Mode::FocusedTarget] {
+            assert_eq!(
+                resolve_chat_surface_key(
+                    crate::shell::keymap::Key::BACKTAB,
+                    &ctx(mode, |_| {}),
+                    &mut String::new(),
+                    &mut 0,
+                ),
+                None,
+                "the scene scheme leaves the crossing to the global chord layer ({mode:?})"
+            );
+        }
         // Tab without completion is inert (completion-only).
         assert_eq!(
             resolve_chat_surface_key(
@@ -972,7 +1083,8 @@ mod tests {
         assert_eq!(
             resolve_chat_surface_key(
                 crate::shell::keymap::Key::UP,
-                &ctx(Mode::Idle, |c| c.transcript_focused = true),
+                &ctx(Mode::Idle, |c| c.focus =
+                    crate::shell::focus::FocusPlane::Transcript),
                 &mut String::new(),
                 &mut 0,
             ),
@@ -981,7 +1093,8 @@ mod tests {
         assert_eq!(
             resolve_chat_surface_key(
                 crate::shell::keymap::Key::DOWN,
-                &ctx(Mode::Idle, |c| c.transcript_focused = true),
+                &ctx(Mode::Idle, |c| c.focus =
+                    crate::shell::focus::FocusPlane::Transcript),
                 &mut String::new(),
                 &mut 0,
             ),
@@ -1019,20 +1132,56 @@ mod tests {
     }
 
     #[test]
-    fn typed_character_in_transcript_is_inert_and_does_not_bounce() {
-        let mut input = String::from("");
-        let mut cursor = 0;
-        let action = resolve_chat_surface_key(
-            crate::shell::keymap::Key {
-                modifiers: KeyModifiers::NONE,
-                code: KeyCode::Char('x'),
-            },
-            &ctx(Mode::FocusedTarget, |_| {}),
-            &mut input,
-            &mut cursor,
+    /// `[INV-FOCUS-02]`: a printable key on the transcript plane is inert in
+    /// both sub-states, and is never inserted into the draft the user is not
+    /// looking at (ADR-0145).
+    fn typed_character_on_the_transcript_plane_is_inert() {
+        for focus in [Mode::FocusedTarget, Mode::Browsing] {
+            let mut input = String::from("");
+            let mut cursor = 0;
+            let action = resolve_chat_surface_key(
+                crate::shell::keymap::Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char('x'),
+                },
+                &ctx(focus, |_| {}),
+                &mut input,
+                &mut cursor,
+            );
+            assert_eq!(action, Some(InputAction::None));
+            assert_eq!(
+                input, "",
+                "a typed char must never pollute an unfocused draft ({focus:?})"
+            );
+        }
+    }
+
+    /// The two ends of the entry walk are the *implicit* crossing: with nothing
+    /// left to scroll, walking forward hands the keyboard back, and walking
+    /// backward wraps the entry list instead of moving the keyboard.
+    #[test]
+    fn walking_off_the_entry_list_is_the_implicit_crossing() {
+        // `↓` at the last visible entry with the viewport already at the
+        // bottom resolves to the walk (the app layer performs the crossing);
+        // the resolver never claims an Esc-style exit.
+        assert_eq!(
+            resolve_chat_surface_key(
+                crate::shell::keymap::Key::DOWN,
+                &ctx(Mode::FocusedTarget, |_| {}),
+                &mut String::new(),
+                &mut 0,
+            ),
+            Some(InputAction::FocusNextTarget)
         );
-        assert_eq!(action, Some(InputAction::None));
-        assert_eq!(input, "", "typed char must not pollute the composer");
+        assert_eq!(
+            resolve_chat_surface_key(
+                crate::shell::keymap::Key::UP,
+                &ctx(Mode::FocusedTarget, |_| {}),
+                &mut String::new(),
+                &mut 0,
+            ),
+            Some(InputAction::FocusPrevTarget)
+        );
     }
 
     #[test]
@@ -1104,16 +1253,11 @@ mod tests {
             HintState::EntryFocused { subagent: true },
         ] {
             for hint in live_chat_hints(kind, crate::shell::keymap::Key::TAB) {
-                let mut input = String::new();
-                let mut cursor = 0;
-                let resolved = resolve_chat_surface_key(
-                    hint.key,
-                    &ctx(Mode::FocusedTarget, |_| {}),
-                    &mut input,
-                    &mut cursor,
-                );
-                assert!(
-                    resolved.is_some(),
+                let (resolved, input) =
+                    resolves_end_to_end(hint.key, Mode::FocusedTarget, "", |_| {});
+                assert_ne!(
+                    resolved,
+                    InputAction::None,
                     "entry-focus hint {key:?} did not resolve while an entry is focused",
                     key = hint.key
                 );
@@ -1342,12 +1486,15 @@ mod tests {
             resolve_scene_key(
                 SceneKind::Subagent,
                 Key::ESC,
-                &ctx(Mode::Subagent, |c| c.focused_target = true),
+                &ctx(Mode::Subagent, |c| {
+                    c.focus = crate::shell::focus::FocusPlane::Transcript;
+                    c.entry_focus = Some(nuo_view::model::layout::InteractiveTarget::tool_step(0));
+                }),
                 &mut String::new(),
                 &mut 0
             ),
-            Some(InputAction::ClearFocusedTarget),
-            "subagent Esc clears the focused step"
+            None,
+            "subagent Esc never crosses planes; the zoom has no Esc exit"
         );
         // Scene scope (the regression this guards): a Subagent-scene Esc must
         // NEVER resolve to the primary `Interrupt`. When the viewed child has
@@ -1459,13 +1606,12 @@ mod tests {
     #[test]
     fn recall_hints_are_resolvable_in_the_recall_state() {
         for hint in live_chat_hints(HintState::Recall, crate::shell::keymap::Key::TAB) {
-            let mut c = ctx(Mode::Idle, |_| {});
-            c.in_history_recall = true;
-            let mut input = String::from("recalled");
-            let mut cursor = input.chars().count();
-            let resolved = resolve_chat_surface_key(hint.key, &c, &mut input, &mut cursor);
-            assert!(
-                resolved.is_some(),
+            let (resolved, _) = resolves_end_to_end(hint.key, Mode::Idle, "recalled", |c| {
+                c.in_history_recall = true;
+            });
+            assert_ne!(
+                resolved,
+                InputAction::None,
                 "recall hint chord {key:?} did not resolve in the recall state",
                 key = hint.key
             );

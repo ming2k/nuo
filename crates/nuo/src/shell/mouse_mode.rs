@@ -23,7 +23,7 @@
 //! We only ever consume button events: click, release, drag, and the wheel.
 //! Hover (the sole consumer of mode-1003's `MouseEventKind::Moved`) was a
 //! purely cosmetic brightness lift on collapsed step-summary lines and was
-//! keyboard-reachable at the *same* highlight colour via `Ctrl+↑/↓` focus, so
+//! keyboard-reachable at the *same* highlight colour via `Ctrl+P`/`Ctrl+N`, so
 //! dropping it costs nothing functional. Cutting `?1003h` therefore removes
 //! the leak at its source — the event volume drops by two-to-three orders of
 //! magnitude, and the residual split-sequence surface shrinks with it.

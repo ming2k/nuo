@@ -41,9 +41,9 @@ pub struct SheetKeys {
     /// whether ↑/↓ in the compose zone scroll the details body or the
     /// transcript behind it.
     pub permission_show_details: bool,
-    /// Whether a transcript step/action target holds keyboard focus behind
-    /// the sheet (the permission sheet is the one pass-through surface).
-    pub focused_target: bool,
+    /// Whether the transcript plane holds the keyboard behind the sheet (the
+    /// permission sheet is the one pass-through surface, ADR-0145).
+    pub transcript_plane: bool,
 }
 
 /// The AI-initiated interaction sheets, in queue arrival order.
@@ -150,7 +150,7 @@ pub(crate) fn resolve_sheet_key(
                 Some(InputAction::PermissionSubmit)
             }
             KeyCode::Up => {
-                if keys.focused_target {
+                if keys.transcript_plane {
                     Some(InputAction::FocusPrevTarget)
                 } else if keys.permission_show_details {
                     Some(InputAction::PermissionDetailsUp)
@@ -159,7 +159,7 @@ pub(crate) fn resolve_sheet_key(
                 }
             }
             KeyCode::Down => {
-                if keys.focused_target {
+                if keys.transcript_plane {
                     Some(InputAction::FocusNextTarget)
                 } else if keys.permission_show_details {
                     Some(InputAction::PermissionDetailsDown)

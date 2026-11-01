@@ -35,6 +35,12 @@ pub struct ActivityStripProps<'a> {
     /// The first queued item is a pending steer (not a next-round follow-up):
     /// the idle preview labels it `steer:` instead of `Follow-up:` (ADR-0137).
     pub queued_first_is_steer: bool,
+    /// The viewed session's outbox is paused: the driver is holding every
+    /// queued item at the round boundary (`QueuePaused`). This is a **state**
+    /// of the session, which is why it belongs on this row: without it the
+    /// strip can only show `N queued` while nothing will ever ship, and the
+    /// user has no way to tell "waiting its turn" from "stuck".
+    pub queue_blocked: bool,
     /// Number of active/undismissed background tasks.
     pub tasks_count: usize,
     /// Label of the first active task (for idle preview).
@@ -62,6 +68,7 @@ pub fn draw_activity_strip(
         queued_count,
         queued_preview,
         queued_first_is_steer,
+        queue_blocked,
         tasks_count,
         tasks_preview,
         queue_key,
@@ -227,7 +234,11 @@ pub fn draw_activity_strip(
     } else if queued_count > 0 {
         let preview = queued_preview.unwrap_or("");
         let prefix_w: usize = left_spans.iter().map(|s| s.content.width()).sum();
-        let budget = available_width.saturating_sub(prefix_w + right_w + 4);
+        // Reserve the pause clause first: it says why the queue is not moving,
+        // which is never the disposable half of this row.
+        const PAUSED_W: usize = 8;
+        let reserved = right_w + 4 + if queue_blocked { PAUSED_W } else { 0 };
+        let budget = available_width.saturating_sub(prefix_w + reserved);
         let label = if queued_first_is_steer {
             "Steer"
         } else {
@@ -235,6 +246,13 @@ pub fn draw_activity_strip(
         };
         let text = format!("{label}: \"{}\"", truncate_for_bar(preview, budget));
         left_spans.push(Span::styled(text, dim));
+        if queue_blocked {
+            // The pause is the *reason* nothing ships, so it is painted after
+            // the item it applies to and outranks it under width pressure (the
+            // preview is truncated against this reservation, not the other way
+            // round).
+            left_spans.push(Span::styled("  paused", Style::default().fg(theme.warning)));
+        }
     } else if tasks_count > 0 {
         let preview = tasks_preview.unwrap_or("");
         let prefix_w: usize = left_spans.iter().map(|s| s.content.width()).sum();

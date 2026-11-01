@@ -104,7 +104,7 @@ To resolve these contradictions without degrading either text editing or applica
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ Layer 0: System Lifeline & Emergency Interrupts                 │
-│   Ctrl-C (SIGINT / abort turn)  |  Esc (unwind modal / cancel)  │
+│   Ctrl-C (SIGINT / detach)  |  Esc (unwind modal / interrupt)   │
 ├─────────────────────────────────────────────────────────────────┤
 │ Layer 1: In-Buffer Readline Integrity (Free-Text Composer)      │
 │   Ctrl-A/E (home/end), Ctrl-W (kill word), Ctrl-U/K (kill line) │
@@ -112,7 +112,7 @@ To resolve these contradictions without degrading either text editing or applica
 ├─────────────────────────────────────────────────────────────────┤
 │ Layer 2: Viewport & Workspace Navigation (Alt & Function Keys)  │
 │   Alt-1..9 (jump tab), Alt-[ / Alt-] (history back/forward)     │
-│   Alt-w (close tab), F1 (help & keybindings)                    │
+│   Alt-w (close tab), F1 (help & keybindings), ⇧Tab (peer plane) │
 ├─────────────────────────────────────────────────────────────────┤
 │ Layer 3: Universal Fallback (First-Class Slash Commands)       │
 │   /dashboard, /settings, /close, /new, /help, /commands         │
@@ -127,7 +127,8 @@ To resolve these contradictions without degrading either text editing or applica
 3. **Preserving Word-Skipping (`[INV-NAV-03]`, ADR-0092)**:
    - Early versions considered `Alt-Left` / `Alt-Right` for tab switching. This was permanently retired because standard terminals map `Alt-Left`/`Alt-Right` to `backward-word`/`forward-word`.
    - Tab history navigation was therefore standardized on `Alt-[` and `Alt-]`, fully protecting word skipping in long prompts.
-4. **Slash Commands as Sovereign Escapes**: Every viewport navigation and workspace operation has a dedicated slash command (`/dashboard`, `/settings`, `/close`, `/new`). If an operator is working over an iPad SSH client or an unconfigured macOS terminal where `Alt` keys are captured, slash commands provide an unbreakable fallback.
+4. **One Chord Per Direction (`[INV-FOCUS-01]`, ADR-0145)**: The composer and the transcript are peer surfaces, and `⇧Tab` crosses between them — the same press goes both ways, so neither direction is a special case. `Esc` is never a crossing: it dismisses a completion, interrupts the round, or is spent. A chord that both cancels and navigates cannot be predicted from its label, which is why the product keeps cancellation on `Esc` and movement on `⇧Tab`.
+5. **Slash Commands as Sovereign Escapes**: Every viewport navigation and workspace operation has a dedicated slash command (`/dashboard`, `/settings`, `/close`, `/new`). If an operator is working over an iPad SSH client or an unconfigured macOS terminal where `Alt` keys are captured, slash commands provide an unbreakable fallback.
 
 ---
 
@@ -136,7 +137,8 @@ To resolve these contradictions without degrading either text editing or applica
 | Key Chord | Canonical Function | Conflict / Trade-off Addressed | Architectural Rationale |
 | :--- | :--- | :--- | :--- |
 | **`Ctrl-C`** | Interrupt running turn / cancel | Kernel `SIGINT` standard | Universal terminal convention across 50 years. Never reassigned. |
-| **`Esc`** | Dismiss modal / step back | Top-level cancellation | Universal escape hatch. Never used for destructive scene leaves (`[INV-TUI-CLEAN-02]`). |
+| **`Esc`** | Dismiss modal / interrupt / step back | Top-level cancellation | Universal escape hatch. Never used for destructive scene leaves (`[INV-TUI-CLEAN-02]`) and never used to cross focus planes (ADR-0145). |
+| **`⇧Tab`** | Cross composer ⇄ transcript | Symmetric peer-plane crossing | A dedicated CSI sequence (no Kitty requirement, no POSIX line-discipline key, no macOS Option composition); pairs with `Tab`, which acts *inside* the composer plane. |
 | **`F1` / `Alt-h`** | Sovereign Help Dialog | Composer collision | `F1` provides zero-conflict discovery; `Alt-h` provides home-row ergonomics (ADR-0131). |
 | **`Alt-w`** | Close active tab | Avoids `Ctrl-W` word-kill | Keeps `Ctrl-W` intact for backward word deletion in prompts. |
 | **`Alt-1` .. `Alt-9`** | Jump to tab index | Number row ergonomics | Avoids collision with text typing while enabling instant random tab access. |

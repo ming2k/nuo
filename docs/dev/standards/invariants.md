@@ -47,3 +47,57 @@ A rule may be elevated to a **System Invariant** if and only if it satisfies all
      - `Active`: Bound and verified in current releases.
      - `Superseded`: Formally superseded by a successor invariant via an ADR (`superseded_by: ADR-NNNN`), retaining the documented failure mode in the ADR's Negative Knowledge section.
      - `Deprecated`: Retired due to subsystem removal, with historical context preserved in the ADR registry.
+
+## 5. Tag Uniqueness
+
+An `[INV-*]` tag is a **citation target**: later documents and code refer to it by
+name and expect it to mean one thing. Two definitions of the same tag destroy
+that, and nothing else in the build notices — the tag still resolves, it just
+resolves to two incompatible rules.
+
+This was not hypothetical. While completing the codec aperture
+([ADR-0143](../../adr/0143-codec-aperture-completed-delete-the-unwired-codec-lane.md))
+two tags were minted into a live ADR without checking, and both collided:
+`[INV-WIRE-01]` already belonged to ADR-0005's zero-I/O rule, `[INV-LANE-01]` to
+ADR-0014's three-lane exclusivity. A hand audit caught them. Separately,
+ADR-0034 and ADR-0045 had defined the same `[INV-LIFECYCLE-03]` for unrelated
+rules for months, with the ADR index and CHANGELOG citing the tag without saying
+which rule they meant.
+
+### What Counts as a Definition
+
+Only the line that *introduces* a rule, in the ADR template's shape — a bullet
+whose bold lead is the tag, followed by the rule's title:
+
+```text
+- **[INV-XXXX-01] A short rule title**: the normative statement, usually with
+  MUST/MUST NOT wording, wrapped across as many lines as it needs.
+```
+
+Citations are not definitions, and are never flagged: `see [INV-XXXX-01]`,
+`**A short rule title ([INV-XXXX-01])**`, table cells, and code comments may each
+appear dozens of times for one rule. A checker that counted them would be noise,
+not a gate. (`INV-XXXX-01` is a placeholder, deliberately not a real tag — an
+example that quoted a live tag would itself become a second definition, which is
+exactly the collision this check reports.)
+
+Only `docs/` is scanned. A tag's authority is an ADR; a `.rs` comment may cite a
+tag but may not mint one.
+
+### Enforcement
+
+`cargo test -p nuo --test doc_governance` → `test_invariant_tags`
+(`nuo::dev::invariant_tags`). On a collision it reports every definition site
+with its title **and** its rule statement, so the two rules are distinguishable
+without opening either file.
+
+The check is unit-tested in five directions: a single definition passes, a
+duplicate fails, citations are ignored, sites across different files are
+attributed to their files, and a `.rs` fixture cannot mint a tag.
+
+### Fixing a Collision
+
+1. **Preferred**: give the newer rule its own tag, and update every citation that
+   meant the newer rule — the ADR body, the index row, the CHANGELOG entry.
+2. If the newer rule genuinely replaces the older one, record the supersession in
+   place (§4) and stop re-using the tag; do not leave two definitions alive.

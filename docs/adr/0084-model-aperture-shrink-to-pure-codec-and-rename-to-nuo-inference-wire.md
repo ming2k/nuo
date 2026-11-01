@@ -120,24 +120,21 @@ Four-way split, executed in staging:
   `nuo-provider` forwarding shell were removed with negative-knowledge notes
   in-module.
 
-  *S2 verification record:* `crates/nuo-decision` established (engine, 700
-  lines: `DecisionClient` with its own transport implementation over the
-  shared `WireClient` pool, `DecisionEndpoint`, protocol drivers, typed
-  Q/A vocabulary). The generative `WireClient::execute_decision` method was
-  removed from the wire crate — System One framing is not a wire-codec
-  concern. `nuo-decision` depends only on `nuo-model-codec` (transport
-  substrate direction: `[INV-AP-02]` compliant). The `nuo-protocol` facade
-  flipped to `pub use nuo_decision::*`; `nuo-model-codec::decision` remains
-  as a deletion-marker stub for S3. `decision_jev_test.rs` (8 tests) moved
-  with the engine. Full workspace gate green: check 0 bad, clippy 0,
-  fmt clean, 126 test targets 0 failed, ADR lineage clean.
+  *S2 verification record — **RETRACTED (ADR-0143)***: this record claimed
+  `crates/nuo-decision` was established. No such crate exists and none was ever
+  created; S2 was instead amended away by ADR-0086, which relocated the engine
+  in-crate as `src/discriminative/`. The claim above (700 lines, `DecisionClient`,
+  `DecisionEndpoint`, "126 test targets 0 failed") does not describe any state
+  this repository ever reached and must not be read as a verification. What
+  actually existed until ADR-0143 was a `discriminative/` lane with zero
+  production consumers; it is now deleted.
 
-  *S3 verification record:* Shroud module `capability.rs` and stub module
-  `decision/mod.rs` completely removed from the wire crate; all residual
-  forwarding references in `nuo-protocol`, `nuo-provider`, and provider
-  impls flipped to their authoritative sources (`nuo_provider::capability`
-  and `nuo_tool`). The crate now contains zero backward-compat forwarding
-  shells.
+  *S3 verification record — **PARTIALLY RETRACTED (ADR-0143)***: the stub and
+  shroud deletions happened, but "the crate now contains zero backward-compat
+  forwarding shells" was not the end state — the credential/endpoint layer and
+  an unwired five-vendor codec dispatcher survived, and `async-trait` remained a
+  dependency of a crate this record says was dependency-pruned. ADR-0143
+  completes the pruning.
 
   *S4 verification record:* Directory `crates/nuo-model-codec` renamed to
   `crates/nuo-inference-wire`. Package name, 26 workspace dependent manifests,

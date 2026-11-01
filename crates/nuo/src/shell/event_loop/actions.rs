@@ -1678,7 +1678,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::CopyFocusedTarget => {
-            if let Some(target) = app.focused_target {
+            if let Some(target) = app.focus.entry() {
                 clipboard_ops::copy(
                     app,
                     crate::shell::copy::CopyRequest::Entry {
@@ -1691,7 +1691,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::ViewFocusedTargetOutput => {
-            if let Some(target) = app.focused_target {
+            if let Some(target) = app.focus.entry() {
                 app.open_command_output_dialog(target.message_idx);
             }
         }
@@ -1787,17 +1787,16 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             ),
         },
         input::InputAction::OpenQueue => {
-            // F2 opens the queue overview — the full outbox list that
-            // the persistent queue bar previews. The selection starts
-            // at the front (the next item to pop). This mirrors a
-            // click on the queue bar.
+            // The queue chord opens the queue overview — the full outbox list
+            // that the activity strip previews (one line, below the
+            // transcript). The selection starts at the front (the next item to
+            // pop). This mirrors a click on the strip's queue affordance.
             //
-            // A retained view (phase 4): the cursor/scroll
-            // survive hide; the auto-block runs on EVERY entry (not just
-            // first open) because it is an editing safety latch — the
-            // matching resume is the view's exit hook (hide). A
-            // persistent user block is a different thing (`F3` /
-            // Ctrl+P), unaffected here.
+            // A retained view (phase 4): the cursor/scroll survive hide. The
+            // pause runs on EVERY entry (not just first open) because it is an
+            // editing safety latch — the matching resume is the view's exit
+            // hook, which also tells the server. A user pause set with `Ctrl+P`
+            // / `/queue block` is the same flag; nothing else is layered here.
             enter_panel(
                 app,
                 crate::shell::surfaces::DialogKind::Queue,
@@ -1827,9 +1826,17 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::FocusPrevTarget => {
             app.focus_interactive_target(-1);
         }
-        input::InputAction::ClearFocusedTarget => {
-            app.focused_target = None;
-            app.transcript_focused = false;
+        input::InputAction::ToggleFocusPlane => {
+            // `⇧Tab`: cross to the other peer plane, remembering (and
+            // restoring) the transcript's entry highlight so the crossing is
+            // lossless (ADR-0145 `[INV-FOCUS-01]`).
+            app.focus.toggle();
+            // A crossing is a deliberate act on the surface, so any text
+            // selection or in-flight drag on the plane being left is dropped —
+            // a highlight that survives a plane change reads as "both planes
+            // are live", which is precisely what the model forbids.
+            app.selection = SelectionState::None;
+            app.drag.cancel();
         }
         input::InputAction::CancelHistoryRecall => {
             // Esc while the inline ↑/↓ pointer sits on a history row: cancel
@@ -1991,7 +1998,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
                 ),
                 has_running_task: is_busy,
                 has_notices: !!app.has_notices(),
-                has_focused_entry: app.focused_target.is_some(),
+                has_focused_entry: app.focus.entry().is_some(),
                 queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
@@ -2041,11 +2048,11 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // The user is editing again, so live completions are
             // once again useful — clear the Enter-commit dismissal.
             app.completion_dismissed = false;
-            // Typing into the input box reclaims it as the active
-            // surface: drop any transcript-step focus so the composer
-            // re-brightens and the next arrow key resumes caret movement
-            // rather than step navigation.
-            app.focused_target = None;
+            // Only the composer plane accepts printable input (route_event
+            // gates insertion on `edits_input_field`), so reaching here already
+            // implies composer ownership; state it so the invariant holds by
+            // construction rather than by trusting the router's gate.
+            app.focus.enter_composer();
             // Reconcile attachments: if the user typed inside a chip
             // (breaking its syntax) the backing staged entry must be
             // dropped, and surviving chips relabeled.
@@ -2054,9 +2061,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
         input::InputAction::Backspace => {
             app.suggestion_index = None;
             app.completion_dismissed = false;
-            // Same as InsertChar: editing the input box reclaims focus
-            // from any transcript step.
-            app.focused_target = None;
+            // Same as InsertChar: an edit is a composer-plane act, so the
+            // plane is stated explicitly rather than inferred.
+            app.focus.enter_composer();
             // Reconcile attachments: a chip-aware backspace has
             // already spliced the chip out of `app.input`; this
             // drops the orphaned entry from `pending_images` /
@@ -2071,9 +2078,9 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // forward delete may have orphaned a staged entry).
             app.suggestion_index = None;
             app.completion_dismissed = false;
-            // Editing the input box reclaims focus from any transcript step,
-            // mirroring Backspace.
-            app.focused_target = None;
+            // Editing the input box is a composer-plane act, mirroring
+            // Backspace.
+            app.focus.enter_composer();
             app.reconcile_attachments();
         }
         input::InputAction::SuggestNext => {
@@ -2150,44 +2157,72 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // composer and closes the modal. Closing resumes the
             // auto-block the modal set on open.
             //
-            // A pending steer is recalled by cancelling it: `CancelSteer`
-            // is the protocol verb whose linearized outcome (`SteerCancelled`)
-            // restores the text to the composer (ADR-0137). A recall is the
-            // one cancel that must NOT suppress the restore.
+            // The verb depends on who owns the row:
+            //
+            // - `Steering` is client-owned: the server holds it in the running
+            //   round, so `CancelSteer` is the linearizing verb (ADR-0137). A
+            //   recall is the one cancel that must NOT suppress the restore.
+            // - everything else is a projection of the driver's
+            //   `FollowUpQueue`, so the recall must also `QueueRemove` it —
+            //   otherwise the item stays queued server-side and ships at the
+            //   next round boundary while the user is editing it in the
+            //   composer, sending the same prompt twice.
+            // Ordering matters: the removal must be queued **before** the
+            // recall's synthetic close resumes the server's pause below, or the
+            // driver is free to ship the very item being recalled in the window
+            // between "resumed" and "removed".
             let idx = app.active_index();
-            app.dismiss_active_dialog();
-            let steer_item = app
-                .queued_at(viewed_session_id, idx)
-                .filter(|it| it.state == crate::shell::app::QueuedDispatchState::Steering)
-                .cloned();
-            if let Some(item) = steer_item {
-                app.send_intent(AgentRequest::CancelSteer {
-                    thread_id: viewed_session_id.to_string(),
-                    input_id: item.id.clone(),
-                });
-                app.recall_queued_at(viewed_session_id, idx);
-                // SteerCancelled will restore the text to the composer; keep
-                // the local action immediate by pushing it into the draft now
-                // (the async restore is a no-op once the composer is busy).
-                app.adopt_as_draft(
-                    item.text,
-                    item.images,
-                    item.text_pastes,
-                    crate::shell::app::DraftAdoption::OnlyIfIdle,
-                );
-            } else if let Some(crate::shell::app::RecallQueued::Restored(dispatch)) =
-                app.recall_queued_at(viewed_session_id, idx)
-            {
-                app.restore_dispatch(dispatch);
+            let item = app.queued_at(viewed_session_id, idx).cloned();
+            match item {
+                Some(item) if item.state == crate::shell::app::QueuedDispatchState::Steering => {
+                    app.send_intent(AgentRequest::CancelSteer {
+                        thread_id: viewed_session_id.to_string(),
+                        input_id: item.id.clone(),
+                    });
+                    app.recall_queued_at(viewed_session_id, idx);
+                    // SteerCancelled will restore the text to the composer; keep
+                    // the local action immediate by pushing it into the draft now
+                    // (the async restore is a no-op once the composer is busy).
+                    app.adopt_as_draft(
+                        item.text,
+                        item.images,
+                        item.text_pastes,
+                        crate::shell::app::DraftAdoption::StashCurrent,
+                    );
+                }
+                Some(item) => {
+                    // Take it off the server queue first, then out of the local
+                    // projection (the `QueueUpdated` echo is a no-op once the
+                    // row is gone).
+                    app.send_intent(AgentRequest::QueueRemove {
+                        thread_id: viewed_session_id.to_string(),
+                        input_id: item.id.clone(),
+                    });
+                    if let Some(dispatch) = app.recall_queued_at(viewed_session_id, idx) {
+                        app.restore_dispatch(dispatch);
+                    }
+                }
+                None => {}
             }
+            app.dismiss_active_dialog();
         }
         input::InputAction::QueueToggleBlock => {
-            // `Ctrl+P` inside the queue modal: toggle the hard block on the
-            // viewed session's outbox. M4: the pause is the
-            // *server's* queue flag — the local toggle is the optimistic
-            // projection and the verb is authoritative.
+            // `Ctrl+P` inside the queue modal: toggle the pause on the viewed
+            // session's outbox. M4: the pause is the *server's* queue flag — the
+            // local toggle is the optimistic projection and the verb is
+            // authoritative.
+            //
+            // Either direction hands ownership to the user: after this press the
+            // pause in effect is theirs, so the modal's close must not release
+            // it (paused) and must not re-pause it (resumed) — the exit hook
+            // reads this and stays out of the way (`[INV-OUTBOX-04]`).
             let paused = !app.is_queue_blocked(viewed_session_id);
             app.set_queue_blocked(viewed_session_id, paused);
+            if let Some((sid, origin)) = app.queue_exit_session.as_mut()
+                && sid == viewed_session_id
+            {
+                *origin = crate::shell::app::QueuePauseOrigin::UserOwned;
+            }
             app.send_intent(AgentRequest::QueuePaused {
                 thread_id: viewed_session_id.to_string(),
                 paused,
@@ -2201,20 +2236,33 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             //
             // A pending steer is removed by cancelling it (`CancelSteer`),
             // and the restore is suppressed: a deletion must not resurrect
-            // the text in the composer (ADR-0137).
+            // the text in the composer (ADR-0137). Every other row is a
+            // projection of the driver's `FollowUpQueue`, so a local-only
+            // removal would leave the message queued server-side — it would
+            // ship at the next round boundary and the next authoritative
+            // snapshot would put the row straight back. `QueueRemove` is the
+            // verb that makes the deletion real.
             if app.active_dialog() == Some(DialogKind::Queue) {
                 let idx = app.active_index();
-                let steer_id = app
-                    .queued_at(viewed_session_id, idx)
-                    .filter(|it| it.state == crate::shell::app::QueuedDispatchState::Steering)
-                    .map(|it| it.id.clone());
-                if let Some(input_id) = steer_id {
-                    app.send_intent(AgentRequest::CancelSteer {
-                        thread_id: viewed_session_id.to_string(),
-                        input_id: input_id.clone(),
-                    });
-                    app.suppress_steer_restore
-                        .insert((viewed_session_id.to_string(), input_id));
+                let target = app.queued_at(viewed_session_id, idx).cloned();
+                match target {
+                    Some(item)
+                        if item.state == crate::shell::app::QueuedDispatchState::Steering =>
+                    {
+                        app.send_intent(AgentRequest::CancelSteer {
+                            thread_id: viewed_session_id.to_string(),
+                            input_id: item.id.clone(),
+                        });
+                        app.suppress_steer_restore
+                            .insert((viewed_session_id.to_string(), item.id));
+                    }
+                    Some(item) => {
+                        app.send_intent(AgentRequest::QueueRemove {
+                            thread_id: viewed_session_id.to_string(),
+                            input_id: item.id,
+                        });
+                    }
+                    None => {}
                 }
                 let _removed = app.remove_queued_at(viewed_session_id, idx);
                 let count = app.pending_count(viewed_session_id);
@@ -2233,23 +2281,37 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             // toward the front (next to pop) or the tail. Clamp at the
             // session slice boundaries so it can't escape into another
             // session's items.
+            //
+            // Only `Waiting` rows are in the driver's `FollowUpQueue`, so only
+            // they can be reordered: a `Steering` row lives in the running
+            // round's admission window and has no position to change, and a
+            // `Dispatching` row is excluded from the addressable set entirely.
+            // Sending `QueueReorder` for a steer made the local list move while
+            // the server no-oped on an unknown id — a reorder that silently did
+            // not happen (ADR-0137 §5).
             if app.active_dialog() == Some(DialogKind::Queue) {
                 let idx = app.active_index();
-                if let Some(item) = app.queued_at(viewed_session_id, idx) {
+                let movable = app
+                    .queued_at(viewed_session_id, idx)
+                    .filter(|it| it.state == crate::shell::app::QueuedDispatchState::Waiting)
+                    .map(|it| it.id.clone());
+                if let Some(input_id) = movable {
                     app.send_intent(AgentRequest::QueueReorder {
                         thread_id: viewed_session_id.to_string(),
-                        input_id: item.id.clone(),
+                        input_id,
                         delta,
                     });
-                }
-                app.move_queued(viewed_session_id, idx, delta);
-                // Follow the moved item if it changed position.
-                let count = app.pending_count(viewed_session_id);
-                if count > 0 {
-                    app.set_active_index((idx as i32 + delta).clamp(0, count as i32 - 1) as usize);
-                    app.surfaces
-                        .dlg_mut::<crate::shell::surfaces::QueueDialog>()
-                        .follow = true;
+                    app.move_queued(viewed_session_id, idx, delta);
+                    // Follow the moved item if it changed position.
+                    let count = app.pending_count(viewed_session_id);
+                    if count > 0 {
+                        app.set_active_index(
+                            (idx as i32 + delta).clamp(0, count as i32 - 1) as usize
+                        );
+                        app.surfaces
+                            .dlg_mut::<crate::shell::surfaces::QueueDialog>()
+                            .follow = true;
+                    }
                 }
             }
         }
@@ -2609,7 +2671,7 @@ pub(super) fn enter_panel(
     }
     let first = app.open_dialog(id);
     app.selection = SelectionState::None;
-    app.focused_target = None;
+    app.focus.browse();
     app.drag.cancel();
 
     if first {
@@ -2665,14 +2727,27 @@ pub(super) fn enter_panel(
     }
 
     if id == DialogKind::Queue {
-        // M4: the editing-safety auto-pause is mirrored to the
-        // server queue authority (resume on close, via `queue_exit_session`).
+        // M4: the editing-safety auto-pause is mirrored to the server queue
+        // authority (resume on close, via `queue_exit_session`). Ownership is
+        // recorded so the exit hook releases *only* this pause: entering an
+        // already-paused session needs no release, because the pause the user
+        // set is not ours to undo (`[INV-OUTBOX-04]`).
+        let was_paused = app.is_queue_blocked(viewed_session_id);
         app.set_queue_blocked(viewed_session_id, true);
-        app.send_intent(AgentRequest::QueuePaused {
-            thread_id: viewed_session_id.to_string(),
-            paused: true,
-        });
-        app.queue_exit_session = Some(viewed_session_id.to_string());
+        if !was_paused {
+            app.send_intent(AgentRequest::QueuePaused {
+                thread_id: viewed_session_id.to_string(),
+                paused: true,
+            });
+        }
+        app.queue_exit_session = Some((
+            viewed_session_id.to_string(),
+            if was_paused {
+                crate::shell::app::QueuePauseOrigin::UserOwned
+            } else {
+                crate::shell::app::QueuePauseOrigin::ModalAutoPause
+            },
+        ));
     }
 
     let request = match id {
@@ -2858,7 +2933,7 @@ pub(super) fn enter_scene(
         }
     }
     app.selection = SelectionState::None;
-    app.focused_target = None;
+    app.focus.enter_composer();
     app.drag.cancel();
 
     let request = match scene {
@@ -3548,7 +3623,7 @@ mod transcript_scroll_tests {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();
 
-        assert!(!app.transcript_focused, "composer active by default");
+        assert!(app.focus.is_composer(), "composer active by default");
 
         // Mount TabBar across full width (0..80) and TabBarItem(0) at (0..14)
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
@@ -3567,7 +3642,7 @@ mod transcript_scroll_tests {
         // ADR-0091 [INV-TAB-11]: TabBar background clicks are inert container gestures
         // and must NOT leak side-effects into active scene context.
         assert!(
-            !app.transcript_focused,
+            app.focus.is_composer(),
             "clicking TabBar background must not blur composer"
         );
     }
@@ -3583,7 +3658,7 @@ mod transcript_scroll_tests {
                 Some("Thread 1"),
             ));
         app.surfaces.select_tab(0);
-        assert!(!app.transcript_focused, "composer active by default");
+        assert!(app.focus.is_composer(), "composer active by default");
 
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
         app.ui.mount(
@@ -3602,7 +3677,7 @@ mod transcript_scroll_tests {
         // ADR-0091 [INV-TAB-11]: Re-selecting the already active tab is an idempotent
         // container gesture that preserves active context.
         assert!(
-            !app.transcript_focused,
+            app.focus.is_composer(),
             "clicking active tab must not blur composer"
         );
     }
@@ -3692,7 +3767,8 @@ mod transcript_scroll_tests {
         app.surfaces.select_tab(0);
 
         // Customize Thread 1 context: browse mode, scrolled up, draft input text
-        app.transcript_focused = true;
+        app.focus
+            .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
         app.scroll = 42;
         app.input = "draft question for thread 1".to_string();
         app.cursor_position = 5;
@@ -3715,7 +3791,7 @@ mod transcript_scroll_tests {
 
         // ADR-0091 [INV-TAB-12]: Restores sovereign tab context exactly as left
         assert!(
-            app.transcript_focused,
+            app.focus.is_transcript(),
             "browse focus mode must be preserved across tab switch"
         );
         assert_eq!(app.scroll, 42, "scroll offset must be preserved");
@@ -3731,14 +3807,14 @@ mod transcript_scroll_tests {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
         let runtime = UiRuntime::minimal_for_test();
 
-        assert!(!app.transcript_focused, "composer active by default");
+        assert!(app.focus.is_composer(), "composer active by default");
 
         // Click in outer unmounted zone / dead zone
         mouse::handle_selection_start(&mut app, &runtime, "s1", 79, 10).await;
         // ADR-0091 [INV-TAB-11]: Unmounted zones outside the active transcript content rect
         // are inert and must not leak focus mutations into the composer.
         assert!(
-            !app.transcript_focused,
+            app.focus.is_composer(),
             "clicking outside composer on unmounted zone must be inert"
         );
     }
@@ -3976,7 +4052,7 @@ mod transcript_scroll_tests {
 
         app.open_preset_chooser();
         app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
-        assert!(!app.transcript_focused);
+        assert!(app.focus.is_composer());
 
         // Mount the OAuth overlay area in UI so pointer target falls within overlay
         app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
@@ -3992,7 +4068,7 @@ mod transcript_scroll_tests {
         mouse::handle_selection_start(&mut app, &runtime, "s1", 12, 6).await;
 
         assert!(
-            !app.transcript_focused,
+            app.focus.is_composer(),
             "Click on overlay modal must NOT set transcript_focused to true"
         );
     }
@@ -4088,6 +4164,37 @@ pub(crate) async fn dispatch_action_for_test(
     dispatch_action(app, &mut terminal, action, &mut ctx).await
 }
 
+/// Dispatch a registry command by id, exactly as the palette / a bound chord
+/// does. Exists so tests can pin the *wire* consequence of a command (the
+/// `/queue block` and `/queue clear` verbs are registry commands, not input
+/// actions, and their intent traffic is the property under test).
+#[cfg(test)]
+pub(crate) async fn dispatch_command_for_test(
+    app: &mut App,
+    runtime: &UiRuntime,
+    command: crate::shell::keymap::CommandId,
+    viewed_session_id: &str,
+) -> ActionFlow {
+    let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
+    let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (paste_tx, _paste_rx) = mpsc::unbounded_channel();
+    let mut sgr_guard = input::SgrLeakGuard::default();
+    let session = crate::shell::SessionSource::Remote {
+        session_id: viewed_session_id.to_string(),
+    };
+    let ctx = ActionContext {
+        runtime,
+        session: &session,
+        viewed_session_id,
+        copy_tx: &copy_tx,
+        copy_pending: &copy_pending,
+        paste_tx: &paste_tx,
+        sgr_guard: &mut sgr_guard,
+        key_event: true,
+    };
+    execute_command_by_id(app, &ctx, command).await
+}
+
 /// Test shims for the dashboard console dispatcher: the internal helpers the
 /// console tests drive directly (they need no terminal or clipboard plumbing
 /// — just `App` + `UiRuntime`).
@@ -4145,13 +4252,13 @@ async fn execute_command_by_id(
         CommandId::CommandPalette => {}
         CommandId::CancelOrBack => {
             // The palette-invoked twin of the Esc chord, and therefore the
-            // same scope: dismiss the overlay if one is up, else clear focus,
-            // else step back one level *inside* the Scene. It never navigates
-            // between Scenes.
+            // same scope: dismiss the overlay if one is up, else step back one
+            // level *inside* the Scene. It never navigates between Scenes — and
+            // since ADR-0145 it no longer crosses focus planes either: a
+            // running round is still interruptible from either plane, and the
+            // plane is the user's, not the chord's.
             if app.surfaces.active_overlay().is_some() {
                 modals::handle_close_modal(app, viewed_session_id);
-            } else if app.focused_target.is_some() {
-                app.focused_target = None;
             } else if app.has_settled_background_tasks() {
                 app.dismiss_settled_background_tasks();
             } else {
@@ -4189,7 +4296,7 @@ async fn execute_command_by_id(
             // The palette's verb form of the focused-entry chord (`y`). Same
             // resolution, same receipt, same failure message — the palette is
             // a discoverability path, not a second copy implementation.
-            if let Some(target) = app.focused_target {
+            if let Some(target) = app.focus.entry() {
                 clipboard_ops::copy(
                     app,
                     crate::shell::copy::CopyRequest::Entry {
@@ -4446,26 +4553,60 @@ async fn execute_command_by_id(
         }
         CommandId::ToggleQueueBlock => {
             let sid = viewed_session_id.to_string();
-            if app.is_queue_blocked(&sid) {
-                app.resume_queue(&sid);
-                show_local_toast(
-                    app,
-                    "Queue resumed",
-                    false,
-                    std::time::Duration::from_millis(2000),
-                );
-            } else {
-                app.block_queue(&sid);
-                show_local_toast(
-                    app,
-                    "Queue paused",
-                    false,
-                    std::time::Duration::from_millis(2000),
-                );
-            }
+            let paused = !app.is_queue_blocked(&sid);
+            app.set_queue_blocked(&sid, paused);
+            // The `/queue block` slash command is the *same* verb as the
+            // modal's `Ctrl+P`; without the intent it only repainted the local
+            // latch, so the toast said "paused" while the driver kept shipping
+            // the queue. The verb is the authority (M4).
+            app.send_intent(AgentRequest::QueuePaused {
+                thread_id: sid,
+                paused,
+            });
+            show_local_toast(
+                app,
+                if paused {
+                    "Queue paused"
+                } else {
+                    "Queue resumed"
+                },
+                false,
+                std::time::Duration::from_millis(2000),
+            );
         }
         CommandId::ClearQueue => {
-            app.pending_dispatch.clear();
+            // Scoped to the viewed session and mirrored to the server:
+            // `pending_dispatch.clear()` was global (dropping every other
+            // session's local rows) *and* invisible to the driver, which kept
+            // the messages queued and sent them at the next round boundary —
+            // then restored the rows with the next snapshot.
+            //
+            // The two row classes need two verbs. `QueueClear` empties the
+            // driver's follow-up queue; a live `Steering` row is not in that
+            // queue at all, so clearing the list without cancelling it would
+            // leave the steer to land *after* the user emptied the queue — the
+            // one outcome "clear" most obviously promises not to happen. Its
+            // restore is suppressed: a clear consumes the drafts, it does not
+            // hand them back.
+            let sid = viewed_session_id.to_string();
+            let steers: Vec<String> = app
+                .pending_dispatch
+                .iter()
+                .filter(|item| {
+                    item.session_id == sid
+                        && item.state == crate::shell::app::QueuedDispatchState::Steering
+                })
+                .map(|item| item.id.clone())
+                .collect();
+            for input_id in steers {
+                app.send_intent(AgentRequest::CancelSteer {
+                    thread_id: sid.clone(),
+                    input_id: input_id.clone(),
+                });
+                app.suppress_steer_restore.insert((sid.clone(), input_id));
+            }
+            app.pending_dispatch.retain(|item| item.session_id != sid);
+            app.send_intent(AgentRequest::QueueClear { thread_id: sid });
             show_local_toast(
                 app,
                 "Queue cleared",

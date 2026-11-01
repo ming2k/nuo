@@ -17,3 +17,11 @@ fn test_adr_lineage() {
         panic!("ADR lineage violations:\n{e}");
     }
 }
+
+#[test]
+fn test_invariant_tags() {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::invariant_tags::check_invariant_tags(&root) {
+        panic!("Invariant tag violations:\n{e}");
+    }
+}

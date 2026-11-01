@@ -93,8 +93,7 @@ impl App {
         self.oauth_scroll = 0;
         self.selection = SelectionState::None;
         self.drag.cancel();
-        self.focused_target = None;
-        self.transcript_focused = false;
+        self.focus.enter_composer();
         self.ui.runtime.release_pointer();
         if !self
             .surfaces
@@ -125,8 +124,7 @@ impl App {
         // Reset all mouse selection, drag, and focus states so the user can immediately type!
         self.selection = SelectionState::None;
         self.drag.cancel();
-        self.focused_target = None;
-        self.transcript_focused = false;
+        self.focus.enter_composer();
         self.ui.runtime.release_pointer();
 
         if !self
@@ -177,8 +175,7 @@ impl App {
             self.oauth_pending_error = None;
             self.selection = SelectionState::None;
             self.drag.cancel();
-            self.focused_target = None;
-            self.transcript_focused = false;
+            self.focus.enter_composer();
             self.ui.runtime.release_pointer();
             self.surfaces
                 .dismiss_sheet_kind(crate::shell::surfaces::SheetKind::OAuthPending);
@@ -202,8 +199,7 @@ impl App {
             self.set_cursor(0);
             self.selection = SelectionState::None;
             self.drag.cancel();
-            self.focused_target = None;
-            self.transcript_focused = false;
+            self.focus.enter_composer();
             self.ui.runtime.release_pointer();
             self.pop_transient_surface();
             self.set_picker_search(false);
@@ -223,8 +219,7 @@ impl App {
             self.custom_edit_id = None;
             self.selection = SelectionState::None;
             self.drag.cancel();
-            self.focused_target = None;
-            self.transcript_focused = false;
+            self.focus.enter_composer();
             self.ui.runtime.release_pointer();
             self.pop_transient_surface();
             self.set_picker_search(false);

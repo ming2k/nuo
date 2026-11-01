@@ -325,20 +325,17 @@ fn compose_frame(
             .active_sheet()
             .is_none_or(|kind| kind == crate::shell::sheet::SheetKind::Permission);
 
-    // Project the viewed session's outbox into the small view the
-    // persistent queue bar renders. Dispatch order (front pops
-    // first) is preserved, so the bar previews the genuine next
-    // item to ship. The items are owned snapshots so the bar/modal
-    // do not borrow `app` (which is mutated again right after the
-    // draw closure).
+    // Project the viewed session's outbox into the small view the activity
+    // strip renders. Dispatch order (front pops first) is preserved, so the
+    // strip previews the genuine next item to ship. The items are owned
+    // snapshots so the strip/modal do not borrow `app` (which is mutated again
+    // right after the draw closure).
     //
-    // Every outbox item is a next-round item now: a live busy-Enter steer is
-    // transcript-owned and never passes through
-    // the outbox, so there is no `steering` slice to
-    // exclude from the modal either.
     // One outbox definition feeds the strip and the modal (see
     // `App::outbox_projection`): the preview cannot name an item the modal
-    // does not list.
+    // does not list, and a pending steer (a `Steering` row) is an outbox item
+    // like any other — it is simply never dispatched as a fresh round
+    // (ADR-0137).
     let queue_items: Vec<render::QueueItemProps> = app
         .outbox_projection(viewed_session_id)
         .into_iter()
@@ -371,15 +368,8 @@ fn compose_frame(
                 chrome_hidden,
                 queue_bar: render::QueueBarProps {
                     items: &queue_items,
-                    // "Paused" = items waiting on the server's round boundary
-                    // (M4: the server decides when they ship).
-                    // "Paused" means: there is visible outbox work that the
-                    // server has not started shipping. Both classes qualify —
-                    // a pending steer is also waiting on the round boundary.
-                    paused: app.outbox_projection(viewed_session_id).iter().any(|item| {
-                        item.state == crate::shell::app::QueuedDispatchState::Waiting
-                            || item.state == crate::shell::app::QueuedDispatchState::Steering
-                    }),
+                    // A real condition, not a derived constant: the driver is
+                    // holding this session's queue.
                     blocked: app.pending_count(viewed_session_id) > 0
                         && app.is_queue_blocked(viewed_session_id),
                     // The legend's keycap comes from the registry, never a
@@ -419,7 +409,7 @@ fn compose_frame(
                 // the primary's).
                 round_started_at: viewed_chrome.round_started_at,
                 hovered_step: chrome_interactive.then_some(app.hovered_step).flatten(),
-                focused_target: chrome_interactive.then_some(app.focused_target).flatten(),
+                focused_entry: chrome_interactive.then_some(app.focus.entry()).flatten(),
                 logo: app.logo.as_deref(),
                 guidance,
                 carousel_index: nuo_view::empty_state::carousel_page_for(
@@ -619,11 +609,11 @@ fn compose_frame(
             // Activity) so the footer layout doesn't shift when the
             // overlay opens or closes; the recess pass darkens it in
             // place with the rest of the surface. When a transcript
-            // step carries keyboard focus (Ctrl+↑/↓), the composer drops
+            // pane holds the keyboard (⇧Tab), the composer drops
             // to its dim "blurred" palette and hides the caret so the
             // user can see at a glance that the next keypress targets
-            // the step, not the input box. Typing into the box clears
-            // the focus and re-brightens it immediately.
+            // the transcript. A composer-plane act (⇧Tab back, a click into
+            // the box) re-brightens it immediately.
             //
             // `show_caret` comes straight from the single source of
             // truth (`App::caret_visible`): in this branch the composer
@@ -633,16 +623,18 @@ fn compose_frame(
             // `caret_visible` reduces to "no step focus, no selection"
             // — exactly the old hand-rolled condition, without the risk
             // of drifting from the hide/show state machine.
-            // Browse focus joins step selection as the second
-            // "keys act on the transcript" signal — a click anywhere in
-            // the transcript content parks attention there and dims the
-            // composer panel until a composer click or a keystroke
-            // hands it back.
+            // Both transcript sub-states (a highlighted entry, browse
+            // attention after a click) dim the composer panel, because both
+            // mean the same thing to the keyboard: the transcript owns it
+            // (ADR-0145).
             let active_extension = app.active_composer_extension();
-            let step_focused = app.focused_target.is_some() || app.transcript_focused;
-            let show_caret = scene_owns_caret && !step_focused;
-            let composer_focused =
-                !step_focused && (!has_overlay || scene_owns_caret || active_extension.is_some());
+            // One question, one answer: does the transcript plane own the
+            // keyboard? Both its sub-states agree, so there is no separate
+            // "step selected" and "browsing" pair to keep in sync here.
+            let transcript_owns_keyboard = app.focus.is_transcript();
+            let show_caret = scene_owns_caret && !transcript_owns_keyboard;
+            let composer_focused = !transcript_owns_keyboard
+                && (!has_overlay || scene_owns_caret || active_extension.is_some());
             // A fully-typed known `/command` is painted in bold +
             // accent color so it reads as a resolved command
             // rather than prose; an unmatched `/`-prefix keeps
@@ -922,7 +914,7 @@ fn compose_frame(
                     ),
                     has_running_task: viewed_running,
                     has_notices: !!app.has_notices(),
-                    has_focused_entry: app.focused_target.is_some(),
+                    has_focused_entry: app.focus.entry().is_some(),
                     queue_count: app.outbox_total(),
                     has_session: app.has_session(),
                     scene: app.current_scene(),

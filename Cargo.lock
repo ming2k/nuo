@@ -1764,12 +1764,8 @@ dependencies = [
 name = "nuo-inference-wire"
 version = "0.0.66"
 dependencies = [
- "async-trait",
- "http",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
- "tokio",
  "uuid",
 ]
 

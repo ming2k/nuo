@@ -68,7 +68,6 @@ fn subagent_view_groups_children_into_turn_bands() {
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
-                    paused: false,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
@@ -86,7 +85,7 @@ fn subagent_view_groups_children_into_turn_bands() {
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
-                focused_target: None,
+                focused_entry: None,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -181,7 +180,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
-                    paused: false,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
@@ -194,7 +192,7 @@ fn subagent_step_and_view_render_without_panicking() {
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
-                focused_target: None,
+                focused_entry: None,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -226,7 +224,6 @@ fn subagent_step_and_view_render_without_panicking() {
                 chrome_hidden: false,
                 queue_bar: QueueBarProps {
                     items: &[],
-                    paused: false,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
@@ -259,7 +256,7 @@ fn subagent_step_and_view_render_without_panicking() {
                 }),
                 round_started_at: None,
                 hovered_step: None,
-                focused_target: None,
+                focused_entry: None,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -362,7 +359,6 @@ fn height_cache_skip_path_matches_full_layout() {
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
-                        paused: false,
                         blocked: false,
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
@@ -375,7 +371,7 @@ fn height_cache_skip_path_matches_full_layout() {
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
-                    focused_target: None,
+                    focused_entry: None,
                     logo: None,
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
@@ -473,7 +469,6 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
-                        paused: false,
                         blocked: false,
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
@@ -486,7 +481,7 @@ fn expanded_edit_diff_height_is_scroll_independent() {
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
-                    focused_target: None,
+                    focused_entry: None,
                     logo: None,
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
@@ -549,7 +544,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
     let theme = Theme::default();
     let messages = vec![TranscriptMessage::new(nuo_protocol::Role::User, "hello")];
     let queue_items = [crate::shell::chrome::QueueItemProps {
-        queued_at_ms: 1_700_000_000_000,
+        queued_at_ms: Some(1_700_000_000_000),
         text: "next".into(),
         is_steer: false,
     }];
@@ -573,7 +568,6 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 chrome_hidden: false,
                 queue_bar: crate::shell::chrome::QueueBarProps {
                     items: &queue_items,
-                    paused: false,
                     blocked: false,
                     expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                 },
@@ -586,7 +580,7 @@ fn footer_stack_places_rows_where_the_legacy_offsets_did() {
                 thread_context: None,
                 round_started_at: None,
                 hovered_step: None,
-                focused_target: None,
+                focused_entry: None,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -843,7 +837,6 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     chrome_hidden: false,
                     queue_bar: QueueBarProps {
                         items: &[],
-                        paused: false,
                         blocked: false,
                         expand_key: Some(crate::shell::keymap::Key::CTRL_Q),
                     },
@@ -856,7 +849,7 @@ fn checklist_tool_step_renders_with_active_selection_without_panic() {
                     thread_context: None,
                     round_started_at: None,
                     hovered_step: None,
-                    focused_target: None,
+                    focused_entry: None,
                     logo: None,
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,

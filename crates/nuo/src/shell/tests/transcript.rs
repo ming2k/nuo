@@ -347,7 +347,7 @@ fn queued_dispatch_carries_text_and_images() {
         session_id: "session-a".to_string(),
         state: QueuedDispatchState::Waiting,
         text: "hello".to_string(),
-        queued_at_ms: 0,
+        queued_at_ms: Some(0),
         images: vec![nuo_protocol::ImagePart {
             mime: "image/png".to_string(),
             data: "base64".to_string(),
@@ -360,10 +360,12 @@ fn queued_dispatch_carries_text_and_images() {
 }
 
 #[test]
-fn outbox_count_and_fifo_dispatch_are_session_scoped() {
+fn outbox_count_and_addressing_are_session_scoped() {
     // Every staged message is a next-round item (the insert/next-round
     // distinction was removed), so the outbox count is a single per-session
-    // tally and FIFO dispatch is driven purely by `Waiting` state + session.
+    // tally and addressing is scoped by session — the client does not dispatch
+    // this queue itself (the driver owns shipping, M4), so what must be
+    // session-scoped is the *addressable* set, not a local FIFO drain.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.pending_dispatch
         .push_back(queued_dispatch("b-next", "session-b", "other"));
@@ -372,11 +374,20 @@ fn outbox_count_and_fifo_dispatch_are_session_scoped() {
 
     assert_eq!(app.pending_count("session-a"), 1);
     assert_eq!(app.pending_count("session-b"), 1);
-    let dispatch = app
-        .begin_next_round_dispatch("session-a")
-        .expect("session-a follow-up");
-    assert_eq!(dispatch.id, "a-next");
-    assert_eq!(app.pending_dispatch[0].id, "b-next");
+    assert_eq!(
+        app.queued_at("session-a", 0).map(|d| d.id.as_str()),
+        Some("a-next"),
+        "the session's own row is row 0"
+    );
+    assert!(
+        app.queued_at("session-a", 1).is_none(),
+        "another session's row is not addressable here"
+    );
+    assert_eq!(
+        app.queued_at("session-b", 0).map(|d| d.id.as_str()),
+        Some("b-next"),
+        "and each session addresses only its own slice"
+    );
 }
 
 /// The pointer model's "newest slot = unsent input" invariant: once a draft
@@ -419,11 +430,15 @@ async fn sending_clears_the_remembered_draft() {
     assert_eq!(app.input, "", "no stale draft may return after a send");
 }
 
-/// The Phase-1 unsend restore is asynchronous, not a user gesture: it must
-/// never clobber a draft the user is composing while the round ran. The
-/// interrupted prompt stays recoverable via the recorded history instead.
+/// The async restore must not *lose* input in either direction.
+///
+/// The old policy (`OnlyIfIdle`) returned early when the composer was busy, so
+/// the interrupt's prompt was dropped while the caller believed it had been
+/// restored — the same silent-loss shape as the steer arms. `StashCurrent`
+/// instead adopts the restored text and captures the in-progress draft into the
+/// capsule, so ↓ brings the user's own composition back. Neither side is lost.
 #[tokio::test]
-async fn unsent_restore_preserves_in_progress_draft() {
+async fn unsent_restore_stashes_the_in_progress_draft_instead_of_dropping_either() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.current_session_id = "session-a".to_string();
     app.current_workspace = "~/p".to_string();
@@ -434,24 +449,28 @@ async fn unsent_restore_preserves_in_progress_draft() {
         "interrupted input".to_string(),
         Vec::new(),
         Vec::new(),
-        crate::shell::app::DraftAdoption::OnlyIfIdle,
+        crate::shell::app::DraftAdoption::StashCurrent,
     );
 
     assert_eq!(
-        app.input, "half-typed next message",
-        "the in-progress draft wins over the async restore"
+        app.input, "interrupted input",
+        "the restore is never silently dropped: that was the OnlyIfIdle defect"
+    );
+    assert!(
+        app.has_stashed_draft(),
+        "the in-progress draft is captured, not discarded"
     );
     assert_eq!(app.history_index, None);
 
-    // An idle composer still adopts as before.
-    app.input.clear();
-    app.adopt_as_draft(
-        "interrupted input".to_string(),
-        Vec::new(),
-        Vec::new(),
-        crate::shell::app::DraftAdoption::OnlyIfIdle,
+    // The stashed draft is the user's own composition, intact — that is the
+    // property the old policy destroyed. (Restoring it is ↓'s job once history
+    // holds a row; this fixture records none, so the capsule content is what is
+    // asserted here.)
+    assert_eq!(
+        app.draft_capsule.text.clone(),
+        "half-typed next message",
+        "the stashed draft returns on ↓"
     );
-    assert_eq!(app.input, "interrupted input");
 
     // Explicit gestures (queue recall) keep replacing even a busy composer.
     app.input = "another half-typed".to_string();

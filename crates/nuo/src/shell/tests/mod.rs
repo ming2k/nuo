@@ -15,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 
 use tokio::sync::mpsc;
 
-use crate::shell::app::{App, CaretOwner, QueuedDispatch, QueuedDispatchState, RecallQueued};
+use crate::shell::app::{App, CaretOwner, QueuedDispatch, QueuedDispatchState};
 use crate::shell::completion::CompletionKind;
 use crate::shell::completion::{
     completion_anchor, completion_anchor_x, mention_range_at, resolved_slash_command_len,
@@ -248,7 +248,7 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         drag: SelectionDrag::default(),
         ui: crate::shell::ui::ComponentTree::new(),
         hovered_step: None,
-        transcript_focused: false,
+        focus: crate::shell::focus::Focus::composer(),
         transcript_layout: crate::shell::render::layout::Strategy::default(),
         color_scheme: "zen".to_string(),
         custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig::default(),
@@ -257,7 +257,6 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         expand_auto_scroll: false,
         key_overrides: crate::shell::keymap::GlobalOverrides::default(),
         surface_overrides: crate::shell::keymap::SurfaceOverrides::default(),
-        focused_target: None,
         copy_toast_until: None,
         copy_toast_message: String::new(),
         copy_toast_failed: false,
@@ -352,7 +351,7 @@ fn queued_dispatch(id: &str, session_id: &str, text: &str) -> QueuedDispatch {
         session_id: session_id.to_string(),
         state: QueuedDispatchState::Waiting,
         text: text.to_string(),
-        queued_at_ms: 0,
+        queued_at_ms: Some(0),
         images: Vec::new(),
         text_pastes: Vec::new(),
     }

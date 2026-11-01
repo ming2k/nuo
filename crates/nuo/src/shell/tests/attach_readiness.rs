@@ -67,3 +67,33 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
         "the failure must be retained in the notice log"
     );
 }
+
+/// `[INV-OUTBOX-06]` — settling on a thread re-reads its queue.
+///
+/// The driver pushes `QueueUpdated` after every queue *change*, but that is an
+/// event, not a fact that survives a disconnect or an attach to an already-live
+/// session. Without the read the projection starts empty while the driver holds
+/// items, so the user is shown "nothing pending" and then receives prompts they
+/// never saw coming. The read rides the same `Ready` transition that flushes
+/// pre-`Ready` prompts.
+#[test]
+fn ready_re_reads_the_authoritative_queue() {
+    let mut app = new_app_for_relay_tests();
+    app.current_session_id = "s1".to_string();
+    app.session_phase = nuo_protocol::ThreadPhase::Preparing {
+        stage: nuo_protocol::PrepareStage::Skills,
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    app.tx = tx;
+
+    apply_phase(&mut app, nuo_protocol::ThreadPhase::Ready);
+
+    let sent: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+    assert!(
+        sent.iter().any(|request| matches!(
+            request,
+            nuo_protocol::AgentRequest::QueueSnapshot { thread_id } if thread_id == "s1"
+        )),
+        "arriving on a thread must ask the driver what it already holds: {sent:?}"
+    );
+}

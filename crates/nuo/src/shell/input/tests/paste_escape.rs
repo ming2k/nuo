@@ -169,11 +169,34 @@ fn esc_in_connections_browse_closes_the_modal() {
     assert_eq!(action, InputAction::CloseModal);
 }
 
+/// `Esc` never crosses focus planes (ADR-0145). With an entry highlighted and
+/// nothing running it is simply spent; with a round running it interrupts. The
+/// legacy "Esc gets you back to the composer" arm is deleted, so this guards
+/// against its reintroduction.
 #[test]
-fn escape_clears_focus() {
+fn escape_never_crosses_focus_planes() {
+    assert_eq!(key_with_focus(KeyCode::Esc), InputAction::None);
+}
+
+/// `⇧Tab` is the crossing, and it is the *only* one: it resolves to the plane
+/// toggle from either plane (an involution at the action layer).
+#[test]
+fn shift_tab_toggles_the_focus_plane() {
     assert_eq!(
-        key_with_focus(KeyCode::Esc),
-        InputAction::ClearFocusedTarget
+        key_with_focus(KeyCode::BackTab),
+        InputAction::ToggleFocusPlane
+    );
+    assert_eq!(
+        run_key(
+            &mut String::new(),
+            &mut 0,
+            KeyCode::BackTab,
+            KeyModifiers::NONE,
+            SurfaceFixture::None,
+            false
+        ),
+        InputAction::ToggleFocusPlane,
+        "the crossing resolves from the composer plane too"
     );
 }
 

@@ -164,7 +164,7 @@ impl CopyRequest {
         if app.selection.is_active() {
             return Some(CopyRequest::Selection);
         }
-        if let Some(target) = app.focused_target {
+        if let Some(target) = app.focus.entry() {
             return Some(CopyRequest::Entry {
                 message_idx: target.message_idx,
             });
@@ -182,7 +182,7 @@ impl CopyRequest {
 
 /// The diagnostic sibling of [`CopyRequest::for_current_focus`].
 pub(crate) fn diagnostic_for_current_focus(app: &App) -> Option<CopyRequest> {
-    app.focused_target.map(|target| CopyRequest::Diagnostic {
+    app.focus.entry().map(|target| CopyRequest::Diagnostic {
         message_idx: target.message_idx,
     })
 }
@@ -316,7 +316,10 @@ mod tests {
             message_idx: 0,
             block_idx: 0,
         };
-        app.focused_target = Some(InteractiveTarget::notice(0));
+        app.focus
+            .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+                InteractiveTarget::notice(0),
+            ));
         assert_eq!(
             CopyRequest::for_current_focus(&app),
             Some(CopyRequest::Selection)

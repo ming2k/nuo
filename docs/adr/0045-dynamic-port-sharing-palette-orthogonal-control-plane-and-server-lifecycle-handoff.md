@@ -36,7 +36,7 @@ Nuo previously stratified its execution postures under ADR-0033 into **Client-Bo
 
 ## Decision Drivers
 
-- **Intent-Driven Lifecycle Handoff (`[INV-LIFECYCLE-03]`)**: Explicit network port declarations (`--port`) must decouple the server lifecycle from the interactive TUI, leaving the server active upon client detachment.
+- **Intent-Driven Lifecycle Handoff (`[INV-LIFECYCLE-08]`)**: Explicit network port declarations (`--port`) must decouple the server lifecycle from the interactive TUI, leaving the server active upon client detachment.
 - **Strict Command Space Purity (`[INV-CMD-02]`)**: Infrastructure, server networking, and debug diagnostics must be completely segregated from thread slash commands into client-level workspace actions.
 - **Dedicated Port & Network Sharing Affordance (`[INV-PALETTE-01]`)**: The client interface must provide an ergonomic, modal affordance (`C-x p`) to inspect, dynamically hot-plug, or disable TCP listeners without interrupting ongoing prompts.
 - **Accurate Transport Capability Modeling (`[INV-PORT-01]`)**: Diagnostic tooling must model Local IPC as the authoritative health baseline and TCP listeners as an optional, explicitly enabled transport capability.
@@ -79,7 +79,7 @@ The following alternative architectures were evaluated and rejected:
 
 Chosen option: **Option 3**.
 
-### 1. Static Lifecycle Handoff (`[INV-LIFECYCLE-03]`)
+### 1. Static Lifecycle Handoff (`[INV-LIFECYCLE-08]`)
 - When `nuo` is launched with an explicit `--port` (or `NUO_PORT` in interactive posture), the background server is designated as an autonomous host.
 - When the interactive client TUI exits, the server process **continues running in the background**.
 - Upon exit, the client terminal prints an actionable handoff banner:
@@ -124,7 +124,7 @@ Chosen option: **Option 3**.
 ## Invariants & Behavioral Boundaries
 
 - **[INV-PORT-01] Canonical Baseline Port**: The system-wide default TCP control plane port is `9800`. Ambient `NUO_PORT` environment variables take precedence, followed by CLI `--port` flags. No subcomponent may define divergent fallback ports.
-- **[INV-LIFECYCLE-03] Intent-Driven Server Handoff**: An interactive TUI launched with an explicit network port (`--port` or `NUO_PORT`) MUST NOT terminate the session server upon client exit, and MUST display an explicit detach handoff message.
+- **[INV-LIFECYCLE-08] Intent-Driven Server Handoff**: An interactive TUI launched with an explicit network port (`--port` or `NUO_PORT`) MUST NOT terminate the session server upon client exit, and MUST display an explicit detach handoff message.
 - **[INV-CMD-02] Infrastructure & Cognition Orthogonality**: Server transport operations (listen/unlisten), port manipulation, and system diagnostics MUST NOT be exposed as conversational slash commands. They belong to Client Workspace Palettes (`C-x p`, `C-x d`).
 - **[INV-PALETTE-01] Ephemeral Remote Sharing Palette**: `C-x p` MUST provide non-destructive inspection and hot-plugging of server network endpoints without interrupting the active thread composer or message history.
 

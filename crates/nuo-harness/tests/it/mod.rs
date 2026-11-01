@@ -1,3 +1,4 @@
+mod compaction;
 mod duplex;
 mod orchestration;
 mod session_round_trip;

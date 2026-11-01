@@ -32,7 +32,7 @@ pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {
         app.modal_index = 0;
         app.permission_scroll = 0;
         app.permission_show_details = false;
-        app.park_transcript_focus_for_sheet();
+        app.park_focus_for_sheet();
     } else if app.pending_permission.is_none()
         && app.active_sheet() == Some(crate::shell::sheet::Permission)
     {
@@ -65,7 +65,7 @@ pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {
                 app.question_scroll = 0;
                 app.question_modal_follow = true;
                 app.modal_index = 0;
-                app.park_transcript_focus_for_sheet();
+                app.park_focus_for_sheet();
             } else {
                 app.question = None;
                 if app.active_sheet() == Some(crate::shell::sheet::Question) {
@@ -77,7 +77,7 @@ pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {
         if app.question.is_some() && !request_sheet_open {
             app.push_sheet_surface(crate::shell::sheet::Question);
             app.modal_index = 0;
-            app.park_transcript_focus_for_sheet();
+            app.park_focus_for_sheet();
         }
     }
 
@@ -93,7 +93,7 @@ pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {
             if let Some(req) = front {
                 app.pending_input = Some(req);
                 app.modal_index = 0;
-                app.park_transcript_focus_for_sheet();
+                app.park_focus_for_sheet();
             } else {
                 app.pending_input = None;
                 if app.active_sheet() == Some(crate::shell::sheet::InputInjection) {
@@ -107,7 +107,7 @@ pub(crate) fn sync_request_surfaces(app: &mut App, runtime: &UiRuntime) {
             app.park_input_draft();
             app.push_sheet_surface(crate::shell::sheet::InputInjection);
             app.modal_index = 0;
-            app.park_transcript_focus_for_sheet();
+            app.park_focus_for_sheet();
         }
     }
 }

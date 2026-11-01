@@ -537,9 +537,26 @@ impl SessionStore {
     ) -> Result<(), String> {
         let (path, data) = {
             let mut state = self.state.lock().await;
-            let translated = translate_projection(&mut state.data.transcript, &result);
-            if translated.is_none() {
-                return Err("projection translation failed: view commit writes no execution facts and history cannot be rebuilt from model window".into());
+            // `translate_projection` expresses the projection as append-only
+            // directives when the caller's window is exactly reproducible that way.
+            // When it is not — any window holding messages this session has not
+            // committed — the documented fallback applies: rebuild the transcript
+            // from the caller's window. That is safe *because* the caller's window
+            // is the truth here (`ContextProjectionResult` carries the archived
+            // originals it replaced, so nothing is invented).
+            //
+            // This used to `return Err`, contradicting its own doc comment. `?`
+            // on a mid-turn projection is not a recoverable failure: the turn is
+            // already in flight against the projected window and the durable state
+            // would silently disagree with what the model was told.
+            if translate_projection(&mut state.data.transcript, &result).is_none() {
+                tracing::debug!(
+                    session = %state.data.id,
+                    operation = ?result.checkpoint.operation,
+                    "projection is not expressible as an append-only directive; rebuilding the transcript from the caller's window"
+                );
+                state.data.transcript = rebuild_transcript_from_messages(&result.model_window);
+                state.data.generation = uuid::Uuid::new_v4().to_string();
             }
             state.data.last_projection = Some(result.checkpoint);
             state.invalidate_projection_cache();

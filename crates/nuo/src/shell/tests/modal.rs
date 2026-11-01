@@ -686,59 +686,71 @@ fn move_queued_swaps_within_session_and_clamps_at_edges() {
 }
 
 #[test]
-fn a_handed_back_steer_becomes_an_ordinary_outbox_item() {
+fn steer_ending_paths_consume_only_the_steer_row() {
     // ADR-0137 replaced the old "inserts are transcript-owned" contract. A
-    // busy-Enter steer now waits in the outbox, and a steer whose round closed
-    // before admission (`SteerUnavailable`) is *already* there — it is handed
-    // back in place, not staged anew. What must hold is that the handed-back
-    // item is an ordinary manageable outbox row: FIFO dispatch pops it, the
-    // modal can recall it, and the in-flight dispatch marker is not addressable
-    // as outbox work.
+    // busy-Enter steer waits in the outbox as a `Steering` row, and the two
+    // ways it can end (`SteerAdmitted` / `SteerCancelled`) remove exactly that
+    // row. What must hold is that those paths never consume a `Waiting`
+    // follow-up, because a `Waiting` row is a projection of the driver's queue
+    // and still has a life of its own.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.pending_dispatch
         .push_back(queued_dispatch("w1", "session-a", "waiting one"));
 
-    // Hand back a steer that was already staged as `Steering`.
     let mut staged = queued_dispatch("steer-1", "session-a", "steer this");
     staged.state = QueuedDispatchState::Steering;
     app.pending_dispatch.push_back(staged);
 
-    // The hand-back flips the existing row to `Waiting`; it does not stage a
-    // duplicate under the same id.
-    app.requeue_dispatch("session-a", "steer-1", None);
-    let ids: Vec<(&str, QueuedDispatchState)> = app
+    // An id that names no steer row is a no-op: the take is state-scoped, so a
+    // `Waiting` row can never be mistaken for the steer it shares no id with.
+    assert!(app.take_steer_row("session-a", "w1").is_none());
+    assert_eq!(
+        app.pending_count("session-a"),
+        2,
+        "a Waiting row must survive a steer-ending path"
+    );
+
+    // The steer row yields its full payload (text + attachments), which is what
+    // the restore arms put back into the composer.
+    let taken = app
+        .take_steer_row("session-a", "steer-1")
+        .expect("the steer row is consumed");
+    assert_eq!(taken.text, "steer this");
+    assert_eq!(taken.state, QueuedDispatchState::Steering);
+    let ids: Vec<&str> = app
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-a")
-        .map(|d| (d.id.as_str(), d.state))
+        .map(|d| d.id.as_str())
         .collect();
     assert_eq!(
         ids,
-        vec![
-            ("w1", QueuedDispatchState::Waiting),
-            ("steer-1", QueuedDispatchState::Waiting),
-        ],
-        "the hand-back flips the existing row to Waiting instead of duplicating it"
+        vec!["w1"],
+        "only the steer row left; the follow-up is untouched"
     );
-    assert_eq!(app.pending_count("session-a"), 2);
+    assert_eq!(app.pending_count("session-a"), 1);
+}
 
-    // The handed-back item is ordinary now: FIFO dispatch pops the front (w1)…
-    let popped = app
-        .begin_next_round_dispatch("session-a")
-        .expect("a Waiting item pops first");
-    assert_eq!(popped.id, "w1");
-    // …and the modal can recall the remaining one like any other entry.
-    assert!(
-        app.recall_queued_at("session-a", 0).is_some(),
-        "the handed-back steer is modal-addressable"
-    );
-
+#[test]
+fn a_dispatching_row_is_not_addressable_outbox_work() {
     // The in-flight `Dispatching` row is not counted as outbox work: the strip,
-    // the modal and the addressable set exclude it (one population, INV-STEER-05).
+    // the modal and the addressable set exclude it (one population,
+    // `[INV-STEER-05]`). The row still has to survive a `QueueSnapshot` (its
+    // ack has not landed yet), so the snapshot's preservation and the strip's
+    // exclusion are two different rules that must both hold.
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let mut dispatching = queued_dispatch("in-flight", "session-a", "dispatching");
+    dispatching.state = QueuedDispatchState::Dispatching;
+    app.pending_dispatch.push_back(dispatching);
+
     assert_eq!(
         app.pending_count("session-a"),
         0,
         "a Dispatching row is not addressable outbox work"
+    );
+    assert!(
+        app.queued_at("session-a", 0).is_none(),
+        "and it is not a row the modal can address"
     );
 }
 
@@ -2117,7 +2129,10 @@ fn switching_away_from_queue_runs_exit_hook() {
     let sid = "queue-session";
     app.open_dialog(crate::shell::surfaces::DialogKind::Queue);
     app.block_queue(sid);
-    app.queue_exit_session = Some(sid.to_string());
+    app.queue_exit_session = Some((
+        sid.to_string(),
+        crate::shell::app::QueuePauseOrigin::ModalAutoPause,
+    ));
 
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
 
@@ -2132,7 +2147,10 @@ fn queue_view_hide_releases_the_auto_block() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Queue);
     app.block_queue("sess");
-    app.queue_exit_session = Some("sess".to_string());
+    app.queue_exit_session = Some((
+        "sess".to_string(),
+        crate::shell::app::QueuePauseOrigin::ModalAutoPause,
+    ));
     assert!(app.is_queue_blocked("sess"));
 
     assert!(app.dismiss_surface());
@@ -3181,7 +3199,7 @@ async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() 
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Thread
     );
-    assert!(!app.transcript_focused);
+    assert!(app.focus.is_composer());
 }
 
 #[tokio::test]
@@ -4106,4 +4124,331 @@ fn stale_tab_retirement_is_keyed_on_the_gone_id_only() {
     )]);
     assert!(!super::runner::retire_preserved_tab(&mut again, "gone"));
     assert_eq!(again.unwrap().len(), 1);
+}
+
+/// The queue modal's verbs must reach the **server**, not just the projection.
+///
+/// A `Waiting` outbox row is the client's view of the driver's
+/// `FollowUpQueue`. `D` (delete) and `Enter` (recall-to-composer) used to mutate
+/// only the local list, so the message stayed queued server-side: the driver
+/// shipped it at the next round boundary while the next `QueueUpdated` snapshot
+/// put the row back. Deleting was therefore both ineffective (the prompt still
+/// ran) and unstable (the row returned).
+#[tokio::test]
+async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    let sid = "s1";
+    app.pending_dispatch
+        .push_back(queued_dispatch("q1", sid, "first"));
+    app.pending_dispatch
+        .push_back(queued_dispatch("q2", sid, "second"));
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::OpenQueue,
+        sid,
+    )
+    .await;
+    // Opening auto-pauses the server's queue so nothing ships mid-edit.
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(AgentRequest::QueuePaused { paused: true, .. })
+    ));
+
+    // `D` on row 0 deletes q1 remotely as well as locally.
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::QueueDelete,
+        sid,
+    )
+    .await;
+    match rx.try_recv() {
+        Ok(AgentRequest::QueueRemove {
+            thread_id,
+            input_id,
+        }) => {
+            assert_eq!(thread_id, sid);
+            assert_eq!(input_id, "q1", "the deleted row is the one addressed");
+        }
+        other => panic!("delete must send QueueRemove, got {other:?}"),
+    }
+    assert_eq!(app.pending_count(sid), 1);
+
+    // `Enter` recalls the remaining row: remove remotely, restore locally.
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::RecallQueuedSelected,
+        sid,
+    )
+    .await;
+    match rx.try_recv() {
+        Ok(AgentRequest::QueueRemove { input_id, .. }) => assert_eq!(input_id, "q2"),
+        other => panic!("recall must send QueueRemove, got {other:?}"),
+    }
+    assert_eq!(app.input, "second", "the prompt returns to the composer");
+    assert_eq!(app.pending_count(sid), 0);
+
+    // Closing the modal releases the pause it set — the symmetric half.
+    // (`RecallQueuedSelected` already dismissed the modal, so the release is
+    // the next thing on the wire.)
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Ok(AgentRequest::QueuePaused { paused: false, .. })
+        ),
+        "every close path must resume the server's queue"
+    );
+}
+
+/// `Ctrl+P` inside the modal and `/queue block` are the same verb.
+#[tokio::test]
+async fn queue_block_toggles_are_mirrored_to_the_server() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    let sid = "s1";
+    app.pending_dispatch
+        .push_back(queued_dispatch("q1", sid, "first"));
+
+    // The slash command path (`/queue block`) must not be a local-only lie.
+    crate::shell::event_loop::actions::dispatch_command_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::keymap::CommandId::ToggleQueueBlock,
+        sid,
+    )
+    .await;
+    assert!(app.is_queue_blocked(sid));
+    assert!(
+        matches!(
+            rx.try_recv(),
+            Ok(AgentRequest::QueuePaused { paused: true, .. })
+        ),
+        "/queue block must pause the driver, not just the projection"
+    );
+
+    crate::shell::event_loop::actions::dispatch_command_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::keymap::CommandId::ToggleQueueBlock,
+        sid,
+    )
+    .await;
+    assert!(!app.is_queue_blocked(sid));
+    assert!(matches!(
+        rx.try_recv(),
+        Ok(AgentRequest::QueuePaused { paused: false, .. })
+    ));
+}
+
+/// `/queue clear` must also cancel a live steer.
+///
+/// A `Steering` row is not in the driver's follow-up queue, so `QueueClear`
+/// cannot reach it: clearing only the list would let the steer land *after* the
+/// user emptied the queue — the one outcome "clear" promises not to have.
+#[tokio::test]
+async fn clear_queue_command_cancels_a_live_steer() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    app.pending_dispatch
+        .push_back(queued_dispatch("a", "s1", "mine"));
+    let mut steer = queued_dispatch("st1", "s1", "steer this");
+    steer.state = QueuedDispatchState::Steering;
+    app.pending_dispatch.push_back(steer);
+
+    crate::shell::event_loop::actions::dispatch_command_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::keymap::CommandId::ClearQueue,
+        "s1",
+    )
+    .await;
+
+    let mut sent = Vec::new();
+    while let Ok(req) = rx.try_recv() {
+        sent.push(req);
+    }
+    assert!(
+        sent.iter().any(|req| matches!(
+            req,
+            AgentRequest::QueueClear { thread_id } if thread_id == "s1"
+        )),
+        "the follow-up queue is cleared: {sent:?}"
+    );
+    assert!(
+        sent.iter().any(|req| matches!(
+            req,
+            AgentRequest::CancelSteer { input_id, .. } if input_id == "st1"
+        )),
+        "and the live steer is cancelled, or it lands after the clear: {sent:?}"
+    );
+    assert_eq!(app.pending_count("s1"), 0);
+    assert!(
+        app.suppress_steer_restore
+            .contains(&("s1".to_string(), "st1".to_string())),
+        "a clear consumes the draft; it must not hand the text back"
+    );
+}
+
+/// `/queue clear` is session-scoped and mirrored.
+#[tokio::test]
+async fn clear_queue_command_is_session_scoped_and_mirrored() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    app.pending_dispatch
+        .push_back(queued_dispatch("a", "s1", "mine"));
+    app.pending_dispatch
+        .push_back(queued_dispatch("b", "s2", "someone else's"));
+
+    crate::shell::event_loop::actions::dispatch_command_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::keymap::CommandId::ClearQueue,
+        "s1",
+    )
+    .await;
+
+    match rx.try_recv() {
+        Ok(AgentRequest::QueueClear { thread_id }) => assert_eq!(thread_id, "s1"),
+        other => panic!("clear must send QueueClear, got {other:?}"),
+    }
+    assert_eq!(app.pending_count("s1"), 0);
+    assert_eq!(
+        app.pending_count("s2"),
+        1,
+        "clearing one session's queue must not touch another's"
+    );
+}
+
+/// `[INV-OUTBOX-04]` — the close hook must not stomp a pause the user set, and
+/// must not *release* one they asked for.
+///
+/// `Ctrl+P` pauses from inside the modal, but the pending-exit marker stays
+/// armed for the close, which then resumes unconditionally: the user's pause is
+/// silently undone the moment they close the panel. The exit hook owns "release
+/// what this open set", not "force resume".
+#[tokio::test]
+async fn closing_the_queue_panel_does_not_undo_an_explicit_pause() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    let sid = "s1";
+    app.pending_dispatch
+        .push_back(queued_dispatch("q1", sid, "first"));
+
+    // Open (auto-pauses), then pause *deliberately* is a no-op — it is already
+    // paused — so the interesting sequence is: open, resume, pause.
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::OpenQueue,
+        sid,
+    )
+    .await;
+    let _ = rx.try_recv();
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::QueueToggleBlock,
+        sid,
+    )
+    .await;
+    assert!(!app.is_queue_blocked(sid), "Ctrl+P resumed it");
+    let _ = rx.try_recv();
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::QueueToggleBlock,
+        sid,
+    )
+    .await;
+    assert!(app.is_queue_blocked(sid), "Ctrl+P paused it again");
+    let _ = rx.try_recv();
+
+    // Now close. The user's pause must SURVIVE the close.
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::CloseModal,
+        sid,
+    )
+    .await;
+    assert!(
+        app.is_queue_blocked(sid),
+        "closing the panel must not resume a queue the user explicitly paused"
+    );
+    assert!(
+        !matches!(
+            rx.try_recv(),
+            Ok(AgentRequest::QueuePaused { paused: false, .. })
+        ),
+        "and it must not tell the server to resume either"
+    );
+}
+
+/// A steer that is admitted while the queue modal is open leaves the list, so
+/// the close hook must not reuse the captured index against the new list.
+#[tokio::test]
+async fn closing_the_queue_panel_after_a_steer_leaves_the_list() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+    let sid = "s1";
+    app.pending_dispatch
+        .push_back(queued_dispatch("q1", sid, "first"));
+    let mut steer = queued_dispatch("st1", sid, "steer this");
+    steer.state = QueuedDispatchState::Steering;
+    app.pending_dispatch.push_back(steer);
+
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::OpenQueue,
+        sid,
+    )
+    .await;
+    let _ = rx.try_recv();
+
+    // The steer is admitted: its row leaves and the list shrinks to one.
+    let _ = crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::DispatchRemoved {
+            session_id: sid.to_string(),
+            input_id: "st1".to_string(),
+        },
+    );
+    assert_eq!(app.pending_count(sid), 1);
+
+    // Close: the cursor must land inside the surviving list, not past its end.
+    crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::CloseModal,
+        sid,
+    )
+    .await;
+    let idx = app
+        .surfaces
+        .dlg::<crate::shell::surfaces::QueueDialog>()
+        .index;
+    assert!(
+        idx < app.pending_count(sid).max(1),
+        "the retained cursor must be clamped to the list that still exists (got {idx})"
+    );
 }

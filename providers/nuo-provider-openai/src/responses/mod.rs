@@ -262,6 +262,7 @@ impl OpenAiResponsesProvider {
             nuo_provider::OpenAiResponsesDialect::Copilot => "Copilot",
             nuo_provider::OpenAiResponsesDialect::DeepSeek => "DeepSeek",
             nuo_provider::OpenAiResponsesDialect::ChatGpt => "ChatGPT",
+            nuo_provider::OpenAiResponsesDialect::Portable => "OpenAI Responses (portable)",
             nuo_provider::OpenAiResponsesDialect::Standard => "OpenAI Responses",
         }
     }

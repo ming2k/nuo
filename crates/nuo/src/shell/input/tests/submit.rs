@@ -215,7 +215,7 @@ fn space_in_transcript_is_inert() {
         &mut input,
         &mut cursor,
         Dispatch {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),

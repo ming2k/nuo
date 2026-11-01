@@ -385,7 +385,8 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Browse focus is live: the user clicked into the transcript a moment ago.
-    app.transcript_focused = true;
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
     // The agent's question arrives; the per-frame sync mounts the sheet.
     app.pending_questions.push_back(UserQuestionRequest {
@@ -415,10 +416,10 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
         "question sheet mounted"
     );
     assert!(
-        !app.transcript_focused,
+        app.focus.is_composer(),
         "browse focus must be parked at sheet mount, alongside the step target"
     );
-    assert!(app.focused_target.is_none());
+    assert!(app.focus.entry().is_none());
 
     // The user answers; the Closed effect unmounts the sheet. The composer
     // slot is handed back clean — no stale focus dims it.
@@ -462,17 +463,18 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
         app.active_sheet(),
         Some(crate::shell::sheet::SheetKind::Permission)
     );
-    assert!(!app.transcript_focused, "parked at mount");
+    assert!(app.focus.is_composer(), "parked at mount");
 
     // The user clicks the transcript behind the pass-through sheet — the
     // mouse path legitimately re-arms browse focus (mouse.rs).
-    app.transcript_focused = true;
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
     // A later sync frame must not clear it again (no re-mount occurs —
     // the sheet is already up).
     crate::shell::event_loop::sync::sync_request_surfaces(&mut app, &runtime);
     assert!(
-        app.transcript_focused,
+        app.focus.is_transcript(),
         "browse focus re-armed behind the pass-through sheet must survive"
     );
 }

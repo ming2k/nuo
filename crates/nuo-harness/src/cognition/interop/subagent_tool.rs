@@ -249,8 +249,28 @@ pub struct SubagentTool {
     /// server process's cwd. `None` falls back to the process cwd
     /// (tests, single-project processes).
     workspace_root: std::sync::Mutex<Option<std::path::PathBuf>>,
+    /// The parent session store, bound at composition time (see
+    /// [`SubagentTool::bind_session`]). Each spawned subagent opens its **own**
+    /// session row beneath it, so a child's transcript is durable while it runs
+    /// instead of being reconstructed afterwards from the parent's embedded
+    /// `children`. `None` (tests, bare `call` paths) runs the child session-free,
+    /// which is the pre-existing behaviour.
+    parent_session: std::sync::Mutex<Option<Arc<nuo_persistence::session::SessionStore>>>,
+    /// Factory producing a child's mid-turn relief (threshold + projection gate).
+    /// Injected by the composition root because the implementation lives above
+    /// this layer (`[INV-HARNESS-04]`).
+    subagent_relief: std::sync::Mutex<Option<SubagentRelief>>,
     retry_config: std::sync::Mutex<SubagentRetryConfig>,
 }
+
+/// Installs mid-turn context relief on a freshly spawned child.
+///
+/// Defined here as a plain function type so this layer never names the concrete
+/// gate or its settings (both live in `orchestration`, which wraps `cognition` —
+/// `[INV-HARNESS-04]`). The composition root supplies the implementation; this is
+/// the seam, not a dependency.
+pub type SubagentRelief =
+    Arc<dyn Fn(&Agent, Arc<nuo_persistence::session::SessionStore>) + Send + Sync>;
 
 #[derive(Clone)]
 struct SubagentAccountingContext {
@@ -325,6 +345,8 @@ impl SubagentTool {
             parent_delegation: std::sync::Mutex::new(None),
             parent_execution_policy: std::sync::Mutex::new(None),
             workspace_root: std::sync::Mutex::new(None),
+            parent_session: std::sync::Mutex::new(None),
+            subagent_relief: std::sync::Mutex::new(None),
             retry_config: std::sync::Mutex::new(SubagentRetryConfig::default()),
         }
     }
@@ -356,6 +378,8 @@ impl SubagentTool {
             parent_delegation: std::sync::Mutex::new(None),
             parent_execution_policy: std::sync::Mutex::new(None),
             workspace_root: std::sync::Mutex::new(None),
+            parent_session: std::sync::Mutex::new(None),
+            subagent_relief: std::sync::Mutex::new(None),
             retry_config: std::sync::Mutex::new(SubagentRetryConfig::default()),
         }
     }
@@ -417,6 +441,36 @@ impl SubagentTool {
             .parent_variants
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(handle);
+    }
+
+    /// Bind the parent session so each spawned subagent opens its own session row
+    /// and carries a mid-turn projection gate.
+    ///
+    /// Without this a subagent had no session at all while running: its transcript
+    /// only became durable *after* the round, when `admit_subagent_children`
+    /// rebuilt the child from the parent message's embedded `children`. That left
+    /// the running child with no projection target, so context relief — pre-round
+    /// pruning, mid-turn projection, compaction — could not reach the one shape
+    /// that most needs it: a single round running to completion with a large tool
+    /// budget and no round boundary to relieve pressure at.
+    ///
+    /// `relief` is a factory rather than a gate because the gate lives above
+    /// `cognition` and `[INV-HARNESS-04]` forbids this layer from naming it. The
+    /// composition root decides what relief a child gets; this layer only decides
+    /// *when* it lacks one.
+    pub fn bind_session(
+        &self,
+        session: Arc<nuo_persistence::session::SessionStore>,
+        relief: SubagentRelief,
+    ) {
+        *self
+            .parent_session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(session);
+        *self
+            .subagent_relief
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(relief);
     }
 
     /// Bind the parent agent's model guidance handle so subagents inherit prompt guidance.
@@ -908,6 +962,68 @@ impl SubagentTool {
             // arm the parent's interrupt sweep uses.
             self.registry.register_cancel(id, child_cancel.clone());
         }
+        // Open this subagent's own session beneath the parent, if one was bound.
+        //
+        // Its transcript is now durable *while it runs*, which is what makes
+        // context relief possible at all: pruning, mid-turn projection and
+        // compaction all target a session. Previously the child had no session
+        // mid-run and its transcript was reconstructed after the fact from the
+        // parent message's embedded `children`, so a long subagent round could
+        // only grow until the provider rejected it.
+        let bound_parent = self
+            .parent_session
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let child_session = match bound_parent.as_ref() {
+            Some(parent) => {
+                let id = uuid::Uuid::new_v4().to_string();
+                match nuo_persistence::session::SessionStore::for_subagent(parent, id) {
+                    Ok((store, _parent_id)) => Some(std::sync::Arc::new(store)),
+                    Err(error) => {
+                        // Refusing is the honest outcome: a child without a parent
+                        // pointer is invisible to `sub:` handles and permanently
+                        // orphaned. Running session-free keeps the sub-task alive
+                        // (its result still reaches the caller) while losing only
+                        // durability — and says so.
+                        tracing::warn!(
+                            %error,
+                            "subagent session could not be opened; running this child session-free"
+                        );
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+        if let Some(session) = child_session.as_ref() {
+            // The task is the child's first (and, until it answers, only) user
+            // message. Committing it up front means the transcript survives a
+            // crash and a mid-turn projection has a durable base to fold against.
+            //
+            // The message must be built exactly as the live window builds it below
+            // (`visible_user` with `SubagentTask`), otherwise the first projection
+            // would see a window it cannot map onto the transcript.
+            let seed = vec![crate::runtime::message::visible_user(
+                nuo_protocol::InjectionKind::SubagentTask,
+                prompt,
+            )];
+            if let Err(error) = session
+                .commit_turn(nuo_persistence::session::CommitTurn {
+                    messages: &seed,
+                    round_counter: Some(1),
+                    usage_records: &[],
+                    retry_point: None,
+                    round_interrupt: None,
+                    operation_id: None,
+                    expected_revision: None,
+                })
+                .await
+            {
+                tracing::warn!(%error, "could not admit the subagent session; continuing session-free");
+            }
+        }
+
         // Track the subagent's own ReAct position as `ModelRequestStarted`
         // events arrive so the streamed `StreamStart` / `ToolCall` events can
         // carry it (mirroring the main session's `(round, turn)` stamping).
@@ -931,6 +1047,55 @@ impl SubagentTool {
             })
             .unwrap_or("subagent");
         let origin_label = format!("subagent #{} · {}", short_id, profile.name);
+
+        // Give the child its own relief valve.
+        //
+        // `project_context_if_needed` runs between every ReAct turn and asks the
+        // agent's gate to project. A subagent previously had neither the threshold
+        // nor the gate, so the check always returned early — and since a subagent
+        // runs one round to completion, there is no round boundary where
+        // `execute_round` could prune or compact for it. This is the only place
+        // context relief can reach a child.
+        if let Some(session) = child_session.as_ref() {
+            // What relief a child gets is the composition root's decision (the gate
+            // and its model-relative settings live above this layer). When nothing
+            // was bound, the child runs session-free rather than silently getting
+            // the *wrong* thresholds.
+            let relief = self
+                .subagent_relief
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(relief) = relief {
+                relief(&subagent, std::sync::Arc::clone(session));
+            }
+            // Persist every completed turn. This is the child's mid-round save
+            // point: a crash keeps the work, and the gate has a durable transcript
+            // to fold against instead of projecting a window the session has never
+            // seen (which it must refuse — a projection is an append-only fact, not
+            // a rewritten history).
+            let persist_session = std::sync::Arc::clone(session);
+            subagent.set_turn_persist(std::sync::Arc::new(
+                move |messages: &[nuo_protocol::Message]| {
+                    let session = std::sync::Arc::clone(&persist_session);
+                    let snapshot = messages.to_vec();
+                    Box::pin(async move {
+                        session
+                            .commit_turn(nuo_persistence::session::CommitTurn {
+                                messages: &snapshot,
+                                round_counter: None,
+                                usage_records: &[],
+                                retry_point: None,
+                                round_interrupt: None,
+                                operation_id: None,
+                                expected_revision: None,
+                            })
+                            .await
+                            .map(|_| ())
+                    })
+                },
+            ));
+        }
 
         let mut round = subagent.begin_streaming_round();
         let mut attempt: usize = 0;

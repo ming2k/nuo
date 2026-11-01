@@ -489,8 +489,9 @@ impl App {
     ///    - If it delegates to the composer (`HistorySearch`), it owns `CaretOwner::Composer`.
     ///    - Otherwise (browse dialogs, list navigation, delete confirmation), cursor is suppressed (`CaretOwner::None`).
     /// 2. If no overlay is mounted, the active root Scene owns the terminal:
-    ///    - In `ThreadScene`, the composer owns `CaretOwner::Composer` unless a transcript step
-    ///      or browse focus has blurred the composer (`CaretOwner::None`).
+    ///    - In `ThreadScene`, the composer and the transcript are **peer
+    ///      planes** (ADR-0145): the composer owns `CaretOwner::Composer` while
+    ///      its plane holds the keyboard, and the transcript plane owns none.
     ///    - Non-thread scenes without composer claim `CaretOwner::None`.
     pub fn caret_owner(&self) -> CaretOwner {
         use crate::shell::surfaces::{DialogKind, SheetKind};
@@ -555,7 +556,8 @@ impl App {
             return CaretOwner::None;
         }
 
-        // Scene layer: the composer owns the caret unless blurred by step/browse focus
+        // Scene layer: the composer owns the caret unless the transcript — its
+        // peer plane — holds the keyboard (ADR-0145).
         if self.current_scene() == crate::shell::surfaces::SceneKind::Dashboard
             && self.host_prompting
         {
@@ -565,8 +567,7 @@ impl App {
             return CaretOwner::Scene;
         }
         if self.current_scene() != crate::shell::surfaces::SceneKind::Thread
-            || self.focused_target.is_some()
-            || self.transcript_focused
+            || self.focus.is_transcript()
             || self.in_subagent_view()
         {
             CaretOwner::None
@@ -636,9 +637,12 @@ impl App {
     /// past the newest history row later restores *this* input, never a
     /// stale one.
     ///
-    /// [`DraftAdoption::OnlyIfIdle`] guards the one path that is not a user
-    /// gesture: the unsend restore arrives asynchronously and must not eat a
-    /// half-typed draft the user was composing while the round ran.
+    /// [`DraftAdoption::StashCurrent`] is for the paths where the composer may
+    /// hold work the user is mid-way through (an asynchronous steer restore, a
+    /// queue recall): the adopted text becomes live and the previous content is
+    /// captured into `draft_capsule`, so ↓ brings it back. Nothing is lost in
+    /// either direction — which is the point: the old `OnlyIfIdle` policy made
+    /// "the composer is busy" silently equivalent to "discard the restore".
     ///
     /// The staged attachments are stored both in `pending_*` (what ships on
     /// send) and mirrored into the `history_draft_*` slots (what ↓ restores).
@@ -649,11 +653,30 @@ impl App {
         text_pastes: Vec<String>,
         policy: DraftAdoption,
     ) {
-        if policy == DraftAdoption::OnlyIfIdle
+        if policy == DraftAdoption::StashCurrent
             && (!self.input.is_empty()
                 || !self.pending_images.is_empty()
                 || !self.pending_text_pastes.is_empty())
         {
+            // Capture before the overwrite: the capsule is an atomic
+            // (text, cursor, attachments) triple, so the composer's previous
+            // state returns intact rather than half-restored.
+            self.stash_draft();
+            // `stash_draft` clears the live buffers; the adopted content is
+            // installed below. The capsule must NOT then be re-pointed at that
+            // content — the whole point is that ↓ brings back what the user was
+            // writing, so the capsule keeps the *previous* draft.
+            self.history_index = None;
+            self.input = text;
+            self.set_cursor_end();
+            if !images.is_empty() {
+                self.pending_images = images;
+            }
+            if !text_pastes.is_empty() {
+                self.pending_text_pastes = text_pastes;
+            }
+            self.suggestion_index = None;
+            self.completion_dismissed = true;
             return;
         }
         self.history_index = None;

@@ -90,6 +90,18 @@ pub enum AgentRequest {
         input_id: String,
         delta: i32,
     },
+    /// Re-read the authoritative follow-up queue for one thread.
+    ///
+    /// The driver pushes a [`RoundEvent::QueueUpdated`] snapshot after every
+    /// queue change, but a snapshot is an *event*, not a fact that survives a
+    /// disconnect: a client that attaches (or re-attaches) to a live session
+    /// starts with an empty projection and no event is coming, so it would show
+    /// an empty queue while the driver holds items that will ship at the next
+    /// boundary — the user sees nothing pending and gets surprise prompts. A
+    /// frontend asks once when it settles on a thread.
+    QueueSnapshot {
+        thread_id: String,
+    },
     /// Pause or resume automatic shipping of the thread's follow-up queue
     /// (`Ctrl+P` / the queue modal's block control). Enqueueing still works
     /// while paused; only the round-boundary auto-ship is gated.

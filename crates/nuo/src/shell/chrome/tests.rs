@@ -35,6 +35,7 @@ fn activity_row_text_with_clause(
                 queued_count: 0,
                 queued_preview: None,
                 queued_first_is_steer: false,
+                queue_blocked: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -69,6 +70,7 @@ fn activity_row_colors(width: u16, status: &str, awaiting: bool, phase: usize) -
                 queued_count: 0,
                 queued_preview: None,
                 queued_first_is_steer: false,
+                queue_blocked: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -225,6 +227,7 @@ fn activity_strip_renders_consolidated_queued_badge_and_active_status() {
                 queued_count: 2,
                 queued_preview: Some("Check edge cases"),
                 queued_first_is_steer: false,
+                queue_blocked: false,
                 tasks_count: 1,
                 tasks_preview: Some("indexer"),
                 queue_key: Some(Key::CTRL_Q),
@@ -285,6 +288,7 @@ fn activity_strip_paints_the_retry_clause_verbatim_exactly_once() {
                 queued_count: 0,
                 queued_preview: None,
                 queued_first_is_steer: false,
+                queue_blocked: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -340,6 +344,7 @@ fn activity_strip_renders_idle_queued_preview() {
                 queued_count: 1,
                 queued_preview: Some("Check edge cases"),
                 queued_first_is_steer: false,
+                queue_blocked: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -373,6 +378,70 @@ fn activity_strip_renders_idle_queued_preview() {
     );
 }
 
+/// A paused queue must say so. `N queued` alone reads identically whether the
+/// items are waiting their turn or parked by a driver that will never ship
+/// them, so the strip — the one row that states session conditions — has to
+/// carry the reason (`[INV-OUTBOX-05]`, ADR-0144).
+#[test]
+fn activity_strip_states_that_the_queue_is_paused() {
+    let theme = Theme::default();
+    let render = |blocked: bool, width: u16| -> String {
+        let mut terminal = nuotc::TestTerminal::new(width, 1);
+        terminal.draw(|f| {
+            draw_activity_strip(
+                f,
+                f.area(),
+                None,
+                ActivityStripProps {
+                    status: "",
+                    backoff: None,
+                    awaiting_permission: false,
+                    queued_count: 2,
+                    queued_preview: Some("Check edge cases"),
+                    queued_first_is_steer: false,
+                    queue_blocked: blocked,
+                    tasks_count: 0,
+                    tasks_preview: None,
+                    queue_key: Some(Key::CTRL_Q),
+                },
+                Some(Key::ESC),
+                0,
+                &theme,
+            );
+        });
+        terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect()
+    };
+
+    let running = render(false, 80);
+    assert!(
+        !running.contains("paused"),
+        "a normally draining queue must not claim to be paused: {running:?}"
+    );
+
+    let paused = render(true, 80);
+    assert!(
+        paused.contains("paused"),
+        "a paused queue must state the reason nothing ships: {paused:?}"
+    );
+    assert!(
+        paused.contains("[2 queued]"),
+        "the count is not displaced by the clause: {paused:?}"
+    );
+
+    // The clause outranks the preview under width pressure: the reason is never
+    // the disposable half of the row.
+    let narrow = render(true, 46);
+    assert!(
+        narrow.contains("paused"),
+        "the paused clause survives a narrow row: {narrow:?}"
+    );
+}
+
 /// A busy strip must advertise nothing it cannot keep: an unbound chord yields
 /// no keycap at all, and a bound one shows the chord that actually fires.
 #[test]
@@ -392,6 +461,7 @@ fn activity_strip_keycaps_are_the_resolved_bindings() {
                     queued_count: 1,
                     queued_preview: Some("next"),
                     queued_first_is_steer: false,
+                    queue_blocked: false,
                     tasks_count: 1,
                     tasks_preview: Some("indexer"),
                     queue_key: queue,
@@ -447,6 +517,7 @@ fn activity_strip_returns_none_when_all_idle() {
                 queued_count: 0,
                 queued_preview: None,
                 queued_first_is_steer: false,
+                queue_blocked: false,
                 tasks_count: 0,
                 tasks_preview: None,
                 queue_key: Some(Key::CTRL_Q),
@@ -1242,5 +1313,63 @@ fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
         found_header,
         "flyout header should show `/auto -> /unattended`, got buffer:\n{}",
         full_text.join("\n")
+    );
+}
+
+/// A queued row with no reported stamp must render **no** time, not the epoch.
+///
+/// The projection used to default a missing `sent_at_ms` to `0`, and
+/// `sent_time_label(0)` is the Unix epoch in local time — `08:00` in UTC+8. The
+/// modal therefore painted a fabricated wall-clock beside the user's own queued
+/// message, which is a claim about when they wrote it.
+#[test]
+fn queue_modal_does_not_invent_a_time_for_a_row_without_one() {
+    use crate::shell::overlays::{QueueModalProps, draw_queue_modal};
+    use crate::shell::render::QueueItemProps;
+
+    let theme = Theme::default();
+    let render = |queued_at_ms: Option<u64>| -> String {
+        let mut terminal = nuotc::TestTerminal::new(100, 16);
+        terminal.draw(|f| {
+            let items = vec![QueueItemProps {
+                queued_at_ms,
+                text: "queued prompt".to_string(),
+                is_steer: false,
+            }];
+            let mut scroll = 0usize;
+            draw_queue_modal(
+                f,
+                QueueModalProps {
+                    items: &items,
+                    blocked: false,
+                },
+                0,
+                &mut scroll,
+                true,
+                &theme,
+            );
+        });
+        terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect()
+    };
+
+    let with_stamp = render(Some(1_700_000_000_123));
+    assert!(
+        with_stamp.contains(':'),
+        "a real stamp still renders a clock: {with_stamp:?}"
+    );
+
+    let without = render(None);
+    assert!(
+        without.contains("queued prompt"),
+        "the row still renders: {without:?}"
+    );
+    assert!(
+        !without.contains(':'),
+        "no stamp means no invented time (the epoch would be 08:00 here): {without:?}"
     );
 }

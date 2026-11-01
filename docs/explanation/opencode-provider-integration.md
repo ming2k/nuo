@@ -21,7 +21,17 @@ They are separate crates and providers because the endpoint family and model uni
 
 ## 2. Route Per Model by Wire Format
 
-The two **Zen** surfaces expose a public catalog (`/zen/go/v1/models` for the plan/Go relay, `/zen/v1/models` for the Zen relay) and route per model by wire format (`route_for_model`); the instance default is the OpenAI chat-completions surface.
+The two **Zen** surfaces expose a public catalog (`/zen/go/v1/models` for the plan/Go relay, `/zen/v1/models` for the Zen relay) and route per model by wire format (`route_for_model`); the instance default is the OpenAI-chat-completions surface for Zen, and the portable Responses surface for Go (ADR-0142).
+
+### 2.1 The Go Surface Is a Translating Gateway
+
+The Go relay mounts `/zen/go/v1/responses` and serves its *whole* fleet through it, not only the models whose native API it is: Console translates each request onto whatever the upstream speaks. That makes it a different kind of endpoint from a native Responses backend, and the provider declares it as `ProviderDialect::Portable` (ADR-0142):
+
+- **Flattened tools.** The gateway validates the OpenAI tool shape; DeepSeek's nested `{type,function:{…}}` is answered with `400 … requires a native Responses target`.
+- **No state.** `store` is never sent and `previous_response_id` is never used — both answer `400`, and the vendor calls the mode "portable" because the full conversation must ride along every turn. The spec therefore declares `ResponsesState::Stateless` (ADR-0114).
+- **Dual-form reasoning replay.** The upstreams behind the one URL enforce opposite replay rules: one rejects an item without a `summary` array, another rejects a turn whose raw chain was dropped. Every reconstructed reasoning item carries both `summary` and `content` parts, and a pruned older turn carries an empty `summary` array with no `content` key.
+
+Anthropic-routed (Claude, MiniMax, Qwen) and Google-routed (Gemini) models keep their own dedicated `/messages` and `/v1beta` routes via `protocol_roots`.
 
 ---
 

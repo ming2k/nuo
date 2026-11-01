@@ -1,24 +1,22 @@
 //! Queue modal — the full outbox overview.
 //!
-//! The persistent queue bar below the transcript gap shows a one-line summary
-//! (identity, next-item preview, key legend); this modal is its expand
-//! surface, opened by clicking that bar or pressing `Ctrl+Q`. It lists every
-//! queued dispatch for the viewed session in dispatch order (front pops
-//! first), each with its queued time and (truncated) text.
+//! The activity strip above the composer shows a one-line summary (count, next
+//! item, paused state, key legend); this modal is its expand surface, opened by
+//! clicking that row or pressing the queue chord (`Ctrl+Q`). It lists every
+//! queued dispatch for the viewed session in dispatch order (front pops first),
+//! each with its queued time and (truncated) text.
 //!
-//! Opening the modal **auto-blocks** the outbox (no message auto-drains) so
-//! the list can be managed safely: `↑`/`↓` move the highlight, `Enter` re-edits
-//! the *selected* item (pulls it back to the composer), `D` deletes it, `J`/`K`
-//! reorder it, and `Ctrl+P` toggles the persistent block. Closing the modal
-//! (Esc / outside-click) resumes normal auto-drain. `Esc` / outside-click
+//! Opening the modal **pauses** the session's queue server-side (the driver
+//! ships nothing) so the list can be managed safely: `↑`/`↓` move the
+//! highlight, `Enter` re-edits the *selected* item (pulls it back to the
+//! composer), `D` deletes it, `J`/`K` reorder it, and `Ctrl+P` toggles the
+//! pause. Closing the modal resumes normal shipping. `Esc` / outside-click
 //! close.
 //!
-//! Every listed item is a **next-round** entry: either a follow-up staged
-//! while a round runs, or a busy-Enter steer whose round ended before
-//! admission. A live steer is transcript-owned — it
-//! renders in the scrollback as a `⏸ Queued` entry and never appears here;
-//! if its round closes first it is handed back into this list and becomes
-//! manageable like any other item.
+//! Every listed item is an outbox row. `Waiting` rows are the client's view of
+//! the driver's `FollowUpQueue`; a `Steering` row is a busy-Enter steer waiting
+//! in the running round's admission window (it is cancelled, never reordered).
+//! An *admitted* steer is transcript-owned and never appears here (ADR-0137).
 
 use nuotc::{
     Frame, {Line, Span},
@@ -37,15 +35,15 @@ use unicode_width::UnicodeWidthStr;
 /// outbox in dispatch order.
 pub struct QueueModalProps<'a> {
     pub items: &'a [QueueItemProps],
-    /// `true` while the outbox is hard-blocked (the modal auto-blocks on open
-    /// for safe editing; `F3` toggles a persistent block). The block state is
-    /// explicit in the persistent queue bar, so the modal title stays plain.
+    /// `true` while the session's queue is paused server-side (the modal pauses
+    /// it on open for safe editing; `Ctrl+P` / `/queue block` toggle it). The
+    /// paused state is stated by the activity strip, so the title stays plain.
     pub blocked: bool,
 }
 
 /// Draw the queue overview modal. Each row carries the queued-at time and the
 /// item text truncated to the row budget. The header is a plain `Queue` title
-/// — count and held-back state already live in the queue bar.
+/// — count and paused state already live in the activity strip.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_queue_modal(
     frame: &mut Frame,
@@ -60,10 +58,10 @@ pub fn draw_queue_modal(
 
     let QueueModalProps { items, blocked } = props;
 
-    // Keep the modal title a plain `Follow-ups`: the count and the paused/blocked
-    // state are already visible in the persistent queue bar, so echoing them
-    // in the header only adds noise. The footer still surfaces `F3 block /
-    // resume` where the block state matters.
+    // Keep the modal title a plain `Follow-ups`: the count and the paused state
+    // are already visible in the activity strip, so echoing them in the header
+    // only adds noise. The footer still surfaces the pause toggle, where the
+    // state matters to the action.
     let title = "Follow-ups";
 
     let mut body: Vec<Line> = Vec::new();
@@ -89,7 +87,10 @@ pub fn draw_queue_modal(
             if is_sel {
                 selected_line = Some(body.len());
             }
-            let time = nuo_ui_primitives::time::sent_time_label(item.queued_at_ms);
+            // No stamp, no time column content: the gutter still reserves its
+            // width so the label and text stay aligned across rows.
+            let time =
+                nuo_ui_primitives::time::optional_time_label(item.queued_at_ms).unwrap_or_default();
             let one_line = super::common::one_line(item.text.trim());
             let text = if one_line.width() > text_budget {
                 truncate_ellipsis(&one_line, text_budget)

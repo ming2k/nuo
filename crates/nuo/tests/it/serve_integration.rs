@@ -158,7 +158,7 @@ async fn completion_catalog_and_edits_round_trip_over_websocket() {
             action: AttachAction::Attach(None),
             project: None,
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -342,7 +342,7 @@ async fn test_select_then_attach_round_trip() {
         action: AttachAction::Attach(None),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -444,7 +444,7 @@ async fn welcome_then_snapshot_then_ready_is_the_order() {
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -531,7 +531,7 @@ async fn attach_receives_restored_todos_after_welcome() {
         action: AttachAction::Attach(None),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -604,7 +604,7 @@ async fn attach_receives_buffered_provider_state_after_welcome() {
             action: AttachAction::Attach(None),
             project: None,
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: None,
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -660,7 +660,7 @@ async fn unknown_id_is_an_error() {
         action: AttachAction::Attach(Some("nope".into())),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -698,7 +698,7 @@ async fn unknown_id_is_refused_with_session_gone_code() {
         action: AttachAction::Attach(Some("no-such-session-at-all".into())),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -750,7 +750,7 @@ async fn select_project_scopes_auto_attach() {
         action: AttachAction::Attach(None),
         project: Some(project_a),
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -797,15 +797,24 @@ async fn select_without_project_falls_back_to_server_cwd() {
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
     let _ = handle;
 
-    // Hand-written legacy frame: no `project` key at all. The fallback scope
-    // is the process cwd, which the test process shares with the in-process
-    // server — so the cwd-rooted session must win. Without the cwd fallback
-    // the two hosted sessions could only produce a Pick frame.
+    // Hand-written frame with **no `project` key at all**: the fallback scope is
+    // the process cwd, which the test process shares with the in-process server,
+    // so the cwd-rooted session must win (without the fallback the two hosted
+    // sessions could only produce a Pick frame).
+    //
+    // `protocol` is present because it is required (`[INV-OUTBOX-08]`): the
+    // frame's point is the *absent project*, and a frame that also omitted the
+    // protocol would be a different test (an unmodellable handshake, covered by
+    // `protocol_window_is_the_only_admission_authority`).
     let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
         .await
         .unwrap();
     ws.send(WsMessage::Text(
-        r#"{"type":"Select","action":{"attach":null}}"#.into(),
+        format!(
+            r#"{{"type":"Select","action":{{"attach":null}},"protocol":{}}}"#,
+            nuo_protocol::PROTOCOL_VERSION
+        )
+        .into(),
     ))
     .await
     .unwrap();
@@ -850,7 +859,7 @@ async fn declared_project_is_never_auto_bound_to_a_foreign_session() {
         action: AttachAction::Attach(None),
         project: Some(project_a),
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -897,7 +906,7 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
         }),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1034,7 +1043,7 @@ async fn monitor_one_shot_closes_after_snapshot() {
         }),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1092,7 +1101,7 @@ async fn attach_end_session_tears_down_and_notifies() {
         }),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     monitor
@@ -1124,7 +1133,7 @@ async fn attach_end_session_tears_down_and_notifies() {
         action: AttachAction::Attach(Some(id.clone())),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1213,7 +1222,7 @@ async fn control_create_observe_kill_roundtrip() {
         }),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1242,7 +1251,7 @@ async fn control_create_observe_kill_roundtrip() {
         }),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1314,7 +1323,7 @@ async fn native_local_ipc_serves_same_protocol_without_token() {
         }),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     };
     wire_sink.send(select).await.unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(2), wire_source.next())
@@ -1625,7 +1634,7 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
         action: AttachAction::Control(serve::ControlRequest::Shutdown),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -1655,90 +1664,6 @@ async fn shutdown_control_verb_replies_then_stops_accepting() {
     assert!(hung.is_empty(), "accept tasks must stop: {hung:?}");
 }
 
-/// Version negotiation (rule 4): a skewed `Select.version` is
-/// refused with a both-versions error before any session work; a matching
-/// version proceeds normally (and an absent version is served).
-#[tokio::test]
-async fn version_skew_is_refused_with_both_versions() {
-    let tmp = tempfile::tempdir().unwrap();
-    // `for_path` keeps every artifact (session json/jsonl + blobs) inside the
-    // tempdir; `load_for_project` would instead resolve the real XDG project
-    // bucket and mint files under ~/.local/share/nuo.
-    let session = Arc::new(SessionStore::for_path(tmp.path().join("session.json")));
-    let (registry, _req_rx, _tx) = prehosted(session).await;
-    let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
-    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
-
-    async fn first_frame(port: u16, version: Option<&str>) -> Wire {
-        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
-            .await
-            .unwrap();
-        let select = serde_json::to_string(&Wire::Select {
-            version: version.map(str::to_string),
-            action: AttachAction::Attach(Some("definitely-not-a-session".into())),
-            project: None,
-            posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: None,
-        })
-        .unwrap();
-        ws.send(WsMessage::Text(select.into())).await.unwrap();
-        let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        serde_json::from_str(msg.to_text().unwrap_or("")).unwrap()
-    }
-
-    // Skewed older client: refused with a message recommending client update.
-    match first_frame(port, Some("0.0.0")).await {
-        Wire::Error { message, .. } => {
-            assert!(
-                message.contains("0.0.0"),
-                "names the client build: {message}"
-            );
-            assert!(
-                message.contains(serve::server_version()),
-                "names the server build: {message}"
-            );
-            assert!(
-                message.contains("update your nuo client"),
-                "names the client update recommendation: {message}"
-            );
-        }
-        other => panic!("expected Error for a skewed version, got {other:?}"),
-    }
-    // Skewed newer client: refused with a message recommending server stop/restart.
-    match first_frame(port, Some("99.0.0")).await {
-        Wire::Error { message, .. } => {
-            assert!(
-                message.contains("99.0.0"),
-                "names the client build: {message}"
-            );
-            assert!(
-                message.contains(serve::server_version()),
-                "names the server build: {message}"
-            );
-            assert!(
-                message.contains("nuo stop"),
-                "names the server restart fix: {message}"
-            );
-        }
-        other => panic!("expected Error for a skewed version, got {other:?}"),
-    }
-    // Absent version: served (legacy-tolerant; the error is the normal
-    // unknown-session one, not a version refusal).
-    match first_frame(port, None).await {
-        Wire::Error { message, .. } => {
-            assert!(
-                !message.contains("version mismatch"),
-                "absent version must be served, got: {message}"
-            );
-        }
-        other => panic!("expected the normal unknown-session error, got {other:?}"),
-    }
-}
-
 /// The server's discovery record carries its build version (rule
 /// 4), so a client reading a stale record can refuse before speaking.
 #[test]
@@ -1763,14 +1688,18 @@ fn global_record_carries_the_server_version() {
     assert_eq!(back.version.as_deref(), Some(serve::server_version()));
 }
 
-/// Protocol negotiation. The protocol number is the authority
-/// when a client declares one: the server serves any number in
-/// [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] — *whatever the product version
-/// says* — and refuses anything outside the window with
-/// `code: protocol_mismatch` before any session work. A client that
-/// declares no number keeps the product-version judgment.
+/// Protocol negotiation. `[INV-WIRE-04]`: the protocol number is the **only**
+/// admission authority — the server serves any number in
+/// [MIN_PROTOCOL_VERSION, PROTOCOL_VERSION] *whatever the product version says*,
+/// and refuses anything outside the window with `code: protocol_mismatch` before
+/// any session work. The product version never enters the decision; it only
+/// makes a refusal name both builds.
+///
+/// There is no "client that declares no number" lane any more: `Select.protocol`
+/// is required, so such a peer fails to decode and is answered with the protocol
+/// taxonomy — the second case below.
 #[tokio::test]
-async fn protocol_window_governs_when_declared() {
+async fn protocol_window_is_the_only_admission_authority() {
     use nuo_protocol::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -1779,7 +1708,7 @@ async fn protocol_window_governs_when_declared() {
     let mut handle = serve::start_server(serve::ServeOptions::default(), registry);
     let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
 
-    async fn first_frame(port: u16, version: Option<&str>, protocol: Option<u32>) -> Wire {
+    async fn first_frame(port: u16, version: Option<&str>, protocol: u32) -> Wire {
         let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
             .await
             .unwrap();
@@ -1803,7 +1732,7 @@ async fn protocol_window_governs_when_declared() {
     // Same protocol, wildly skewed product version: SERVED. This is the
     // whole point of the ADR — a pinned client keeps talking to a newer
     // server across additive wire changes.
-    match first_frame(port, Some("0.0.1-skew"), Some(PROTOCOL_VERSION)).await {
+    match first_frame(port, Some("0.0.1-skew"), PROTOCOL_VERSION).await {
         Wire::Error { message, .. } => {
             assert!(
                 !message.contains("mismatch"),
@@ -1814,7 +1743,7 @@ async fn protocol_window_governs_when_declared() {
     }
 
     // Too new: refused with the protocol message and the restart fix.
-    match first_frame(port, None, Some(PROTOCOL_VERSION + 1)).await {
+    match first_frame(port, None, PROTOCOL_VERSION + 1).await {
         Wire::Error { message, code } => {
             assert_eq!(code.as_deref(), Some("protocol_mismatch"));
             assert!(message.contains("nuo stop"), "names the fix: {message}");
@@ -1829,7 +1758,7 @@ async fn protocol_window_governs_when_declared() {
     // Too old (only meaningful once MIN rises above 1; the guard keeps the
     // test correct whenever that happens).
     if MIN_PROTOCOL_VERSION > 1 {
-        match first_frame(port, None, Some(MIN_PROTOCOL_VERSION - 1)).await {
+        match first_frame(port, None, MIN_PROTOCOL_VERSION - 1).await {
             Wire::Error { message, code } => {
                 assert_eq!(code.as_deref(), Some("protocol_mismatch"));
                 assert!(
@@ -1841,8 +1770,40 @@ async fn protocol_window_governs_when_declared() {
         }
     }
 
+    // A first frame with no protocol number cannot even be modelled: it is a
+    // decode failure answered with the protocol taxonomy, not a silently
+    // different admission rule. This is the case the old `Option<u32>` field
+    // accepted and judged by product version.
+    {
+        let (mut ws, _) = tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}"))
+            .await
+            .unwrap();
+        let raw = r#"{"type":"Select","action":{"Attach":null},"posture":"Interactive"}"#;
+        ws.send(WsMessage::Text(raw.into())).await.unwrap();
+        let msg = tokio::time::timeout(Duration::from_secs(2), ws.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let frame: Wire = serde_json::from_str(msg.to_text().unwrap_or("")).unwrap();
+        match frame {
+            Wire::Error { message, code } => {
+                assert_eq!(
+                    code.as_deref(),
+                    Some("protocol_mismatch"),
+                    "an unmodellable handshake is a protocol fault"
+                );
+                assert!(
+                    message.contains("could not decode"),
+                    "and the disclosure says what failed: {message}"
+                );
+            }
+            other => panic!("expected a decode refusal, got {other:?}"),
+        }
+    }
+
     // Window edge: MIN itself is served, whatever the product version.
-    match first_frame(port, Some("0.0.1-skew"), Some(MIN_PROTOCOL_VERSION)).await {
+    match first_frame(port, Some("0.0.1-skew"), MIN_PROTOCOL_VERSION).await {
         Wire::Error { message, .. } => {
             assert!(
                 !message.contains("mismatch"),
@@ -1863,7 +1824,7 @@ async fn control_roundtrip(port: u16, request: serve::ControlRequest) -> Result<
         action: AttachAction::Control(request),
         project: None,
         posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-        protocol: None,
+        protocol: nuo_protocol::PROTOCOL_VERSION,
     })
     .unwrap();
     ws.send(WsMessage::Text(select.into())).await.unwrap();
@@ -2088,7 +2049,7 @@ async fn attach_trust_workspace_with_posture(
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
             posture,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -2161,7 +2122,7 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
             action: AttachAction::Attach(None),
             project: Some(tmp.path().to_string_lossy().into_owned().into()),
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -2374,7 +2335,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -2414,7 +2375,7 @@ async fn second_client_attach_receives_complete_non_drained_sync_state() {
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),
@@ -2470,7 +2431,7 @@ async fn bounded_request_ingress_sheds_load_with_server_busy() {
             action: AttachAction::Attach(Some(session_id.clone())),
             project: None,
             posture: nuo_protocol::human_request::HumanChannelPosture::Interactive,
-            protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+            protocol: nuo_protocol::PROTOCOL_VERSION,
         })
         .unwrap()
         .into(),

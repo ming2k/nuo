@@ -120,6 +120,87 @@ impl SessionStore {
         }
     }
 
+    /// Open a store for a **subagent session** on the same database as `parent`.
+    ///
+    /// A subagent is a real session: it has its own row, its own transcript, and
+    /// its own parent pointer (`ThreadForkKind::Subagent`). Nothing could open one
+    /// *during* the run, though — the store was only ever created after the fact by
+    /// `admit_subagent_children` rebuilding the child from the parent message's
+    /// embedded `children`. That made the child's transcript live in two places (an
+    /// embedded copy and a session row) and, worse, left the running child with no
+    /// session at all: no durable transcript mid-run, no projection target, and
+    /// therefore no way for context relief to reach it.
+    ///
+    /// This is the missing constructor. It shares `parent`'s database handle and
+    /// blob store — a subagent is not a separate store, it is another session in the
+    /// same one — and records the parent pointer at creation so the lineage is a
+    /// fact from the child's first turn instead of something reconstructed
+    /// afterwards.
+    ///
+    /// # It refuses rather than guessing
+    ///
+    /// The parent's identity is read under its state lock. If that lock is held, an
+    /// earlier version fell back to an empty id, which wrote a child with
+    /// `parent_thread_id = NULL`: invisible to `list_subagent_sessions`, invisible to
+    /// `offstream`'s `sub:` handles, and permanently orphaned with no error
+    /// anywhere. A missing parent pointer is not a degraded success — it is a lost
+    /// lineage — so this returns an error and the caller decides (the dispatch layer
+    /// runs the child session-free and logs, which is honest and recoverable).
+    ///
+    /// The parent row must also already be durable: `threads.parent_thread_id`
+    /// references `threads(id)`, so a parent that has not committed is not
+    /// referenceable yet.
+    pub fn for_subagent(
+        parent: &Self,
+        session_id: impl Into<String>,
+    ) -> Result<(Self, String), String> {
+        let id = session_id.into();
+        let parent_data = parent
+            .state
+            .try_lock()
+            .map(|state| state.data.clone())
+            .map_err(|_| {
+                "cannot open a subagent session while the parent session holds its state \
+                 lock; the child would lose its parent pointer"
+                    .to_string()
+            })?;
+        let parent_id = parent_data.id;
+        if parent_id.is_empty() {
+            return Err(
+                "cannot open a subagent session under a parent with no identity".to_string(),
+            );
+        }
+        let parent_workspace = parent_data.workspace;
+        let parent_role = parent_data.role;
+        let mut data = SessionData {
+            id: id.clone(),
+            parent_id: Some(parent_id.clone()),
+            fork_kind: nuo_protocol::ThreadForkKind::Subagent,
+            workspace: parent_workspace.clone(),
+            role: parent_role.clone(),
+            role_manifest: Some(crate::roles::resolve_role_manifest(
+                parent_workspace.as_ref().map(|w| w.root.as_path()),
+                parent_role.as_deref(),
+            )),
+            ..Default::default()
+        };
+        data.generation = uuid::Uuid::new_v4().to_string();
+        let path = parent.sessions_dir.join(format!("{id}.json"));
+        let store = Self {
+            workspace: std::sync::RwLock::new(parent_workspace),
+            role: std::sync::RwLock::new(parent_role),
+            sessions_dir: parent.sessions_dir.clone(),
+            db_path: parent.db_path.clone(),
+            blob_store: parent.blob_store.clone(),
+            writer: parent.writer.clone(),
+            // Not deferred: a subagent exists because a tool call is running, so
+            // its admission is already real content.
+            state: Mutex::new(SessionState::new(path, data, false)),
+            persist_gate: Mutex::new(()),
+        };
+        Ok((store, parent_id))
+    }
+
     /// Construct a store pinned to a brand-new, empty session file in
     /// `sessions_dir`. The session is **not** written until the session gains
     /// real content, so a `nuo` that starts and exits without a round
@@ -657,5 +738,112 @@ impl SessionStore {
                 matches.len()
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod subagent_store_tests {
+    use super::*;
+    use nuo_protocol::{Message, Role};
+
+    impl SessionStore {
+        /// Test-only: does this store's own engine see a subagent row?
+        pub(crate) async fn subagent_row_for_test(&self, parent_id: &str) -> bool {
+            let session_id = self.state.lock().await.data.id.clone();
+            let Ok(reader) = self.writer.reader() else {
+                return false;
+            };
+            reader
+                .list_subagent_sessions(parent_id)
+                .map(|rows| rows.iter().any(|row| row.id == session_id))
+                .unwrap_or(false)
+        }
+    }
+
+    /// A subagent session is a real, durable session of its own.
+    ///
+    /// It used to exist only *after* the fact: `admit_subagent_children` rebuilt
+    /// the child from the parent message's embedded `children` once the round
+    /// finished. A running child therefore had no session, no durable transcript,
+    /// and no projection target — so context relief could not reach it at all.
+    #[tokio::test]
+    async fn a_subagent_store_is_its_own_session_under_the_parent() {
+        let dir = std::env::temp_dir().join(format!("nuo-substore-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let parent = SessionStore::for_path(dir.join("session.json"));
+        // The parent row must be durable before a child can reference it.
+        parent
+            .commit_turn(CommitTurn {
+                messages: &[Message::new(Role::User, "parent question")],
+                round_counter: Some(1),
+                usage_records: &[],
+                retry_point: None,
+                round_interrupt: None,
+                operation_id: None,
+                expected_revision: None,
+            })
+            .await
+            .unwrap();
+        let parent_id = parent.id().await;
+
+        let (child, reported_parent) = SessionStore::for_subagent(&parent, "child-1")
+            .expect("the parent is idle, so the child must open");
+        assert_eq!(reported_parent, parent_id);
+        assert_eq!(child.id().await, "child-1");
+
+        child
+            .commit_turn(CommitTurn {
+                messages: &[Message::new(Role::User, "subagent task")],
+                round_counter: Some(1),
+                usage_records: &[],
+                retry_point: None,
+                round_interrupt: None,
+                operation_id: None,
+                expected_revision: None,
+            })
+            .await
+            .unwrap();
+
+        // Its own facts hydrate (mirror + policy derivation + cursor).
+        let ir = child.session_ir().await;
+        assert_eq!(ir.session_id, "child-1");
+        assert_eq!(ir.history.nodes.len(), 1);
+
+        // And it is listed beneath its parent as a subagent.
+        assert!(
+            child.subagent_row_for_test(&parent_id).await,
+            "the child row must carry parent_thread_id and fork_kind = subagent"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A child must never be admitted without its parent pointer.
+    ///
+    /// The parent's identity is read under its state lock. An earlier version fell
+    /// back to an empty id when that lock was held, which wrote a child with
+    /// `parent_thread_id = NULL`: invisible to `list_subagent_sessions`, invisible
+    /// to `offstream`'s `sub:` handles, and orphaned with no error anywhere. A lost
+    /// lineage is not a degraded success, so the constructor now refuses.
+    #[tokio::test]
+    async fn a_subagent_store_refuses_when_the_parent_identity_is_unavailable() {
+        let dir = std::env::temp_dir().join(format!("nuo-substore-busy-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let parent = SessionStore::for_path(dir.join("session.json"));
+
+        // Hold the parent's state lock, as an in-flight commit would.
+        let held = parent.state.lock().await;
+        let refused = SessionStore::for_subagent(&parent, "child-busy");
+        assert!(
+            refused.is_err(),
+            "a child with no resolvable parent must be refused, not silently orphaned"
+        );
+        drop(held);
+
+        // Idle again: the same call succeeds, so the refusal is about the lock and
+        // not a permanent condition.
+        assert!(SessionStore::for_subagent(&parent, "child-ok").is_ok());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

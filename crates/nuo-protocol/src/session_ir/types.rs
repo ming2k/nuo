@@ -340,9 +340,19 @@ impl SessionIR {
     }
 
     /// Resolve the active linear branch (Pass 1 of compiler lowering).
+    ///
+    /// Honors `state.compaction_horizon`: a folded session's window is the
+    /// checkpoint plus the preserved tail, never the folded ancestors. Without
+    /// the horizon every reader that went through here walked straight through
+    /// the fold and handed the model the whole pre-compaction transcript — which
+    /// is also why a "successful" compaction could report zero tokens reclaimed.
+    /// This is the same walk `compiler.rs`'s Pass 1 performs, so the two
+    /// projections agree by construction.
     pub fn resolve_active_branch(&self) -> Vec<&CausalNode> {
         match &self.state.active_leaf {
-            Some(leaf_id) => self.history.linear_path(leaf_id),
+            Some(leaf_id) => self
+                .history
+                .linear_path_with_horizon(leaf_id, self.state.compaction_horizon.as_deref()),
             None => Vec::new(),
         }
     }
@@ -804,12 +814,16 @@ pub struct SystemNoticePayload {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SessionPolicy {
     /// Cognitive rules, persona, and workspace conventions.
+    #[serde(default)]
     pub rules: RuleSet,
     /// Capabilities granted to the session.
+    #[serde(default)]
     pub capabilities: CapabilityPolicy,
     /// Safety boundaries and approval guardrails.
+    #[serde(default)]
     pub guardrails: GuardrailPolicy,
     /// Resource consumption budgets and compaction triggers.
+    #[serde(default)]
     pub budget: BudgetPolicy,
 }
 
@@ -817,8 +831,10 @@ pub struct SessionPolicy {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuleSet {
     /// System baseline identity and core behavioral policies.
+    #[serde(default)]
     pub system_persona: Option<String>,
     /// Workspace root directory path.
+    #[serde(default)]
     pub workspace_root: Option<String>,
     /// Project rules read from repository governance (e.g. AGENTS.md).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -835,13 +851,22 @@ pub struct CapabilityPolicy {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disabled_tools: Vec<String>,
     /// Pinned model provider connection name.
+    #[serde(default)]
     pub provider_pin: Option<String>,
 }
 
 /// Safety guardrails and approval requirements.
+///
+/// Every policy struct is `#[serde(default)]` field-by-field so a column written
+/// by an older binary — or by a lane that never populated it — degrades to the
+/// documented default instead of failing the deserializer. A policy is
+/// *configuration*; it must never be able to make the session's fact graph
+/// unloadable, which is exactly what an all-required shape did when
+/// `thread_policies.guardrails_json` still held the schema's `{}` placeholder.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GuardrailPolicy {
     /// Whether the session is in unattended mode (auto-approves within policy).
+    #[serde(default)]
     pub unattended: bool,
     /// Tool names that strictly require explicit human approval.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -852,19 +877,36 @@ pub struct GuardrailPolicy {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BudgetPolicy {
     /// Maximum model context window in tokens.
+    #[serde(default = "BudgetPolicy::default_max_context_tokens")]
     pub max_context_tokens: usize,
     /// Token threshold triggering background compaction.
+    #[serde(default = "BudgetPolicy::default_compaction_trigger_tokens")]
     pub compaction_trigger_tokens: usize,
     /// Maximum tokens reserved for tool output results.
+    #[serde(default = "BudgetPolicy::default_max_tool_output_tokens")]
     pub max_tool_output_tokens: usize,
+}
+
+impl BudgetPolicy {
+    fn default_max_context_tokens() -> usize {
+        128_000
+    }
+
+    fn default_compaction_trigger_tokens() -> usize {
+        96_000
+    }
+
+    fn default_max_tool_output_tokens() -> usize {
+        8_000
+    }
 }
 
 impl Default for BudgetPolicy {
     fn default() -> Self {
         Self {
-            max_context_tokens: 128_000,
-            compaction_trigger_tokens: 96_000,
-            max_tool_output_tokens: 8_000,
+            max_context_tokens: Self::default_max_context_tokens(),
+            compaction_trigger_tokens: Self::default_compaction_trigger_tokens(),
+            max_tool_output_tokens: Self::default_max_tool_output_tokens(),
         }
     }
 }

@@ -162,7 +162,7 @@ pub type StepDrawFn = for<'b, 'c> fn(
     cell_selection: Option<&CellDragInfo>,
     sticky_anchors: &mut Vec<StickyAnchor>,
     hovered: bool,
-    focused_target: Option<InteractiveTarget>,
+    focused_entry: Option<InteractiveTarget>,
     workspace_root: Option<&std::path::Path>,
     diff_cache: &mut crate::tools::DiffCache,
 );
@@ -531,7 +531,7 @@ pub struct Stream<'a, 'f> {
     pub selection: &'a SelectionState,
     pub cell_selection: Option<&'a CellDragInfo>,
     pub hovered_step: Option<usize>,
-    pub focused_target: Option<InteractiveTarget>,
+    pub focused_entry: Option<InteractiveTarget>,
     /// Ambient session workspace root.
     pub workspace_root: Option<&'a std::path::Path>,
     /// First / exclusive-last message selected by a [`VirtualLayoutIndex`].
@@ -590,7 +590,7 @@ impl<'a, 'f> Stream<'a, 'f> {
         let viewport_bottom = self.band.y + self.band.height;
 
         let hovered = self.hovered_step == Some(mi);
-        let focused_notice = self.focused_target == Some(InteractiveTarget::notice(mi));
+        let focused_notice = self.focused_entry == Some(InteractiveTarget::notice(mi));
 
         let body_before = self.content_lines;
         // Streaming Thinking messages participate in the height cache like
@@ -664,7 +664,7 @@ impl<'a, 'f> Stream<'a, 'f> {
                     self.cell_selection,
                     &mut self.sticky_anchors,
                     hovered,
-                    self.focused_target,
+                    self.focused_entry,
                     self.workspace_root,
                     &mut self.height_cache.diff_cache,
                 );

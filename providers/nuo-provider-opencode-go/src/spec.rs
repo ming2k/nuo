@@ -36,7 +36,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -44,17 +44,21 @@ pub const MODELS: &[Model] = &[
     Model {
         // DeepSeek V4.1 Flash. Verified against the Go endpoint table
         // (opencode.ai/docs/go, 2026-09) and DeepSeek's V4.1-Flash release:
-        // Chat Completions via `@ai-sdk/openai-compatible`, 1M context, native
-        // multimodal (image inputs), continuous reasoning effort served on the
-        // Go relay as the `low`/`high`/`max` presets (integer efforts are
-        // rejected upstream with HTTP 400).
+        // 1M context, native multimodal (image inputs), continuous reasoning
+        // effort served on the Go relay as the `low`/`high`/`max` presets
+        // (integer efforts are rejected upstream with HTTP 400).
+        //
+        // The platform's *native* SDK for this row is
+        // `@ai-sdk/openai-compatible` over chat-completions, but the Go relay
+        // translates every text model through its `/responses` surface, which
+        // is what this channel declares (ADR-0142).
         id: "deepseek-v4.1-flash",
         family: "deepseek",
         context_window: 1_000_000,
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -66,7 +70,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -78,7 +82,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -90,7 +94,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -129,7 +133,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -141,7 +145,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -153,7 +157,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -165,7 +169,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -177,7 +181,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -189,7 +193,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -201,7 +205,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -213,7 +217,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -225,7 +229,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -237,7 +241,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -249,7 +253,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -261,7 +265,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -274,7 +278,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -286,7 +290,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: &[],
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -360,7 +364,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -372,7 +376,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: false,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::COMMON,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -384,7 +388,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -396,7 +400,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::QWEN_MIXED,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -414,7 +418,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::DEEPSEEK_NATIVE,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -426,7 +430,7 @@ pub const MODELS: &[Model] = &[
         thinking: ReasoningSupport::ReasoningContent,
         tool_call: true,
         vision: true,
-        protocol: WireProtocol::OpenAiChatCompletions,
+        protocol: WireProtocol::OpenAiResponses,
         effort_levels: effort_ladders::GLM_5,
         default_effort: Some(nuo_provider::Effort::High),
         wire_entities: None,
@@ -438,7 +442,13 @@ inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 pub const OPENCODE_USER_AGENT: &str = "opencode/2.0.32";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
-    dialect: nuo_provider::ProviderDialect::Standard,
+    // The Go gateway mounts `/responses` as a *portable* surface: it translates
+    // every Go model onto heterogeneous upstreams, validating flattened OpenAI
+    // tool definitions, refusing `store`/`previous_response_id`, and requiring
+    // a replay shape that satisfies both reasoning contracts at once
+    // (ADR-0142). It is not DeepSeek's native dialect — the Go relay serves
+    // twenty-odd vendors through this one endpoint.
+    dialect: nuo_provider::ProviderDialect::Portable,
     protocol_roots: std::borrow::Cow::Borrowed(&[
         (
             WireProtocol::AnthropicMessages,
@@ -454,11 +464,11 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     id: std::borrow::Cow::Borrowed("opencode-go"),
     baselines: MODELS,
     // Endpoints are per-model by wire format (see `route_for_model`); the
-    // instance-level default is the OpenAI chat-completions surface.
+    // instance-level default is the Responses surface.
     root_url: std::borrow::Cow::Borrowed("https://opencode.ai/zen/go/v1"),
     user_agent: Some(std::borrow::Cow::Borrowed(OPENCODE_USER_AGENT)),
     default_headers: std::borrow::Cow::Borrowed(&[]),
-    protocol: WireProtocol::OpenAiChatCompletions,
+    protocol: WireProtocol::OpenAiResponses,
     // Served models come from the live /zen/go/v1/models endpoint.
     catalog_source: RemoteCatalogSource::Endpoint(CatalogShape::OpenAi),
     // The subscription meters rolling allowances; the typed port binds the
@@ -466,6 +476,12 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     // (`[INV-PROV-08]`, ADR-0036).
     quota: Some(nuo_provider::QuotaPort::OpencodeGo),
     display_policy: nuo_provider::DisplayPolicy::Structural,
+    // The gateway keeps no response state *for the models it converts*, and a
+    // minority of native rows behind the same URL do store — so the surface
+    // declares Stateless: the client cannot know which upstream it reaches until
+    // the catalog answers, and the intersection is the only safe contract
+    // (ADR-0142 §6, ADR-0114). Note `deepseek-v4-pro` accepts `store: true` and
+    // still remembers nothing, so "store returned 200" is never evidence.
     responses_state: nuo_provider::ResponsesState::Stateless,
     models: OPENCODE_GO_MODELS,
 };

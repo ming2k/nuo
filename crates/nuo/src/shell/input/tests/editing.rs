@@ -1009,13 +1009,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &mut drag,
@@ -1031,13 +1031,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &mut drag,
@@ -1053,13 +1053,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &mut drag,
@@ -1074,13 +1074,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &mut drag,
@@ -1096,13 +1096,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             is_responding: true,
             ..Default::default()
         },
@@ -1120,13 +1120,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &mut drag,
@@ -1142,13 +1142,13 @@ fn ctrl_r_and_composer_shortcuts_inert_when_composer_inactive() {
         &mut input,
         &mut cursor,
         Dispatch {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),
         &SheetKeys::default(),
         &SceneKeys {
-            transcript_focused: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &mut drag,
@@ -1738,7 +1738,11 @@ fn tab_is_inert_without_a_completion() {
             &mut input,
             &mut cursor,
             Dispatch {
-                focused_target: focused,
+                focus: if focused {
+                    crate::shell::focus::FocusPlane::Transcript
+                } else {
+                    crate::shell::focus::FocusPlane::Composer
+                },
                 ..Default::default()
             },
             &ModalKeys::default(),
@@ -1839,7 +1843,7 @@ fn printable_char_in_transcript_is_inert_and_does_not_mutate_composer() {
         &mut input,
         &mut cursor,
         Dispatch {
-            focused_target: true,
+            focus: crate::shell::focus::FocusPlane::Transcript,
             ..Default::default()
         },
         &ModalKeys::default(),

@@ -1016,7 +1016,7 @@ async fn finish_handshake_with_project(
         project,
         posture: current_posture(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        protocol: Some(PROTOCOL_VERSION),
+        protocol: PROTOCOL_VERSION,
     };
     wire_sink
         .send(select)
@@ -1230,7 +1230,7 @@ async fn finish_control(
         project: None,
         posture: current_posture(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        protocol: Some(PROTOCOL_VERSION),
+        protocol: PROTOCOL_VERSION,
     };
     wire_sink
         .send(select)
@@ -1321,7 +1321,7 @@ async fn finish_monitor(
         project: None,
         posture: current_posture(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        protocol: Some(PROTOCOL_VERSION),
+        protocol: PROTOCOL_VERSION,
     };
     wire_sink
         .send(select)

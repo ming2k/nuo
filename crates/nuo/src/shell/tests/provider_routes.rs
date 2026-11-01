@@ -1244,7 +1244,8 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         ),
     };
     // 2. Transcript focus might have been falsely set by mouse click
-    app.transcript_focused = true;
+    app.focus
+        .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
     // Now OAuth succeeds, server sends Done signal
     app.open_oauth_instance_name_editor();
@@ -1266,7 +1267,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         "Selection must be cleared on transition to name editor"
     );
     assert!(
-        !app.transcript_focused,
+        app.focus.is_composer(),
         "Transcript focus must be false when entering name editor"
     );
     assert!(app.caret_visible(), "Caret must be visible in name editor");
@@ -1293,8 +1294,7 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
             pre_attach: false,
             scene: app.current_scene(),
             key_overrides: Default::default(),
-            focused_target: false,
-            transcript_focused: app.transcript_focused,
+            focus: app.focus.plane(),
             scene_blocked: false,
             notice_viewer_open: false,
         },

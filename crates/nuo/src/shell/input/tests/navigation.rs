@@ -527,7 +527,7 @@ fn up_arrow_in_browse_hands_off_to_history() {
         &mut cursor,
         Dispatch {
             overlay: None,
-            focused_target: false,
+            focus: crate::shell::focus::FocusPlane::Composer,
             ..Default::default()
         },
         &ModalKeys {

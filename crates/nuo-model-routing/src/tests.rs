@@ -957,8 +957,8 @@ fn opencode_go_routes_models_by_wire_format() {
     )
     .unwrap();
     assert!(
-        matches!(&glm.transport, Transport::OpenAiChatCompletions { base_url, user_agent, .. } if base_url == "https://opencode.ai/zen/go/v1/chat/completions" && user_agent == "opencode/2.0.32"),
-        "glm-5.2 must route to OpenAI chat-completions on zen/go relay with OpenCode user agent"
+        matches!(&glm.transport, Transport::OpenAiResponses { base_url, user_agent, .. } if base_url == "https://opencode.ai/zen/go/v1/responses" && user_agent == "opencode/2.0.32"),
+        "glm-5.2 must route to the portable Responses surface on the zen/go relay with the OpenCode user agent (ADR-0142)"
     );
     let minimax = derive_channel(
         &go,

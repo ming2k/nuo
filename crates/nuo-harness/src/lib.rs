@@ -140,6 +140,7 @@ pub use cognition::skills::{
     discover_all_with_trust_state, discoverable_skill_directories, format_skill_injection,
     format_skill_list, list_skill_files, project_skills_present, resolve_mentions,
 };
+pub use orchestration::context_gate::{PruningProjectionGate, SettingsForWindow};
 
 // -----------------------------------------------------------------------------
 // Subsystem: Governance & Policy Enforcement

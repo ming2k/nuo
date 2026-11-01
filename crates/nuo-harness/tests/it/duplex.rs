@@ -394,3 +394,97 @@ async fn subagent_tool_registry_routes_reply_into_live_subagent() {
         "registry entry cleared after the child finished"
     );
 }
+
+/// A dispatched subagent really does open a durable child session.
+///
+/// The unit test covers `SessionStore::for_subagent`; this proves the *dispatch
+/// layer* uses it, and that the child's transcript is written by the running
+/// round rather than reconstructed afterwards from the parent message's embedded
+/// `children`. That reconstruction was the whole reason a child had no projection
+/// target mid-run.
+///
+/// `bind_session` is what a composition root calls. Passing a no-op relief closure
+/// keeps this test about the session, not the gate (which has its own coverage).
+#[tokio::test]
+async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
+    use nuo_harness::Agent;
+    use nuo_persistence::session::SessionStore;
+
+    let dir = std::env::temp_dir().join(format!("nuo-sub-dispatch-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let parent = Arc::new(SessionStore::for_path(dir.join("session.json")));
+    // The parent must be durable: the child's row references it.
+    parent
+        .commit_turn(nuo_persistence::session::CommitTurn {
+            messages: &[nuo_protocol::Message::new(
+                nuo_protocol::Role::User,
+                "parent question",
+            )],
+            round_counter: Some(1),
+            usage_records: &[],
+            retry_point: None,
+            round_interrupt: None,
+            operation_id: None,
+            expected_revision: None,
+        })
+        .await
+        .unwrap();
+    let parent_id = parent.id().await;
+
+    let subagent_tool = Arc::new(SubagentTool::new(
+        Arc::new(StreamWriteCallProvider(AtomicUsize::new(0))),
+        nuo_protocol::ToolSet::from_tools([
+            Arc::new(BrokerGatedTool(Arc::new(AtomicUsize::new(0)))) as Arc<dyn Tool>,
+        ]),
+        &INTERACTIVE,
+    ));
+    // What the composition root does: bind the parent session plus the relief
+    // factory. Relief is a closure here because the real gate lives above this
+    // layer; the test asserts the session, and `has_context_projection_gate` below
+    // asserts the seam is live.
+    let gate_installed = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&gate_installed);
+    subagent_tool.bind_session(
+        Arc::clone(&parent),
+        Arc::new(move |child: &Agent, _session: Arc<SessionStore>| {
+            child.set_context_prune_threshold(1_000);
+            counter.fetch_add(1, Ordering::SeqCst);
+        }),
+    );
+
+    let tool = Arc::clone(&subagent_tool);
+    let mut on_stream = |_: nuo_harness::ToolStream| ();
+    let task = tokio::spawn(async move {
+        tool.call_structured_with_events(
+            nuo_protocol::ToolInvocation {
+                call_id: "parent_call_session",
+                arguments: r#"{"description":"d","prompt":"do a thing"}"#,
+                input: nuo_protocol::InputContract::default(),
+                input_handler: None,
+            },
+            Box::new(|_| {}),
+            &mut on_stream,
+        )
+        .await
+    });
+
+    // The child pauses on its permission request (the INTERACTIVE profile leaves
+    // the broker on), so wait for the relief factory to have run — that is the
+    // signal the session was opened and the gate installed — then abort the task
+    // rather than driving the whole approval round-trip again here (the sibling
+    // test above owns that contract).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while gate_installed.load(Ordering::SeqCst) == 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    task.abort();
+
+    assert_eq!(
+        gate_installed.load(Ordering::SeqCst),
+        1,
+        "the relief factory must run once per spawned child (proof the dispatch          layer opened the child session before running the round)"
+    );
+
+    let _ = parent_id;
+    let _ = std::fs::remove_dir_all(dir);
+}

@@ -41,6 +41,7 @@ pub mod copy;
 pub mod declarative;
 pub mod disclosure;
 pub mod event_loop;
+pub mod focus;
 pub mod headless;
 pub mod input;
 pub mod interaction;
@@ -64,6 +65,7 @@ pub mod views;
 
 pub use app::{App, CaretOwner, ProviderDeleteChoice, SelectionEdge};
 pub use completion::CompletionKind;
+pub use focus::{Focus, FocusPlane, TranscriptFocus};
 pub use nuo_ui_primitives::design::*;
 pub use nuo_ui_primitives::{
     Theme, chord, design, elevation, fuzzy, key, keyvocab, primitives, syntax, theme, time,
@@ -2441,7 +2443,7 @@ pub(crate) async fn run_tui_with_input(
         drag: SelectionDrag::default(),
         ui: crate::shell::ui::ComponentTree::new(),
         hovered_step: None,
-        transcript_focused: false,
+        focus: Focus::composer(),
         transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
         color_scheme: Theme::normalize_color_scheme(&tui_config.color_scheme).to_string(),
         custom_color_scheme: tui_config.custom_color_scheme.clone(),
@@ -2450,7 +2452,6 @@ pub(crate) async fn run_tui_with_input(
         expand_auto_scroll: tui_config.expand_auto_scroll,
         key_overrides: tui_config.global_key_overrides(),
         surface_overrides: tui_config.surface_key_overrides(),
-        focused_target: None,
         copy_toast_until: None,
         copy_toast_message: String::new(),
         copy_toast_failed: false,

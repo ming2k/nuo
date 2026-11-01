@@ -109,7 +109,7 @@ pub(super) async fn handle_send_chat(
                             session_id: viewed_session_id.to_string(),
                             state: crate::shell::app::QueuedDispatchState::Steering,
                             text: text.clone(),
-                            queued_at_ms,
+                            queued_at_ms: Some(queued_at_ms),
                             images: images.clone(),
                             text_pastes: text_pastes.clone(),
                         });
@@ -141,7 +141,7 @@ pub(super) async fn handle_send_chat(
                             session_id: viewed_session_id.to_string(),
                             state: crate::shell::app::QueuedDispatchState::Dispatching,
                             text: text.clone(),
-                            queued_at_ms,
+                            queued_at_ms: Some(queued_at_ms),
                             images: images.clone(),
                             text_pastes: text_pastes.clone(),
                         });

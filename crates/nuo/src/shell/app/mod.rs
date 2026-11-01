@@ -22,6 +22,7 @@ use crate::shell::chrome::tasks_bar::BackgroundTaskItem;
 use crate::shell::completion::CompletionItemKind;
 use crate::shell::composer_grid::{CaretMotion, TextGrid};
 use crate::shell::event_loop::resolve_focused_mut;
+use crate::shell::focus::Focus;
 use crate::shell::render::Theme;
 use nuo_ui_primitives::fuzzy;
 use nuo_view::composer_attachments;
@@ -64,14 +65,20 @@ pub enum ComposerSendMode {
 
 /// A user message owned by the compact outbox (the **next-round** queue).
 ///
-/// Follow-up content and a busy-Enter steer whose round ended before admission
-/// (handed back by `UserInputUnavailable`) wait here to become the **next**
-/// round's prompt. The item is intentionally absent from the transcript until
-/// the harness dispatches it, so pending state never scrolls away or
-/// masquerades as thread history. (A *live* insert is different: it is
-/// a transcript entry from the moment it is sent — see
-/// `DeliveryStatus::Queued` — and never passes
-/// through the outbox.)
+/// One row type, two owners, split by [`QueuedDispatchState`]:
+///
+/// - `Waiting` — a projection of the driver's `FollowUpQueue`. The server owns
+///   the item's life (it ships at a round boundary), so every local mutation of
+///   one must be mirrored with the matching verb (`QueueRemove`,
+///   `QueueReorder`, `QueueClear`).
+/// - `Dispatching` / `Steering` — client-only until the wire answers. A busy-Enter
+///   steer waits in the running round's admission window and the server never
+///   sees it in this queue at all, which is why a `QueueUpdated` snapshot must
+///   preserve these rows rather than replace them.
+///
+/// The item is intentionally absent from the transcript until the harness
+/// admits it, so pending state never scrolls away or masquerades as thread
+/// history ([INV-STEER-01], ADR-0137).
 #[derive(Debug, Clone)]
 pub struct QueuedDispatch {
     pub id: String,
@@ -79,10 +86,14 @@ pub struct QueuedDispatch {
     pub state: QueuedDispatchState,
     /// The user's literal prompt text, sent verbatim to the agent on dispatch.
     pub text: String,
-    /// When the item was staged (epoch ms). Surfaced by the persistent queue
-    /// bar and the Queue modal as the item's send time, distinct from the
-    /// `sent_at_ms` stamped on the dispatch request — this is *queued-at*.
-    pub queued_at_ms: u64,
+    /// When the item was staged (epoch ms), or `None` when the peer that
+    /// authored the row did not report one.
+    ///
+    /// Optional, not defaulted: the snapshot path used to write
+    /// `sent_at_ms.unwrap_or(0)`, so a peer that omitted the stamp produced a
+    /// row the modal rendered as `08:00` (the Unix epoch in local time) — a
+    /// fabricated wall-clock on the user's own message.
+    pub queued_at_ms: Option<u64>,
     /// Pasted images staged for this message (Ctrl+V). Empty for plain text.
     pub images: Vec<ImagePart>,
     /// Large pasted text blocks staged behind `[Pasted text #N +M lines]`
@@ -108,11 +119,22 @@ pub struct HistoryAttachments {
     pub text_pastes: Vec<String>,
 }
 
-/// Outcome of [`App::recall_queued`]. Every queued dispatch is a next-round
-/// item, so recall always restores the newest staged message into the
-/// composer immediately (no agent roundtrip to cancel).
-pub enum RecallQueued {
-    Restored(QueuedDispatch),
+/// Who owns the pause currently in effect on a session's outbox.
+///
+/// The queue modal auto-pauses on open so items cannot ship while the user is
+/// editing them, and releases that pause on close. But the user can also pause
+/// deliberately (`Ctrl+P`, `/queue block`), and a close must not release a pause
+/// it did not set — nor resurrect one the user dismissed. The distinction has to
+/// be *stored*, not inferred: `queue_blocked_sessions` says "paused", not "paused
+/// by whom" ([INV-OUTBOX-04]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueuePauseOrigin {
+    /// The queue modal is open and still owns its auto-pause: the close hook
+    /// releases it.
+    ModalAutoPause,
+    /// The pause in effect is the user's (they toggled it from inside the
+    /// modal, or it was already set): the close hook leaves it alone.
+    UserOwned,
 }
 
 /// Which surface owns the terminal cursor right now — the single source of
@@ -269,10 +291,17 @@ pub enum DraftAdoption {
     /// Replace whatever the composer holds. For user-initiated paths where
     /// the current content is either sent or superseded.
     Replace,
-    /// Adopt only if the composer is idle (empty text, no staged
-    /// attachments). Otherwise leave the in-progress draft untouched. For
-    /// the asynchronous Phase-1 unsend restore.
-    OnlyIfIdle,
+    /// Adopt the new content as the live buffer while **preserving** what the
+    /// composer held as the stashed draft capsule, so ↓ past the newest history
+    /// row brings the in-progress draft back.
+    ///
+    /// This replaced `OnlyIfIdle`, which simply *did nothing* when the composer
+    /// was busy — the caller then believed it had restored the user's text while
+    /// the text was in fact dropped on the floor. Two ways to be wrong existed
+    /// (clobber the draft, or lose the recall) and the enum pretended there was
+    /// a middle one. Stashing is the middle: neither side loses, and the capsule
+    /// is a first-class, visible slot (`has_stashed_draft` drives its hint).
+    StashCurrent,
 }
 
 /// The OAuth add-flow handoff payload (M1): a mutation from the
@@ -479,11 +508,20 @@ pub struct App {
     pub(crate) surface_store: crate::shell::surfaces::SurfaceStore,
     /// Recently executed commands for MRU display in Command Palette.
     pub(crate) recent_commands: Vec<String>,
-    /// The session whose outbox the Queue view auto-blocked on entry
-    /// `dismiss_active_dialog` is an `&mut App` method that
-    /// cannot see the loop's `viewed_session_id`, so the block site records
-    /// the target here and the exit hook consumes it.
-    pub(crate) queue_exit_session: Option<String>,
+    /// The session whose outbox the Queue view auto-paused on entry, **and
+    /// whether that auto-pause is still the state we owe a release for**.
+    ///
+    /// `dismiss_active_dialog` is an `&mut App` method that cannot see the
+    /// loop's `viewed_session_id`, so the pause site records the target here and
+    /// the exit hook consumes it.
+    ///
+    /// The `bool` is what keeps the hook symmetric rather than overreaching: it
+    /// is `true` only while the pause currently in effect is the one this open
+    /// set. If the user resumed it with `Ctrl+P` / `/queue block`, the close has
+    /// nothing to release (and must not silently undo a pause the user re-armed
+    /// either) — an unconditional resume on close turns the modal into a
+    /// forced-resume button (`[INV-OUTBOX-04]`).
+    pub(crate) queue_exit_session: Option<(String, QueuePauseOrigin)>,
     /// Wall-clock instant of the last user key press or input edit. Used by
     /// the event loop to quiesce background animation redraws while active
     /// composition / typing is in progress.
@@ -785,20 +823,27 @@ pub struct App {
     /// the matching chip in the input is just a short label so the input
     /// box stays compact. Order matches the chip numbering.
     pub pending_text_pastes: Vec<String>,
-    /// Session-affine compact outbox — the **next-round queue**. Pending items
-    /// are never appended to the transcript; the queue bar shows counts and
-    /// the follow-ups modal manages the items. Every staged message waits for the running
-    /// round to finish naturally before starting a new one (next-round only).
+    /// Session-affine outbox — the **next-round queue projection**. Pending
+    /// items are never appended to the transcript; the activity strip shows the
+    /// count/preview and the queue modal manages them.
+    ///
+    /// Ownership is split by state (see `QueuedDispatchState`): `Waiting` rows
+    /// are a projection of the driver's `FollowUpQueue` — the server decides
+    /// when they ship, and `QueueUpdated` rewrites them — while `Dispatching`
+    /// and `Steering` rows exist only here (an in-flight ack, and a steer held
+    /// in the running round). The client never dispatches this queue itself.
     pub pending_dispatch: VecDeque<QueuedDispatch>,
     /// Target queue mode for the live composer while a round is running.
     pub composer_send_mode: ComposerSendMode,
-    /// Sessions whose outbox is hard-blocked by the user. While a session is
-    /// blocked, no queued message auto-drains — not even after its round
-    /// reaches natural completion and the harness goes idle. The queue modal
-    /// blocks a session on open (so items can be managed safely) and resumes
-    /// on close; `Ctrl+P` toggles the block from inside the modal.
-    /// Independent of the transient "paused" coloring: a session can be idle
-    /// (visibly paused) without being blocked, and vice versa.
+    /// Sessions whose outbox pause is on. While paused the **driver** ships
+    /// nothing for that session, even after natural completion + idle. The
+    /// queue modal pauses a session on open (so items can be managed safely)
+    /// and resumes on close; `Ctrl+P` and `/queue block` toggle it.
+    ///
+    /// This is the optimistic projection of the server's authoritative flag:
+    /// every writer here is paired with a `QueuePaused` intent, and a
+    /// `QueueUpdated` snapshot overwrites it. It is not a local gate — there is
+    /// no client-side drain to gate.
     pub queue_blocked_sessions: std::collections::HashSet<String>,
     /// Pending steer items the user *deleted* (QueueDelete `D` in the modal)
     /// rather than recalled. `SteerCancelled` restores the text to the
@@ -821,17 +866,20 @@ pub struct App {
     /// affordance. `None` whenever the pointer is elsewhere or an overlay
     /// modal is open.
     pub hovered_step: Option<usize>,
-    /// Whether the pointer last acted on the transcript area: a
-    /// click anywhere in the transcript content — a step summary, message
-    /// text, or the blank space between and around messages — parks the
-    /// keyboard's attention on the transcript ("browse focus") and dims the
-    /// composer panel, while clicking the composer itself or typing any
-    /// printable character (the bounce-to-composer grammar) hands attention
-    /// back. Pure pointer-derived transient state, recomputed from real
-    /// interactions: it is cleared by every keyboard path that touches the
-    /// composer and by view switches, so a mouse-driven user always sees
-    /// which surface the next keypress lands on.
-    pub transcript_focused: bool,
+    /// Which **peer surface** of the chat scene owns the keyboard
+    /// ([ADR-0145](../../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
+    ///
+    /// The Thread scene hosts two coequal surfaces: the composer (drafting) and
+    /// the transcript (inspecting). Neither is the other's mode, and exactly one
+    /// owns the keyboard at any instant. `⇧Tab` crosses between them and is the
+    /// only chord that does — a second, one-way "escape" chord would reintroduce
+    /// the asymmetry this model removes (`[INV-FOCUS-01]`).
+    ///
+    /// The value carries the transcript plane's own sub-state
+    /// ([`crate::shell::TranscriptFocus`]) across a crossing, which is what makes
+    /// the toggle lossless: leaving for the composer and returning lands on the
+    /// same highlighted entry.
+    pub focus: Focus,
     /// Which layout strategy arranges the transcript message stream. Selected
     /// via `[tui] transcript_layout`; defaults to the turn-banded layout (each
     /// tool-bearing ReAct turn grouped under a labelled header). See
@@ -870,13 +918,6 @@ pub struct App {
     /// keys). The Session/Subagent/Side resolvers and the composer
     /// hint row consult it.
     pub surface_overrides: crate::shell::keymap::SurfaceOverrides,
-    /// Keyboard-focused activatable target in the current frame, and the TUI's
-    /// only navigation state — there is no separate "browse mode". `None` means
-    /// every key has its ordinary input-box meaning (typing flows into the
-    /// prompt). `Some` means a transcript step is highlighted: `Ctrl+↑`/`Ctrl+↓`
-    /// (or bare `↑`/`↓`) cycle it, `Enter` activates it, and `Esc` clears it.
-    /// Mouse hover/click is an acceleration path onto the same state.
-    pub focused_target: Option<InteractiveTarget>,
     /// Show a brief "copied" toast. Held until this deadline elapses so the
     /// duration is wall-clock consistent regardless of the event-loop cadence.
     pub copy_toast_until: Option<std::time::Instant>,

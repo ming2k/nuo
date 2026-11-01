@@ -233,6 +233,9 @@ pub(crate) fn save_session_inner(
             .workspace
             .as_ref()
             .map(|w| w.root.to_string_lossy().into_owned());
+        // The Session IR's declarative policy, derived from this thread's own
+        // state so `load_session_ir` always has a decodable object.
+        let ir_policy = crate::db::ir_mirror::project_policy(data);
         let additional_roots = match data.workspace.as_ref() {
             Some(w) => serde_json::to_string(&w.additional_roots),
             None => Ok("[]".to_string()),
@@ -290,8 +293,10 @@ pub(crate) fn save_session_inner(
                 thread_id, workspace_root, system_role, unattended, provider_pin,
                 disabled_tools_json, additional_roots_json, commands_json,
                 round_interrupts_json, retry_resolutions_json, retry_pending,
-                role_manifest, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13 * 1000)
+                role_manifest, rules_json, capabilities_json, guardrails_json,
+                budget_json, updated_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                      ?14, ?15, ?16, ?17 * 1000)
             ON CONFLICT(thread_id) DO UPDATE SET
                 workspace_root = excluded.workspace_root,
                 system_role = excluded.system_role,
@@ -304,6 +309,15 @@ pub(crate) fn save_session_inner(
                 retry_resolutions_json = excluded.retry_resolutions_json,
                 retry_pending = excluded.retry_pending,
                 role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
+                -- The IR policy columns are a *derivation* of the thread row this
+                -- same statement writes. Nothing populated them before, so they held
+                -- the schema's `{}` placeholder and `load_session_ir` could not
+                -- deserialize them — which failed the whole hydrate, taking every
+                -- causal node with it.
+                rules_json = excluded.rules_json,
+                capabilities_json = excluded.capabilities_json,
+                guardrails_json = excluded.guardrails_json,
+                budget_json = excluded.budget_json,
                 updated_at_ms = excluded.updated_at_ms;
             "#,
             params![
@@ -328,6 +342,11 @@ pub(crate) fn save_session_inner(
                 data.role_manifest
                     .as_ref()
                     .and_then(|m| serde_json::to_string(m).ok()),
+                // Derived from the same thread row, so the two views cannot drift.
+                ir_policy.rules_json,
+                ir_policy.capabilities_json,
+                ir_policy.guardrails_json,
+                ir_policy.budget_json,
                 data.updated_at as i64,
             ],
         )?;
@@ -424,6 +443,13 @@ pub(crate) fn save_session_inner(
                 insert_usage_record_tx(conn, data.id.as_str(), record)?;
             }
         }
+
+        // Mirror the transcript's dialogue into the canonical fact substrate.
+        // The Session IR reads `causal_nodes`, and no live path ever wrote it, so
+        // every IR consumer (compaction above all) saw an empty graph. Runs after
+        // the transcript rows in this same transaction so the two views commit or
+        // roll back together.
+        crate::db::ir_mirror::mirror_transcript(conn, data, full)?;
 
         // D3: the revision advance and the receipt land in the
         // same transaction as the facts they describe, so recovery can

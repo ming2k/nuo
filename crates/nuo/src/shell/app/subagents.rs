@@ -183,7 +183,7 @@ impl App {
         key: crate::shell::keymap::Key,
     ) -> nuo_view::model::interactive::EntryKeyOutcome {
         use nuo_view::model::interactive::EntryKeyOutcome;
-        let Some(target) = self.focused_target else {
+        let Some(target) = self.focus.entry() else {
             return EntryKeyOutcome::Unhandled;
         };
 
@@ -245,27 +245,42 @@ impl App {
         targets
     }
 
+    /// Degrade a stranded entry highlight to browse focus.
+    ///
+    /// A transcript that mutates under the user can strand the selection. The
+    /// **plane never changes** here: the keyboard stays on the transcript (the
+    /// surface the user was reading) and only the highlight degrades
+    /// ([`crate::shell::Focus::retain_entry`]).
     pub(crate) fn retain_visible_focused_target(&mut self) {
         if self.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
-            self.focused_target = None;
+            self.focus.browse();
             return;
         }
-        if let Some(target) = self.focused_target
-            && !self.visible_interactive_targets().contains(&target)
-        {
-            self.focused_target = None;
-        }
+        let visible = self.visible_interactive_targets();
+        self.focus.retain_entry(|target| visible.contains(&target));
     }
 
+    /// Walk the transcript entry highlight one step (`direction < 0` =
+    /// toward older entries).
+    ///
+    /// Reaching past either end is a **plane crossing back to the composer**
+    /// only when the viewport cannot scroll further — the same "the transcript
+    /// has nothing left to give" gesture that the bare `↑`/`↓` walk implies.
+    /// Before that, the walk scrolls the viewport so the highlight is never
+    /// pushed off screen.
     pub(crate) fn focus_interactive_target(&mut self, direction: i8) {
         let targets = self.visible_interactive_targets();
         if targets.is_empty() {
-            self.focused_target = None;
+            // Nothing to highlight: browse the transcript rather than
+            // pretending the entry plane is live.
+            self.focus
+                .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             return;
         }
 
         let current = self
-            .focused_target
+            .focus
+            .entry()
             .and_then(|target| targets.iter().position(|candidate| *candidate == target));
         let next = match (current, direction < 0) {
             (Some(0), true) => {
@@ -289,8 +304,12 @@ impl App {
                         self.pin_summary_line = None;
                         return;
                     } else {
-                        self.focused_target = None;
-                        self.transcript_focused = false;
+                        // The transcript is exhausted in this direction:
+                        // hand the keyboard back to the composer. This is the
+                        // second, *implicit* crossing gesture of ADR-0145 —
+                        // it needs no chord because it is what walking off the
+                        // end of a list already means.
+                        self.focus.enter_composer();
                         self.selection = SelectionState::None;
                         self.drag.cancel();
                         return;
@@ -303,7 +322,8 @@ impl App {
             (None, false) => 0,
         };
 
-        self.focused_target = Some(targets[next]);
+        self.focus
+            .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(targets[next]));
         self.selection = SelectionState::None;
         self.drag.cancel();
     }
@@ -319,7 +339,7 @@ impl App {
     pub(crate) fn focused_entry_kind(
         &self,
     ) -> Option<crate::shell::composer_hints::FocusedEntryKind> {
-        let target = self.focused_target?;
+        let target = self.focus.entry()?;
         let message = self.focused_messages().get(target.message_idx)?;
         Some(if message.is_subagent_task() {
             crate::shell::composer_hints::FocusedEntryKind::Subagent

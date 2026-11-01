@@ -315,9 +315,9 @@ pub use policy_schema::*;
 /// reply where the server says it belongs instead of inferring it. A mixed pair
 /// would disagree about which replies are durable rows, which is the exact
 /// asymmetry the field removes — hence a hard floor rather than a tolerant field.
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 20;
+pub const MIN_PROTOCOL_VERSION: u32 = 21;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -551,10 +551,21 @@ pub enum Wire {
         project: Option<std::path::PathBuf>,
         #[serde(default)]
         posture: human_request::HumanChannelPosture,
+        /// The product build, advisory identity only.
+        ///
+        /// It is **not** a gate: the protocol number below decides whether this
+        /// peer can be served. Keeping it lets a refusal name both builds.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         version: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        protocol: Option<u32>,
+        /// The wire protocol this client speaks. **Required.**
+        ///
+        /// There is no pre-protocol client: dropping the field from `Option`
+        /// deleted the "judge it by exact product-version equality instead"
+        /// fallback, which was a compatibility lane for peers that no longer
+        /// exist. A `Select` without a protocol number is now a deserialization
+        /// failure at the boundary — loud, at the right layer, instead of a
+        /// silently different admission rule.
+        protocol: u32,
     },
     /// Server acknowledgement of an attached connection.
     ///

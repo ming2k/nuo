@@ -38,10 +38,31 @@ The `apply` pass is the **sole writer** of `App` state. Events never mutate the 
 
 1. **Family classification.** `input::event_family` maps a raw event to a UI family (composer, transcript, sheet, completion). The keyboard path is resolved through `ComponentTree::keyboard_path_for(family)`.
 2. **Component-local first.** `component_input::route` gives dropdowns, provider-delete confirmation, and composer selection a chance to consume the event before global routing.
-3. **Global routing.** `input::route_event` produces an `InputAction`, consulting the routing context: the active overlay/sheet, the current scene, key overrides, the focused target, and whether the transcript is focused.
+3. **Global routing.** `input::route_event` produces an `InputAction`, consulting the routing context: the active overlay/sheet, the current scene, key overrides, and which **peer focus plane** owns the keyboard (ADR-0145).
 4. **Dispatch.** `actions::dispatch_action` maps the action to an `ActionFlow` (the outcome: consumed, bubbled, or a mutation).
 
 Key contexts (`ModalKeys`, `SheetKeys`, `SceneKeys`, `EditBuffer`) select which keymap applies for the current surface.
+
+### Peer focus planes (ADR-0145)
+
+A chat scene hosts two coequal surfaces, and exactly one owns the keyboard:
+
+| Plane | Owner | Keys |
+| --- | --- | --- |
+| `Composer` | the draft input | printable text, caret motion, readline chords, completion, `Enter` send |
+| `Transcript` | inspection | `↑`/`↓` and page keys scroll; a highlighted entry also accepts `Space` activate, `y` copy, `Shift-y` diagnostic, `o` view log |
+
+The state is one value (`crate::shell::focus::Focus`) carrying the plane plus the transcript's sub-state (`Browse` or `Entry(target)`). Transitioning:
+
+| Gesture | Effect |
+| --- | --- |
+| `⇧Tab` | crosses to the other plane (an involution: the same press returns, restoring the highlighted entry) |
+| `Ctrl+P` / `Ctrl+N` | walk the entry highlight; at either end with nothing left to scroll, `Ctrl+N` crosses back to the composer |
+| click into the transcript / a step summary | enters the transcript plane (browse / entry) |
+| click into the input box | enters the composer plane |
+| `Esc` | **never crosses planes**: it dismisses a completion, interrupts the running round, or is spent |
+
+A printable key pressed while the transcript owns the keyboard is inert — it is never inserted into a draft the user is not looking at.
 
 ---
 

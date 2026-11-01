@@ -666,9 +666,8 @@ async fn process_one_event<W: io::Write>(
         }
     }
 
-    let has_focused_target = app.focused_target.is_some();
-    let transcript_focused = app.transcript_focused;
-    let event_family = input::event_family(event, &app.ui, has_focused_target, transcript_focused);
+    let focus_plane = app.focus.plane();
+    let event_family = input::event_family(event, &app.ui, focus_plane);
     let keyboard_path = app.ui.keyboard_path_for(event_family);
     let active_overlay = match keyboard_path.first().copied() {
         Some(crate::shell::ui::UiKey::Overlay(overlay)) => Some(overlay),
@@ -865,8 +864,7 @@ async fn process_one_event<W: io::Write>(
             pre_attach: app.pre_attach.is_some(),
             scene: current_scene,
             key_overrides: app.key_overrides.clone(),
-            focused_target: has_focused_target,
-            transcript_focused,
+            focus: focus_plane,
             scene_blocked: matches!(
                 keyboard_path.first(),
                 Some(
@@ -893,7 +891,7 @@ async fn process_one_event<W: io::Write>(
             question_other_highlighted,
             permission_confirm_always,
             permission_show_details,
-            focused_target: has_focused_target,
+            transcript_plane: focus_plane == crate::shell::focus::FocusPlane::Transcript,
         };
         let scene_keys = crate::shell::session::SceneKeys {
             is_responding,
@@ -909,8 +907,8 @@ async fn process_one_event<W: io::Write>(
             has_exact_suggestion,
             in_history_recall,
             surface_overrides: app.surface_overrides.clone(),
-            focused_target: has_focused_target,
-            transcript_focused,
+            focus: focus_plane,
+            entry_focus: app.focus.entry(),
             focused_subagent_running,
         };
         match edit_buffer {

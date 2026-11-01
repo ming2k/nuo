@@ -140,6 +140,15 @@ pub enum ClientNotice {
     SteerCancelRaced,
     /// A steer missed the active round and was handed back to the composer.
     SteerMissedRoundRestored,
+    /// A steer ended without admission, but its outbox row was already gone,
+    /// so the text could not be restored to the composer.
+    ///
+    /// This is the last-resort arm: the row itself is the payload, so an
+    /// ending that arrives after the row disappeared means the user's message
+    /// is unrecoverable. Dropping it silently would be a message vanishing
+    /// with no transcript row, no draft, and no receipt — the worst possible
+    /// outcome, and the exact one a full-replace queue snapshot used to cause.
+    SteerContentLost,
     /// A slash-command reply that is a **reading** (ADR-0140): the answer to a
     /// question about the world at the moment it was asked.
     ///
@@ -307,6 +316,16 @@ impl ClientNotice {
                 title: "Steer missed active round; restored to composer".to_string(),
                 detail: None,
             },
+            Self::SteerContentLost => RenderedNotice {
+                severity: NoticeSeverity::Error,
+                topic: ClientTopic::Command.label(),
+                title: "Steer was never admitted and its text could not be restored".to_string(),
+                detail: Some(
+                    "The steer left the outbox before its round reported an outcome, so the \
+                     client no longer holds the prompt. Re-send it if it is still wanted."
+                        .to_string(),
+                ),
+            },
         }
     }
 }
@@ -469,6 +488,7 @@ mod tests {
             },
             ClientNotice::SteerCancelRaced,
             ClientNotice::SteerMissedRoundRestored,
+            ClientNotice::SteerContentLost,
         ];
 
         for entry in &entries {
@@ -522,6 +542,7 @@ mod tests {
                 error: "e".into(),
             },
             ClientNotice::SteerCancelRaced,
+            ClientNotice::SteerContentLost,
         ] {
             assert!(
                 entry.render().severity.is_fault(),

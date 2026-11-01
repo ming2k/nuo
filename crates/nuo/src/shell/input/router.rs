@@ -31,17 +31,15 @@ pub struct Dispatch {
     /// User remaps of the global chords (`[keybindings]` config).
     /// Global resolution and the keycap hints both consult it.
     pub key_overrides: crate::shell::keymap::GlobalOverrides,
-    /// Whether a transcript step/action target currently holds keyboard focus.
+    /// Which of the chat scene's peer surfaces owns the keyboard
+    /// (ADR-0145). One value, so the router cannot be told a contradictory
+    /// pair ("an entry is highlighted **and** the composer is live") — the
+    /// legacy shape's two booleans could express exactly that.
     ///
-    /// This is the TUI's only navigation state: there is no separate "browse
-    /// mode". When `true`, a step is highlighted in the transcript and the
-    /// keys that would otherwise edit/scroll instead act on that step — `↑`/`↓`
-    /// (and `Ctrl+↑`/`Ctrl+↓`) cycle the focused step, `Enter` activates it,
-    /// and `Esc` clears the focus. When `false` every key has its ordinary
-    /// input-box meaning. Mirrors `App::focused_target.is_some()`.
-    pub focused_target: bool,
-    /// Whether the transcript currently holds browse focus (e.g. via mouse click into viewport).
-    pub transcript_focused: bool,
+    /// `FocusPlane::Transcript` covers both transcript sub-states, browse and
+    /// entry highlight: to the router they agree on every arbitration question
+    /// (`↑`/`↓` act on the transcript, printables do not reach the draft).
+    pub focus: crate::shell::focus::FocusPlane,
     /// A scene component above the application surfaces owns the event. Its
     /// component handler declined the key, so only global chords may run.
     pub scene_blocked: bool,
@@ -58,9 +56,9 @@ pub struct Dispatch {
 pub fn event_family(
     event: &Event,
     ui: &crate::shell::ui::ComponentTree,
-    focused_target: bool,
-    transcript_focused: bool,
+    focus: crate::shell::focus::FocusPlane,
 ) -> u64 {
+    let transcript_plane = focus == crate::shell::focus::FocusPlane::Transcript;
     use crate::shell::ui::{UiKey, family};
 
     let Event::Key(key) = event else {
@@ -105,15 +103,12 @@ pub fn event_family(
     }
     if matches!(key.code, KeyCode::PageUp | KeyCode::PageDown)
         || matches!(key.code, KeyCode::Home | KeyCode::End)
-            && (key.modifiers.contains(KeyModifiers::CONTROL)
-                || focused_target
-                || transcript_focused)
+            && (key.modifiers.contains(KeyModifiers::CONTROL) || transcript_plane)
         || matches!(key.code, KeyCode::Up | KeyCode::Down)
             && (key
                 .modifiers
                 .intersects(KeyModifiers::ALT | KeyModifiers::CONTROL)
-                || focused_target
-                || transcript_focused)
+                || transcript_plane)
     {
         family::TRANSCRIPT
     } else {
@@ -170,7 +165,7 @@ fn edits_input_field(
             modal_keys,
         );
     }
-    if dispatch.focused_target || dispatch.transcript_focused {
+    if dispatch.focus == crate::shell::focus::FocusPlane::Transcript {
         return false;
     }
     if dispatch.sheet.is_some() && dispatch.overlay.is_none() {
@@ -351,6 +346,18 @@ pub fn route_event_motion(
                     crate::shell::keymap::CommandId::CommandPalette => {
                         return InputAction::ViewSwitcherToggle;
                     }
+                    crate::shell::keymap::CommandId::ToggleFocusPlane => {
+                        // `⇧Tab` crosses the chat scene's peer focus planes.
+                        // Top level only: an overlay traps the keyboard, and
+                        // its own `⇧Tab` verbs (field walking, tab cycling)
+                        // are resolved by its scheme well before this arm.
+                        if dispatch.overlay.is_none()
+                            && dispatch.sheet.is_none()
+                            && dispatch.scene == crate::shell::surfaces::SceneKind::Thread
+                        {
+                            return InputAction::ToggleFocusPlane;
+                        }
+                    }
                     crate::shell::keymap::CommandId::NewTab => {
                         return InputAction::CreateNewSession;
                     }
@@ -503,10 +510,16 @@ pub fn route_event_motion(
                             _ => InputAction::CloseModal,
                         }
                     } else if permission_sheet_foreground(&dispatch) {
+                        // The permission sheet is the keyboard foreground, so
+                        // `Esc` is its reject gesture — never a focus gesture.
+                        // It used to demote a highlighted transcript entry
+                        // first, which meant one `Esc` could be spent on the
+                        // transcript behind the sheet while the pending
+                        // decision sat unanswered (ADR-0145). Stepping back out
+                        // of the "Always allow" sub-choice is still a step back
+                        // *inside* the sheet, so it stays.
                         if sheet_keys.permission_confirm_always {
                             InputAction::PermissionBack
-                        } else if dispatch.focused_target {
-                            InputAction::ClearFocusedTarget
                         } else {
                             InputAction::PermissionReject
                         }
@@ -890,9 +903,9 @@ pub fn route_event_motion(
                     }
                     InputAction::None
                 }
-                // Alt+↑ / Alt+↓ (transcript step focus switching) are
-                // chat-surface chords, resolved by the Conversation scene's scheme
-                // before this match.
+                // The entry walk (`Ctrl+P` / `Ctrl+N`, and bare ↑/↓ once an
+                // entry is highlighted) is a chat-surface chord, resolved by
+                // the Conversation scene's scheme before this match.
                 // Ctrl+↑ / Ctrl+↓ inside a modal scroll the modal body by one
                 // page — the same gesture a pager or editor binds to a
                 // half-page jump. Mirrors PageUp / PageDown so users have both
@@ -994,8 +1007,7 @@ pub fn route_event_motion(
                 // - When composer or modal input field is active: move caret to line start / line end (readline convention).
                 KeyCode::Home => {
                     if permission_sheet_foreground(&dispatch)
-                        || dispatch.focused_target
-                        || dispatch.transcript_focused
+                        || dispatch.focus == crate::shell::focus::FocusPlane::Transcript
                     {
                         InputAction::ScrollTop
                     } else if edits_input_field(&dispatch, modal_keys) {
@@ -1007,8 +1019,7 @@ pub fn route_event_motion(
                 }
                 KeyCode::End => {
                     if permission_sheet_foreground(&dispatch)
-                        || dispatch.focused_target
-                        || dispatch.transcript_focused
+                        || dispatch.focus == crate::shell::focus::FocusPlane::Transcript
                     {
                         InputAction::ScrollBottom
                     } else if edits_input_field(&dispatch, modal_keys) {

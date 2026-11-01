@@ -1,173 +1,21 @@
-//! Google Gemini Interactions API wire format request construction and response parsing.
+//! Google Gemini Interactions API **response parsing**.
 //!
-//! Stateful incremental interaction protocol (`POST /v1beta/interactions`), providing
-//! server-side state tracking (`previous_interaction_id`), tools orchestration, and
-//! streaming delta decoding.
+//! Only the decoding half lives here. The request builder that used to sit
+//! beside it was reachable from nowhere: every shipped provider constructs its
+//! own request body, and nothing called `protocol::build_request`. It was
+//! deleted with the rest of the credential-level codec lane rather than kept as
+//! a documented lie (see ADR-0084's amendment and `docs/adr/0143`).
+//!
+//! `parse_response` and `parse_chunk` stay because
+//! `providers/nuo-provider-google-antigravity` genuinely calls them — that
+//! provider streams Google's Interactions frames and needs the delta decoding.
 
-use crate::endpoint::Endpoint;
-use crate::error::Result;
-use crate::types::{
-    ContentBlock, WireChunk, WireRequest, WireResponse, WireRole, WireToolCall, WireToolCallChunk,
-    WireUsage,
+use crate::generative::types::{
+    WireChunk, WireResponse, WireToolCall, WireToolCallChunk, WireUsage,
 };
 use serde_json::json;
 
-/// Builds the HTTP request for Google Interactions API.
-pub fn build_request(
-    endpoint: &Endpoint,
-    token: &str,
-    request: &WireRequest,
-    is_stream: bool,
-) -> (String, http::HeaderMap, serde_json::Value) {
-    let url = if is_stream {
-        format!("{}/interactions?alt=sse", endpoint.base_url)
-    } else {
-        format!("{}/interactions", endpoint.base_url)
-    };
-
-    let mut headers = http::HeaderMap::new();
-    headers.insert(
-        http::header::CONTENT_TYPE,
-        http::header::HeaderValue::from_static("application/json"),
-    );
-
-    if !token.is_empty() {
-        if token.starts_with("ya29.") || token.starts_with("Bearer ") {
-            let bearer = if token.starts_with("Bearer ") {
-                token.to_string()
-            } else {
-                format!("Bearer {token}")
-            };
-            if let Ok(val) = bearer.parse() {
-                headers.insert(http::header::AUTHORIZATION, val);
-            }
-        } else if let Ok(val) = http::HeaderValue::from_str(token) {
-            headers.insert(http::header::HeaderName::from_static("x-goog-api-key"), val);
-        }
-    }
-
-    for (k, v) in &endpoint.client_headers {
-        if let (Ok(name), Ok(val)) = (k.parse::<http::header::HeaderName>(), v.parse()) {
-            headers.insert(name, val);
-        }
-    }
-
-    for (k, v) in &endpoint.custom_headers {
-        if let (Ok(name), Ok(val)) = (k.parse::<http::header::HeaderName>(), v.parse()) {
-            headers.insert(name, val);
-        }
-    }
-
-    let mut system_prompts = Vec::new();
-    let mut parts = Vec::new();
-
-    for msg in &request.messages {
-        if msg.role == WireRole::System {
-            for block in &msg.blocks {
-                if let ContentBlock::Text { text } = block {
-                    system_prompts.push(text.clone());
-                }
-            }
-            continue;
-        }
-
-        for block in &msg.blocks {
-            match block {
-                ContentBlock::Text { text } => {
-                    parts.push(json!({ "text": text }));
-                }
-                ContentBlock::Thinking { .. } => {
-                    // Thoughts are output artifacts, withheld from request parts
-                }
-                ContentBlock::Image { media_type, data } => {
-                    parts.push(json!({
-                        "inline_data": {
-                            "mime_type": media_type,
-                            "data": data,
-                        }
-                    }));
-                }
-                ContentBlock::ToolCall(tc) => {
-                    parts.push(json!({
-                        "function_call": {
-                            "name": tc.name,
-                            "args": tc.arguments,
-                        }
-                    }));
-                }
-                ContentBlock::ToolResult(tr) => {
-                    parts.push(json!({
-                        "function_response": {
-                            "name": tr.call_id,
-                            "response": { "output": tr.output },
-                        }
-                    }));
-                }
-            }
-        }
-    }
-
-    let input_value = if parts.len() == 1 && parts[0].get("text").is_some() {
-        parts[0]["text"].clone()
-    } else if !parts.is_empty() {
-        json!(parts)
-    } else {
-        json!("")
-    };
-
-    let mut body = json!({
-        "model": endpoint.model,
-        "input": input_value,
-        "stream": is_stream,
-        "store": true,
-    });
-
-    if !system_prompts.is_empty() {
-        body["system_instruction"] = json!({
-            "parts": [{ "text": system_prompts.join("\n\n") }]
-        });
-    }
-
-    if !request.tools.is_empty() {
-        let decls: Vec<serde_json::Value> = request
-            .tools
-            .iter()
-            .map(|t| {
-                json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                })
-            })
-            .collect();
-        body["tools"] = json!([{ "function_declarations": decls }]);
-    }
-
-    let mut gen_config = serde_json::Map::new();
-    if let Some(temp) = request.temperature {
-        gen_config.insert("temperature".into(), json!(temp));
-    }
-    if let Some(max) = request.max_tokens {
-        gen_config.insert("max_output_tokens".into(), json!(max));
-    }
-    if let Some(budget) = request.thinking_budget {
-        let mut thinking_config = serde_json::Map::new();
-        thinking_config.insert("include_thoughts".into(), json!(true));
-        thinking_config.insert("thinking_budget".into(), json!(budget));
-        gen_config.insert(
-            "thinking_config".into(),
-            serde_json::Value::Object(thinking_config),
-        );
-    }
-    if !gen_config.is_empty() {
-        body["generation_config"] = serde_json::Value::Object(gen_config);
-    }
-
-    (url, headers, body)
-}
-
-/// Parses the non-streaming JSON response from Google Interactions API.
-pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
+pub fn parse_response(json_val: &serde_json::Value) -> WireResponse {
     let interaction_id = json_val
         .get("id")
         .and_then(|id| id.as_str())
@@ -297,7 +145,7 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
         WireUsage::default()
     };
 
-    Ok(WireResponse {
+    WireResponse {
         content: if text_acc.is_empty() {
             None
         } else {
@@ -311,11 +159,11 @@ pub fn parse_response(json_val: &serde_json::Value) -> Result<WireResponse> {
         tool_calls,
         usage,
         continuation_id: interaction_id,
-    })
+    }
 }
 
 /// Parses an SSE streaming delta frame from Google Interactions API.
-pub fn parse_chunk(json_val: &serde_json::Value) -> Result<Option<WireChunk>> {
+pub fn parse_chunk(json_val: &serde_json::Value) -> Option<WireChunk> {
     let mut chunk = WireChunk::default();
 
     // Check interaction id
@@ -443,8 +291,8 @@ pub fn parse_chunk(json_val: &serde_json::Value) -> Result<Option<WireChunk>> {
         && chunk.continuation_id.is_none()
         && !chunk.is_done
     {
-        Ok(None)
+        None
     } else {
-        Ok(Some(chunk))
+        Some(chunk)
     }
 }

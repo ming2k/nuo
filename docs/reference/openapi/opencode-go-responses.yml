@@ -1,0 +1,207 @@
+# OpenAPI 3.1 reference for the OpenCode Go **Responses** surface
+# (opencode.ai/zen/go/v1/responses).
+#
+# Transcribed from live probes and from the vendor's Console documentation
+# (opencode.ai/v2/docs/console/go), on 2026-11-01, with a real Go subscription
+# key. Every fact below is marked by how it was established:
+#   x-provenance: probe       — established by sending a request and reading the answer
+#   x-provenance: docs        — stated by the vendor's own documentation
+#
+# This file never encodes client decisions. It states the contract the endpoint
+# enforces; the decisions built on top of it are ADR-0142.
+#
+# Why this file exists separately from `opencode-go.yml`: that document covers
+# the *allowance* surface (`/usage`), which is shared by every Go channel. This
+# one covers the *inference* surface, whose shape is the reason the Go provider
+# declares a distinct wire dialect.
+openapi: 3.1.0
+info:
+  title: OpenCode Go Responses API
+  version: 1.0.0
+  summary: >-
+    The Go plan's OpenAI-Responses-compatible inference surface. It is a
+    translation layer: Console accepts a Responses request and routes it to the
+    model's upstream, which may natively speak Responses or only
+    chat-completions.
+  description: |
+    **This is a transcoding gateway, not a native Responses backend.** The
+    vendor says so directly: each model is listed with its *native* API, but
+    "every text model also works through the other APIs, which Console
+    translates" (`x-provenance: docs`).
+
+    That single fact drives the client contract, because a translating gateway
+    cannot honour the parts of the Responses protocol that require server-side
+    identity — **for the models it has to convert**. The native rows behind the
+    same URL do honour them, so most behaviors below are *per model*, not per
+    surface:
+
+    | Feature | Behavior | Provenance |
+    | --- | --- | --- |
+    | `store: true` — converted row (`deepseek-v4.1-flash`, GLM, Kimi, MiMo, Hy, LongCat, Step, Qwen, MiniMax) | `400` — "stored responses require a native Responses target; use store=false and send prior output items in input" | probe |
+    | `store: true` — native row (`grok-4.7`, `gpt-6-luna`, `gpt-5.6-luna`) | `200`, and genuinely stateful: a continuation with only the new input recalls the prior turn | probe |
+    | `store: true` — `deepseek-v4-pro` passthrough | `200` and stateful, **but the same model may 400 depending on routing** — treat as unreliable | probe |
+    | `previous_response_id` — converted row | `400` — "requires a native Responses target; portable routing requires the full conversation in input" | probe |
+    | `previous_response_id` — native row | honoured; a delta-only `function_call_output` completes a tool round | probe |
+    | `truncation: "auto"` | `400` on one upstream ("cannot be preserved across …"), `200` on another | probe |
+    | Flattened tool definitions | accepted by every upstream | probe |
+    | Nested `{type,function:{…}}` tools | `400` — "this tool feature requires a native Responses target" on most upstreams | probe |
+    | `stream: true` | full SSE lifecycle emitted (`response.created` … `response.completed`) | probe |
+    | `reasoning.summary` | accepted; `detailed` echoed back | probe |
+
+    **A client that must work for every model cannot use the per-model grants.**
+    Because the model is chosen at runtime from a relay-controlled catalog
+    (which rewrites ids server-side), the only safe contract is the intersection:
+    no `store`, no `previous_response_id`, full context every turn. Nuo declares
+    this surface `Stateless` for that reason (ADR-0142 §6).
+
+    **Reasoning replay is the sharp edge.** The upstreams behind this one URL
+    enforce *opposite* rules for replayed reasoning items, and the gateway
+    forwards whichever shape the client sent:
+
+    - Some reject an item with no `summary` array:
+      `input[N].summary: expected an array`.
+    - Others reject a replayed turn whose raw chain was dropped:
+      ``The `reasoning_text` in the thinking mode must be passed back to the API``.
+
+    A client therefore cannot pick one form. It must emit both part families in
+    the same item — `summary[].summary_text` **and** `content[].reasoning_text`
+    — and, for a pruned historical turn, an empty `summary` array with no
+    `content` key at all (an empty `reasoning_text` is itself rejected).
+
+    Session affinity: the gateway requires `x-opencode-session`; without it the
+    request answers `400 MissingSessionID` before reaching any model.
+servers:
+  - url: https://opencode.ai/zen/go/v1
+    description: Production
+security:
+  - bearerAuth: []
+paths:
+  /responses:
+    post:
+      operationId: createGoResponse
+      summary: Create a response (portable, stateless)
+      description: |
+        Accepts an OpenAI Responses request body and returns a `response`
+        object, or an SSE stream of `response.*` events when `stream` is true.
+
+        The portable contract a client should honour: omit `store` (or send
+        `false`) and always send the full conversation in `input`. Converted
+        upstreams reject `store: true` outright; native ones accept it, but the
+        client cannot know which it is talking to until the catalog answers.
+      parameters:
+        - name: x-opencode-session
+          in: header
+          required: true
+          schema:
+            type: string
+          description: >-
+            Stable per-conversation id used for routing and prompt-cache
+            affinity. Omitting it answers `400 MissingSessionID`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, input]
+              properties:
+                model:
+                  type: string
+                  description: A Go model id (see `GET /models`).
+                input:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: object
+                  description: >-
+                    The conversation. Replayed assistant turns may carry
+                    `reasoning` items; see the dual-form rule in the
+                    description.
+                instructions:
+                  type: string
+                stream:
+                  type: boolean
+                tools:
+                  type: array
+                  description: >-
+                    Flattened OpenAI tool definitions
+                    (`{type:"function",name,description,parameters}`). The nested
+                    `function` object is rejected.
+                  items:
+                    type: object
+                tool_choice:
+                  type: string
+                parallel_tool_calls:
+                  type: boolean
+                include:
+                  type: array
+                  items:
+                    type: string
+                  description: >-
+                    `["reasoning.encrypted_content"]` is accepted (stateless
+                    replay).
+                reasoning:
+                  type: object
+                  properties:
+                    effort:
+                      type: string
+                      description: >-
+                        Forwarded to the upstream, so the accepted vocabulary is
+                        the model's, not the gateway's. Every level from `none`
+                        to `ultra` answered 200 for the DeepSeek rows.
+                    summary:
+                      type: string
+                max_output_tokens:
+                  type: integer
+                  description: >-
+                    Enforced upstream. A truncated turn returns
+                    `status: "incomplete"` with the partial output preserved.
+              additionalProperties: true
+            x-provenance: probe
+      responses:
+        "200":
+          description: The response object, or an SSE event stream.
+        "400":
+          description: >-
+            A portable-mode violation (`store`, `previous_response_id`), a
+            tool-shape mismatch, a reasoning-replay mismatch, or a missing
+            `x-opencode-session`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: The key is missing or rejected.
+        "403":
+          description: A valid key with no Go subscription entitlement.
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: >-
+        An OpenCode Go subscription key (`oc_sk_…`), or `public` for the
+        promotional free tier.
+  schemas:
+    ErrorEnvelope:
+      type: object
+      properties:
+        type:
+          type: string
+          description: >-
+            `invalid_request_error`, `server_error`, `ModelDeprecated`,
+            `MissingSessionID`, or `Error`.
+        message:
+          type: string
+          description: >-
+            Upstream text, sometimes prefixed `Upstream request failed:`. Keep it
+            verbatim — it is the only diagnostic the gateway offers, and it is
+            what distinguishes a client-shape bug from an upstream outage.
+      additionalProperties: true
+      x-error-semantics:
+        "400":
+          MissingSessionID: no `x-opencode-session` header
+          portable-mode: a `store`/`previous_response_id`/`truncation` request
+          tool-shape: a nested tool definition
+          reasoning-replay: a single-form reasoning item

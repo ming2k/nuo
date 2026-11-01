@@ -8,8 +8,387 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **The queue projection and the driver's queue were two different truths (ADR-0144).**  - `D` (delete) and `Enter` (recall-to-composer) in the queue modal mutated only the local
+    `pending_dispatch`. The message stayed in the driver's `FollowUpQueue`, so it shipped at the next
+    round boundary — the "deleted" prompt still ran while the user was editing it in the composer —
+    and the next `QueueUpdated` snapshot put the row straight back. Both now send `QueueRemove`, the
+    idempotent verb that already existed with zero call sites; `/queue clear` sends `QueueClear`
+    instead of clearing every session's local rows.
+  - `QueueUpdated` was a full replace that preserved `Dispatching` rows only. `Waiting` is the
+    driver's projection, but `Dispatching` (an in-flight `FollowUp` ack) and `Steering` (a busy-Enter
+    steer held in the running round, which the server's queue never sees) exist only client-side — and
+    the driver emits a snapshot after *every* queue change, including the `QueuePaused(true)` echo of
+    merely opening the modal. So every pending steer was deleted a frame after it was staged, and since
+    the row *is* the payload, the later `SteerUnavailable` had nothing to restore: the prompt vanished
+    with no transcript row, no draft, and no receipt. The merge is now a total `match` on
+    `QueuedDispatchState` (`[INV-OUTBOX-01]`).
+  - `App::take_steer_row` replaces the inline row lookups, so a steer's text **and attachments** come
+    back to the composer, and the take is state-scoped so a `Waiting` follow-up can never be consumed
+    by a steer-ending path. If a steer ends with no row, the client now records
+    `ClientNotice::SteerContentLost` rather than dropping the message silently (`[INV-OUTBOX-02]`).
+  - Opening the modal sent `QueuePaused(true)`; closing it cleared only the local latch, leaving the
+    driver paused forever while the chrome said otherwise. Both exit hooks (dialog close *and* session
+    switch) and the `/queue block` command — previously a local-only illusion that toasted "Queue
+    paused" while the driver kept shipping — now send the verb. On the server, `queue_paused` also
+    **wakes the ship loop on resume**: shipping is driven by round-boundary wakes, so clearing the flag
+    alone left a queue whose round already ended parked with no event left to start it
+    (`[INV-OUTBOX-04]`).
+  - Recall now removes the item *before* its synthetic close releases the pause, so the driver cannot
+    ship the row being recalled in that window. `J`/`K` no longer send `QueueReorder` for a `Steering`
+    row (steers have no queue position), which had been moving the local list while the server no-oped.
+  - Dead local-drain machinery is deleted rather than documented, following ADR-0137 §6:
+    `App::begin_next_round_dispatch` and `App::requeue_dispatch` had zero production callers and
+    described a client-side drain that the driver took over. `QueueBarProps::paused` / `::blocked` went
+    with them — computed every frame, read by nobody.
+  - Closing the panel resumed **unconditionally**, so `Ctrl+P` followed by a close silently undid the
+    user's pause — the inverse of the previous defect and the same kind of lie. `queue_exit_session`
+    now carries a `QueuePauseOrigin`, and the exit hook releases only a pause it set itself.
+  - `SteerCancelFailed` cleared the deletion intent while the steer was still staged, making "the
+    cancel lost" indistinguishable from "no cancel was requested": a later `SteerCancelled` for that id
+    restored text the user had deliberately deleted. The flag now lives exactly as long as its item.
+  - `QueueUpdated` is an event, so a client attaching (or re-attaching) to an already-live session
+    rendered an empty queue while the driver held items — "nothing pending", then surprise prompts.
+    `AgentRequest::QueueSnapshot` is the read twin, sent on the same `Ready` transition that flushes
+    pre-`Ready` input. Protocol 20 → 21.
+  - `/queue clear` emptied the list without cancelling a live steer, which is not in the driver's
+    follow-up queue at all: the steer then landed *after* the user cleared the queue.
+  - The ship pass ran **inside the wake branch**, so it depended on receiving a hint. `Notify` stores
+    one permit and a boundary watcher drops its send when the channel is full, so a lost hint parked
+    the queue forever — and the only symptom was a message that never ran. It is now evaluated once per
+    driver iteration from checkable state (`[INV-OUTBOX-07]`); the wake arm keeps only its real duty
+    (parking the queue after an interrupted round).
+  - `SteerMissed` cleared the deletion intent and then restored unconditionally, so every deletion of a
+    missed steer undid itself. `SteerCancelFailed` also cleared the intent while the row was still
+    staged, and announced the race even when the user's own gesture had already consumed the item — one
+    outcome, two receipts.
+  - `DraftAdoption::OnlyIfIdle` made "the composer is busy" silently equivalent to "discard the
+    restore", so an asynchronous steer restore or a queue recall dropped the user's text while the
+    caller believed it had been restored. Replaced by `StashCurrent`, which adopts the new text and
+    captures the in-progress draft into the capsule, so ↓ brings it back: neither side loses.
+    `RecallQueued` (a one-variant enum wrapping the obvious return value) went with it.
+  - The queue projection defaulted a missing `sent_at_ms` to `0`, and `sent_time_label(0)` is the Unix
+    epoch in local time (`08:00` in UTC+8) — so a row whose peer reported no stamp displayed a
+    fabricated wall-clock. The stamp is now optional end to end and an unknown time renders nothing
+    (`[INV-OUTBOX-08]`).
+
+- **`Select.protocol` is required, and the product-version admission lane is deleted (ADR-0144
+  `[INV-OUTBOX-08]`).**
+  - A handshake with no protocol number used to be admitted or refused by *exact product-version
+    equality* — a second admission rule, for peers that predate the field and no longer exist. The
+    field is now `u32` (not `Option<u32>`), so such a frame fails to decode and is answered with the
+    `protocol_mismatch` taxonomy like any other unmodellable first frame. `version_mismatch_error` and
+    its test are deleted; the protocol window is the sole gate, and the product version survives only
+    to make a refusal name both builds.
+
+- **The mid-turn projection gate exists, and a fold no longer refuses its own window.**
+  - `project_context_if_needed` asks a `ContextProjectionGate` to relieve pressure between
+    ReAct turns. Nothing ever installed one: `bootstrap.rs` carried the comment "install a
+    gate that …" with no code under it, so the hot path took its
+    `let Some(gate) = gate else { return }` early return on every turn. Long single rounds
+    had no relief valve at all. `PruningProjectionGate` now does, in the only order that is
+    safe mid-round: prune stale tool bodies in place (keeps every message and every
+    `tool_call_id`), then fold by `TargetTokens` only if pruning left pressure above the
+    prune watermark — so a prune that already relieved the session never pays for a
+    summarization call. It returns `None` unless the window actually changed, so a healthy
+    session is not forced into a pointless request re-assembly.
+  - Its settings arrive through a closure resolved per projection rather than a captured
+    value: the thresholds are model-relative, and a captured value froze the gate on the
+    startup model's window, firing relief at the wrong pressure after any `/model` switch —
+    worse than not firing, because it spends a summarization call to reach the wrong target.
+  - The gate lives in `orchestration`, not `cognition`. It reaches
+    `compact_round_history_with_mode`, and `[INV-HARNESS-04]` forbids `cognition` from
+    depending on the layers that wrap it; `tests/layering.rs` caught the first placement.
+  - `commit_context_projection` promised in its own doc comment to "fall back to a full
+    transcript rebuild when [the projection] is not" expressible as append-only directives,
+    then returned `Err` instead. Any window holding messages the session had not committed
+    hit it, and a mid-turn projection cannot treat that as recoverable: the turn is already
+    in flight against the projected window, so refusing leaves the durable transcript
+    disagreeing with what the model was told. It now rebuilds.
+  - Not a remaining gap, contrary to an earlier note here: a subagent's transcript never
+    lives in two places on disk. `TranscriptEntry::from_message` documents that inline
+    `children` are **not** carried — "under this model a subagent run is a session of its
+    own reached through `payload.subagent`" — and `to_message` returns `children: None`. The
+    embedded `children` therefore exists only in the live `Message` (which is what
+    `admit_subagent_children` reads to *first* create the child row, and what the summary
+    and export paths read while the child is in memory). The durable representation was
+    always the pointer plus the session row; the missing piece was that the row could only
+    be created *after* the run, which is what the work above fixes.
+
+  - **Subagents are now real sessions with their own relief valve.** A subagent runs one
+    round to completion through `resume_streaming_with_events` and never passes through
+    `execute_round`, so neither the pre-round prune nor the pre-round compaction could reach
+    it; it also held no `SessionStore`, so the mid-turn gate had nothing to project against.
+    It was the one execution shape with no context relief at all, and its transcript only
+    became durable *after* the round, when `admit_subagent_children` rebuilt the child from
+    the parent message's embedded `children`.
+    - `SessionStore::for_subagent` is the missing constructor: a child session on the same
+      database and blob store, with `parent_thread_id` and `fork_kind = 'subagent'` recorded
+      at creation so the lineage is a fact from the first turn. It returns the parent id it
+      resolved, because `threads.parent_thread_id` references a row — a parent that has not
+      committed yet cannot be referenced, and that must be visible at the call site rather
+      than discovered as a foreign-key failure.
+    - The dispatch layer opens that session, seeds it with the task message exactly as the
+      live window builds it, and installs a per-turn persist so a crash keeps the work.
+    - Relief itself is injected, not constructed there: `bind_session` takes a
+      `SubagentRelief` factory and the composition root supplies the gate. The concrete gate
+      lives in `orchestration`, which wraps `cognition`, and `[INV-HARNESS-04]` forbids the
+      dependency — `tests/layering.rs` rejected the first, direct placement. The dispatch
+      layer decides *that* a child needs relief; the root decides what it is made of.
+    - `Agent::has_context_projection_gate` / `::context_prune_threshold_tokens` exist so the
+      wiring can be asserted: a gate that was never installed fails silently, because
+      `project_context_if_needed` reads a missing gate as "nothing to do".
+
+- **Sessions created before the fact mirror existed now get their facts backfilled (migration 27).**
+  - The graph repair below only fills `causal_nodes` on a session's *next* commit. A session
+    already at the context ceiling cannot reach a next commit — precisely the session that
+    needs compaction — so migration 27 backfills from `entry_memberships`, which already
+    holds every entry's identity, order and sequence. `INSERT OR IGNORE` on the composite
+    primary key makes it idempotent: a complete database passes through untouched, a
+    partially-mirrored one completes.
+  - It is a Rust step rather than inline `sql` because inline SQL in a batch is applied
+    *before* the batch's Rust hooks, so a backfill there would run against the
+    pre-migration-26 schema and find no `workspace_effects` table.
+  - Payloads are written in the exact serde shape `NodePayload` and `Role` require —
+    `{"type":"message","message":{…}}` with capitalized roles. A plausible-looking shape is
+    not merely unreadable: one bad payload fails the entire hydrate, which is the failure
+    this migration exists to end. The test asserts a real `load_session_ir` round-trip
+    rather than a row count.
+  - Parent edges are deliberately left `NULL`. The true causal parent of an entry is the
+    previous entry *within one lineage*, and a database holding forked branches cannot
+    answer that without risking a cross-lineage edge — a wrong edge is worse than none,
+    because `linear_path` follows it. The live mirror repairs the chain on the session's
+    next commit (`ON CONFLICT DO UPDATE` writes `parent_id`: a fact's payload is immutable,
+    its lineage was simply never recorded), and `newest_leaf` / `read_horizon` order by
+    `seq` meanwhile so the graph is usable rather than silently empty. The test asserts this
+    limitation instead of papering over it.
+  - `MIGRATION_CATALOG_FINGERPRINT` moves with the new entry, as the catalog-immutability
+    lock requires; migrations 1–26 remain byte-identical to their shipped form.
+
+- **Context compaction works again, and a fold now says how much it actually saved.**
+  - Automatic compaction had been a silent no-op. `compact_round_history` reads the
+    canonical `SessionIR`, but nothing on the live turn path ever wrote `causal_nodes`:
+    `commit_turn` and `replace_messages` persisted `entries` / `entry_memberships`
+    only. `session_ir()` therefore hydrated an empty graph, and
+    `CausalCompactor::compact_session_ir` took its `active_leaf.is_none()` early return
+    on every call. No error, no notice, an unchanged window — the session simply grew
+    until the provider rejected it. `save_session_inner` now mirrors the transcript's
+    dialogue into the fact substrate inside the same transaction, idempotently (an
+    entry's id *is* its node id), with a segment's first node linked to the newest
+    existing fact so the graph stays one walkable lineage rather than one orphan chain
+    per commit. A full rewrite replaces the facts instead of colliding with them: a
+    rebuilt transcript restarts its sequence at zero.
+  - The overflow backstop was dead for the same reason — `compact_round_history(..).is_some()`
+    was always false — so a request that hit the context limit failed outright instead of
+    compacting and retrying.
+  - The IR's policy columns (`thread_policies.{rules,capabilities,guardrails,budget}_json`)
+    held the schema's `{}` placeholder because no live path populated them.
+    `load_session_ir` decoded the policy *before* the nodes, so a single missing
+    `unattended` key failed the whole hydrate and discarded the session's entire causal
+    graph. Both ends are fixed: `save_session_inner` derives a complete object per group
+    from the thread row it writes in the same statement, and the loader decodes each
+    column independently and falls back to documented defaults. Configuration must not
+    be able to make a session's facts unloadable.
+  - `resolve_active_branch` ignored `state.compaction_horizon` (`linear_path` hardcodes
+    `None`), so even a successful fold handed back the full pre-compaction transcript —
+    which is why the compression card could report `4 archived` and reclaim nothing. It
+    now honours the horizon, matching `compiler.rs`'s Pass 1, so both projections agree
+    by construction. `checkpoint.window_tokens_before` also reports the window it was
+    given rather than the folded prefix, the only number that answers "did this shrink
+    my context?".
+  - A fold never survived a reload: `load_session_ir` hardcoded
+    `compaction_horizon: None`. The horizon is read back from the graph's own
+    `compaction` node, so it survives every path that persists facts. `save_session_delta`
+    also advances `threads.active_leaf` onto the checkpoint when a fold creates one,
+    since the checkpoint hangs off the folded head (a sibling of the preserved tail) and
+    would otherwise be a dangling node no projection could reach.
+  - Compaction no longer discards the prompt being admitted. The live round's history is
+    `model_window()` **plus** the new user message, while the IR holds only committed
+    turns; assigning the IR's view back wholesale dropped the prompt and made the model
+    answer the previous turn's question. The caller's uncommitted tail is preserved.
+  - The automatic path now cuts by `TargetTokens` instead of `PreserveTailRounds`.
+    A fixed round count preserves the last N rounds verbatim regardless of size, so on a
+    session whose recent rounds exceed the target the "compaction" returned a *larger*
+    window than it was called to relieve. `TargetTokens` bounds the tail by the budget —
+    the role `CompactionCutMode`'s own documentation reserves for the automatic backstop,
+    with `/compact` keeping the round-shaped variant.
+  - `nuo-server`'s `compact_round_history` — the copy `/compact` actually calls — was a
+    verbatim duplicate of the harness implementation, so any fix landed in one place
+    would have left the user-facing command broken. It is now a delegation.
+  - The seam these defects shared had no test: every layer was individually correct while
+    the feature was dead. `nuo-harness/tests/it/compaction.rs` drives the real store
+    through `commit_turn` and asserts observable outcomes — compaction engages, the
+    admitted prompt survives (including under a target far below the window), the
+    checkpoint reaches the window and shrinks it, and the fold survives a reopen.
+
 ### Changed
 
+- **The composer and the transcript are peer focus planes, and one `⇧Tab` crosses between them
+  (ADR-0145).** The remove direction used to be `Esc`, which gave that chord five jobs on one
+  keystroke — dismiss a completion, clear the transcript focus, interrupt the running round,
+  dismiss an overlay, step back inside the scene — with the first match consuming the key. Pressing
+  `Esc` to stop a runaway tool call could instead relocate the keyboard to the composer with the
+  round still running, and `session.clear_focus` was advertised in Help and the config schema while
+  being unassignable (`from_config` refuses `Esc`).
+  - `App::focused_target` and `App::transcript_focused` are replaced by one
+    `App::focus: Focus` (`crate::shell::focus`) over `FocusPlane::{Composer, Transcript}` with the
+    transcript sub-state (`Browse` / `Entry(target)`) carried inside it. Both fields are private and
+    `Focus::entry()` is the only entry accessor, so "an entry is highlighted while the composer is
+    live" is no longer representable (`[INV-FOCUS-03]`). The 56 hand-maintained write sites collapse
+    onto `enter_composer` / `enter_transcript` / `browse` / `toggle` / `retain_entry`, including the
+    eight mouse branches that each wrote the old pair by hand.
+  - `⇧Tab` (`InputAction::ToggleFocusPlane`) is the sole explicit crossing and is an involution: it
+    flips the plane and nothing else, and the transcript's highlighted entry is remembered across a
+    crossing, so glancing at the draft and returning lands on the same step (`[INV-FOCUS-01]`). It
+    is a dedicated CSI sequence — no POSIX line-discipline key, no emulator-reserved sequence, no
+    macOS Option composition, no Kitty-protocol dependency — and it pairs with `Tab`, which acts
+    *inside* the composer plane. It is deliberately not remappable, like the `Esc`/Back grammar.
+  - `Esc` never crosses planes. `SurfaceVerb::ClearFocusedTarget` and its `session.clear_focus`
+    config key are deleted outright; `resolve_esc` now only dismisses a completion or interrupts, and
+    `CommandId::CancelOrBack`'s focus-clearing branch is gone with it.
+  - The two implicit exits remain, because in each the crossing is what the gesture already means: a
+    click into the input box, and `Ctrl+N`/`↓` past the last entry with nothing left to scroll.
+    `Focus::retain_entry` degrades a stranded highlight to browse focus **without** moving the plane.
+  - The composer hint row now advertises `⇧Tab transcript` on every composer-plane row, and the entry
+    rows say `⇧Tab composer` instead of `Esc back`; the Help dialog documents `Switch focus` and the
+    entry walk. Two documentation promises that the code contradicted are corrected rather than
+    restated: a printable key on the transcript plane is inert and is never absorbed into an
+    unfocused draft (`[INV-FOCUS-02]`), and the entry walk's canonical chords are named as
+    `Ctrl+P`/`Ctrl+N` in the five places that had drifted to `Alt+↑`/`Alt+↓`.
+
+### Added
+
+- **The activity strip states the queue's paused condition (ADR-0144).**
+  - A session can hold `N queued` while the driver ships nothing, and the strip could not say why: the
+    count and preview read identically whether the queue was waiting its turn or parked. It now appends
+    a `paused` clause, budgeted ahead of the preview so the reason survives width pressure, with no new
+    row (`[INV-FOOTER-02]`). The item *list* stays in the queue modal — `[INV-OUTBOX-05]` restates the
+    split: a status belongs on `L1` chrome, addressable cursor-bearing content belongs in an `L3` dialog.
+
+- **Invariant-tag uniqueness is now a build gate, not a convention (ADR-0143).**
+  - An `[INV-*]` tag is a citation target, so two definitions of one tag leave every later
+    reference ambiguous while still resolving. Nothing in the build noticed: completing the codec
+    aperture minted `[INV-WIRE-01]` (already ADR-0005's zero-I/O rule) and `[INV-LANE-01]`
+    (already ADR-0014's lane exclusivity) into a live ADR, and a hand audit was the only thing
+    that caught them.
+  - `nuo::dev::invariant_tags` + `cargo test -p nuo --test doc_governance` → `test_invariant_tags`
+    now fail on any tag defined twice across `docs/`, reporting every site with its title and its
+    rule statement so the two rules are distinguishable from the failure output alone.
+  - A definition is the ADR template's shape — `- **[INV-XXXX-01] Title**: rule` — and nothing
+    else. Citations in prose, bold leads, tables, and `.rs` comments are ignored, so the gate stays
+    signal instead of flagging the dozens of legitimate references each tag accumulates. Only
+    `docs/` is scanned: authority is an ADR, and a code comment may cite a tag but not mint one.
+  - Five unit tests pin it in both directions (single passes, duplicate fails, citations ignored,
+    cross-file sites attributed, `.rs` cannot mint), and the check was mutation-tested against the
+    live tree before landing.
+
+### Fixed
+
+- **`[INV-LIFECYCLE-03]` named two unrelated rules for months.** ADR-0034 defines it as *Unified
+  Takeover Escalation* (all process replacement funneled through `takeover_pid`); ADR-0045 defined
+  it as *Intent-Driven Server Handoff* (an explicit `--port` detaches the server from the TUI).
+  The ADR index row and the ADR-0045 CHANGELOG entry both cited `[INV-LIFECYCLE-03]` without
+  saying which rule they meant, so the citation was unresolvable. ADR-0045's rule is now
+  `[INV-LIFECYCLE-08]`, with its index row and CHANGELOG entry updated; ADR-0034 keeps the tag it
+  defined first.
+
+### Removed
+
+- **The unwired wire-codec lane is deleted, not documented (ADR-0143).**
+  - Auditing ADR-0084's claim that `nuo-inference-wire` had been shrunk to "pure wire codecs"
+    found the opposite: a full codec suite was still there and **no shipped binary called any of
+    it**. Measured references from every other crate's `src`: `Endpoint`, `ProviderVendor`,
+    `WireClient`, `WireRequest`, `WireResponse`, `WireChunk`, `StaticApiKey`,
+    `DynamicCredentials`, `CredentialsProvider`, `WireError`, the whole `discriminative` lane,
+    all five per-vendor `build_request` implementations and their dispatcher, and
+    `generative/stream.rs` — **zero each**.
+  - Deleted outright, no shims: `discriminative/`, `credentials.rs`, `endpoint.rs`,
+    `error.rs` (`WireError` had zero constructors and zero consumers, so the two parsers
+    that named a `Result` were made total and the caller's impossible `map_err` chain went
+    with it), the four remaining vendor codecs, `protocol/mod.rs`'s dispatcher, `stream.rs`,
+    `google_interactions::build_request`, and the two test files plus `fixtures/corpus/` that
+    covered them. 5,146 → 1,676 lines (−67%).
+  - `WireClient` is **not** in that list: ADR-0088 deleted it a year earlier when it converged
+    every provider onto `nuo-egress`. Attribution matters here — claiming it would have been a
+    claim about someone else's work, and this changelog had it wrong in its first draft.
+  - Kept, each with a named live consumer: `WireProtocol` (every spec and route),
+    `find_balanced_object` (harness router + two stream parsers), `loop_detector` (harness
+    governance), `token_classification` (pricing), and
+    `protocol::google_interactions::{parse_response, parse_chunk}`
+    (`nuo-provider-google-antigravity`).
+  - `http`, `async-trait`, and `thiserror` dropped. The crate can no longer perform I/O or host
+    a transport, so `[INV-AP-01]` is now a manifest fact rather than a paragraph.
+  - `crates/nuo-inference-wire/README.md` was left describing the deleted lane for a while
+    during this work — dual-lane architecture, discriminative protocols, "Wire Codec",
+    "SSE Stream Demuxer" — the exact failure mode this ADR set out to fix, in the same
+    directory as the code it described. It now names the live surface and its consumers.
+  - The dead layer is why the documentation rotted: the `openai_responses` codec advertised
+    `previous_response_id` continuation in its module doc while its `WireRequest` had no field for
+    it, and nothing noticed because nothing called it. `[INV-AP-03]` now forbids re-growing an
+    unwired second implementation.
+
+### Changed
+
+- **Two ADRs recorded unexecuted work as verified; both are corrected (ADR-0143).**
+  - ADR-0084's S2 "verification record" described `crates/nuo-decision` as "established" with a
+    green gate. No such crate exists and none was ever created; ADR-0086 had amended S2 away. The
+    record is retracted in place. Its S3 claim that the crate held "zero backward-compat
+    forwarding shells" is marked partially retracted — the credential/endpoint layer and the
+    unwired codec dispatcher survived, and `async-trait` remained a dependency of a crate the
+    record calls dependency-pruned.
+  - ADR-0086 recorded the discriminative lane as having **"Zero Production Consumers"**, then
+    *relocated* it rather than removing it, and declared a dual-lane invariant over it. One year
+    later it still had none, and the "shared transport substrate" the invariant named had none
+    either. §1 and the dual-lane rule are superseded in part; its §3 (retire `nuo-decision`,
+    decouple `nuo-protocol`) and §4 (no `Decision*` hedging aliases) remain live doctrine. Its
+    crate-tree diagram listed ten files that never existed and is annotated as a plan.
+  - Two of ADR-0086's own invariant tags collided with unrelated rules already in force
+    (`[INV-WIRE-01]` belongs to ADR-0005/0006's zero-I/O rule, `[INV-WIRE-02]` to ADR-0006's
+    contract-layer rule). They are re-tagged `[INV-AP-04]`/`[INV-AP-05]` so a citation resolves
+    to one meaning.
+  - `docs/dev/subsystems.md` and `[INV-MOD-01]` no longer claim a dependency pruning that had not
+    happened.
+  - ADR-0088 (which owns this crate's zero-I/O pruning, and had already removed `WireClient`) is
+    amended explicitly rather than bypassed: this decision extends its pruning from transport to
+    codecs and overturns its §2 rejected alternative ("discarding canonical wire IR destroys
+    `SseDecoder` and breaks loop detection") by showing each clause of that premise was already
+    false — the SSE decoder providers use lives in `nuo-provider`, loop detection survives, and
+    `ContentBlock` was kept.
+- **The OpenCode Go channel rides its portable Responses surface, as a declared dialect (ADR-0142).**
+  - The vendor's Console documents that every Go text model works through every API because it
+    *translates*; probing `POST https://opencode.ai/zen/go/v1/responses` with a subscription key
+    confirmed 23 of the 28 catalog ids answer `200` there, tool calls included. The `opencode-go`
+    spec therefore defaults to `WireProtocol::OpenAiResponses`, and every OpenAI-family baseline row
+    moves with it. Anthropic- (Claude, MiniMax, Qwen) and Google-routed (Gemini) rows keep their
+    dedicated `/messages` and `/v1beta` routes through `protocol_roots`.
+  - A translating gateway is not any vendor's native shape, so it gets its own dialect:
+    `ProviderDialect::Portable` → `OpenAiResponsesDialect::Portable`. It answers `false` to
+    `nested_tool_definitions` (the gateway validates the flattened OpenAI tool object and rejects
+    DeepSeek's nested `function` form with `400 … requires a native Responses target`) and to
+    `supports_store` (`store` and `previous_response_id` both answer `400`; the vendor calls the mode
+    "portable" because the full conversation must ride along every turn).
+  - The sharp edge this closes: the upstreams behind that single URL enforce **opposite** reasoning
+    replay rules — one rejects an item without a `summary` array, another rejects a turn whose raw
+    chain was dropped. A `dual_form_reasoning_replay()` predicate makes those routes emit
+    `summary[].summary_text` and `content[].reasoning_text` together, which is the only shape every
+    upstream accepts. Pruned older turns keep an empty `summary` array and omit `content` entirely,
+    because an empty `reasoning_text` is itself rejected. Items are emitted only where the wire
+    demands one or a chain actually exists, so plain prose turns stay unchanged [INV-PROV-RESPONSES-REPLAY-01, INV-PROV-RESPONSES-REPLAY-02].
+  - Statefulness is **per model behind that one URL**, which is why the surface declares
+    `Stateless` rather than either extremity. The converted rows (`deepseek-v4.1-flash`, every
+    GLM/Kimi/MiMo/Hy/LongCat/Step/Qwen and MiniMax row) hard-reject `store: true` and
+    `previous_response_id`. The native rows (`grok-4.7`, `gpt-6-luna`, `gpt-5.6-luna`) genuinely
+    store and complete a delta-only tool round. Because the model is selected at runtime from a
+    relay-controlled catalog, the only contract that holds for all of them is the intersection:
+    no `store`, full context every turn.
+  - `deepseek-v4-pro` is the trap that keeps this honest: it accepts `store: true`, answers with an
+    id, and still remembers nothing. "`store` returned 200" is not storage — the ADR-0114 rule,
+    now demonstrated per model. The `commandcode-goat` relay is `Stateless` for a third reason: it
+    accepts `store: true` then rejects every continuation with
+    `InvalidParameter.PreviousResponseNotFound`.
+  - Wire reference: [`docs/reference/openapi/opencode-go-responses.yml`](docs/reference/openapi/opencode-go-responses.yml),
+    each fact marked `probe` (sent and read) or `docs` (vendor-stated).
 - **Agent guidance is user-owned workspace input, not repository documentation (ADR-0141).**
   - `AGENTS.md` is the file the harness loads as untrusted project input behind the workspace
     trust gate (`PROJECT_RULE_FILES`, `/trust instructions`), so repository documentation no longer
@@ -2692,7 +3071,7 @@ the project adheres to the federated SemVer model described in
 ### Added
 
 - **Dynamic port sharing palette, orthogonal control plane, and server lifecycle handoff (ADR-0045).**
-  - **Intent-Driven Server Handoff (`[INV-LIFECYCLE-03]`)**: Interactive sessions launched with explicit network port declarations (`nuo --port <port>`) decouple server lifecycles from client detachment, printing actionable handoff guidance upon TUI exit while keeping server tasks running.
+  - **Intent-Driven Server Handoff (`[INV-LIFECYCLE-08]`)**: Interactive sessions launched with explicit network port declarations (`nuo --port <port>`) decouple server lifecycles from client detachment, printing actionable handoff guidance upon TUI exit while keeping server tasks running.
   - **Port & Remote Sharing Palette (`C-x p`, `[INV-PALETTE-01]`)**: Introduces a dedicated client-level palette modal to hot-enable, hot-disable, or copy connection commands without interrupting ongoing prompts.
   - **Dynamic Endpoint Control Plane**: Extends wire protocol with `OpenTcpListener`, `CloseTcpListener`, and `GetServerEndpoints` verbs with automatic `server.json` synchronization.
   - **Canonical Baseline Port Realignment (`[INV-PORT-01]`)**: Unifies system-wide default TCP port to 9800 across all diagnostic and discovery fallbacks, eliminating historical 9527 drift.

@@ -203,12 +203,12 @@ fn opencode_go_baselines_route_by_inference_go_surface() {
         endpoint,
         "https://opencode.ai/inference/go/anthropic/v1/messages"
     );
+    // The Go gateway's whole fleet rides its portable Responses surface; the
+    // endpoint is the relay root with the `/responses` suffix, not the
+    // chat-completions route the relay used to be driven through (ADR-0142).
     let (wire, endpoint, _) = route_for_model("opencode-go", "glm-5.2").unwrap();
-    assert_eq!(
-        wire,
-        nuo_inference_wire::WireProtocol::OpenAiChatCompletions
-    );
-    assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/chat/completions");
+    assert_eq!(wire, nuo_inference_wire::WireProtocol::OpenAiResponses);
+    assert_eq!(endpoint, "https://opencode.ai/zen/go/v1/responses");
 }
 
 #[test]
@@ -536,7 +536,7 @@ fn builtin_provider_models_resolve_with_expected_wire_formats() {
         (
             "opencode-go",
             nuo_provider::model_providers::OPENCODE_GO_MODELS,
-            WireProtocol::OpenAiChatCompletions,
+            WireProtocol::OpenAiResponses,
         ),
         (
             "google-antigravity",

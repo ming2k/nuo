@@ -5,14 +5,20 @@
 //!
 //! ## Core Architectural Principles
 //!
-//! 1. **Composer-first, no input modality**: typing always flows to Composer.
-//! 2. **Single input owner**: only one region/dialog owns focus at any moment.
-//! 3. **Visible, predictable, recoverable focus**: overlays trap focus, closing restores source.
+//! 1. **Peer focus planes, no modality**: the composer and the transcript are
+//!    coequal surfaces of a chat scene (ADR-0145). Printable input belongs to
+//!    whichever plane owns the keyboard; it never falls through to a hidden
+//!    draft.
+//! 2. **Single input owner**: exactly one region/dialog/plane owns focus at any
+//!    moment.
+//! 3. **Visible, predictable, recoverable focus**: overlays trap focus, closing
+//!    restores source, and crossing between peer planes is one symmetric chord.
 //! 4. **Single semantic origin**: one action has one semantic source.
 //! 5. **Unified derivation**: shortcuts, Footer, and Command Palette are derived from this registry.
 //! 6. **Discovery over memorization**: rare actions are found via the `C-x p` Command Palette.
 //! 7. **No modal penetration**: overlays strictly isolate input from background views.
-//! 8. **Zero loss of printable characters**: typing in transcript bounces back to composer.
+//! 8. **Zero silent typing**: a printable key on the transcript plane is inert,
+//!    never absorbed into a draft the user is not looking at.
 //! 9. **Terminal independence**: core workflows work without Kitty enhanced keyboard protocol.
 //! 10. **Zero legacy baggage**: breaking clean from leader chords and modal keymaps.
 use std::collections::{HashMap, HashSet};
@@ -73,6 +79,16 @@ pub fn key_from_event(event: KeyEvent) -> Key {
             modifiers.insert(ours);
         }
     }
+    // `BackTab` *is* Shift+Tab. Terminals report it two ways — the dedicated
+    // CSI Z sequence (which may arrive with or without a SHIFT modifier flag,
+    // depending on the emulator and on whether the enhanced-keyboard protocol
+    // is active) or as Tab-with-Shift. The pure model has one shape for it, so
+    // the shift bit is normalized here rather than re-derived at every
+    // comparison site; without this a `⇧Tab` binding silently misses on
+    // terminals that omit the flag.
+    if code == KeyCode::BackTab {
+        modifiers.insert(KeyModifiers::SHIFT);
+    }
     if let KeyCode::Char(c) = code {
         if c.is_ascii_uppercase()
             && !modifiers.contains(KeyModifiers::CONTROL)
@@ -94,6 +110,8 @@ pub enum CommandId {
     // Global (Hard-Bound Shortcuts)
     CommandPalette,
     CancelOrBack,
+    /// Cross the chat scene's peer focus planes (`⇧Tab`, ADR-0145).
+    ToggleFocusPlane,
     InterruptTask,
     Quit,
     KillThread,
@@ -412,7 +430,20 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Dismiss active overlay, step back, or return to composer",
+        description: "Dismiss the active overlay or step back inside the scene",
+    },
+    CommandSpec {
+        id: CommandId::ToggleFocusPlane,
+        label: "Switch Focus",
+        hint: "⇧Tab",
+        category: CommandCategory::Session,
+        scope: Scope::Global,
+        bindings: &[Key::BACKTAB],
+        slash: Some("/focus"),
+        availability: avail_thread,
+        disclosure: DisclosurePriority::L0Footer,
+        danger: DangerLevel::Safe,
+        description: "Cross between the composer and the transcript (peer planes)",
     },
     CommandSpec {
         id: CommandId::InterruptTask,
@@ -1428,6 +1459,11 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
         CommandId::OpenSessionTrace => None,
         CommandId::OpenActiveConnectionDetail => None,
         CommandId::CancelOrBack => Some(Key::ESC),
+        // The chord exists (so chrome, the Help dialog, and the registry table
+        // all read one value), but `GlobalOverrides::from_config` refuses to
+        // reassign it: it is the remove half of the `Tab` pair, and a remap
+        // would let the pair drift apart (ADR-0145 `[INV-FOCUS-01]`).
+        CommandId::ToggleFocusPlane => Some(Key::BACKTAB),
         CommandId::OpenQueue => Some(Key::CTRL_Q),
         CommandId::OpenNotices => Some(Key::ALT_O),
         CommandId::OpenHelp => Some(Key::F1),
@@ -1443,6 +1479,12 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 fn canonical_global_key(key: Key) -> Option<CommandId> {
     if key == Key::F1 || key == Key::ALT_H {
         Some(CommandId::OpenHelp)
+    } else if key == Key::BACKTAB {
+        // `⇧Tab` crosses the chat scene's peer focus planes. Not remappable
+        // (`canonical_global_chord` returns `None` for the command): it is the
+        // remove half of the `Tab` pair, and a remap would break the pairing
+        // (ADR-0145 `[INV-FOCUS-01]`).
+        Some(CommandId::ToggleFocusPlane)
     } else if key == Key::CTRL_Q {
         Some(CommandId::OpenQueue)
     } else if key == Key::ALT_O {
@@ -1468,6 +1510,9 @@ fn canonical_global_key(key: Key) -> Option<CommandId> {
 pub fn command_id_from_name(name: &str) -> Option<CommandId> {
     Some(match name.trim().to_ascii_lowercase().as_str() {
         "command_palette" | "command-palette" | "palette" => CommandId::CommandPalette,
+        "focus" | "switch_focus" | "switch-focus" | "toggle_focus_plane" | "toggle-focus-plane" => {
+            CommandId::ToggleFocusPlane
+        }
         "interrupt" | "interrupt_task" | "interrupt-task" => CommandId::InterruptTask,
         "quit" | "quit_nuo" | "quit-nuo" => CommandId::Quit,
         "close_tab" | "close-tab" | "close" => CommandId::CloseTab,
@@ -1588,13 +1633,14 @@ pub struct GlobalOverrides {
 
 impl GlobalOverrides {
     /// Build from a `[keybindings]` table (`command-id → chord spec`).
-    /// Unknown command ids and unparseable chords are skipped; `Esc`/Back is
-    /// deliberately not remappable (it is the universal escape hatch).
+    /// Unknown command ids and unparseable chords are skipped; `Esc`/Back and
+    /// `⇧Tab`/SwitchFocus are deliberately not remappable (the universal escape
+    /// hatch, and the remove half of the `Tab` grammar pair).
     pub fn from_config(map: &HashMap<String, String>) -> Self {
         let mut o = Self::default();
         for (id, spec) in map {
             if let (Some(cmd), Some(key)) = (command_id_from_name(id), parse_key(spec))
-                && cmd != CommandId::CancelOrBack
+                && !matches!(cmd, CommandId::CancelOrBack | CommandId::ToggleFocusPlane)
             {
                 o.assigned.insert(key, cmd);
                 o.remapped.insert(cmd);
@@ -1636,11 +1682,16 @@ pub fn resolve_global_key_with(key: Key, overrides: &GlobalOverrides) -> Option<
 /// A user-remappable **surface verb** — a single-purpose chord the full-screen
 /// views own (step 9). Verbs are the *shortcut* layer of a surface's
 /// scheme: each maps one chord to one semantic action, possibly gated by the
-/// surface's run state. The multi-mode interaction grammar (Enter send/queue/
-/// activate/commit, Tab commit/focus, Esc dismiss/focus/interrupt, ↑/↓ walk,
-/// printable text) is deliberately **not** remappable — it is the surface's
-/// language, not a shortcut, mirroring how `Esc`/Back are never remappable in
-/// the global layer.
+/// surface's run state. The interaction grammar (Enter send/queue/activate/
+/// commit, Tab act-inside-the-composer, ⇧Tab cross-to-the-transcript, Esc
+/// dismiss/interrupt, ↑/↓ walk, printable text) is deliberately **not**
+/// remappable — it is the surface's language, not a shortcut, mirroring how
+/// `Esc`/Back/`⇧Tab` are never remappable in the global layer (ADR-0145).
+///
+/// A verb also never *navigates between planes*: there is no `clear_focus` or
+/// `toggle_focus` member, because the crossing is grammar. The three verbs that
+/// remain close to focus (`FocusPrev/NextTarget`, `ScrollTop/Bottom`) act
+/// *inside* the transcript plane and are guarded by the plane being active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SurfaceVerb {
     /// Open the Ctrl+R history recall modal.
@@ -1654,8 +1705,6 @@ pub enum SurfaceVerb {
     FocusPrevTarget,
     /// Step forward through transcript step focus (`Ctrl+N`).
     FocusNextTarget,
-    /// Clear step focus back to the composer (`Esc`).
-    ClearFocusedTarget,
     /// Jump the focused step's scroll to the thread edges (`Home`/`End`).
     ScrollTop,
     ScrollBottom,
@@ -1676,7 +1725,6 @@ impl SurfaceVerb {
             SurfaceVerb::HistoryNext => Key::ALT_N,
             SurfaceVerb::FocusPrevTarget => Key::CTRL_P,
             SurfaceVerb::FocusNextTarget => Key::CTRL_N,
-            SurfaceVerb::ClearFocusedTarget => Key::ESC,
             SurfaceVerb::ScrollTop => Key::HOME,
             SurfaceVerb::ScrollBottom => Key::END,
             SurfaceVerb::SceneHistoryBack => Key::ALT_BRACKET_LEFT,
@@ -1695,7 +1743,6 @@ impl SurfaceVerb {
             SurfaceVerb::HistoryNext => "history_next",
             SurfaceVerb::FocusPrevTarget => "focus_prev",
             SurfaceVerb::FocusNextTarget => "focus_next",
-            SurfaceVerb::ClearFocusedTarget => "clear_focus",
             SurfaceVerb::ScrollTop => "scroll_top",
             SurfaceVerb::ScrollBottom => "scroll_bottom",
             SurfaceVerb::SceneHistoryBack => "scene_back",
@@ -1710,14 +1757,13 @@ impl SurfaceVerb {
     /// All verbs — `from_name` and the consistency test iterate this so a new
     /// verb must ship a config name, a canonical chord, and a resolvable
     /// handling path.
-    pub const ALL: [SurfaceVerb; 11] = [
+    pub const ALL: [SurfaceVerb; 10] = [
         SurfaceVerb::OpenHistory,
         SurfaceVerb::ToggleSendMode,
         SurfaceVerb::HistoryPrev,
         SurfaceVerb::HistoryNext,
         SurfaceVerb::FocusPrevTarget,
         SurfaceVerb::FocusNextTarget,
-        SurfaceVerb::ClearFocusedTarget,
         SurfaceVerb::ScrollTop,
         SurfaceVerb::ScrollBottom,
         SurfaceVerb::SceneHistoryBack,

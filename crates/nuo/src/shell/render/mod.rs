@@ -223,10 +223,10 @@ pub struct TranscriptProps<'a> {
     pub hovered_step: Option<usize>,
     /// Keyboard-focused activatable target. When `Some`, the matching step's
     /// summary line is painted with the focus-ring cue (a reversed fg/bg bar)
-    /// so keyboard navigation via `Ctrl+↑`/`Ctrl+↓` has a clear, unambiguous
+    /// so keyboard navigation via `Ctrl+P`/`Ctrl+N` has a clear, unambiguous
     /// visual indicator that does not compete with the hover/expand luminance
     /// channel. `None` means no step is focused.
-    pub focused_target: Option<InteractiveTarget>,
+    pub focused_entry: Option<InteractiveTarget>,
     /// User-supplied ASCII logo lines (from `$XDG_CONFIG_HOME/nuo/logo.txt`)
     /// that replace the built-in wordmark on the empty-state hero. `None` when
     /// no user logo is configured; the hero falls back to the built-in art.
@@ -385,7 +385,7 @@ fn draw_step_dispatch(
     cell_selection: Option<&CellDragInfo>,
     sticky_anchors: &mut Vec<layout::StickyAnchor>,
     hovered: bool,
-    focused_target: Option<InteractiveTarget>,
+    focused_entry: Option<InteractiveTarget>,
     workspace_root: Option<&std::path::Path>,
     diff_cache: &mut DiffCache,
 ) {
@@ -402,10 +402,10 @@ fn draw_step_dispatch(
     )
     .with_workspace_root(workspace_root);
 
-    let focused_tool = focused_target == Some(InteractiveTarget::tool_step(mi));
-    let focused_reasoning = focused_target == Some(InteractiveTarget::reasoning(mi));
-    let focused_command = focused_target == Some(InteractiveTarget::command_result(mi));
-    let focused_compacted = focused_target == Some(InteractiveTarget::compacted_card(mi));
+    let focused_tool = focused_entry == Some(InteractiveTarget::tool_step(mi));
+    let focused_reasoning = focused_entry == Some(InteractiveTarget::reasoning(mi));
+    let focused_command = focused_entry == Some(InteractiveTarget::command_result(mi));
+    let focused_compacted = focused_entry == Some(InteractiveTarget::compacted_card(mi));
 
     if msg.is_subagent_task() {
         crate::shell::disclosure::draw_subagent_inline_step(
@@ -488,7 +488,7 @@ pub fn draw_transcript(
         thread_context,
         round_started_at,
         hovered_step,
-        focused_target,
+        focused_entry,
         logo,
         guidance,
         carousel_index,
@@ -804,7 +804,7 @@ pub fn draw_transcript(
             selection,
             cell_selection,
             hovered_step,
-            focused_target,
+            focused_entry,
             workspace_root,
             message_start,
             message_end,
@@ -855,15 +855,12 @@ pub fn draw_transcript(
         ));
     }
 
-    // The footer stacks, from top to bottom: a permanent blank separator,
-    // the persistent todo bar (when the task list is non-empty), the
-    // persistent queue bar (when the outbox is non-empty), the transient
-    // activity bar (when active), the input box, and the hint bar. The
-    // activity bar sits flush above the input box so the live "what the
-    // agent is doing right now" status reads as part of the composer cluster;
-    // the todo and queue bars are ambient meta-info and float above it. The
-    // separator keeps the latest response visually distinct from the controls
-    // even when the activity row appears or disappears.
+    // The footer stacks, from top to bottom: a permanent blank separator, the
+    // consolidated single-row activity strip (ADR-0062 `[INV-FOOTER-02]`), the
+    // input box, and the hint bar. The strip is the *only* meta row above the
+    // composer: it aggregates the live round status, the staged-queue summary
+    // and the background-task count into one line, so the composer never
+    // shifts by more than that one row.
     // One `place` pass walks the declared stack and yields every row's rect
     // plus the hit-test registry; each draw call below just looks its own
     // rect up. The height sum (which feeds the layout split) and the per-row
@@ -904,6 +901,7 @@ pub fn draw_transcript(
                         .first()
                         .map(|i| i.is_steer)
                         .unwrap_or(false),
+                    queue_blocked: queue_bar.blocked,
                     tasks_count: if tasks_row_needed {
                         tasks_bar.tasks.iter().filter(|t| !t.dismissed).count()
                     } else {

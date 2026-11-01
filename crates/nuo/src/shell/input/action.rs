@@ -161,9 +161,10 @@ pub enum InputAction {
     /// Open the input-history modal (Ctrl+R). Opens in browse mode — a plain
     /// newest-first list; `/` then enters the search sub-layer.
     OpenHistory,
-    /// Open the queue overview modal (the full outbox list). Reached via `F2`
-    /// or by clicking the persistent queue bar. Mirrors clicking the queue bar
-    /// — the request is never forwarded, it only opens the overlay.
+    /// Open the queue overview modal (the full outbox list). Reached via the
+    /// queue chord (`Ctrl+Q`) or by clicking the activity strip's queue
+    /// affordance. Mirrors that click — the request is never forwarded, it only
+    /// opens the overlay.
     OpenQueue,
     /// Open the notice log viewer (`Ctrl-o`): every disclosure this client
     /// surfaced, retained after its bubble faded. Reachable from every scene,
@@ -349,14 +350,25 @@ pub enum InputAction {
     OpenThreadStats,
     /// Open the session execution trace report (`/trace`).
     OpenSessionTrace,
-    /// Move keyboard focus to the next activatable target. When no target is
-    /// focused yet, focuses the first (oldest) step. Driven by `Ctrl+N` and by
-    /// `↓` while a step is already focused.
+    /// Walk the transcript's entry highlight one step forward (toward newer
+    /// entries). With no highlight yet, focuses the first (oldest) target.
+    /// Driven by `Ctrl+N` (`session.focus_next`) and by `↓` while an entry is
+    /// already highlighted. Walking past the last entry with nothing left to
+    /// scroll crosses back to the composer plane
+    /// ([ADR-0145](../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
     FocusNextTarget,
-    /// Move keyboard focus to the previous activatable target. When no target
-    /// is focused yet, focuses the last (nearest-to-prompt) step. Driven by
-    /// `Ctrl+P` and by `↑` while a step is already focused.
+    /// Walk the transcript's entry highlight one step backward. With no
+    /// highlight yet, focuses the last (nearest-to-prompt) target. Driven by
+    /// `Ctrl+P` (`session.focus_prev`) and by `↑` while an entry is already
+    /// highlighted.
     FocusPrevTarget,
+    /// Cross to the other peer focus plane (`⇧Tab`): composer ⇄ transcript.
+    ///
+    /// An involution — the same chord returns — and the **only** explicit
+    /// crossing. `Esc` deliberately does not cross planes
+    /// ([ADR-0145](../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md)
+    /// `[INV-FOCUS-01]`).
+    ToggleFocusPlane,
     /// Activate the current keyboard-focused target (`Enter`).
     ActivateFocusedTarget,
     /// View the full execution output of the focused target in the dedicated log pager (`o` or `v`).
@@ -376,9 +388,6 @@ pub enum InputAction {
     /// have someone else read it: the body alone does not say which model
     /// produced it, on which attempt, or where the corresponding log lives.
     CopyFocusedDiagnostic,
-    /// Clear the keyboard-focused target, returning every key to its ordinary
-    /// input-box meaning. Triggered by `Esc` while a step is focused.
-    ClearFocusedTarget,
     /// Cancel the inline ↑/↓ history recall and restore the stashed draft
     /// (text + attachments). Triggered by `Esc` while the recall pointer sits
     /// on a history row — the universal "get me back" chord must exit the

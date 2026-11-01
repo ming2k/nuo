@@ -186,7 +186,8 @@ pub fn body_with_capabilities(
                             // a reasoning item must precede it. Ensure one is present if the artifact
                             // was missing it (e.g. cross-model handoff or upstream omission).
                             if m.tool_calls.is_some()
-                                && !dialect.encrypted_reasoning()
+                                && (!dialect.encrypted_reasoning()
+                                    || dialect.dual_form_reasoning_replay())
                                 && !items.iter().any(|item| {
                                     item.get("type").and_then(Value::as_str) == Some("reasoning")
                                 })
@@ -199,28 +200,24 @@ pub fn body_with_capabilities(
                                         .filter(|s| !s.is_empty())
                                         .unwrap_or("")
                                 };
-                                input_items.push(InputItem::plain(json!({
-                                    "type": "reasoning",
-                                    "content": [{
-                                        "type": "reasoning_text",
-                                        "text": reasoning_text
-                                    }]
-                                })));
+                                input_items.push(InputItem::plain(reasoning_item(
+                                    Some(reasoning_text),
+                                    dialect.dual_form_reasoning_replay(),
+                                )));
                             }
-                            if is_deepseek && !is_latest_assistant {
+                            if (is_deepseek || dialect.dual_form_reasoning_replay())
+                                && !is_latest_assistant
+                            {
                                 let pruned_items: Vec<Value> = items
                                     .iter()
                                     .map(|item| {
                                         if item.get("type").and_then(Value::as_str)
                                             == Some("reasoning")
                                         {
-                                            json!({
-                                                "type": "reasoning",
-                                                "content": [{
-                                                    "type": "reasoning_text",
-                                                    "text": ""
-                                                }]
-                                            })
+                                            reasoning_item(
+                                                Some(""),
+                                                dialect.dual_form_reasoning_replay(),
+                                            )
                                         } else {
                                             item.clone()
                                         }
@@ -247,34 +244,42 @@ pub fn body_with_capabilities(
                 // on a thinking-enabled dialect requiring unencrypted reasoning.
                 // For DeepSeek, older historical assistant turns have reasoning pruned to "" to prevent
                 // context saturation and V-shaped attention collapse while satisfying upstream schema verification.
-                if is_deepseek && !is_latest_assistant {
+                //
+                // A *portable* gateway fronts several upstreams with contradictory
+                // replay contracts behind one URL, so it gets the dual form:
+                // `summary` and `content` always present together, with the
+                // pruned (older-turn) case carrying empty `summary` parts only —
+                // never an empty `reasoning_text`, which one upstream rejects as
+                // "must be passed back to the API" (ADR-0142).
+                if dialect.dual_form_reasoning_replay() {
+                    // An item is only *needed* where the wire demands one or
+                    // where a real chain exists: a turn that performed a tool
+                    // call must be preceded by reasoning for the upstreams that
+                    // validate the pairing, while a plain text reply needs none.
+                    // Older turns drop their chain entirely (ADR-0083 hygiene:
+                    // replaying every historical chain saturates the context and
+                    // collapses attention), keeping only the empty item a tool
+                    // call requires; the latest turn replays what it really had.
+                    let chain = m.reasoning_content.as_deref().filter(|s| !s.is_empty());
+                    let has_call = m.tool_calls.is_some();
+                    let (text, needed) = if is_latest_assistant {
+                        (chain, has_call || chain.is_some())
+                    } else {
+                        (None, has_call)
+                    };
+                    if needed {
+                        input_items.push(InputItem::plain(reasoning_item(text, true)));
+                    }
+                } else if is_deepseek && !is_latest_assistant {
                     if m.tool_calls.is_some() {
-                        input_items.push(InputItem::plain(json!({
-                            "type": "reasoning",
-                            "content": [{
-                                "type": "reasoning_text",
-                                "text": ""
-                            }]
-                        })));
+                        input_items.push(InputItem::plain(reasoning_item(Some(""), false)));
                     }
                 } else if let Some(reasoning) =
                     m.reasoning_content.as_deref().filter(|s| !s.is_empty())
                 {
-                    input_items.push(InputItem::plain(json!({
-                        "type": "reasoning",
-                        "content": [{
-                            "type": "reasoning_text",
-                            "text": reasoning
-                        }]
-                    })));
+                    input_items.push(InputItem::plain(reasoning_item(Some(reasoning), false)));
                 } else if m.tool_calls.is_some() && !dialect.encrypted_reasoning() {
-                    input_items.push(InputItem::plain(json!({
-                        "type": "reasoning",
-                        "content": [{
-                            "type": "reasoning_text",
-                            "text": ""
-                        }]
-                    })));
+                    input_items.push(InputItem::plain(reasoning_item(Some(""), false)));
                 }
                 // 2. Emit an assistant message item for any text content...
                 if !m.content.is_empty() {
@@ -398,6 +403,40 @@ fn remote_parent_call_ids(
         .flatten()
         .map(|call| call.id.clone())
         .collect()
+}
+
+/// Build a replayable `reasoning` input item.
+///
+/// `dual_form` emits both part families — `summary` (`summary_text`) and
+/// `content` (`reasoning_text`) — in one item, which is the only shape a
+/// translating gateway accepts when it fronts upstreams enforcing opposite
+/// replay contracts (ADR-0142). The single-form case is DeepSeek's native
+/// contract: `content` parts only, `summary` never mentioned.
+///
+/// A pruned older turn passes `Some("")`: that yields an empty `summary` part
+/// list and *no* `content` part, because an empty `reasoning_text` is rejected
+/// by those same upstreams.
+fn reasoning_item(reasoning: Option<&str>, dual_form: bool) -> Value {
+    let text = reasoning.unwrap_or("");
+    if dual_form {
+        // An empty summary is an empty *array*, not a part carrying `""`.
+        let mut item = json!({
+            "type": "reasoning",
+            "summary": if text.is_empty() {
+                json!([])
+            } else {
+                json!([{ "type": "summary_text", "text": text }])
+            },
+        });
+        if !text.is_empty() {
+            item["content"] = json!([{ "type": "reasoning_text", "text": text }]);
+        }
+        return item;
+    }
+    json!({
+        "type": "reasoning",
+        "content": [{ "type": "reasoning_text", "text": text }]
+    })
 }
 
 /// Discard assistant turns that are completely empty (no content, no tool
@@ -582,6 +621,202 @@ mod tests {
             tool_calls: Some(vec![call]),
             ..Message::new(Role::Assistant, content)
         }
+    }
+
+    /// A portable-gateway route: same capabilities as the Go relay advertises
+    /// for its DeepSeek rows, but the dialect is the transcoding one.
+    fn portable_body_input<'a>(
+        delivery: &'a nuo_provider::RequestDelivery,
+        cache_plan: &'a nuo_provider::ResolvedCachePolicy,
+    ) -> BodyInput<'a> {
+        BodyInput {
+            model: "deepseek-v4.1-flash",
+            stream: true,
+            instructions: None,
+            tool_specs: None,
+            reasoning_effort: Some(Effort::High),
+            delivery,
+            store: false,
+            dialect: nuo_provider::OpenAiResponsesDialect::Portable,
+            cache_plan,
+        }
+    }
+
+    /// The portable gateway's request shape, asserted field by field against
+    /// what the live endpoint accepts (ADR-0142). Its two failure modes are
+    /// silent until a turn 400s, so they are pinned here: a `store` field and
+    /// a nested tool definition are both rejected upstream.
+    #[test]
+    fn portable_dialect_emits_flat_tools_and_never_store() {
+        let tool = nuo_provider::capability::ToolSpec {
+            name: "test_tool".into(),
+            description: "test".into(),
+            parameters: json!({"type": "object"}),
+        };
+        let specs = [tool];
+        let mut input = portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN);
+        input.tool_specs = Some(&specs);
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi")],
+            input,
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            body["tools"][0]["name"], "test_tool",
+            "a translating gateway validates the flat OpenAI tool shape; the nested \
+             `function` object answers 400: requires a native Responses target"
+        );
+        assert!(
+            body["tools"][0].get("function").is_none(),
+            "the nested form is DeepSeek's native schema, not this gateway's"
+        );
+        assert_eq!(body["tool_choice"], "auto");
+        assert_eq!(body["parallel_tool_calls"], true);
+        assert!(
+            body.get("store").is_none(),
+            "`store: true` answers 400 (requires a native Responses target); the field \
+             is absent entirely because the surface declares Stateless (ADR-0114)"
+        );
+        assert_eq!(
+            body["include"],
+            json!(["reasoning.encrypted_content"]),
+            "a stateless Responses client replays opaque reasoning state"
+        );
+        assert_eq!(body["reasoning"]["summary"], "detailed");
+        assert_eq!(body["reasoning"]["effort"], "high");
+    }
+
+    /// Replaying an assistant turn on the portable surface must satisfy both
+    /// upstream replay contracts in one item: a `summary` array for the
+    /// upstreams that demand it, and the raw `reasoning_text` content parts for
+    /// the ones that demand those. Each alone 400s against the other.
+    #[test]
+    fn portable_dialect_replays_reasoning_in_both_forms() {
+        let mut assistant = Message::new(Role::Assistant, "");
+        assistant.reasoning_content = Some("plan the call".to_string());
+        assistant.tool_calls = Some(vec![ToolCall {
+            id: "call_1".to_string(),
+            name: "test_tool".to_string(),
+            arguments: "{}".to_string(),
+        }]);
+
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi"), assistant],
+            portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let items = body["input"].as_array().unwrap();
+        let reasoning = items
+            .iter()
+            .find(|item| item["type"] == "reasoning")
+            .expect("a reasoning item must precede the function call");
+        assert_eq!(
+            reasoning["summary"][0]["type"], "summary_text",
+            "one upstream 400s with `input[N].summary: expected an array`"
+        );
+        assert_eq!(reasoning["summary"][0]["text"], "plan the call");
+        assert_eq!(
+            reasoning["content"][0]["type"], "reasoning_text",
+            "the other upstream 400s: `The reasoning_text in the thinking mode must be \
+             passed back to the API`"
+        );
+        assert_eq!(reasoning["content"][0]["text"], "plan the call");
+    }
+
+    /// A pruned older turn on the portable surface keeps the `summary` array
+    /// but drops the `content` parts: an empty `reasoning_text` is itself
+    /// rejected as "must be passed back", while an empty `summary` is accepted.
+    #[test]
+    fn portable_dialect_prunes_older_reasoning_to_an_empty_summary() {
+        let mut older = Message::new(Role::Assistant, "");
+        older.reasoning_content = Some("old chain".to_string());
+        older.tool_calls = Some(vec![ToolCall {
+            id: "call_1".to_string(),
+            name: "test_tool".to_string(),
+            arguments: "{}".to_string(),
+        }]);
+        let mut latest = Message::new(Role::Assistant, "");
+        latest.reasoning_content = Some("new chain".to_string());
+        latest.tool_calls = Some(vec![ToolCall {
+            id: "call_2".to_string(),
+            name: "test_tool".to_string(),
+            arguments: "{}".to_string(),
+        }]);
+
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi"), older, latest],
+            portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let items = body["input"].as_array().unwrap();
+        let reasoning: Vec<&Value> = items
+            .iter()
+            .filter(|item| item["type"] == "reasoning")
+            .collect();
+        assert_eq!(reasoning.len(), 2, "both assistant turns carry an item");
+        let older_item = reasoning[0];
+        assert_eq!(older_item["summary"], json!([]));
+        assert!(
+            older_item.get("content").is_none(),
+            "an empty `reasoning_text` is rejected upstream, so the part is omitted"
+        );
+        let latest_item = reasoning[1];
+        assert_eq!(latest_item["summary"][0]["text"], "new chain");
+        assert_eq!(latest_item["content"][0]["text"], "new chain");
+    }
+
+    /// A plain conversational assistant turn carries no reasoning item. The
+    /// dual form is a *repair* for the shapes the wire demands, not a blanket
+    /// tax on every turn: emitting an empty item per reply would bloat each
+    /// request with items that no upstream asked for.
+    #[test]
+    fn portable_dialect_omits_reasoning_on_plain_text_turns() {
+        let body = body_with_capabilities(
+            vec![
+                Message::new(Role::User, "hi"),
+                Message::new(Role::Assistant, "Hello!"),
+                Message::new(Role::Assistant, "How can I help?"),
+                Message::new(Role::User, "say ok"),
+            ],
+            portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let items = body["input"].as_array().unwrap();
+        assert!(
+            !items.iter().any(|item| item["type"] == "reasoning"),
+            "no tool call and no recorded chain means no reasoning item"
+        );
+    }
+
+    /// A *latest* turn that carries a real chain replays it in both forms: the
+    /// upstream continuing the turn needs the raw text back.
+    #[test]
+    fn portable_dialect_replays_the_latest_chain_in_both_forms() {
+        let mut assistant = Message::new(Role::Assistant, "done");
+        assistant.reasoning_content = Some("reasoned it through".to_string());
+
+        let body = body_with_capabilities(
+            vec![Message::new(Role::User, "hi"), assistant],
+            portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
+            &deepseek_capabilities(),
+        )
+        .unwrap();
+
+        let items = body["input"].as_array().unwrap();
+        let reasoning = items
+            .iter()
+            .find(|item| item["type"] == "reasoning")
+            .expect("a latest turn with a chain must carry it");
+        assert_eq!(reasoning["summary"][0]["text"], "reasoned it through");
+        assert_eq!(reasoning["content"][0]["text"], "reasoned it through");
     }
 
     /// Capability view for a DeepSeek Responses route: reasoning via plaintext

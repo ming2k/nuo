@@ -40,10 +40,13 @@ impl App {
         self.active_sheet = None;
     }
 
-    /// Park the transcript-focus states while an agent-driven sheet mounts.
-    pub(crate) fn park_transcript_focus_for_sheet(&mut self) {
-        self.focused_target = None;
-        self.transcript_focused = false;
+    /// Park the peer focus planes while an agent-driven sheet mounts.
+    ///
+    /// A sheet is a context switch, so the composer takes the keyboard back
+    /// (ADR-0145): the transcript plane's remembered sub-state survives, which
+    /// is why parking is a plane crossing and not a destructive clear.
+    pub(crate) fn park_focus_for_sheet(&mut self) {
+        self.focus.enter_composer();
     }
 
     /// Exact identity of the focused dialog, if the top overlay is a dialog.
@@ -357,8 +360,7 @@ impl App {
     pub(crate) fn checkpoint_active_tab_context(&mut self) {
         if let Some(active_tab) = self.surfaces.active_tab_mut() {
             if matches!(active_tab.kind, crate::shell::surfaces::TabKind::Thread(_)) {
-                active_tab.context.transcript_focused = self.transcript_focused;
-                active_tab.context.focused_target = self.focused_target;
+                active_tab.context.focus = self.focus;
                 active_tab.context.scroll = self.scroll;
                 active_tab.context.input = self.input.clone();
                 active_tab.context.cursor_position = self.cursor_position;
@@ -371,8 +373,7 @@ impl App {
     pub(crate) fn restore_active_tab_context(&mut self) {
         if let Some(tab) = self.surfaces.active_tab() {
             if matches!(tab.kind, crate::shell::surfaces::TabKind::Thread(_)) {
-                self.transcript_focused = tab.context.transcript_focused;
-                self.focused_target = tab.context.focused_target;
+                self.focus = tab.context.focus;
                 self.scroll = tab.context.scroll;
                 self.input = tab.context.input.clone();
                 self.cursor_position = tab.context.cursor_position;
@@ -510,8 +511,19 @@ impl App {
     pub fn on_viewed_session_changed(&mut self) {
         self.history_index = None;
         self.clear_history_draft();
-        if let Some(sid) = self.queue_exit_session.take() {
-            self.resume_queue(&sid);
+        if let Some((sid, origin)) = self.queue_exit_session.take() {
+            // Same symmetry as the dialog exit hook, and the same caveat:
+            // switching sessions while the queue modal is up hides it, so the
+            // pause that open set must be released — otherwise the departed
+            // session's queue never drains — but a pause the *user* asked for is
+            // theirs to keep (`[INV-OUTBOX-04]`).
+            if origin == QueuePauseOrigin::ModalAutoPause {
+                self.resume_queue(&sid);
+                self.send_intent(nuo_protocol::AgentRequest::QueuePaused {
+                    thread_id: sid,
+                    paused: false,
+                });
+            }
         }
         if self.input_history_persist {
             self.send_intent(nuo_protocol::AgentRequest::QueryInputHistory);
@@ -765,9 +777,23 @@ impl App {
                 .turn_cursor = 0;
         }
         if id == DialogKind::Queue
-            && let Some(sid) = self.queue_exit_session.take()
+            && let Some((sid, origin)) = self.queue_exit_session.take()
+            && origin == QueuePauseOrigin::ModalAutoPause
         {
+            // The open path sent `QueuePaused(true)`; the exit hook is its
+            // symmetric half — *only* when that auto-pause is still the one in
+            // effect (`[INV-OUTBOX-04]`). Clearing only the local latch used to
+            // leave the server paused forever: every later follow-up queued up
+            // and never shipped, and the strip said "not blocked" the whole
+            // time. Resuming unconditionally is the opposite defect: the user
+            // pauses with `Ctrl+P`, closes the panel, and their pause is undone.
+            // So both are released here, and only what this open set is
+            // released — for every close path (Esc, outside click, tab switch).
             self.resume_queue(&sid);
+            self.send_intent(AgentRequest::QueuePaused {
+                thread_id: sid,
+                paused: false,
+            });
         }
         if id == DialogKind::HistorySearch {
             self.restore_stashed_draft();
@@ -1058,7 +1084,7 @@ impl App {
         self.sticky_summary_line = None;
         self.pin_summary_line = None;
         self.scroll_settle_pending = false;
-        self.focused_target = None;
+        self.focus.enter_composer();
     }
 
     pub fn viewed_chrome(&self) -> SessionChrome {
@@ -1128,7 +1154,8 @@ mod tests {
         app.surfaces.select_tab(0);
 
         // Mutate Tab 0 context
-        app.transcript_focused = true;
+        app.focus
+            .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
         app.scroll = 15;
         app.input = "draft for thread 1".to_string();
         app.cursor_position = 4;
@@ -1140,7 +1167,7 @@ mod tests {
         assert_eq!(app.surfaces.active_tab_index(), 1);
 
         // Tab 1 starts with default context
-        assert!(!app.transcript_focused);
+        assert!(app.focus.is_composer());
         assert_eq!(app.scroll, 0);
         assert_eq!(app.input, "");
         assert_eq!(app.cursor_position, 0);
@@ -1155,7 +1182,7 @@ mod tests {
         assert_eq!(app.surfaces.active_tab_index(), 0);
 
         // Tab 0 context is completely restored
-        assert!(app.transcript_focused);
+        assert!(app.focus.is_transcript());
         assert_eq!(app.scroll, 15);
         assert_eq!(app.input, "draft for thread 1");
         assert_eq!(app.cursor_position, 4);

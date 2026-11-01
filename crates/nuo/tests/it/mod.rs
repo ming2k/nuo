@@ -1,4 +1,5 @@
 mod lifecycle_integration;
+mod queue_authority_integration;
 mod retry_restore_integration;
 mod serve_integration;
 mod server_spawn;
