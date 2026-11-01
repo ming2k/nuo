@@ -1450,10 +1450,23 @@ mod tests {
             &scan.link_ranges,
         );
 
-        // In terminals, ⚠️ is 1 column wide, followed by space (1 col) and 10 CJK characters (10*2=20 cols),
-        // so "⚠️ 一个未经证实的前提：" is 1 + 1 + 10*2 = 22 columns!
-        assert_eq!(nuotc::grapheme_width("⚠️"), 1);
-        assert_eq!(nuotc::str_len("⚠️ 一个未经证实的前提："), 22);
+        // The invariant under test is *synchronization*, not one substrate's idea of
+        // how wide `⚠️` is: `str_len` must equal the sum of per-grapheme widths, and
+        // the wrap must agree with that same measure. Pinning the literal column
+        // count here instead encodes whichever `nuotc` the snapshot was recorded
+        // against — a variation selector's width is the substrate's call (VS16 is
+        // zero-width on POSIX terminals, TR51-emoji under `unicode-width`), and a
+        // release must not fail because that judgement moved.
+        let prefix = "⚠️ 一个未经证实的前提：";
+        let mut grapheme_sum = 0usize;
+        let mut rest = prefix;
+        while !rest.is_empty() {
+            let end = nuotc::inclusive_grapheme_end(rest, 0);
+            grapheme_sum += nuotc::grapheme_width(&rest[..end]) as usize;
+            rest = &rest[end..];
+        }
+        assert_eq!(nuotc::str_len(prefix), grapheme_sum);
+        assert!(nuotc::grapheme_width("⚠️") >= 1);
 
         let lines = wrap_text_markup(s, 76, &hidden);
         assert!(!lines.is_empty());

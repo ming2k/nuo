@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.66] - 2026-11-01
+
 ### Added & Changed
 
 - **Command effect classes: a reading is not an act, so only state mutations are recorded (ADR-0140).**
