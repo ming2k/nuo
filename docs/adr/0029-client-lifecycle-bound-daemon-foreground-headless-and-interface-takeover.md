@@ -64,7 +64,7 @@ We require a modernized, uncompromising runtime architecture with zero legacy bu
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: PID File Exclusivity Without Socket Reclaiming**
    - *Reason*: Storing PIDs in lockfiles without active socket and port takeover fails when orphaned processes hang or when PID wrap-around occurs. Reclaiming requires socket connectivity probing and direct signal delivery to the socket/port holder.

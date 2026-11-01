@@ -64,7 +64,7 @@ Nuo previously stratified its execution postures under ADR-0033 into **Client-Bo
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Conversational `/server` Slash Command**
    - *Reason*: Violates Thread Command Purity. If an operator types `/server listen` while reviewing code with an agent, the infrastructure directive leaks into LLM context builders and history transcripts. Infrastructure operations belong strictly to client viewport controls.

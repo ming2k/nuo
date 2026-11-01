@@ -68,7 +68,7 @@ To establish an uncompromising, future-proof terminal interface free of legacy c
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Calling Subagent Drill-in "Thread Fork"**
    - *Reason*: A subagent is a delegated child task spawned via `spawn_agent`. It carries strict parent-child causality, bounded tool capabilities, and must settle its summary back into the parent thread. A "fork" is a divergent Git-like branch creating an independent peer thread. Conflating the two misleadingly implies that the parent thread's conversation line was permanently split or severed.

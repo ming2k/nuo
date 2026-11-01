@@ -64,7 +64,7 @@ We require a modern, unified architectural foundation that standardizes the **Se
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Random TCP Port Allocation for Interactive Sessions**
    - *Reason*: Assigning ephemeral random TCP ports for client-bound sessions evades port collisions but fails to eliminate the network attack surface, requires dynamic discovery negotiation, and leaves open loopback ports susceptible to browser discovery.

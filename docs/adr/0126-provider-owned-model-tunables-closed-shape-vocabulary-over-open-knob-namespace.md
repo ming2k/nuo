@@ -96,7 +96,7 @@ them.
 1. **Provider autonomy without framework edits.** Shipping a new knob on one
    provider must not require touching the framework core, the picker, the
    protocol DTO, or the editor's field numbering.
-2. **Mechanism over exhortation** (`AGENTS.md` §3). The boundary must be enforced
+2. **Mechanism over exhortation** ([`invariants.md`](../dev/standards/invariants.md) §1). The boundary must be enforced
    by types and a test, not by a comment asking contributors to behave.
 3. **No silent data loss on protocol skew.** A frontend built before a provider
    shipped a knob must not erase the user's setting for it.

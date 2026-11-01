@@ -54,7 +54,7 @@ was already surfaced in the sessions picker.
 This ADR ratifies a **uniform two-row head band**: row 1 is always the ambient
 **session identity**; row 2 is the **scene row** — the scene named plainly, its
 context, and the session's persistent run-mode flags beside the standing
-namespace pair ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]` preserved). Under [INV-AGENT-01] it
+namespace pair ([ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md) `[INV-HINT-01]` preserved). It
 records the rejected alternatives.
 
 ---

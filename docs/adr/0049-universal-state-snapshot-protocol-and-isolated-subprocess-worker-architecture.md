@@ -167,7 +167,7 @@ The runtime architecture is partitioned into two distinct physical process tiers
 
 ## Rejected Alternatives & Negative Knowledge
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 ### 1. Rejected: Full Event-Stream Replay from Turn 0 on Every Client Reconnect
 - *Why considered*: Seemed conceptually simple by reusing the existing append-only event log.

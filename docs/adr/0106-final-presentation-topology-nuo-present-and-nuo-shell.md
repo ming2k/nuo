@@ -46,7 +46,8 @@ disclosure, …}`) could only cross into `nuo-present` as one mutually-recursive
 
 - **The name must match the graph.** A crate is a claim about its dependency set;
   `nuo-ui` was a claim the graph contradicted. Mechanisms over exhortations
-  (AGENTS.md) means the invariant is the manifest, not the docstring.
+  ([`invariants.md`](../dev/standards/invariants.md) §1) means the invariant is the
+  manifest, not the docstring.
 - **Staging must terminate.** A permanent advisory gate is a toothless gate. R3 must
   end up enforced unconditionally on the crate that actually holds the substrate.
 - **The lean-link invariant is a build fact, not a convention.** `[INV-ARCH-CLI-LEAN-LINK]`

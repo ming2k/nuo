@@ -39,9 +39,9 @@ left its invariants unenforceable and, in one case, unsatisfiable as written:
    feature** of `nuo`.
 
 2. **The invariants have no mechanical enforcement.** `[INV-ARCH-UI-ZERO-IO]` and
-   "Server Purity" are stated as red-lines in AGENTS.md but nothing in CI tests
-   the dependency graph. A single careless `use crossterm` in a library crate
-   would silently re-pollute the headless server.
+   "Server Purity" are stated as red-lines in [`invariants.md`](../dev/standards/invariants.md)
+   but nothing in CI tests the dependency graph. A single careless `use crossterm` in a
+   library crate would silently re-pollute the headless server.
 
 3. **The extraction is incomplete, and the name currently lies.** `crates/nuo-ui`
    has been renamed but not decomposed: it is still the 133k-line interactive
@@ -63,7 +63,7 @@ left its invariants unenforceable and, in one case, unsatisfiable as written:
 
 ## Decision Drivers
 
-- **Mechanisms over exhortations** (AGENTS.md): an invariant without a gate is a
+- **Mechanisms over exhortations** ([`invariants.md`](../dev/standards/invariants.md) §1): an invariant without a gate is a
   comment. The dependency direction must be checked by CI.
 - **Domain precision**: `nuo-ui` must mean *pure zero-IO projection*, and the
   binary must be able to build *without* the terminal stack.

@@ -36,7 +36,7 @@ Two problems compound:
 1. **The signal is not portable and can false-positive.** The inode probe is `#[cfg(target_os = "linux")]`; on macOS and Windows the check unconditionally returns "current", so dev-drift is *entirely* undetected there. Conversely, reinstalling an *identical* binary at the same path (a `cp`, a `cargo install` no-op) yields a new inode and a spurious "rebuilt binary" refusal — the inode moved even though the bytes did not.
 2. **The remedy is manual and recurring.** The client refuses and tells the operator to run `nuo stop`, even when the daemon is hosting nothing. This is friction with zero safety benefit in the common case; a natural request was to *automatically* retire the stale daemon, perhaps keyed on "the most recent commit".
 
-This ADR ratifies a content-based detection signal and an idle-gated self-heal, and — under [INV-AGENT-01] — records why the proposed commit/timestamp schemes were rejected.
+This ADR ratifies a content-based detection signal and an idle-gated self-heal, and records why the proposed commit/timestamp schemes were rejected.
 
 ---
 
@@ -107,7 +107,7 @@ Chosen option: **"Option 1"**, because content identity is the only signal that 
 - **Why rejected** (three distinct failures):
   1. **Wrong on the actual loop.** A dev rebuild frequently does **not** change the commit (uncommitted edits, `cargo build` at the same `HEAD`). Commit equality would report "same, keep it" precisely when the binary has changed — the exact case we must catch. Commit identity answers a different question than binary identity.
   2. **Ordering by time is unsafe and unreliable.** Deciding which daemon is "newer" from an embedded build timestamp requires trusting wall-clock ordering across processes and machines; clock skew, `cargo` mtime semantics, and cross-host installs all break it. Worse, "retire the older one" is a *blind* rule: it will destroy a daemon hosting live agent rounds for no wire-level reason — violating [INV-IMG-03].
-  3. **Provenance cost.** It requires a `build.rs` (`git rev-parse`), an environment passthrough, and a no-repo fallback for every release/installed build — new build-system surface for a signal the file content already provides, violating [INV-IMG-04] in spirit. Retained here as negative knowledge so the approach is not resurrected ([INV-AGENT-02]).
+  3. **Provenance cost.** It requires a `build.rs` (`git rev-parse`), an environment passthrough, and a no-repo fallback for every release/installed build — new build-system surface for a signal the file content already provides, violating [INV-IMG-04] in spirit. Retained here as negative knowledge so the approach is not resurrected.
 
 ### Option 2 (Rejected): Keep the inode probe, add only auto-restart
 - **Why considered**: the smallest possible change — no record schema change, no digest.

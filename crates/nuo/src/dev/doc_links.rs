@@ -7,6 +7,7 @@
 //!   2. No absolute locators (style.md §1.2)
 //!   3. Anchor existence (style.md §1.4)
 //!   4. Audience firewall (taxonomy.md §2)
+//!   5. User-owned surface exclusion (taxonomy.md §3, ADR-0141)
 
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -15,6 +16,19 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 const EXTERNAL: &[&str] = &["http://", "https://", "mailto:", "tel:", "data:"];
+
+/// Root-level documentation files that are **not** repository documentation.
+///
+/// `AGENTS.md` is user-authored agent guidance: it is a runtime *input* the
+/// product loads behind a trust gate (`nuo_host::security::PROJECT_RULE_FILES`),
+/// not a governed documentation artifact. It is therefore excluded from every
+/// link/anchor/style rule here, so a user may restructure it freely without a
+/// repository gate judging the result (ADR-0141, taxonomy.md §3).
+///
+/// This is the **single** definition of the boundary, shared by the link gate
+/// and the ADR lineage gate. Two parallel lists is exactly the drift that let
+/// `AGENTS.md` acquire documentation authority in the first place.
+pub const USER_OWNED_SURFACES: &[&str] = &["AGENTS.md"];
 
 /// Public documentation surfaces (taxonomy.md §2). A relative link originating
 /// in one of these must never resolve into the internal maintainer space.
@@ -102,6 +116,9 @@ fn find_markdown_files(root: &Path) -> Vec<PathBuf> {
             if path.extension().is_some_and(|ext| ext == "md") {
                 if let Ok(rel) = path.strip_prefix(root) {
                     let rel_str = rel.to_string_lossy().replace('\\', "/");
+                    if USER_OWNED_SURFACES.contains(&rel_str.as_str()) {
+                        continue;
+                    }
                     if rel_str.starts_with("docs/") || !rel_str.contains('/') {
                         files.push(path.to_path_buf());
                     }
@@ -137,6 +154,33 @@ pub fn check_doc_links(root: &Path) -> Result<(), String> {
     let target_link_re =
         Regex::new(r"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?\s*\)").map_err(|e| e.to_string())?;
 
+    // --- User-owned surface boundary (taxonomy.md §3, ADR-0141) -------------
+    //
+    // Two orthogonal, decidable rules:
+    //
+    //   1. **Nomination.** Every mention of a user-owned surface must appear as
+    //      an inline code span. This makes the surface unambiguously a *filename*
+    //      rather than an authority, and keeps prose grammatical: a bare
+    //      `AGENTS.md` in a sentence is indistinguishable from a citation.
+    //   2. **Citation.** A mention that is code-styled but is immediately
+    //      qualified by a section number is a citation, not a filename, and is
+    //      rejected. This is the exact form that rotted (`` (`AGENTS.md` §3) ``):
+    //      quoting it as code must not launder an authority claim.
+    //
+    // Stripping code spans before matching (the obvious implementation) is
+    // wrong in both directions: it lets code-styled section citations through,
+    // and it punishes code-styled filenames. The rules are therefore evaluated
+    // over the raw line plus knowledge of where the code spans are.
+    let user_owned_re = Regex::new(&format!(r"\b({})\b", USER_OWNED_SURFACES.join("|")))
+        .map_err(|e| e.to_string())?;
+    // Inline code span. The `regex` crate has no backreferences, so this models
+    // the CommonMark subset that actually occurs here: a single-backtick span
+    // whose body contains no backtick. Multi-backtick spans exist only to embed
+    // a literal backtick, which no user-owned surface name contains.
+    let code_span_re = Regex::new(r"`([^`\n]*)`").map_err(|e| e.to_string())?;
+    // `§3`, `§ 3`, `§3.1`, `#3` immediately after a code span.
+    let section_qualifier_re = Regex::new(r"^\s*(?:§|#)\s*\d").map_err(|e| e.to_string())?;
+
     let mut problems = Vec::new();
     let mut checked = 0;
     let mut cached_anchors: HashMap<PathBuf, HashSet<String>> = HashMap::new();
@@ -169,6 +213,32 @@ pub fn check_doc_links(root: &Path) -> Result<(), String> {
 
             // Strip inline code to avoid checking syntax examples
             let line_prose = inline_code_re.replace_all(line, "");
+
+            // Rule 2 — citation: a code-styled mention qualified by a section
+            // number. Checked first so the message names the real defect.
+            let mut cited = false;
+            for span in code_span_re.captures_iter(line) {
+                let body = span.get(1).map(|m| m.as_str()).unwrap_or_default();
+                if user_owned_re.is_match(body) {
+                    let rest = &line[span.get(0).map(|m| m.end()).unwrap_or(0)..];
+                    if section_qualifier_re.is_match(rest) {
+                        cited = true;
+                    }
+                }
+            }
+            if cited {
+                problems.push(format!(
+                    "{rel_posix}:{line_num}: cites a section of the user-owned `AGENTS.md` surface (taxonomy.md §3 — quote the filename as a filename, or cite the standards document that owns the rule; ADR-0141)"
+                ));
+            } else {
+                // Rule 1 — nomination: any mention left in prose is a bare
+                // filename, which is indistinguishable from a citation.
+                if user_owned_re.is_match(&line_prose) {
+                    problems.push(format!(
+                        "{rel_posix}:{line_num}: mentions the user-owned `AGENTS.md` surface outside inline code (taxonomy.md §3 — write it as `AGENTS.md`; repository documentation must not bind a file the product treats as untrusted workspace input; ADR-0141)"
+                    ));
+                }
+            }
 
             for caps in target_link_re.captures_iter(&line_prose) {
                 let target = match caps.get(1) {
@@ -310,6 +380,122 @@ mod tests {
             "# Note\n\nSee [peer](other.md).\n",
         );
         write(root, "docs/dev/other.md", "# Other\n\nBody.\n");
+
+        check_doc_links(root).unwrap();
+    }
+
+    /// ADR-0141 / taxonomy.md §3: `AGENTS.md` is user-authored workspace input,
+    /// not repository documentation. A user may shape it freely — including
+    /// with links that would be dead or absolute by documentation standards —
+    /// without a docs gate judging the result.
+    #[test]
+    fn user_owned_agents_md_is_outside_doc_governance() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(root, "docs/dev/note.md", "# Note\n\nBody.\n");
+        write(
+            root,
+            "AGENTS.md",
+            "# Agent Directives\n\nSee [nowhere](./does-not-exist.md).\n\
+             Absolute: [x](/etc/passwd).\n\
+             Anchor: [y](docs/dev/note.md#no-such-heading).\n",
+        );
+
+        check_doc_links(root)
+            .expect("AGENTS.md must not be scanned by the documentation link gate");
+    }
+
+    /// The other half of the same boundary: repository documentation must not
+    /// cite the user-owned surface, so the coupling cannot silently regress.
+    #[test]
+    fn docs_must_not_cite_the_user_owned_surface() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(
+            root,
+            "docs/adr/0001-x.md",
+            "# X\n\nThe rule is stated in AGENTS.md §3.\n",
+        );
+
+        let err = check_doc_links(root).unwrap_err();
+        assert!(
+            err.contains("user-owned `AGENTS.md`"),
+            "unexpected error: {err}"
+        );
+    }
+
+    /// Quoting the filename inside inline code or a fenced block is discussion
+    /// of the mechanism (e.g. the trust gate), not a normative citation.
+    #[test]
+    fn quoting_agents_md_in_code_is_permitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(
+            root,
+            "docs/reference/trust.md",
+            "# Trust\n\nThe loader reads `AGENTS.md` and `.cursorrules`.\n\n\
+             ```text\nAGENTS.md\n```\n",
+        );
+
+        check_doc_links(root).unwrap();
+    }
+
+    /// Regression: the coupling this gate exists to prevent appeared as
+    /// `` (`AGENTS.md` §3) `` — the filename *looked* like code, so stripping
+    /// code spans before matching let the authority claim through untouched.
+    /// Code styling must not launder a citation.
+    #[test]
+    fn code_styled_section_citation_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // `[\`AGENTS.md\`](#3)` is deliberately absent: it is already rejected
+        // by the dead-anchor rule (style.md §1.3), and a same-page `#3` is not a
+        // cross-document section citation, so it is out of this rule's scope.
+        for body in [
+            "# X\n\n2. **Mechanism over exhortation** (`AGENTS.md` §3).\n",
+            "# X\n\nThe rule is in (`AGENTS.md`§3).\n",
+            "# X\n\nAnchor-qualified: (`AGENTS.md` §3.1).\n",
+        ] {
+            write(root, "docs/adr/0001-x.md", body);
+            let err =
+                check_doc_links(root).expect_err("a code-styled section citation must be rejected");
+            assert!(
+                err.contains("cites a section"),
+                "expected citation diagnosis for {body:?}, got: {err}"
+            );
+        }
+    }
+
+    /// Regression: a bare filename in product prose is a legitimate mention,
+    /// but it read as an authority claim because it was not code-styled. The
+    /// diagnosis must name the fix (`write it as `AGENTS.md``), not just fail.
+    #[test]
+    fn bare_mention_is_rejected_with_an_actionable_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(
+            root,
+            "docs/how-to/teach-agents.md",
+            "# Teach agents\n\nCreate a file named AGENTS.md at the project root.\n",
+        );
+
+        let err = check_doc_links(root).unwrap_err();
+        assert!(err.contains("outside inline code"), "got: {err}");
+        assert!(err.contains("write it as `AGENTS.md`"), "got: {err}");
+    }
+
+    /// The filename inside code stays permitted even mid-sentence and in
+    /// tables, so ordinary product documentation needs no special casing.
+    #[test]
+    fn code_styled_filename_is_permitted_in_prose_and_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write(
+            root,
+            "docs/reference/files.md",
+            "# Files\n\nCreate `AGENTS.md` at the root.\n\n\
+             | File | Role |\n| :--- | :--- |\n| `AGENTS.md` | project rules |\n| `.cursorrules` | project rules |\n",
+        );
 
         check_doc_links(root).unwrap();
     }

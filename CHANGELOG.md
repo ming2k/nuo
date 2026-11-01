@@ -8,6 +8,28 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Changed
+
+- **Agent guidance is user-owned workspace input, not repository documentation (ADR-0141).**
+  - `AGENTS.md` is the file the harness loads as untrusted project input behind the workspace
+    trust gate (`PROJECT_RULE_FILES`, `/trust instructions`), so repository documentation no longer
+    treats it as a normative source. `nuo::dev::doc_links` now drops user-owned surfaces from the
+    governed documentation set entirely (they are never link-, anchor- or absolute-locator-checked),
+    and fails the build when governed documentation cites one as authority.
+  - The five sites that bound it are re-pointed at the standards suite that already owns each rule:
+    ADR-0067 §2 no longer prescribes the file's structure, and the "mechanisms over exhortations"
+    drivers in ADR-0094/0105/0106 and ADR-0126 cite
+    [`docs/dev/standards/invariants.md`](docs/dev/standards/invariants.md) §1 instead. A section
+    citation is now mechanically rejected in the code-styled form `AGENTS.md §3` that had rotted.
+  - Retire the two dangling tags `[INV-AGENT-01]` and `[INV-AGENT-02]`: their definitions were
+    deleted with ADR-0067 while 30 citations (22 documents) survived, so the tags resolved nowhere.
+    The rules they stood for are enforced by [`adr.md`](docs/dev/standards/adr.md) §2–§4, which is
+    what the surviving prose now cites. `[INV-AGENT-05..07]` are untouched — they are defined in
+    ADR-0009/0010.
+  - Fix the truncated `[INV-LOCK-01]` reference in ADR-0090's lease diagram
+    (the ratified tag is `[INV-PERSIST-LOCK-01]`), and correct the `ask_user` storybook prompt that
+    claimed edits to the file had to comply with ADR-0011.
+
 ## [0.0.66] - 2026-11-01
 
 ### Added & Changed

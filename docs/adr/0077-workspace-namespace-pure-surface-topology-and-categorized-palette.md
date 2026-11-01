@@ -47,7 +47,7 @@ A clean break from these historical anachronisms is required to align the intera
 
 ### Option 1: Retain `Quit` and `k` for Legacy Compatibility
 - Keep `C-x C-c` and `C-x k` to accommodate legacy Emacs muscle memory.
-- *Assessment*: Rejected per **[INV-AGENT-01]**. Perpetuates historical baggage and pollutes the clean workspace model. Emacs users already default to global `Ctrl-C` in modern terminals.
+- *Assessment*: Rejected. Perpetuates historical baggage and pollutes the clean workspace model. Emacs users already default to global `Ctrl-C` in modern terminals.
 
 ### Option 2: Split Command Palette and Navigation into Disjoint Modals
 - Remove navigation entries from `C-x p` and create a second modal (`C-x n`) solely for views.

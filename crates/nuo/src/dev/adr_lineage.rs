@@ -7,7 +7,10 @@
 //!   to a canonical ADR in `docs/adr/`.
 //!   Immutable shipped migration SQL in `crates/nuo-persistence/src/db/migrations.rs`
 //!   is explicitly exempt from string-literal scanning.
+//!   User-owned surfaces (`doc_links::USER_OWNED_SURFACES`) are not repository
+//!   documentation and are never scanned (taxonomy.md §3, ADR-0141).
 
+use crate::dev::doc_links;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs;
@@ -142,6 +145,8 @@ fn split_rust_line(line: &str, mut state: LexState, scan_re: &Regex) -> (LexStat
 }
 
 fn get_tracked_files(root: &Path) -> Vec<String> {
+    let keep = |rel: &str| !doc_links::USER_OWNED_SURFACES.contains(&rel);
+
     if let Ok(output) = Command::new("git")
         .current_dir(root)
         .args(["ls-files", "*.rs", "*.md"])
@@ -151,8 +156,10 @@ fn get_tracked_files(root: &Path) -> Vec<String> {
             let stdout = String::from_utf8_lossy(&output.stdout);
             return stdout
                 .lines()
-                .filter(|l| !l.trim().is_empty())
-                .map(|l| l.trim().to_string())
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .filter(|l| keep(l))
+                .map(|l| l.to_string())
                 .collect();
         }
     }
@@ -172,7 +179,10 @@ fn get_tracked_files(root: &Path) -> Vec<String> {
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
             if ext == "rs" || ext == "md" {
                 if let Ok(rel) = path.strip_prefix(root) {
-                    files.push(rel.to_string_lossy().replace('\\', "/"));
+                    let rel = rel.to_string_lossy().replace('\\', "/");
+                    if keep(&rel) {
+                        files.push(rel);
+                    }
                 }
             }
         }

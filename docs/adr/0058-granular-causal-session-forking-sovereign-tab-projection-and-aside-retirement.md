@@ -54,7 +54,7 @@ To eliminate legacy debt and build an uncompromised, modern foundation for tree-
 
 ### Option 1: Retain `/btw` alongside Granular `/fork`
 - Keep `/btw` for "lightweight" temporary questions and use `/fork` only for "heavy" permanent sessions.
-- *Assessment*: Rejected per **[INV-AGENT-01]**. Having two distinct primitives for branching introduces cognitive ambiguity ("should I use /btw or /fork?"), doubles the wire contract surface, and maintains redundant session registries.
+- *Assessment*: Rejected. Having two distinct primitives for branching introduces cognitive ambiguity ("should I use /btw or /fork?"), doubles the wire contract surface, and maintains redundant session registries.
 
 ### Option 2: In-Place Timeline Switch within a Single Tab
 - When `/fork <round>` is executed, swap the active session pointer within the existing tab instead of opening a new tab.
@@ -70,7 +70,7 @@ To eliminate legacy debt and build an uncompromised, modern foundation for tree-
 
 ## Rejected Alternatives & Negative Knowledge
 
-Per **[INV-AGENT-01]**, the following alternative approaches were evaluated and discarded:
+The following alternative approaches were evaluated and discarded:
 
 1. **Rejected: Blind In-Memory Transcript Truncation Without IR Delta Forking**
    - *Failure Mode*: Simply taking a subslice of serialized transcript entries while leaving the SQLite `SessionIR` or delta sequences unchanged produces dangling causal references and breaks future compaction passes.

@@ -72,7 +72,7 @@ We need an uncompromising, future-proof architectural redesign that establishes 
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative approaches were evaluated and discarded:
+The following alternative approaches were evaluated and discarded:
 
 1. **Rejected: Global Composer Hijacking (`owns_composer_draft`) Preservation**
    - *Reason*: Reusing the chat composer line as an ad-hoc query box for floating dialogs is an archaic legacy shortcut. It conflates chat input history with modal query state, creates fragile draft-parking dependencies, and makes dialogs inoperable on non-chat scenes (Dashboard, Settings). Every dialog requiring text entry must own an embedded `TextInput` component.

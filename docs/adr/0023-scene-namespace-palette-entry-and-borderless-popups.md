@@ -65,7 +65,7 @@ Two frictions followed:
 This ADR ratifies the retirement of the `Ctrl-L` binding (and its modal
 prohibition), a **standing** `C-x menu` legend on every scene's row 2, and a
 **borderless** elevation treatment for floating popups on modern terminals —
-and, under [INV-AGENT-01], records the rejected alternatives.
+and records the rejected alternatives.
 
 ---
 

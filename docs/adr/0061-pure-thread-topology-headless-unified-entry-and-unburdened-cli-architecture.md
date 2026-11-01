@@ -49,11 +49,11 @@ We require an uncompromising, forward-facing CLI architecture that establishes t
 
 ### Option 1: Incremental Patching with Deprecation Warnings
 - Keep `run`, `config`, `mcp`, and `skill` as top-level subcommands with deprecation warnings. Add an ad-hoc `nuo resume` verb.
-- *Failure Mode*: Rejected (`[INV-AGENT-01]`). Perpetuates legacy baggage, preserves top-level visual noise, leaves `run` vs `server start` confusion intact, and adds another ambiguous singular verb (`resume`) that conflicts with the multi-thread domain model.
+- *Failure Mode*: Rejected. Perpetuates legacy baggage, preserves top-level visual noise, leaves `run` vs `server start` confusion intact, and adds another ambiguous singular verb (`resume`) that conflicts with the multi-thread domain model.
 
 ### Option 2: Rigid Subcommand-Only Structure (`nuo agent run ...`)
 - Force all agent interactions into an explicit subcommand (`nuo agent ...` or `nuo chat ...`), stripping bare `nuo` of default interactive execution.
-- *Failure Mode*: Rejected (`[INV-AGENT-01]`). Destroys terminal-first ergonomic speed. Developers expect bare `nuo` to launch the interactive workspace immediately without unnecessary ceremony.
+- *Failure Mode*: Rejected. Destroys terminal-first ergonomic speed. Developers expect bare `nuo` to launch the interactive workspace immediately without unnecessary ceremony.
 
 ### Option 3: Modernized Root Agent Entry, Interactive Thread Recovery, and Flat Help Topology (Chosen)
 - Eliminate `run`; root `nuo` executes interactive TUI by default, or headless turn when invoked with `--headless` or `-p, --prompt`.

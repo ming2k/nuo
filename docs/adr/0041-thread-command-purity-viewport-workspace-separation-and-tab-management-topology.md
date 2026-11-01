@@ -51,7 +51,7 @@ To achieve an uncompromising, future-proof terminal interface free of legacy com
 
 ### Option 2: Split Modal Grammar with Prefixes (`:` vs `/`)
 - Introduce Vim-style `:` for client workspace actions (e.g. `:dashboard`, `:settings`, `:tabnew`) while reserving `/` for thread harness commands.
-- *Assessment*: Rejected per **[INV-TAB-05]** and **[INV-AGENT-01]**. Modal command prefixes introduce parsing ambiguities in Markdown/shell text blocks, increase keystroke friction, and conflict with standard slash-centric agent ergonomics.
+- *Assessment*: Rejected per **[INV-TAB-05]**. Modal command prefixes introduce parsing ambiguities in Markdown/shell text blocks, increase keystroke friction, and conflict with standard slash-centric agent ergonomics.
 
 ### Option 3: Hermetic In-Session Harness with Sovereign Tab Orchestration (Chosen)
 - Purge `/dashboard` and `/settings` from the Thread Composer's executable command registry and server `BuiltinCmd` harness vocabulary, retiring `AgentResponse::OpenHostPanel`.
@@ -65,7 +65,7 @@ To achieve an uncompromising, future-proof terminal interface free of legacy com
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Embedding Dashboard or Settings as Sub-Scenes in `ClientTab::history`**
    - *Reason*: Pushing a cluster dashboard onto a thread's drill-in stack (`Thread A -> Dashboard -> Thread B`) creates circular navigation graphs and breaks LIFO unwinding semantics. Global hubs must remain top-level peers on the Tab bar, never nested stack frames.

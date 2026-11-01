@@ -60,7 +60,7 @@ We require a holistic, zero-legacy harmonization that establishes uniform `Threa
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Renaming Transport and Authentication Sessions to "Threads"**
    - *Reason*: Violates engineering separation of concerns. HTTP/WebSocket network connections and OAuth authorization grants are authentic network/security *sessions*, not agent conversation *threads*. Renaming socket handles or OAuth states to "threads" would reintroduce the inverted category confusion.

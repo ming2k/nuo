@@ -61,7 +61,7 @@ We require a deterministic, multi-tiered lifecycle architecture that guarantees 
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Blind SIGKILL on Conflict Without Graceful Drain**
    - *Reason*: Immediately killing a conflicting predecessor process corrupts in-flight SQLite transactions, truncates command execution ledgers, and drops pending tool call outputs.

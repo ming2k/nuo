@@ -234,7 +234,7 @@ impl StorybookComponent for AskUser {
             id: "req_long".to_string(),
             questions: vec![UserQuestion {
                 header: Some("Security Policy Arbitration".to_string()),
-                question: "An automated patch attempted to modify the system invariant rulebook in `AGENTS.md`.\nBecause modifying operational directives can influence agent trajectory across all downstream rounds, human operator review is mandatory. Please confirm whether this edit complies with architectural guidance in ADR-0011.".to_string(),
+                question: "An automated patch attempted to modify the workspace agent guidance in `AGENTS.md`.\nBecause that file is project-authored input the harness loads behind the trust gate, editing it can influence agent behavior across all downstream rounds. Please confirm this change should be trusted.".to_string(),
                 options: vec![
                     UserQuestionOption {
                         label: "Approve policy update".to_string(),

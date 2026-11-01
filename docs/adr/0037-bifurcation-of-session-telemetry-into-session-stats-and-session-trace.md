@@ -71,7 +71,7 @@ We require an uncompromising, forward-looking architectural refactoring that eli
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative approaches were evaluated and discarded:
+The following alternative approaches were evaluated and discarded:
 
 1. **Rejected: Retaining the Name "Telemetry" for the Execution Profiler**
    - *Reason*: In developer tooling and cloud platforms, "telemetry" carries connotations of background analytics, metrics shipping, and privacy tracking. The chronological waterfall of requests, attempts, TTFT, and spans is unequivocally an **Execution Trace** (`Trace`). Retaining "Telemetry" imposes cognitive drag and violates semantic accuracy.

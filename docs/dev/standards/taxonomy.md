@@ -63,8 +63,18 @@ To keep the repository root clean, professional, and clutter-free, only canonica
 - `README.md` (and regional language variants like `README-zh.md`)
 - `CHANGELOG.md`
 - `CONTRIBUTING.md`
-- `AGENTS.md`
 - `LICENSE.md`
 - `SECURITY.md`
 
 All other documentation must reside within organized directories under `docs/`.
+
+### User-Owned Surfaces (Excluded)
+
+A root file may also exist because users expect it there, without being repository documentation. Such files are **outside** every rule in this document and in [`style.md`](style.md): they are neither link-checked, anchor-checked, nor citable as repository authority.
+
+- `AGENTS.md` — user-authored agent guidance. The product loads it as untrusted workspace input behind the trust gate (`nuo_host::security::PROJECT_RULE_FILES`), alongside `.cursorrules` and `.windsurfrules`. Its shape belongs to whoever owns the workspace, not to this repository ([ADR-0141](../../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md)).
+
+The exclusion is mechanical, not conventional. `nuo::dev::doc_links` drops `USER_OWNED_SURFACES` from the governed file set — such a file is never link-, anchor- or absolute-locator-checked, so its owner may restructure it freely — and applies two rules to governed documentation (`cargo test -p nuo --test doc_governance`):
+
+1. **Nomination**: a user-owned surface must be named as an inline code span. A bare filename in prose is rejected, because it is indistinguishable from an authority claim.
+2. **Citation**: a code-styled mention qualified by a section number (for example the string `AGENTS.md §3`) is rejected. Code styling must not launder a citation of the file's contents; to discuss such a defect, quote the whole citation as one code span.

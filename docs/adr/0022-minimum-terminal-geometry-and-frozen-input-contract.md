@@ -67,7 +67,7 @@ Chosen option: **"Option 1"**.
 ### Invariants & Behavioral Boundaries
 
 - **[INV-TUI-MIN-01] One predicate owns "below minimum".** The frozen notice and the input freeze MUST derive from the same `below_minimum(width, height)` check; neither the renderer nor the loop may carry a private threshold.
-- **[INV-TUI-MIN-02] Frozen means no user-state mutation.** While below the minimum, every key, mouse, and paste event MUST be dropped except a resize and Ctrl-C. Dropping is silent: blocked input is neither applied nor replayed later ([INV-AGENT-02] negative knowledge on buffering below).
+- **[INV-TUI-MIN-02] Frozen means no user-state mutation.** While below the minimum, every key, mouse, and paste event MUST be dropped except a resize and Ctrl-C. Dropping is silent: blocked input is neither applied nor replayed later (the buffering alternative is recorded below as negative knowledge).
 - **[INV-TUI-MIN-03] Daemon state stays current while frozen.** Translator mutations MUST continue to be applied (and drained) while frozen, so a streaming round, permission request, or session switch is never lost; only the paint is suppressed.
 - **[INV-TUI-MIN-04] The logo never deforms.** The hero MUST NOT wrap, clip, or truncate a logo to fit. If it does not fit, or is below the minimum floor, the wordmark is dropped and the guidance line is shown alone.
 - **[INV-TUI-MIN-05] Painted height equals reported height.** `draw_empty_state` MUST report the rows it painted; scroll accounting may not use a separately derived height.
@@ -118,4 +118,4 @@ Chosen option: **"Option 1"**.
 
 - Implementation: `nuo-tui/src/design.rs` (`MIN_TERMINAL_COLS`, `MIN_TERMINAL_ROWS`, `below_minimum`), `nuo-tui/src/event_loop/mod.rs` (freeze branch, `frozen_event_passthrough`), `nuo-tui/src/render/mod.rs` (`draw_too_small`, too-small guard), `nuo-tui/src/empty_state.rs` (`plan_hero`, `HeroLayout`, `MIN_LOGO_*`, carousel pages).
 - Related ADRs: [ADR-0003](0003-autonomous-terminal-canvas-substrate-nuotc.md) (retained terminal canvas and differential rendering), [ADR-0011](0011-nuo-tui-presentation-and-nuo-server-container.md) (TUI presentation decoupling).
-- Related docs: `AGENTS.md` machine invariants ([INV-AGENT-01] negative knowledge, [INV-AGENT-02] context routing).
+- Related Standards: [ADR Standards](../dev/standards/adr.md) (negative knowledge, lifecycle), [Invariant Standards](../dev/standards/invariants.md).

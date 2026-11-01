@@ -29,7 +29,7 @@ Nuo's `codebuddy` provider previously shipped **BYOK-only** — the credential s
 
 ## Decision Drivers
 
-- Driver 1: Model the vendor's actual protocol family, not a simplifying placeholder (mechanism over exhortation, AGENTS.md §3).
+- Driver 1: Model the vendor's actual protocol family, not a simplifying placeholder (mechanism over exhortation, [`invariants.md`](../dev/standards/invariants.md) §1).
 - Driver 2: Preserve the dual-lane boundary codified by ADR-0014 — OAuth subscription should be the default lane for every vendor whose native CLI ships an account login, and BYOK inference should never be the *default* for such vendors.
 - Driver 3: Reuse ADR-0027's ownership topology: vendor OAuth behavior lives in the vendor crate behind the `nuo-oauth` typed port, never inside the engine.
 

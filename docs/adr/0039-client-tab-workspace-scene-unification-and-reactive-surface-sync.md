@@ -66,7 +66,7 @@ We require a modernized, uncompromising surface architecture that establishes th
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Adoption of Vim `:q` / `:w` Command Grammar**
    - *Reason*: Nuo's command system is strictly unified around canonical `/` slash commands. Introducing modal colon commands creates command parsing collisions, cognitive dissonance, and violates the zero-legacy grammar contract.

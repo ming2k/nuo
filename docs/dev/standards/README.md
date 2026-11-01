@@ -33,3 +33,5 @@ For hands-on testing execution and QA runbooks, see [`docs/dev/testing.md`](../t
    Zero arbitrary nesting or nested "core" junk drawers. Every governance document directly addresses an active engineering concern in Nuo.
 4. **Self-Contained Epistemic Lineage**:
    All decisions and references must resolve directly within `docs/adr/` (ADR-0001 through current). Ghost references to external upstream lineages are strictly prohibited.
+5. **User-Owned Surfaces Are Not Doctrine**:
+   A file the product loads as untrusted workspace input (e.g. `AGENTS.md`) is never a normative source for repository documentation. Doctrine lives in `docs/adr/` and `docs/dev/standards/`; see [`taxonomy.md`](taxonomy.md) §3 and [ADR-0141](../../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md). The boundary is mechanically enforced by `cargo test -p nuo --test doc_governance`.

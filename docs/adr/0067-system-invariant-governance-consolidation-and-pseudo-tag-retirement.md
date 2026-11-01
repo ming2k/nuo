@@ -54,9 +54,10 @@ The repository was previously burdened with excessive external governance bureau
 - Re-home all engineering, architectural, and quality standards directly into `docs/dev/standards/` as a flat, high-cohesion, native suite.
 - Purge `docgov check` commands from release checklists and contribution docs in favor of `cargo check --workspace` and `cargo test --workspace`.
 
-### 2. Streamlining `AGENTS.md`
+### 2. Streamlining the Agent Directive File
 - Strip the artificial `<!-- BEGIN DOCGOV DIRECTIVES -->` boundaries.
-- Re-architect `AGENTS.md` into direct, actionable engineering guidelines prioritizing workspace boundaries, concentric architecture, type-driven correctness, and testing discipline.
+- Replace the imposed directive catalogue with direct, actionable engineering guidelines prioritizing workspace boundaries, concentric architecture, type-driven correctness, and testing discipline.
+- **Ownership boundary**: the file is user-authored workspace guidance, loaded by the product behind the trust gate as untrusted input. Repository documentation does not own its structure or content, and cites the standards suite rather than this file ([ADR-0141](0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md)).
 
 ### 3. Classification of Constraints (Abolishing Tag Inflation)
 | Category | Classification | Policy | Enforcement Mechanism |
@@ -103,5 +104,4 @@ The repository was previously burdened with excessive external governance bureau
 ## Links
 
 - Related Standards: [ADR Standards](../dev/standards/adr.md), [Invariant Governance](../dev/standards/invariants.md)
-- Related Agent Directives: [AGENTS.md](../../AGENTS.md)
 - ADR Index: [ADR Index](index.md)

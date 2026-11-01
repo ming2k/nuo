@@ -58,7 +58,7 @@ However, real-world deployment across multi-terminal developer workstations, eph
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        Lease Coordinator & IPC                         │
 │  - Try acquire db.owner.lock (2s lease)                                │
-│  - If busy: Transparently degrade to IPC Client Attach ([INV-LOCK-01]) │
+│  - If busy: Transparently degrade to IPC Client Attach ([INV-PERSIST-LOCK-01]) │
 └───────────────────┬────────────────────────────────┬───────────────────┘
                     │ Owner                          │ Client Attach
                     ▼                                ▼

@@ -212,7 +212,7 @@ Server execution verbs are aligned with standard systems engineering expectation
 
 ## Rejected Alternatives & Negative Knowledge
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 ### 1. Rejected: Synthetic Shell Alias Mapping `nuo thread ls` to `nuo status`
 - *Why considered*: Avoided writing a dedicated listing presentation handler.

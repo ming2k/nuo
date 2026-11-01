@@ -66,7 +66,7 @@ We require a formalized cross-domain action matrix and a modernized **Three-Tier
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Embedding Configuration and Dashboard Under Thread Commands**
    - *Reason*: Treating settings and cluster monitoring as synthetic tools or messages inside a thread transcript pollutes the LLM context window with system telemetry and forces artificial turn cycles for local configuration edits.

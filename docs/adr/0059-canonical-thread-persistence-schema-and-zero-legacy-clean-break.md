@@ -54,11 +54,11 @@ We require an uncompromising, forward-facing, zero-legacy clean break that purge
 
 ### Option 1: Incremental Column Aliases and Backward-Compatible Views
 - Retain `sessions_v2` and create SQLite `VIEW` aliases (`CREATE VIEW threads AS SELECT ... FROM sessions_v2`).
-- *Assessment*: Rejected per **[INV-AGENT-01]**. View shims conceal incomplete migrations, prevent the Rust compiler and CI test suites from uncovering lingering legacy call sites, and perpetuate cognitive dissonance between documentation and physical schema.
+- *Assessment*: Rejected. View shims conceal incomplete migrations, prevent the Rust compiler and CI test suites from uncovering lingering legacy call sites, and perpetuate cognitive dissonance between documentation and physical schema.
 
 ### Option 2: Dual-Writing and Phased Deprecation
 - Maintain both `sessions` and `threads` tables concurrently, writing to both in the single-writer actor for multiple release cycles.
-- *Assessment*: Rejected per **[INV-AGENT-01]**. Dual-writing doubles write latency, introduces synchronization race conditions in the writer actor, and risks split-brain state during unexpected process crashes.
+- *Assessment*: Rejected. Dual-writing doubles write latency, introduces synchronization race conditions in the writer actor, and risks split-brain state during unexpected process crashes.
 
 ### Option 3: Uncompromising Clean Break to Canonical Thread Schema (Chosen)
 - Formally ratify Migration 24 as a clean-break DDL transition:
@@ -71,7 +71,7 @@ We require an uncompromising, forward-facing, zero-legacy clean break that purge
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Retaining `rules_json` in `thread_policies`**
    - *Reason*: Storing `workspace_root` in a JSON column forces full table scans and `json_extract` expressions on every thread filter operation. Elevating it to a native SQL column enables B-tree indexing and referential integrity.

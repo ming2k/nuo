@@ -70,7 +70,7 @@ We require an uncompromising, modernized architectural taxonomy that formally es
 
 ## Rejected Alternatives
 
-Per **[INV-AGENT-01]**, the following alternative architectures were evaluated and rejected:
+The following alternative architectures were evaluated and rejected:
 
 1. **Rejected: Treating Dashboard and Settings as Multi-Instance Sessions in SQLite**
    - *Reason*: Storing Settings and Dashboard as rows in `nuo.db` alongside threads creates severe database bloat and semantic corruption. Users running `nuo session list` or `nuo session delete` would see bizarre system entities. System configuration is a singleton service, not an archival dialogue.
