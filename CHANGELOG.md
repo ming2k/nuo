@@ -8,9 +8,12 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.67] - 2026-11-01
+
 ### Fixed
 
-- **The queue projection and the driver's queue were two different truths (ADR-0144).**  - `D` (delete) and `Enter` (recall-to-composer) in the queue modal mutated only the local
+- **The queue projection and the driver's queue were two different truths (ADR-0144).**
+  - `D` (delete) and `Enter` (recall-to-composer) in the queue modal mutated only the local
     `pending_dispatch`. The message stayed in the driver's `FollowUpQueue`, so it shipped at the next
     round boundary — the "deleted" prompt still ran while the user was editing it in the composer —
     and the next `QueueUpdated` snapshot put the row straight back. Both now send `QueueRemove`, the
