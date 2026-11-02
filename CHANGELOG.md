@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.69] - 2026-11-03
+
 ### Changed
 
 - **Transcript focus is a surface, not two stripes — and liveness no longer wears structure's
