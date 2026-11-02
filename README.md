@@ -88,4 +88,3 @@ cargo build --release -p nuo
 - **[Reference](docs/reference/lifecycle-and-action-semantics.md)**: lifecycle and action semantics.
 - **[Terminal UI Reference](docs/reference/tui/index.md)**: viewport layout, visual language, modals, and input pipeline.
 - **[Subsystem Architecture](docs/dev/subsystems.md)**: workspace topology, crate boundaries, and architectural invariants.
-- **[Architectural Decision Records (ADR)](docs/adr/index.md)**: design decisions, trade-offs, and evolutionary history.

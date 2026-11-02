@@ -83,21 +83,16 @@ pub fn draw_compacted_card(
     let title = "Context Compacted";
 
     // The card is an activatable entry like every other step summary, so it
-    // composes the same three channels: disclosure luminance, lifecycle hue
-    // (none — compaction is not a failure), and — while the keyboard owns this
-    // card — the full-width focus band (ADR-0145), which is a *background* cue
-    // and therefore survives on an expanded card where the old affordance-hue
-    // tint was suppressed.
+    // composes the same two channels: disclosure luminance and lifecycle hue
+    // (none — compaction is not a failure). Keyboard ownership is painted once
+    // for the whole pane (ADR-0145, amended), so the card keeps the tone it
+    // resolved here.
     let interaction = Interaction::from_hover_focused(hovered, focused);
-    let chrome = interaction.chrome(ctx.theme);
-    let summary_color = chrome.text(
+    let summary_color = summary_text_color(
+        None,
+        Disclosure::from_expanded(expanded),
+        interaction,
         ctx.theme,
-        summary_text_color(
-            None,
-            Disclosure::from_expanded(expanded),
-            interaction,
-            ctx.theme,
-        ),
     );
 
     let mut spans = Vec::new();
@@ -134,10 +129,6 @@ pub fn draw_compacted_card(
     spans.push(Span::styled(hint, Style::default().fg(ctx.theme.muted())));
 
     let header_line = Line::from(spans);
-    // `apply` re-paints every span's surface onto the resolved band and pads to
-    // `full_width`, so a focused card's header is a continuous bar instead of a
-    // short tinted run. A no-op when the card is not the focused entry.
-    let header_line = chrome.apply(header_line, full_width);
     if let Some(rect) = ctx.paint(header_line) {
         ctx.layout_map.push(BlockRegion {
             message_idx: mi,

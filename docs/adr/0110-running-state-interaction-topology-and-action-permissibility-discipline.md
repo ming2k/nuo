@@ -17,6 +17,24 @@ negative_knowledge: true
 - Informed: System Architects, Release Engineering
 - Amends: [ADR-0008](0008-single-tool-contract.md), [ADR-0026](0026-streamed-tool-input-progress.md), [ADR-0046](0046-bifurcated-tool-execution-lifecycle-and-progressive-in-flight-tui-states.md), [ADR-0072](0072-pure-declarative-component-paradigm-and-tea-single-direction-dataflow-topology.md), [ADR-0076](0076-canonical-unselectable-list-item-topology-and-inert-skip-navigation.md)
 
+> **Amendment note (2026-11-02)**: the *token* `[INV-TUI-RUNNING-01]` names for
+> the running state changed; the invariant itself (never `theme.dim()`, always
+> bold, always a live hue) is unchanged. §2's table said `theme.info()`, and that
+> turned out to be the wrong allocation: `info` is the scheme's **structural**
+> hue — turn headers (`› turn N`), user-round headers, links, the inline math and
+> the info severity band all read it — so a running tool step and the `› turn N`
+> header directly above it were literally the same color. "This row is working"
+> and "this is where the turn starts" became one signal, which is exactly the
+> demarcation this ADR exists to guarantee. Running states now read
+> `theme.running()`: the same cool family pushed to full saturation, so liveness
+> is the one vivid thing on the page while structure stays muted. `theme.warning`
+> is no longer offered as a running tone either — it is an *outcome* slot
+> (denied / interrupted / gated), and a warning-colored running row pre-announces
+> a failure that has not happened. Enforced by
+> `nuo_ui_primitives::theme::tests::running_hue_is_distinct_from_structure_and_outcomes`
+> (per-scheme distance from `info`, `brand`, `ok`, `warn`, `err`, and `muted`) and
+> by `nuo_ui_primitives::components::action::tests::test_inv_tui_running_01_lifecycle_tone_demarcation`.
+
 ---
 
 ## Context and Problem Statement
@@ -92,13 +110,16 @@ The tone tokens of `Theme` must adhere to strict semantic allocation:
 | Lifecycle State | Tone Channel | Style Token | Bold Modifier | Permitted Usage |
 | :--- | :--- | :--- | :--- | :--- |
 | **Idle / Actionable** | Default Foreground | `theme.fg()` / `theme.text` | Yes (when focused) | Ready for input |
-| **Running / In-Flight** | **Active Accent Hue** | `theme.info()` / `theme.warning` | **Yes (always bold)** | **Work actively in-flight** |
+| **Running / In-Flight** | **Dedicated In-Flight Hue** | `theme.running()` | **Yes (always bold)** | **Work actively in-flight** |
 | **Completed / Ok** | Semantic Success | `theme.system_fg` / weight | Weight-only | Terminal success |
 | **Failed / Error** | Semantic Error | `theme.err()` / `theme.error_fg` | Yes | Non-zero exit / failure |
 | **Cancelled / Inert** | **Subdued Dim Tone** | `theme.dim()` | **No (stripped bold)** | **Aborted, dead, or locked** |
 
 **Universal Ban on `theme.dim()` for Active States**:
-Under no circumstances may `theme.dim()` or darkened surface masks be applied to an executing, ingesting, or running component. Running components must be painted in an active, energetic hue (`theme.info()` or `theme.warning`), asserting active vitality.
+Under no circumstances may `theme.dim()` or darkened surface masks be applied to an executing, ingesting, or running component. Running components must be painted in `theme.running()`, asserting active vitality.
+
+**Liveness Is Its Own Hue** (amended 2026-11-02):
+`theme.info()` and `theme.warning` are **not** running tones. `info` is the structural hue — turn headers, round headers, links, the info severity band — so painting a running row in it made liveness indistinguishable from structure, which is the collision this ADR bans in every other channel. `warning` is an outcome slot (denied / interrupted / gated) and painting a still-running row with it pre-announces a failure. `theme.running()` occupies the same cool family as `info` pushed to full saturation: structure is muted, liveness is vivid, and the two cannot be confused even though they are neighbors on the wheel.
 
 ### 3. Canonical Progress and Status Grammar (`[INV-TUI-RUNNING-03]`)
 
@@ -139,7 +160,7 @@ pub enum ActionStatus {
 
 `ActionStatus` provides mathematical guarantees:
 - `is_actionable()` returns `true` **strictly** for `ActionStatus::Idle`.
-- `style(theme, is_focused, border)` enforces `theme.info()` + `Modifier::BOLD` for `Running`, and `theme.dim()` + stripped bold for `Disabled`.
+- `style(theme, is_focused, border)` enforces `theme.running()` + `Modifier::BOLD` for `Running` (never `theme.info()` — see the amendment note), and `theme.dim()` + stripped bold for `Disabled`.
 - `format_label(base, running)` composes liveness glyphs deterministically.
 
 ---
@@ -147,7 +168,7 @@ pub enum ActionStatus {
 ## Normative Invariants
 
 - **`[INV-TUI-RUNNING-01] Strict Lifecycle-Tone Separation`**:
-  `theme.dim()` MUST NEVER be rendered on any component, card, button, or step that is actively running, executing, or in flight. Running states MUST be rendered in an active accent hue (`theme.info()` or `theme.warning`) with bold weight. `theme.dim()` is reserved exclusively for cancelled, aborted, dead, or inert locked items.
+  `theme.dim()` MUST NEVER be rendered on any component, card, button, or step that is actively running, executing, or in flight. Running states MUST be rendered in `theme.running()` with bold weight — a dedicated in-flight hue, distinct from the structural `theme.info()` and from every outcome tone (`ok` / `warn` / `err`). `theme.dim()` is reserved exclusively for cancelled, aborted, dead, or inert locked items.
 - **`[INV-TUI-RUNNING-02] Action Permissibility Tri-Partition`**:
   Components in the running state MUST guard against re-entrant mutating submissions (activation messages are consumed as no-ops), while unconditionally preserving read/inspect capabilities (expand, collapse, scroll, selection, copy) and promoting cancellation/interrupt affordances.
 - **`[INV-TUI-RUNNING-03] Progress Grammar & Frozen Fact Transition`**:

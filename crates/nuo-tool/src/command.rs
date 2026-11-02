@@ -516,7 +516,7 @@ impl Tool for CommandTool {
             }
         }
 
-        // Apply Execution Log Spilling truncation if output exceeds threshold (ADR-0070)
+        // Apply Execution Log Spilling truncation if output exceeds threshold (ADR-0069 → ADR-0070 → ADR-0093)
         let total_chars = stdout.len() + stderr.len();
         if total_chars > crate::tool_output::SHELL_MAX_OUTPUT_CHARS {
             let head_len = crate::tool_output::SHELL_TRUNCATED_CHARS / 2;

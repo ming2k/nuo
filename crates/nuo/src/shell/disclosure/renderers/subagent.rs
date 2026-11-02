@@ -49,16 +49,10 @@ pub fn draw_subagent_inline_step(
         _ => Some(status_color),
     };
     let interaction = Interaction::from_hover_focused(hovered, focused);
-    // Keyboard ownership is a *background* fact (ADR-0145): a focused subagent
-    // task's header row is painted on the focus band, and its summary tone is
-    // re-seated on that band so the crossing from the composer reads at the same
-    // weight as the composer's own focused panel. Both are no-ops otherwise.
-    let chrome = interaction.chrome(ctx.theme);
-    let bg = chrome.band().unwrap_or_else(|| ctx.theme.surface());
-    let summary_color = chrome.text(
-        ctx.theme,
-        summary_text_color(accent, Disclosure::Collapsed, interaction, ctx.theme),
-    );
+    // Keyboard ownership is painted once for the whole pane (ADR-0145, amended),
+    // so this header keeps the composition it resolved for the page.
+    let bg = ctx.theme.surface();
+    let summary_color = summary_text_color(accent, Disclosure::Collapsed, interaction, ctx.theme);
 
     // Row 1: `[badge]  summary`. The badge is a plain bracketed token in the
     // brand color (no inverse pill) so it sits quietly next to the summary
@@ -88,7 +82,6 @@ pub fn draw_subagent_inline_step(
         spans.push(Span::styled(padded_tail(full_width, used), base));
         Line::from(spans)
     };
-    let summary_row = super::payloads::apply_entry_chrome(summary_row, chrome);
     if let Some(rect) = ctx.paint(summary_row) {
         ctx.layout_map.push(BlockRegion {
             message_idx: mi,
@@ -109,7 +102,9 @@ pub fn draw_subagent_inline_step(
     // running/terminated distinction is carried by color and content, not by
     // the glyph.
     let (row_text, row_color) = if let Some(peek) = msg.subagent_status_line() {
-        (peek, (*ctx.theme).info())
+        // Live peek: the in-flight hue, so a running subagent is not painted in
+        // the same tone as the structural `› turn N` header above it.
+        (peek, (*ctx.theme).running())
     } else if let Some(outcome) = msg.subagent_outcome_line() {
         (outcome, ctx.theme.muted())
     } else {

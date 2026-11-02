@@ -162,11 +162,31 @@ pub struct FeedbackThemeConfig {
 #[serde(default)]
 pub struct ComponentThemesConfig {
     pub input: Option<InputThemeConfig>,
+    pub pane: Option<PaneThemeConfig>,
     #[serde(rename = "crate")]
     pub crate_component: Option<CrateThemeConfig>,
     pub diff: Option<DiffThemeConfig>,
     pub command: Option<CommandThemeConfig>,
     pub keycap: Option<KeycapThemeConfig>,
+}
+
+/// Component-specific override for the transcript pane's keyboard-ownership cue
+/// (ADR-0145).
+///
+/// These are the only two tokens whose correct value depends on the palette's
+/// **channel headroom** rather than on its hues: the wash must be a step the page
+/// can absorb without clamping the bands above it, and the marker must be neutral.
+/// A hand-authored theme therefore gets to state them, while `Theme::pane_focus()`
+/// and `Theme::pane_marker_style()` still decide whether the wash is *usable* — an
+/// override that lands inside a band's headroom degrades to the gutter form rather
+/// than producing a flattened document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct PaneThemeConfig {
+    /// The tone the whole transcript page is lifted to while it owns the keyboard.
+    pub wash_bg: Option<String>,
+    /// The fill of the single entry-marker cell.
+    pub marker_bg: Option<String>,
 }
 
 /// Full standalone theme file loaded from `$XDG_CONFIG_HOME/nuo/themes/<id>.toml`.

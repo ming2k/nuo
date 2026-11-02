@@ -38,7 +38,7 @@ pub use nuo_ui_primitives::primitives::recess_backdrop;
 use nuo_ui_primitives::primitives::{VIEWPORT_BOTTOM_MARGIN, viewport_rect};
 #[allow(unused_imports)]
 pub use nuo_ui_primitives::theme::{COLOR_SCHEMES, Theme};
-/// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057).
+/// Which guidance copy the empty-state hero shows beneath the logo (ADR-0057 → ADR-0104).
 /// Re-exported so the app shell selects the variant and the renderer paints it.
 pub use nuo_view::empty_state::EmptyStateGuidance;
 /// Parse a raw logo file into clamped display lines for the empty-state hero.
@@ -247,7 +247,7 @@ pub struct TranscriptProps<'a> {
     /// Ignored entirely when the transcript is non-empty.
     pub logo: Option<&'a [String]>,
     /// Which guidance variant the empty-state hero renders beneath the logo
-    /// (ADR-0057). The app shell computes this from its onboarding + provider
+    /// (ADR-0057 → ADR-0104). The app shell computes this from its onboarding + provider
     /// state; the view layer only paints what it is handed. Ignored entirely
     /// when the transcript is non-empty.
     pub guidance: EmptyStateGuidance,
@@ -520,6 +520,7 @@ pub fn draw_transcript(
 
     // Paint the entire frame with the app background so the TUI owns every
     // pixel rather than leaving gaps at the terminal emulator's default color.
+    let frame_surface = theme.surface();
     frame.render_widget(
         &mut RtBlock::default().style(Style::default().bg(theme.surface())),
         full,
@@ -740,6 +741,34 @@ pub fn draw_transcript(
     // `transcript_area` (un-inset). The page header is rendered from its own
     // layout-split rect before this point, so it is unaffected.
     let band = transcript_band_rect(transcript_area);
+    // The transcript paints with the **pane-lifted theme** while it owns the
+    // keyboard (ADR-0145, amended). Doing it here, at the source, is what makes the
+    // cue cost one struct copy instead of a per-cell restyle over the viewport: every
+    // renderer below already paints its backgrounds through this struct, so they
+    // paint the lifted pane without knowing the cue exists. The wash only moves
+    // backgrounds; foregrounds stay semantic.
+    //
+    // `Cow` rather than a clone: on the composer plane (the common case) this borrows
+    // and costs nothing.
+    //
+    // The *base* theme is kept beside the lifted one on purpose: "which cue does this
+    // pane get" is a question about the palette the user loaded, and asking the lifted
+    // copy would ask a different question — on that copy `app_bg` already *is* the wash,
+    // so the derivation would report no headroom and the pane would fall back to the
+    // gutter cue on top of an already-lifted page. Two values, two distinct meanings.
+    let base_theme: &Theme = theme;
+    let transcript_theme = nuo_view::focus_plane::transcript_theme(theme, focus_plane);
+    let theme: &Theme = &transcript_theme;
+    // The frame-wide background above was painted with the *unlifted* page, so the
+    // pane's own rect has to be repainted at the lifted tone before anything draws
+    // into it. One rect fill — not a per-cell restyle — and it is what makes the wash
+    // cover the whole pane including the blank rows no renderer touches.
+    if theme.surface() != frame_surface {
+        frame.render_widget(
+            &mut RtBlock::default().style(Style::default().bg(theme.surface())),
+            transcript_area,
+        );
+    }
     // Account for scroll. Owned by the layout `Stream` once the loop runs; not
     // mutated locally here unless a virtual index selects a later chunk.
     let mut skip_rows = scroll as usize;
@@ -761,22 +790,15 @@ pub fn draw_transcript(
     // renders exactly as in a live session.
     let show_empty_state = messages.is_empty() && subagent_bar.is_none();
 
-    // The transcript plane's own focus cue (ADR-0145): the pane's gutter columns
-    // in the focus tint, painted before the stream so no content row can sit on
-    // top of it. Both rects are already resolved here, so the rail is derived
-    // from the gutter the layout actually left rather than from an inset token —
-    // it costs zero layout columns and the pane never reflows because the
-    // keyboard crossed. Skipped for the empty-state hero, which is not a
-    // transcript content surface.
-    if !show_empty_state {
-        nuo_view::focus_plane::draw_transcript_focus_rail(
-            frame,
-            transcript_area,
-            band,
-            focus_plane,
-            theme,
-        );
-    }
+    // The transcript plane's own focus cue (ADR-0145, amended). The order is
+    // load-bearing: the **wash** is painted after the stream, because the
+    // transcript is composed of dozens of renderers that each pad their tails
+    // with the page tone — a wash painted first would be punched full of holes.
+    // The **marker** is painted last of all, so nothing can cover the one cell
+    // that says which row the keyboard is on. Both are zero-layout: they add no
+    // row and move no column, so crossing planes never reflows the pane.
+    // Skipped for the empty-state hero, which is not a transcript content
+    // surface.
 
     if show_empty_state {
         // Account for the hero so the app loop does not treat the session as a
@@ -982,7 +1004,53 @@ pub fn draw_transcript(
     // Sticky pinned summary: if an expanded step's body covers the top of the
     // viewport (its summary is scrolled out of view), pin its summary to the
     // line directly under the HUD bar so the user can always collapse it.
+    // The sticky pin is painted *before* the focus cues: it repaints its own row
+    // on the page tone, so a wash applied earlier would leave one unwashed row at
+    // the top of the viewport — the exact "hole in the surface" the post-pass
+    // design exists to avoid.
     let sticky_info = draw_sticky_anchor_if_needed(frame, band, &sticky_anchors, scroll, theme);
+
+    // The transcript plane's own focus cue (ADR-0145, amended), in two scales,
+    // painted last so nothing can punch a hole in it:
+    //
+    // 1. The **pane wash** — the whole viewport lifted one quiet step. It is a
+    //    restyle pass rather than a paint pass because the transcript is composed
+    //    of dozens of renderers that each pad their own tails with the page tone;
+    //    a wash drawn first would be covered by the very content it sits under.
+    //    The restyle is **additive**: every background in the pane shifts by the
+    //    page's own delta, so a code band's or a sent-message panel's elevation
+    //    above the page survives. Repainting only the page cells would raise the
+    //    page to meet those bands and flatten the document.
+    // 2. The **entry marker** — one cell in the highlighted entry's gutter, read
+    //    back from the layout map (the sentinel row each entry kind already
+    //    records) rather than from any renderer's cursor, so all five entry kinds
+    //    answer identically and an off-screen entry simply has no marker.
+    //
+    // Both are zero-layout: no row added, no column moved, so crossing planes
+    // never reflows the pane. Both are skipped for the empty-state hero, which is
+    // not a transcript content surface.
+    if !show_empty_state {
+        nuo_view::focus_plane::draw_pane_focus(
+            frame,
+            transcript_area,
+            band,
+            focus_plane,
+            base_theme,
+        );
+        if let Some(header) = focused_entry.and_then(|target| layout_map.entry_header_rect(target))
+        {
+            // The marker is painted from the **base** theme: it is a fixed absolute mark,
+            // not a surface, so it must not be lifted (and on a lifted theme its own
+            // derivation would report the pane as wash-less).
+            nuo_view::focus_plane::draw_entry_marker(
+                frame,
+                transcript_area,
+                band,
+                header.y,
+                base_theme,
+            );
+        }
+    }
 
     TranscriptRender {
         input_rect,

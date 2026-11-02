@@ -178,3 +178,69 @@ fn an_unstamped_entry_renders_no_time_at_all() {
     );
     assert_eq!(row.trim(), "› turn 1  claude-sonnet");
 }
+
+/// A running step must not wear the turn header's hue.
+///
+/// The reported defect: `theme.info()` was both the **structural** hue (the
+/// `› turn N` anchor, the round header, links) and the **running** hue, so a live
+/// tool step and the header that opens its own turn were literally the same color
+/// — "this row is working" and "this is where the turn starts" collapsed into one
+/// signal on adjacent rows.
+///
+/// Asserted on the painted grid rather than on the tokens, because the point is
+/// the *composition*: whatever a renderer blends the accent with, the two rows
+/// must not land on the same value.
+#[test]
+fn a_running_step_does_not_share_its_turn_headers_hue() {
+    let theme = Theme::default();
+    let mut running = TranscriptMessage::tool_step(
+        "call_live",
+        "execute_command",
+        r#"{"command":"cargo test"}"#,
+    );
+    if let nuo_view::model::document::MessageKind::ToolStep { status, .. } = &mut running.kind {
+        *status = nuo_view::model::document::ToolStepStatus::Executing;
+    }
+    running.turn = Some(1);
+    running.model = Some("claude-sonnet".into());
+
+    let terminal = render_full_view(72, 14, &[running], None);
+    let buffer = terminal.buffer();
+    let row_fgs = |y: u16| -> Vec<nuotc::Color> {
+        (0..buffer.area().width)
+            .filter(|x| !buffer.get(*x, y).unwrap().symbol.trim().is_empty())
+            .map(|x| buffer.get(x, y).unwrap().style.fg)
+            .collect()
+    };
+    let row_of = |needle: &str| -> u16 {
+        (0..buffer.area().height)
+            .find(|&y| {
+                let line: String = (0..buffer.area().width)
+                    .map(|x| buffer.get(x, y).unwrap().symbol.as_str())
+                    .collect();
+                line.contains(needle)
+            })
+            .unwrap_or_else(|| panic!("no row containing {needle}"))
+    };
+
+    let header_y = row_of("› turn 1");
+    let step_y = row_of("Run cargo");
+    let header_fgs = row_fgs(header_y);
+    let step_fgs = row_fgs(step_y);
+    assert!(!header_fgs.is_empty() && !step_fgs.is_empty());
+
+    // The anchor carries the structural hue; the step carries the in-flight one.
+    assert!(
+        header_fgs.contains(&theme.info()),
+        "the turn anchor is the structural tone: {header_fgs:?}"
+    );
+    assert!(
+        step_fgs.contains(&theme.running()),
+        "a running step is painted in the in-flight hue: {step_fgs:?}"
+    );
+    assert!(
+        !step_fgs.contains(&theme.info()),
+        "a running step must never be painted in the structural hue — that is the \
+         ambiguity this test exists for: {step_fgs:?}"
+    );
+}

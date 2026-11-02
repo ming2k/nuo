@@ -1432,7 +1432,7 @@ pub(crate) async fn run_tui_with_input(
                             }
                             RoundEvent::PermissionRequest(request) => {
                                 // Stays global regardless of session so the modal
-                                // always surfaces (ADR-0017).
+                                // always surfaces (ADR-0017 → ADR-0058).
                                 mutations
                                     .send(M::QueuePermission {
                                         request,

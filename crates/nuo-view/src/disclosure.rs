@@ -1,6 +1,6 @@
 //! Step state machine: the three orthogonal axes that determine a step's
 //! presentation, and the pure functions that reduce them to color.
-use nuotc::{Color, Modifier, Style};
+use nuotc::Color;
 
 use nuo_ui_primitives::theme::Theme;
 
@@ -37,7 +37,7 @@ impl Disclosure {
 /// | --- | --- | --- |
 /// | [`Idle`](Interaction::Idle) | — | none |
 /// | [`Hovered`](Interaction::Hovered) | "would a click land here?" | affordance **hue** |
-/// | [`Focused`](Interaction::Focused) | "does the keyboard own this?" | focus **band** |
+/// | [`Focused`](Interaction::Focused) | "does the keyboard own this?" | entry **marker** |
 ///
 /// Collapsing hover and focus into one tint (the previous model) is what made
 /// the `Shift-Tab` crossing invisible: the keyboard could be on a step with no
@@ -50,191 +50,74 @@ pub enum Interaction {
     /// Pointer rests on the summary line — a soft hover affordance.
     Hovered,
     /// The keyboard **owns** this entry (the transcript plane is live and this
-    /// entry is its highlighted target). Resolves to a full-width focus band,
-    /// the same background channel the composer uses to say the same thing
-    /// ([`Theme::entry_focus_style`]).
+    /// entry is its highlighted target). Resolves to the entry marker — the one
+    /// cell the row carries in its reserved gutter
+    /// ([`crate::focus_plane::draw_entry_marker`]) — on top of the pane wash that
+    /// says the keyboard is in the transcript at all
+    /// ([`crate::focus_plane::draw_pane_wash`]).
     Focused,
+    /// Both at once: the keyboard owns the entry **and** the pointer is on it.
+    ///
+    /// This combination is not a curiosity — it is how a row is usually reached
+    /// (click it to focus it, and the pointer is still there). The original
+    /// three-variant shape had to discard one of the two facts, and it discarded
+    /// hover, which made the row under the pointer go dead the moment the
+    /// keyboard arrived on it. Keeping the pair representable costs one variant
+    /// and makes "focus is not a tint" and "hover always answers the pointer"
+    /// both true.
+    FocusedHovered,
 }
 
 impl Interaction {
     /// Build from the raw interaction flags produced by the call site.
     ///
-    /// Priority: **focus** beats **hover** beats **idle**. Focus outranks hover
-    /// because the two answer different questions — "the keyboard is here" is a
-    /// stronger, more actionable fact than "the pointer is here", and the focus
-    /// cue must not be diluted by a coincident pointer.
+    /// **Focus and hover are independent, and both can be true.** The state is
+    /// carried as [`Self::Focused`] because keyboard ownership is the stronger
+    /// fact, but a focused row that is *also* under the pointer must still answer
+    /// the pointer: `Focused` reports `is_hovered()` so the affordance hue can
+    /// ride on top of it. Treating the two as mutually exclusive (the original
+    /// shape) made hovering the keyboard's own row completely inert — the
+    /// commonest way to reach a row you are inspecting.
     pub fn from_hover_focused(hovered: bool, focused: bool) -> Self {
-        if focused {
-            Interaction::Focused
-        } else if hovered {
-            Interaction::Hovered
-        } else {
-            Interaction::Idle
+        match (hovered, focused) {
+            (false, false) => Interaction::Idle,
+            (true, false) => Interaction::Hovered,
+            (false, true) => Interaction::Focused,
+            (true, true) => Interaction::FocusedHovered,
         }
     }
 
-    /// The transient affordance **hue** for the *hover* question. Keyboard
-    /// focus deliberately contributes nothing here: it answers a different
-    /// question and speaks through [`Self::focus_style`] instead, so a focused
-    /// entry never has to compete with its own pointer cue.
+    /// Whether the pointer is answering this row.
+    pub const fn is_hovered(self) -> bool {
+        matches!(self, Interaction::Hovered | Interaction::FocusedHovered)
+    }
+
+    /// The transient affordance **hue** for the *hover* question. Keyboard focus
+    /// on its own deliberately contributes nothing here: it answers a different
+    /// question and speaks through the pane wash plus the entry marker instead, so
+    /// a focused entry never has to compete with its own pointer cue. A row that is
+    /// **both** keeps the pointer's answer, because the pointer being there is
+    /// still a live click target.
     pub fn color(self, theme: &Theme) -> Option<Color> {
-        match self {
-            Interaction::Idle | Interaction::Focused => None,
-            Interaction::Hovered => Some(theme.affordance()),
+        if self.is_hovered() {
+            Some(theme.affordance())
+        } else {
+            None
         }
     }
 
-    /// Whether the keyboard owns this entry.
+    /// Whether the keyboard owns this entry — and therefore whether it is the one
+    /// the pane's entry marker names.
+    ///
+    /// The **painting** of the marker is deliberately not a per-row concern: it is
+    /// one cell in the pane gutter, drawn once by
+    /// [`crate::focus_plane::draw_entry_marker`] from the entry's registered
+    /// header row. Keeping it out of the row renderers is what lets every entry
+    /// kind — tool, reasoning, command, compaction card, notice — say the same
+    /// thing in the same place without any of them knowing the cue exists, and it
+    /// is why there is no second `is_marked` predicate to keep in sync.
     pub const fn is_focused(self) -> bool {
-        matches!(self, Interaction::Focused)
-    }
-
-    /// The **background** style of the entry's header row.
-    ///
-    /// This is the channel the composer has always used to answer "who owns the
-    /// keyboard?" (`input_surface` vs `input_surface_inactive`). The transcript
-    /// is its peer plane (ADR-0145), so it must answer in the same channel at
-    /// the same weight — otherwise `Shift-Tab` only dims one side and lights
-    /// nothing on the other. `None` means "paint the ordinary surface" and is
-    /// what every non-focused state returns, so an unfocused transcript is
-    /// pixel-identical to the pre-focus-band rendering.
-    ///
-    /// Scoped to *every* disclosure state, including expanded: keyboard
-    /// ownership is not a disclosure fact, and suppression is precisely the bug
-    /// this band exists to fix.
-    pub fn focus_style(self, theme: &Theme) -> Option<Style> {
-        self.is_focused().then(|| theme.entry_focus_style())
-    }
-
-    /// Resolve the entry header's chrome in one step.
-    pub fn chrome(self, theme: &Theme) -> EntryChrome {
-        EntryChrome::resolve(self, theme)
-    }
-}
-
-/// The resolved background chrome of an entry's header row.
-///
-/// Bundles the two things a header row needs to answer "who owns the keyboard?"
-/// without each renderer re-deriving them:
-///
-/// 1. the **band** to paint behind the row (`None` = leave the ambient surface),
-/// 2. the **foreground adaptation** that band forces — the summary tone is
-///    picked for the page, not for the band, so on a focused row it must be
-///    re-seated against the band it now sits on or the text loses contrast at
-///    exactly the moment the user is looking at it.
-///
-/// Producing both from one value is the point: a renderer can paint a band it
-/// forgot to re-seat text on, but it cannot fabricate an [`EntryChrome`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct EntryChrome {
-    band: Option<Color>,
-    /// The DEC VT100 cue: on the `Structured` archetype there is no background
-    /// latitude, so ownership is reverse video (ADR-0053) and [`Self::band`]
-    /// stays `None` — a `Reset` bg would otherwise read as "paint the ambient
-    /// surface", which is the correct *paint* but the wrong *cue*.
-    reverse: bool,
-}
-
-impl EntryChrome {
-    /// No focus chrome: the row paints the ambient surface, exactly as it did
-    /// before the focus band existed. The value unfocused rows resolve to, and
-    /// the one every non-focus-aware caller can name explicitly.
-    pub const fn plain() -> Self {
-        Self {
-            band: None,
-            reverse: false,
-        }
-    }
-
-    fn resolve(interaction: Interaction, theme: &Theme) -> Self {
-        if !interaction.is_focused() {
-            return Self::plain();
-        }
-        let reverse = theme
-            .entry_focus_style()
-            .add
-            .contains(nuotc::Modifier::REVERSE);
-        Self {
-            // On reverse video the band is carried by the modifier, so the
-            // background stays the ambient surface — claiming a `Reset` band
-            // would make [`Self::text`] re-seat the tone against nothing.
-            band: (!reverse).then(|| theme.entry_focus_band()),
-            reverse,
-        }
-    }
-
-    /// The band to paint behind the row, or `None` for the ambient surface.
-    pub fn band(self) -> Option<Color> {
-        self.band
-    }
-
-    /// Whether the row is painted in reverse video (the VT100 cue).
-    pub fn is_reverse(self) -> bool {
-        self.reverse
-    }
-
-    /// The background style for the row's spans. `None` on an unfocused row, so
-    /// callers keep whatever surface they already paint and an unfocused
-    /// transcript stays byte-identical to the pre-focus-band rendering.
-    pub fn span_style(self) -> Option<Style> {
-        match (self.band, self.reverse) {
-            (_, true) => Some(Style::default().add_modifier(Modifier::REVERSE)),
-            (Some(band), false) => Some(Style::default().bg(band)),
-            (None, false) => None,
-        }
-    }
-
-    /// Re-seat a foreground tone so it stays legible on the resolved band.
-    ///
-    /// A no-op on an unfocused row (the tone was chosen for the page and the
-    /// page has not changed) and on reverse video (the terminal swaps the pair
-    /// itself).
-    pub fn text(self, theme: &Theme, preferred: Color) -> Color {
-        match self.band {
-            Some(band) if !self.reverse => theme.band_text(band, preferred),
-            _ => preferred,
-        }
-    }
-
-    /// Paint `chrome` onto an already-built header `line` and pad it to
-    /// `full_width`, so the band spans the whole row.
-    ///
-    /// This is the one place a renderer has to touch, so the band cannot be
-    /// applied to some spans and forgotten on others — the failure mode that
-    /// leaves the right-hand timestamp on the page background while the summary
-    /// sits in a band. Every span inherits the band; a span that already carries
-    /// an explicit background (a themed chip) keeps it.
-    ///
-    /// A no-op when [`Self::span_style`] is `None`: an unfocused entry renders
-    /// exactly as it did before the focus band existed, padding included. A band
-    /// that is shorter than the row reads as a ragged highlight rather than as
-    /// ownership, so the tail is filled to `full_width`.
-    pub fn apply(self, mut line: nuotc::Line<'static>, full_width: usize) -> nuotc::Line<'static> {
-        let Some(style) = self.span_style() else {
-            return line;
-        };
-        for span in &mut line.spans {
-            // Only the *background* is imposed here: a span's foreground is a
-            // deliberate semantic choice, re-seated through [`Self::text`] by the
-            // caller when the band demands it.
-            if span.style.bg == Color::Reset {
-                span.style.bg = style.bg;
-            }
-            if self.reverse {
-                span.style = span.style.add_modifier(Modifier::REVERSE);
-            }
-        }
-        let used: usize = line
-            .spans
-            .iter()
-            .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()))
-            .sum();
-        let tail = full_width.saturating_sub(used);
-        if tail > 0 {
-            line.spans
-                .push(nuotc::Span::styled(" ".repeat(tail), style));
-        }
-        line
+        matches!(self, Interaction::Focused | Interaction::FocusedHovered)
     }
 }
 
@@ -361,9 +244,9 @@ mod tests {
 
     /// On a *collapsed* summary **hover** is a hue cue: it tints the muted
     /// resting tone toward the affordance hue. Focus deliberately does *not* —
-    /// it answers a different question and speaks through the focus band
-    /// instead (see `focus_is_a_band_not_a_tint`), so a focused row never has to
-    /// share a channel with "the pointer is here".
+    /// it answers a different question and speaks through the entry marker
+    /// instead (see `focus_is_a_marker_not_a_tint`), so a focused row never has
+    /// to share a channel with "the pointer is here".
     #[test]
     fn collapsed_hover_tints_to_affordance_hue() {
         let theme = Theme::default();
@@ -385,39 +268,23 @@ mod tests {
         );
     }
 
-    /// Keyboard focus is a **band**, not a tint.
+    /// Keyboard focus is a **marker**, not a tint.
     ///
-    /// This is the core of the fix: the transcript answers "who owns the
-    /// keyboard?" in the same channel the composer does (background), at the
-    /// same weight, so `Shift-Tab` reads as a swap. A foreground tint cannot do
-    /// that — it is invisible on an expanded step and easily out-shone by a
-    /// lifecycle accent on a collapsed one.
+    /// The transcript answers "who owns the keyboard?" through the pane wash
+    /// (painted once over the whole viewport) plus this entry marker, so
+    /// `Shift-Tab` reads as a surface swap. A foreground tint cannot do that — it
+    /// is invisible on an expanded step and easily out-shone by a lifecycle
+    /// accent on a collapsed one.
     #[test]
-    fn focus_is_a_band_not_a_tint() {
+    fn focus_is_a_marker_not_a_tint() {
         let theme = Theme::default();
         let focused = Interaction::from_hover_focused(false, true);
         let hovered = Interaction::from_hover_focused(true, false);
 
-        // The band exists for focus, and only for focus.
-        let band = focused
-            .chrome(&theme)
-            .band()
-            .expect("keyboard focus must produce a band");
-        assert_eq!(band, theme.entry_focus_band());
-        assert_eq!(
-            hovered.chrome(&theme).band(),
-            None,
-            "a hovered entry keeps its ambient surface: nothing moved the keyboard"
-        );
-        assert_eq!(Interaction::Idle.chrome(&theme).band(), None);
-
-        // The band is a *visible* step off the page — otherwise the cue is
-        // nominal, which is the defect this test exists to prevent.
-        assert_ne!(
-            band,
-            theme.surface(),
-            "the band must not melt into the page"
-        );
+        // The marker exists for focus, and only for focus.
+        assert!(focused.is_focused());
+        assert!(!hovered.is_focused(), "nothing moved the keyboard");
+        assert!(!Interaction::Idle.is_focused());
 
         // The tint channel is now hover-only, so focus never has to compete
         // with its own pointer cue for the same few characters.
@@ -425,64 +292,53 @@ mod tests {
         assert_eq!(hovered.color(&theme), Some(theme.affordance()));
     }
 
-    /// The band is a keyboard-ownership cue, so it must not be the generic
-    /// selection tone: a user who selected text must never mistake their own
-    /// selection for "the keyboard is on this entry", and vice versa.
+    /// The marker is a keyboard-ownership cue, so it must not be the generic
+    /// selection tone, and it is a *marker*, not a band: the row's own surface is
+    /// never repainted.
     #[test]
-    fn focus_band_is_not_the_selection_tone() {
+    fn focus_marker_is_not_the_selection_tone() {
         let theme = Theme::default();
-        assert_ne!(theme.entry_focus_band(), theme.selected());
-        assert_ne!(theme.entry_focus_band(), theme.surface());
-        assert_ne!(theme.entry_focus_band(), theme.input_surface_inactive());
+        let marker = theme.pane_marker_style();
+        assert_ne!(marker.bg, theme.selected());
+        assert_ne!(marker.bg, theme.surface());
+        assert_ne!(marker.bg, theme.input_surface_inactive());
     }
 
-    /// The band survives on **every** disclosure state, including expanded —
-    /// the exact case where the old affordance-hue cue was suppressed and the
+    /// The marker exists on **every** disclosure state, including expanded — the
+    /// exact case where the old affordance-hue cue was suppressed and the
     /// crossing vanished. Keyboard ownership is not a disclosure fact.
+    ///
+    /// It also leaves the row's own tone alone: the marker is a separate cell, so
+    /// there is no band for the text to be re-seated against. That is the whole
+    /// reason the earlier band was replaced — it had to invert the disclosure and
+    /// lifecycle tones the renderers resolved on purpose.
     #[test]
-    fn focus_band_survives_an_expanded_entry() {
+    fn focus_marker_survives_an_expanded_entry() {
         let theme = Theme::default();
         for disclosure in [Disclosure::Collapsed, Disclosure::Expanded] {
-            let chrome = Interaction::Focused.chrome(&theme);
-            assert_eq!(
-                chrome.band(),
-                Some(theme.entry_focus_band()),
+            assert!(
+                Interaction::Focused.is_focused(),
                 "{disclosure:?}: keyboard ownership must not depend on disclosure"
             );
-            // And the text is re-seated through the band's own contrast rule, so
-            // a focused row cannot lose legibility at the moment it is looked at.
-            let preferred = Color::Rgb(100, 100, 100);
-            assert_eq!(
-                chrome.text(&theme, preferred),
-                theme.band_text(theme.entry_focus_band(), preferred),
-                "{disclosure:?}: the focused row's tone must be resolved against its band"
-            );
-            assert_ne!(
-                chrome.text(&theme, preferred),
-                preferred,
-                "a tone too close to the band must be flipped for contrast"
-            );
+            // The composition is untouched: focus adds a cell, never a tone.
+            for interaction in [Interaction::Idle, Interaction::Focused] {
+                assert_eq!(
+                    summary_text_color(None, disclosure, interaction, &theme),
+                    summary_text_color(None, disclosure, Interaction::Idle, &theme),
+                    "{disclosure:?}: focus must not recolour the summary"
+                );
+            }
         }
     }
 
-    /// Unfocused entries must render exactly as they did before the band
+    /// Unfocused entries must render exactly as they did before the marker
     /// existed — the focus cue is additive state, not a restyling of the whole
     /// transcript.
     #[test]
-    fn unfocused_chrome_is_a_no_op() {
-        let theme = Theme::default();
+    fn unfocused_entries_carry_no_marker() {
         for interaction in [Interaction::Idle, Interaction::Hovered] {
-            let chrome = interaction.chrome(&theme);
-            assert!(chrome.span_style().is_none());
-            assert!(!chrome.is_reverse());
-            let tone = theme.muted();
-            assert_eq!(
-                chrome.text(&theme, tone),
-                tone,
-                "an unfocused row keeps the tone chosen for the page"
-            );
+            assert!(!interaction.is_focused());
         }
-        assert_eq!(EntryChrome::plain(), Interaction::Idle.chrome(&theme));
     }
 
     /// Expanded and collapsed are mutually exclusive peers, decided only by
@@ -504,7 +360,7 @@ mod tests {
 
     /// Regression for the reported bug: after clicking a summary to collapse
     /// it, the step must darken to muted. The close click also sets keyboard
-    /// focus, and that focus now paints a *band* (a background cue) rather than
+    /// focus, and that focus now paints a *marker* (a separate cell) rather than
     /// lifting the text's luminance — so the closed summary still reads on the
     /// muted rung, and an expanded step is never dimmer than a closed one in any
     /// state.
@@ -519,7 +375,7 @@ mod tests {
         );
         assert_ne!(open, theme.muted());
         assert_eq!(closed, theme.muted());
-        // Focus contributes no luminance: the tone is unchanged, the band is
+        // Focus contributes no luminance: the tone is unchanged, the marker is
         // what moves.
         assert_eq!(
             summary_text_color(None, Disclosure::Collapsed, Interaction::Focused, &theme),
@@ -623,12 +479,14 @@ mod tests {
         );
     }
 
-    /// `from_hover_focused` priority: focus > hover > idle. The enum keeps
-    /// focus distinct from hover for determinism, even though both resolve to
-    /// the same affordance hue — so a focused step stays highlighted after
-    /// the pointer leaves.
+    /// Focus and hover are **independent facts**, and the type can hold both.
+    ///
+    /// The regression this replaces: the first three-variant shape collapsed
+    /// "focused" and "focused + hovered" into one variant, so hovering the row the
+    /// keyboard was already on produced no cue at all — and that is the commonest
+    /// way a row gets reached (click it, pointer still there).
     #[test]
-    fn focus_beats_hover_beats_idle() {
+    fn focus_and_hover_are_independent() {
         assert_eq!(
             Interaction::from_hover_focused(false, false),
             Interaction::Idle
@@ -643,15 +501,37 @@ mod tests {
         );
         assert_eq!(
             Interaction::from_hover_focused(true, true),
-            Interaction::Focused
+            Interaction::FocusedHovered
         );
+
+        let theme = Theme::default();
+        // Focus always wins the *channel* question: it marks the entry.
+        for focused in [Interaction::Focused, Interaction::FocusedHovered] {
+            assert!(focused.is_focused());
+        }
+        // Hover always answers the *pointer* question, focus or not.
+        assert!(Interaction::FocusedHovered.is_hovered());
+        assert!(Interaction::Hovered.is_hovered());
+        assert!(!Interaction::Focused.is_hovered());
+        assert!(!Interaction::Idle.is_hovered());
+
+        // …which is exactly the pair of answers the composed tone needs: the
+        // keyboard tells nobody anything about the pointer, and vice versa.
+        assert_eq!(Interaction::Focused.color(&theme), None);
+        assert_eq!(
+            Interaction::FocusedHovered.color(&theme),
+            Some(theme.affordance())
+        );
+        assert_eq!(Interaction::Hovered.color(&theme), Some(theme.affordance()));
+        assert_eq!(Interaction::Idle.color(&theme), None);
     }
 
     /// Discrete ANSI 16 themes must not blend discrete tokens into RGB floats that collapse to Gray.
     ///
-    /// Focus is a band on this archetype too (reverse video), so the *tint*
-    /// assertions belong to hover; what focus must preserve is that it never
-    /// fabricates an RGB value the 16-color terminal cannot render.
+    /// Focus speaks through the marker cell on this archetype too (a named
+    /// slot), so the *tint* assertions belong to hover; what focus must preserve
+    /// is that it never fabricates an RGB value the 16-color terminal cannot
+    /// render.
     #[test]
     fn ansi16_interaction_preserves_discrete_yellow() {
         let theme = Theme::ansi16();
@@ -666,9 +546,9 @@ mod tests {
         assert_eq!(
             summary_text_color(None, Disclosure::Collapsed, Interaction::Focused, &theme),
             Color::Gray,
-            "focus rides the band, so the text stays on its discrete rung"
+            "focus rides the marker, so the text stays on its discrete rung"
         );
-        // The ANSI-16 focus band is a named token, not an RGB mix.
-        assert!(!matches!(theme.entry_focus_band(), Color::Rgb(..)));
+        // The ANSI-16 marker is a named token, not an RGB mix.
+        assert!(!matches!(theme.pane_marker_style().bg, Color::Rgb(..)));
     }
 }

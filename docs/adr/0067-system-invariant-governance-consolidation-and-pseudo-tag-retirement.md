@@ -104,4 +104,3 @@ The repository was previously burdened with excessive external governance bureau
 ## Links
 
 - Related Standards: [ADR Standards](../dev/standards/adr.md), [Invariant Governance](../dev/standards/invariants.md)
-- ADR Index: [ADR Index](index.md)

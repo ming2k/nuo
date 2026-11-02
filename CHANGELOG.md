@@ -8,6 +8,92 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Changed
+
+- **Transcript focus is a surface, not two stripes — and liveness no longer wears structure's
+  color (ADR-0145 `[INV-FOCUS-04]` amended, ADR-0110 `[INV-TUI-RUNNING-01]` amended).**
+  - **Focus cue geometry.** The transcript's half of the `Shift-Tab` crossing used to be a tinted
+    rail down both gutter columns plus a full-width band behind the highlighted entry's header. The
+    rail put the cue at the pane's two extreme edges and nowhere in the middle — everywhere the user
+    is actually reading — so the plane announced itself in the margins only. The band was worse: a
+    header row's foreground is the disclosure × lifecycle composition, so a background *under* it
+    had to invert the running accent and the collapsed muted rung the renderers had resolved on
+    purpose, and it needed a contrast re-seat (`band_text`) just to stay legible against itself.
+  - **Now**: entering the pane lifts the **whole transcript surface** by one quiet step, and
+    highlighting an entry adds **one marker cell** in that row's reserved gutter. The marker is a
+    neutral luminance rung, never a hue, so it can read as neither a selection nor a lifecycle state
+    — and because the row itself is never repainted, a focused summary keeps exactly the tone it
+    resolved for the page. Both cues stay zero-layout: no row added, no column moved, no reflow on
+    crossing. `EntryChrome` is gone (it existed to carry the band and its contrast re-seat); the
+    marker is painted once from the layout map's sentinel row, so all five entry kinds answer
+    identically.
+  - **The wash is a theme fact, not a restyle pass.** `draw_transcript` renders the stream with
+    `Theme::pane_lifted()` while the transcript owns the keyboard, so every renderer paints the
+    lifted pane through the struct it already reads. The per-cell restyle shipped first and measured
+    **5.8 ms per frame on a 400x120 pane — thirteen times the cost of painting the whole frame** —
+    for a focus indicator. The lift is **additive and background-only**: every background shifts by
+    the page's own delta, no foreground moves, so every separation in the document survives. (The
+    first cut repainted only the cells already on the page tone, which leaves a code band at its
+    absolute tone while the page rises to meet it: on the default scheme it lost more than half its
+    elevation and the document flattened.) `pane_lifted_theme_matches_a_cell_wise_restyle` pins that
+    equivalence; `focus_plane::cost::*` pins the shape of the fix.
+  - **Whether a palette can carry a wash is measured, not declared.** `has_pane_wash()` derives from
+    `pane_focus_delta()`, which requires an RGB page *and* channel headroom above every band the
+    transcript builds; the declared tone is scaled back to the largest step the palette can absorb.
+    So neither a careless `components.pane.wash_bg` override nor a hand-authored palette near a
+    channel limit can clamp a band and flatten the document — it degrades to a smaller wash, or to
+    the gutter fallback (`pane_focus_edge_style()`) when there is no honest step at all. A
+    `Chromatic` theme on a near-white page now gets the correct answer instead of a washed-out one.
+  - **The lift and the headroom measurement cannot drift.** `pane_lifted()` names every
+    field (no `..*self`, so a new field is `error[E0063]`), and
+    `pane_lifted_lifts_exactly_the_classified_backgrounds` asserts — *derived from* the
+    classifier rather than a hand-picked list — that the lifted set equals the
+    classed-as-background set in both directions. The original defect survived precisely
+    because that test enumerated nine fields by hand and had no way to notice a tenth.
+    A related trap is now pinned too: the plane question must be asked of the **base**
+    theme, because on a lifted theme `app_bg` already *is* the wash, so the derivation
+    reports no headroom and the gutter fallback would paint over an already-lifted page.
+  - **Both invariants are now compiler-enforced.** `Theme` is `Copy` (every field is a
+    `Copy` scalar), so the render-time lift is a value move and *stays* one — a future
+    heap-owned field breaks the derive on the day it would introduce the cost. And the
+    headroom measurement walks an exhaustive destructure of every `Theme` field with
+    `deny(unused_variables)` inside the classifier, so adding a background without deciding
+    whether the pane lift carries it is `error[E0027]` / `error: unused variable`, not a
+    silently clamped band. The painted-grid suite now runs on **every shipped scheme**, not
+    just `zen`, because each palette derives its own wash magnitude.
+  - The pair lost its asymmetric names too: `entry_focus_fg` (a *foreground* field painted as a
+    background cell) is now `pane_marker_bg`, and the accessors are `pane_focus()` /
+    `pane_marker_style()`. Both are declarable per theme under `components.pane`.
+  - **Run-state hue.** `theme.info()` was the running tone, but it is also the **structural** hue —
+    `› turn N` headers, user-round headers, links, the info severity band — so a running tool step
+    and the turn header directly above it were literally the same color, and "this row is working"
+    became indistinguishable from "this is where the turn starts". Running states (tool steps,
+    subagent peeks, `ActionStatus::Running`, declarative tool cards) now read `theme.running()`: the
+    same cool family pushed to full saturation, so liveness is the one vivid thing on the page while
+    structure stays muted. `theme.warning` is no longer offered as a running tone either — it is an
+    *outcome* slot, and a warning-colored running row pre-announces a failure that has not happened.
+    Two liveness surfaces that had been missed now follow the same rule: the activity strip's
+    breathing dot (the product's *single* liveness anchor, which was breathing on the identity hue
+    `brand()`) and the dashboard's running-thread badge.
+  - **Two follow-on corrections**, both found by auditing the first cut rather than by a failing
+    test:
+    - *The lift is additive.* The first implementation repainted only the cells still on the page
+      tone. That preserves every band's absolute colour — which is why its unit test passed — while
+      the page rose to meet them, so a code band went from 10.6 luminance units above the page to
+      4.6 and the document flattened into one slab. Now every background in the pane is shifted by
+      the page's own delta, which preserves the relative ladder exactly. The tests assert the
+      *step*, not the absolute tone, because asserting the absolute tone is what let this through.
+    - *Focus and hover are independent.* `Interaction` resolved focus over hover into one variant, so
+      hovering the row the keyboard already owned produced no cue at all. Clicking a summary focuses
+      it and leaves the pointer on it, so the ordinary way of reaching a row made it go visually
+      dead. `FocusedHovered` keeps both answers representable; `is_focused()` and `is_hovered()`
+      answer their own question each.
+  - Checks: `pane_focus` is bounded on both sides in every scheme (visible floor, ceiling well under
+    the selection tone, and body text still legible on it); the marker is provably neutral and never
+    `selected`; the in-flight hue is distance-checked against `info`, `brand`, `ok`, `warn`, `err`,
+    and `muted` per scheme; and the painted-grid suite asserts the pane — not its edges — changes,
+    the marker lands in the gutter, and `marking_an_entry_does_not_recolour_its_summary`.
+
 ## [0.0.68] - 2026-11-02
 
 ### Fixed

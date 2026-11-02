@@ -1,6 +1,10 @@
 # Command Effect Classes — Implementation Blueprint
 
-Design record for [ADR-0140](../adr/0140-command-effect-classes-readings-are-receipts-not-records.md).
+- **Status**: Shipped Implementation Blueprint (Ratified in [ADR-0140](../../adr/0140-command-effect-classes-readings-are-receipts-not-records.md))
+- **Scope**: protocol/commands, server/ledger, shell/client
+- **Role**: Engineering implementation record for ADR-0140.
+
+Design record for [ADR-0140](../../adr/0140-command-effect-classes-readings-are-receipts-not-records.md).
 This document is the engineering surface: the complete classification of the existing vocabulary, the
 exact sites that change, the mechanisms that make each invariant unrepresentable-if-violated, and the test
 plan. Read the ADR first for *why*; this file is *where* and *how*.
@@ -406,7 +410,7 @@ copy. `[INV-PROV-07]`: wire it or delete it. Deleting is correct — the table's
 | | `src/dev/wire-census.txt` | re-blessed at protocol 20 |
 | docs | `docs/reference/commands.md` | a *Recorded* column |
 | | `docs/explanation/command-records-and-receipts.md` | new public rationale |
-| | `docs/adr/index.md` | ADR-0140 row |
+| | `docs/adr/0140-*.md` | ADR-0140 specification |
 
 ---
 

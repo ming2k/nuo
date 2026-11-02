@@ -56,30 +56,21 @@ pub fn draw_command_result(
     // *not* an expandable step: the invocation and its reply are a single
     // entry, so it carries no disclosure marker and no folding state. The
     // interaction channel tints the header so a hovered command is visibly the
-    // component under attention, and keyboard focus paints the header's full
-    // width in the focus band (ADR-0145) — the same background channel the
-    // composer uses, so the plane crossing is legible on this entry kind too.
+    // component under attention; keyboard ownership is painted once for the
+    // whole pane (ADR-0145, amended), so the header keeps the tone resolved here.
     let interaction = Interaction::from_hover_focused(hovered, focused);
-    let chrome = interaction.chrome(ctx.theme);
-    let header_tone = chrome.text(
+    let header_tone = summary_text_color(
+        Some((*ctx.theme).info()),
+        Disclosure::Expanded,
+        interaction,
         ctx.theme,
-        summary_text_color(
-            Some((*ctx.theme).info()),
-            Disclosure::Expanded,
-            interaction,
-            ctx.theme,
-        ),
     );
-    let header_line = super::payloads::apply_entry_chrome(
-        command_header_line(
-            "command",
-            header_tone,
-            time_label.as_deref(),
-            ctx.theme.muted(),
-            chrome.band(),
-            full_width,
-        ),
-        chrome,
+    let header_line = command_header_line(
+        "command",
+        header_tone,
+        time_label.as_deref(),
+        ctx.theme.muted(),
+        full_width,
     );
     {
         if let Some(rect) = ctx.paint(header_line) {
@@ -200,10 +191,9 @@ fn command_header_line(
     family_tone: Color,
     time_label: Option<&str>,
     muted: Color,
-    band: Option<Color>,
     full_width: usize,
 ) -> Line<'static> {
-    let base = Style::default().bg(band.unwrap_or(Color::Reset));
+    let base = Style::default();
     let mut spans = Vec::with_capacity(4);
     let mut used = 0usize;
 
@@ -225,10 +215,9 @@ fn command_header_line(
             used = full_width;
         }
     }
-    // Fill the remaining columns so the row's surface (the ambient page normally,
-    // or the keyboard-focus band — ADR-0145) spans the whole header: a band that
-    // stops mid-row reads as a ragged highlight rather than as "the keyboard is
-    // on this entry".
+    // Fill the remaining columns so the header's surface spans the whole row: a
+    // header that stops mid-row leaves the terminal's own background visible in
+    // its tail.
     if used < full_width {
         spans.push(Span::styled(" ".repeat(full_width - used), base));
     }

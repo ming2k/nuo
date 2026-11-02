@@ -453,6 +453,24 @@ impl LayoutMap {
         self.transcript_content_rect
     }
 
+    /// The screen row of one entry's **header** (its sentinel region), if the
+    /// entry was painted this frame.
+    ///
+    /// This is what the keyboard-focus marker reads: the cue is one cell in the
+    /// pane gutter beside the row the keyboard is on, and the row is a fact the
+    /// layout already recorded (a sentinel is the entry's addressable head, not
+    /// its body). Resolving it from the map rather than from the renderer's
+    /// cursor means every entry kind — tool, reasoning, command, card, notice —
+    /// answers with the same value, and an off-screen entry simply has none.
+    pub fn entry_header_rect(&self, target: InteractiveTarget) -> Option<Rect> {
+        self.regions
+            .iter()
+            .find(|region| {
+                region.message_idx == target.message_idx && region.block_idx == target.block_idx
+            })
+            .map(|region| region.rect)
+    }
+
     /// Record the displayed grid text for a table block.
     pub fn record_table_grid(&mut self, message_idx: usize, block_idx: usize, text: String) {
         self.table_grids.insert((message_idx, block_idx), text);

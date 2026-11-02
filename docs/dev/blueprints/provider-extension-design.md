@@ -1,8 +1,12 @@
 # Provider Extension Design — Adding Dimensions After Single-Definition
 
+- **Status**: Post-Consolidation Design Specification (Reference for ADR-0027 extensions)
+- **Scope**: providers, model-declarations, pricing-schedule
+- **Role**: Technical design record for extending provider dimensions following single-definition consolidation.
+
 Design notes for extending what a model provider declares: pricing, richer model capability
 matrices, and account/tenant dimensions. Written to be executed **after**
-[ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md) reaches
+[ADR-0027](../../adr/0027-provider-definition-single-source-and-adapters-retirement.md) reaches
 `accepted` and `[INV-PROV-06]` holds.
 
 ---

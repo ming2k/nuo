@@ -68,7 +68,7 @@ pub fn estimate_tokens(messages: &[Message]) -> usize {
 /// Kept as `Option<InjectionOrigin>` on [`Message`] with
 /// `#[serde(default, skip_serializing_if = "Option::is_none")]` so the wire
 /// shape of a default message is unchanged and legacy snapshots / event-log
-/// lines load as `origin: None` with no migration (per ADR-0017 / ADR-0022
+/// lines load as `origin: None` with no migration (per ADR-0017 → ADR-0058 / ADR-0022
 /// backward-compat contract).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InjectionOrigin {
@@ -272,7 +272,7 @@ pub struct Message {
     /// closed [`InjectionKind`] classifier. `#[serde(default,
     /// skip_serializing_if = "Option::is_none")]` keeps the wire shape of a
     /// default message unchanged so legacy snapshots and event-log lines load
-    /// as `origin: None` without migration (ADR-0017 / ADR-0022).
+    /// as `origin: None` without migration (ADR-0017 → ADR-0058 / ADR-0022).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<InjectionOrigin>,
     /// Wall-clock time this message was produced, in Unix-epoch seconds.

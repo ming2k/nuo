@@ -41,10 +41,18 @@ pub fn classify_liveness(awaiting_permission: bool) -> Liveness {
     }
 }
 
+/// The activity dot's tone for this frame.
+///
+/// The breathing dot is the product's **single liveness anchor** (ADR-0008 /
+/// ADR-0110 `[INV-TUI-RUNNING-04]`), so it speaks in the same hue as every
+/// running row: `theme.running()`, breathing between the page and that hue. It
+/// used to breathe on `theme.brand()` — the *identity* hue — which made the one
+/// element whose entire job is "something is happening" the only liveness
+/// indicator that did not use the liveness tone.
 pub fn dot_color(liveness: Liveness, spinner_phase: usize, theme: &Theme) -> Color {
     match liveness {
         Liveness::Gated => theme.warning,
-        Liveness::Breathing => breathing_color(spinner_phase, theme.brand(), theme.surface()),
+        Liveness::Breathing => breathing_color(spinner_phase, theme.running(), theme.surface()),
     }
 }
 

@@ -9,7 +9,7 @@
 //! carry **no conversation content** — only ids, titles/previews, status, and
 //! accounting — so a dashboard never deserializes a transcript.
 //!
-//! The types are pure contracts (ADR-0057): no I/O, no derivations. The
+//! The types are pure contracts (ADR-0057 → ADR-0066): no I/O, no derivations. The
 //! session status machine that produces [`SessionStatus`] values from the
 //! `AgentResponse` stream lives in `nuo_runtime::monitor`.
 use serde::{Deserialize, Serialize};

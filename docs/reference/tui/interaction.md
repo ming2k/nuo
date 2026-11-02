@@ -66,17 +66,26 @@ A printable key pressed while the transcript owns the keyboard is inert — it i
 
 #### How the crossing reads on screen
 
-Both planes announce ownership in the **background** channel at the same weight, because exactly one of them owns the keyboard (`[INV-FOCUS-04]`):
+Both planes announce ownership in the **background** channel, because exactly one of them owns the keyboard (`[INV-FOCUS-04]`). They differ in *scale*, not in channel: the composer's panel is a four-row block, the transcript is the whole viewport, so the transcript's step is small and the cue is carried by area.
 
 | Plane state | Cue |
 | --- | --- |
-| `Composer` | the input panel is lit (`input_surface()`) |
-| `Transcript(Browse)` | a **focus rail**: one tinted column down the transcript's left gutter |
-| `Transcript(Entry)` | the rail, plus a full-width band behind the highlighted entry's header row |
+| `Composer` | the input panel is lit (`input_surface()`); the transcript stays on the page tone |
+| `Transcript(Browse)` | the **pane wash**: the whole transcript surface lifted one quiet step (`Theme::pane_lifted()`, the effective tone from `pane_focus()`) |
+| `Transcript(Entry)` | the wash, plus one **marker cell** in the highlighted entry's gutter (`pane_marker_style()`) |
 
-The rail is what makes the plain `Shift-Tab` (which lands on browse, with nothing highlighted) visible. Both cues live in columns/rows the layout already reserved, so crossing never reflows the pane. On a `Structured` profile (VT100 / monochrome) the band degrades to reverse video, and the composer's lit/blurred pair is carried by the same archetype rules.
+Two properties are load-bearing:
 
-The focused entry's band is **not** `selected_bg` and is **not** a disclosure cue: it paints on expanded entries too, and it re-seats the summary tone for contrast against the band.
+- **Area, not edges.** The cue covers every column the reader is reading. An earlier rail tinted only the two gutter columns, so the pane announced itself at its extremes and nowhere in the middle.
+- **The row is never repainted.** A header row's tone is the disclosure × lifecycle × interaction composition, and painting a background under it inverted the running hue and the collapsed muted rung the renderers had resolved on purpose — the pointed-at entry became a highlighted component instead of part of a live surface. The marker is one cell in the gutter, so the row keeps its composition and nothing needs contrast re-seating.
+
+Both cues are zero-layout: the wash adds no row and moves no column, the marker lives in reserved gutter columns, so crossing never reflows the pane.
+
+The wash is a **theme** fact rather than a post-pass: `draw_transcript` renders the stream with `Theme::pane_lifted()`, so every renderer paints the lifted pane through the struct it already reads. The lift is additive and background-only — every background shifts by the page's delta, no foreground moves — so each band keeps its exact separation from the page.
+
+Whether a palette can carry a wash is **measured**, not declared: `has_pane_wash()` requires an RGB page and channel headroom above every band the transcript builds, and the declared tone is scaled back to the largest step the palette can absorb. A palette with no honest step (ANSI-16 / VT100's `Reset` page, or one whose bands sit at a channel limit) takes the gutter fallback — the largest region those profiles can afford to tint. On `Structured` (VT100 / monochrome) the fallback and the marker both degrade to reverse video, the archetype's only background vocabulary.
+
+The marker is **not** `selected_bg`: "the keyboard is on this entry" must never read as "this text is selected".
 
 ---
 

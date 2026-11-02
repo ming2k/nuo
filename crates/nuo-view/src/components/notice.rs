@@ -127,24 +127,18 @@ pub fn draw_notice_view(
         }
     };
     // The interaction channel still tints the topic label while the pointer
-    // rests on it, and keyboard focus paints the head's full width in the focus
-    // band (ADR-0145) — a *background* cue, the same channel the composer uses
-    // to say the same thing, so the plane crossing is legible on a notice too.
+    // rests on it. Keyboard focus no longer paints a band under the head
+    // (ADR-0145, amended): the pane wash lifts the transcript surface and the
+    // entry's own marker cell — painted by the caller into the reserved gutter —
+    // names the row, so the notice's severity tone stays exactly what it was.
     let interaction = Interaction::from_hover_focused(hovered, focused);
-    let chrome = interaction.chrome(theme);
-    let topic_color = chrome.text(
-        theme,
-        summary_text_color(Some(tag_color), Disclosure::Expanded, interaction, theme),
-    );
-    let header_line = chrome.apply(
-        notice_header_line(
-            notice.topic(),
-            marker,
-            topic_color,
-            notice.status_label().as_deref(),
-            theme.muted(),
-            full_width,
-        ),
+    let topic_color = summary_text_color(Some(tag_color), Disclosure::Expanded, interaction, theme);
+    let header_line = notice_header_line(
+        notice.topic(),
+        marker,
+        topic_color,
+        notice.status_label().as_deref(),
+        theme.muted(),
         full_width,
     );
 

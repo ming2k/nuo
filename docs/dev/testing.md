@@ -1,6 +1,6 @@
 # Automated Verification & Testing Guide
 
-This guide establishes the automated testing strategy, execution commands, and regression prevention practices for developers working on Nuo.
+This guide establishes the automated testing strategy, architectural verification gates, execution commands, and regression prevention practices for developers working on Nuo.
 
 ---
 
@@ -52,10 +52,46 @@ cargo test --workspace
 cargo test -p nuo
 cargo test -p nuo-server
 cargo test -p nuo-ui-primitives
+cargo test -p nuo-view
 ```
 
 ---
 
-## 4. Manual & Exploratory Verification
+## 4. Repository & Architectural Governance Gates
 
-For running and manually testing the interactive TUI, headless prompt execution, and server lifecycle from source, see the [Manual Testing Guide](manual-testing.md).
+Nuo enforces foundational repository contracts, structural boundaries, and epistemic integrity through dedicated integration tests in `crates/nuo/tests/`:
+
+### 4.1 Architecture Firewall & Topology
+- **Test**: `cargo test -p nuo --test architecture_firewall`
+- **Enforces**:
+  - `[INV-ARCH-TIER-01]` Flat 3-tier layout (`crates/*`, `providers/*`, `tools/*`) with zero crates at the repository root.
+  - Headless server container purity: `nuo-server` must never depend on terminal presentation libraries (`nuotc`, `crossterm`, `nuo-ui-primitives`, `nuo-view`).
+  - Source residency: every `.rs` file under a tier root must be reachable from an entry point ([ADR-0124](../adr/0124-source-residency-every-rust-file-reachable-from-a-crate-root.md)).
+  - Wire surface census: protocol version bump must coincide with checked-in wire census update ([ADR-0136](../adr/0136-wire-drift-is-a-frame-not-a-disconnect.md)).
+
+### 4.2 Content Purity & Invariants
+- **Test**: `cargo test -p nuo --test content_purity`
+- **Enforces**:
+  - `[INV-LAYER-04]` Content payloads carry no presentation layers.
+  - `[INV-DIALOG-01]` Dialog surfaces hold no thread capability.
+  - Single writer rule for session command ledger.
+
+### 4.3 Documentation Governance
+- **Test**: `cargo test -p nuo --test doc_governance`
+- **Enforces**:
+  - Target existence, anchor hygiene, relative path rules, and audience firewall (public surfaces must never link into `docs/dev/**`).
+  - Epistemic lineage: every `ADR-NNNN` cited in code or docs must resolve to a canonical ADR file (`docs/dev/standards/adr.md` §4).
+  - Invariant tag uniqueness: every `[INV-*]` definition tag across all ADRs must be globally unique (`docs/dev/standards/invariants.md` §5).
+  - User-owned surface boundary: `AGENTS.md` is untrusted workspace input and must not be cited as repository authority ([ADR-0141](../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md)).
+
+### 4.4 Tuning & Wire Isolation
+- **Test**: `cargo test -p nuo --test tuning_firewall`
+- **Enforces**:
+  - `[INV-TUNE-01]` No vendor wire encoding or family branch in core vocabulary.
+  - `[INV-TUNE-04]` Zero client-side knob resolution.
+
+---
+
+## 5. Manual & Exploratory Verification
+
+For running and manually testing the interactive TUI, headless prompt execution, and server lifecycle from source, consult the [Manual Testing Guide](manual-testing.md).

@@ -171,7 +171,7 @@ impl Tool for ReadTextTool {
         let offset = args.offset.unwrap_or(1).max(1);
         let limit = args.limit.map(|l| l.max(1));
 
-        // ADR-0070: Virtual File System (VFS) in-process resolution
+        // ADR-0070 (superseded by ADR-0093): Virtual File System (VFS) in-process resolution
         let content = if nuo_tool::is_virtual_path(raw_path) {
             let resolved = if let Some(resolver) = &self.ctx.vfs_resolver {
                 resolver.resolve_virtual(raw_path).await

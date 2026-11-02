@@ -19,7 +19,7 @@
 //! already answers "how do I start". It is the
 //! same "teach quietly, without a manual" slot that can later host other
 //! contextual tours. A missing provider replaces the carousel with a pinned
-//! setup blocker (ADR-0057) — nothing rotates until the blocker clears.
+//! setup blocker (ADR-0057 → ADR-0104) — nothing rotates until the blocker clears.
 //!
 //! The logo source is pluggable: a caller may pass user-supplied lines (loaded
 //! from `$XDG_CONFIG_HOME/nuo/logo.txt`); when absent the built-in figlet
@@ -285,7 +285,7 @@ pub fn plan_hero(logo: &[&str], area: Rect, guidance: &EmptyStateGuidance) -> He
 
 /// Which guidance variant the empty-state hero shows beneath the logo.
 ///
-/// The empty state is a **contextual** surface (ADR-0057): it adapts to
+/// The empty state is a **contextual** surface (ADR-0057 → ADR-0104): it adapts to
 /// whether the user has a working LLM configured, rather than showing every
 /// user the same static line. The variants are mutually exclusive and
 /// ordered by priority — a missing provider beats everything, since nothing
@@ -414,7 +414,7 @@ fn guidance_section(
 /// The caller is responsible for having loaded + parsed it (clamped here as a
 /// safety net regardless).
 ///
-/// `guidance` selects the copy shown beneath the logo+gap (ADR-0057): the
+/// `guidance` selects the copy shown beneath the logo+gap (ADR-0057 → ADR-0104): the
 /// rotating tour or the pinned provider blocker. It is the app
 /// shell's policy decision — the view layer only renders what it is given.
 ///

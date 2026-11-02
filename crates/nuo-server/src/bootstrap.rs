@@ -531,7 +531,7 @@ pub async fn assemble_with_store(
         session.blob_store().clone(),
     );
 
-    // Official native capability tool suite (ADR-0013, ADR-0070 VFS projection).
+    // Official native capability tool suite (ADR-0013, ADR-0070 → ADR-0093 VFS projection).
     // Workspace-bound sessions anchor to their project root. Workspace-free sessions
     // (such as ops or unconfined system administration) anchor baseline tools to the
     // current working directory, granting full host operational capabilities while
@@ -594,7 +594,7 @@ pub async fn assemble_with_store(
     let subagent_tool_handle = subagent_tool.clone();
     toolset.insert(subagent_tool);
 
-    // ADR-0070: recall_context is abolished. All offstream artifacts (subagents,
+    // ADR-0070 (superseded by ADR-0093): recall_context is abolished. All offstream artifacts (subagents,
     // visual artifacts, compacted history) are projected via VFS into read_text/read_image.
 
     let mut agent = Agent::builder_from_toolset(agent_provider, toolset, identity)

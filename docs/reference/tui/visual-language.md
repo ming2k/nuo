@@ -77,7 +77,7 @@ A key token is a display string, never a binding: the chord lives in `chord.rs` 
 ### In-Flight Running State Demarcation (ADR-0110 `[INV-TUI-RUNNING-01..04]`)
 
 Running and in-flight operations must strictly demarcate active vitality from inert cancellation:
-- **Active Accent Hue**: Running states are styled in `theme.info()` (or `theme.warning`) with bold modifier, never `theme.dim()`.
+- **Dedicated In-Flight Hue**: Running states are styled in `theme.running()` with bold modifier, never `theme.dim()`, never `theme.info()`, and never an outcome tone. `info` is the *structural* hue (turn headers, round headers, links, the info severity band); painting a running row in it made liveness and structure the same signal — a running tool step and the `› turn N` above it were literally the same color. `running()` is the same cool family at full saturation, so liveness is the one vivid thing on the page while structure stays muted.
 - **Dimmed Tone Restriction**: `theme.dim()` is reserved exclusively for cancelled, aborted, or inert locked items (`[INV-TUI-RUNNING-01]`). An active task must never appear dead or faded.
 - **Progress Grammar**: Running headers adhere to the canonical grammar `{Lead} {Target} · running ({elapsed})`, freezing into immutable duration badges upon completion (`[INV-TUI-RUNNING-03]`).
 - **Single Breathing Anchor**: Only the global `ActivityBar` carries animated breathing sweeps; individual leaf components limit liveness indication to at most a single-character discrete spinner frame (`⠋`) and elapsed duration counts (`[INV-TUI-RUNNING-04]`).

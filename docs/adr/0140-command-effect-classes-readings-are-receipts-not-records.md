@@ -470,7 +470,7 @@ cargo clippy --workspace --all-targets
   residency), [ADR-0138](0138-notice-catalog-typed-registry-of-every-client-disclosure.md) (typed receipt
   wording), [ADR-0059](0059-canonical-thread-persistence-schema-and-zero-legacy-clean-break.md) (clean
   break, no migration ceremony)
-- Design blueprint: [Command Effect Classes](../dev/command-effect-classes.md)
+- Design blueprint: [Command Effect Classes](../dev/blueprints/command-effect-classes.md)
 - Code: `crates/nuo-server/src/startup.rs` (`define_builtin_commands!`, `BuiltinCmd::effect`),
   `crates/nuo-server/src/handlers_slash/record.rs` (the funnel),
   `crates/nuo-server/src/handlers_slash/dispatch.rs` (the net),

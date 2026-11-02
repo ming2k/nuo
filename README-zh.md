@@ -88,4 +88,3 @@ cargo build --release -p nuo
 - **[参考 (Reference)](docs/reference/lifecycle-and-action-semantics.md)**：生命周期与动作语义规范。
 - **[终端界面参考 (Terminal UI Reference)](docs/reference/tui/index.md)**：视口布局、视觉语言、模态框与输入管线。
 - **[子系统架构蓝图 (Subsystem Architecture)](docs/dev/subsystems.md)**：工作区拓扑、Crate 边界与架构不变量约束。
-- **[架构决策记录 (ADR)](docs/adr/index.md)**：核心技术决策演进、权衡考量与否定知识记录。

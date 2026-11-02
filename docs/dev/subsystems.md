@@ -1,7 +1,7 @@
 # Subsystem Architecture: Nuo System Blueprint
 
 - Status: Living Blueprint
-- Last Updated: 2026-10-28
+- Last Updated: 2026-12-19
 - Scope: workspace/topology, architecture/subsystems, substrate/tools, microkernel/topology, terminal/nuotc
 - Maintainers: Nuo Architecture Working Group
 
@@ -140,7 +140,7 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
   Gated mechanically by `nuo::dev::firewall` rule R5 (`cargo test -p nuo --test architecture_firewall`).
 - **`[INV-HOST-01]` Sandbox & Containment**: All local command execution and file mutations must pass through `nuo-host` sandbox and containment boundaries.
 - **`[INV-TOOL-01]` Decentralized Capability Tools**: Tools are natively owned and implemented by their capability crates (`acp`, `nuo-host`, `nuo-persistence`) using the zero-runtime `nuo-tool` standard, rather than concentrated in a monolithic harness.
-- **`[INV-VER-01]` Federated Cluster SemVer**: Autonomous substrates (`nuotc`, `acp`) maintain independent versions; the host suite (`nuo`, `nuo-*`) evolves in unified lockstep.
+- **`[INV-VER-01]` Federated Cluster SemVer**: The workspace lockstep suite (`crates/*`, `providers/*`, `tools/*`) evolves under unified versioning, while external substrates (`nuotc`) maintain autonomous release cycles.
 - **`[INV-MOD-01]` Zero Domain Leakage**: Terminal graphics substrates (`nuotc`) and the model wire substrate (`nuo-inference-wire`, formerly `nuo-model-codec`, per ADR-0084) must remain completely free of application-level agent concepts. Mechanism: the `Provider` cognitive contract lives in `nuo-provider::capability`, and the wire crate's dependency set (`serde`/`serde_json`/`thiserror`/`uuid`) structurally forbids I/O, a transport, or an async trait — `tokio` and `async-trait` were removed with the code that needed them (ADR-0143). `[INV-AP-01]`/`[INV-AP-02]` refine this for the split crate; `[INV-AP-03]` forbids re-growing an unwired second implementation.
 - **`[INV-MOD-02]` Ghost-Free CJK Cells**: Wide-character trailing cells are populated by the writer with matching background attributes; diff never emits unowned padding spaces.
 - **`[INV-MOD-03]` Authoritative Retained Grid**: The retained `Grid` is the single source of truth for desired visual state; dirty line tracking eliminates redundant full-frame rasterization.
@@ -161,15 +161,14 @@ New crates are admitted to `crates/*`, `providers/*`, or `tools/*` only if their
 
 ---
 
-## 5. Architectural Lineage & ADR Registry
+## 5. Architectural Lineage & Decision Records
 
-| ADR | Title | Decision Summary | Primary Impact |
-| :--- | :--- | :--- | :--- |
-| **ADR-0001** | Flat Workspace Topology and Microkernel Capability Architecture | Abolish nested dirs for flat workspace, enforce microkernel harness role, decentralize capability tools, and eliminate catch-all contracts | Workspace topology, `nuo-harness`, `nuo-host`, `nuo-inference-wire` |
-| **ADR-0002** | Canonical Agent Coordination Protocol (ACP) Standard | Establish ACP specification with URI addressing, HMAC envelopes, fabric channels, and native collaboration tools | `acp`, inter-agent collaboration |
-| **ADR-0003** | Autonomous Retained-Mode Terminal Canvas Engine (Nuotc) | Retained-mode 2D terminal canvas with differential double-buffered rendering strictly decoupled from AI domain concepts | `nuotc` |
-| **ADR-0004** | Federated Cluster SemVer and Release Topology | Partition workspace into 4 SemVer clusters with dual-resolving version and path dependencies | Release engineering, manifests, versioning |
-| **ADR-0014** | Model Provider Invocation Schemes: Local Direct, and the Subscription Server-Proxy Lane | Ratify three-lane dispatch (`ConnectionAuth::{ApiKey, Subscription}` over trait-object credential sources + verified SSPL `/alpha/generate` server-proxy DialectSurface); entitlement authority belongs to the credential-holding lane, never to client UI gating | `nuo-providers`, `nuo-inference-wire`, `nuo-persistence/connections`, `nuo-server` |
-| **ADR-0015** | Canonical Model Provider Contract Crate (nuo-provider) and Dedicated Providers Namespace Architecture | Establish canonical leaf contract crate `nuo-provider`, dedicate `providers/nuo-provider-*` namespace matching `tools/`, extract `nuo-provider-transport`, and sandbox cryptographic dialects | `nuo-provider`, `providers/nuo-provider-*`, `nuo-harness`, `nuo-server` |
-| **ADR-0026** | Streamed Tool-Input Progress: Announce the Tool Call Before Its Arguments Finish | Emit `ToolCallStarted` (name known, arguments still streaming) plus a count-only `ToolInputProgress` tick; the full argument object still gates execution, so a running step and the tool phase appear before arguments finish | `nuo-harness`, `nuo-protocol`, `nuo-tui` |
-| **ADR-0027** (Accepted) | Provider Definition Single Source: Retire nuo-provider-adapters and Relocate Its Residual Engines | Make `providers/nuo-provider-*` the single authoritative definition per provider and retire the duplicated `nuo-provider-adapters` (OAuth engine, catalog parsers, and composition root relocated to dedicated crates / `nuo-server`); establishes one-definition, no-orphan-contract, no-string-sniffing, and linked-provider invariants | `nuo-provider-adapters` (removed), `providers/nuo-provider-*`, `nuo-server`, `nuo-provider` |
+All binding architectural decisions, structural boundaries, and discarded alternatives are codified canonically in the [`docs/adr/`](../adr/) flat registry. Foundational architectural pillars and their governing records include:
+
+- **Concentric Architecture & Entry Point**: Single public binary dispatching across client, daemon, and headless modes ([ADR-0005](../adr/0005-unified-binary-and-concentric-runtime-architecture.md), [ADR-0061](../adr/0061-pure-thread-topology-headless-unified-entry-and-unburdened-cli-architecture.md)).
+- **Tiered Workspace Topology**: Flat 3-tier layout (`crates/*`, `providers/*`, `tools/*`) with single application host and zero root library crates ([ADR-0055](../adr/0055-hierarchical-workspace-topology-and-component-namespace.md), [ADR-0109](../adr/0109-host-binary-relocation-to-crates-and-complete-workspace-homogenization.md)).
+- **Server Purity & Protocol Decoupling**: Headless server hosting threads as single source of truth, strictly decoupled from presentation crates and communicating exclusively via typed IPC ([ADR-0011](../adr/0011-nuo-tui-presentation-and-nuo-server-container.md), [ADR-0033](../adr/0033-canonical-server-entity-dual-hosting-postures-and-endpoint-orthogonality.md), [ADR-0066](../adr/0066-canonical-protocol-nomenclature-and-codec-purity.md)).
+- **Presentation Substrates & Peer Focus Planes**: Retained canvas diffing engine (`nuotc`), generic UI primitives (`nuo-ui-primitives`), agent views (`nuo-view`), and symmetric focus crossings ([ADR-0003](../adr/0003-autonomous-terminal-canvas-substrate-nuotc.md), [ADR-0053](../adr/0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md), [ADR-0145](../adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
+- **Cognitive Runtime & Inversion**: Provider capability contracts with decentralized tools and single-definition specifications ([ADR-0014](../adr/0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), [ADR-0015](../adr/0015-dependency-inversion-architecture-for-model-providers.md), [ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md), [ADR-0100](../adr/0100-cognitive-runtime-consolidation-and-governance-layer-inversion.md)).
+
+For standards governing proposal qualification, in-place lifecycle progression, and code citation discipline, consult the [ADR Standards](standards/adr.md).

@@ -1563,7 +1563,9 @@ fn render_footer(
 
 fn status_style(status: ThreadStatus, theme: &Theme) -> Style {
     match status {
-        ThreadStatus::Running => Style::default().fg(theme.brand()),
+        // A running thread is *live*, not *identity*: it uses the in-flight hue
+        // like every other running surface (ADR-0110 `[INV-TUI-RUNNING-01]`).
+        ThreadStatus::Running => Style::default().fg(theme.running()),
         ThreadStatus::NeedsApproval | ThreadStatus::NeedsInput => Style::default().fg(theme.warn()),
         ThreadStatus::Failed => Style::default().fg(theme.err()),
         ThreadStatus::Idle | ThreadStatus::Interrupted => Style::default().fg(theme.muted()),

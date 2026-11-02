@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This article explains the shape of the Nuo system: what the major pieces are, how they relate, and why the boundaries fall where they do. It is an orientation, not a specification. For the reasoning behind each decision, consult the [ADRs](../adr/index.md).
+This article explains the shape of the Nuo system: what the major pieces are, how they relate, and why the boundaries fall where they do. It is an orientation, not a specification. For the reasoning behind each decision, consult the [ADRs](../adr/).
 
 ---
 
@@ -41,4 +41,4 @@ Model invocation is not a single "auth mode". Nuo distinguishes strictly exclusi
 
 - [Getting Started](../tutorials/getting-started.md): build and run the system.
 - [Reference: Lifecycle and Action Semantics](../reference/lifecycle-and-action-semantics.md): the precise action matrix and TUI spatial topology.
-- [Architectural Decision Records](../adr/index.md): the reasoning behind each ratified decision.
+- [Architectural Decision Records](../adr/): the reasoning behind each ratified decision.

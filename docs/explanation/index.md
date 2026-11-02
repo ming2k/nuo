@@ -15,4 +15,4 @@ Discursive documentation that explains how and why Nuo is built the way it is. R
 | [Command Records and Receipts](command-records-and-receipts.md) | Why only commands that change state are remembered, and where a report of the world's state goes instead. |
 | [OpenCode Provider Integration](opencode-provider-integration.md) | Protocol contracts, session continuation, and tool execution topology. |
 
-For the *why* behind each ratified decision, consult the [Architectural Decision Records](../adr/index.md).
+For the *why* behind each ratified decision, consult the [Architectural Decision Records](../adr/).

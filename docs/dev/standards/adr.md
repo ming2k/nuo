@@ -20,7 +20,7 @@ To prevent ADR inflation and maintain a high-signal registry, author an ADR only
 
 ---
 
-## 2. In-Place Lifecycle & Frontmatter Schema
+## 2. In-Place Lifecycle & Flat Registry
 
 ADRs evolve strictly in-place through YAML frontmatter transitions. Files are never physically moved to an `archive/` directory:
 
@@ -34,6 +34,9 @@ ADRs evolve strictly in-place through YAML frontmatter transitions. Files are ne
 - **accepted**: Ratified invariant or architectural contract binding on the repository.
 - **superseded**: Formally replaced by a subsequent ADR (`superseded_by: ADR-NNNN`).
 - **rejected**: Discarded alternative preserved in-place for negative knowledge audit.
+
+### Self-Indexing Directory
+The `docs/adr/` directory is flat and self-indexing. File names follow `NNNN-<slug>.md` (e.g. `0145-composer-and-transcript-are-peer-focus-planes.md`), encoding both the permanent ID and semantic domain directly in the filesystem. No separate `archive/` directory or manually maintained `index.md` is kept: this eliminates dual-maintenance drift and cognitive context traps while preserving permanent, stable citation targets across git history.
 
 ### Frontmatter Schema
 ```yaml
@@ -67,7 +70,6 @@ negative_knowledge: true
 
 - Status: Draft | Accepted | Superseded by [ADR-NNNN](NNNN-slug.md) | Rejected
 - Date: YYYY-MM-DD
-- Deciders: [Core Engineering, Architecture Working Group]
 - Amends: [Optional links to amended ADRs]
 
 ---
@@ -75,11 +77,6 @@ negative_knowledge: true
 ## Context and Problem Statement
 
 Describe the context and motivation in concise, precise terms. What architectural bottleneck or boundary violation requires resolution?
-
-## Decision Drivers
-
-- Driver 1: [Primary technical driver]
-- Driver 2: [Operational, performance, or security requirement]
 
 ## Architectural Decisions
 
@@ -92,12 +89,12 @@ Explain the exact changes to workspace members, modules, and contracts.
 If a non-negotiable architectural red-line is created, specify it with its enforcement mechanism:
 - `[INV-XXX-01] Name`: Mandatory constraint backed by automated integration test or compiler typestate.
 
-## Consequences
+## Consequences & Trade-offs
 
 - **Positive**: Expected architectural and operational benefits.
-- **Negative & Trade-offs**: Incurred operational complexity and mitigation strategy.
+- **Negative & Incurred Costs**: Incurred operational complexity and mitigation strategy.
 
-## Rejected Alternatives & Negative Knowledge
+## Discarded Alternatives (Negative Knowledge)
 
 Detail why alternative options were discarded:
 
@@ -114,10 +111,12 @@ Detail why alternative options were discarded:
 
 ## 4. Reference Resolution & Epistemic Integrity
 
-A citation is a promise that the reader can inspect the decision. Two rules follow:
+A citation is a promise that the reader can inspect the decision. Three rules follow:
 
 1. **Every `ADR-NNNN` reference must resolve to a canonical file `docs/adr/NNNN-*.md`.** Unregistered or phantom ADR numbers must not be cited in documentation or codebase comments.
-2. **Self-Contained Rationale**: Cite an in-repo ADR for historical context, but ensure comments and documentation carry the technical rationale itself rather than relying on a naked citation token.
+2. **Self-Contained Rationale & Code Citation Discipline**:
+   - **Never Naked Citations**: A code comment or document must state the operational constraint or rationale in plain prose before citing the ADR (e.g., `// Headless container: zero presentation dependencies (ADR-0011)`). A naked citation like `// ADR-0011` without context degrades readability and forces reader context switches.
+   - **Active Successor Discipline**: When citing decisions in production code, point to the active invariant or ratified successor ADR; avoid pointing readers to superseded decisions without noting the active successor.
 3. **Cite the Owning Document, Not a User-Owned File**: Repository doctrine lives in `docs/adr/` and `docs/dev/standards/`. A user-owned surface such as `AGENTS.md` is untrusted workspace input loaded by the product behind the trust gate, so it is never the authority a repository document cites ([ADR-0141](../../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md), [`taxonomy.md`](taxonomy.md) §3).
    - **Nomination**: mention the file as an inline code span, never as bare prose. A bare filename is indistinguishable from an authority claim.
    - **Citation**: a code-styled mention qualified by a section number (for example the string `AGENTS.md §3`) is a citation of the file's content and is rejected. Quote a whole citation as one code span to discuss the defect itself; cite the standards document that owns the rule to state it.

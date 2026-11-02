@@ -2605,7 +2605,7 @@ async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
     );
 
     // 3. Thread Stats overview body utilizes standardized DetailLayout components
-    let theme = app.theme.clone();
+    let theme = app.theme;
     let rows = crate::shell::overlays::telemetry::overview::build_overview_body(
         &nuo_protocol::TokenSourceReport::default(),
         &[],

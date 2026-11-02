@@ -5,7 +5,8 @@
 //!
 //! Enforces:
 //! - `[INV-TUI-RUNNING-01]` (Strict Lifecycle-Tone Separation): In-flight actions
-//!   use active info hue (`theme.info()`), bold, never `theme.dim()`.
+//!   use the dedicated in-flight hue (`theme.running()`), bold, never
+//!   `theme.dim()` and never the structural `theme.info()`.
 //! - `[INV-TUI-RUNNING-02]` (Action Permissibility Tri-Partition): Re-entrant activation
 //!   of running and disabled actions is strictly guarded (no-op).
 
@@ -357,7 +358,7 @@ impl StorybookComponent for NoticeCard {
             ),
             Story::new(
                 "In-Flight Running Action",
-                "Demonstrates in-flight asynchronous execution with active info hue and non-reentrant guard (ADR-0110)",
+                "Demonstrates in-flight asynchronous execution with the in-flight hue and non-reentrant guard (ADR-0110)",
                 NoticeCardProps {
                     title: "Workspace Database Migration".to_string(),
                     message: "Applying schema upgrade across 12 partitioned sqlite databases...".to_string(),

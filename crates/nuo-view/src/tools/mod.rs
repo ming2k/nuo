@@ -88,12 +88,21 @@ impl ToolStatus {
     /// Theme color used for the status rail / step accent. Centralizes the
     /// status→color mapping that step headers, sticky pins, and subagent steps
     /// previously each duplicated.
+    ///
+    /// The two live states use [`Theme::running`], not `info` (ADR-0110
+    /// `[INV-TUI-RUNNING-01]`, amended). `info` is the scheme's **structural**
+    /// hue — turn headers, `round N`, links, the info severity band — so reusing
+    /// it for liveness made a running step and the `› turn N` above it the same
+    /// color, and "this row is working" became indistinguishable from "this is
+    /// where the turn starts". `Ingesting` stays on the muted rung: the call has
+    /// been *announced*, arguments are still streaming, and nothing is executing
+    /// yet — there is no liveness to advertise.
     pub fn color(self, theme: &Theme) -> Color {
         match self {
-            // Ingesting reads as a calm, muted tone — model arguments are streaming.
+            // Announced, not yet dispatched: calm, inert until arguments land.
             ToolStatus::Ingesting => theme.muted(),
-            // Executing reads as an active accent hue (info) — local work is in flight.
-            ToolStatus::Executing => theme.info(),
+            // Args complete, executing locally — the one live state.
+            ToolStatus::Executing => theme.running(),
             ToolStatus::Ok => theme.ok(),
             ToolStatus::Failed => theme.err(),
             // Warn color distinguishes a user denial from a runtime failure.

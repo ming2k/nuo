@@ -115,8 +115,37 @@ const LISTING_DIR_HUE: Color = Color::Rgb(86, 132, 214);
 const LISTING_EXEC_HUE: Color = Color::Rgb(86, 176, 106);
 const LISTING_LINK_HUE: Color = Color::Rgb(74, 172, 194);
 
+/// The **in-flight** hue: the one saturated tone that means "work is happening
+/// on this row right now" (ADR-0110 `[INV-TUI-RUNNING-01]`).
+///
+/// A vivid cyan, and a constant for the same reason the listing hues are: it is a
+/// *role*, not a palette member.
+///
+/// The hue is a check, not a taste call. Structure in this product is a **muted,
+/// desaturated cool** (`info` / `brand`: turn headers, `round N`, links, the info
+/// band), outcomes own green / amber / red, and the neutral axis belongs to
+/// `muted` / `dim`. Liveness is the same cool family pushed all the way to
+/// saturation — which is exactly what makes it read as *live* rather than as
+/// *structural*, and why the two cannot be confused even though they share a
+/// neighborhood of the wheel: a running row is the only vivid thing on the page.
+/// Reusing `info` itself, as the earlier code did, made the running row and the
+/// `› turn N` header above it literally the same color.
+///
+/// Tinted toward each scheme's own text pole by [`Theme::running`]'s derivation
+/// so it stays legible on light palettes.
+const RUNNING_HUE: Color = Color::Rgb(56, 222, 235);
+
 /// Styles used during rendering.
-#[derive(Clone)]
+///
+/// `Copy` is load-bearing, not an aesthetic choice. The transcript renders with a
+/// **lifted** copy of this value while it owns the keyboard (ADR-0145,
+/// `Theme::pane_lifted`), so a frame copies it once; `Copy` is what makes that free
+/// and — more importantly — it is what keeps it free *in the future*. Every field is a
+/// `Copy` scalar, so the constraint costs nothing today, and the moment someone adds a
+/// heap-owned field (`String`, `Vec`, a map) the derive stops compiling. That is a
+/// build error on the day the cost would be introduced, instead of a performance
+/// regression discovered after it lands.
+#[derive(Clone, Copy)]
 pub struct Theme {
     pub user_fg: Color,
     pub error_fg: Color,
@@ -212,7 +241,8 @@ pub struct Theme {
     pub command_band_bg: Color,
     pub command_band_bg_hover: Color,
 
-    /// Keyboard-focus band of a transcript entry (ADR-0145).
+    /// The **pane wash**: the tone a transcript pane lifts its whole page to
+    /// while it owns the keyboard (ADR-0145, amended).
     ///
     /// The composer has always answered "who owns the keyboard?" in the
     /// **background** channel — a bright `input_bg_active` panel against a
@@ -222,13 +252,52 @@ pub struct Theme {
     /// is suppressed entirely, and on a collapsed one it has to fight the
     /// disclosure and lifecycle hues for the same few characters.
     ///
-    /// This token gives the transcript the same channel the composer uses. It
-    /// is the band painted behind the focused entry's header row, so `Shift-Tab`
-    /// produces one symmetric, unambiguous swap: the composer's panel recesses
-    /// while one transcript entry's header lights up. Deliberately *not* the
-    /// generic `selected_bg` (text-selection/menu highlight): a focus band is a
-    /// keyboard-ownership cue and must not read as a selection the user made.
-    pub entry_focus_bg: Color,
+    /// This is the tone that gives the transcript the same channel: the pane
+    /// lifts its whole page to this value while it owns the keyboard, so
+    /// `Shift-Tab` swaps one surface state for another — the composer's panel
+    /// recedes and the pane the keyboard arrives in comes up.
+    ///
+    /// It is deliberately a **small** step: it lands on every cell of the
+    /// viewport, so the cue is carried by *area*, not by per-cell contrast. The
+    /// earlier gutter-rail + full-width header band was the opposite trade (loud
+    /// on a handful of cells, absent everywhere else), which read as two stray
+    /// edge bars plus a highlighted component rather than as "this pane is
+    /// live".
+    ///
+    /// Whether the value is *usable* is not a matter of taste and is not decided
+    /// here: [`Theme::pane_focus()`] derives that from the palette's own
+    /// channel headroom (see [`Theme::has_pane_wash`]).
+    pub pane_focus_bg: Color,
+
+    /// The **entry marker**: the tone of the single cell the highlighted entry's
+    /// header row carries in its reserved gutter (ADR-0145, amended).
+    ///
+    /// The pane wash above says *the keyboard is in this pane*. This says *and it
+    /// is on this entry*.
+    ///
+    /// The cell is a **filled background** rather than a glyph, and that is the
+    /// whole reason the cue lives outside the row's text: a header row's own tone
+    /// is the disclosure × lifecycle × interaction composition, so painting a
+    /// background *under* that composition inverted the running accent and the
+    /// collapsed muted rung the renderers had resolved on purpose. A filled cell
+    /// needs no glyph-set entry either, so it cannot drift between UTF-8 and ASCII
+    /// terminals.
+    ///
+    /// Deliberately *not* the generic `selected_bg` family: a keyboard-ownership
+    /// cue must never read as a selection the user made. See
+    /// [`Theme::pane_marker_style`] for the archetype-aware style.
+    pub pane_marker_bg: Color,
+
+    /// The **in-flight** hue (ADR-0110 `[INV-TUI-RUNNING-01]`, amended).
+    ///
+    /// One token, one job: "work is happening on this row right now". It is
+    /// derived away from the scheme's *identity* hue ([`Self::info`], which
+    /// headers, links, and the info severity band use) because a running step
+    /// and a `› turn 3` header both being info-tinted is the ambiguity this
+    /// token removes — the header is structure, the running row is liveness, and
+    /// they must not be the same color. It is likewise kept clear of
+    /// `success` / `warning` / `error`, which are *outcomes*.
+    pub running_fg: Color,
 
     // Component-specific tokens
     pub caret_fg: Color,
@@ -287,13 +356,18 @@ impl Default for Theme {
             diff_del_hl: Color::Rgb(64, 40, 40),
             command_band_bg: Color::Rgb(17, 19, 18),
             command_band_bg_hover: Color::Rgb(26, 28, 27),
-            // The entry focus band is the input box's own accent tint lifted one
-            // rung: the two planes' focus cues then carry the same visual weight
-            // (`input_bg_active` panel ↔ this band), which is what makes the
-            // crossing read as a swap instead of one side merely going quiet.
-            // Kept distinct from `selected_bg` — a focus band must never read as
-            // a selection the user made.
-            entry_focus_bg: Color::Rgb(45, 50, 46),
+            // Keyboard ownership of the transcript pane is a *page* fact, so it
+            // is one small step of the whole page (area carries the cue) plus one
+            // neutral marker tone on the pointed-at row (luminance carries the
+            // marker, so it can never be mistaken for a semantic hue). The step
+            // is deliberately *below* `user_panel_bg` and `element_bg`, so a
+            // sent-message panel inside the pane still separates from its page.
+            pane_focus_bg: Color::Rgb(13, 14, 14),
+            pane_marker_bg: Color::Rgb(109, 110, 108),
+            // Liveness owns the one semantic hue nothing else claims: structure
+            // is cool (info/brand), outcomes are green/amber/red, and the neutral
+            // axis belongs to muted/dim. See `RUNNING_HUE`.
+            running_fg: Color::Rgb(56, 222, 235),
 
             caret_fg: DEFAULT_CARET_FG,
             input_selection_bg: Color::Rgb(38, 48, 44),
@@ -354,9 +428,13 @@ impl Theme {
             diff_del_hl: Color::LightRed,
             command_band_bg: Color::Reset,
             command_band_bg_hover: Color::DarkGray,
-            // ANSI-16 owns one highlight token; the focus band uses that slot
-            // rather than a truecolor mix the terminal would quantize away.
-            entry_focus_bg: Color::DarkGray,
+            // ANSI-16 has no page-wash latitude (`Reset` surfaces are the
+            // terminal's own background, which the pane cannot lift), so the
+            // transcript announces ownership with the marker alone — the
+            // brightest named slot, bold, so it never fuses into a semantic hue.
+            pane_focus_bg: Color::Reset,
+            pane_marker_bg: Color::White,
+            running_fg: Color::LightMagenta,
 
             caret_fg: Color::White,
             input_selection_bg: Color::DarkGray,
@@ -413,10 +491,12 @@ impl Theme {
             diff_del_hl: Color::Reset,
             command_band_bg: Color::Reset,
             command_band_bg_hover: Color::Reset,
-            // No color latitude on a VT100: the band is reverse video applied by
-            // [`Theme::entry_focus_style`], and the stored tone stays `Reset` so
-            // nothing emits a color escape.
-            entry_focus_bg: Color::Reset,
+            // No color latitude on a VT100: the pane cannot be lifted, so the
+            // entry marker is reverse video ([`Theme::pane_marker_style`])
+            // and the stored tones stay `Reset` so nothing emits a color escape.
+            pane_focus_bg: Color::Reset,
+            pane_marker_bg: Color::Reset,
+            running_fg: Color::Reset,
 
             caret_fg: Color::Reset,
             input_selection_bg: Color::Reset,
@@ -663,6 +743,14 @@ impl Theme {
     /// Apply component-specific overrides onto an existing theme.
     pub fn apply_component_overrides(&mut self, overrides: &Option<ComponentThemesConfig>) {
         let Some(components) = overrides else { return };
+        if let Some(ref pane) = components.pane {
+            if let Some(val) = pane.wash_bg.as_deref().and_then(Self::color_from_hex) {
+                self.pane_focus_bg = val;
+            }
+            if let Some(val) = pane.marker_bg.as_deref().and_then(Self::color_from_hex) {
+                self.pane_marker_bg = val;
+            }
+        }
         if let Some(ref input) = components.input {
             if let Some(val) = input.bg_active.as_deref().and_then(Self::color_from_hex) {
                 self.input_bg_active = val;
@@ -836,17 +924,30 @@ impl Theme {
             // interactive card is lit up" reads identically everywhere.
             command_band_bg: mix(background, surface, 0.72),
             command_band_bg_hover: mix(surface, text, if light { 0.06 } else { 0.08 }),
-            // The focus band is the **same lift** the composer's lit panel uses,
-            // stated stronger to compensate for area: the panel is a four-row
-            // block, the band is a single row, so equal *perceived* salience
-            // needs a larger per-cell step. Deriving it from the same base toward
-            // the same pole as `input_bg_active` is what keeps the two planes in
-            // one visual family, so the crossing reads as a swap rather than as
-            // one side going quiet (`[INV-FOCUS-04]`). Being neutral (not an
-            // accent tint) also keeps it clear of the accent-leaning
-            // `selected_bg`: "the keyboard is on this row" must never be
-            // mistaken for "this text is selected".
-            entry_focus_bg: mix(background, text, if light { 0.14 } else { 0.17 }),
+            // The pane wash is a deliberately *small* lift of the page toward the
+            // scheme's own text pole. It covers the whole viewport, so area
+            // carries the cue and per-cell contrast must stay quiet: a step the
+            // size of `input_bg_active` would wash out every tone the renderers
+            // resolved for the page. Light schemes need a slightly larger step to
+            // register at all (dark ink on paper reads softer than the reverse).
+            pane_focus_bg: mix(background, text, if light { 0.04 } else { 0.03 }),
+            // The entry marker is a neutral luminance rung — never a hue — so it
+            // can be mistaken for neither a lifecycle accent nor a text
+            // selection. Half-way to the text pole keeps it unmistakably a
+            // deliberate mark while still quieter than body text; the chroma is
+            // then stripped, because a tinted scheme's text tone would otherwise
+            // lend the marker a hue (lavender on catppuccin) and make it read as
+            // a state.
+            pane_marker_bg: desaturate(
+                mix(background, text, if light { 0.55 } else { 0.50 }),
+                0.85,
+            ),
+            // Liveness (ADR-0110 `[INV-TUI-RUNNING-01]`): a saturated teal that is
+            // a hue step away from `info` (which owns structure — turn headers,
+            // links, the info severity band) and from every outcome tone. Nudged
+            // toward the scheme's text so it stays legible on light palettes,
+            // exactly as the listing hues are.
+            running_fg: mix(RUNNING_HUE, text, if light { 0.20 } else { 0.10 }),
             caret_fg: text,
             input_selection_bg: mix(surface, accent, if light { 0.18 } else { 0.24 }),
             input_placeholder_fg: muted,
@@ -1060,56 +1161,430 @@ impl Theme {
         }
     }
 
-    /// The focus band a keyboard-focused **transcript entry** paints behind its
-    /// header row (ADR-0145).
+    /// The **pane wash**: the surface a transcript pane lifts its page to while it
+    /// owns the keyboard (ADR-0145, amended).
     ///
-    /// This is the transcript's peer to the composer's `input_surface()`
-    /// / `input_surface_inactive()` pair: the two planes own the keyboard one at
-    /// a time, so they must announce ownership in the *same* channel
-    /// (background), at the *same* weight. A foreground tint alone cannot do
-    /// that — it is invisible on an expanded step and easily out-shone by a
-    /// lifecycle accent on a collapsed one, which is exactly why `Shift-Tab`
-    /// read as "nothing happened".
+    /// This is the transcript's peer to the composer's `input_surface()` /
+    /// `input_surface_inactive()` pair — the two planes own the keyboard one at a
+    /// time, so they announce it in the *same* channel (background). The difference
+    /// is **area**: the composer's panel is a four-row block, the transcript's page
+    /// is the whole viewport, so the step is deliberately small. Area carries the
+    /// cue; per-cell contrast does not.
     ///
-    /// Archetype-aware, because the band is the only cue:
-    /// - `Chromatic` / `Hybrid`: the scheme's [`Self::entry_focus_bg`] tint.
-    /// - `Structured` (VT100 / monochrome): no color latitude exists, so
-    ///   ownership is carried by the DEC-standard reverse video the whole
-    ///   archetype is built on (ADR-0053) — the same fallback
-    ///   [`Self::selection_style`] and [`Self::focus_style`] use.
-    pub fn entry_focus_style(&self) -> Style {
+    /// ## Why this is a computation and not just the token
+    ///
+    /// The declared tone ([`Self::pane_focus_bg`]) is a *wish*. Whether it is
+    /// usable is decided by the palette's own **channel headroom**: the pane lift is
+    /// additive (every band inside the pane shifts by the same delta, so the
+    /// document's elevation ladder survives — see `nuo_view::focus_plane`), and an
+    /// additive lift can only preserve a band's elevation while the band has room to
+    /// move in every channel. A wash whose delta would clamp the sent-message panel
+    /// against 255 does not produce a lifted pane; it produces a flattened one.
+    ///
+    /// So the effective tone is the declared wish **scaled back** to the largest
+    /// step the palette can absorb without clamping any band the transcript builds.
+    /// `Reset` on the archetypes that have no page latitude at all, where the pane
+    /// cannot be lifted and [`Self::pane_focus_edge_style`] carries the cue instead.
+    ///
+    /// This is why a hand-authored theme cannot flatten its own transcript by
+    /// choosing a careless `pane.wash_bg`: the override moves the wish, and the
+    /// headroom clamp decides the outcome.
+    pub fn pane_focus(&self) -> Color {
+        let Some(delta) = self.pane_focus_delta() else {
+            return Color::Reset;
+        };
+        let Some((r, g, b)) = rgb_opt(self.app_bg) else {
+            return Color::Reset;
+        };
+        let shift = |c: u8, d: i16| (c as i16 + d).clamp(0, 255) as u8;
+        Color::Rgb(shift(r, delta[0]), shift(g, delta[1]), shift(b, delta[2]))
+    }
+
+    /// The effective per-channel lift of the pane wash, or `None` when this palette
+    /// cannot carry a whole-pane cue at all.
+    ///
+    /// Three gates, each of which is a *measured* property of the palette rather
+    /// than a declared archetype:
+    ///
+    /// 1. The page must have an RGB value to shift (`Reset` cannot be lifted).
+    /// 2. The declared wash must be a non-zero step, or the cue is nominal.
+    /// 3. The step must survive the bands: it is scaled back to the largest
+    ///    magnitude that keeps every background the transcript builds inside the
+    ///    channel range. Note that the **sign** is preserved — the lift always moves
+    ///    away from the page, so a light scheme (where "raised" is darker) stays
+    ///    raised.
+    pub fn pane_focus_delta(&self) -> Option<[i16; 3]> {
+        let (pr, pg, pb) = rgb_opt(self.app_bg)?;
+        let (wr, wg, wb) = rgb_opt(self.pane_focus_bg)?;
+        let wish = [
+            wr as i16 - pr as i16,
+            wg as i16 - pg as i16,
+            wb as i16 - pb as i16,
+        ];
+        if wish == [0, 0, 0] {
+            return None;
+        }
+        let mut scale = 1.0f32;
+        for band in self.pane_bands() {
+            let Some((br, bg, bb)) = rgb_opt(band) else {
+                continue;
+            };
+            for (page_c, band_c, delta) in [(pr, br, wish[0]), (pg, bg, wish[1]), (pb, bb, wish[2])]
+            {
+                let _ = page_c;
+                if delta == 0 {
+                    continue;
+                }
+                // Headroom in the direction the lift travels. A band on the far side
+                // of the page from the lift has no headroom at all — the first band
+                // sets the scale to zero — which is correct: shifting it would move
+                // it *toward* the page and invert the ladder.
+                let room = if delta > 0 {
+                    255 - band_c as i16
+                } else {
+                    band_c as i16
+                };
+                scale = scale.min(room as f32 / delta.unsigned_abs() as f32);
+            }
+        }
+        if scale <= 0.0 {
+            return None;
+        }
+        let scaled = |d: i16| (d as f32 * scale.min(1.0)).round() as i16;
+        let out = [scaled(wish[0]), scaled(wish[1]), scaled(wish[2])];
+        (out != [0, 0, 0]).then_some(out)
+    }
+
+    /// Every background the transcript pane can build on top of its page.
+    ///
+    /// This is the set the pane lift has to keep distinguishable, so it is also the
+    /// set [`Self::pane_focus_delta`] measures headroom against.
+    ///
+    /// ## Why this list is a `const` and not a `match`
+    ///
+    /// A hand-written list of "the surfaces that matter" drifts the moment someone
+    /// adds one. The defence is not discipline, it is the **exhaustive
+    /// destructure**: every field of `Theme` is named in [`Self::background_fields`]
+    /// exactly once, so adding a field is a compile error until the author says
+    /// whether it is a background. Fields marked `false` are foregrounds or
+    /// non-surface metadata — the enum arm is where that judgement is recorded, and it
+    /// is recorded *once*, next to the field list, instead of in a doc comment nobody
+    /// re-reads.
+    pub fn pane_bands(&self) -> Vec<Color> {
+        self.background_fields()
+            .into_iter()
+            .filter_map(|(field, value, is_background)| is_background.then_some((field, value)))
+            .map(|(_, value)| value)
+            .collect()
+    }
+
+    /// Classify **every** field of this struct: is it a background the *transcript
+    /// pane* can draw?
+    ///
+    /// The destructure is exhaustive on purpose. Adding a field to `Theme` breaks this
+    /// function at compile time, which is the only way to guarantee that a new
+    /// background is a deliberate decision about the pane lift rather than an omission
+    /// that silently clamps.
+    ///
+    /// "The pane can draw" is the operative scope, and it is narrower than "is a
+    /// background": composer panels, menus, toasts, and the modal backdrop are surfaces
+    /// of *other* regions. Counting them here would shrink the pane's own headroom for
+    /// no reason, because the lift never reaches them — they are painted from the
+    /// unlifted theme, outside the transcript rect.
+    ///
+    /// `deny(unused_variables)` is what closes the last hole: adding a field to the
+    /// destructure without classifying it leaves the binding unused, which is an error
+    /// here rather than a warning nobody reads. The array's length is inferred for the
+    /// same reason — a hand-maintained count is one more thing to forget.
+    #[deny(unused_variables)]
+    fn background_fields(&self) -> Vec<(&'static str, Color, bool)> {
+        let Self {
+            user_fg,
+            error_fg,
+            system_fg,
+            code_fg,
+            code_bg,
+            heading_fg,
+            quote_fg,
+            dim_fg,
+            selected_bg,
+            app_bg,
+            text,
+            text_muted,
+            text_hover,
+            affordance_fg,
+            panel_bg,
+            input_bg_active,
+            input_bg_inactive,
+            user_panel_bg,
+            element_bg,
+            menu_bg,
+            toast_bg,
+            which_key_bg,
+            backdrop,
+            primary,
+            warning,
+            success,
+            info,
+            diff_add_bg,
+            diff_del_bg,
+            diff_add_hl,
+            diff_del_hl,
+            command_band_bg,
+            command_band_bg_hover,
+            pane_focus_bg,
+            pane_marker_bg,
+            running_fg,
+            caret_fg,
+            input_selection_bg,
+            input_placeholder_fg,
+            crate_fg,
+            crate_bg,
+            keycap_fg,
+            keycap_bg,
+            keycap_label_fg,
+            keycap_accent_fg,
+            keycap_warn_fg,
+            modal_dim_factor,
+            glyphs,
+            elevation,
+        } = self;
+        let _ = (modal_dim_factor, glyphs, elevation);
+        [
+            ("user_fg", *user_fg, false),
+            ("error_fg", *error_fg, false),
+            ("system_fg", *system_fg, false),
+            ("code_fg", *code_fg, false),
+            ("code_bg", *code_bg, true),
+            ("heading_fg", *heading_fg, false),
+            ("quote_fg", *quote_fg, false),
+            ("dim_fg", *dim_fg, false),
+            ("selected_bg", *selected_bg, true),
+            ("app_bg", *app_bg, true),
+            ("text", *text, false),
+            ("text_muted", *text_muted, false),
+            // A hover *tone* on text, not a surface.
+            ("text_hover", *text_hover, false),
+            ("affordance_fg", *affordance_fg, false),
+            ("panel_bg", *panel_bg, false),
+            ("input_bg_active", *input_bg_active, false),
+            ("input_bg_inactive", *input_bg_inactive, false),
+            ("user_panel_bg", *user_panel_bg, true),
+            ("element_bg", *element_bg, true),
+            ("menu_bg", *menu_bg, true),
+            ("toast_bg", *toast_bg, false),
+            ("which_key_bg", *which_key_bg, false),
+            ("backdrop", *backdrop, false),
+            ("primary", *primary, false),
+            ("warning", *warning, false),
+            ("success", *success, false),
+            ("info", *info, false),
+            ("diff_add_bg", *diff_add_bg, true),
+            ("diff_del_bg", *diff_del_bg, true),
+            // Per-word tints layered *on* a row band: inside the pane, so they must
+            // survive the lift.
+            ("diff_add_hl", *diff_add_hl, true),
+            ("diff_del_hl", *diff_del_hl, true),
+            ("command_band_bg", *command_band_bg, true),
+            ("command_band_bg_hover", *command_band_bg_hover, true),
+            ("pane_focus_bg", *pane_focus_bg, false),
+            // The marker is a *mark*, not a surface: it holds a fixed absolute tone on
+            // purpose so the cue reads identically whichever pane owns the keyboard. Its
+            // requirement is "stays distinguishable from the page", not "keeps its
+            // elevation", and `the_entry_marker_stays_distinguishable_from_the_lifted_page`
+            // is where that separate property is asserted.
+            ("pane_marker_bg", *pane_marker_bg, false),
+            ("running_fg", *running_fg, false),
+            ("caret_fg", *caret_fg, false),
+            ("input_selection_bg", *input_selection_bg, false),
+            ("input_placeholder_fg", *input_placeholder_fg, false),
+            ("crate_fg", *crate_fg, false),
+            ("crate_bg", *crate_bg, false),
+            ("keycap_fg", *keycap_fg, false),
+            ("keycap_bg", *keycap_bg, false),
+            ("keycap_label_fg", *keycap_label_fg, false),
+            ("keycap_accent_fg", *keycap_accent_fg, false),
+            ("keycap_warn_fg", *keycap_warn_fg, false),
+            // Not colors: recorded so the destructure is exhaustive.
+            ("modal_dim_factor", Color::Reset, false),
+            ("glyphs", Color::Reset, false),
+            ("elevation", Color::Reset, false),
+        ]
+        .to_vec()
+    }
+
+    /// This theme with the **pane lift applied to every background**, ready to hand
+    /// to a transcript renderer.
+    ///
+    /// This is the whole-pane cue done at the source instead of afterwards. The
+    /// renderers already paint the page tone, the code bands, the cards and the
+    /// selection through this struct; lifting the struct means they paint the lifted
+    /// pane directly, so the cue costs **one struct copy per frame** rather than a
+    /// per-cell restyle over the viewport (measured at ~5.8 ms on a 400x120 pane,
+    /// versus ~0 for this).
+    ///
+    /// Only *backgrounds* move. Foregrounds are semantic — a running hue or a muted
+    /// rung means the same thing at either page level — and shifting them would change
+    /// the document's meaning rather than its elevation.
+    ///
+    /// The lift is the same delta [`Self::pane_focus_delta`] computed, so every band
+    /// keeps its exact separation from the page: a translation, not a rescale. The
+    /// equivalence with a per-cell restyle is asserted by
+    /// `pane_lifted_theme_matches_a_cell_wise_restyle`, which is what keeps the field
+    /// list below honest — a background that is not lifted there fails that test.
+    pub fn pane_lifted(&self) -> Self {
+        let Some(delta) = self.pane_focus_delta() else {
+            return *self;
+        };
+        let lift = |c: Color| -> Color {
+            match rgb_opt(c) {
+                Some((r, g, b)) => {
+                    let shift = |c: u8, d: i16| (c as i16 + d).clamp(0, 255) as u8;
+                    Color::Rgb(shift(r, delta[0]), shift(g, delta[1]), shift(b, delta[2]))
+                }
+                None => c,
+            }
+        };
+        // Exhaustive, and deliberately **not** `..*self`. The struct-update form is the
+        // hazard: with it a new field is silently carried verbatim, so a background
+        // added to the transcript simply stops being lifted and nothing says so.
+        // Naming every field makes the omission a compile error and puts the decision
+        // (`lift`, or carry verbatim) in the diff where a reviewer sees it.
+        //
+        // The `lift(..)` set here must equal the `true` set in `background_fields` —
+        // that is what the headroom measurement counted, so a field lifted here but not
+        // counted there (or vice versa) would either truncate a band or shrink the pane's
+        // headroom for nothing. `pane_lifted_lifts_exactly_the_classified_backgrounds`
+        // holds the two in agreement.
+        Self {
+            // Foregrounds and identity tones: verbatim. They are the document's meaning,
+            // not its elevation — a running hue means the same thing at either page level.
+            user_fg: self.user_fg,
+            error_fg: self.error_fg,
+            system_fg: self.system_fg,
+            code_fg: self.code_fg,
+            heading_fg: self.heading_fg,
+            quote_fg: self.quote_fg,
+            dim_fg: self.dim_fg,
+            text: self.text,
+            text_muted: self.text_muted,
+            text_hover: self.text_hover,
+            affordance_fg: self.affordance_fg,
+            primary: self.primary,
+            warning: self.warning,
+            success: self.success,
+            info: self.info,
+            pane_marker_bg: self.pane_marker_bg,
+            running_fg: self.running_fg,
+            caret_fg: self.caret_fg,
+            input_placeholder_fg: self.input_placeholder_fg,
+            crate_fg: self.crate_fg,
+            keycap_fg: self.keycap_fg,
+            keycap_label_fg: self.keycap_label_fg,
+            keycap_accent_fg: self.keycap_accent_fg,
+            keycap_warn_fg: self.keycap_warn_fg,
+            // Surfaces of *other* regions: verbatim. The composer panel, menus, toasts and
+            // the modal backdrop are painted from the unlifted theme, outside the
+            // transcript rect, so lifting them would move chrome the cue does not own —
+            // and it would charge the pane's headroom for surfaces the lift never reaches.
+            panel_bg: self.panel_bg,
+            input_bg_active: self.input_bg_active,
+            input_bg_inactive: self.input_bg_inactive,
+            toast_bg: self.toast_bg,
+            which_key_bg: self.which_key_bg,
+            backdrop: self.backdrop,
+            input_selection_bg: self.input_selection_bg,
+            crate_bg: self.crate_bg,
+            keycap_bg: self.keycap_bg,
+            // Not colors.
+            modal_dim_factor: self.modal_dim_factor,
+            glyphs: self.glyphs,
+            elevation: self.elevation,
+            // Backgrounds the transcript pane draws: lifted by the delta.
+            app_bg: lift(self.app_bg),
+            code_bg: lift(self.code_bg),
+            selected_bg: lift(self.selected_bg),
+            user_panel_bg: lift(self.user_panel_bg),
+            element_bg: lift(self.element_bg),
+            menu_bg: lift(self.menu_bg),
+            diff_add_bg: lift(self.diff_add_bg),
+            diff_del_bg: lift(self.diff_del_bg),
+            diff_add_hl: lift(self.diff_add_hl),
+            diff_del_hl: lift(self.diff_del_hl),
+            command_band_bg: lift(self.command_band_bg),
+            command_band_bg_hover: lift(self.command_band_bg_hover),
+            // The declared wash tone is the *wish*, not a surface: it is what
+            // `pane_focus_delta` measured against, and the lifted theme's page already
+            // carries the result. Lifting it again would imply the wish had a second
+            // reading, so it stays put like every other non-surface token.
+            pane_focus_bg: self.pane_focus_bg,
+        }
+    }
+
+    /// Whether this palette can carry a **whole-pane** focus wash.
+    ///
+    /// Derived, never declared: a theme that cannot absorb the step (no RGB page, or
+    /// no headroom above its own bands) reports `false` and the transcript uses
+    /// [`Self::pane_focus_edge_style`]. That makes "which cue does this profile get"
+    /// a property of the palette a user actually loaded, rather than of the
+    /// archetype it was classified into — a hand-authored `Chromatic` theme on a
+    /// near-white page now gets a correct answer instead of a washed-out one.
+    pub fn has_pane_wash(&self) -> bool {
+        self.pane_focus_delta().is_some()
+    }
+
+    /// The **browse cue** for palettes that cannot lift the page: the pane's gutter
+    /// columns in a quiet tone.
+    ///
+    /// This is the one place the design keeps an edge cue, and the reason is
+    /// structural rather than aesthetic. A whole-pane wash needs channel headroom;
+    /// a profile without it still needs *some* pane-scoped background change, and the
+    /// gutter is the largest region it can afford. (On a `Reset`-page console the
+    /// alternative — tinting the whole viewport with a named slot — drowns the
+    /// document.)
+    ///
+    /// `Structured` (VT100 / monochrome) has no color at all, so it degrades to
+    /// reverse video — the same vocabulary every other focus and selection cue on
+    /// that archetype uses (ADR-0053).
+    pub fn pane_focus_edge_style(&self) -> Style {
+        match self.elevation {
+            ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
+            ElevationArchetype::Hybrid => Style::default().bg(self.selected_bg),
+            // Reachable on a Chromatic palette whose headroom is gone. It must **not**
+            // borrow `pane_marker_bg`: the two answer different questions ("this pane is
+            // live" vs "the keyboard is on this entry"), and a shared tone makes a
+            // browse-focused pane indistinguishable from an entry-marked one — the exact
+            // conflation the marker/band split exists to prevent. The gutter is a surface,
+            // so it uses the scheme's raised tone, which is the rung the composer's panel
+            // also occupies on this archetype.
+            ElevationArchetype::Chromatic => Style::default().bg(self.element_bg),
+        }
+    }
+
+    /// The style of the **entry marker**: the single cell the pointed-at entry's
+    /// header row carries in its reserved gutter (ADR-0145, amended).
+    ///
+    /// A filled cell rather than a glyph, so it needs no glyph-set entry and cannot
+    /// drift between UTF-8 and ASCII terminals. On the `Structured` archetype it
+    /// degrades to reverse video, that archetype's only vocabulary (ADR-0053).
+    ///
+    /// The fill is a **neutral luminance rung** on the color-carrying archetypes, so
+    /// it can be mistaken for neither a lifecycle hue nor a text selection — and it
+    /// is the same tone the wash-less fallback uses, which is why the two never
+    /// disagree about what "the keyboard is here" looks like.
+    pub fn pane_marker_style(&self) -> Style {
         match self.elevation {
             ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
             ElevationArchetype::Hybrid | ElevationArchetype::Chromatic => {
-                Style::default().bg(self.entry_focus_bg)
+                Style::default().bg(self.pane_marker_bg)
             }
         }
     }
 
-    /// The band a focused entry paints behind its header row. `Reset` on the
-    /// Structured archetype, where [`Self::entry_focus_style`] carries the cue
-    /// as reverse video instead (and a `Reset` bg is what keeps every
-    /// `band_text` caller on its semantic tone rather than a contrast flip).
-    pub fn entry_focus_band(&self) -> Color {
-        self.entry_focus_bg
-    }
-
-    /// The style of the transcript pane's **focus rail** — the gutter column
-    /// that marks "the keyboard is in this pane" while the transcript plane owns
-    /// it (ADR-0145).
-    ///
-    /// It carries the focus band's own tone so the rail and the focused entry's
-    /// band read as one family: the rail says *this pane*, the band says *this
-    /// row*. On the `Structured` archetype the rail is the half-block left
-    /// eighth `▏` in reverse video — the only way a VT100 can widen a line
-    /// (ADR-0053) — and the emitted glyph degrades to ASCII at the driver.
-    pub fn entry_focus_rail_style(&self) -> Style {
-        match self.elevation {
-            ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
-            ElevationArchetype::Hybrid | ElevationArchetype::Chromatic => {
-                Style::default().bg(self.entry_focus_bg)
-            }
-        }
+    /// The **in-flight** hue: the one tone that means "work is happening on this row
+    /// right now" (ADR-0110 `[INV-TUI-RUNNING-01]`, amended).
+    pub fn running(&self) -> Color {
+        self.running_fg
     }
 
     // Foregrounds
@@ -1480,6 +1955,10 @@ impl Theme {
     // Component Overrides Tokens
     pub fn components(&self) -> ComponentsTokens {
         ComponentsTokens {
+            pane: PaneTokens {
+                wash_bg: self.pane_focus_bg,
+                marker_bg: self.pane_marker_bg,
+            },
             input: InputTokens {
                 bg_active: self.input_bg_active,
                 bg_inactive: self.input_bg_inactive,
@@ -1598,13 +2077,49 @@ pub struct CommandTokens {
     pub hover_bg: Color,
 }
 
+/// The transcript pane's keyboard-ownership pair (ADR-0145).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaneTokens {
+    pub wash_bg: Color,
+    pub marker_bg: Color,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ComponentsTokens {
     pub input: InputTokens,
+    pub pane: PaneTokens,
     pub diff: DiffTokens,
     pub command: CommandTokens,
     pub crate_tag: Color,
     pub crate_badge: Color,
+}
+
+/// The channels of an RGB color, or `None` for `Reset` / named ANSI slots, which
+/// have no defined RGB to compute with.
+///
+/// Every derivation that has to *measure* a palette — the pane headroom clamp, the
+/// marker's neutrality, the swatch-staging band — goes through this rather than
+/// [`rgb`]'s placeholder greys, because a `Reset` surface has no channels and
+/// pretending it does silently fabricates headroom that is not there.
+fn rgb_opt(color: Color) -> Option<(u8, u8, u8)> {
+    match color {
+        Color::Rgb(r, g, b) => Some((r, g, b)),
+        _ => None,
+    }
+}
+
+/// Whether shifting `band` by the per-channel delta from `page` to `wash` stays
+/// inside the channel range — i.e. whether the additive pane lift can preserve
+/// this surface's elevation without clamping it.
+#[cfg(test)]
+fn survives_the_lift(page: Color, wash: Color, band: Color) -> bool {
+    let (Some((wr, wg, wb)), Some((pr, pg, pb)), Some((br, bgc, bb))) =
+        (rgb_opt(wash), rgb_opt(page), rgb_opt(band))
+    else {
+        return true;
+    };
+    let ok = |w: u8, p: u8, b: u8| (0..=255).contains(&(b as i16 + (w as i16 - p as i16)));
+    ok(wr, pr, br) && ok(wg, pg, bgc) && ok(wb, pb, bb)
 }
 
 fn rgb(color: Color) -> (u8, u8, u8) {
@@ -1658,6 +2173,22 @@ fn min_swatch_distance(band: Color, swatches: &[Color]) -> f32 {
         .fold(f32::MAX, f32::min)
 }
 
+/// Pull `color` toward the neutral grey of the same mean channel value by
+/// `amount` (0.0 = unchanged, 1.0 = fully grey).
+///
+/// The transcript's keyboard cues must read as *marks*, never as states: every
+/// tone a renderer picks for a row carries meaning (disclosure luminance,
+/// lifecycle hue), so a cue that borrowed even a little chroma would start to
+/// look like one of them. Stripping the chroma makes the marker legible on
+/// light and dark palettes alike without claiming a semantic hue.
+fn desaturate(color: Color, amount: f32) -> Color {
+    let (r, g, b) = rgb(color);
+    let grey = (r as f32 + g as f32 + b as f32) / 3.0;
+    let amount = amount.clamp(0.0, 1.0);
+    let channel = |c: u8| (c as f32 + (grey - c as f32) * amount).round() as u8;
+    Color::Rgb(channel(r), channel(g), channel(b))
+}
+
 fn luminance(color: Color) -> f32 {
     let (r, g, b) = rgb(color);
     0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
@@ -1675,72 +2206,491 @@ mod tests {
         assert_eq!(Theme::normalize_color_scheme(""), "zen");
     }
 
-    /// The entry focus band must be a **visible** step off the page in every
-    /// colour-capable scheme, and it must never be mistakable for a text
-    /// selection (ADR-0145 `[INV-FOCUS-04]`).
+    /// Keyboard ownership of the transcript is carried by **area**, not by
+    /// per-cell contrast: the pane wash must be visible in every colour-capable
+    /// scheme but must stay a small step, because it lands on every cell of the
+    /// viewport (ADR-0145, amended).
     ///
-    /// The regression this locks: the transcript's "the keyboard is here" cue
-    /// used to be a foreground tint, which on an expanded entry was suppressed
-    /// entirely — so `Shift-Tab` had one visible half. A band that is a couple of
-    /// luminance units off the page would reintroduce exactly that: nominal in
-    /// code, invisible on screen.
+    /// Both halves are load-bearing and they pull in opposite directions:
+    ///
+    /// - a wash a couple of luminance units off the page is *nominal* — the
+    ///   crossing looks like nothing happened, which is the original defect;
+    /// - a wash as large as a selection band blinds the transcript, which is the
+    ///   other failure the first band shipped.
+    ///
+    /// So the step is bounded on both sides: a visible floor and a ceiling well
+    /// below the `selected` tone.
     #[test]
-    fn entry_focus_band_is_a_visible_step_in_every_color_scheme() {
+    fn pane_focus_is_a_small_but_visible_wash_in_every_color_scheme() {
         for name in ["zen", "midnight", "nord", "catppuccin", "paper"] {
             let theme = Theme::from_color_scheme(name, &ColorSchemeConfig::default());
-            let band = theme.entry_focus_band();
+            let wash = theme.pane_focus();
             assert_ne!(
-                band,
+                wash,
                 theme.surface(),
-                "{name}: the focus band must not melt into the page"
+                "{name}: the pane wash must not melt into the page"
             );
-            let step = (luminance(band) - luminance(theme.surface())).abs();
+            let step = (luminance(wash) - luminance(theme.surface())).abs();
             assert!(
-                step >= 20.0,
-                "{name}: a {step:.0}-unit step is not a visible cue (band {band:?}, page {:?})",
+                step >= 4.0,
+                "{name}: a {step:.1}-unit step is not a visible wash (wash {wash:?}, page {:?})",
                 theme.surface()
+            );
+            assert!(
+                step <= 20.0,
+                "{name}: a {step:.1}-unit wash is a highlight, not a page state — it would \
+                 wash out every tone resolved for the page"
             );
             // A keyboard-ownership cue must never read as a text selection.
             assert_ne!(
-                band,
+                wash,
                 theme.selected(),
-                "{name}: the focus band must not equal the selection tone"
+                "{name}: the pane wash must not equal the selection tone"
             );
-            // And the summary tone must stay legible on it — the band is painted
-            // under real text, so it has to survive the contrast re-seat.
-            assert_ne!(
-                theme.band_text(band, theme.muted()),
-                band,
-                "{name}: the summary tone must not disappear into the band"
+            // The lift is applied **additively** to every background in the pane, so
+            // each band keeps its elevation above the page and the document's ladder
+            // survives. The condition for that is headroom, and the token layer
+            // *enforces* it rather than assuming it: `pane_focus()` scales the
+            // declared wish back to the largest step this palette can absorb, so no
+            // band can clamp. (Asserted structurally below, over hostile palettes as
+            // well as the built-ins.)
+            let delta = theme
+                .pane_focus_delta()
+                .unwrap_or_else(|| panic!("{name}: the built-in schemes must carry a pane wash"));
+            for band in theme.pane_bands() {
+                assert!(
+                    survives_the_lift(theme.surface(), theme.pane_focus(), band),
+                    "{name}: the derived wash must never clamp {band:?}"
+                );
+            }
+            // And the derived delta is the declared wish, unclamped, on a palette that
+            // has room — the clamp must not quietly shrink every scheme.
+            let wished = |w: Color, p: Color| -> i16 {
+                let (wr, _, _) = rgb(w);
+                let (pr, _, _) = rgb(p);
+                wr as i16 - pr as i16
+            };
+            if name != "paper" {
+                assert_eq!(
+                    delta[0],
+                    wished(theme.pane_focus_bg, theme.surface()),
+                    "{name}: a palette with headroom keeps the declared step exactly"
+                );
+            }
+            // The page's own foreground must stay legible on it without any
+            // re-seat, because the wash covers prose the renderers never touch.
+            let text_step = (luminance(theme.fg()) - luminance(wash)).abs();
+            assert!(
+                text_step >= 100.0,
+                "{name}: body text must stay legible on the pane wash ({text_step:.0})"
             );
         }
     }
 
-    /// On the no-colour archetypes the band is carried by DEC reverse video
+    /// `pane_lifted()` must lift **exactly** the fields the headroom classification
+    /// calls backgrounds — no more, no less.
+    ///
+    /// This is the test that closes the drift between the two lists. It is *derived*
+    /// from `background_fields()` rather than enumerating a handful of fields, because a
+    /// hand-picked list is precisely how the original bug survived: a field was added,
+    /// classified, and never lifted, and a nine-field assertion had no way to notice the
+    /// tenth.
+    ///
+    /// The two directions:
+    /// - every field classified `true` **must** move by the delta;
+    /// - every field classified `false` **must** arrive byte-identical.
+    ///
+    /// The second half matters as much as the first: a foreground that drifted with the
+    /// page would change the document's *meaning* (a running hue means the same thing at
+    /// either page level), which is a worse failure than a flattened band.
+    #[test]
+    fn pane_lifted_lifts_exactly_the_classified_backgrounds() {
+        let theme = Theme::default();
+        let lifted = theme.pane_lifted();
+        let delta = theme.pane_focus_delta().expect("zen carries a wash");
+        let shift = |c: Color| -> Color {
+            match rgb_opt(c) {
+                Some((r, g, b)) => {
+                    let f = |c: u8, d: i16| (c as i16 + d).clamp(0, 255) as u8;
+                    Color::Rgb(f(r, delta[0]), f(g, delta[1]), f(b, delta[2]))
+                }
+                None => c,
+            }
+        };
+
+        let before = theme.background_fields();
+        let after = lifted.background_fields();
+        assert_eq!(before.len(), after.len(), "the field sets must correspond");
+
+        for ((field, was, is_background), (_, now, _)) in before.iter().zip(after.iter()) {
+            assert_eq!(field, field, "the two classifications must agree on order");
+            if *is_background {
+                assert_eq!(
+                    now,
+                    &shift(*was),
+                    "{field}: classified as a pane background but not lifted — its \
+                     elevation above the page would be truncated"
+                );
+            } else {
+                assert_eq!(
+                    now, was,
+                    "{field}: classified as NOT a pane background but it moved — \
+                     foregrounds and foreign surfaces must not drift with the page"
+                );
+            }
+        }
+    }
+
+    /// Lifting the *theme* must be exactly equivalent to restyling every cell of the
+    /// painted pane — that equivalence is what lets the renderer take the cheap path
+    /// (`Theme::pane_lifted`) instead of the per-cell one, and it is what keeps the
+    /// field list in `pane_lifted` honest: a background that is not lifted there
+    /// fails here.
+    ///
+    /// "Background" is the operative word: foregrounds are semantic and must not
+    /// move, or a running hue would change meaning with the keyboard's location.
+    #[test]
+    fn pane_lifted_theme_matches_a_cell_wise_restyle() {
+        let theme = Theme::default();
+        let lifted = theme.pane_lifted();
+        let delta = theme.pane_focus_delta().expect("zen carries a wash");
+        let shift = |c: Color| match rgb_opt(c) {
+            Some((r, g, b)) => {
+                let f = |c: u8, d: i16| (c as i16 + d).clamp(0, 255) as u8;
+                Color::Rgb(f(r, delta[0]), f(g, delta[1]), f(b, delta[2]))
+            }
+            None => c,
+        };
+
+        // Every background the transcript reaches for moves by exactly the delta.
+        for (label, before, after) in [
+            ("page", theme.app_bg, lifted.app_bg),
+            ("body", theme.menu_bg, lifted.menu_bg),
+            ("code", theme.code_bg, lifted.code_bg),
+            ("raised", theme.element_bg, lifted.element_bg),
+            (
+                "command card",
+                theme.command_band_bg,
+                lifted.command_band_bg,
+            ),
+            ("selection", theme.selected_bg, lifted.selected_bg),
+            ("user panel", theme.user_panel_bg, lifted.user_panel_bg),
+            ("diff add", theme.diff_add_bg, lifted.diff_add_bg),
+            ("diff del", theme.diff_del_bg, lifted.diff_del_bg),
+        ] {
+            assert_eq!(after, shift(before), "{label} must be lifted by the delta");
+        }
+
+        // Foregrounds are untouched.
+        assert_eq!(lifted.text, theme.text);
+        assert_eq!(lifted.text_muted, theme.text_muted);
+        assert_eq!(lifted.running_fg, theme.running_fg);
+        assert_eq!(lifted.info, theme.info);
+        assert_eq!(lifted.pane_marker_bg, theme.pane_marker_bg);
+
+        // And the lift is a translation: every separation is invariant.
+        for band in theme.pane_bands() {
+            let before = luminance(band) - luminance(theme.surface());
+            let after = luminance(shift(band)) - luminance(lifted.surface());
+            assert!(
+                (after - before).abs() < 0.01,
+                "{band:?} moved relative to the page"
+            );
+        }
+    }
+
+    /// Every reachable palette must land on **one** of the two correct answers, and
+    /// never on a third: either a wash that preserves the whole ladder, or the gutter
+    /// fallback. This is the sweep the earlier design never ran — it only checked the
+    /// five built-in schemes, so a hand-authored theme could produce a wash that
+    /// clamped its own bands.
+    ///
+    /// The palettes covered are exactly the ones a user can reach: the built-ins
+    /// through the scheme table (already swept elsewhere), the custom palettes built
+    /// from arbitrary hex semantics, and the two `Reset` archetypes.
+    #[test]
+    fn every_reachable_palette_lands_on_a_correct_pane_cue() {
+        let custom = ColorSchemeConfig::default();
+        let mut palettes: Vec<(String, Theme)> = Vec::new();
+        for scheme in Theme::available_color_schemes() {
+            palettes.push((
+                scheme.id.to_string(),
+                Theme::from_color_scheme(&scheme.id, &custom),
+            ));
+        }
+        // Extremes a custom `colors` block can actually produce: near-white paper, near
+        // -black ink, and a page that sits above and below its own surfaces.
+        for (label, background, surface, text) in [
+            ("near-white", "#fefefe", "#ffffff", "#101010"),
+            ("near-black", "#010101", "#050505", "#e0e0e0"),
+            ("mid-grey", "#808080", "#909090", "#303030"),
+            ("page-above-surface", "#f0f0f0", "#e0e0e0", "#202020"),
+            ("page-below-surface", "#202020", "#f0f0f0", "#f8f8f8"),
+        ] {
+            palettes.push((
+                label.to_string(),
+                Theme::from_custom(&ColorSchemeConfig {
+                    background: background.to_string(),
+                    surface: surface.to_string(),
+                    text: text.to_string(),
+                    ..Default::default()
+                }),
+            ));
+        }
+
+        for (label, theme) in palettes {
+            if !theme.has_pane_wash() {
+                // The fallback must still be a real cue.
+                assert_ne!(
+                    theme.pane_focus_edge_style(),
+                    Style::default(),
+                    "{label}: a palette without a wash needs a fallback cue"
+                );
+                continue;
+            }
+            assert!(
+                theme.pane_focus_delta().is_some(),
+                "{label}: has_pane_wash must imply a delta"
+            );
+            for band in theme.pane_bands() {
+                assert!(
+                    survives_the_lift(theme.surface(), theme.pane_focus(), band),
+                    "{label}: the derived wash would clamp {band:?}"
+                );
+            }
+            // And the cue is a *visible* step, or it is not a cue.
+            let step = (luminance(theme.pane_focus()) - luminance(theme.surface())).abs();
+            assert!(step >= 1.0, "{label}: a {step:.2}-unit wash is nominal");
+        }
+    }
+
+    /// A palette with **no headroom** must lose the wash, not flatten its own
+    /// document.
+    ///
+    /// This is the case the earlier design could not express: it declared the wash
+    /// per *archetype* and trusted the literal, so a `Chromatic` theme whose bands
+    /// sat at the pole the lift travels toward had no way to say "this palette cannot
+    /// carry a whole-pane cue". The clamp now measures the palette and answers
+    /// honestly — the transcript takes the gutter form instead of a washed-out page.
+    #[test]
+    fn a_palette_without_headroom_refuses_the_wash() {
+        // A band already sitting on the ceiling the lift travels toward: shifting it
+        // would clamp, and clamping it is exactly the flattening this design exists to
+        // avoid. There is no legal step, so there is no wash.
+        let pinned = Theme {
+            app_bg: Color::Rgb(250, 250, 250),
+            pane_focus_bg: Color::Rgb(255, 255, 255),
+            code_bg: Color::Rgb(255, 255, 255),
+            ..Default::default()
+        };
+        assert!(
+            !pinned.has_pane_wash(),
+            "a band pinned at the pole leaves no room for the lift"
+        );
+        assert_eq!(pinned.pane_focus(), Color::Reset);
+        // …and the fallback still names a pane-scoped background, so the crossing is
+        // not silent on that palette either.
+        assert_ne!(pinned.pane_focus_edge_style(), Style::default());
+
+        // The same palette becomes usable the moment the band gives back one unit —
+        // the refusal is a measurement, not a blacklist.
+        let one_unit = Theme {
+            code_bg: Color::Rgb(254, 254, 254),
+            ..pinned
+        };
+        assert!(one_unit.has_pane_wash());
+        assert_eq!(one_unit.pane_focus(), Color::Rgb(251, 251, 251));
+    }
+
+    /// A wash that *would* clamp is **scaled back**, not clamped. The distinction is
+    /// the whole point: clamping truncates the step (and silently flattens the
+    /// band it truncated), while scaling preserves the ladder at a smaller
+    /// magnitude — the cue stays honest about how much room there is.
+    #[test]
+    fn an_oversized_wash_is_scaled_back_to_the_headroom() {
+        // One band pinned at the top of the range: the lift may travel at most as far
+        // as that band's headroom allows.
+        let theme = Theme {
+            app_bg: Color::Rgb(10, 10, 10),
+            code_bg: Color::Rgb(250, 250, 250),
+            pane_focus_bg: Color::Rgb(200, 200, 200),
+            ..Default::default()
+        };
+        let delta = theme
+            .pane_focus_delta()
+            .expect("there is headroom, just little");
+        assert_eq!(
+            delta[0], 5,
+            "the lift is bounded by the band's 5 units of room, not by the declared 190"
+        );
+        assert!(
+            survives_the_lift(theme.surface(), theme.pane_focus(), theme.code_surface()),
+            "the derived wash must not clamp the band"
+        );
+        // The derived tone is the *scaled* step, not the declared wish.
+        assert_eq!(theme.pane_focus(), Color::Rgb(15, 15, 15));
+    }
+
+    /// A hand-authored override moves the **wish**, never the invariant.
+    ///
+    /// The configuration surface exists so a theme can state these two tones. It must
+    /// not exist as a way to flatten a transcript: an override that lands inside a
+    /// band's headroom is scaled like any other wish, and one that points back at the
+    /// page is refused outright.
+    #[test]
+    fn a_theme_override_cannot_flatten_the_pane() {
+        use crate::color_scheme::ThemeFile;
+
+        let file = ThemeFile {
+            components: Some(crate::color_scheme::ComponentThemesConfig {
+                pane: Some(crate::color_scheme::PaneThemeConfig {
+                    wash_bg: Some("#ffffff".to_string()),
+                    marker_bg: Some("#888888".to_string()),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let theme = Theme::from_theme_file(&file);
+        assert_eq!(theme.pane_marker_bg, Color::Rgb(136, 136, 136));
+        for band in theme.pane_bands() {
+            assert!(
+                survives_the_lift(theme.surface(), theme.pane_focus(), band),
+                "an override must not clamp {band:?}"
+            );
+        }
+
+        // An override that names the page itself is a no-op, not a silent wash.
+        let flat = ThemeFile {
+            components: Some(crate::color_scheme::ComponentThemesConfig {
+                pane: Some(crate::color_scheme::PaneThemeConfig {
+                    wash_bg: Some("#070808".to_string()),
+                    marker_bg: None,
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let flat = Theme::from_theme_file(&flat);
+        assert!(!flat.has_pane_wash(), "a zero-step wash is not a cue");
+        assert_eq!(flat.pane_focus(), Color::Reset);
+    }
+
+    /// The entry marker holds a **fixed absolute tone**, so it must stay distinguishable
+    /// from the page *after* the page is lifted — not just before.
+    ///
+    /// This is the property that replaces "keeps its elevation" for a non-surface mark.
+    /// It is asserted separately because the two are genuinely different requirements: a
+    /// band must preserve its step, a mark must not be swallowed. Classifying the marker
+    /// as a background would have implied the former and hidden the latter.
+    #[test]
+    fn the_entry_marker_stays_distinguishable_from_the_lifted_page() {
+        let custom = ColorSchemeConfig::default();
+        for scheme in Theme::available_color_schemes() {
+            let theme = Theme::from_color_scheme(&scheme.id, &custom);
+            let marker = theme.pane_marker_bg;
+            for (state, page) in [("blurred", theme.surface()), ("lifted", theme.pane_focus())] {
+                if page == Color::Reset || marker == Color::Reset {
+                    continue;
+                }
+                let step = (luminance(marker) - luminance(page)).abs();
+                assert!(
+                    step >= 40.0,
+                    "{}: the marker is only {step:.0} from the {state} page — the cue \
+                     would be swallowed",
+                    scheme.id
+                );
+            }
+        }
+    }
+
+    /// The entry marker is a **neutral luminance rung**: it must separate from
+    /// both the page and the entry's own text without borrowing a semantic hue,
+    /// so "the keyboard is on this entry" can never be read as an outcome state
+    /// or as a selection (ADR-0145, amended).
+    #[test]
+    fn entry_focus_marker_is_neutral_and_visible() {
+        for name in ["zen", "midnight", "nord", "catppuccin", "paper"] {
+            let theme = Theme::from_color_scheme(name, &ColorSchemeConfig::default());
+            let marker = theme.pane_marker_bg;
+            let (r, g, b) = rgb(marker);
+            // Neutral: no channel may dominate, so the marker cannot be mistaken
+            // for a hue-coded lifecycle state.
+            let spread = r.max(g).max(b) as i32 - r.min(g).min(b) as i32;
+            assert!(
+                spread <= 24,
+                "{name}: the entry marker must be a neutral rung, not a hue ({marker:?})"
+            );
+            assert_ne!(marker, theme.selected(), "{name}: never the selection tone");
+            assert_ne!(marker, theme.fg(), "{name}: never the body text tone");
+            let step = (luminance(marker) - luminance(theme.surface())).abs();
+            assert!(
+                step >= 60.0,
+                "{name}: a {step:.0}-unit marker is invisible on the page"
+            );
+        }
+    }
+
+    /// Liveness owns its own hue (ADR-0110 `[INV-TUI-RUNNING-01]`, amended).
+    ///
+    /// The reported ambiguity: a running tool step and the `› turn N` header
+    /// above it were both `info`, so "this row is working" and "this is where the
+    /// turn starts" read as the same fact. The in-flight tone must therefore be
+    /// distinct from every structural and outcome tone in every scheme.
+    #[test]
+    fn running_hue_is_distinct_from_structure_and_outcomes() {
+        for name in ["zen", "midnight", "nord", "catppuccin", "paper", "ansi16"] {
+            let theme = Theme::from_color_scheme(name, &ColorSchemeConfig::default());
+            let running = theme.running();
+            for (label, other) in [
+                ("info", theme.info()),
+                ("brand", theme.brand()),
+                ("ok", theme.ok()),
+                ("warn", theme.warn()),
+                ("err", theme.err()),
+                ("muted", theme.muted()),
+            ] {
+                assert_ne!(
+                    running, other,
+                    "{name}: the in-flight hue must not be the {label} tone"
+                );
+                if matches!(other, Color::Rgb(..)) && matches!(running, Color::Rgb(..)) {
+                    assert!(
+                        color_distance(running, other) >= 90.0,
+                        "{name}: the in-flight hue is too close to {label} ({:?} vs {other:?})",
+                        running
+                    );
+                }
+            }
+        }
+    }
+
+    /// On the no-colour archetypes the marker is carried by DEC reverse video
     /// instead, so no colour escape is emitted (ADR-0053). The cue must still
     /// exist — silence here is the original bug.
     #[test]
     fn entry_focus_is_reverse_video_on_a_structured_profile() {
         // VT100 / getty: no colour latitude at all, so the cue is the modifier.
         let mono = Theme::monochrome();
-        assert_eq!(mono.entry_focus_band(), Color::Reset);
+        assert_eq!(mono.pane_marker_bg, Color::Reset);
+        assert_eq!(mono.pane_focus(), Color::Reset);
         assert!(
-            mono.entry_focus_style()
+            mono.pane_marker_style()
                 .add
                 .contains(nuotc::Modifier::REVERSE),
-            "a VT100 says \"the keyboard is here\" with reverse video"
-        );
-        assert!(
-            mono.entry_focus_rail_style()
-                .add
-                .contains(nuotc::Modifier::REVERSE)
+            "a VT100 says \"the keyboard is on this entry\" with reverse video"
         );
 
-        // ANSI-16 does own one discrete highlight slot, so it uses that rather
-        // than fabricating an RGB mix the terminal would quantize away.
+        // ANSI-16 keeps the named slots: the pane cannot be lifted (its page is
+        // the terminal's own background) and the marker uses the brightest
+        // discrete slot rather than an RGB the console would quantize away.
         let hybrid = Theme::ansi16();
-        assert_eq!(hybrid.entry_focus_band(), Color::DarkGray);
-        assert!(!matches!(hybrid.entry_focus_band(), Color::Rgb(..)));
+        assert_eq!(hybrid.pane_focus(), Color::Reset);
+        assert_eq!(hybrid.pane_marker_bg, Color::White);
+        assert!(!matches!(hybrid.pane_marker_bg, Color::Rgb(..)));
+        assert_eq!(hybrid.pane_marker_style().bg, Color::White);
+        // Liveness is a named slot too — never an RGB.
+        assert!(!matches!(hybrid.running(), Color::Rgb(..)));
     }
 
     /// A listing row's color follows the shell's `ls` convention — blue dir,

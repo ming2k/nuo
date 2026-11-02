@@ -89,7 +89,10 @@ impl ActionStatus {
     ///
     /// Per `[INV-TUI-RUNNING-01]`:
     /// - `Idle`: foreground text, brand/accent highlight when focused.
-    /// - `Running`: active accent hue (`theme.info()`), BOLD, NEVER `theme.dim()`.
+    /// - `Running`: the dedicated in-flight hue (`theme.running()`), BOLD, NEVER
+    ///   `theme.dim()` and never `theme.info()` — `info` is the *structural* hue
+    ///   (turn headers, links, the info severity band), and a running control
+    ///   sharing it read as structure rather than as liveness.
     /// - `Disabled`: muted `theme.dim()`, no bold modifier.
     pub fn style(&self, theme: &Theme, is_focused: bool, default_border: Color) -> Style {
         match self {
@@ -104,15 +107,16 @@ impl ActionStatus {
                 }
             }
             Self::Running { .. } => {
-                // Invariant [INV-TUI-RUNNING-01]: Active accent hue, never dimmed
+                // Invariant [INV-TUI-RUNNING-01]: the in-flight hue, never dimmed
+                // and never the structural `info` tone.
                 if is_focused {
                     Style::default()
                         .fg(theme.app_bg)
-                        .bg(theme.info())
+                        .bg(theme.running())
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
-                        .fg(theme.info())
+                        .fg(theme.running())
                         .bg(Color::Reset)
                         .add_modifier(Modifier::BOLD)
                 }
@@ -137,7 +141,12 @@ mod tests {
         // 1. Running state must use active info hue, bold, and never dim tone
         let running = ActionStatus::running(0, Some(2));
         let running_style = running.style(&theme, false, border);
-        assert_eq!(running_style.fg, theme.info());
+        assert_eq!(running_style.fg, theme.running());
+        assert_ne!(
+            running_style.fg,
+            theme.info(),
+            "[INV-TUI-RUNNING-01] liveness must not borrow the structural info hue"
+        );
         assert!(running_style.add.contains(Modifier::BOLD));
         assert_ne!(
             running_style.fg,

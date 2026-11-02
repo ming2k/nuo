@@ -5,7 +5,8 @@
 //!
 //! Enforces:
 //! - `[INV-TUI-RUNNING-01]` (Strict Lifecycle-Tone Separation): In-flight tools
-//!   render with active info hue (`theme.info()`), bold, never `theme.dim()`.
+//!   render with the dedicated in-flight hue (`theme.running()`), bold, never
+//!   `theme.dim()` and never the *structural* `theme.info()`.
 //! - `[INV-TUI-RUNNING-02]` (Action Permissibility Tri-Partition): Read inspection
 //!   (toggle expand, scroll body, examine output) remains 100% operational during Running.
 //! - `[INV-TUI-RUNNING-03]` (Progress Grammar & Frozen Fact Transition): Structured
@@ -351,8 +352,10 @@ impl ToolCard {
         let (status_badge, status_color) = match &props.status {
             ToolStatus::Running { spinner_frame, .. } => {
                 let glyphs = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-                // Invariant [INV-TUI-RUNNING-01]: Active info hue, never dimmed
-                (glyphs[spinner_frame % glyphs.len()], theme.info())
+                // Invariant [INV-TUI-RUNNING-01]: the in-flight hue, never
+                // dimmed and never the structural `info` tone — a running card
+                // and the `› turn N` header above it must not be the same color.
+                (glyphs[spinner_frame % glyphs.len()], theme.running())
             }
             ToolStatus::Success { .. } => ("✓", theme.ok()),
             ToolStatus::Failed { .. } => ("✗", theme.error_fg),
@@ -403,7 +406,7 @@ impl ToolCard {
                     Some(s) => format!("(running · {s}s)"),
                     None => "(running)".to_string(),
                 };
-                header_spans.push(Span::styled(label, Style::default().fg(theme.info())));
+                header_spans.push(Span::styled(label, Style::default().fg(theme.running())));
             }
             ToolStatus::Success {
                 duration_ms: Some(ms),

@@ -1,4 +1,4 @@
-//! Virtual File System (VFS) abstraction for in-process projection (ADR-0070).
+//! Virtual File System (VFS) abstraction for in-process projection (ADR-0070 → ADR-0093).
 //!
 //! Provides transparent in-memory resolution of virtual paths (e.g. `/tmp/nuo/vfs/...`,
 //! `/virtual/...`, `virtual://...`) directly against Content-Addressed Storage (CAS)

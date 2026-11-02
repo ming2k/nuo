@@ -63,7 +63,7 @@ pub enum ToolOutput {
         lines: Vec<ShellLine>,
         exit: Option<i32>,
         truncated: bool,
-        /// The claim-check stub note (ADR-0057): the human/model-readable
+        /// The claim-check stub note (ADR-0057 → ADR-0069): the human/model-readable
         /// truncation acknowledgment stamped into `to_text` when `truncated`
         /// fired. `None` (or legacy snapshots without the field, via
         /// `#[serde(default)]`) renders as the plain bounded log preview.

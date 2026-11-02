@@ -76,20 +76,18 @@ pub fn draw_tool_step(
         _ => Some(status_color),
     };
     let interaction = Interaction::from_hover_focused(hovered, focused);
-    // The keyboard-ownership chrome (ADR-0145). A focused entry's header row is
-    // painted on the sheet-wide focus band, and its summary tone is re-seated on
-    // that band, so the crossing from the composer is visible in the *same*
-    // channel and at the same weight the composer itself uses. Both are no-ops
-    // when this entry is not the focused one.
-    let chrome = interaction.chrome(ctx.theme);
-    let summary_color = chrome.text(
+    // Keyboard ownership is *not* resolved here (ADR-0145, amended): the pane
+    // wash and the entry marker are painted once each by
+    // `nuo_view::focus_plane`, so this row renders identically whichever plane
+    // holds the keyboard. That is what lets the summary keep the tone this call
+    // resolved for the page — the earlier full-width focus band had to invert a
+    // running step's in-flight hue and a collapsed step's muted rung, which is
+    // precisely why it read as a highlighted component rather than as a surface.
+    let summary_color = summary_text_color(
+        accent,
+        Disclosure::from_expanded(expanded),
+        interaction,
         ctx.theme,
-        summary_text_color(
-            accent,
-            Disclosure::from_expanded(expanded),
-            interaction,
-            ctx.theme,
-        ),
     );
 
     // `ctx.area` arrives already inset by `draw_transcript` (the
@@ -117,10 +115,10 @@ pub fn draw_tool_step(
     }
 
     let inner_width = ctx.area.width as usize;
-    // The row surface: the ambient page, or the keyboard-focus band while this
-    // entry owns the keyboard. `summary_bg` is the one band the header (and its
-    // full-width padding) paints, so the focus cue needs no extra geometry.
-    let summary_bg = chrome.band().unwrap_or_else(|| ctx.theme.surface());
+    // The row surface: always the page. The header's full-width padding paints it
+    // so a wrapped body never shows the terminal's own background through the
+    // band's tail.
+    let summary_bg = ctx.theme.surface();
     let summary_line_idx = {
         if let Some((semantic_line, suffix)) = msg.tool_step_semantic_summary(ctx.workspace_root) {
             let suffix_style = Style::default()
@@ -136,7 +134,6 @@ pub fn draw_tool_step(
                 suffix_pair,
                 summary_color,
                 summary_bg,
-                chrome,
             )
         } else {
             draw_step_summary(
@@ -147,7 +144,6 @@ pub fn draw_tool_step(
                 &summary,
                 summary_color,
                 summary_bg,
-                chrome,
             )
         }
     };

@@ -1,6 +1,10 @@
 # Provider Consolidation Migration Runbook
 
-Operational runbook for executing **[ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md)**:
+- **Status**: Completed Migration Runbook (Executed & Ratified in [ADR-0027](../../adr/0027-provider-definition-single-source-and-adapters-retirement.md))
+- **Execution Date**: 2026-10-06 (Delivered in full; `nuo-provider-adapters` retired)
+- **Role**: Historical execution record and verification log for ADR-0027.
+
+Operational runbook for executing **[ADR-0027](../../adr/0027-provider-definition-single-source-and-adapters-retirement.md)**:
 making `providers/nuo-provider-*` the single authoritative provider definition and retiring
 `nuo-provider-adapters`.
 
@@ -308,7 +312,7 @@ These are comments/docs, not compile errors, but they become **false statements*
 
 - `docs/dev/subsystems.md` §2.3: remove the "pending retirement" marker; the ADR-0027
   registry row flips to Accepted.
-- Flip ADR-0027 `status: draft` → `accepted`; update `docs/adr/index.md`.
+- Flip ADR-0027 `status: draft` → `accepted`.
 - `cargo test --workspace`
 
 ---
