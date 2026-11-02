@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.68] - 2026-11-02
+
 ### Fixed
 
 - **The transcript ⇄ composer crossing is now visible on both sides (ADR-0145 `[INV-FOCUS-04]`).**
