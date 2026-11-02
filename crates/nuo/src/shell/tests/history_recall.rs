@@ -1351,7 +1351,7 @@ fn test_composer_hints_history_search_density() {
     assert!(left_str.contains("close"));
     assert!(left_str.contains("navigate"));
     assert!(left_str.contains("delete"));
-    assert!(left_str.contains("⇧Del"));
+    assert!(left_str.contains("Shift-Del"));
     assert!(right_str.contains("Tab"));
     assert!(right_str.contains("Enter"));
     assert!(right_str.contains("insert"));
@@ -1641,7 +1641,7 @@ async fn test_history_search_keeps_composer_active_and_shows_hints() {
     // The composer must NOT be marked as handed over to the transcript: the
     // history-search extension keeps the composer plane live (ADR-0145).
     assert!(
-        !screen.contains("⇧Tab composer"),
+        !screen.contains("Shift-Tab composer"),
         "the composer plane must stay live in history search: {screen}"
     );
 
@@ -2415,7 +2415,7 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
         "Ctrl-r must not open history search when step is focused"
     );
 
-    // 2. ⇧Tab crosses back to the composer (Esc deliberately does not — it is
+    // 2. Shift-Tab crosses back to the composer (Esc deliberately does not — it is
     // the interrupt chord and never moves the keyboard; ADR-0145).
     let back_tab = Event::Key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::NONE));
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, "session-test").await;
@@ -2439,7 +2439,7 @@ async fn test_ctrl_r_does_not_open_history_when_composer_inactive() {
         "Ctrl-r must not open history search when transcript is focused"
     );
 
-    // 4. ⇧Tab crosses back from browse focus too.
+    // 4. Shift-Tab crosses back from browse focus too.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, "session-test").await;
     assert!(app.focus.is_composer());
     assert!(app.is_composer_focused());

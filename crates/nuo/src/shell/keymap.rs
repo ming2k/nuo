@@ -84,7 +84,7 @@ pub fn key_from_event(event: KeyEvent) -> Key {
     // depending on the emulator and on whether the enhanced-keyboard protocol
     // is active) or as Tab-with-Shift. The pure model has one shape for it, so
     // the shift bit is normalized here rather than re-derived at every
-    // comparison site; without this a `⇧Tab` binding silently misses on
+    // comparison site; without this a `Shift-Tab` binding silently misses on
     // terminals that omit the flag.
     if code == KeyCode::BackTab {
         modifiers.insert(KeyModifiers::SHIFT);
@@ -110,7 +110,7 @@ pub enum CommandId {
     // Global (Hard-Bound Shortcuts)
     CommandPalette,
     CancelOrBack,
-    /// Cross the chat scene's peer focus planes (`⇧Tab`, ADR-0145).
+    /// Cross the chat scene's peer focus planes (`Shift-Tab`, ADR-0145).
     ToggleFocusPlane,
     InterruptTask,
     Quit,
@@ -435,7 +435,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::ToggleFocusPlane,
         label: "Switch Focus",
-        hint: "⇧Tab",
+        hint: keyvocab::SHIFT_TAB,
         category: CommandCategory::Session,
         scope: Scope::Global,
         bindings: &[Key::BACKTAB],
@@ -1343,7 +1343,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::HistorySearchDelete,
         label: "Delete History Entry",
-        hint: "Shift-Delete",
+        hint: keyvocab::SHIFT_DELETE,
         category: CommandCategory::Actions,
         scope: Scope::Dialog(DialogKind::HistorySearch),
         bindings: &[Key::SHIFT_DELETE],
@@ -1480,7 +1480,7 @@ fn canonical_global_key(key: Key) -> Option<CommandId> {
     if key == Key::F1 || key == Key::ALT_H {
         Some(CommandId::OpenHelp)
     } else if key == Key::BACKTAB {
-        // `⇧Tab` crosses the chat scene's peer focus planes. Not remappable
+        // `Shift-Tab` crosses the chat scene's peer focus planes. Not remappable
         // (`canonical_global_chord` returns `None` for the command): it is the
         // remove half of the `Tab` pair, and a remap would break the pairing
         // (ADR-0145 `[INV-FOCUS-01]`).
@@ -1634,7 +1634,7 @@ pub struct GlobalOverrides {
 impl GlobalOverrides {
     /// Build from a `[keybindings]` table (`command-id → chord spec`).
     /// Unknown command ids and unparseable chords are skipped; `Esc`/Back and
-    /// `⇧Tab`/SwitchFocus are deliberately not remappable (the universal escape
+    /// `Shift-Tab`/SwitchFocus are deliberately not remappable (the universal escape
     /// hatch, and the remove half of the `Tab` grammar pair).
     pub fn from_config(map: &HashMap<String, String>) -> Self {
         let mut o = Self::default();
@@ -1683,10 +1683,10 @@ pub fn resolve_global_key_with(key: Key, overrides: &GlobalOverrides) -> Option<
 /// views own (step 9). Verbs are the *shortcut* layer of a surface's
 /// scheme: each maps one chord to one semantic action, possibly gated by the
 /// surface's run state. The interaction grammar (Enter send/queue/activate/
-/// commit, Tab act-inside-the-composer, ⇧Tab cross-to-the-transcript, Esc
+/// commit, Tab act-inside-the-composer, Shift-Tab cross-to-the-transcript, Esc
 /// dismiss/interrupt, ↑/↓ walk, printable text) is deliberately **not**
 /// remappable — it is the surface's language, not a shortcut, mirroring how
-/// `Esc`/Back/`⇧Tab` are never remappable in the global layer (ADR-0145).
+/// `Esc`/Back/`Shift-Tab` are never remappable in the global layer (ADR-0145).
 ///
 /// A verb also never *navigates between planes*: there is no `clear_focus` or
 /// `toggle_focus` member, because the crossing is grammar. The three verbs that
@@ -1964,7 +1964,7 @@ mod tests {
         assert_eq!(Key::ESC.display(), "Esc");
         assert_eq!(Key::ENTER.display(), "Enter");
         assert_eq!(Key::TAB.display(), "Tab");
-        assert_eq!(Key::BACKTAB.display(), "⇧Tab");
+        assert_eq!(Key::BACKTAB.display(), "Shift-Tab");
         assert_eq!(Key::F5.display(), "F5");
         assert_eq!(
             Key {

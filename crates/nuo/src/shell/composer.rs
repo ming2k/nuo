@@ -248,7 +248,7 @@ pub fn cursor_screen_pos(
 /// `focused` selects the panel palette (the input's dedicated active /
 /// inactive background pair). The live composer passes `true` when
 /// no transcript step carries keyboard focus, and `false` when the user has
-/// crossed to the transcript peer plane with ⇧Tab — the recessed "read-only"
+/// crossed to the transcript peer plane with Shift-Tab — the recessed "read-only"
 /// band signals that the next keypress targets the step, not the input box.
 ///
 /// `image_count` / `paste_count` are the numbers of attachments actually
@@ -728,18 +728,6 @@ fn draw_composer_impl(
         let density = ActionDensity::for_width(keys_width);
         let mut spans: Vec<Span<'static>> = vec![indent.clone()];
         if focused {
-            let (left_spans, right_spans) = hint_row_parts(
-                hints.can_retry,
-                density,
-                hints.compose_target,
-                theme,
-                panel_bg,
-                hints.toggle_mode_key,
-                hints.focused_entry,
-            );
-            let left_w: usize = left_spans.iter().map(|s| str_len(&s.content)).sum();
-            let right_w: usize = right_spans.iter().map(|s| str_len(&s.content)).sum();
-
             let position_label = if wrapped.len() > visible_rows {
                 let first = *input_scroll + 1;
                 let last = (*input_scroll + visible_rows).min(wrapped.len());
@@ -750,8 +738,41 @@ fn draw_composer_impl(
             let pos_w = position_label.as_ref().map(|s| str_len(s) + 3).unwrap_or(0);
 
             let prefix_w = COMPOSER_PROMPT_PREFIX_COLS;
-            let target_right_w = right_w + pos_w;
             let available = full_w.saturating_sub(COMPOSER_RIGHT_PAD_COLS);
+
+            // The row gives up affordances in a fixed order, and each rung is
+            // worth strictly more than the one below it: a denser rendering
+            // (Full → Compact) still *names* the crossing and the delivery
+            // verb, while the Floor-1 collapse (`F1 more`) names neither. So
+            // try the ladder first and collapse only if every rung overflows.
+            let rendered = |d: ActionDensity| {
+                let (left, right) = hint_row_parts(
+                    hints.can_retry,
+                    d,
+                    hints.compose_target,
+                    theme,
+                    panel_bg,
+                    hints.toggle_mode_key,
+                    hints.focused_entry,
+                );
+                let left_w: usize = left.iter().map(|s| str_len(&s.content)).sum();
+                let right_w: usize = right.iter().map(|s| str_len(&s.content)).sum();
+                (left, left_w, right, right_w)
+            };
+            let ladder = density.ladder();
+            let fits = |d: ActionDensity| {
+                let (_, left_w, _, right_w) = rendered(d);
+                available >= prefix_w + left_w + right_w + pos_w
+            };
+            // Nothing fitting keeps the densest rung's row: the Floor-1 branch
+            // below re-checks the room it needs before drawing anything.
+            let chosen = ladder
+                .iter()
+                .copied()
+                .find(|&d| fits(d))
+                .unwrap_or_else(|| ladder.last().copied().unwrap_or(density));
+            let (left_spans, left_w, right_spans, right_w) = rendered(chosen);
+            let target_right_w = right_w + pos_w;
             let needed = prefix_w + left_w + target_right_w;
 
             if available >= needed {
@@ -794,9 +815,11 @@ fn draw_composer_impl(
             // is its peer and currently holds the keyboard (ADR-0145). The row
             // that would have advertised the composer's own verbs therefore
             // advertises the one gesture that comes back — a symmetric exit,
-            // named where the user is looking.
+            // named where the user is looking. The chord token comes from the
+            // shared key vocabulary rather than a literal, so this row can no
+            // more drift from the key's own name than a footer hint can.
             spans.push(Span::styled(
-                "⇧Tab composer",
+                format!("{} composer", super::keyvocab::SHIFT_TAB),
                 Style::default().bg(panel_bg).fg(theme.muted()),
             ));
         }

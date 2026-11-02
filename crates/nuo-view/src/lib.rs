@@ -16,6 +16,7 @@ pub mod composer_mode;
 pub mod disclosure;
 pub mod disclosure_config;
 pub mod empty_state;
+pub mod focus_plane;
 pub mod footer_stack;
 pub mod layout;
 pub mod markdown_table;

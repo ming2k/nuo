@@ -871,7 +871,7 @@ pub struct App {
     ///
     /// The Thread scene hosts two coequal surfaces: the composer (drafting) and
     /// the transcript (inspecting). Neither is the other's mode, and exactly one
-    /// owns the keyboard at any instant. `⇧Tab` crosses between them and is the
+    /// owns the keyboard at any instant. `Shift-Tab` crosses between them and is the
     /// only chord that does — a second, one-way "escape" chord would reintroduce
     /// the asymmetry this model removes (`[INV-FOCUS-01]`).
     ///

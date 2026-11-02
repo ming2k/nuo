@@ -347,9 +347,9 @@ pub fn route_event_motion(
                         return InputAction::ViewSwitcherToggle;
                     }
                     crate::shell::keymap::CommandId::ToggleFocusPlane => {
-                        // `⇧Tab` crosses the chat scene's peer focus planes.
+                        // `Shift-Tab` crosses the chat scene's peer focus planes.
                         // Top level only: an overlay traps the keyboard, and
-                        // its own `⇧Tab` verbs (field walking, tab cycling)
+                        // its own `Shift-Tab` verbs (field walking, tab cycling)
                         // are resolved by its scheme well before this arm.
                         if dispatch.overlay.is_none()
                             && dispatch.sheet.is_none()

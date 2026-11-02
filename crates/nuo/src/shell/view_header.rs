@@ -32,7 +32,8 @@ use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::{
-    CONTEXT_BAR_WORKSPACE_MIN_COLS, JOIN_ENUMERATE_COLS, STEP_MIN_WIDTH, TRANSCRIPT_H_INSET, Theme,
+    BAR_LEGEND_GAP_MIN, CONTEXT_BAR_WORKSPACE_MIN_COLS, JOIN_ENUMERATE_COLS, STEP_MIN_WIDTH,
+    TABBAR_H_INSET, TRANSCRIPT_H_INSET, Theme,
 };
 use crate::shell::surfaces::SceneKind;
 use nuo_ui_primitives::components::path::{PathFormatStrategy, PathStyle, PathView};
@@ -264,7 +265,13 @@ pub(crate) fn draw_tab_bar(
 
     let bg = theme.tabbar_bg();
     let fill = Style::default().bg(bg);
-    let pad = TRANSCRIPT_H_INSET as usize;
+    // Tier 1 is the one band that bleeds to both terminal edges: the tab rail
+    // *is* the shell's top border, so a gutter on this row would read as a
+    // break in the frame rather than as breathing room. Legibility is carried
+    // inside the row instead — each tab label is projected with one column of
+    // its own padding, and the status cluster keeps a legend gap from a
+    // truncated rail.
+    let pad = TABBAR_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
 
     // Status Cluster (ADR-0131 [INV-AFFORDANCE-01]):
@@ -279,7 +286,12 @@ pub(crate) fn draw_tab_bar(
 
     // Tab workspace rendering (ADR-0039 [INV-TAB-01], ADR-0040 [INV-UI-01], ADR-0060 [INV-TAB-09])
     if let Some(tabs) = tab_bar.tabs.filter(|t| !t.is_empty()) {
-        let available_for_tabs = text_width.saturating_sub(right_width);
+        // The tab rail may fill the row, but the status cluster keeps the
+        // standing legend gap: a truncated `[▾]` must never butt against a
+        // keycap.
+        let available_for_tabs = text_width
+            .saturating_sub(right_width)
+            .saturating_sub(BAR_LEGEND_GAP_MIN);
         let title_budget = adaptive_tab_title_width(tabs.len());
 
         let tab_texts: Vec<String> = tabs
@@ -1101,6 +1113,89 @@ mod tests {
         assert!(
             row.contains("F1 help"),
             "compact help affordance on TabBar: {row}"
+        );
+    }
+
+    /// Tier 1 is the only band that bleeds to both terminal edges: the tab
+    /// rail *is* the shell's top border, so no frame gutter may re-appear on
+    /// either side. Tiers 2 and 3 keep the gutter, so the two shapes must not
+    /// converge.
+    #[test]
+    fn row1_bleeds_to_both_terminal_edges() {
+        for width in [44u16, 80, 120] {
+            let tabs = vec![
+                crate::shell::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
+                crate::shell::surfaces::ClientTab::dashboard(),
+            ];
+            let tab_bar = TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+            };
+            let mut terminal = nuotc::TestTerminal::new(width, 1);
+            let mut nav = TabBarNavRects::default();
+            terminal.draw(|frame| {
+                nav = draw_tab_bar(frame, frame.area(), &tab_bar, &Theme::default());
+            });
+            let row: String = terminal
+                .buffer()
+                .cells()
+                .iter()
+                .map(|c| c.symbol.as_str())
+                .collect();
+            assert_eq!(row.width(), width as usize, "row fills the width: {row:?}");
+            assert_eq!(
+                nav.tab_rects[0].1.x, 0,
+                "the tab rail starts at the left terminal edge (w={width}): {row:?}"
+            );
+            assert_eq!(
+                nav.help_rect.expect("help affordance").right(),
+                width,
+                "the status cluster ends at the right terminal edge (w={width}): {row:?}"
+            );
+        }
+    }
+
+    /// Edge-to-edge must not mean glyph-on-edge: the first and last *tab*
+    /// labels keep their own single-column breathing room inside the rail.
+    #[test]
+    fn row1_tab_labels_keep_internal_padding_at_the_edges() {
+        let tabs = vec![
+            crate::shell::surfaces::ClientTab::thread("sess-01a2b3c4", None::<String>),
+            crate::shell::surfaces::ClientTab::dashboard(),
+        ];
+        let tab_bar = TabBarProps {
+            tabs: Some(&tabs),
+            active_tab: 0,
+            unread_faults: 0,
+        };
+        let row = render_row1(80, tab_bar);
+        assert!(
+            row.starts_with(" thread#b3c4"),
+            "leading label keeps one column of rail padding: {row:?}"
+        );
+    }
+
+    /// The right-pinned status cluster keeps the standing legend gap, so a
+    /// truncated overflow button can never butt against the `F1 help` keycap.
+    #[test]
+    fn row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow() {
+        let tabs: Vec<_> = (0..8)
+            .map(|i| {
+                crate::shell::surfaces::ClientTab::thread(format!("session-{i}"), None::<String>)
+            })
+            .collect();
+        let tab_bar = TabBarProps {
+            tabs: Some(&tabs),
+            active_tab: 7,
+            unread_faults: 0,
+        };
+        let row = render_row1(60, tab_bar);
+        let help_at = row.find("F1 help").expect("help affordance present");
+        let before = &row[..help_at];
+        assert!(
+            before.ends_with(&" ".repeat(BAR_LEGEND_GAP_MIN)),
+            "at least {BAR_LEGEND_GAP_MIN} columns before the keycap: {row:?}"
         );
     }
 

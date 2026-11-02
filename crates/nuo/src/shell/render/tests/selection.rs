@@ -239,6 +239,7 @@ fn paint_transcript(
                 round_started_at: None,
                 hovered_step: None,
                 focused_entry: None,
+                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,

@@ -39,8 +39,6 @@ pub fn draw_subagent_inline_step(
         return;
     }
 
-    let bg = ctx.theme.surface();
-
     // Summary color flows through the shared state machine exactly like a
     // tool step (steady lifecycle accent while non-terminal, weight ladder
     // once completed); the badge borrows the brand hue so the role reads as
@@ -50,11 +48,16 @@ pub fn draw_subagent_inline_step(
         ToolStatus::Ok => None,
         _ => Some(status_color),
     };
-    let summary_color = summary_text_color(
-        accent,
-        Disclosure::Collapsed,
-        Interaction::from_hover_focused(hovered, focused),
+    let interaction = Interaction::from_hover_focused(hovered, focused);
+    // Keyboard ownership is a *background* fact (ADR-0145): a focused subagent
+    // task's header row is painted on the focus band, and its summary tone is
+    // re-seated on that band so the crossing from the composer reads at the same
+    // weight as the composer's own focused panel. Both are no-ops otherwise.
+    let chrome = interaction.chrome(ctx.theme);
+    let bg = chrome.band().unwrap_or_else(|| ctx.theme.surface());
+    let summary_color = chrome.text(
         ctx.theme,
+        summary_text_color(accent, Disclosure::Collapsed, interaction, ctx.theme),
     );
 
     // Row 1: `[badge]  summary`. The badge is a plain bracketed token in the
@@ -85,6 +88,7 @@ pub fn draw_subagent_inline_step(
         spans.push(Span::styled(padded_tail(full_width, used), base));
         Line::from(spans)
     };
+    let summary_row = super::payloads::apply_entry_chrome(summary_row, chrome);
     if let Some(rect) = ctx.paint(summary_row) {
         ctx.layout_map.push(BlockRegion {
             message_idx: mi,

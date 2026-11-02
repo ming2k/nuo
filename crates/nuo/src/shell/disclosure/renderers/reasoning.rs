@@ -9,6 +9,7 @@ use super::super::{Disclosure, Interaction, summary_text_color};
 use super::base::{
     MARKER_COLLAPSED, MARKER_EXPANDED, RenderCtx, advance_plain_blank_rows, truncate_to_width,
 };
+use super::payloads::apply_entry_chrome;
 use super::sticky::StickyAnchor;
 use crate::shell::render::{
     REASONING_TRACE_BLOCK_GAP_ROWS, REASONING_TRACE_BODY_TOP_GAP_ROWS,
@@ -200,11 +201,17 @@ pub fn draw_reasoning_trace(
     }
 }
 
+/// Build the one-row summary of a reasoning trace.
+///
+/// `band` is the row's surface: `None` for the ambient page (a reasoning trace
+/// is flat, like a tool step), or the keyboard-focus band while this trace is
+/// the entry the transcript plane has highlighted (ADR-0145).
 pub(crate) fn reasoning_summary_line(
     marker: &str,
     summary: &str,
     marker_color: Color,
     summary_color: Color,
+    band: Option<Color>,
     full_width: usize,
 ) -> Line<'static> {
     let marker_text = format!("{} ", marker);
@@ -212,20 +219,17 @@ pub(crate) fn reasoning_summary_line(
     let budget = full_width.saturating_sub(used);
     let summary_text = truncate_to_width(summary, budget);
     used += summary_text.width();
+    let base = Style::default().bg(band.unwrap_or(Color::Reset));
     Line::from(vec![
         Span::styled(
             marker_text,
-            Style::default()
-                .fg(marker_color)
-                .add_modifier(Modifier::BOLD),
+            base.fg(marker_color).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             summary_text,
-            Style::default()
-                .fg(summary_color)
-                .add_modifier(Modifier::BOLD),
+            base.fg(summary_color).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(padded_tail(full_width, used), Style::default()),
+        Span::styled(padded_tail(full_width, used), base),
     ])
 }
 
@@ -246,19 +250,32 @@ fn draw_reasoning_summary(
         MARKER_COLLAPSED
     });
     let summary_line_idx = *ctx.content_lines;
-    let summary_color = summary_text_color(
-        None,
-        Disclosure::from_expanded(expanded),
-        Interaction::from_hover_focused(hovered, focused),
+    let interaction = Interaction::from_hover_focused(hovered, focused);
+    // Keyboard ownership speaks through the row's *background* (ADR-0145): a
+    // focused trace's header is painted on the focus band and its tone is
+    // re-seated on that band, so the cue survives on an expanded trace — where
+    // the old affordance-hue channel was suppressed entirely.
+    let chrome = interaction.chrome(ctx.theme);
+    let summary_color = chrome.text(
         ctx.theme,
+        summary_text_color(
+            None,
+            Disclosure::from_expanded(expanded),
+            interaction,
+            ctx.theme,
+        ),
     );
 
-    let line = reasoning_summary_line(
-        marker,
-        summary,
-        summary_color,
-        summary_color,
-        ctx.full_width,
+    let line = apply_entry_chrome(
+        reasoning_summary_line(
+            marker,
+            summary,
+            summary_color,
+            summary_color,
+            chrome.band(),
+            ctx.full_width,
+        ),
+        chrome,
     );
     if let Some(rect) = ctx.paint(line.clone()) {
         ctx.layout_map.push(BlockRegion {

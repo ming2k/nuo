@@ -56,6 +56,26 @@ pub(crate) fn tool_summary_line(
     Line::from(spans)
 }
 
+/// Apply the keyboard-focus chrome's channel that a background cannot carry.
+///
+/// The band itself already arrives as the caller's `bg`, so every renderer's
+/// existing full-width padding paints it for free. What is left is DEC reverse
+/// video — the only cue a `Structured` archetype (VT100 / monochrome) has, since
+/// it owns no color latitude at all (ADR-0053). On the color archetypes this is
+/// a no-op, and on an unfocused row so is the whole call.
+pub(crate) fn apply_entry_chrome(
+    mut line: Line<'static>,
+    chrome: nuo_view::disclosure::EntryChrome,
+) -> Line<'static> {
+    if !chrome.is_reverse() {
+        return line;
+    }
+    for span in &mut line.spans {
+        span.style = span.style.add_modifier(Modifier::REVERSE);
+    }
+    line
+}
+
 /// Render the shared summary of an expandable step and record its rect in the
 /// layout map so clicks / `Enter` on it can toggle the step. Returns the
 /// content-line index of the summary (used for sticky-pin tracking).
@@ -63,6 +83,16 @@ pub(crate) fn tool_summary_line(
 /// `block_idx` is the sentinel recorded in [`BlockRegion`] so the click handler
 /// can tell step/trace kinds apart: `usize::MAX` for tool steps and
 /// `usize::MAX - 1` for reasoning traces.
+///
+/// `bg` is the row's surface: the app background normally, or the keyboard-focus
+/// band while this entry is the one the transcript plane has highlighted
+/// (ADR-0145). Passing the band here is what makes the focus cue full-width —
+/// these helpers already pad every header to `full_width`.
+///
+/// `chrome` carries the cue a background cannot express (DEC reverse video on
+/// the `Structured` archetype); it is [`EntryChrome::plain`] for every caller
+/// that is not focus-aware.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_step_summary(
     ctx: &mut RenderCtx<'_, '_>,
     mi: usize,
@@ -71,6 +101,7 @@ pub(crate) fn draw_step_summary(
     summary: &str,
     summary_color: Color,
     bg: Color,
+    chrome: nuo_view::disclosure::EntryChrome,
 ) -> usize {
     let expand = if expanded {
         MARKER_EXPANDED
@@ -79,7 +110,10 @@ pub(crate) fn draw_step_summary(
     };
     let summary_line_idx = *ctx.content_lines;
 
-    let line = tool_summary_line(expand, summary, summary_color, bg, ctx.full_width);
+    let line = apply_entry_chrome(
+        tool_summary_line(expand, summary, summary_color, bg, ctx.full_width),
+        chrome,
+    );
     if let Some(rect) = ctx.paint(line) {
         ctx.layout_map.push(BlockRegion {
             message_idx: mi,
@@ -127,7 +161,8 @@ pub(crate) fn semantic_tool_summary_line(
     Line::from(spans)
 }
 
-/// Render the shared summary of an expandable step with semantic inline flex layout.
+/// Render the shared summary of an expandable step with semantic inline flex
+/// layout. `chrome` is the keyboard-focus chrome (see [`draw_step_summary`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_semantic_step_summary(
     ctx: &mut RenderCtx<'_, '_>,
@@ -138,6 +173,7 @@ pub(crate) fn draw_semantic_step_summary(
     suffix: Option<(&str, Style)>,
     summary_color: Color,
     bg: Color,
+    chrome: nuo_view::disclosure::EntryChrome,
 ) -> usize {
     let expand = if expanded {
         MARKER_EXPANDED
@@ -146,14 +182,17 @@ pub(crate) fn draw_semantic_step_summary(
     };
     let summary_line_idx = *ctx.content_lines;
 
-    let line = semantic_tool_summary_line(
-        expand,
-        semantic_line,
-        suffix,
-        summary_color,
-        bg,
-        ctx.full_width,
-        ctx.theme,
+    let line = apply_entry_chrome(
+        semantic_tool_summary_line(
+            expand,
+            semantic_line,
+            suffix,
+            summary_color,
+            bg,
+            ctx.full_width,
+            ctx.theme,
+        ),
+        chrome,
     );
     if let Some(rect) = ctx.paint(line) {
         ctx.layout_map.push(BlockRegion {

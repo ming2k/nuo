@@ -5,7 +5,7 @@
 //! as **two peer focus planes** ([ADR-0145]): the composer (drafting) and the
 //! transcript (inspecting). Neither is a mode of the other.
 //!
-//! - `⇧Tab` is the sole explicit crossing chord and is an **involution**: the
+//! - `Shift-Tab` is the sole explicit crossing chord and is an **involution**: the
 //!   same press returns, remembering the transcript's highlighted entry
 //!   (`[INV-FOCUS-01]`).
 //! - `Esc` never crosses planes. It dismisses an overlay, dismisses a
@@ -169,7 +169,7 @@ pub(crate) fn live_chat_hints(
     use crate::shell::keymap::Key;
     // Every row on the composer plane names the chord that crosses to the
     // transcript, because that crossing is the plane's only exit and the row is
-    // where a user learns it (ADR-0145). `⇧Tab` is grammar rather than a
+    // where a user learns it (ADR-0145). `Shift-Tab` is grammar rather than a
     // remappable verb, so the keycap is the literal `Key::BACKTAB`.
     let hints: &[LiveHint] = match state {
         HintState::Idle | HintState::Command | HintState::Recall => &[
@@ -193,7 +193,7 @@ pub(crate) fn live_chat_hints(
         ],
         // Entry focus: the copy verbs lead (they are the reason a user parks
         // attention here), then the universal toggle, then the way back — and
-        // the way back is `⇧Tab`, never `Esc`: `Esc` does not cross planes.
+        // the way back is `Shift-Tab`, never `Esc`: `Esc` does not cross planes.
         // Every chord here resolves in `resolve_chat_surface_key`'s entry arm
         // (asserted by `focused_entry_hints_are_resolvable`).
         HintState::EntryFocused { subagent: false } => &[
@@ -277,7 +277,7 @@ pub(crate) fn resolve_chat_surface_key_motion(
     }
 
     match key.code {
-        // ⇧Tab is *not* resolved here: the crossing is a Global-scope chord, so
+        // Shift-Tab is *not* resolved here: the crossing is a Global-scope chord, so
         // the router's global arm claims it before scene dispatch (ADR-0145
         // `[INV-FOCUS-01]`). Resolving it in both places would give one gesture
         // two producers that could disagree about overlays and sheets.
@@ -355,7 +355,7 @@ pub(crate) fn resolve_subagent_key_motion(
     // liveness), not the primary `is_responding`, so a finished child under a
     // still-running parent advertises no interrupt and `Esc` is simply spent:
     // `Esc` still never leaves the Scene (`[INV-TUI-CLEAN-02]`). Every other
-    // key is the shared chat core — `⇧Tab` crosses planes, `Ctrl+P`/`Ctrl+N` and
+    // key is the shared chat core — `Shift-Tab` crosses planes, `Ctrl+P`/`Ctrl+N` and
     // `↑`/`↓` walk the highlighted entry, `Enter` activates it, and printables
     // reach the shared editing layer from the composer plane. `Esc` never
     // crosses planes (ADR-0145).
@@ -546,7 +546,7 @@ fn resolve_tab(keys: &SceneKeys) -> Option<InputAction> {
 /// it gave one chord two unrelated jobs (dismiss and *navigate*), which is
 /// exactly why the remove direction had no symmetric twin. `Esc` dismisses a
 /// completion, or interrupts a running round, or is spent — the plane stays
-/// where the user put it and `⇧Tab` is the way back.
+/// where the user put it and `Shift-Tab` is the way back.
 ///
 /// [ADR-0145]: ../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md
 fn resolve_esc(keys: &SceneKeys, responding: bool, interrupt: InputAction) -> Option<InputAction> {
@@ -757,7 +757,7 @@ mod tests {
     /// user's keypress actually traverses.
     ///
     /// The hint-resolvability checks use this rather than the scene resolver
-    /// alone: a hint may legitimately be served by any layer — `⇧Tab` is a
+    /// alone: a hint may legitimately be served by any layer — `Shift-Tab` is a
     /// Global-scope chord that the scene scheme deliberately declines — and a
     /// test that only exercised one layer would report that as a dead key.
     fn resolves_end_to_end(
@@ -1034,7 +1034,7 @@ mod tests {
             None,
             "a spent Esc does not move the keyboard off the transcript"
         );
-        // ⇧Tab is the crossing, and it is *not* a scene-owned chord: the
+        // Shift-Tab is the crossing, and it is *not* a scene-owned chord: the
         // router's global arm claims it before scene dispatch, so the scene
         // scheme must decline it (one gesture, one producer).
         for mode in [Mode::Idle, Mode::FocusedTarget] {

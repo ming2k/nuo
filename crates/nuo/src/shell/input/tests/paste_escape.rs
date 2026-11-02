@@ -178,7 +178,7 @@ fn escape_never_crosses_focus_planes() {
     assert_eq!(key_with_focus(KeyCode::Esc), InputAction::None);
 }
 
-/// `⇧Tab` is the crossing, and it is the *only* one: it resolves to the plane
+/// `Shift-Tab` is the crossing, and it is the *only* one: it resolves to the plane
 /// toggle from either plane (an involution at the action layer).
 #[test]
 fn shift_tab_toggles_the_focus_plane() {

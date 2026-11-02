@@ -62,6 +62,18 @@ A persistent state is written as a **closed-vocabulary, lowercase, unbracketed t
 
 Caps and brackets are already spoken for elsewhere in the chrome: `[ROLE]` is the badge slot, and `[N queued]` means a *count* in the footer stack. A state token that borrows either form is misread as one of them. A well-chosen token needs no gloss at all — if it would require a tooltip to be understood, the token is wrong, not under-explained; the authoritative long-form wording belongs to the slash-command catalog, never to chrome that is always on screen (`[INV-TUI-12]`, ADR-0063). Worked example: the `ThreadContextBar`'s `auto` / `open` posture pair (ADR-0062 `[INV-HEAD-07]`).
 
+### Key tokens
+
+A key token (`keyvocab`, ADR-0054 §Amendment) says what the keycap says. Modifiers are **words** — `Ctrl-`, `Alt-`, `Shift-`, hyphen-joined to the key: `Ctrl-r`, `Alt-w`, `Shift-y`, `Shift-Tab`, `Ctrl-Shift-c`.
+
+| Rule | Why |
+| :--- | :--- |
+| One spelling per modifier | A row cannot say `Shift-y` next to a keycap reading `⇧Tab`. `⇧` was the only modifier given a symbol while `Ctrl` and `Alt` were given words, so the same modifier had two names. |
+| ASCII for the modifier | `⇧` is Apple's *menu* symbol, not a legend printed on a PC keyboard, and it renders as `□` when the terminal font lacks U+21E7 — `□Tab` loses the one word the token existed to carry. It is also East-Asian *Ambiguous*: one column under `unicode-width`, two under a CJK-locale terminal, so the row's tail shifts with the user's locale. |
+| Direction glyphs stay glyphs | `↑↓` / `←→` / `↑` / `↓` **are** the key rather than a modifier around one, need no translation, and `Up` / `Down` would spend columns on every navigation hint. |
+
+A key token is a display string, never a binding: the chord lives in `chord.rs` (`Key::BACKTAB`), `Key::display()` reads the same constant the footers do, and `cargo test -p nuo-ui-primitives keyvocab` fails if a modifier token regains a glyph.
+
 ### In-Flight Running State Demarcation (ADR-0110 `[INV-TUI-RUNNING-01..04]`)
 
 Running and in-flight operations must strictly demarcate active vitality from inert cancellation:

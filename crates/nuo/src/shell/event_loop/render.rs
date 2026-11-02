@@ -410,6 +410,11 @@ fn compose_frame(
                 round_started_at: viewed_chrome.round_started_at,
                 hovered_step: chrome_interactive.then_some(app.hovered_step).flatten(),
                 focused_entry: chrome_interactive.then_some(app.focus.entry()).flatten(),
+                focus_plane: if app.focus.is_transcript() {
+                    render::FocusPlane::Transcript
+                } else {
+                    render::FocusPlane::Composer
+                },
                 logo: app.logo.as_deref(),
                 guidance,
                 carousel_index: nuo_view::empty_state::carousel_page_for(
@@ -609,10 +614,10 @@ fn compose_frame(
             // Activity) so the footer layout doesn't shift when the
             // overlay opens or closes; the recess pass darkens it in
             // place with the rest of the surface. When a transcript
-            // pane holds the keyboard (⇧Tab), the composer drops
+            // pane holds the keyboard (Shift-Tab), the composer drops
             // to its dim "blurred" palette and hides the caret so the
             // user can see at a glance that the next keypress targets
-            // the transcript. A composer-plane act (⇧Tab back, a click into
+            // the transcript. A composer-plane act (Shift-Tab back, a click into
             // the box) re-brightens it immediately.
             //
             // `show_caret` comes straight from the single source of

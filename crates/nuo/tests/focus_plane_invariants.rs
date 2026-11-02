@@ -111,7 +111,7 @@ fn inv_focus_01_esc_has_no_focus_arm_in_the_scene_schemes() {
 
 /// `[INV-FOCUS-01]` **One symmetric crossing**.
 ///
-/// `⇧Tab` is the only explicit crossing, and it is registered as exactly one
+/// `Shift-Tab` is the only explicit crossing, and it is registered as exactly one
 /// command resolving from exactly one chord. A second crossing chord would make
 /// the operator non-symmetric again.
 #[test]

@@ -44,6 +44,11 @@ pub use nuo_view::empty_state::EmptyStateGuidance;
 /// Parse a raw logo file into clamped display lines for the empty-state hero.
 /// Re-exported so the startup loader and the renderer share one clamp rule.
 pub use nuo_view::empty_state::parse_logo;
+/// Which peer plane owns the keyboard (ADR-0145). Re-exported so the shell
+/// projects its own `Focus` onto the renderer's paint-time enum at the props
+/// boundary instead of the presentation crate depending on the shell's
+/// interaction state machine.
+pub use nuo_view::focus_plane::FocusPlane;
 use nuo_view::footer_stack;
 pub(crate) use nuo_view::footer_stack::{
     FooterRow, FooterRowId, PlacedFooter, rect_of as footer_rect,
@@ -221,12 +226,21 @@ pub struct TranscriptProps<'a> {
     /// affordance. `None` whenever the pointer is elsewhere or an overlay
     /// modal is open.
     pub hovered_step: Option<usize>,
-    /// Keyboard-focused activatable target. When `Some`, the matching step's
-    /// summary line is painted with the focus-ring cue (a reversed fg/bg bar)
-    /// so keyboard navigation via `Ctrl+P`/`Ctrl+N` has a clear, unambiguous
-    /// visual indicator that does not compete with the hover/expand luminance
-    /// channel. `None` means no step is focused.
+    /// Keyboard-focused activatable target. When `Some`, the matching entry is
+    /// painted in the focus chrome — a full-width `Theme::entry_focus_bg` band
+    /// behind its header row — so keyboard navigation via `Ctrl+P`/`Ctrl+N` has
+    /// a clear, unambiguous indicator that speaks in the same channel (and at
+    /// the same weight) as the composer's own focused panel. `None` means no
+    /// entry is highlighted.
     pub focused_entry: Option<InteractiveTarget>,
+    /// Which peer plane owns the keyboard (ADR-0145).
+    ///
+    /// The transcript's half of the crossing cue: while the transcript plane is
+    /// live it paints a focus rail in its left gutter, so `Shift-Tab` — which
+    /// lands on *browse*, with no entry highlighted — still visibly moves the
+    /// keyboard. Without it, one direction of the crossing had no cue at all and
+    /// the other had only the composer dimming.
+    pub focus_plane: FocusPlane,
     /// User-supplied ASCII logo lines (from `$XDG_CONFIG_HOME/nuo/logo.txt`)
     /// that replace the built-in wordmark on the empty-state hero. `None` when
     /// no user logo is configured; the hero falls back to the built-in art.
@@ -489,6 +503,7 @@ pub fn draw_transcript(
         round_started_at,
         hovered_step,
         focused_entry,
+        focus_plane,
         logo,
         guidance,
         carousel_index,
@@ -705,6 +720,18 @@ pub fn draw_transcript(
     // when a head is present (it was already accounted for above), or the
     // entire viewport-minus-footer when there is no head.
     let transcript_area = chunks[0];
+    // One value, one truth (ADR-0145 `[INV-FOCUS-03]`): an entry can only be
+    // highlighted while the transcript plane owns the keyboard. The two props
+    // arrive separately (the shell projects them from one `Focus`), so this is
+    // where they are welded back together — a `focused_entry` on the composer
+    // plane would be a state the model cannot otherwise express, and painting a
+    // focus band for it is exactly the kind of "an entry is lit while the
+    // composer is live" artifact the ADR removes.
+    let focused_entry = if focus_plane.is_transcript() {
+        focused_entry
+    } else {
+        None
+    };
     // Apply the uniform horizontal inset (`TRANSCRIPT_H_INSET` on each side)
     // exactly once, here at the transcript-stream entry point. Every
     // downstream component receives `band` — an already-inset rect — so none
@@ -733,6 +760,23 @@ pub fn draw_transcript(
     // pipeline (loop, badges, sticky pinning) is skipped. The footer below
     // renders exactly as in a live session.
     let show_empty_state = messages.is_empty() && subagent_bar.is_none();
+
+    // The transcript plane's own focus cue (ADR-0145): the pane's gutter columns
+    // in the focus tint, painted before the stream so no content row can sit on
+    // top of it. Both rects are already resolved here, so the rail is derived
+    // from the gutter the layout actually left rather than from an inset token —
+    // it costs zero layout columns and the pane never reflows because the
+    // keyboard crossed. Skipped for the empty-state hero, which is not a
+    // transcript content surface.
+    if !show_empty_state {
+        nuo_view::focus_plane::draw_transcript_focus_rail(
+            frame,
+            transcript_area,
+            band,
+            focus_plane,
+            theme,
+        );
+    }
 
     if show_empty_state {
         // Account for the hero so the app loop does not treat the session as a

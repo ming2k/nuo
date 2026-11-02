@@ -81,6 +81,7 @@ fn input_box_grows_with_wrapped_content() {
                     round_started_at: None,
                     hovered_step: None,
                     focused_entry: None,
+                    focus_plane: crate::shell::render::FocusPlane::Composer,
                     logo: None,
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,
@@ -1332,6 +1333,7 @@ fn user_message_and_composer_keep_symmetric_panel_padding() {
                 round_started_at: None,
                 hovered_step: None,
                 focused_entry: None,
+                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -1624,6 +1626,7 @@ fn in_round_interjection_renders_one_body_row() {
                 round_started_at: None,
                 hovered_step: None,
                 focused_entry: None,
+                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -1793,6 +1796,7 @@ fn h1_underline_clamps_with_emoji_grapheme() {
                 round_started_at: None,
                 hovered_step: None,
                 focused_entry: None,
+                focus_plane: crate::shell::render::FocusPlane::Composer,
                 logo: None,
                 guidance: EmptyStateGuidance::Tour,
                 carousel_index: 0,
@@ -1911,6 +1915,13 @@ fn composer_panel_carries_the_hint_row() {
 
 /// The hint sentence names the delivery group the buffer will land in, and
 /// mid-round it also carries the Tab toggle.
+///
+/// The panel here is 60 columns — a `Full`-density band — but the row's own
+/// widths (`Tab follow-up mode   Shift-Tab transcript` left, `Enter send steer`
+/// right) overrun it, so the row steps down one rung instead of collapsing to
+/// `F1 more`: compact drops the toggle verb and keeps the crossing. Naming the
+/// crossing matters more than naming the toggle, which `Tab` still performs
+/// whether or not it is advertised (ADR-0054 §2, ADR-0145 §6).
 #[test]
 fn composer_hint_sentence_names_the_delivery_group() {
     use crate::shell::composer_hints::{ComposeTarget, ComposerHints};
@@ -1923,8 +1934,12 @@ fn composer_hint_sentence_names_the_delivery_group() {
     let row4 = frame_row_text(&mut terminal, 3);
     assert!(row4.contains("send steer"), "steer verb: {row4:?}");
     assert!(
-        row4.contains("follow-up mode"),
-        "follow-up mode affordance: {row4:?}"
+        row4.contains("Shift-Tab transcript"),
+        "the crossing survives width pressure: {row4:?}"
+    );
+    assert!(
+        !row4.contains("F1 more"),
+        "a denser rung beats the F1 collapse: {row4:?}"
     );
 
     let hints_followup = ComposerHints {
@@ -1935,8 +1950,54 @@ fn composer_hint_sentence_names_the_delivery_group() {
     let row4 = frame_row_text(&mut terminal, 3);
     assert!(row4.contains("queue follow-up"), "follow-up verb: {row4:?}");
     assert!(
-        row4.contains("steer mode"),
-        "steer mode affordance: {row4:?}"
+        row4.contains("Shift-Tab transcript"),
+        "the crossing survives width pressure: {row4:?}"
+    );
+}
+
+/// At a width where even the compact row cannot fit, the row collapses to the
+/// Floor-1 `F1 more` affordance rather than clipping — discovery is never
+/// destroyed, only folded behind `F1` (ADR-0054 `[INV-AFFORDANCE-02]`).
+#[test]
+fn composer_hint_row_collapses_to_f1_when_even_compact_overflows() {
+    use crate::shell::composer_hints::{ComposeTarget, ComposerHints};
+
+    let hints = ComposerHints {
+        compose_target: ComposeTarget::Running(crate::shell::app::ComposerSendMode::Steer),
+        ..Default::default()
+    };
+    let mut terminal = nuotc::TestTerminal::new(30, 6);
+    let theme = Theme::default();
+    terminal.draw(|f| {
+        draw_composer(
+            ComposerProps {
+                frame: f,
+                input_rect: Rect::new(0, 0, 30, 4),
+                theme: &theme,
+                layout_map: &mut LayoutMap::new(),
+                input_scroll: &mut 0,
+                selection: &SelectionState::None,
+            },
+            ComposerText {
+                input: "wait",
+                byte_cursor: 4,
+            },
+            true,
+            false,
+            false,
+            0,
+            0,
+            hints,
+        );
+    });
+    let row4 = frame_row_text(&mut terminal, 3);
+    assert!(
+        row4.contains("F1"),
+        "the overflow affordance must appear, not a clipped row: {row4:?}"
+    );
+    assert!(
+        row4.contains("send steer"),
+        "the submit verb outranks navigation: {row4:?}"
     );
 }
 
@@ -2368,6 +2429,7 @@ fn calculate_composer_height_matches_actual_rendered_transcript_rect() {
                     round_started_at: None,
                     hovered_step: None,
                     focused_entry: None,
+                    focus_plane: crate::shell::render::FocusPlane::Composer,
                     logo: None,
                     guidance: EmptyStateGuidance::Tour,
                     carousel_index: 0,

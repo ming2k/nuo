@@ -52,6 +52,7 @@ pub fn draw_sticky_anchor_if_needed(
                 &anchor.summary,
                 anchor.color,
                 summary_color,
+                None,
                 transcript_area.width as usize,
             )),
             line_rect,

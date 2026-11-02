@@ -1042,7 +1042,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
 }
 
 // Peer focus planes (ADR-0145)
-// `[INV-FOCUS-01]`: `⇧Tab` is the only explicit crossing and it is an
+// `[INV-FOCUS-01]`: `Shift-Tab` is the only explicit crossing and it is an
 // involution — the same press goes both ways, and the transcript's highlighted
 // entry survives the round trip. These drive the real event pipeline (routing →
 // dispatch → apply) rather than the resolver, because the crossing is a
@@ -1158,6 +1158,6 @@ async fn typing_on_the_transcript_plane_never_reaches_the_draft() {
     assert!(
         app.focus.is_transcript(),
         "typing on the transcript plane does not hand the keyboard back — \
-         only ⇧Tab and the implicit gestures do"
+         only Shift-Tab and the implicit gestures do"
     );
 }

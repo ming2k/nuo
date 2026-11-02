@@ -55,20 +55,31 @@ pub fn draw_command_result(
     // One component in two lifecycle states, deliberately
     // *not* an expandable step: the invocation and its reply are a single
     // entry, so it carries no disclosure marker and no folding state. The
-    // interaction channel tints the header so a hovered or focused command is
-    // visibly the component under attention.
-    let header_tone = summary_text_color(
-        Some((*ctx.theme).info()),
-        Disclosure::Expanded,
-        Interaction::from_hover_focused(hovered, focused),
+    // interaction channel tints the header so a hovered command is visibly the
+    // component under attention, and keyboard focus paints the header's full
+    // width in the focus band (ADR-0145) — the same background channel the
+    // composer uses, so the plane crossing is legible on this entry kind too.
+    let interaction = Interaction::from_hover_focused(hovered, focused);
+    let chrome = interaction.chrome(ctx.theme);
+    let header_tone = chrome.text(
         ctx.theme,
+        summary_text_color(
+            Some((*ctx.theme).info()),
+            Disclosure::Expanded,
+            interaction,
+            ctx.theme,
+        ),
     );
-    let header_line = command_header_line(
-        "command",
-        header_tone,
-        time_label.as_deref(),
-        ctx.theme.muted(),
-        full_width,
+    let header_line = super::payloads::apply_entry_chrome(
+        command_header_line(
+            "command",
+            header_tone,
+            time_label.as_deref(),
+            ctx.theme.muted(),
+            chrome.band(),
+            full_width,
+        ),
+        chrome,
     );
     {
         if let Some(rect) = ctx.paint(header_line) {
@@ -189,8 +200,10 @@ fn command_header_line(
     family_tone: Color,
     time_label: Option<&str>,
     muted: Color,
+    band: Option<Color>,
     full_width: usize,
 ) -> Line<'static> {
+    let base = Style::default().bg(band.unwrap_or(Color::Reset));
     let mut spans = Vec::with_capacity(4);
     let mut used = 0usize;
 
@@ -198,9 +211,7 @@ fn command_header_line(
     used += tag.width();
     spans.push(Span::styled(
         tag,
-        Style::default()
-            .fg(family_tone)
-            .add_modifier(Modifier::BOLD),
+        base.fg(family_tone).add_modifier(Modifier::BOLD),
     ));
 
     if let Some(time) = time_label {
@@ -208,10 +219,18 @@ fn command_header_line(
         if used + 1 + time_width <= full_width {
             spans.push(Span::styled(
                 " ".repeat(full_width - used - time_width),
-                Style::default(),
+                base,
             ));
-            spans.push(Span::styled(time.to_string(), Style::default().fg(muted)));
+            spans.push(Span::styled(time.to_string(), base.fg(muted)));
+            used = full_width;
         }
+    }
+    // Fill the remaining columns so the row's surface (the ambient page normally,
+    // or the keyboard-focus band — ADR-0145) spans the whole header: a band that
+    // stops mid-row reads as a ragged highlight rather than as "the keyboard is
+    // on this entry".
+    if used < full_width {
+        spans.push(Span::styled(" ".repeat(full_width - used), base));
     }
 
     Line::from(spans)

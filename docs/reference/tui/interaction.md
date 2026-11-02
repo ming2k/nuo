@@ -56,13 +56,27 @@ The state is one value (`crate::shell::focus::Focus`) carrying the plane plus th
 
 | Gesture | Effect |
 | --- | --- |
-| `⇧Tab` | crosses to the other plane (an involution: the same press returns, restoring the highlighted entry) |
+| `Shift-Tab` | crosses to the other plane (an involution: the same press returns, restoring the highlighted entry) |
 | `Ctrl+P` / `Ctrl+N` | walk the entry highlight; at either end with nothing left to scroll, `Ctrl+N` crosses back to the composer |
 | click into the transcript / a step summary | enters the transcript plane (browse / entry) |
 | click into the input box | enters the composer plane |
 | `Esc` | **never crosses planes**: it dismisses a completion, interrupts the running round, or is spent |
 
 A printable key pressed while the transcript owns the keyboard is inert — it is never inserted into a draft the user is not looking at.
+
+#### How the crossing reads on screen
+
+Both planes announce ownership in the **background** channel at the same weight, because exactly one of them owns the keyboard (`[INV-FOCUS-04]`):
+
+| Plane state | Cue |
+| --- | --- |
+| `Composer` | the input panel is lit (`input_surface()`) |
+| `Transcript(Browse)` | a **focus rail**: one tinted column down the transcript's left gutter |
+| `Transcript(Entry)` | the rail, plus a full-width band behind the highlighted entry's header row |
+
+The rail is what makes the plain `Shift-Tab` (which lands on browse, with nothing highlighted) visible. Both cues live in columns/rows the layout already reserved, so crossing never reflows the pane. On a `Structured` profile (VT100 / monochrome) the band degrades to reverse video, and the composer's lit/blurred pair is carried by the same archetype rules.
+
+The focused entry's band is **not** `selected_bg` and is **not** a disclosure cue: it paints on expanded entries too, and it re-seats the summary tone for contrast against the band.
 
 ---
 

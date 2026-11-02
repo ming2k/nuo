@@ -8,6 +8,85 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **The transcript ⇄ composer crossing is now visible on both sides (ADR-0145 `[INV-FOCUS-04]`).**
+  - The composer answered "who owns the keyboard?" in the **background** channel — a lit
+    `input_surface()` panel against a recessed `input_surface_inactive()` one — but the transcript
+    answered the same question with a foreground tint on one summary line, and only while that line
+    was *collapsed*. On an expanded step the cue was suppressed entirely, and on a collapsed one it
+    had to fight the disclosure and lifecycle hues for the same few characters. `Shift-Tab` therefore
+    had exactly one visible half: the composer dimmed and nothing lit up.
+  - The transcript now speaks in the same channel at the same weight, in every sub-state. Entering at
+    *browse* — which is where plain `Shift-Tab` lands — paints a **focus rail**: the pane's gutter
+    columns in `Theme::entry_focus_bg`, framing the viewport without touching a single content
+    column. Highlighting an entry *adds* a full-width band behind its header row, painted on
+    **expanded** entries too, because keyboard ownership is not a disclosure fact.
+  - Both cues cost zero layout: the rail lives in the `TRANSCRIPT_H_INSET` gutters nothing else
+    paints, and the band reuses the header's existing full-width padding. Crossing never reflows the
+    pane. The band is deliberately **not** `selected_bg` — "the keyboard is on this row" must never
+    read as "this text is selected" — and it re-seats the summary tone through `Theme::band_text` so
+    a focused row cannot lose contrast at the moment it is looked at. On a `Structured` profile
+    (VT100 / monochrome) the band degrades to DEC reverse video, the archetype's own vocabulary.
+  - `Interaction::Focused` no longer resolves to the hover hue: hover and focus answer different
+    questions ("would a click land here?" vs "does the keyboard own this?") and now use different
+    channels, so a focused row never competes with its own pointer cue. `nuo_view::focus_plane` owns
+    the pane rail; `EntryChrome` bundles the band and the contrast re-seat so a renderer cannot paint
+    one without the other. `draw_transcript` also forces `focused_entry` to `None` on the composer
+    plane, so "an entry is lit while the composer is live" is now unwritable at the paint boundary as
+    well as unrepresentable in `Focus`.
+
+### Changed
+
+- **The TabBar now runs flush to both terminal edges.**
+  - The top tier was drawing the same two-column frame gutter as the transcript, the footer, and the
+    two head tiers below it. On the shell's topmost row that gutter is not breathing room — it is a
+    hole in the border: the band's `tabbar_bg` fill stopped two columns short on each side and the
+    tab rail appeared to float inward from a frame it was supposed to *be*. Row 1 is the only tier
+    that now bleeds, and it is the tier where bleeding is the point.
+  - Tiers 2 and 3 keep `TRANSCRIPT_H_INSET`; the new `TABBAR_H_INSET` (0) is read by `draw_tab_bar`
+    alone, so "the top row is flush" is a token the renderer consumes rather than a hard-coded zero
+    that the next refactor can re-gutter. Both branches of the tier — the tab rail and the `nuo`
+    brand fallback — use it, so the row cannot bleed with tabs open and re-inset when the last tab
+    closes.
+  - Legibility moved *inside* the row instead of being carried by the frame. Tab labels were already
+    projected as `" {label} "`, so the first tab still opens with one column of rail padding and
+    neighbours stay a column apart; the brand fallback is the one place where a flush edge would put
+    a glyph on column 0, and that is the intent — it is the shell's mark, not a list item.
+  - The right side needed a real rule once the fill reached the last column: the tab rail's width
+    budget now reserves `BAR_LEGEND_GAP_MIN` before the right-pinned status cluster, so a truncated
+    rail's `▾`/`…` can never butt against the `F1 help` keycap at narrow widths (that constant was
+    minted for the queue bar's legend and had been carrying an `#[allow(dead_code)]` ever since).
+  - Covered by `row1_bleeds_to_both_terminal_edges` (rail starts at column 0, `F1 help` ends on the
+    last column, painted row measures exactly the terminal width, at 44/80/120 columns and in both
+    branches), plus `row1_tab_labels_keep_internal_padding_at_the_edges` and
+    `row1_status_cluster_keeps_the_legend_gap_when_tabs_overflow`.
+
+- **Shift chords are spelled as words: `⇧Tab` reads `Shift-Tab` (ADR-0054 §Amendment, ADR-0145
+  §Amendment).**
+  - The key vocabulary gave exactly one modifier a symbol while `Ctrl` and `Alt` were words, so the
+    same modifier had two names three columns apart: a footer said `Shift-y` beside a keycap reading
+    `⇧Tab`. `⇧` is also Apple's *menu* symbol rather than a legend a PC keyboard prints, and it
+    renders as `□` when the terminal font lacks `U+21E7` — a lost word, not a lost decoration. It is
+    East-Asian *Ambiguous* besides, so it measured one column under `unicode-width` and two under a
+    CJK-locale terminal, shifting the tail of every row it appeared in.
+  - `Shift-Tab` / `Shift-Enter` / `Shift-Del` are ASCII and match how the vocabulary already spelled
+    the letter chords (`Shift-y`, `Ctrl-Shift-c`). `nuo_ui_primitives::keyvocab` is the single
+    origin: `Key::BACKTAB.display()`, the command registry's `Switch Focus` hint, the permission
+    sheet's `back`, the history row's `Shift-Del`, and the composer's `Shift-Tab composer` row all
+    read it, and a new test fails if a modifier token regains a glyph. Direction arrows (`↑↓`,
+    `←→`, `↑`, `↓`) are unchanged: they *are* the key rather than a modifier around one, and a word
+    would spend columns on every navigation hint.
+  - Only the spelling moved. `Key::BACKTAB` is still the chord, `[INV-FOCUS-01]`'s single symmetric
+    crossing is untouched, and no user types a different key.
+  - The composer's hint row is where it surfaced as a real defect: `Shift-Tab` is a column wider
+    than `⇧Tab`, and the round-start row (`Tab follow-up mode   Shift-Tab transcript` plus
+    `Enter send steer`) overran the 60-column panel while the density band still called itself
+    `Full`. The band is computed from width alone, so the row silently collapsed straight to
+    `F1 more` and stopped naming the crossing on the row that teaches it. `ActionDensity::ladder`
+    now steps `Full → Compact` before the Floor-1 collapse, because compact still names the
+    crossing and the submit verb while `F1 more` names neither.
+
 ## [0.0.67] - 2026-11-01
 
 ### Fixed

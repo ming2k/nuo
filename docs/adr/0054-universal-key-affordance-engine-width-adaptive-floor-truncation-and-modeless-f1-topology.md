@@ -17,6 +17,21 @@ negative_knowledge: true
 - Informed: System Architects, Documentation Governance
 - Complements: [ADR-0020](0020-interactive-component-registry-single-source-of-truth.md), [ADR-0022](0022-minimum-terminal-geometry-and-frozen-input-contract.md), [ADR-0023](0023-scene-namespace-palette-entry-and-borderless-popups.md), [ADR-0040](0040-cross-domain-action-matrix-and-polymorphic-tui-spatial-topology.md), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0051](0051-composer-canonical-quadrant-modality-atomic-draft-capsule-and-in-place-recall-topology.md), [ADR-0053](0053-capability-first-orthogonal-terminal-composition-and-autonomous-archetype-projection.md)
 
+> **Amendment note (2026-11-01)**: §1's key-token vocabulary was settled in
+> place — a modifier is always spelled as a word (`Ctrl-`, `Alt-`, `Shift-`),
+> so `⇧Tab` / `⇧Enter` / `⇧Del` read `Shift-Tab` / `Shift-Enter` / `Shift-Del`.
+> `⇧` was the one modifier given a symbol while `Ctrl` and `Alt` were given
+> words, which split one vocabulary across two spellings (`Shift-y` three
+> columns from `⇧Tab`), named a key the keyboard does not label that way,
+> degraded to `□Tab` on a font without U+21E7, and measured one or two columns
+> depending on the user's locale (U+21E7 is East-Asian *Ambiguous*). Direction
+> arrows (`↑↓`, `←→`, `↑`, `↓`) keep their glyphs: they *are* the key rather
+> than a modifier around one, and a word would cost columns in every navigation
+> hint. The rendering pillars — key/label pairing, tone hierarchy, gap width,
+> Floor-1 overflow, and `F1` modelessness — are unchanged; this note governs
+> only how a key token is spelled, and `nuo_ui_primitives::keyvocab` is its
+> mechanical enforcement point.
+
 ---
 
 ## Context and Problem Statement
@@ -45,7 +60,7 @@ We establish the **Universal Key Affordance Engine** in `nuo-tui` governed by th
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
-│  Enter 发送    ⇧Enter 换行    Ctrl+R 历史    Tab 补全    F1 更多       │
+│  Enter 发送    Shift-Enter 换行  Ctrl+R 历史  Tab 补全    F1 更多      │
 └────────────────────────────────────────────────────────────────────────┘
     ▲      ▲
     │      └─ [Short Label]: Regular font + muted dark gray (keycap_label_style)
@@ -75,7 +90,7 @@ Given an available horizontal width $W$ and an affordance set ordered by priorit
 ```text
 [ Available Width W: 36 columns ]
 Full Affordances (Demand: 52 cols):
-  Enter send (10)  ·  ⇧Enter newline (15)  ·  Ctrl+R history (14)  ·  Tab complete (12)
+  Enter send (10)  ·  Shift-Enter newline (19)  ·  Ctrl+R history (14)  ·  Tab complete (12)
 Fit Calculation:
   Max fit M = 2 items (27 cols).
   Floor-1 rule: K = M - 1 = 1 item.

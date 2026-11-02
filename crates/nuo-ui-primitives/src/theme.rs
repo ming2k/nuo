@@ -212,6 +212,24 @@ pub struct Theme {
     pub command_band_bg: Color,
     pub command_band_bg_hover: Color,
 
+    /// Keyboard-focus band of a transcript entry (ADR-0145).
+    ///
+    /// The composer has always answered "who owns the keyboard?" in the
+    /// **background** channel — a bright `input_bg_active` panel against a
+    /// recessed `input_bg_inactive` one. The transcript answered the same
+    /// question only in the **foreground** channel (a hue tint on the summary
+    /// line), which is the weakest cue available: on an expanded step the tint
+    /// is suppressed entirely, and on a collapsed one it has to fight the
+    /// disclosure and lifecycle hues for the same few characters.
+    ///
+    /// This token gives the transcript the same channel the composer uses. It
+    /// is the band painted behind the focused entry's header row, so `Shift-Tab`
+    /// produces one symmetric, unambiguous swap: the composer's panel recesses
+    /// while one transcript entry's header lights up. Deliberately *not* the
+    /// generic `selected_bg` (text-selection/menu highlight): a focus band is a
+    /// keyboard-ownership cue and must not read as a selection the user made.
+    pub entry_focus_bg: Color,
+
     // Component-specific tokens
     pub caret_fg: Color,
     pub input_selection_bg: Color,
@@ -269,6 +287,13 @@ impl Default for Theme {
             diff_del_hl: Color::Rgb(64, 40, 40),
             command_band_bg: Color::Rgb(17, 19, 18),
             command_band_bg_hover: Color::Rgb(26, 28, 27),
+            // The entry focus band is the input box's own accent tint lifted one
+            // rung: the two planes' focus cues then carry the same visual weight
+            // (`input_bg_active` panel ↔ this band), which is what makes the
+            // crossing read as a swap instead of one side merely going quiet.
+            // Kept distinct from `selected_bg` — a focus band must never read as
+            // a selection the user made.
+            entry_focus_bg: Color::Rgb(45, 50, 46),
 
             caret_fg: DEFAULT_CARET_FG,
             input_selection_bg: Color::Rgb(38, 48, 44),
@@ -329,6 +354,9 @@ impl Theme {
             diff_del_hl: Color::LightRed,
             command_band_bg: Color::Reset,
             command_band_bg_hover: Color::DarkGray,
+            // ANSI-16 owns one highlight token; the focus band uses that slot
+            // rather than a truecolor mix the terminal would quantize away.
+            entry_focus_bg: Color::DarkGray,
 
             caret_fg: Color::White,
             input_selection_bg: Color::DarkGray,
@@ -385,6 +413,10 @@ impl Theme {
             diff_del_hl: Color::Reset,
             command_band_bg: Color::Reset,
             command_band_bg_hover: Color::Reset,
+            // No color latitude on a VT100: the band is reverse video applied by
+            // [`Theme::entry_focus_style`], and the stored tone stays `Reset` so
+            // nothing emits a color escape.
+            entry_focus_bg: Color::Reset,
 
             caret_fg: Color::Reset,
             input_selection_bg: Color::Reset,
@@ -804,6 +836,17 @@ impl Theme {
             // interactive card is lit up" reads identically everywhere.
             command_band_bg: mix(background, surface, 0.72),
             command_band_bg_hover: mix(surface, text, if light { 0.06 } else { 0.08 }),
+            // The focus band is the **same lift** the composer's lit panel uses,
+            // stated stronger to compensate for area: the panel is a four-row
+            // block, the band is a single row, so equal *perceived* salience
+            // needs a larger per-cell step. Deriving it from the same base toward
+            // the same pole as `input_bg_active` is what keeps the two planes in
+            // one visual family, so the crossing reads as a swap rather than as
+            // one side going quiet (`[INV-FOCUS-04]`). Being neutral (not an
+            // accent tint) also keeps it clear of the accent-leaning
+            // `selected_bg`: "the keyboard is on this row" must never be
+            // mistaken for "this text is selected".
+            entry_focus_bg: mix(background, text, if light { 0.14 } else { 0.17 }),
             caret_fg: text,
             input_selection_bg: mix(surface, accent, if light { 0.18 } else { 0.24 }),
             input_placeholder_fg: muted,
@@ -1014,6 +1057,58 @@ impl Theme {
             ElevationArchetype::Chromatic => Style::default()
                 .fg(self.brand())
                 .add_modifier(Modifier::BOLD),
+        }
+    }
+
+    /// The focus band a keyboard-focused **transcript entry** paints behind its
+    /// header row (ADR-0145).
+    ///
+    /// This is the transcript's peer to the composer's `input_surface()`
+    /// / `input_surface_inactive()` pair: the two planes own the keyboard one at
+    /// a time, so they must announce ownership in the *same* channel
+    /// (background), at the *same* weight. A foreground tint alone cannot do
+    /// that — it is invisible on an expanded step and easily out-shone by a
+    /// lifecycle accent on a collapsed one, which is exactly why `Shift-Tab`
+    /// read as "nothing happened".
+    ///
+    /// Archetype-aware, because the band is the only cue:
+    /// - `Chromatic` / `Hybrid`: the scheme's [`Self::entry_focus_bg`] tint.
+    /// - `Structured` (VT100 / monochrome): no color latitude exists, so
+    ///   ownership is carried by the DEC-standard reverse video the whole
+    ///   archetype is built on (ADR-0053) — the same fallback
+    ///   [`Self::selection_style`] and [`Self::focus_style`] use.
+    pub fn entry_focus_style(&self) -> Style {
+        match self.elevation {
+            ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
+            ElevationArchetype::Hybrid | ElevationArchetype::Chromatic => {
+                Style::default().bg(self.entry_focus_bg)
+            }
+        }
+    }
+
+    /// The band a focused entry paints behind its header row. `Reset` on the
+    /// Structured archetype, where [`Self::entry_focus_style`] carries the cue
+    /// as reverse video instead (and a `Reset` bg is what keeps every
+    /// `band_text` caller on its semantic tone rather than a contrast flip).
+    pub fn entry_focus_band(&self) -> Color {
+        self.entry_focus_bg
+    }
+
+    /// The style of the transcript pane's **focus rail** — the gutter column
+    /// that marks "the keyboard is in this pane" while the transcript plane owns
+    /// it (ADR-0145).
+    ///
+    /// It carries the focus band's own tone so the rail and the focused entry's
+    /// band read as one family: the rail says *this pane*, the band says *this
+    /// row*. On the `Structured` archetype the rail is the half-block left
+    /// eighth `▏` in reverse video — the only way a VT100 can widen a line
+    /// (ADR-0053) — and the emitted glyph degrades to ASCII at the driver.
+    pub fn entry_focus_rail_style(&self) -> Style {
+        match self.elevation {
+            ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
+            ElevationArchetype::Hybrid | ElevationArchetype::Chromatic => {
+                Style::default().bg(self.entry_focus_bg)
+            }
         }
     }
 
@@ -1578,6 +1673,74 @@ mod tests {
         let fallback = Theme::from_color_scheme("not-a-theme", &custom);
         assert_eq!(fallback.surface(), Theme::default().surface());
         assert_eq!(Theme::normalize_color_scheme(""), "zen");
+    }
+
+    /// The entry focus band must be a **visible** step off the page in every
+    /// colour-capable scheme, and it must never be mistakable for a text
+    /// selection (ADR-0145 `[INV-FOCUS-04]`).
+    ///
+    /// The regression this locks: the transcript's "the keyboard is here" cue
+    /// used to be a foreground tint, which on an expanded entry was suppressed
+    /// entirely — so `Shift-Tab` had one visible half. A band that is a couple of
+    /// luminance units off the page would reintroduce exactly that: nominal in
+    /// code, invisible on screen.
+    #[test]
+    fn entry_focus_band_is_a_visible_step_in_every_color_scheme() {
+        for name in ["zen", "midnight", "nord", "catppuccin", "paper"] {
+            let theme = Theme::from_color_scheme(name, &ColorSchemeConfig::default());
+            let band = theme.entry_focus_band();
+            assert_ne!(
+                band,
+                theme.surface(),
+                "{name}: the focus band must not melt into the page"
+            );
+            let step = (luminance(band) - luminance(theme.surface())).abs();
+            assert!(
+                step >= 20.0,
+                "{name}: a {step:.0}-unit step is not a visible cue (band {band:?}, page {:?})",
+                theme.surface()
+            );
+            // A keyboard-ownership cue must never read as a text selection.
+            assert_ne!(
+                band,
+                theme.selected(),
+                "{name}: the focus band must not equal the selection tone"
+            );
+            // And the summary tone must stay legible on it — the band is painted
+            // under real text, so it has to survive the contrast re-seat.
+            assert_ne!(
+                theme.band_text(band, theme.muted()),
+                band,
+                "{name}: the summary tone must not disappear into the band"
+            );
+        }
+    }
+
+    /// On the no-colour archetypes the band is carried by DEC reverse video
+    /// instead, so no colour escape is emitted (ADR-0053). The cue must still
+    /// exist — silence here is the original bug.
+    #[test]
+    fn entry_focus_is_reverse_video_on_a_structured_profile() {
+        // VT100 / getty: no colour latitude at all, so the cue is the modifier.
+        let mono = Theme::monochrome();
+        assert_eq!(mono.entry_focus_band(), Color::Reset);
+        assert!(
+            mono.entry_focus_style()
+                .add
+                .contains(nuotc::Modifier::REVERSE),
+            "a VT100 says \"the keyboard is here\" with reverse video"
+        );
+        assert!(
+            mono.entry_focus_rail_style()
+                .add
+                .contains(nuotc::Modifier::REVERSE)
+        );
+
+        // ANSI-16 does own one discrete highlight slot, so it uses that rather
+        // than fabricating an RGB mix the terminal would quantize away.
+        let hybrid = Theme::ansi16();
+        assert_eq!(hybrid.entry_focus_band(), Color::DarkGray);
+        assert!(!matches!(hybrid.entry_focus_band(), Color::Rgb(..)));
     }
 
     /// A listing row's color follows the shell's `ls` convention — blue dir,

@@ -12,11 +12,11 @@ The full-frame entry point is `render::draw_transcript` (`crates/nuo-tui/src/ren
 
 ```text
 ┌────────────────────────────────────────────────────────────────────┐
-│[Refactor DB]  [Fix Auth]  [dashboard]                      F1 help │   ◄ 1  TabBar
+│[Refactor DB]  [Fix Auth]  [dashboard]                       F1 help│   ◄ 1  TabBar (flush to both edges)
 ├────────────────────────────────────────────────────────────────────┤
-│THREAD b3c4  Fix retry logic in auth loop     ‹ thread › subagent(2)│   ◄ 2  SceneBar
+│  THREAD b3c4  Fix retry logic in auth loop   ‹ thread › subagent(2)│   ◄ 2  SceneBar
 ├────────────────────────────────────────────────────────────────────┤
-│[DEVELOPER]  auto  open                               ~/projects/nuo│   ◄ 3  ThreadContextBar
+│  [DEVELOPER]  auto  open                             ~/projects/nuo│   ◄ 3  ThreadContextBar
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
 │              ▾ tool:search_text "query" (12 matches)               │   ◄ 4  StickyAnchor
@@ -59,6 +59,8 @@ The head band carries three tiers (ADR-0060, ADR-0062). It is a sibling of the c
 | **ThreadContextBar** | 1 on thread / 0 elsewhere | Thread | `theme.contextbar_bg()` (~4.0% offset) | `[ROLE]` badge, then safety posture tokens (`auto`, `open`) — omitted entirely when the session sits in the safe default | Tilde-shortened workspace path, right-anchored and shrinkable |
 
 The TabBar is always present when a head exists; the SceneBar is universal across scene kinds; the ThreadContextBar renders **0 rows** on `Dashboard` and `Settings`, so non-thread viewports show a 2-row head. On Monochrome and ANSI-16 profiles, background fills converge safely onto `theme.element_bg`.
+
+The TabBar is the one band that **bleeds to both terminal edges** (`TABBAR_H_INSET = 0`): the tier is the shell's own top border, so a gutter there reads as a break in the frame rather than as breathing room, and the `tabbar_bg` fill runs the full width instead of ending in two unpainted strips. It is the only tier that does this — the SceneBar and ThreadContextBar keep `TRANSCRIPT_H_INSET`, so the head narrows by two columns below row 1 instead of the top row floating inward. Legibility is carried *inside* the row: every tab label is projected as `" {label} "`, so the first tab still starts with one column of rail padding and consecutive tabs are separated by a single blank column; and the tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before the right-pinned status cluster, so a truncated rail's `…` / `[▾]` can never butt against the `F1 help` keycap. The brand fallback (`nuo`, drawn when no tabs are open) is flush on the same terms.
 
 The ThreadContextBar reads **who → how → where** left to right, and the workspace is right-anchored for a correctness reason rather than a compositional one: it is the only element that may shrink, so pinning it to the right edge keeps the governance cluster (role + posture) at a fixed screen position. Toggling `/unattended` therefore grows the left cluster into the gap instead of re-truncating the path, and a narrow terminal degrades by shortening the path rather than by stealing columns from safety.
 
@@ -119,7 +121,8 @@ Sizes come from `crates/nuo-tui/src/design.rs` (non-color tokens). Values below 
 
 | Token | Value | Meaning |
 | :--- | :--- | :--- |
-| `TRANSCRIPT_H_INSET` | 2 | Uniform horizontal inset applied once at the transcript band entry point |
+| `TRANSCRIPT_H_INSET` | 2 | Uniform horizontal inset applied once at the transcript band entry point; also the SceneBar / ThreadContextBar frame gutter |
+| `TABBAR_H_INSET` | 0 | Horizontal inset of the top `TabBar` tier — deliberately flush to both terminal edges; padding lives inside each tab label instead |
 | `TRANSCRIPT_BODY_LEADING_INDENT` | 2 | Only indent prose adds atop the already-inset band |
 | `FOOTER_H_INSET` | `= TRANSCRIPT_H_INSET` | Same inset inside the footer band |
 | `MODEL_BAR_INNER_PADDING` | 1 | Edge indent of the model-bar cluster |

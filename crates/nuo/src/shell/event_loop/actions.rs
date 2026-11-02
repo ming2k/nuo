@@ -1827,7 +1827,7 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             app.focus_interactive_target(-1);
         }
         input::InputAction::ToggleFocusPlane => {
-            // `⇧Tab`: cross to the other peer plane, remembering (and
+            // `Shift-Tab`: cross to the other peer plane, remembering (and
             // restoring) the transcript's entry highlight so the crossing is
             // lossless (ADR-0145 `[INV-FOCUS-01]`).
             app.focus.toggle();

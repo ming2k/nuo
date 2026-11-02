@@ -3,7 +3,7 @@
 //! The Thread scene hosts **two peer surfaces**: the composer (where a prompt is
 //! drafted) and the transcript (where execution is inspected). Neither is a
 //! mode of the other. Exactly one plane owns the keyboard at any instant, and
-//! `⇧Tab` is the sole chord that crosses between them — so the crossing is
+//! `Shift-Tab` is the sole chord that crosses between them — so the crossing is
 //! symmetric by construction rather than by two unrelated chords that happen to
 //! exist ([`FocusPlane`], `[INV-FOCUS-01]`).
 //!
@@ -147,7 +147,7 @@ impl Focus {
     ///
     /// This is an involution: `focus.toggle(); focus.toggle();` leaves the
     /// state — plane *and* remembered entry — exactly as it was, which is what
-    /// makes `⇧Tab` symmetric rather than a one-way "escape"
+    /// makes `Shift-Tab` symmetric rather than a one-way "escape"
     /// (`[INV-FOCUS-01]`).
     pub fn toggle(&mut self) {
         self.plane = match self.plane {

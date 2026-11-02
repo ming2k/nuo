@@ -126,21 +126,25 @@ pub fn draw_notice_view(
             NoticeSeverity::Info => "info",
         }
     };
-    // The interaction channel still tints the topic label, so a hovered or
-    // keyboard-focused notice is visibly the component attention is on
-    // (affordance hue) even though its body never folds.
-    let topic_color = summary_text_color(
-        Some(tag_color),
-        Disclosure::Expanded,
-        Interaction::from_hover_focused(hovered, focused),
+    // The interaction channel still tints the topic label while the pointer
+    // rests on it, and keyboard focus paints the head's full width in the focus
+    // band (ADR-0145) — a *background* cue, the same channel the composer uses
+    // to say the same thing, so the plane crossing is legible on a notice too.
+    let interaction = Interaction::from_hover_focused(hovered, focused);
+    let chrome = interaction.chrome(theme);
+    let topic_color = chrome.text(
         theme,
+        summary_text_color(Some(tag_color), Disclosure::Expanded, interaction, theme),
     );
-    let header_line = notice_header_line(
-        notice.topic(),
-        marker,
-        topic_color,
-        notice.status_label().as_deref(),
-        theme.muted(),
+    let header_line = chrome.apply(
+        notice_header_line(
+            notice.topic(),
+            marker,
+            topic_color,
+            notice.status_label().as_deref(),
+            theme.muted(),
+            full_width,
+        ),
         full_width,
     );
 

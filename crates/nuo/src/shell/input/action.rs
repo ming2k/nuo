@@ -362,7 +362,7 @@ pub enum InputAction {
     /// `Ctrl+P` (`session.focus_prev`) and by `↑` while an entry is already
     /// highlighted.
     FocusPrevTarget,
-    /// Cross to the other peer focus plane (`⇧Tab`): composer ⇄ transcript.
+    /// Cross to the other peer focus plane (`Shift-Tab`): composer ⇄ transcript.
     ///
     /// An involution — the same chord returns — and the **only** explicit
     /// crossing. `Esc` deliberately does not cross planes

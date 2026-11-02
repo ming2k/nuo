@@ -84,13 +84,20 @@ pub fn draw_compacted_card(
 
     // The card is an activatable entry like every other step summary, so it
     // composes the same three channels: disclosure luminance, lifecycle hue
-    // (none — compaction is not a failure), and the transient
-    // hover/focus affordance hue.
-    let summary_color = summary_text_color(
-        None,
-        Disclosure::from_expanded(expanded),
-        Interaction::from_hover_focused(hovered, focused),
+    // (none — compaction is not a failure), and — while the keyboard owns this
+    // card — the full-width focus band (ADR-0145), which is a *background* cue
+    // and therefore survives on an expanded card where the old affordance-hue
+    // tint was suppressed.
+    let interaction = Interaction::from_hover_focused(hovered, focused);
+    let chrome = interaction.chrome(ctx.theme);
+    let summary_color = chrome.text(
         ctx.theme,
+        summary_text_color(
+            None,
+            Disclosure::from_expanded(expanded),
+            interaction,
+            ctx.theme,
+        ),
     );
 
     let mut spans = Vec::new();
@@ -101,8 +108,8 @@ pub fn draw_compacted_card(
     ));
     // Header icon & title. The title and stat line carry the composed summary
     // tone so a collapsed card rests muted, an open one reads at full
-    // foreground, and hovering or focusing it lights the affordance hue — the
-    // same visual contract as every other step summary.
+    // foreground, and hovering it lights the affordance hue — the same visual
+    // contract as every other step summary.
     spans.push(Span::styled(
         lead_icon,
         Style::default()
@@ -127,6 +134,10 @@ pub fn draw_compacted_card(
     spans.push(Span::styled(hint, Style::default().fg(ctx.theme.muted())));
 
     let header_line = Line::from(spans);
+    // `apply` re-paints every span's surface onto the resolved band and pads to
+    // `full_width`, so a focused card's header is a continuous bar instead of a
+    // short tinted run. A no-op when the card is not the focused entry.
+    let header_line = chrome.apply(header_line, full_width);
     if let Some(rect) = ctx.paint(header_line) {
         ctx.layout_map.push(BlockRegion {
             message_idx: mi,

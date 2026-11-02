@@ -16,7 +16,7 @@ use nuo_ui_primitives::theme::Theme;
 // Width ladder
 
 /// Width-degradation ladder for the keys row.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActionDensity {
     Full,
     Compact,
@@ -31,6 +31,27 @@ impl ActionDensity {
             ActionDensity::Compact
         } else {
             ActionDensity::Tiny
+        }
+    }
+
+    /// The renderings a caller may retry at when this one does not fit, in
+    /// order, starting with `self`.
+    ///
+    /// A width band is a *starting* point, not a promise: the band is computed
+    /// from the row width alone, while fit also depends on the verbs and the
+    /// chord tokens the row happens to carry. `Shift-Tab` is a column wider
+    /// than `⇧Tab` was, just as a delivery verb is wider than its sibling — so a
+    /// row can earn `Full` by width and still overflow.
+    ///
+    /// Stepping down one rung is worth strictly more than the Floor-1 collapse
+    /// (`F1 more`): compact still *names* the crossing and the delivery verb,
+    /// while `F1 more` names neither. Floor-1 therefore stays the caller's last
+    /// rung, reached only after every density in this ladder has overflowed.
+    pub(crate) fn ladder(self) -> &'static [ActionDensity] {
+        match self {
+            ActionDensity::Full => &[ActionDensity::Full, ActionDensity::Compact],
+            ActionDensity::Compact => &[ActionDensity::Compact],
+            ActionDensity::Tiny => &[ActionDensity::Tiny],
         }
     }
 
@@ -365,7 +386,7 @@ mod tests {
         );
         // The idle row's one nav chord is the crossing to the peer plane
         // (ADR-0145): a user who never learns it cannot inspect the transcript.
-        assert_eq!(text(&left), "⇧Tab transcript");
+        assert_eq!(text(&left), "Shift-Tab transcript");
         assert_eq!(text(&right), "Enter send");
         // ADR-0054: "Enter" span must use theme.keycap_accent() and BOLD
         assert_eq!(right[0].content, "Enter");
@@ -388,7 +409,7 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             None,
         );
-        assert_eq!(text(&left), "Tab follow-up mode   ⇧Tab transcript");
+        assert_eq!(text(&left), "Tab follow-up mode   Shift-Tab transcript");
         assert_eq!(text(&right), "Enter send steer");
     }
 
@@ -404,7 +425,7 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             None,
         );
-        assert_eq!(text(&left), "Tab steer mode   ⇧Tab transcript");
+        assert_eq!(text(&left), "Tab steer mode   Shift-Tab transcript");
         assert_eq!(text(&right), "Enter queue follow-up");
     }
 
@@ -422,7 +443,7 @@ mod tests {
         );
         assert_eq!(
             text(&left),
-            "Ctrl-t follow-up mode   ⇧Tab transcript",
+            "Ctrl-t follow-up mode   Shift-Tab transcript",
             "the hint must advertise the effective toggle binding, not the canonical"
         );
     }
@@ -442,7 +463,7 @@ mod tests {
             crate::shell::keymap::Key::TAB,
             Some(FocusedEntryKind::Disclosable),
         );
-        assert_eq!(text(&left), "⇧Tab composer   Space expand");
+        assert_eq!(text(&left), "Shift-Tab composer   Space expand");
         assert_eq!(text(&right), "o view log   y copy   Shift-y diagnostic");
     }
 

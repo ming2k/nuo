@@ -2,7 +2,22 @@
 //! measurement limits shared by renderer components.
 /// Uniform horizontal inset applied to transcript-area components so bands,
 /// bars, and text do not touch the terminal frame.
+///
+/// Scope: the transcript band, the footer stack, and head tiers 2/3
+/// (`draw_scene_bar`, `draw_thread_context_bar`). Tier 1 does **not** read this
+/// token — see [`TABBAR_H_INSET`].
 pub const TRANSCRIPT_H_INSET: u16 = 2;
+
+/// Horizontal inset of the Client Global TabBar (Tier 1), the shell's top
+/// border. Deliberately `0`: a gutter on *that* row reads as a break in the
+/// frame rather than as breathing room, because the row is the frame. The
+/// tab rail therefore starts at column 0 and the right-pinned status cluster
+/// ends on the last column, with the band's own `tabbar_bg` fill carrying the
+/// full width. Legibility is preserved *inside* the row instead: every tab
+/// label is projected as `" {label} "` (one column of rail padding each side),
+/// and the status cluster keeps [`BAR_LEGEND_GAP_MIN`] of clear space from a
+/// truncated tab rail so a `…` or `[▾]` never touches a keycap.
+pub const TABBAR_H_INSET: u16 = 0;
 
 /// Extra leading whitespace applied to prose after the transcript-area gutter.
 /// Now that the horizontal gutter is applied once at the stream entry point,
@@ -165,14 +180,12 @@ pub const MODEL_BAR_MODEL_GAP: usize = 1;
 /// shown directly above Composer while a round, queue items, or tasks are active.
 pub const ACTIVITY_STRIP_ROWS: u16 = 1;
 
-/// Minimum gap between a footer bar's left content and its right-pinned
-/// keycap legend (e.g. the queue bar's `Ctrl+Q expand`). Deliberately wider than the
-/// 2-col inter-cluster
-/// gap used by the hint bar: a legend is a keyboard affordance, not
-/// prose, so it needs real visual distance from the content — especially when
-/// content truncates to fill the row, where a small gap would let a `…` butt
-/// directly against a keycap.
-#[allow(dead_code)]
+/// Minimum gap between a bar's left content and its right-pinned keycap
+/// legend (the queue bar's `Ctrl+Q expand`, the TabBar's `F1 help`).
+/// Deliberately wider than the 2-col inter-cluster gap used by the hint bar: a
+/// legend is a keyboard affordance, not prose, so it needs real visual distance
+/// from the content — especially when content truncates to fill the row, where
+/// a small gap would let a `[▾]` or a `…` butt directly against a keycap.
 pub const BAR_LEGEND_GAP_MIN: usize = 6;
 
 // Semantic joins (see docs/reference/tui/visual-language.md)
