@@ -32,6 +32,7 @@ use nuo_provider::{Endpoint, NUO_USER_AGENT, PromptCacheConfig};
 
 pub mod catalog;
 pub mod interactions;
+pub mod oauth;
 pub mod request;
 pub mod response;
 pub mod spec_antigravity;
@@ -50,10 +51,18 @@ pub const GOOGLE_DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis
 
 fn google_completion(
     response_json: &Value,
+    signature_origin: &str,
 ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
     let root = response_json.get("response").unwrap_or(response_json);
     let mut message =
         response::message(response_json).map_err(|e| ProviderError::protocol("Google", e))?;
+    // Record which wire identity minted this turn's thought signatures before
+    // the sidecar leaves the message. Replay is gated on this exact match: a
+    // signature only validates on the backend that issued it.
+    stamp_signature_origin(
+        message.provider_meta.get_or_insert_with(Map::new),
+        signature_origin,
+    );
     let artifacts = message.provider_meta.take();
     Ok(nuo_provider::ProviderCompletion {
         message,
@@ -63,6 +72,27 @@ fn google_completion(
             continuation: None,
         },
     })
+}
+
+/// Stamp the minting wire identity onto a turn's provider sidecar.
+///
+/// Only turns that actually carry signature material are stamped: an unsigned
+/// turn has nothing to protect, and an origin stamp with no tokens would make
+/// the sidecar look like replay evidence when it is not.
+fn stamp_signature_origin(meta: &mut Map<String, Value>, origin: &str) {
+    let carries_signature = [
+        response::THOUGHT_SIGNATURES_META_KEY,
+        response::TEXT_THOUGHT_SIGNATURE_META_KEY,
+        response::TERMINAL_THOUGHT_SIGNATURE_META_KEY,
+    ]
+    .iter()
+    .any(|key| meta.get(*key).is_some_and(|value| !value.is_null()));
+    if carries_signature {
+        meta.insert(
+            response::THOUGHT_SIGNATURE_ORIGIN_META_KEY.to_string(),
+            Value::String(origin.to_string()),
+        );
+    }
 }
 
 /// Google native provider.
@@ -233,6 +263,42 @@ impl GoogleProvider {
         self.dialect == nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity
     }
 
+    /// The wire identity this channel currently addresses — the envelope's
+    /// `model` on Antigravity, the model id itself on a native Google route.
+    ///
+    /// This is the identity that mints and validates thought signatures, so it
+    /// is what replay is gated on (see
+    /// [`request::BodyInput::signature_origin`]).
+    pub fn effective_wire_model(&self) -> String {
+        if self.is_antigravity() {
+            effective_antigravity_wire_model(
+                &self.capabilities,
+                &self.endpoint.model,
+                self.reasoning_effort,
+            )
+        } else {
+            self.endpoint.model.clone()
+        }
+    }
+
+    /// The full signature-minting identity of this route: the ingress authority
+    /// **and** the wire model.
+    ///
+    /// A Google thought signature only validates on the backend that issued it,
+    /// and the model id alone cannot express that — the same id is served by
+    /// Google AI Studio, by the Cloud Code `v1internal` surface, and by any
+    /// relay/中转站 configured through `with_base_url`. Comparing only the model
+    /// would let a token minted by one backend be replayed to another, which is
+    /// precisely the cross-backend case answered with
+    /// `400 "Corrupted thought signature."`.
+    pub fn signature_origin(&self) -> String {
+        format!(
+            "{}/{}",
+            self.endpoint.ingress_host(),
+            self.effective_wire_model()
+        )
+    }
+
     /// Build the thinkingless streaming request for a channel whose upstream
     /// refused `thinkingConfig`. Shared shape with
     /// [`Self::stream_chat_events`] minus the thinking-disclosure surface; kept
@@ -332,16 +398,7 @@ impl GoogleProvider {
     /// Read the shape of a prepared body back into a [`response::RequestShape`],
     /// resolving the wire model id exactly as the envelope did.
     fn request_shape(&self, body: &serde_json::Value) -> response::RequestShape {
-        let wire_model = if self.is_antigravity() {
-            effective_antigravity_wire_model(
-                &self.capabilities,
-                &self.endpoint.model,
-                self.reasoning_effort,
-            )
-        } else {
-            self.endpoint.model.clone()
-        };
-        response::RequestShape::of(&wire_model, body)
+        response::RequestShape::of(&self.effective_wire_model(), body)
     }
 
     fn wrap_event_stream(
@@ -350,9 +407,18 @@ impl GoogleProvider {
     ) -> BoxStream<'static, Result<ProviderStreamEvent, ProviderError>> {
         let next_tool_index = std::sync::Arc::new(std::sync::Mutex::new(0usize));
         let thought_signatures = Arc::new(Mutex::new(Map::new()));
-        let text_thought_signature = Arc::new(Mutex::new(None::<String>));
+        // Signature *sites* are accumulated separately and the replay decision
+        // is deferred to the terminal frame, because the answer text only
+        // exists as a whole once every delta has arrived: a text-part signature
+        // is replayable only when the merged answer is byte-identical to the one
+        // signed delta. Guessing before the stream ends is what puts a token
+        // next to bytes it never signed (the upstream answers
+        // `400 Corrupted thought signature`).
+        let text_signature_sites = Arc::new(Mutex::new(response::TextSignatureSites::default()));
         let terminal_signatures = thought_signatures.clone();
-        let terminal_text_signature = text_thought_signature.clone();
+        let terminal_text_signature = text_signature_sites.clone();
+
+        let signature_origin = self.signature_origin();
         let stream = nuo_provider::transport::sse::data_payloads(response, "Google").flat_map({
             let next_tool_index = next_tool_index.clone();
             move |item| {
@@ -389,37 +455,11 @@ impl GoogleProvider {
                                         }
                                     }
                                 }
-                                if let Some(signature) = parsed.text_thought_signature {
-                                    *text_thought_signature
-                                        .lock()
-                                        .unwrap_or_else(|e| e.into_inner()) =
-                                        Some(signature.clone());
-                                }
-                                let stored_text_sig = text_thought_signature
-                                    .lock()
-                                    .unwrap_or_else(|e| e.into_inner())
-                                    .clone();
-                                if let Some(signature) = stored_text_sig {
-                                    let mut guard = thought_signatures
+                                {
+                                    let mut sites = text_signature_sites
                                         .lock()
                                         .unwrap_or_else(|e| e.into_inner());
-                                    for event in &parsed.events {
-                                        if let ProviderStreamEvent::ToolCallDelta {
-                                            id: Some(id),
-                                            name,
-                                            ..
-                                        } = event
-                                        {
-                                            guard.entry(id.clone()).or_insert_with(|| {
-                                                Value::String(signature.clone())
-                                            });
-                                            if let Some(name) = name {
-                                                guard.entry(name.clone()).or_insert_with(|| {
-                                                    Value::String(signature.clone())
-                                                });
-                                            }
-                                        }
-                                    }
+                                    sites.observe(&parsed);
                                 }
                                 parsed
                                     .events
@@ -455,26 +495,51 @@ impl GoogleProvider {
             }
         });
         let terminal = futures::stream::once(async move {
-            let signatures = std::mem::take(
+            let mut signatures = std::mem::take(
                 &mut *terminal_signatures
                     .lock()
                     .unwrap_or_else(|error| error.into_inner()),
             );
-            let text_signature = terminal_text_signature
+            let sites = terminal_text_signature
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
-                .take();
+                .resolve();
             let mut artifacts = Map::new();
+            // A turn-level signature is the documented signature for the turn's
+            // function-call group; seed any call that streamed unsigned so the
+            // next turn keeps native tool replay instead of degrading to text.
+            if let Some(turn_signature) = sites.turn_signature.as_deref() {
+                let seed = Value::String(turn_signature.to_string());
+                for key in &sites.call_keys {
+                    signatures
+                        .entry(key.clone())
+                        .or_insert_with(|| seed.clone());
+                }
+            }
             if !signatures.is_empty() {
                 artifacts.insert(
                     response::THOUGHT_SIGNATURES_META_KEY.to_string(),
                     Value::Object(signatures),
                 );
             }
-            if let Some(signature) = text_signature {
+            if let Some(signature) = sites.text_signature {
                 artifacts.insert(
                     response::TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
                     Value::String(signature),
+                );
+            }
+            if let Some(signature) = sites.turn_signature {
+                artifacts.insert(
+                    response::TERMINAL_THOUGHT_SIGNATURE_META_KEY.to_string(),
+                    Value::String(signature),
+                );
+            }
+            if !artifacts.is_empty() {
+                // Only a turn that actually minted signatures records its
+                // origin: replay is gated on an exact wire-identity match.
+                artifacts.insert(
+                    response::THOUGHT_SIGNATURE_ORIGIN_META_KEY.to_string(),
+                    Value::String(signature_origin),
                 );
             }
             Ok(ProviderStreamEvent::Completed(
@@ -560,7 +625,7 @@ impl GoogleProvider {
             ));
         }
 
-        google_completion(&response_json)
+        google_completion(&response_json, &self.signature_origin())
     }
 
     #[cfg(test)]
@@ -593,6 +658,14 @@ impl GoogleProvider {
                 request::max_thinking_budget(&self.endpoint.model),
             )
         };
+        // The exact wire identity this turn addresses. It gates signature
+        // replay: a Google thought signature is only valid on the backend that
+        // minted it, so a turn from a different wire identity is replayed with
+        // its tokens dropped rather than forwarded on faith.
+        // The replay gate compares the *full* minting identity: a token only
+        // validates on the backend that issued it, and the model id alone cannot
+        // distinguish AI Studio from Cloud Code or from a relay.
+        let signature_origin = self.signature_origin();
         let ModelRequest {
             instructions,
             mut messages,
@@ -613,6 +686,7 @@ impl GoogleProvider {
                 tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
                 include_thoughts,
                 thinking,
+                signature_origin: &signature_origin,
             },
             &self.capabilities,
         );
@@ -675,11 +749,7 @@ impl GoogleProvider {
                 .filter(|s| !s.is_empty())
                 .unwrap_or("aicode-consumers");
 
-            let effective_model = effective_antigravity_wire_model(
-                &self.capabilities,
-                &self.endpoint.model,
-                self.reasoning_effort,
-            );
+            let effective_model = self.effective_wire_model();
             let wrapped_body = serde_json::json!({
                 "project": project,
                 "requestId": uuid::Uuid::new_v4().to_string(),
@@ -808,7 +878,7 @@ impl Provider for GoogleProvider {
             ));
         }
 
-        google_completion(&response_json)
+        google_completion(&response_json, &self.signature_origin())
     }
 
     async fn stream_chat(
@@ -1048,6 +1118,7 @@ fn effective_antigravity_wire_model(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nuo_tool::{Message, Role};
 
     /// Baseline capability view for tests that need to stamp an effort ladder:
     /// `GoogleProvider::new` derives capabilities from the registry, which the
@@ -1398,6 +1469,141 @@ mod tests {
         );
         assert!(!headers.contains_key("x-opencode-org-id"));
     }
-}
 
-pub mod oauth;
+    /// The signature origin must distinguish **backends**, not just models.
+    ///
+    /// The same model id is served by Google AI Studio, by Cloud Code's
+    /// `v1internal`, and by any relay configured through `with_base_url`. A token
+    /// minted by one and replayed to another is the cross-backend case Google
+    /// answers `400 "Corrupted thought signature."` to, so the identity that gates
+    /// replay has to carry the ingress authority.
+    #[test]
+    fn signature_origin_distinguishes_backends_not_just_models() {
+        let studio = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-3.8-flash".to_string(),
+            "https://generativelanguage.googleapis.com/v1beta",
+            "ua",
+        );
+        let cloudcode = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-3.8-flash".to_string(),
+            "https://daily-cloudcode-pa.googleapis.com",
+            "ua",
+        )
+        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_project_id("proj-1");
+        let relay = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-3.8-flash".to_string(),
+            "https://relay.example.com/v1beta",
+            "ua",
+        );
+
+        // Same channel model id, three different minting backends.
+        assert_ne!(studio.signature_origin(), cloudcode.signature_origin());
+        assert_ne!(studio.signature_origin(), relay.signature_origin());
+        assert_ne!(cloudcode.signature_origin(), relay.signature_origin());
+        assert_eq!(
+            studio.signature_origin(),
+            "generativelanguage.googleapis.com/gemini-3.8-flash",
+            "the origin is the ingress authority plus the wire model"
+        );
+        // The Cloud Code envelope rewrites the wire model, and the origin follows.
+        assert_eq!(
+            cloudcode.signature_origin(),
+            "daily-cloudcode-pa.googleapis.com/gemini-3.8-flash-tiered"
+        );
+    }
+
+    /// A token minted by one backend must not be replayed to another, end to end:
+    /// build a turn stamped by AI Studio, then replay it on a Cloud Code channel.
+    #[test]
+    fn a_token_from_another_backend_is_not_replayed() {
+        let call = nuo_tool::ToolCall {
+            id: "call_1".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        // Minted by AI Studio.
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            response::THOUGHT_SIGNATURES_META_KEY.to_string(),
+            serde_json::json!({ "call_1": "sig-from-studio" }),
+        );
+        provider_meta.insert(
+            response::THOUGHT_SIGNATURE_ORIGIN_META_KEY.to_string(),
+            serde_json::json!("generativelanguage.googleapis.com/gemini-3.8-flash"),
+        );
+        let messages = vec![
+            Message::new(Role::User, "inspect"),
+            Message {
+                tool_calls: Some(vec![call.clone()]),
+                provider_meta: Some(provider_meta),
+                ..Message::new(Role::Assistant, "checking")
+            },
+            Message::tool_result(&call, "Cargo.toml"),
+        ];
+
+        // Replayed on the Cloud Code channel — a different backend.
+        let p = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-3.8-flash".to_string(),
+            "https://daily-cloudcode-pa.googleapis.com",
+            "ua",
+        )
+        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_project_id("proj-1");
+        let (_, _, body) = p.prepare_request(ModelRequest::new(messages), false, false);
+        assert_eq!(
+            body["request"]["contents"][1]["parts"][1]["thoughtSignature"],
+            request::SKIP_THOUGHT_SIGNATURE_VALIDATOR,
+            "a foreign backend's token must not be replayed"
+        );
+    }
+
+    /// The counterpart: a token minted by THIS backend replays natively. Without
+    /// this the gate could be vacuously passing by dropping everything.
+    #[test]
+    fn a_token_from_the_same_backend_replays() {
+        let call = nuo_tool::ToolCall {
+            id: "call_1".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        let p = GoogleProvider::with_base_url_and_user_agent(
+            "k".to_string(),
+            "gemini-3.8-flash".to_string(),
+            "https://daily-cloudcode-pa.googleapis.com",
+            "ua",
+        )
+        .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
+        .with_project_id("proj-1");
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            response::THOUGHT_SIGNATURES_META_KEY.to_string(),
+            serde_json::json!({ "call_1": "sig-same-backend" }),
+        );
+        provider_meta.insert(
+            response::THOUGHT_SIGNATURE_ORIGIN_META_KEY.to_string(),
+            serde_json::json!(p.signature_origin()),
+        );
+        let (_, _, body) = p.prepare_request(
+            ModelRequest::new(vec![
+                Message::new(Role::User, "inspect"),
+                Message {
+                    tool_calls: Some(vec![call.clone()]),
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(Role::Assistant, "checking")
+                },
+                Message::tool_result(&call, "Cargo.toml"),
+            ]),
+            false,
+            false,
+        );
+        assert_eq!(
+            body["request"]["contents"][1]["parts"][1]["thoughtSignature"],
+            "sig-same-backend"
+        );
+    }
+}

@@ -573,13 +573,16 @@ mod tests {
         let tool_msg = Message::tool_result(&call, "file1.txt\nfile2.txt");
         ir.append_message("t1", 1_002_000, tool_msg);
 
-        // Turn from Gemini with valid thought signature
+        // Turn replayed with a provider sidecar present. The sidecar is treated as
+        // an opaque vendor blob here on purpose: this crate never asserts a
+        // provider's key contract (the keys are the provider's private vocabulary,
+        // and hard-coding one here is what let the shape rot unnoticed).
         let gemini_call = ToolCall::new("call_gemini_1", "find_files", r#"{"path":"."}"#);
         let mut gemini_assistant = Message::new(Role::Assistant, "Listing files");
         gemini_assistant.tool_calls = Some(vec![gemini_call.clone()]);
         let mut meta = serde_json::Map::new();
         meta.insert(
-            "gemini_thought_signatures".to_string(),
+            "provider-opaque-sidecar".to_string(),
             serde_json::json!({ "call_gemini_1": "sig-valid" }),
         );
         gemini_assistant.provider_meta = Some(meta);

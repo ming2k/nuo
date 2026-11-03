@@ -78,9 +78,18 @@ pub struct MessagePayload {
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    /// Provider-opaque sidecar (Gemini thought signatures, Anthropic thinking
-    /// signature, ...). Never inspected by the harness core; round-trips
-    /// verbatim through every projection.
+    /// Provider-opaque replay sidecar — the transport facts a vendor requires to
+    /// reconstruct a prior turn (on `GoogleGenerateContent`, the thought
+    /// signatures carried on `text` / `functionCall` parts and the wire identity
+    /// that minted them; on `AnthropicMessages`, the thinking-block `signature`).
+    ///
+    /// Key names and their semantics are owned *entirely* by the provider that
+    /// writes them. Never inspected here, never interpreted here, and never
+    /// extended with a provider-specific accessor: the moment such a helper lands
+    /// on this crate, this field stops being opaque and the protocol layer
+    /// inherits a wire contract whose key constants it cannot even see (they live
+    /// in the provider). It round-trips verbatim through every projection so a
+    /// resumed session replays exactly what it recorded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_meta: Option<serde_json::Map<String, serde_json::Value>>,
     /// Dedicated subagent session this result points at (replaces inline

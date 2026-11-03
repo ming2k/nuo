@@ -115,6 +115,7 @@ enum DiffSource {
     LegacyArguments {
         name: String,
         arguments: String,
+        line_offset: usize,
     },
 }
 
@@ -179,6 +180,17 @@ impl DiffCache {
         name: &str,
         arguments: &str,
     ) -> Arc<[DiffHunk]> {
+        self.legacy_arguments_with_offset(message_id, name, arguments, 0)
+    }
+
+    /// Cache the argument-derived compatibility diff with an explicit line offset.
+    pub fn legacy_arguments_with_offset(
+        &mut self,
+        message_id: u64,
+        name: &str,
+        arguments: &str,
+        line_offset: usize,
+    ) -> Arc<[DiffHunk]> {
         let now = self.next_tick();
         if let Some(lines) = self.reuse(message_id, now, |source| {
             matches!(
@@ -186,7 +198,8 @@ impl DiffCache {
                 DiffSource::LegacyArguments {
                     name: cached_name,
                     arguments: cached_arguments,
-                } if cached_name == name && cached_arguments == arguments
+                    line_offset: cached_offset,
+                } if cached_name == name && cached_arguments == arguments && *cached_offset == line_offset
             )
         }) {
             return lines;
@@ -195,8 +208,9 @@ impl DiffCache {
         let source = DiffSource::LegacyArguments {
             name: name.to_string(),
             arguments: arguments.to_string(),
+            line_offset,
         };
-        let hunks = super::diff_hunks_for(name, arguments);
+        let hunks = super::diff_hunks_for_with_offset(name, arguments, line_offset);
         self.insert(message_id, source, hunks, now)
     }
 
@@ -576,6 +590,23 @@ mod tests {
         assert_eq!(line_diff_counts("a\nb\nc\nd", "a\nB\nc\nd"), (1, 1));
         assert_eq!(line_diff_counts("", "x\ny\nz"), (3, 0));
         assert_eq!(line_diff_counts("x\ny", ""), (0, 2));
+    }
+
+    #[test]
+    fn legacy_arguments_with_offset_applies_start_line_offset() {
+        let mut cache = DiffCache::default();
+        let hunks = cache.legacy_arguments_with_offset(
+            123,
+            "edit_text",
+            r#"{"path":"test.rs","old_string":"foo\n","new_string":"bar\n"}"#,
+            24,
+        );
+        assert_eq!(hunks.len(), 1);
+        let hunk = &hunks[0];
+        assert_eq!(hunk.old_start, 25);
+        assert_eq!(hunk.new_start, 25);
+        assert_eq!(hunk.lines[0].old_no, Some(25));
+        assert_eq!(hunk.lines[1].new_no, Some(25));
     }
 
     #[test]

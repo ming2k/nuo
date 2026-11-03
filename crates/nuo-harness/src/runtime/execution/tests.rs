@@ -3,7 +3,7 @@
 use super::*;
 use crate::tools::{EditTextTool, FindFilesTool, ReadTextTool, WriteFileTool};
 use nuo_protocol::execution::{ExecutionEnvironment, ToolMiddleware};
-use nuo_protocol::{Tool, ToolOutput};
+use nuo_protocol::{PatchOp, Tool, ToolOutput};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -99,10 +99,18 @@ async fn tools_running_on_system_tool_context() {
 
     // 3. EditTextTool edits file
     let edit_tool = EditTextTool::new(ctx.clone());
-    let _edit_res = edit_tool
+    let edit_res = edit_tool
         .call_structured(r#"{"path":"lib.rs","old_string":"a + b","new_string":"a + b + 1"}"#)
         .await
         .unwrap();
+    assert!(matches!(
+        edit_res,
+        ToolOutput::Patch {
+            op: PatchOp::Edit,
+            start_line: 2,
+            ..
+        }
+    ));
     let updated = std::fs::read_to_string(dir.path().join("lib.rs")).unwrap();
     assert!(updated.contains("a + b + 1"));
 

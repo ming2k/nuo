@@ -348,42 +348,72 @@ pub trait Tool: Send + Sync {
 
     /// Executes the tool with the supplied JSON arguments within the given context.
     ///
-    /// This is the **structured** execution entry point. Its default delegates
-    /// to the string-based [`Tool::call`], so a tool that implements only
-    /// `call` (the former rich-trait style) works unchanged. A tool that
-    /// implements `execute` directly should also leave `call` at its default.
+    /// This is the canonical **structured** execution entry point. A tool that
+    /// returns a strongly-typed [`ToolOutput`] (`Patch`, `Diff`, …) implements
+    /// this directly and leaves both [`Tool::call`] and
+    /// [`Tool::call_structured`] at their defaults.
     ///
-    /// Exactly one of `execute` / `call` must be overridden; a tool that
-    /// overrides neither recurses (guarded by a debug assertion in the default).
+    /// A tool that predates structured output and implements only
+    /// [`Tool::call`] works unchanged: this default re-serialises the arguments
+    /// and delegates, wrapping the returned string as [`ToolOutput::Text`].
+    ///
+    /// `Null` re-serialises to the empty string, not to `"null"`: a
+    /// zero-argument call reaches the legacy tool with exactly the arguments the
+    /// model sent, so `call` implementations that treat `""` as "no arguments"
+    /// keep working.
     async fn execute(
         &self,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
         arguments: serde_json::Value,
     ) -> Result<ToolOutput> {
         debug_assert!(
-            false,
+            !ctx.is_legacy_call_delegation(),
             "tool `{}` overrides neither `execute` nor `call`; one is required",
             self.name()
         );
-        let args = serde_json::to_string(&arguments).unwrap_or_default();
+        if ctx.is_legacy_call_delegation() {
+            // Release builds do not run the assertion above. The cycle of two
+            // defaults must still terminate — and it must terminate with the
+            // tool's name attached, not as a stack overflow — because this is a
+            // library-user programming error, not an internal invariant.
+            return Err(ToolError::execution(
+                self.name(),
+                "tool overrides neither `execute` nor `call`; one is required",
+            ));
+        }
+        let args = match arguments {
+            serde_json::Value::Null => String::new(),
+            value => serde_json::to_string(&value).unwrap_or_default(),
+        };
         self.call(&args)
             .await
             .map(ToolOutput::text)
             .map_err(ToolError::custom)
     }
 
-    /// Executes the tool from raw JSON arguments (the former rich-trait name).
+    /// Executes the tool from raw JSON arguments and returns string output.
     ///
-    /// Defaults to [`Tool::execute`], so a tool that implements only `execute`
-    /// (the leaf-native style) works unchanged. Returns a string for
-    /// compatibility with the harness dispatch's legacy signature.
+    /// The string-level spelling of [`Tool::execute`], kept for the callers that
+    /// want text. It defaults to `execute` + [`ToolOutput::to_text`], so a tool
+    /// implementing only `execute` works unchanged.
+    ///
+    /// Exactly one of `execute` / `call` must be overridden. The guard for that
+    /// invariant is the cycle itself: the default below re-enters `execute`'s
+    /// default with a context that says so, and *that* body asserts. A tool that
+    /// overrides neither therefore fails at the moment of the offending call,
+    /// naming the tool — where a guard placed here would fire on every legitimate
+    /// hybrid tool that keeps `execute` and inherits `call`, and one placed
+    /// nowhere at all would surface as an opaque stack overflow.
     async fn call(&self, arguments: &str) -> std::result::Result<String, String> {
         let value: serde_json::Value =
             serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-        self.execute(&ToolContext::default(), value)
-            .await
-            .map(|out| out.to_text())
-            .map_err(|err| err.to_string())
+        self.execute(
+            &ToolContext::default().mark_legacy_call_delegation(),
+            value,
+        )
+        .await
+        .map(|out| out.to_text())
+        .map_err(|err| err.to_string())
     }
 
     /// Convenient execution helper using a default context.
@@ -391,12 +421,16 @@ pub trait Tool: Send + Sync {
         self.execute(&ToolContext::default(), arguments).await
     }
 
-    /// Structured result from raw JSON arguments (former rich-trait name).
+    /// Structured result from raw JSON arguments.
     ///
-    /// Defaults to [`Tool::call`], wrapping the text as [`ToolOutput::Text`].
-    /// Tools that return richer variants override this directly.
+    /// Parses arguments and executes via [`Tool::execute`], preserving the typed
+    /// [`ToolOutput`] variant.
     async fn call_structured(&self, arguments: &str) -> std::result::Result<ToolOutput, String> {
-        self.call(arguments).await.map(ToolOutput::text)
+        let value: serde_json::Value =
+            serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+        self.execute(&ToolContext::default(), value)
+            .await
+            .map_err(|err| err.to_string())
     }
 
     /// Structured, event-emitting execution — the method the harness invokes so
@@ -412,16 +446,18 @@ pub trait Tool: Send + Sync {
         self.call_structured(invocation.arguments).await
     }
 
-    /// Generate an OpenAI-compatible function schema for this tool.
+    /// This tool's OpenAI-family function schema.
+    ///
+    /// Delegates to the crate's single envelope definition
+    /// ([`registry::function_envelope`]) rather than re-spelling it: three
+    /// verbatim copies of this shape existed in this crate, and the copies are
+    /// what drift.
+    ///
+    /// The protocol-neutral form is [`ToolSpec`](nuo_provider::capability::ToolSpec);
+    /// this method exists only for the OpenAI-family envelope every
+    /// compatible surface consumes.
     fn to_openai_function(&self) -> serde_json::Value {
-        serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": self.name(),
-                "description": self.description(),
-                "parameters": self.parameters(),
-            }
-        })
+        crate::registry::function_envelope(self.name(), self.description(), self.parameters())
     }
 }
 
@@ -429,3 +465,134 @@ pub mod hazard;
 pub use hazard::{
     HazardLevel, HazardTier, ProcessKillSpec, ToolPermissionPayload, ToolPermissionSubmission,
 };
+
+#[cfg(test)]
+mod delegation_tests {
+    use super::*;
+
+    /// A tool on the legacy string entry point only — the shape every
+    /// pre-`ToolOutput` tool in this workspace still has.
+    struct LegacyTool;
+
+    #[async_trait::async_trait]
+    impl Tool for LegacyTool {
+        fn name(&self) -> &str {
+            "legacy"
+        }
+        fn description(&self) -> &str {
+            "legacy"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn risk_profile(&self) -> RiskProfile {
+            RiskProfile::ReadOnly
+        }
+        async fn call(&self, arguments: &str) -> std::result::Result<String, String> {
+            Ok(format!("legacy:{arguments}"))
+        }
+    }
+
+    /// A tool on the structured entry point only.
+    struct StructuredTool;
+
+    #[async_trait::async_trait]
+    impl Tool for StructuredTool {
+        fn name(&self) -> &str {
+            "structured"
+        }
+        fn description(&self) -> &str {
+            "structured"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn risk_profile(&self) -> RiskProfile {
+            RiskProfile::ReadOnly
+        }
+        async fn execute(
+            &self,
+            _ctx: &ToolContext,
+            arguments: serde_json::Value,
+        ) -> Result<ToolOutput> {
+            Ok(ToolOutput::text(format!("structured:{arguments}")))
+        }
+    }
+
+    /// Overrides neither default: the one shape the trait must reject.
+    struct HollowTool;
+
+    #[async_trait::async_trait]
+    impl Tool for HollowTool {
+        fn name(&self) -> &str {
+            "hollow"
+        }
+        fn description(&self) -> &str {
+            "hollow"
+        }
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn risk_profile(&self) -> RiskProfile {
+            RiskProfile::ReadOnly
+        }
+    }
+
+    /// A `call`-only tool must keep working through **every** entry point. The
+    /// `execute` default delegates to it, and `call`'s own default must not be
+    /// what answers: a guard placed there instead of on the cycle fired on this
+    /// legitimate tool and broke an MCP bridge test.
+    #[tokio::test]
+    async fn legacy_tool_works_through_all_entry_points() {
+        let tool = LegacyTool;
+
+        assert_eq!(tool.call("{}").await.unwrap(), "legacy:{}");
+        assert_eq!(
+            tool.call_structured(r#"{"a":1}"#).await.unwrap().to_text(),
+            r#"legacy:{"a":1}"#
+        );
+        assert_eq!(
+            tool.execute(&ToolContext::default(), serde_json::json!({"a": 1}))
+                .await
+                .unwrap()
+                .to_text(),
+            r#"legacy:{"a":1}"#
+        );
+    }
+
+    /// `Null` reaches a legacy tool as the empty string, not `"null"`: a
+    /// zero-argument call must arrive with exactly the arguments the model sent.
+    #[tokio::test]
+    async fn null_arguments_reach_a_legacy_tool_as_empty_string() {
+        let out = LegacyTool
+            .execute(&ToolContext::default(), serde_json::Value::Null)
+            .await
+            .unwrap();
+        assert_eq!(out.to_text(), "legacy:");
+    }
+
+    /// An `execute`-only tool must keep working through the string entry point.
+    #[tokio::test]
+    async fn structured_tool_works_through_the_string_entry_point() {
+        assert_eq!(
+            StructuredTool.call("{}").await.unwrap(),
+            r#"structured:{}"#
+        );
+    }
+
+    /// A tool that overrides neither must fail *naming itself*, not recurse
+    /// until the stack dies.
+    ///
+    /// In a debug build the cycle trips a `debug_assert!`; the `should_panic`
+    /// below is that assertion. Release builds compile the assertion out and the
+    /// same cycle returns the equivalent error instead of overflowing the stack,
+    /// which is the property that matters when a downstream library hands this
+    /// trait a tool it forgot to wire.
+    #[tokio::test]
+    #[should_panic(expected = "overrides neither")]
+    async fn hollow_tool_reports_instead_of_recursing() {
+        let _ = HollowTool
+            .execute(&ToolContext::default(), serde_json::json!({}))
+            .await;
+    }
+}

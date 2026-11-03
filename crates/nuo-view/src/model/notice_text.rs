@@ -518,6 +518,81 @@ a `thinkingLevel` outside `LOW`/`MEDIUM`/`HIGH` is a 400.";
         assert!(painted.contains("names no field"), "{painted}");
     }
 
+    /// The reported failure was `400 Corrupted thought signature`, which names no
+    /// field either — and which the old evidence block could not even suggest,
+    /// because it listed everything *except* the tokens actually sent. This locks
+    /// the missing fact end to end: a body carrying replayed signatures must make
+    /// the notice report them, so a refusal of this class is attributable without
+    /// a `/debug trace` capture.
+    #[test]
+    fn a_replayed_signature_becomes_visible_evidence() {
+        use crate::model::document::{NoticeSeverity, TranscriptMessage};
+
+        let upstream = nuo_provider::ProviderError::new(
+            "Google",
+            nuo_provider::ProviderErrorKind::InvalidRequest,
+            "Google HTTP 400 Bad Request: Corrupted thought signature.",
+        )
+        .with_status(400);
+
+        // Two replayed tokens, one of them the documented bypass sentinel.
+        let shape = nuo_provider_google_antigravity::response::RequestShape::of(
+            "gemini-3.8-flash-high",
+            &serde_json::json!({
+                "contents": [
+                    {"role": "user", "parts": [{"text": "hi"}]},
+                    {"role": "model", "parts": [{
+                        "functionCall": {"name": "find_files", "args": {}},
+                        "thoughtSignature": "sig-replayed"
+                    }]},
+                    {"role": "model", "parts": [{
+                        "functionCall": {"name": "read_text", "args": {}},
+                        "thoughtSignature": "skip_thought_signature_validator"
+                    }]},
+                ],
+            }),
+        );
+        let clarified = nuo_provider_google_antigravity::response::clarify_error_with_shape(
+            upstream,
+            "gemini-3.8-flash-high",
+            "https://cloudcode-pa.googleapis.com",
+            Some(&shape),
+        );
+        let msg = TranscriptMessage::notice(NoticeSeverity::Error, clarified.message().to_string());
+
+        assert!(
+            msg.raw.contains("replayedThoughtSignatures=1"),
+            "the real token count must be reported (the sentinel is not a real token): {}",
+            msg.raw
+        );
+        assert!(
+            msg.raw.contains("bypass sentinels"),
+            "the sentinel count must be reported too: {}",
+            msg.raw
+        );
+        // The cause the user was never told to suspect is now named first.
+        assert!(
+            msg.raw.contains("thoughtSignature"),
+            "the refusal class must be attributable from the notice: {}",
+            msg.raw
+        );
+        assert!(msg.raw.contains("different wire identity"), "{}", msg.raw);
+    }
+
+    /// The counterpart: a body with no replayed token says so explicitly, so the
+    /// reader is not left wondering whether the evidence block silently omitted it.
+    #[test]
+    fn an_unsigned_body_reports_no_replayed_signature() {
+        let shape = nuo_provider_google_antigravity::response::RequestShape::of(
+            "gemini-3.8-flash-high",
+            &serde_json::json!({
+                "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+            }),
+        );
+        assert_eq!(shape.replayed_signatures, 0);
+        assert!(shape.describe().contains("replayedThoughtSignatures=none"));
+    }
+
     #[test]
     fn normalizes_nested_gateway_json_error_digesting_escapes_and_newlines() {
         let raw = r#"OpenAI Responses HTTP 400 Bad Request: {"error":{"message":"{\"error\":{\"message\":\"The messages parameter is illegal. Please check the documentation.\",\"type\":\"AI_APICallError\",\"param\":{\"error\":\"The messages parameter is illegal. Please check the documentation.\",\"statusCode\":400,\"name\":\"AI_APICallError\",\"message\":\"The messages parameter is illegal. Please check the documentation.\",\"isRetryable\":false,\"type\":\"AI_APICallError\"}},\"providerMetadata\":{\"gateway\":{\"routing\":{\"originalModelId\":\"zai/glm-5.3-flashx\",\"resolvedProvider\":\"zai\",\"fallbacksAvailable\":[],\"canonicalSlug\":\"zai/glm-5.3-flashx\",\"modelAttemptCount\":1,\"modelAttempts\":[{\"canonicalSlug\":\"zai/glm-5.3-flashx\",\"success\":false,\"providerAttemptCount\":1,\"providerAttempts\":[{\"provider\":\"zai\",\"credentialType\":\"system\",\"success\":false,\"error\":\"The messages parameter is illegal. Please check the documentation.\",\"startTime\":1792727628864,\"endTime\":1792727630532,\"providerRequestId\":\"20261023115350796e7fbd69c94610\",\"statusCode\":400}]}],\"totalProviderAttemptCount\":1,\"affinity\":{\"outcome\":\"no_pin\"},\"cli…(truncated)","type":"invalid_request_error"}}"#;

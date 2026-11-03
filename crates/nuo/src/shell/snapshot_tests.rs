@@ -696,6 +696,40 @@ fn edit_text_diff_renders_from_structured_patch() {
 }
 
 #[test]
+fn edit_text_diff_renders_with_explicit_start_line() {
+    let m = tool_step_structured(
+        "edit_text",
+        r#"{"path":"a.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#,
+        nuo_protocol::ToolOutput::Patch {
+            path: "a.rs".into(),
+            op: nuo_protocol::PatchOp::Edit,
+            old: "let x = 1;".into(),
+            new: "let x = 2;".into(),
+            start_line: 42,
+            warnings: Vec::new(),
+        },
+        true,
+    );
+    let rendered = render_grid(&m, 80, 30);
+    assert!(
+        rendered.contains("@@ -42 +42 @@"),
+        "Hunk header must use start_line 42:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("42   - let x = 1;"),
+        "Removed line must show line 42:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("42+ let x = 2;"),
+        "Added line must show line 42:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("@@ -1 +1 @@"),
+        "Must not use line 1:\n{rendered}"
+    );
+}
+
+#[test]
 fn failed_edit_renders_error_instead_of_intended_diff() {
     let m = tool_step_structured(
         "edit_text",

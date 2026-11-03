@@ -150,15 +150,24 @@ impl ToolCardProps {
                 .and_then(|v| v.as_str())
                 .map(String::from)
         } else {
-            msg.tool_step_semantic_summary(workspace_root)
-                .and_then(|(line, _)| {
-                    let plain = line.to_plain_text();
-                    let parts: Vec<&str> = plain.split_whitespace().collect();
-                    if parts.len() >= 2 {
-                        Some(parts[1].to_string())
-                    } else {
-                        None
-                    }
+            let streaming = nuo_view::tools::parse_streaming_arguments(arguments);
+            streaming
+                .get("path")
+                .or_else(|| streaming.get("file"))
+                .or_else(|| streaming.get("url"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    msg.tool_step_semantic_summary(workspace_root)
+                        .and_then(|(line, _)| {
+                            let plain = line.to_plain_text();
+                            let parts: Vec<&str> = plain.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                Some(parts[1].to_string())
+                            } else {
+                                None
+                            }
+                        })
                 })
         };
 
@@ -200,18 +209,58 @@ impl ToolCardProps {
                             new,
                             start_line,
                             ..
-                        } => ToolPayload::Diff {
-                            old_text: old.clone(),
-                            new_text: new.clone(),
-                            line_offset: *start_line,
-                        },
+                        } => {
+                            let mut start = *start_line;
+                            if start == 0
+                                && let Some(target) = &target_path
+                            {
+                                if let Some(resolved) =
+                                    crate::shell::disclosure::renderers::payloads::find_start_line_in_file(
+                                        target,
+                                        workspace_root,
+                                        old,
+                                        new,
+                                    )
+                                {
+                                    start = resolved;
+                                }
+                            }
+                            ToolPayload::Diff {
+                                old_text: old.clone(),
+                                new_text: new.clone(),
+                                line_offset: start.saturating_sub(1),
+                            }
+                        }
                         _ => ToolPayload::Generic {
                             content: output.clone().unwrap_or_default(),
                         },
                     }
                 } else {
-                    ToolPayload::Generic {
-                        content: output.clone().unwrap_or_default(),
+                    let (old_buf, new_buf) =
+                        crate::shell::disclosure::renderers::payloads::extract_diff_strings_for_tool(
+                            &name, arguments,
+                        );
+                    if !old_buf.is_empty() || !new_buf.is_empty() {
+                        let start = if let Some(target) = &target_path {
+                            crate::shell::disclosure::renderers::payloads::find_start_line_in_file(
+                                target,
+                                workspace_root,
+                                &old_buf,
+                                &new_buf,
+                            )
+                            .unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        ToolPayload::Diff {
+                            old_text: old_buf,
+                            new_text: new_buf,
+                            line_offset: start.saturating_sub(1),
+                        }
+                    } else {
+                        ToolPayload::Generic {
+                            content: output.clone().unwrap_or_default(),
+                        }
                     }
                 }
             }
@@ -254,7 +303,18 @@ impl ToolCardProps {
                         } => (text.clone(), *start_line, lang.clone()),
                         _ => (output.clone().unwrap_or_default(), 1, None),
                     },
-                    None => (output.clone().unwrap_or_default(), 1, None),
+                    None => {
+                        let offset = serde_json::from_str::<serde_json::Value>(arguments)
+                            .ok()
+                            .and_then(|v| {
+                                v.get("offset")
+                                    .and_then(|o| o.as_u64())
+                                    .or_else(|| v.get("start_line").and_then(|o| o.as_u64()))
+                            })
+                            .map(|o| o as usize)
+                            .unwrap_or(1);
+                        (output.clone().unwrap_or_default(), offset, None)
+                    }
                 };
                 ToolPayload::Code {
                     content: raw_content,
@@ -944,5 +1004,74 @@ impl StorybookComponent for ToolCard {
         } else {
             StoryEventOutcome::Ignored
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nuo_view::model::document::TranscriptMessage;
+    use tempfile::tempdir;
+
+    #[test]
+    fn from_transcript_message_uses_file_line_number_for_diff_offset() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("code.rs");
+        let mut content = String::new();
+        for i in 1..=30 {
+            content.push_str(&format!("line {i}\n"));
+        }
+        std::fs::write(&file_path, &content).unwrap();
+
+        // An edit at line 20: "line 20\n" -> "line 20 modified\n"
+        let msg = TranscriptMessage::tool_step(
+            "call_test",
+            "edit_text",
+            r#"{"path":"code.rs","old_string":"line 20\n","new_string":"line 20 modified\n"}"#,
+        );
+
+        let props = ToolCardProps::from_transcript_message(&msg, Some(dir.path()))
+            .expect("must build ToolCardProps");
+        match &props.payload {
+            ToolPayload::Diff { line_offset, .. } => {
+                // start_line is 20, so line_offset must be 19 (first line displayed as 20)
+                assert_eq!(*line_offset, 19);
+            }
+            _ => panic!("Expected ToolPayload::Diff, got {:?}", props.payload),
+        }
+
+        // Now render it and verify the gutter line number is 20, not 1
+        let mut terminal = nuotc::TestTerminal::new(80, 10);
+        let theme = Theme::default();
+        let state = ToolCardState {
+            expanded: true,
+            scroll: 0,
+        };
+        terminal.draw(|f| {
+            ToolCard::render_with_layout(
+                &props,
+                &state,
+                f,
+                Rect::new(0, 0, 80, 10),
+                &theme,
+                None,
+                None,
+            );
+        });
+
+        let rendered = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>();
+        assert!(
+            rendered.contains(" 20      -") && rendered.contains(" 20 +"),
+            "Gutter must display line 20 for removed and added rows:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("  1      -") && !rendered.contains("  1 +"),
+            "Diff gutter must not show line 1:\n{rendered}"
+        );
     }
 }

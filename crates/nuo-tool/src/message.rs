@@ -514,38 +514,6 @@ impl Message {
         self
     }
 
-    /// Retrieve the Google Gemini thought signature for a given tool call ID or name (ADR-0046).
-    pub fn gemini_thought_signature(&self, call_key: &str) -> Option<&str> {
-        let meta = self.provider_meta.as_ref()?;
-        if let Some(signatures) = meta
-            .get("gemini_thought_signatures")
-            .and_then(serde_json::Value::as_object)
-        {
-            if let Some(sig) = signatures.get(call_key).and_then(serde_json::Value::as_str) {
-                return Some(sig);
-            }
-        }
-        meta.get("gemini_text_thought_signature")
-            .and_then(serde_json::Value::as_str)
-    }
-
-    /// Check if this assistant message carries a valid Gemini thought signature for the given tool call (ADR-0046).
-    pub fn has_gemini_thought_signature_for(&self, call: &ToolCall) -> bool {
-        self.gemini_thought_signature(&call.id).is_some()
-            || self.gemini_thought_signature(&call.name).is_some()
-    }
-
-    /// Check if this assistant message contains at least one Google Gemini thought signature (ADR-0046).
-    pub fn has_gemini_thought_signatures(&self) -> bool {
-        let Some(meta) = self.provider_meta.as_ref() else {
-            return false;
-        };
-        meta.get("gemini_thought_signatures")
-            .and_then(serde_json::Value::as_object)
-            .is_some_and(|m| !m.is_empty())
-            || meta.get("gemini_text_thought_signature").is_some()
-    }
-
     /// Project this message to its provider-**wire** form: the minimal shape a
     /// provider request body serializes. Strips every out-of-band field —
     /// nested subagent [`children`](Self::children),

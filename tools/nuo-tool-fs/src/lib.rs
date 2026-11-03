@@ -500,18 +500,23 @@ impl Tool for EditTextTool {
     /// the needle the model happened to write. `new` is the full post-edit content
     /// for the same reason — a diff of needle-vs-replacement would hide the effect
     /// of a replacement that duplicates or drops surrounding text.
+    ///
+    /// Because both sides are the whole file, the hunk starts at line 1 and the
+    /// text diff finds the changed region itself. Reusing `plan_edit`'s needle
+    /// offset here would shift the whole-file hunk down by where the needle
+    /// happened to sit, so the offset is deliberately discarded.
     fn preview(&self, arguments: &Value) -> Option<PreviewResult> {
         let args: EditTextArgs = serde_json::from_value(arguments.clone()).ok()?;
         let path = self.ctx.resolve_path(&args.path);
         let content = fs::read_to_string(&path).ok()?;
-        let (modified, start_line) =
+        let (modified, _needle_offset) =
             plan_edit(&content, &args.old_string, &args.new_string, &args.path).ok()?;
         Some(PreviewResult {
             path: args.path,
             op: PatchOp::Edit,
             old: content,
             new: modified,
-            start_line,
+            start_line: 1,
             warnings: Vec::new(),
         })
     }

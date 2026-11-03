@@ -12,6 +12,29 @@ pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
 }
 
+/// The canonical OpenAI-family function envelope for one tool.
+///
+/// Single definition on purpose: this shape was previously re-spelled in three
+/// places in this crate (twice in [`ToolRegistry`], once on the `Tool` trait),
+/// which is exactly how copies drift — one gains a field and the others keep
+/// emitting the old contract while every caller keeps compiling. OpenAI-shaped
+/// *providers* still own their own envelope because they add provider-specific
+/// fields (`strict`, cache markers); the base shape belongs here, once.
+pub(crate) fn function_envelope(
+    name: &str,
+    description: &str,
+    parameters: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        }
+    })
+}
+
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
@@ -34,52 +57,6 @@ impl ToolRegistry {
     /// Looks up a registered tool by name.
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
-    }
-
-    /// Formats all registered tools into model-facing function calling specifications.
-    pub fn model_specs(&self) -> Vec<serde_json::Value> {
-        self.tools
-            .values()
-            .map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name(),
-                        "description": t.description(),
-                        "parameters": t.parameters_schema(),
-                    }
-                })
-            })
-            .collect()
-    }
-
-    /// Returns model specs filtered by active operational scopes.
-    /// If `active_scopes` is None, all registered tools are returned.
-    pub fn model_specs_scoped(
-        &self,
-        active_scopes: Option<&[crate::scope::ToolScope]>,
-    ) -> Vec<serde_json::Value> {
-        let Some(scopes) = active_scopes else {
-            return self.model_specs();
-        };
-
-        self.tools
-            .values()
-            .filter(|t| {
-                let declared = t.scopes();
-                declared.iter().any(|s| scopes.contains(s))
-            })
-            .map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name(),
-                        "description": t.description(),
-                        "parameters": t.parameters_schema(),
-                    }
-                })
-            })
-            .collect()
     }
 
     /// Verifies whether a tool is allowed within the active scopes.
@@ -144,5 +121,37 @@ impl ToolRegistry {
 
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The envelope shape is pinned as a literal, not compared against itself.
+    ///
+    /// This is the guard that makes the de-duplication safe to keep: the three
+    /// copies this replaced could each drift independently, and a test that
+    /// compared `function_envelope` to `function_envelope` would happily agree
+    /// with a wrong shape. Pinning the wire bytes is what a provider consuming
+    /// this actually depends on.
+    #[test]
+    fn function_envelope_is_the_openai_function_contract() {
+        let envelope = function_envelope(
+            "find_files",
+            "Find files by glob",
+            serde_json::json!({"type": "object"}),
+        );
+        assert_eq!(
+            envelope,
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": "find_files",
+                    "description": "Find files by glob",
+                    "parameters": {"type": "object"},
+                }
+            })
+        );
     }
 }

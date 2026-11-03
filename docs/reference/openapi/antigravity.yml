@@ -822,6 +822,36 @@ paths:
         - Text parts `{"text": "…"}`; thought parts carry `"thought": true`;
           the terminal frame carries a base64 `thoughtSignature` on a
           zero-length text part together with `finishReason: "STOP"`.
+        - **`thoughtSignature` site and replay contract** (live 2026-10-23,
+          `v1internal:streamGenerateContent`): a signature validates against
+          the exact bytes of the part that minted it, on the backend that
+          minted it. Measured upstream behaviour:
+          - Rejected with `400 INVALID_ARGUMENT "Corrupted thought
+            signature."`: a garbage/tail-corrupted token, and a token replayed
+            from a **different wire identity** (Vertex ↔ AI Studio, or a
+            model/provider switch mid-session).
+          - Accepted (200): changing `systemInstruction`, adding a tool,
+            editing earlier call args/user text/`functionResponse`, swapping
+            or cloning signatures between turns, and **omitting** the
+            `thoughtSignature` field entirely (the missing-signature path
+            degrades tool quality, it does not fail).
+          - Presence rule: only the **newest** `functionCall` group must carry
+            a signature (a real token or the
+            `skip_thought_signature_validator` sentinel). Sibling calls of one
+            parallel batch may go unsigned.
+          - Consequence for clients: never relocate a token, and never replay one
+            across a change of minting **backend**. The identity that gates
+            replay must be the ingress authority *and* the model, not the model
+            alone — the same id is served by AI Studio, by `v1internal`, and by
+            any relay. A signature seen on a `thought: true` part, on one delta
+            of a multi-delta answer, or on a turn minted elsewhere must be
+            dropped (or, for a turn-level token, moved only onto that turn's
+            leading `functionCall`) — never stamped onto text whose bytes it did
+            not sign.
+          - The terminal `{"text": "", "thoughtSignature": …}` frame arrives on
+            essentially every answer, so its presence must not be read as
+            contradicting a signature carried by the answer text itself; the two
+            sign different things (turn vs. part bytes).
         - `response.usageMetadata` — `promptTokenCount`,
           `candidatesTokenCount`, `thoughtsTokenCount`, `totalTokenCount`
           (cumulative per stream).

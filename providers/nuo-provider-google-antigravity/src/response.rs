@@ -10,14 +10,131 @@ use nuo_tool::ToolCall;
 use nuo_tool::{Message, Role, TokenUsage};
 use serde_json::{Map, Value};
 
+/// Per-`functionCall` thought signatures, keyed by both call id and call name.
 pub const THOUGHT_SIGNATURES_META_KEY: &str = "gemini_thought_signatures";
+/// A thought signature minted on the answer's **visible text** part, replayable
+/// on that same part because the part's bytes round-trip verbatim.
 pub const TEXT_THOUGHT_SIGNATURE_META_KEY: &str = "gemini_text_thought_signature";
+/// A **turn-level** thought signature — minted on the terminal zero-length text
+/// part (or on one delta of a text part that the harness merges). It is not
+/// replayable on a text part, but it is a valid signature for this turn's
+/// function-call group, which is the shape the native client sends.
+pub const TERMINAL_THOUGHT_SIGNATURE_META_KEY: &str = "gemini_terminal_thought_signature";
+/// The wire identity that minted the signatures on this turn (`model` on the
+/// Antigravity envelope; the model id on a native Google route). A signature is
+/// only valid on the route that minted it, so the request builder compares this
+/// against the route it is about to address.
+pub const THOUGHT_SIGNATURE_ORIGIN_META_KEY: &str = "gemini_thought_signature_origin";
 
-#[derive(Debug, Clone)]
-pub struct StreamPayload {
+#[derive(Debug, Clone, Default)]
+pub(crate) struct StreamPayload {
     pub events: Vec<ProviderStreamEvent>,
     pub thought_signatures: Vec<(String, String)>,
+    /// A signature seen on a **non-empty, non-thought text part** of this
+    /// payload. Whether it is replayable is a whole-stream question — see
+    /// [`TextSignatureSites`].
     pub text_thought_signature: Option<String>,
+    /// A signature on a zero-length text part, or on the candidate itself: the
+    /// turn-level signature that may sign the turn's `functionCall` group.
+    pub terminal_thought_signature: Option<String>,
+    /// Visible (non-thought) text parts in this payload.
+    pub text_deltas: usize,
+    /// How many of those carried a signature.
+    pub signed_text_deltas: usize,
+}
+
+/// Accumulates where a stream's thought signatures were minted and decides what
+/// may be replayed.
+///
+/// A Google thought signature validates against the exact bytes of the part
+/// that minted it, so replaying it somewhere else is answered
+/// `400 Corrupted thought signature.` — a *terminal* failure for the session,
+/// not a degraded answer. The harness merges stream deltas into one answer
+/// string, which means a signature minted on one delta is only replayable when
+/// that delta *was* the whole answer. Everything else has exactly one
+/// replayable home: the turn's leading `functionCall`, which is the shape the
+/// native client itself sends.
+///
+/// Counting across the whole stream (rather than per payload) is the point:
+/// per-payload resolution cannot tell a one-delta answer from the first delta of
+/// a forty-delta answer.
+#[derive(Debug, Default)]
+pub(crate) struct TextSignatureSites {
+    text_deltas: usize,
+    signed_text_deltas: usize,
+    /// The last signature minted on a non-empty text part.
+    text_signature: Option<String>,
+    /// The turn-level signature (terminal frame or candidate-level).
+    pub turn_signature: Option<String>,
+    /// The call ids this stream announced, in arrival order.
+    pub call_keys: Vec<String>,
+}
+
+impl TextSignatureSites {
+    /// Fold one parsed payload into the stream-level accounting.
+    pub fn observe(&mut self, payload: &StreamPayload) {
+        self.text_deltas += payload.text_deltas;
+        self.signed_text_deltas += payload.signed_text_deltas;
+        if let Some(signature) = payload.text_thought_signature.as_ref() {
+            self.text_signature = Some(signature.clone());
+        }
+        if let Some(signature) = payload.terminal_thought_signature.as_ref() {
+            self.turn_signature = Some(signature.clone());
+        }
+        for event in &payload.events {
+            if let ProviderStreamEvent::ToolCallDelta {
+                id: Some(id), name, ..
+            } = event
+            {
+                if !id.is_empty() {
+                    self.call_keys.push(id.clone());
+                }
+                if let Some(name) = name
+                    && !name.is_empty()
+                {
+                    self.call_keys.push(name.clone());
+                }
+            }
+        }
+    }
+
+    /// Resolve the replayable **text-part** signature, if any.
+    ///
+    /// `Some` only when the merged answer is byte-identical to the single signed
+    /// delta — i.e. exactly one non-empty visible text part arrived and it
+    /// carried the token. The presence of a *separate* turn-level signature does
+    /// **not** disqualify it: this surface sends the terminal zero-length
+    /// signature frame on essentially every answer, so gating on its absence
+    /// would deny the text signature every time and needlessly demote a valid
+    /// token to turn level (replaying a turn token on text is the very thing this
+    /// fix exists to prevent).
+    pub fn resolve(&self) -> ResolvedSignatureSites {
+        let text_signature = (self.text_deltas == 1 && self.signed_text_deltas == 1)
+            .then(|| self.text_signature.clone())
+            .flatten();
+        let turn_signature = self.turn_signature.clone().or_else(|| {
+            // A signature minted on a delta that got merged away still signs
+            // this turn; keeping it is what preserves native tool replay.
+            if text_signature.is_none() {
+                self.text_signature.clone()
+            } else {
+                None
+            }
+        });
+        ResolvedSignatureSites {
+            text_signature,
+            turn_signature,
+            call_keys: self.call_keys.clone(),
+        }
+    }
+}
+
+/// The replayable signature set of one completed turn.
+#[derive(Debug, Default)]
+pub(crate) struct ResolvedSignatureSites {
+    pub text_signature: Option<String>,
+    pub turn_signature: Option<String>,
+    pub call_keys: Vec<String>,
 }
 
 /// Parse Google's `usageMetadata` into a [`TokenUsage`]. Returns `None` when
@@ -28,7 +145,7 @@ pub struct StreamPayload {
 /// reasoning budget surfaces as `thoughtsTokenCount` and is carried in
 /// [`TokenUsage::reasoning_tokens`] (already included in
 /// `candidatesTokenCount`, never an addition to it).
-pub fn usage(usage: &Value) -> Option<TokenUsage> {
+pub(crate) fn usage(usage: &Value) -> Option<TokenUsage> {
     let prompt = usage["promptTokenCount"].as_i64();
     let completion = usage["candidatesTokenCount"].as_i64();
     let total = usage["totalTokenCount"].as_i64();
@@ -63,7 +180,7 @@ pub fn usage(usage: &Value) -> Option<TokenUsage> {
 /// response into one assistant [`Message`]. Text parts become content and
 /// `functionCall` parts become native tool calls. Errors when the response has
 /// no candidates or no `parts` array.
-pub fn message(response: &Value) -> Result<Message, String> {
+pub(crate) fn message(response: &Value) -> Result<Message, String> {
     let root = response.get("response").unwrap_or(response);
     let candidates = root
         .get("candidates")
@@ -83,16 +200,41 @@ pub fn message(response: &Value) -> Result<Message, String> {
     let mut reasoning_text = String::new();
     let mut tool_calls = Vec::new();
     let mut thought_signatures = Map::new();
+    // Signature sites are kept apart because they are NOT interchangeable:
+    // a signature validates against the exact bytes of the part that minted
+    // it, so it may only be replayed there (or, for a turn-level signature, on
+    // the turn's leading `functionCall` — the shape the native client sends).
+    let mut text_signed_parts = 0usize;
+    let mut visible_text_parts = 0usize;
     let mut text_thought_signature = None;
+    let mut terminal_thought_signature = None;
     for part in parts {
         if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
             if part_is_thought(part) {
+                // Reasoning text is never replayed (the request builder emits
+                // no `thought` parts), so a signature minted here has no
+                // byte-identical replay target. Recorded as reasoning only —
+                // relocating it is what produced "Corrupted thought signature".
                 reasoning_text.push_str(text);
             } else {
-                content_text.push_str(text);
-            }
-            if let Some(signature) = thought_signature(part) {
-                text_thought_signature = Some(signature);
+                if text.is_empty() {
+                    // A zero-length visible text part contributes no bytes to the
+                    // answer, so it is not counted as a text part: counting it
+                    // would make a single signed part look like two and needlessly
+                    // disqualify its signature.
+                    if let Some(signature) = thought_signature(part) {
+                        // The documented terminal frame: a zero-length text
+                        // part carrying the turn's signature.
+                        terminal_thought_signature = Some(signature);
+                    }
+                } else {
+                    visible_text_parts += 1;
+                    content_text.push_str(text);
+                    if let Some(signature) = thought_signature(part) {
+                        text_signed_parts += 1;
+                        text_thought_signature = Some(signature);
+                    }
+                }
             }
         }
         if let Some(call) = part.get("functionCall").and_then(function_call) {
@@ -104,16 +246,19 @@ pub fn message(response: &Value) -> Result<Message, String> {
         }
     }
 
-    if let Some(signature) = &text_thought_signature {
-        for call in &tool_calls {
-            thought_signatures
-                .entry(call.id.clone())
-                .or_insert_with(|| Value::String(signature.clone()));
-            thought_signatures
-                .entry(call.name.clone())
-                .or_insert_with(|| Value::String(signature.clone()));
+    // The answer text is the concatenation of every non-empty visible text part,
+    // so it is byte-identical to the signed part only when that part was the only
+    // one. Otherwise the signature survives as a turn-level signature instead of
+    // being stamped onto text whose bytes it never signed. A separate terminal
+    // signature does not disqualify the text one: the two sign different things.
+    let text_thought_signature = match (visible_text_parts, text_signed_parts) {
+        (1, 1) => text_thought_signature,
+        (_, 0) => None,
+        _ => {
+            terminal_thought_signature = terminal_thought_signature.or(text_thought_signature);
+            None
         }
-    }
+    };
 
     let mut message = Message::new(Role::Assistant, content_text);
     message.tool_calls = (!tool_calls.is_empty()).then_some(tool_calls);
@@ -127,12 +272,20 @@ pub fn message(response: &Value) -> Result<Message, String> {
             Value::Object(thought_signatures),
         );
     }
+    let mut provider_meta = Map::new();
     if let Some(signature) = text_thought_signature {
-        let mut provider_meta = Map::new();
         provider_meta.insert(
             TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
             Value::String(signature),
         );
+    }
+    if let Some(signature) = terminal_thought_signature {
+        provider_meta.insert(
+            TERMINAL_THOUGHT_SIGNATURE_META_KEY.to_string(),
+            Value::String(signature),
+        );
+    }
+    if !provider_meta.is_empty() {
         if let Some(existing) = message.provider_meta.as_mut() {
             existing.extend(provider_meta);
         } else {
@@ -145,7 +298,7 @@ pub fn message(response: &Value) -> Result<Message, String> {
 /// Parse one `streamGenerateContent` SSE payload and concatenate the text from
 /// `candidates[0].content.parts[].text`. Returns an empty string when the
 /// payload carries no text part (e.g. a finish-reason-only chunk).
-pub fn stream_text(payload: &str) -> String {
+pub(crate) fn stream_text(payload: &str) -> String {
     stream_events(payload)
         .into_iter()
         .filter_map(|event| match event {
@@ -159,32 +312,35 @@ pub fn stream_text(payload: &str) -> String {
 /// events. Google may stream text, usage metadata, and whole `functionCall`
 /// parts. Function calls are emitted as one delta per part because the REST
 /// stream does not use OpenAI-style argument fragments.
-pub fn stream_events(payload: &str) -> Vec<ProviderStreamEvent> {
+pub(crate) fn stream_events(payload: &str) -> Vec<ProviderStreamEvent> {
     stream_payload(payload).events
 }
 
 /// Parse one `streamGenerateContent` SSE payload into normalized provider
 /// events plus any Google thought signatures attached to function-call parts.
-pub fn stream_payload(payload: &str) -> StreamPayload {
+pub(crate) fn stream_payload(payload: &str) -> StreamPayload {
     // Single-parse entry point: callers holding an already-parsed
     // payload should prefer [`stream_payload_value`] to avoid re-parsing.
     match serde_json::from_str(payload) {
         Ok(value) => stream_payload_value(&value),
-        Err(_) => StreamPayload {
-            events: Vec::new(),
-            thought_signatures: Vec::new(),
-            text_thought_signature: None,
-        },
+        Err(_) => StreamPayload::default(),
     }
 }
 
 /// Assemble the stream payload from an already-parsed JSON value — the
 /// single-parse path used by the SSE executor.
-pub fn stream_payload_value(value: &Value) -> StreamPayload {
+///
+/// Reports where this payload's signatures were minted; the
+/// replayability decision belongs to [`TextSignatureSites`], which sees the whole
+/// stream.
+pub(crate) fn stream_payload_value(value: &Value) -> StreamPayload {
     let root = value.get("response").unwrap_or(value);
     let mut events = Vec::new();
     let mut thought_signatures = Vec::new();
+    let mut text_deltas = 0usize;
+    let mut signed_text_deltas = 0usize;
     let mut text_thought_signature = None;
+    let mut terminal_thought_signature = None;
     if let Some(usage) = usage(&root["usageMetadata"]) {
         events.push(ProviderStreamEvent::Usage(usage));
     }
@@ -196,20 +352,29 @@ pub fn stream_payload_value(value: &Value) -> StreamPayload {
     {
         let mut call_index = 0usize;
         for part in parts {
-            if let Some(signature) = thought_signature(part)
-                && part.get("functionCall").is_none()
-            {
-                text_thought_signature = Some(signature);
-            }
-            if let Some(text) = part.get("text").and_then(|text| text.as_str())
-                && !text.is_empty()
-            {
-                // Route reasoning summaries to ReasoningDelta so the harness
-                // surfaces them as a thinking trace, distinct from the answer.
-                if part_is_thought(part) {
-                    events.push(ProviderStreamEvent::ReasoningDelta(text.to_string()));
-                } else {
-                    events.push(ProviderStreamEvent::TextDelta(text.to_string()));
+            if let Some(text) = part.get("text").and_then(|text| text.as_str()) {
+                if let Some(signature) = thought_signature(part) {
+                    if text.is_empty() {
+                        // The documented terminal frame: a zero-length text
+                        // part carrying this turn's signature. It signs the
+                        // turn, not the answer text, so it is NOT replayable
+                        // on a text part — but it IS the signature the turn's
+                        // leading `functionCall` may carry.
+                        terminal_thought_signature = Some(signature);
+                    } else if !part_is_thought(part) {
+                        signed_text_deltas += 1;
+                        text_thought_signature = Some(signature);
+                    }
+                }
+                if !text.is_empty() {
+                    // Route reasoning summaries to ReasoningDelta so the harness
+                    // surfaces them as a thinking trace, distinct from the answer.
+                    if part_is_thought(part) {
+                        events.push(ProviderStreamEvent::ReasoningDelta(text.to_string()));
+                    } else {
+                        text_deltas += 1;
+                        events.push(ProviderStreamEvent::TextDelta(text.to_string()));
+                    }
                 }
             }
             if let Some(call) = part.get("functionCall").and_then(function_call) {
@@ -226,19 +391,22 @@ pub fn stream_payload_value(value: &Value) -> StreamPayload {
             }
         }
     }
-    if text_thought_signature.is_none()
+    if terminal_thought_signature.is_none()
         && let Some(candidate) = root
             .get("candidates")
             .and_then(|candidates| candidates.as_array())
             .and_then(|candidates| candidates.first())
         && let Some(signature) = thought_signature(candidate)
     {
-        text_thought_signature = Some(signature);
+        terminal_thought_signature = Some(signature);
     }
     StreamPayload {
         events,
         thought_signatures,
         text_thought_signature,
+        terminal_thought_signature,
+        text_deltas,
+        signed_text_deltas,
     }
 }
 
@@ -383,6 +551,16 @@ pub struct RequestShape {
     pub tool_count: usize,
     /// Number of `contents[]` entries sent.
     pub content_count: usize,
+    /// How many replayed `thoughtSignature` values the body carried, and how many
+    /// of them were the documented bypass sentinel rather than a real token.
+    ///
+    /// This is the fact that attributes the `400 Corrupted thought signature`
+    /// class of refusal, which names no field either: a signature only validates
+    /// on the backend that minted it, so a replayed token from another route (or
+    /// one stamped onto bytes it never signed) is the cause — and the count is
+    /// what proves the request carried one at all.
+    pub replayed_signatures: usize,
+    pub bypass_signatures: usize,
 }
 
 impl RequestShape {
@@ -411,11 +589,36 @@ impl RequestShape {
             .and_then(|contents| contents.as_array())
             .map(Vec::len)
             .unwrap_or(0);
+        // Count the replayed signature tokens: the only in-band fact that can
+        // attribute a `Corrupted thought signature` refusal.
+        let mut replayed_signatures = 0usize;
+        let mut bypass_signatures = 0usize;
+        if let Some(contents) = request.get("contents").and_then(|c| c.as_array()) {
+            for part in contents
+                .iter()
+                .filter_map(|entry| entry.get("parts"))
+                .filter_map(|parts| parts.as_array())
+                .flatten()
+            {
+                if let Some(signature) = part
+                    .get("thoughtSignature")
+                    .or_else(|| part.get("thought_signature"))
+                    .and_then(|signature| signature.as_str())
+                {
+                    replayed_signatures += 1;
+                    if signature == crate::request::SKIP_THOUGHT_SIGNATURE_VALIDATOR {
+                        bypass_signatures += 1;
+                    }
+                }
+            }
+        }
         Self {
             wire_model: wire_model.to_string(),
             thinking_config,
             tool_count,
             content_count,
+            replayed_signatures,
+            bypass_signatures,
         }
     }
 
@@ -442,10 +645,22 @@ impl RequestShape {
         }
         facts.push(format!("tools={}", self.tool_count));
         facts.push(format!("contents={}", self.content_count));
+        if self.replayed_signatures > 0 {
+            let real = self.replayed_signatures - self.bypass_signatures;
+            facts.push(format!(
+                "replayedThoughtSignatures={real} (plus {} bypass sentinels)",
+                self.bypass_signatures
+            ));
+        } else {
+            facts.push("replayedThoughtSignatures=none".to_string());
+        }
         format!(
             "The request that was refused carried: {}.\n\
              Google's message names no field, so read this list against the \
-             upstream contract: a `thinkingConfig` the routed entity does not \
+             upstream contract: a `thoughtSignature` replayed from a different \
+             wire identity than the one this request addressed (a token only \
+             validates on the backend that minted it — the `Corrupted thought \
+             signature` case), a `thinkingConfig` the routed entity does not \
              accept (a per-level entity rejects the whole in-band object), a \
              `thinkingLevel` outside `LOW`/`MEDIUM`/`HIGH`, a model id that is \
              not the registered entity, or a tool schema outside Google's \
@@ -1167,6 +1382,19 @@ mod tests {
         assert!(!rejects_thinking_config(
             "Google HTTP 429: RESOURCE_EXHAUSTED thinking about quota"
         ));
+        // A corrupted/foreign thought signature is a *replay* fault, not a
+        // refused thinking surface: it names no thinking field, so it must keep
+        // failing loudly. Downgrading here would silently drop the disclosure
+        // surface and mask the real cause, and the sticky latch would then strip
+        // `thinkingConfig` from every later turn on the channel.
+        assert!(!rejects_thinking_config(
+            "Google HTTP 400: {\"error\":{\"status\":\"INVALID_ARGUMENT\",\
+             \"message\":\"Corrupted thought signature.\"}}"
+        ));
+        assert!(!rejects_thinking_config(
+            "Google HTTP 400: {\"error\":{\"status\":\"INVALID_ARGUMENT\",\
+             \"message\":\"Invalid thought signature.\"}}"
+        ));
     }
 
     #[test]
@@ -1224,5 +1452,173 @@ mod tests {
         )
         .with_status(400);
         assert!(super::rejects_thinking_config_error(&genuine));
+    }
+
+    /// A signature minted on a **reasoning** (`thought: true`) part must never be
+    /// recorded as replayable: the request builder emits no `thought` parts, so
+    /// there is no byte-identical part to stamp it on. Re-homing it — which is
+    /// what the old code did by treating every text part as a signature site —
+    /// is exactly what Google answers `400 Corruption thought signature` to.
+    #[test]
+    fn signature_on_a_thought_part_is_never_replayable() {
+        let value: Value = serde_json::from_str(
+            r#"{
+              "candidates": [{
+                "content": {
+                  "parts": [
+                    {"text": "deliberating", "thought": true, "thoughtSignature": "sig-thought"},
+                    {"text": "the answer"}
+                  ]
+                }
+              }]
+            }"#,
+        )
+        .unwrap();
+        let message = super::message(&value).unwrap();
+        assert_eq!(message.reasoning_content.as_deref(), Some("deliberating"));
+        // Nothing replayable was minted, so no sidecar is emitted at all.
+        assert!(
+            message.provider_meta.is_none(),
+            "a signature with no replayable home must not be recorded: {:?}",
+            message.provider_meta
+        );
+    }
+
+    /// A single text part carrying a signature IS byte-identical to the merged
+    /// answer, so that signature is replayable on the same part.
+    #[test]
+    fn signature_on_the_only_text_part_is_replayable() {
+        let value: Value = serde_json::from_str(
+            r#"{
+              "candidates": [{
+                "content": {
+                  "parts": [{"text": "whole answer", "thoughtSignature": "sig-text"}]
+                }
+              }]
+            }"#,
+        )
+        .unwrap();
+        let message = super::message(&value).unwrap();
+        let meta = message.provider_meta.unwrap();
+        assert_eq!(
+            meta[TEXT_THOUGHT_SIGNATURE_META_KEY],
+            Value::String("sig-text".into())
+        );
+        assert!(meta.get(TERMINAL_THOUGHT_SIGNATURE_META_KEY).is_none());
+    }
+
+    /// A zero-length text part is the documented terminal frame: its signature
+    /// signs the *turn*, so it is recorded as a turn-level signature — valid on
+    /// the turn's `functionCall`, never on the answer text.
+    #[test]
+    fn terminal_frame_signature_becomes_a_turn_signature() {
+        let value: Value = serde_json::from_str(
+            r#"{
+              "candidates": [{
+                "content": {
+                  "parts": [
+                    {"functionCall": {"name": "find_files", "args": {"path": "."}}},
+                    {"text": "", "thoughtSignature": "sig-terminal"}
+                  ]
+                },
+                "finishReason": "STOP"
+              }]
+            }"#,
+        )
+        .unwrap();
+        let message = super::message(&value).unwrap();
+        let meta = message.provider_meta.unwrap();
+        assert!(meta.get(TEXT_THOUGHT_SIGNATURE_META_KEY).is_none());
+        assert_eq!(
+            meta[TERMINAL_THOUGHT_SIGNATURE_META_KEY],
+            Value::String("sig-terminal".into())
+        );
+    }
+
+    /// A streamed answer arrives as many deltas, so the merged answer is not
+    /// byte-identical to the signed delta. The signature must survive as a
+    /// turn-level signature rather than being stamped onto the merged text.
+    #[test]
+    fn multi_delta_stream_survives_as_a_turn_signature() {
+        let mut sites = super::TextSignatureSites::default();
+        for payload in [
+            r#"{"response":{"candidates":[{"content":{"parts":[
+                 {"text":"Hel","thoughtSignature":"sig-delta"}]}}]}}"#,
+            r#"{"response":{"candidates":[{"content":{"parts":[{"text":"lo"}]}}]}}"#,
+        ] {
+            let value: Value = serde_json::from_str(payload).unwrap();
+            sites.observe(&super::stream_payload_value(&value));
+        }
+        let resolved = sites.resolve();
+        assert!(
+            resolved.text_signature.is_none(),
+            "the merged answer's bytes are not the bytes that were signed"
+        );
+        assert_eq!(resolved.turn_signature.as_deref(), Some("sig-delta"));
+    }
+
+    /// The counterpart: a single-delta answer IS byte-identical, so its
+    /// signature stays replayable on the text part and is not demoted.
+    #[test]
+    fn single_delta_stream_keeps_its_text_signature() {
+        let mut sites = super::TextSignatureSites::default();
+        let value: Value = serde_json::from_str(
+            r#"{"response":{"candidates":[{"content":{"parts":[
+                 {"text":"whole answer","thoughtSignature":"sig-only"}]}}]}}"#,
+        )
+        .unwrap();
+        sites.observe(&super::stream_payload_value(&value));
+        let resolved = sites.resolve();
+        assert_eq!(resolved.text_signature.as_deref(), Some("sig-only"));
+        assert!(resolved.turn_signature.is_none());
+    }
+
+    /// The terminal zero-length signature frame arrives on essentially every
+    /// answer on this surface, so it must NOT disqualify the answer text's own
+    /// signature. Denying it would demote a valid text token to turn level, and
+    /// replaying a turn token on text is the defect this fix exists to prevent.
+    #[test]
+    fn a_terminal_frame_does_not_disqualify_the_text_signature() {
+        let mut sites = super::TextSignatureSites::default();
+        let value: Value = serde_json::from_str(
+            r#"{"response":{"candidates":[{"content":{"parts":[
+                 {"text":"whole answer","thoughtSignature":"sig-text"},
+                 {"text":"","thoughtSignature":"sig-terminal"}]},
+                 "finishReason":"STOP"}]}}"#,
+        )
+        .unwrap();
+        sites.observe(&super::stream_payload_value(&value));
+        let resolved = sites.resolve();
+        assert_eq!(
+            resolved.text_signature.as_deref(),
+            Some("sig-text"),
+            "the answer text is byte-identical to the part that signed it"
+        );
+        assert_eq!(
+            resolved.turn_signature.as_deref(),
+            Some("sig-terminal"),
+            "the terminal token signs the turn and is kept separately"
+        );
+    }
+
+    /// A zero-length visible text part contributes no bytes to the answer, so it
+    /// must not count as a second text part when deciding byte-identity. Counting
+    /// it would disqualify a perfectly replayable signature.
+    #[test]
+    fn an_empty_text_part_does_not_look_like_a_second_text_part() {
+        let value: Value = serde_json::from_str(
+            r#"{"candidates":[{"content":{"parts":[
+                 {"text":"whole answer","thoughtSignature":"sig-text"},
+                 {"text":""}]},
+                 "finishReason":"STOP"}]}"#,
+        )
+        .unwrap();
+        let message = super::message(&value).unwrap();
+        let meta = message.provider_meta.expect("signed turn keeps a sidecar");
+        assert_eq!(
+            meta[TEXT_THOUGHT_SIGNATURE_META_KEY],
+            Value::String("sig-text".into()),
+            "an empty part adds no bytes, so the signed part is still the whole answer"
+        );
     }
 }

@@ -604,6 +604,15 @@ pub fn semantic_summary_for(
 /// completed edits use their structured Patch result instead; this path keeps
 /// restored sessions created before structured results were persisted usable.
 pub fn diff_hunks_for(name: &str, arguments: &str) -> Vec<DiffHunk> {
+    diff_hunks_for_with_offset(name, arguments, 0)
+}
+
+/// Build explicit renderable hunks from tool arguments with a specified line offset.
+pub fn diff_hunks_for_with_offset(
+    name: &str,
+    arguments: &str,
+    line_offset: usize,
+) -> Vec<DiffHunk> {
     let map = if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(arguments) {
         obj
     } else {
@@ -625,7 +634,7 @@ pub fn diff_hunks_for(name: &str, arguments: &str) -> Vec<DiffHunk> {
             if old.is_empty() && new.is_empty() {
                 Vec::new()
             } else {
-                diff::line_diff_hunks(old, new, 0)
+                diff::line_diff_hunks(old, new, line_offset)
             }
         }
         "write_file" | "write" => {
@@ -633,7 +642,7 @@ pub fn diff_hunks_for(name: &str, arguments: &str) -> Vec<DiffHunk> {
             if content.is_empty() {
                 Vec::new()
             } else {
-                diff::line_diff_hunks("", content, 0)
+                diff::line_diff_hunks("", content, line_offset)
             }
         }
         _ => Vec::new(),

@@ -20,7 +20,10 @@ use nuo_tool::{Message, Role};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
-use super::response::{TEXT_THOUGHT_SIGNATURE_META_KEY, THOUGHT_SIGNATURES_META_KEY};
+use super::response::{
+    TERMINAL_THOUGHT_SIGNATURE_META_KEY, TEXT_THOUGHT_SIGNATURE_META_KEY,
+    THOUGHT_SIGNATURE_ORIGIN_META_KEY, THOUGHT_SIGNATURES_META_KEY,
+};
 
 /// The resolved reasoning-depth directive to stamp into `thinkingConfig` — the
 /// wire form of a channel's [`nuo_provider::Effort`] override once it has been
@@ -196,6 +199,19 @@ pub struct BodyInput<'a> {
     /// channel's effort override and the model's ladder; never carries both a
     /// level and a budget (Gemini 400s on that combination).
     pub thinking: Option<GoogleThinking>,
+    /// The wire identity this request addresses — the ingress authority and the
+    /// envelope's wire model (`GoogleProvider::signature_origin`). Recorded so
+    /// turns stamped by this route can be recognised on replay: a Google thought
+    /// signature only validates on the backend that minted it, and replaying a
+    /// foreign one is answered `400 Corrupted thought signature.`
+    ///
+    /// **Required, not optional.** An `Option` here would read as "no identity
+    /// available" and silently disable replay protection for every caller that
+    /// omitted it — the failure mode would be invisible (tokens dropped, tool
+    /// quality silently degraded) and would spread to every future call site. A
+    /// builder that genuinely has no identity must say so explicitly rather than
+    /// inherit silence as a default.
+    pub signature_origin: &'a str,
 }
 
 /// Build the Google `generateContent` request body from a message list.
@@ -260,6 +276,7 @@ fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
             &mut call_names,
             &mut signed_calls,
             &mut pending_turn,
+            input.signature_origin,
         );
 
         // Coalesce consecutive same-role turns into one `contents` entry:
@@ -442,10 +459,11 @@ fn message_parts(
     call_names: &mut HashMap<String, String>,
     signed_calls: &mut HashSet<String>,
     pending_turn: &mut Option<TurnIdentity>,
+    origin: &str,
 ) -> Vec<Value> {
     match message.role {
         Role::Assistant => {
-            let parts = assistant_parts(message, call_names, signed_calls);
+            let parts = assistant_parts(message, call_names, signed_calls, origin);
             *pending_turn = Some(TurnIdentity {
                 signed: signed_calls.clone(),
             });
@@ -468,15 +486,43 @@ fn assistant_parts(
     message: Message,
     call_names: &mut HashMap<String, String>,
     signed_calls: &mut HashSet<String>,
+    origin: &str,
 ) -> Vec<Value> {
-    let thought_signatures = thought_signatures_by_call(&message);
-    let text_thought_sig = text_thought_signature(&message);
-    let fallback_signature = text_thought_sig.clone();
-
+    // A signature is only replayable on the route that minted it. When this
+    // turn came from a different wire identity (a model switch, a provider
+    // switch, a relay vs. first-party route), reuse is exactly what the
+    // upstream answers `400 Corrupted thought signature.` to — so the tokens
+    // are dropped rather than forwarded on faith.
+    let same_origin = signatures_belong_to(&message, origin);
+    let thought_signatures = if same_origin {
+        thought_signatures_by_call(&message)
+    } else {
+        HashMap::new()
+    };
     let sanitized_content = sanitize_assistant_content(&message.content);
+    // Byte-identity check: a text-part signature validates against the exact
+    // bytes of the part that minted it. The parser only records one when the
+    // answer WAS a single text part, and this second gate covers the remaining
+    // rewrite (`sanitize_assistant_content`) that would silently change those
+    // bytes. Anything else loses the signature and keeps the text.
+    let text_is_untouched = sanitized_content == message.content;
+    let text_thought_sig = same_origin
+        .then(|| text_thought_signature(&message))
+        .flatten()
+        .filter(|_| text_is_untouched);
+    // The turn-level signature signs the turn (not a part's bytes), so it is the
+    // documented fallback for the turn's function-call group. When the text part
+    // already claimed the token it is not claimed again — one token, one site.
+    let turn_signature = same_origin
+        .then(|| {
+            terminal_thought_signature(&message)
+                .or_else(|| text_thought_signature(&message).filter(|_| text_thought_sig.is_none()))
+        })
+        .flatten();
+
     let mut parts =
         text_and_image_parts(sanitized_content, message.images.unwrap_or_default(), false);
-    if let Some(signature) = &text_thought_sig
+    if let Some(signature) = text_thought_sig
         && let Some(part) = parts
             .iter_mut()
             .find(|part| part.get("text").and_then(Value::as_str).is_some())
@@ -489,7 +535,7 @@ fn assistant_parts(
             let sig = thought_signatures
                 .get(&call.id)
                 .or_else(|| thought_signatures.get(&call.name))
-                .or(fallback_signature.as_ref());
+                .or(turn_signature.as_ref());
             let signature = sig
                 .cloned()
                 .unwrap_or_else(|| SKIP_THOUGHT_SIGNATURE_VALIDATOR.to_string());
@@ -529,6 +575,28 @@ fn assistant_parts(
     parts
 }
 
+/// Last-mile wire guard: strip harness tool-invocation narration from assistant
+/// text before it is replayed as a `model` part.
+///
+/// # This is NOT the authority for this policy
+///
+/// The authoritative scrub is `nuo_harness::dispatch::tool_call::
+/// strip_fallback_invocation_markup`, which runs when a fallback invocation is
+/// promoted to a native `ToolCall` and is a strict **superset** of this function
+/// (same balanced-brace walk, plus ChatML/Hermes sentinel tokens and embedded
+/// JSON-object excision). This function cannot call it: the dependency runs
+/// harness → provider, never the reverse, and a provider must not reach into the
+/// harness's dispatch layer.
+///
+/// So the duplication is deliberate and must stay **narrower than** the
+/// authority, never divergent in kind: this is a wire guard for histories that
+/// reached the provider without passing through promotion (an imported session,
+/// a client-persisted transcript, a foreign provider's turn).
+///
+/// Editing one without reading the other is how these drift, so the coupling is
+/// made safe by construction elsewhere: a text-part `thoughtSignature` is only
+/// replayed when the sanitized bytes equal the original (see `assistant_parts`).
+/// Divergence therefore costs a signature — never a corrupted one on the wire.
 fn sanitize_assistant_content(text: &str) -> String {
     let prefixes = ["[Called tool ", "[Executed tool "];
     if !prefixes.iter().any(|marker| text.contains(marker)) {
@@ -576,12 +644,41 @@ fn sanitize_assistant_content(text: &str) -> String {
 }
 
 fn text_thought_signature(message: &Message) -> Option<String> {
+    provider_meta_string(message, TEXT_THOUGHT_SIGNATURE_META_KEY)
+}
+
+/// The **turn-level** signature: minted on the terminal zero-length text part
+/// (or on one delta of a multi-delta answer). It signs the turn rather than any
+/// single part's bytes, which is exactly what makes it the correct signature for
+/// the turn's leading `functionCall` and the wrong one for a text part.
+fn terminal_thought_signature(message: &Message) -> Option<String> {
+    provider_meta_string(message, TERMINAL_THOUGHT_SIGNATURE_META_KEY)
+}
+
+fn provider_meta_string(message: &Message, key: &str) -> Option<String> {
     message
         .provider_meta
         .as_ref()
-        .and_then(|meta| meta.get(TEXT_THOUGHT_SIGNATURE_META_KEY))
+        .and_then(|meta| meta.get(key))
         .and_then(Value::as_str)
         .map(str::to_string)
+}
+
+/// Whether this turn's signatures were minted by the route we are about to
+/// address.
+///
+/// A Google thought signature is an opaque token that only validates on the
+/// backend that minted it — replaying a Vertex signature to Google AI Studio
+/// (or an AI Studio signature to `v1internal`) answers `400 Corrupted thought
+/// signature.` even though nothing about the request is malformed. The parser
+/// records the minting identity ([`THOUGHT_SIGNATURE_ORIGIN_META_KEY`]), so
+/// replay is gated on an exact match instead of on optimism.
+///
+/// A turn with **no** recorded origin cannot prove its tokens valid here, so they
+/// are not replayed — unproven is treated as foreign. Dropping the field is
+/// explicitly accepted by the upstream; only reusing a foreign token is rejected.
+fn signatures_belong_to(message: &Message, origin: &str) -> bool {
+    provider_meta_string(message, THOUGHT_SIGNATURE_ORIGIN_META_KEY).as_deref() == Some(origin)
 }
 
 fn thought_signatures_by_call(message: &Message) -> HashMap<String, String> {
@@ -1021,6 +1118,11 @@ pub fn max_thinking_budget(model: &str) -> u32 {
 mod tests {
     use super::*;
 
+    /// The wire identity these fixtures pretend minted their signatures — the
+    /// route the request is being built for. A signature that does not carry
+    /// this exact origin is foreign and must not be replayed.
+    const TEST_ORIGIN: &str = "gemini-test";
+
     fn test_body_input<'a>(
         tool_specs: Option<&'a [nuo_provider::capability::ToolSpec]>,
         include_thoughts: bool,
@@ -1031,7 +1133,16 @@ mod tests {
             tool_specs,
             include_thoughts,
             thinking,
+            signature_origin: TEST_ORIGIN,
         }
+    }
+
+    /// Stamp [`TEST_ORIGIN`] onto a sidecar built entry-by-entry in a test.
+    fn stamp_test_origin(meta: &mut serde_json::Map<String, Value>) {
+        meta.insert(
+            THOUGHT_SIGNATURE_ORIGIN_META_KEY.to_string(),
+            json!(TEST_ORIGIN),
+        );
     }
 
     /// Route capabilities with only the vision declaration varied.
@@ -1187,6 +1298,7 @@ mod tests {
             TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
             json!("text-sig"),
         );
+        stamp_test_origin(&mut provider_meta);
         let body = body(
             vec![
                 Message::new(Role::User, "inspect"),
@@ -1240,6 +1352,7 @@ mod tests {
             THOUGHT_SIGNATURES_META_KEY.to_string(),
             json!({ "answered": "sig-answered" }),
         );
+        stamp_test_origin(&mut provider_meta);
         let body = body(
             vec![
                 Message::new(Role::User, "go"),
@@ -1285,6 +1398,7 @@ mod tests {
             THOUGHT_SIGNATURES_META_KEY.to_string(),
             json!({ "toolu_vrtx_01KeptSignature": "sig-kept" }),
         );
+        stamp_test_origin(&mut signed_meta);
         let body = body(
             vec![
                 Message::new(Role::User, "investigate"),
@@ -1352,6 +1466,7 @@ mod tests {
             TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
             json!("sig-text-fallback"),
         );
+        stamp_test_origin(&mut text_sig_meta);
         let body = body(
             vec![
                 Message::new(Role::User, "read it"),
@@ -1391,6 +1506,7 @@ mod tests {
             THOUGHT_SIGNATURES_META_KEY.to_string(),
             json!({ "call_signed_dup": "sig-earlier" }),
         );
+        stamp_test_origin(&mut signed_meta);
         let body = body(
             vec![
                 Message::new(Role::User, "go"),
@@ -1516,6 +1632,7 @@ mod tests {
             THOUGHT_SIGNATURES_META_KEY.to_string(),
             json!({ "call_signed": "sig-signed-call" }),
         );
+        stamp_test_origin(&mut provider_meta);
 
         let body = body(
             vec![
@@ -1935,5 +2052,342 @@ mod tests {
         assert_eq!(type_name_prop["type"], "string");
         assert_eq!(type_name_prop["enum"], json!(["researcher"]));
         assert!(type_name_prop.get("const").is_none());
+    }
+
+    /// A signature minted by a DIFFERENT wire identity must not be replayed.
+    ///
+    /// This is the "Corrupted thought signature" generator: a Google token only
+    /// validates on the backend that issued it, so a model/provider switch replays
+    /// a foreign token and the upstream refuses the whole turn. Dropping the field
+    /// is explicitly accepted; reusing a foreign token is not.
+    #[test]
+    fn foreign_origin_signatures_are_not_replayed() {
+        let call = nuo_tool::ToolCall {
+            id: "call_1".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            THOUGHT_SIGNATURES_META_KEY.to_string(),
+            json!({ "call_1": "sig-from-another-route" }),
+        );
+        // Minted by `other-route`; this request addresses TEST_ORIGIN.
+        provider_meta.insert(
+            THOUGHT_SIGNATURE_ORIGIN_META_KEY.to_string(),
+            json!("other-route"),
+        );
+
+        let body = body(
+            vec![
+                Message::new(Role::User, "inspect"),
+                Message {
+                    tool_calls: Some(vec![call.clone()]),
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(Role::Assistant, "checking")
+                },
+                Message::tool_result(&call, "Cargo.toml"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        assert_eq!(
+            body["contents"][1]["parts"][1]["thoughtSignature"], SKIP_THOUGHT_SIGNATURE_VALIDATOR,
+            "a foreign token must degrade to the documented bypass sentinel"
+        );
+    }
+
+    /// A text-part signature is only valid on the exact bytes that minted it. The
+    /// assistant-content sanitizer rewrites bytes, so a signed turn it rewrites
+    /// must drop the signature instead of stamping it onto different text.
+    #[test]
+    fn rewritten_text_drops_its_signature() {
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
+            json!("sig-original-bytes"),
+        );
+        stamp_test_origin(&mut provider_meta);
+
+        // `sanitize_assistant_content` strips the harness's own tool narration,
+        // so the replayed text is NOT the text that was signed.
+        let body = body(
+            vec![
+                Message::new(Role::User, "go"),
+                Message {
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(
+                        Role::Assistant,
+                        "Looking\n[Called tool find_files with arguments: {\"path\":\".\"}]",
+                    )
+                },
+            ],
+            test_body_input(None, false, None),
+        );
+
+        let parts = body["contents"][1]["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["text"], "Looking");
+        assert!(
+            parts[0].get("thoughtSignature").is_none(),
+            "the signature signed the pre-sanitized bytes, not these"
+        );
+    }
+
+    /// The untouched counterpart: identical bytes keep their signature, so the
+    /// guard above is a byte check and not a blanket disable.
+    #[test]
+    fn untouched_text_keeps_its_signature() {
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
+            json!("sig-exact-bytes"),
+        );
+        stamp_test_origin(&mut provider_meta);
+
+        let body = body(
+            vec![
+                Message::new(Role::User, "go"),
+                Message {
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(Role::Assistant, "the answer")
+                },
+            ],
+            test_body_input(None, false, None),
+        );
+
+        assert_eq!(
+            body["contents"][1]["parts"][0]["thoughtSignature"],
+            "sig-exact-bytes"
+        );
+    }
+
+    /// One token, one site: when the answer text is a byte-identical signed part it
+    /// claims the token, so the turn's calls must not reuse the same token a second
+    /// time. Cloning a signature across sites is exactly the shape the upstream
+    /// rejects, and it also strips the calls of the sentinel that keeps them native.
+    #[test]
+    fn a_text_signature_is_not_also_stamped_on_the_turns_calls() {
+        let call = nuo_tool::ToolCall {
+            id: "call_1".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            TEXT_THOUGHT_SIGNATURE_META_KEY.to_string(),
+            json!("sig-text"),
+        );
+        stamp_test_origin(&mut provider_meta);
+
+        let body = body(
+            vec![
+                Message::new(Role::User, "inspect"),
+                Message {
+                    tool_calls: Some(vec![call.clone()]),
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(Role::Assistant, "checking")
+                },
+                Message::tool_result(&call, "Cargo.toml"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        let parts = body["contents"][1]["parts"].as_array().unwrap();
+        // The text part keeps the token it signed.
+        assert_eq!(parts[0]["text"], "checking");
+        assert_eq!(parts[0]["thoughtSignature"], "sig-text");
+        // The call is not handed a clone of the same token.
+        assert_eq!(
+            parts[1]["thoughtSignature"],
+            SKIP_THOUGHT_SIGNATURE_VALIDATOR
+        );
+    }
+
+    /// A turn-level (terminal-frame) signature is the documented signature for the
+    /// turn's function-call group, so it seeds the calls that streamed unsigned.
+    #[test]
+    fn terminal_signature_seeds_the_turns_function_calls() {
+        let call = nuo_tool::ToolCall {
+            id: "call_terminal".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            TERMINAL_THOUGHT_SIGNATURE_META_KEY.to_string(),
+            json!("sig-turn"),
+        );
+        stamp_test_origin(&mut provider_meta);
+
+        let body = body(
+            vec![
+                Message::new(Role::User, "inspect"),
+                Message {
+                    tool_calls: Some(vec![call.clone()]),
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(Role::Assistant, "")
+                },
+                Message::tool_result(&call, "Cargo.toml"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        assert_eq!(
+            body["contents"][1]["parts"][0]["thoughtSignature"],
+            "sig-turn"
+        );
+        // ...and the result replays natively because the call counts as signed.
+        assert_eq!(
+            body["contents"][2]["parts"][0]["functionResponse"]["name"],
+            "find_files"
+        );
+    }
+
+    /// A turn with no recorded origin cannot prove its tokens valid here, so they
+    /// are not replayed. This is the resume / cross-provider case — and it is the
+    /// arm that must survive the `Option` removal above: making the *input*
+    /// required does not make the *recorded* origin always present, because a
+    /// turn persisted before stamps existed (or by another route) still has none.
+    #[test]
+    fn unstamped_signatures_are_not_replayed() {
+        let call = nuo_tool::ToolCall {
+            id: "call_1".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        let mut provider_meta = serde_json::Map::new();
+        provider_meta.insert(
+            THOUGHT_SIGNATURES_META_KEY.to_string(),
+            json!({ "call_1": "sig-without-origin" }),
+        );
+
+        let body = body(
+            vec![
+                Message::new(Role::User, "inspect"),
+                Message {
+                    tool_calls: Some(vec![call.clone()]),
+                    provider_meta: Some(provider_meta),
+                    ..Message::new(Role::Assistant, "checking")
+                },
+                Message::tool_result(&call, "Cargo.toml"),
+            ],
+            test_body_input(None, false, None),
+        );
+
+        assert_eq!(
+            body["contents"][1]["parts"][1]["thoughtSignature"],
+            SKIP_THOUGHT_SIGNATURE_VALIDATOR
+        );
+    }
+
+    /// Ownership lock for the tool-history reconciliation.
+    ///
+    /// `reconcile_tool_history` re-prunes pairing on every request. The protocol
+    /// compiler already lowers the history for this wire (`lower_messages_for_google`,
+    /// nuo-protocol), so the provider pass must be a **no-op on already-lowered
+    /// input** — otherwise two authorities disagree on the same invariant and the
+    /// one that drifts silently is the one nobody tests. This asserts the
+    /// idempotence directly: lowering a well-formed history first must not change
+    /// a single byte of the emitted `contents`.
+    #[test]
+    fn provider_reconciliation_is_a_no_op_over_lowered_history() {
+        let answered = nuo_tool::ToolCall {
+            id: "call_1".to_string(),
+            name: "find_files".to_string(),
+            arguments: r#"{"path":"."}"#.to_string(),
+        };
+        let broken = nuo_tool::ToolCall {
+            id: "call_broken".to_string(),
+            name: "read_text".to_string(),
+            // Truncated arguments: the compiler degrades this to prose, and the
+            // provider must then agree rather than reinventing a different shape.
+            arguments: r#"{"path":"docs"#.to_string(),
+        };
+
+        let history = vec![
+            Message::new(Role::User, "investigate"),
+            Message {
+                tool_calls: Some(vec![answered.clone()]),
+                ..Message::new(Role::Assistant, "checking")
+            },
+            Message::tool_result(&answered, "Cargo.toml"),
+            Message {
+                tool_calls: Some(vec![broken.clone()]),
+                ..Message::new(Role::Assistant, "")
+            },
+            Message::tool_result(&broken, "aborted"),
+        ];
+
+        // What the provider emits when handed the history directly...
+        let raw_body = body(history, test_body_input(None, false, None));
+
+        // ...must equal what it emits when the history has already been through the
+        // protocol compiler's Google lowering pass, driven through the real public
+        // compile path (not a test-only shim, which would rot into a second
+        // authority of its own).
+        let mut ir = nuo_protocol::SessionIR::new(
+            "session-google-lowering",
+            nuo_protocol::SessionPolicy::default(),
+            1000,
+        );
+        ir.append_message("u1", 1_000_000, Message::new(Role::User, "investigate"));
+        ir.append_message(
+            "a1",
+            1_001_000,
+            Message {
+                tool_calls: Some(vec![answered.clone()]),
+                ..Message::new(Role::Assistant, "checking")
+            },
+        );
+        ir.append_message(
+            "t1",
+            1_002_000,
+            Message::tool_result(&answered, "Cargo.toml"),
+        );
+        ir.append_message(
+            "a2",
+            1_003_000,
+            Message {
+                tool_calls: Some(vec![broken.clone()]),
+                ..Message::new(Role::Assistant, "")
+            },
+        );
+        ir.append_message("t2", 1_004_000, Message::tool_result(&broken, "aborted"));
+        let artifact = nuo_protocol::compile_session_request(
+            &ir,
+            nuo_protocol::CompilerOptions {
+                target_protocol: Some(nuo_protocol::WireProtocol::GoogleGenerateContent),
+                ..Default::default()
+            },
+        )
+        .expect("compilation should succeed");
+        // Pin the provider's reconciliation against the compiler's own output.
+        let compiled_body = body(
+            artifact.request.messages.clone(),
+            test_body_input(None, false, None),
+        );
+        // Same history, re-fed through the provider a second time: idempotent.
+        let twice_body = body(
+            artifact.request.messages,
+            test_body_input(None, false, None),
+        );
+        assert_eq!(
+            compiled_body["contents"], twice_body["contents"],
+            "the provider pass must be idempotent over lowered history"
+        );
+        // And the degraded call must have become the same prose fact in both the
+        // raw and the compiled path — that is the shared invariant, not two
+        // independent implementations of it.
+        assert!(
+            raw_body["contents"].to_string().contains("[Aborted tool"),
+            "the raw path degrades a truncated call to a prose fact"
+        );
+        assert!(
+            compiled_body["contents"]
+                .to_string()
+                .contains("[Aborted tool"),
+            "the compiled path degrades it identically"
+        );
     }
 }

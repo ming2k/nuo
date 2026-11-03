@@ -66,6 +66,17 @@ pub struct ToolContext {
     /// blobs, shared registries, harness event channels). The one seam that lets
     /// a tool reach a concrete dependency without the leaf depending on it.
     services: Arc<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+    /// Set only by [`Tool::call`](crate::Tool::call)'s default when it re-enters
+    /// [`Tool::execute`](crate::Tool::execute) on behalf of a tool that keeps
+    /// only the legacy string entry point.
+    ///
+    /// It exists so the one programming error in that delegation cycle — a tool
+    /// that overrides *neither* entry point — is detectable at the moment it
+    /// actually happens. The two defaults call each other, so the defect is
+    /// visible only as "the *default* `execute` was reached again, carrying a
+    /// call that came from the *default* `call`": that is the cycle closing on
+    /// itself, and it would otherwise recurse until the stack dies.
+    legacy_call_delegation: bool,
 }
 
 impl Default for ToolContext {
@@ -79,6 +90,7 @@ impl Default for ToolContext {
             workspace_roots: None,
             stream_sink: None,
             services: Arc::new(HashMap::new()),
+            legacy_call_delegation: false,
         }
     }
 }
@@ -226,6 +238,23 @@ impl ToolContext {
     pub fn with_services(mut self, map: ServiceMap) -> Self {
         self.services = map.services;
         self
+    }
+
+    /// Record that [`Tool::call`](crate::Tool::call)'s default is re-entering
+    /// [`Tool::execute`](crate::Tool::execute) on behalf of a legacy tool.
+    ///
+    /// The flag has to travel on the context because it describes the *edge*
+    /// between the two defaults, and that edge runs through a context this
+    /// crate constructs itself.
+    pub(crate) fn mark_legacy_call_delegation(mut self) -> Self {
+        self.legacy_call_delegation = true;
+        self
+    }
+
+    /// Whether this context is the re-entry of `execute`'s default immediately
+    /// after `call`'s default — the signature of a tool that overrides neither.
+    pub(crate) fn is_legacy_call_delegation(&self) -> bool {
+        self.legacy_call_delegation
     }
 }
 

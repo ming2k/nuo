@@ -292,7 +292,13 @@ impl Endpoint {
     }
 
     /// The host component of this endpoint's ingress URL (scheme stripped).
-    fn ingress_host(&self) -> &str {
+    /// The bare host of this endpoint's base URL (ports and path stripped,
+    /// lower-cased) — the ingress authority that actually serves this route.
+    ///
+    /// Feeds the CodeBuddy `X-Domain` realm header, and identifies the backend
+    /// that minted a provider-opaque token (a Google thought signature only
+    /// validates on the backend that issued it, so replay is gated on this).
+    pub fn ingress_host(&self) -> &str {
         // Base URLs are API roots (`https://host[:port]/prefix`); the domain
         // header carries the bare host.
         self.ingress_host.get_or_init(|| {

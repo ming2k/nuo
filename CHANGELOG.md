@@ -8,6 +8,145 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Fixed
+
+- **Google / Antigravity: thought signatures are replayed only where they are valid** —
+  a refused turn no longer surfaces as a bare `400 Corrupted thought signature.`
+  - **Root cause.** The provider conflated the three places Google mints a
+    `thoughtSignature`, and replayed all of them as if they were interchangeable.
+    A token validates against the exact bytes of the part that minted it, on the
+    backend that minted it, so each conflation produced a terminal 400:
+    1. a signature on a `thought: true` reasoning part was recorded as a *text*
+       signature and stamped onto the answer, a part that never carried it;
+    2. a signature on one delta of a multi-delta streamed answer was stamped onto
+       the *merged* answer text, whose bytes the token never signed;
+    3. a token minted by a different wire identity (a model/provider switch, a
+       resumed session, a relay vs. first-party route) was replayed verbatim.
+  - **Signature sites are now distinct.** `gemini_text_thought_signature` is kept
+    only when the merged answer is byte-identical to the one signed part;
+    otherwise the token survives as the new `gemini_terminal_thought_signature`
+    — the documented signature for a turn's `functionCall` group — which is the
+    only other valid home. Reasoning-part signatures are never recorded.
+  - **A terminal frame does not disqualify a text signature.** This surface sends
+    the zero-length terminal signature frame on essentially every answer, so
+    gating the text signature on its absence denied it every time and demoted a
+    valid token to turn level. The two sign different things and are kept
+    separately. A zero-length visible text part also no longer counts as a text
+    part when deciding byte-identity, since it contributes no bytes.
+  - **Replay is gated on the full minting identity.** Responses stamp
+    `gemini_thought_signature_origin` with the **ingress authority and** the wire
+    model that minted them, and the request builder replays a token only on an
+    exact match. The model id alone was insufficient: the same id is served by
+    Google AI Studio, by Cloud Code's `v1internal`, and by any relay configured
+    through `with_base_url`, and replaying across those is the cross-backend case
+    `Corrupted thought signature` describes. A foreign or unstamped token is
+    dropped (the upstream explicitly accepts an omitted signature and falls back
+    to quality degradation, never a refusal) rather than forwarded on faith.
+  - **One token, one site.** A text signature is no longer cloned onto the turn's
+    calls, and a text-part signature additionally requires the sanitized bytes to
+    equal the original (`sanitize_assistant_content` rewrites assistant text).
+  - **Streamed signature resolution is deferred to the terminal frame**, because
+    replayability is a whole-stream question: per-payload resolution cannot tell
+    a one-delta answer from the first delta of a forty-delta answer.
+  - **The shared `Message` accessors no longer conflate the sites.**
+    `Message::gemini_thought_signature` used to answer for *any* call key from
+    the answer-text token, and `has_gemini_thought_signature_for` reported a call
+    signed on the strength of it — the same conflation, one layer down. The
+    text/turn sites are now reachable only through
+    `gemini_turn_thought_signature` and `gemini_thought_signature_origin`.
+  - **Refusals are attributable.** `RequestShape` now reports
+    `replayedThoughtSignatures` / bypass-sentinel counts (`=none` when absent, so
+    the reader is never left guessing whether the field was omitted), and the
+    diagnostic guidance names a replayed `thoughtSignature` as the first suspect
+    — the class that no field-level message could previously suggest. A
+    `Corrupted`/`Invalid thought signature` refusal is explicitly locked as
+    *not* a refused thinking surface, so it keeps failing loudly instead of
+    latching the channel into permanent chain-withholding.
+  - Documented the measured replay contract (rejected vs. accepted shapes, and
+    the newest-`functionCall`-group presence rule) in
+    `docs/reference/openapi/antigravity.yml`.
+
+### Removed
+
+- **Provider-specific accessors deleted from the provider-agnostic `Message` type.**
+  `Message::gemini_thought_signature`, `gemini_turn_thought_signature`,
+  `gemini_thought_signature_origin`, `has_gemini_thought_signature_for` and
+  `has_gemini_thought_signatures` are gone — no clean break, no deprecation shim.
+  They had **zero callers repo-wide**, they hard-coded a provider's private key
+  vocabulary inside `nuo-tool` (which cannot even see the provider's key
+  constants), and the first of them still conflated a text-part token with a
+  per-call token: the exact defect this release fixes, preserved one layer down
+  where the fix would not reach it. `provider_meta` is again what its own doc
+  always claimed — a vendor blob whose contract is owned entirely by the provider
+  that writes it. `nuo-tool` now contains no provider-specific knowledge — a
+  `grep -i 'gemini|anthropic|openai|claude'` over the crate returns only the
+  OpenAI-family envelope method its callers require and one test fixture.
+- **Two dead OpenAI-envelope builders deleted from `ToolRegistry`.** `model_specs`
+  and `model_specs_scoped` had zero callers repo-wide, and they re-encoded an
+  OpenAI function envelope inside a protocol-neutral crate — the same envelope was
+  spelled three times in this crate. Now there is exactly one definition
+  (`registry::function_envelope`), which `Tool::to_openai_function` delegates to,
+  and its wire shape is pinned as a **literal** in a test. Comparing the helper
+  against itself would happily agree with a wrong shape; pinning the bytes is what
+  a provider consuming it actually depends on.
+- **Rot guard on the removed coupling.** The `provider_meta` doc on
+  `TranscriptEntry` (nuo-protocol) now states that adding such an accessor is what
+  turns the opaque field back into an invisible cross-layer wire contract, and the
+  protocol-crate fixture that asserted a provider's key name now uses an
+  explicitly provider-agnostic placeholder (the spec requires agent-neutral
+  content, and no test there needed the coupling).
+
+### Changed
+
+- **`BodyInput::signature_origin` is required, not `Option`.** An optional
+  identity reads as "none available" and silently disables replay protection for
+  any caller that omits it — an invisible failure (tokens dropped, tool quality
+  quietly degraded) that would spread to every future call site. A route with no
+  identity must now say so explicitly. The *recorded* origin stays optional by
+  necessity: a turn persisted before stamps existed still has none, and unproven
+  is treated as foreign.
+- **Provider response parsing narrowed to `pub(crate)`.** `usage`, `message`,
+  `stream_text`, `stream_events`, `stream_payload`, `stream_payload_value`,
+  `StreamPayload`, `TextSignatureSites` and `ResolvedSignatureSites` were `pub`
+  but are implementation details of this provider; only `RequestShape`,
+  `clarify_error_with_shape` and the signature key constants are real API.
+  Unused cross-crate surface is where rot accumulates unnoticed.
+- **`Endpoint::ingress_host` promoted to `pub`** so the signature-origin identity
+  can name the backend that minted a token.
+
+### Added
+
+- **Ownership lock for tool-history reconciliation.** `reconcile_tool_history`
+  re-prunes pairing on every request while the protocol compiler already lowers
+  the history for this wire (`lower_messages_for_google`), so two authorities
+  touched one invariant. Rather than delete the provider's safety net, its
+  relationship is now asserted: it must be **idempotent over already-lowered
+  history**, driven through the real public compile path (not a test-only shim,
+  which would become a third authority). A future divergence fails a test instead
+  of shipping a silent reshuffle.
+- **The duplicated assistant-text scrub is documented as subordinate.** The
+  provider's `sanitize_assistant_content` cannot call the authoritative
+  `nuo_harness::dispatch::strip_fallback_invocation_markup` (the dependency runs
+  harness → provider, never the reverse), so the duplication is deliberate and
+  must stay *narrower than* the authority. Divergence is made safe rather than
+  hoped-away: a text-part signature is replayed only when the sanitized bytes
+  equal the original, so drift costs a signature, never a corrupted one on the
+  wire.
+
+### Changed
+
+- **The `Tool` delegation guard moved to the edge it actually guards.** The
+  assertion for a tool that overrides neither `execute` nor `call` sat in the
+  *default* `call`, so it also fired on every legitimate `call`-only tool that
+  reached the string entry point through the `execute` default — it broke an MCP
+  bridge test outright. The cycle is now detected where it closes: on the
+  `execute` default re-entered by the `call` default, via a flag the `call`
+  default sets on the context it builds. Four tests pin the shapes that must keep
+  working (`call`-only and `execute`-only tools through every entry point, and
+  `Null` arguments arriving at a legacy tool as `""` rather than `"null"`) plus
+  the one that must not (neither overridden, which names the tool instead of
+  recursing until the stack dies).
+
 ## [0.0.70] - 2026-11-03
 
 ### Added

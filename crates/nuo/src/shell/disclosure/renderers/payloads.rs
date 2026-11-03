@@ -2733,16 +2733,21 @@ pub(crate) fn draw_tool_result(
             // exact source, so animation frames never repeat Myers/word diffing.
             let path_buf: Option<String> = match structured {
                 Some(nuo_protocol::ToolOutput::Patch { .. }) => None,
-                _ => serde_json::from_str::<serde_json::Value>(arguments)
-                    .ok()
-                    .and_then(|v| {
-                        v.get("path")
-                            .or_else(|| v.get("file_path"))
-                            .or_else(|| v.get("filename"))
-                            .or_else(|| v.get("file"))
-                            .and_then(|p| p.as_str())
-                            .map(|s| s.to_string())
-                    }),
+                _ => {
+                    let map = if let Ok(serde_json::Value::Object(obj)) =
+                        serde_json::from_str::<serde_json::Value>(arguments)
+                    {
+                        obj
+                    } else {
+                        nuo_view::tools::parse_streaming_arguments(arguments)
+                    };
+                    map.get("path")
+                        .or_else(|| map.get("file_path"))
+                        .or_else(|| map.get("filename"))
+                        .or_else(|| map.get("file"))
+                        .and_then(|p| p.as_str())
+                        .map(|s| s.to_string())
+                }
             };
             let path_ref = match structured {
                 Some(nuo_protocol::ToolOutput::Patch { path, .. }) => Some(path.as_str()),
@@ -2758,8 +2763,33 @@ pub(crate) fn draw_tool_result(
                     new,
                     start_line,
                     ..
-                }) => diff_cache.patch(message_id, old, new, *start_line),
-                _ => diff_cache.legacy_arguments(message_id, name, arguments),
+                }) => {
+                    let mut start = *start_line;
+                    if start == 0
+                        && let Some(path) = path_ref
+                    {
+                        if let Some(resolved) =
+                            find_start_line_in_file(path, ctx.workspace_root, old, new)
+                        {
+                            start = resolved;
+                        }
+                    }
+                    diff_cache.patch(message_id, old, new, start)
+                }
+                _ => {
+                    let (old_buf, new_buf) = extract_diff_strings_for_tool(name, arguments);
+                    if !old_buf.is_empty() || !new_buf.is_empty() {
+                        let start = if let Some(path) = path_ref {
+                            find_start_line_in_file(path, ctx.workspace_root, &old_buf, &new_buf)
+                                .unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        diff_cache.patch(message_id, &old_buf, &new_buf, start)
+                    } else {
+                        diff_cache.legacy_arguments(message_id, name, arguments)
+                    }
+                }
             };
             if let Some(nuo_protocol::ToolOutput::Patch { warnings, .. }) = structured {
                 for warning in warnings {
@@ -2817,6 +2847,111 @@ pub(crate) fn draw_tool_result(
                 ctx, mi, block_idx, output, arguments, selection, indent, inner_w,
             );
         }
+    }
+}
+
+/// Locate the 1-based start line of an edit (`old` or `new` snippet) within the specific file.
+pub(crate) fn find_start_line_in_file(
+    path: &str,
+    workspace_root: Option<&std::path::Path>,
+    old: &str,
+    new: &str,
+) -> Option<usize> {
+    let p = std::path::Path::new(path);
+    let full_path = if p.is_absolute() {
+        p.to_path_buf()
+    } else if let Some(root) = workspace_root {
+        root.join(p)
+    } else {
+        p.to_path_buf()
+    };
+
+    let content = std::fs::read_to_string(&full_path).ok()?;
+
+    let find_in_content = |needle: &str| -> Option<usize> {
+        if needle.is_empty() {
+            return None;
+        }
+        if let Some((offset, _)) = content.match_indices(needle).next() {
+            return Some(content[..offset].matches('\n').count() + 1);
+        }
+        let trimmed = needle.trim_end();
+        if !trimmed.is_empty() {
+            if let Some((offset, _)) = content.match_indices(trimmed).next() {
+                return Some(content[..offset].matches('\n').count() + 1);
+            }
+        }
+        if needle.contains('\r') || content.contains('\r') {
+            let content_norm = content.replace("\r\n", "\n");
+            let needle_norm = needle.replace("\r\n", "\n");
+            if let Some((offset, _)) = content_norm.match_indices(&needle_norm).next() {
+                return Some(content_norm[..offset].matches('\n').count() + 1);
+            }
+            let needle_norm_trimmed = needle_norm.trim_end();
+            if !needle_norm_trimmed.is_empty() {
+                if let Some((offset, _)) = content_norm.match_indices(needle_norm_trimmed).next() {
+                    return Some(content_norm[..offset].matches('\n').count() + 1);
+                }
+            }
+        }
+        None
+    };
+
+    let find_by_lines = |needle: &str| -> Option<usize> {
+        let needle_lines: Vec<&str> = needle
+            .lines()
+            .map(str::trim_end)
+            .filter(|l| !l.is_empty())
+            .collect();
+        if needle_lines.is_empty() {
+            return None;
+        }
+        let file_lines: Vec<&str> = content.lines().map(str::trim_end).collect();
+        if needle_lines.len() > file_lines.len() {
+            return None;
+        }
+        for (i, window) in file_lines.windows(needle_lines.len()).enumerate() {
+            if window == needle_lines.as_slice() {
+                return Some(i + 1);
+            }
+        }
+        None
+    };
+
+    find_in_content(old)
+        .or_else(|| find_in_content(new))
+        .or_else(|| find_by_lines(old))
+        .or_else(|| find_by_lines(new))
+}
+
+pub(crate) fn extract_diff_strings_for_tool(name: &str, arguments: &str) -> (String, String) {
+    let map = if let Ok(serde_json::Value::Object(obj)) =
+        serde_json::from_str::<serde_json::Value>(arguments)
+    {
+        obj
+    } else {
+        nuo_view::tools::parse_streaming_arguments(arguments)
+    };
+    if map.is_empty() {
+        return (String::new(), String::new());
+    }
+    let get_any = |keys: &[&str]| {
+        keys.iter()
+            .find_map(|k| map.get(*k).and_then(serde_json::Value::as_str))
+            .map(|s| s.to_string())
+    };
+    let base = name.rsplit_once(':').map(|(_, b)| b).unwrap_or(name);
+    match base {
+        "edit_text" | "edit" | "edit_file" => {
+            let old = get_any(&["old_string", "old_str", "old_text", "old"]).unwrap_or_default();
+            let new = get_any(&["new_string", "new_str", "new_text", "new"]).unwrap_or_default();
+            (old, new)
+        }
+        "write_file" | "write" => {
+            let content = get_any(&["content", "new_string", "text"]).unwrap_or_default();
+            (String::new(), content)
+        }
+        _ => (String::new(), String::new()),
     }
 }
 
@@ -3508,5 +3643,146 @@ mod tests {
         let norm = normalize_code_content(raw, 0, r#"{"path":"src/lib.rs","offset":50}"#);
         assert_eq!(norm.start_line, 50);
         assert_eq!(norm.content, "fn a() {}\nfn b() {}");
+    }
+
+    #[test]
+    fn find_start_line_in_file_locates_exact_line_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        let content = "line 1\nline 2\nline 3\nfn target() {\n    return 42;\n}\nline 7\n";
+        std::fs::write(&file_path, content).unwrap();
+
+        // Finding old string returns 1-based start line (line 4)
+        let found = find_start_line_in_file(
+            "test.rs",
+            Some(dir.path()),
+            "fn target() {\n    return 42;\n}",
+            "fn target() {\n    return 100;\n}",
+        );
+        assert_eq!(found, Some(4));
+
+        // Finding inside a sub-line snippet
+        let found_inner =
+            find_start_line_in_file("test.rs", Some(dir.path()), "return 42;", "return 100;");
+        assert_eq!(found_inner, Some(5));
+
+        // Finding when old is already replaced (matches new_string)
+        let found_new =
+            find_start_line_in_file("test.rs", Some(dir.path()), "nonexistent", "return 42;");
+        assert_eq!(found_new, Some(5));
+
+        // When neither matches
+        let found_none = find_start_line_in_file(
+            "test.rs",
+            Some(dir.path()),
+            "completely missing",
+            "also missing",
+        );
+        assert_eq!(found_none, None);
+    }
+
+    #[test]
+    fn edit_diff_renders_with_actual_file_line_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("a.rs");
+        let mut content = String::new();
+        for i in 1..=50 {
+            content.push_str(&format!("line {i}\n"));
+        }
+        std::fs::write(&file_path, &content).unwrap();
+
+        let mut terminal = nuotc::TestTerminal::new(80, 20);
+        let mut layout_map = nuo_view::model::layout::LayoutMap::default();
+        let theme = Theme::default();
+        let mut skip_rows = 0;
+        let mut y = 0;
+        let mut content_lines = 0;
+        let mut wrap = crate::shell::render::BlockWrapCache::default();
+        let mut diff_cache = DiffCache::default();
+
+        terminal.draw(|f| {
+            let mut ctx = RenderCtx {
+                frame: f,
+                area: Rect::new(0, 0, 80, 20),
+                full_width: 80,
+                theme: &theme,
+                layout_map: &mut layout_map,
+                skip_rows: &mut skip_rows,
+                y: &mut y,
+                content_lines: &mut content_lines,
+                wrap: &mut wrap,
+                workspace_root: Some(dir.path()),
+            };
+
+            draw_tool_result(
+                &mut ctx,
+                0,
+                1,
+                "edit_text",
+                r#"{"path":"a.rs","old_string":"line 42\n","new_string":"line 42 modified\n"}"#,
+                "",
+                None, // in-flight or argument-derived
+                &mut diff_cache,
+                &SelectionState::None,
+                0,
+                80,
+                false,
+            );
+        });
+
+        let rendered = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>();
+
+        assert!(
+            rendered.contains("@@ -42"),
+            "Hunk header must indicate line 42:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("42"),
+            "Gutter must contain line 42:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("@@ -1 ") && !rendered.contains("@@ -1,"),
+            "Hunk header must not start from line 1:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn extract_diff_strings_for_tool_extracts_from_all_forms() {
+        // Standard edit_text
+        let (old, new) = extract_diff_strings_for_tool(
+            "edit_text",
+            r#"{"path":"test.rs","old_string":"foo","new_string":"bar"}"#,
+        );
+        assert_eq!(old, "foo");
+        assert_eq!(new, "bar");
+
+        // Namespaced tool name
+        let (old_ns, new_ns) = extract_diff_strings_for_tool(
+            "provider:edit_text",
+            r#"{"path":"test.rs","old_str":"foo","new_str":"bar"}"#,
+        );
+        assert_eq!(old_ns, "foo");
+        assert_eq!(new_ns, "bar");
+
+        // Write file with content
+        let (old_wf, new_wf) = extract_diff_strings_for_tool(
+            "write_file",
+            r#"{"path":"test.rs","content":"hello world"}"#,
+        );
+        assert_eq!(old_wf, "");
+        assert_eq!(new_wf, "hello world");
+
+        // Streaming partial JSON
+        let (old_str, new_str) = extract_diff_strings_for_tool(
+            "edit_text",
+            r#"{"path":"test.rs","old_string":"streaming"#,
+        );
+        assert_eq!(old_str, "streaming");
+        assert_eq!(new_str, "");
     }
 }
