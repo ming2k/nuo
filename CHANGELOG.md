@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.71] - 2026-11-04
+
 ### Fixed
 
 - **Google / Antigravity: thought signatures are replayed only where they are valid** —
