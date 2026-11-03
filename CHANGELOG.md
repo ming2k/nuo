@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.70] - 2026-11-03
+
 ### Added
 
 - **Live Storybook Engine, Sub-Second Hot Loop & Catalog Expansion (ADR-0146)**:
