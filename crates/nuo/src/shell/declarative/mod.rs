@@ -7,11 +7,18 @@ use nuo_ui_primitives::theme::Theme;
 use nuotc::{Frame, Rect};
 
 pub mod ask_user;
+pub mod empty_hero_card;
 pub use nuo_ui_primitives::key;
+pub mod modal_card;
 pub mod notice_card;
+pub mod palette_card;
+pub mod reasoning_card;
 pub mod story;
 pub mod testing;
+pub mod toast_card;
 pub mod tool_card;
+pub mod turn_band_card;
+pub mod which_key_card;
 pub mod workbench;
 
 /// Canonical declarative component contract (ADR-0072).
@@ -168,8 +175,8 @@ mod tests {
         let stories = ToolCard::stories();
         assert_eq!(
             stories.len(),
-            5,
-            "ToolCard must declare all 5 canonical stories"
+            9,
+            "ToolCard must declare all 9 canonical stories covering diff, command, code, matches, listing, and 1000-line fold"
         );
 
         for story in stories {
@@ -190,8 +197,8 @@ mod tests {
         let catalog = default_catalog();
         assert_eq!(
             catalog.len(),
-            13,
-            "Default catalog must aggregate all 13 canonical stories"
+            41,
+            "Default catalog must aggregate all 41 canonical stories across 10 domains"
         );
 
         for story in &catalog {
@@ -207,7 +214,173 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let exported = workbench::Workbench::export_all_snapshots(temp_dir.path()).unwrap();
-        assert_eq!(exported, 13, "Must export all 13 snapshots to disk");
+        assert_eq!(exported, 41, "Must export all 41 snapshots to disk");
+    }
+
+    #[test]
+    fn test_inv_tui_story_04_continuous_live_tick_dispatch() {
+        use super::story::StoryEventOutcome;
+        use super::tool_card::ToolCard;
+
+        let stories = ToolCard::stories();
+        let streaming_story = stories
+            .into_iter()
+            .find(|s| s.name.contains("Streaming"))
+            .expect("ToolCard must have streaming in-flight scenario");
+
+        let mut instance = instantiate_story::<ToolCard>(streaming_story);
+
+        // Tick 1: Must consume and mutate spinner frame
+        let outcome = instance.tick();
+        assert_eq!(
+            outcome,
+            StoryEventOutcome::Consumed,
+            "[INV-TUI-STORY-04] In-flight tool card must consume tick event"
+        );
+
+        // Reset: Restores initial props and state
+        instance.reset();
+    }
+
+    #[test]
+    fn test_inv_tui_story_05_dev_loop_continuity_roundtrip() {
+        use super::workbench::{
+            StorybookContinuityState, ViewportMode, Workbench, default_catalog,
+        };
+
+        let state = StorybookContinuityState {
+            selected_component: "Toast".to_string(),
+            selected_story: "Clipboard Success (CopyOk)".to_string(),
+            viewport_mode: "80x24".to_string(),
+            theme_index: 2,
+            search_query: "toast".to_string(),
+        };
+
+        let serialized = serde_json::to_string(&state).unwrap();
+        let deserialized: StorybookContinuityState = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.selected_component, "Toast");
+        assert_eq!(deserialized.selected_story, "Clipboard Success (CopyOk)");
+        assert_eq!(deserialized.viewport_mode, "80x24");
+        assert_eq!(deserialized.theme_index, 2);
+
+        // Workbench state restoration check
+        let mut wb = Workbench::new(default_catalog());
+        wb.apply_continuity_state(deserialized);
+        assert_eq!(wb.viewport_mode(), ViewportMode::Size80x24);
+        assert_eq!(wb.theme_index(), 2);
+        let curr_idx = wb.current_story_index().expect("Active story must resolve");
+        let active = &wb.stories()[curr_idx];
+        assert_eq!(active.component_name(), "Toast");
+        assert_eq!(active.story_name(), "Clipboard Success (CopyOk)");
+    }
+
+    #[test]
+    fn test_inv_tui_decl_toast_pure_state_and_snapshot() {
+        use super::toast_card::ToastCard;
+
+        let stories = ToastCard::stories();
+        assert_eq!(
+            stories.len(),
+            5,
+            "ToastCard must declare all 5 canonical stories"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<ToastCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 10);
+            assert!(!snapshot.is_empty());
+
+            let key = crate::shell::declarative::key::Key::Char(' ');
+            let outcome = instance.handle_key(&key);
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+        }
+    }
+
+    #[test]
+    fn test_inv_tui_decl_which_key_pure_state_and_snapshot() {
+        use super::which_key_card::WhichKeyCard;
+
+        let stories = WhichKeyCard::stories();
+        assert_eq!(
+            stories.len(),
+            3,
+            "WhichKeyCard must declare all 3 canonical stories"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<WhichKeyCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 16);
+            assert!(!snapshot.is_empty());
+
+            let key = crate::shell::declarative::key::Key::Down;
+            let outcome = instance.handle_key(&key);
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+        }
+    }
+
+    #[test]
+    fn test_inv_tui_decl_modal_pure_state_and_snapshot() {
+        use super::modal_card::ModalCard;
+
+        let stories = ModalCard::stories();
+        assert_eq!(
+            stories.len(),
+            3,
+            "ModalCard must declare all 3 canonical stories"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<ModalCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 20);
+            assert!(!snapshot.is_empty());
+
+            let key = crate::shell::declarative::key::Key::Down;
+            let outcome = instance.handle_key(&key);
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+        }
+    }
+
+    #[test]
+    fn test_inv_tui_decl_turn_band_pure_state_and_snapshot() {
+        use super::turn_band_card::TurnBandCard;
+
+        let stories = TurnBandCard::stories();
+        assert_eq!(
+            stories.len(),
+            3,
+            "TurnBandCard must declare all 3 canonical stories"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<TurnBandCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 10);
+            assert!(!snapshot.is_empty());
+
+            let outcome = instance.tick();
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+        }
+    }
+
+    #[test]
+    fn test_inv_tui_decl_empty_hero_pure_state_and_snapshot() {
+        use super::empty_hero_card::EmptyHeroCard;
+
+        let stories = EmptyHeroCard::stories();
+        assert_eq!(
+            stories.len(),
+            3,
+            "EmptyHeroCard must declare all 3 canonical stories"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<EmptyHeroCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 24);
+            assert!(!snapshot.is_empty());
+
+            let key = crate::shell::declarative::key::Key::Right;
+            let outcome = instance.handle_key(&key);
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+        }
     }
 
     #[test]
@@ -282,5 +455,46 @@ mod tests {
         let notice_region = notice_layout.first_region_for_message(99);
         assert!(notice_region.is_some());
         assert_eq!(notice_region.unwrap().block_idx, NOTICE_BLOCK_IDX);
+    }
+
+    #[test]
+    fn test_inv_tui_decl_palette_pure_state_and_snapshot() {
+        use super::palette_card::PaletteCard;
+
+        let stories = PaletteCard::stories();
+        assert_eq!(
+            stories.len(),
+            4,
+            "PaletteCard must declare 4 canonical preset stories"
+        );
+
+        for story in stories {
+            let instance = instantiate_story::<PaletteCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 24);
+            assert!(!snapshot.is_empty());
+            assert!(snapshot.contains("Color Tokens"));
+        }
+    }
+
+    #[test]
+    fn test_inv_tui_decl_reasoning_pure_state_and_snapshot() {
+        use super::reasoning_card::ReasoningCard;
+
+        let stories = ReasoningCard::stories();
+        assert_eq!(
+            stories.len(),
+            3,
+            "ReasoningCard must declare 3 canonical stories"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<ReasoningCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 16);
+            assert!(!snapshot.is_empty());
+
+            let key = crate::shell::declarative::key::Key::Char(' ');
+            let outcome = instance.handle_key(&key);
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+        }
     }
 }

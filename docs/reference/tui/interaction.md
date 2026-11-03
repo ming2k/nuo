@@ -72,12 +72,12 @@ Both planes announce ownership in the **background** channel, because exactly on
 | --- | --- |
 | `Composer` | the input panel is lit (`input_surface()`); the transcript stays on the page tone |
 | `Transcript(Browse)` | the **pane wash**: the whole transcript surface lifted one quiet step (`Theme::pane_lifted()`, the effective tone from `pane_focus()`) |
-| `Transcript(Entry)` | the wash, plus one **marker cell** in the highlighted entry's gutter (`pane_marker_style()`) |
+| `Transcript(Entry)` | the wash, plus one **marker vertical bar** in the highlighted entry's gutter (`Theme::pane_marker_glyph()` in `pane_marker_style()`) |
 
 Two properties are load-bearing:
 
 - **Area, not edges.** The cue covers every column the reader is reading. An earlier rail tinted only the two gutter columns, so the pane announced itself at its extremes and nowhere in the middle.
-- **The row is never repainted.** A header row's tone is the disclosure × lifecycle × interaction composition, and painting a background under it inverted the running hue and the collapsed muted rung the renderers had resolved on purpose — the pointed-at entry became a highlighted component instead of part of a live surface. The marker is one cell in the gutter, so the row keeps its composition and nothing needs contrast re-seating.
+- **The row is never repainted.** A header row's tone is the disclosure × lifecycle × interaction composition, and painting a background under it inverted the running hue and the collapsed muted rung the renderers had resolved on purpose — the pointed-at entry became a highlighted component instead of part of a live surface. The marker is a quiet vertical bar (`▎`) in the gutter, so the row keeps its composition and nothing needs contrast re-seating.
 
 Both cues are zero-layout: the wash adds no row and moves no column, the marker lives in reserved gutter columns, so crossing never reflows the pane.
 

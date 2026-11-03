@@ -308,7 +308,7 @@ pub async fn run_tui(
     link_lost: crate::shell::client::LinkLostMarker,
     config: TuiLaunchConfig,
 ) -> Result<TuiOutcome, Box<dyn Error>> {
-    let profile = nuotc::TerminalProfile::detect();
+    let profile = terminal::detect_terminal_profile();
     terminal::enter_terminal(&profile)?;
     let stdout = io::stdout();
     let backend = Backend::new(stdout).with_profile(profile);
@@ -375,7 +375,7 @@ pub(crate) async fn run_tui_with_input(
             }]
         })
         .unwrap_or_default();
-    let profile = nuotc::TerminalProfile::detect();
+    let profile = terminal::detect_terminal_profile();
     let tui_config = Arc::new(tui_config);
     let mut restored = transcript_messages_from_core(initial_messages, &tui_config);
     restored = merge_command_rows(restored, transcript_commands_from_ledger(initial_commands));

@@ -185,8 +185,8 @@ pub struct ComponentThemesConfig {
 pub struct PaneThemeConfig {
     /// The tone the whole transcript page is lifted to while it owns the keyboard.
     pub wash_bg: Option<String>,
-    /// The fill of the single entry-marker cell.
-    pub marker_bg: Option<String>,
+    /// The foreground tone of the single entry-marker vertical accent bar.
+    pub marker_fg: Option<String>,
 }
 
 /// Full standalone theme file loaded from `$XDG_CONFIG_HOME/nuo/themes/<id>.toml`.

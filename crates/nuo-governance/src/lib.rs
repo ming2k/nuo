@@ -1,26 +1,36 @@
-//! Developer and repository governance tools.
-//!
-//! Replaces legacy `scripts/` Python checkers with native Rust implementations
-//! (ADR-0111).
+//! Repository Documentation & Architectural Governance Engine for Nuo.
+
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod adr_lineage;
+pub mod color_purity;
+pub mod config;
 pub mod doc_links;
 pub mod firewall;
 pub mod invariant_tags;
 pub mod residency;
 pub mod wire_census;
 
+pub use config::GovernanceConfig;
+
 use std::path::PathBuf;
 
 /// Locate the workspace root directory.
 pub fn find_workspace_root() -> PathBuf {
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let candidate = PathBuf::from(manifest_dir).join("../..");
-        if candidate.join("Cargo.toml").exists() {
-            if let Ok(canonical) = candidate.canonicalize() {
-                return canonical;
+        let mut candidate = PathBuf::from(manifest_dir);
+        while candidate.pop() {
+            let manifest = candidate.join("Cargo.toml");
+            if manifest.exists() {
+                if let Ok(content) = std::fs::read_to_string(&manifest) {
+                    if content.contains("[workspace]") {
+                        if let Ok(canonical) = candidate.canonicalize() {
+                            return canonical;
+                        }
+                        return candidate;
+                    }
+                }
             }
-            return candidate;
         }
     }
 

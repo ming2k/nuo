@@ -245,9 +245,7 @@ pub(crate) fn draw_command_palette(
         } else {
             Span::styled(
                 visible_query,
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD),
             )
         },
     ];
@@ -409,7 +407,7 @@ pub(crate) fn draw_command_palette(
             };
 
             let mut row_line = row_line;
-            if is_sel && theme.elevation.is_structured() {
+            if is_sel && !theme.elevation.is_chromatic() {
                 for span in &mut row_line.spans {
                     span.style = span.style.add_modifier(Modifier::REVERSE);
                 }

@@ -9,7 +9,7 @@
 //! snapshot's `mcp` pane (the same snapshot `/session` and `/tools` use).
 
 use nuotc::{
-    Frame, Style, {Line, Span},
+    Frame, Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -73,10 +73,23 @@ pub fn draw_mcp_modal(
             // disabled server reads "off"; connected and failed are both
             // enabled intents, distinguished by glyph and detail.
             let (glyph, glyph_color, state, detail) = if server.disabled {
-                ("○", theme.muted(), "off", "disabled".to_string())
+                (
+                    if !theme.elevation.is_chromatic() {
+                        " "
+                    } else {
+                        "○"
+                    },
+                    theme.muted(),
+                    "off",
+                    "disabled".to_string(),
+                )
             } else if server.connected {
                 (
-                    "●",
+                    if !theme.elevation.is_chromatic() {
+                        "*"
+                    } else {
+                        "●"
+                    },
                     theme.ok(),
                     "on",
                     format!(
@@ -91,7 +104,11 @@ pub fn draw_mcp_modal(
                 )
             } else {
                 (
-                    "✕",
+                    if !theme.elevation.is_chromatic() {
+                        "x"
+                    } else {
+                        "✕"
+                    },
                     theme.err(),
                     "on",
                     format!(
@@ -110,19 +127,25 @@ pub fn draw_mcp_modal(
             if is_sel {
                 selected_line = Some(body.len());
             }
+
+            let mut gutter_st = Style::default().bg(style.bg);
+            let mut glyph_st = Style::default().bg(style.bg).fg(glyph_color);
+            let mut name_st = Style::default().bg(style.bg).fg(style.fg);
+            let mut dim_st = Style::default().bg(style.bg).fg(style.dim);
+            if is_sel && !theme.elevation.is_chromatic() {
+                gutter_st = gutter_st.add_modifier(Modifier::REVERSE);
+                glyph_st = glyph_st.add_modifier(Modifier::REVERSE | Modifier::BOLD);
+                name_st = name_st.add_modifier(Modifier::REVERSE | Modifier::BOLD);
+                dim_st = dim_st.add_modifier(Modifier::REVERSE);
+            }
+
             body.push(Line::from(vec![
-                Span::styled(" ".repeat(GUTTER_W), Style::default().bg(style.bg)),
-                Span::styled(
-                    format!("{glyph} "),
-                    Style::default().bg(style.bg).fg(glyph_color),
-                ),
-                Span::styled(
-                    format!("{:<w$}  ", name, w = name_col),
-                    Style::default().bg(style.bg).fg(style.fg),
-                ),
-                Span::styled(detail, Style::default().bg(style.bg).fg(style.dim)),
-                Span::styled(" ".repeat(pad), Style::default().bg(style.bg)),
-                Span::styled(badge, Style::default().bg(style.bg).fg(style.dim)),
+                Span::styled(" ".repeat(GUTTER_W), gutter_st),
+                Span::styled(format!("{glyph} "), glyph_st),
+                Span::styled(format!("{:<w$}  ", name, w = name_col), name_st),
+                Span::styled(detail, dim_st),
+                Span::styled(" ".repeat(pad), gutter_st),
+                Span::styled(badge, dim_st),
             ]));
         }
     }
@@ -152,4 +175,56 @@ pub fn draw_mcp_modal(
         },
         theme,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_modal_monochrome_renders_without_unicode_dots_and_has_reverse_video() {
+        let theme_mono = Theme::monochrome();
+        let context = nuo_protocol::ThreadContextSnapshot {
+            mcp: vec![
+                nuo_protocol::McpServerInfo {
+                    name: "github".to_string(),
+                    connected: true,
+                    disabled: false,
+                    failure: None,
+                    tool_names: vec!["create_issue".to_string()],
+                },
+                nuo_protocol::McpServerInfo {
+                    name: "slack".to_string(),
+                    connected: false,
+                    disabled: true,
+                    failure: None,
+                    tool_names: vec![],
+                },
+            ],
+            model: Default::default(),
+            tools: vec![],
+            permissions: vec![],
+            skills: vec![],
+        };
+        let mut terminal = nuotc::TestTerminal::new(80, 24);
+        let mut scroll = 0;
+        terminal.draw(|f| {
+            draw_mcp_modal(f, Some(&context), 0, &mut scroll, true, &theme_mono);
+        });
+        let screen: String = terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect();
+        assert!(screen.contains("github"), "shows github: {screen}");
+        assert!(
+            !screen.contains('●'),
+            "no unicode ● in monochrome: {screen}"
+        );
+        assert!(
+            !screen.contains('○'),
+            "no unicode ○ in monochrome: {screen}"
+        );
+    }
 }

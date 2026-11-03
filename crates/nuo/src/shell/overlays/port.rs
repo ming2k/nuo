@@ -43,7 +43,14 @@ pub fn draw_port_modal(
     } else if active {
         body.push(Line::from(vec![
             Span::styled("  TCP Listener: ", Style::default().fg(theme.muted())),
-            Span::styled("● Active ", Style::default().fg(theme.success)),
+            Span::styled(
+                if !theme.elevation.is_chromatic() {
+                    "* Active "
+                } else {
+                    "● Active "
+                },
+                Style::default().fg(theme.success),
+            ),
             Span::styled(format!("(port {})", port), Style::default().fg(theme.fg())),
         ]));
         body.push(Line::from(vec![

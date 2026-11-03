@@ -299,9 +299,9 @@ mod tests {
     fn focus_marker_is_not_the_selection_tone() {
         let theme = Theme::default();
         let marker = theme.pane_marker_style();
-        assert_ne!(marker.bg, theme.selected());
-        assert_ne!(marker.bg, theme.surface());
-        assert_ne!(marker.bg, theme.input_surface_inactive());
+        assert_ne!(marker.fg, theme.selected());
+        assert_ne!(marker.fg, theme.surface());
+        assert_ne!(marker.fg, theme.input_surface_inactive());
     }
 
     /// The marker exists on **every** disclosure state, including expanded — the
@@ -549,6 +549,6 @@ mod tests {
             "focus rides the marker, so the text stays on its discrete rung"
         );
         // The ANSI-16 marker is a named token, not an RGB mix.
-        assert!(!matches!(theme.pane_marker_style().bg, Color::Rgb(..)));
+        assert!(!matches!(theme.pane_marker_style().fg, Color::Rgb(..)));
     }
 }

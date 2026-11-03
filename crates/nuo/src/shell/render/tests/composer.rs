@@ -2523,3 +2523,47 @@ fn empty_trailing_line_owns_a_row_independent_of_the_caret() {
     // change the answer.
     assert_eq!(two, calculate_composer_height(viewport, "abc\n"));
 }
+
+#[test]
+fn composer_non_chromatic_renders_top_divider_border() {
+    let mut theme = Theme::monochrome();
+    theme.glyphs = nuotc::ASCII_GLYPHS;
+    let mut terminal = nuotc::TestTerminal::new(60, 6);
+    let mut layout_map = LayoutMap::new();
+    let mut scroll = 0;
+    terminal.draw(|f| {
+        crate::shell::composer::draw_composer(
+            crate::shell::composer::ComposerProps {
+                frame: f,
+                input_rect: Rect::new(2, 1, 56, 4),
+                theme: &theme,
+                layout_map: &mut layout_map,
+                input_scroll: &mut scroll,
+                selection: &SelectionState::None,
+            },
+            crate::shell::composer::ComposerText {
+                input: "hello",
+                byte_cursor: 5,
+            },
+            true,
+            true,
+            false,
+            0,
+            0,
+            crate::shell::composer_hints::ComposerHints::default(),
+        );
+    });
+    let top_row: String = (2..58)
+        .map(|x| {
+            terminal
+                .buffer()
+                .get(x, 1)
+                .map(|c| c.symbol.as_str())
+                .unwrap_or(" ")
+        })
+        .collect();
+    assert!(
+        top_row.contains('-'),
+        "top chrome row in monochrome mode must render horizontal divider border: {top_row}"
+    );
+}

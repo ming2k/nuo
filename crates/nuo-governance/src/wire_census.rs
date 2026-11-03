@@ -1,54 +1,12 @@
 //! Wire-surface census: the protocol number must move whenever the wire does.
 //!
-//! ## The failure mode this closes
-//!
-//! ADR-0134 deleted the `RetryResolved` variant from `AgentResponse` with no
-//! change to `PROTOCOL_VERSION` (it stayed at 18). A server built before that
-//! commit kept running, kept answering protocol 18, and then emitted the deleted
-//! variant. The client decoded it as a hard error, read that error as "the link
-//! died", and closed its window mid-round — the defect ADR-0136 fixes on the
-//! receiving side.
-//!
-//! The receiving side is now resilient, but resilience is the *containment*, not
-//! the cure. The cure is that a wire change cannot silently keep the old number.
-//! Nothing enforced that: `PROTOCOL_VERSION` is a hand-maintained `u32`, and
-//! deleting an enum variant is a one-line edit that no test objected to.
-//!
-//! ## The rule
-//!
-//! The census of wire variant names is checked into the tree
-//! (`wire-census.txt` beside this module). Every variant of `Wire`,
-//! `AgentRequest`, `AgentResponse`, and `RoundEvent` appears there, grouped by
-//! enum, together with the protocol number it was recorded at.
-//!
-//! The check recomputes the census from source and compares:
-//!
-//! - **Same protocol number, different variants** → failure. A wire change must
-//!   bump [`nuo_protocol::PROTOCOL_VERSION`]; that is the whole point.
-//! - **Bumped protocol number, stale census** → failure. Bumping the number is
-//!   also the moment to renew the census, so the two can never drift apart by an
-//!   honest-looking release.
-//! - **New variant** → failure until the census is renewed at the new number.
-//!
-//! Renewing is one command: `nuo dev census --bless` (see [`bless_census`]) after
-//! bumping the protocol.
-//!
-//! ## Why a checked-in file and not a git hook
-//!
-//! The census must be reviewable in the diff of the commit that changes the
-//! wire. A hook that regenerates it silently would let the change land without a
-//! human seeing which variants moved. Making it a file means "the wire changed"
-//! is never an invisible fact.
+//! Rule source: ADR-0136 / `[INV-WIRE-03]`.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// The enums whose variant sets constitute the wire surface.
-///
-/// `Wire` is the transport envelope; the other three are the payload enums it
-/// carries. `RoundEvent` is included because its variants ride inside
-/// `AgentResponse::Round`, so deleting one is exactly the ADR-0134 change.
 const CENSUS_ENUMS: &[(&str, &str)] = &[
     ("Wire", "crates/nuo-protocol/src/lib.rs"),
     ("AgentRequest", "crates/nuo-protocol/src/events.rs"),
@@ -57,7 +15,7 @@ const CENSUS_ENUMS: &[(&str, &str)] = &[
 ];
 
 /// Where the recorded census lives, relative to the workspace root.
-pub const CENSUS_FILE: &str = "crates/nuo/src/dev/wire-census.txt";
+pub const CENSUS_FILE: &str = "crates/nuo-governance/src/wire-census.txt";
 
 /// A protocol number plus every enum's variant names, in declaration order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,12 +76,6 @@ impl Census {
 }
 
 /// Extract the variant names of `enum_name` from `source`.
-///
-/// Deliberately textual: this check must run without compiling the protocol
-/// crate's full dependency graph, and the shapes it reads are restricted to the
-/// enum declarations above (a top-level variant starts with four spaces and an
-/// uppercase letter, which is how every wire enum in this tree is written).
-/// Fields, attributes, and doc comments are skipped.
 fn variants_of(source: &str, enum_name: &str) -> Option<Vec<String>> {
     let needle = format!("pub enum {enum_name} ");
     let start = source.find(&needle)?;
@@ -148,9 +100,6 @@ fn variants_of(source: &str, enum_name: &str) -> Option<Vec<String>> {
     let body = &rest[open..=end?];
 
     let mut variants = Vec::new();
-    // Depth relative to the enum body's own `{`: 0 while scanning variants,
-    // greater than 0 inside a struct variant's fields. Updated *after* each
-    // line is examined, so the line that opens a variant is still seen at 0.
     let mut depth = 0usize;
     for line in body.lines().skip(1) {
         let trimmed = line.trim_start();
@@ -177,8 +126,6 @@ fn variant_name(trimmed: &str) -> Option<String> {
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
         .collect();
     let rest = &trimmed[ident.len()..];
-    // A variant is followed by a field list, a tuple body, a discriminant, or
-    // the line ending — never by `=` or `:` alone (those are field decls).
     if rest.trim_start().starts_with(':') && !rest.trim_start().starts_with("::") {
         return None;
     }
@@ -235,17 +182,13 @@ pub fn bless_census(root: &Path) -> Result<PathBuf, String> {
 pub fn check_wire_census(root: &Path) -> Result<(), String> {
     let current = compute_census(root)?;
     let Some(recorded) = recorded_census(root) else {
-        return Err(format!(
-            "no wire census at {CENSUS_FILE}. Create it with `nuo dev census --bless`."
-        ));
+        return Err(format!("no wire census at {CENSUS_FILE}."));
     };
 
     if recorded.protocol == current.protocol {
         if recorded.enums == current.enums {
             return Ok(());
         }
-        // The dangerous case: the surface moved and the number did not. This is
-        // exactly ADR-0134's omission.
         let mut report = String::new();
         let _ = writeln!(
             report,
@@ -287,27 +230,21 @@ pub fn check_wire_census(root: &Path) -> Result<(), String> {
         let _ = writeln!(
             report,
             "\nA peer still speaking protocol {} cannot decode these frames.\n\
-             Bump `PROTOCOL_VERSION` in crates/nuo-protocol/src/lib.rs, then run\n\
-             `nuo dev census --bless` to renew the census in the same commit.",
+             Bump `PROTOCOL_VERSION` in crates/nuo-protocol/src/lib.rs, then renew the census in the same commit.",
             current.protocol
         );
         return Err(report);
     }
 
-    // The number moved but the record did not: the census was not renewed, so
-    // the next reviewer has no idea what actually changed.
     if recorded.enums == current.enums {
         return Err(format!(
             "PROTOCOL_VERSION advanced {} -> {} but the wire surface is byte-for-byte\n\
              unchanged. Either the bump was accidental, or a change was recorded under\n\
-             the old number and then edited back. Re-run `nuo dev census --bless` if the\n\
-             bump is intentional.",
+             the old number and then edited back.",
             recorded.protocol, current.protocol
         ));
     }
 
-    // Number moved and surface moved — the honest case, as long as the census
-    // was renewed at the new number (which it was, since it differs).
     Ok(())
 }
 
@@ -315,8 +252,6 @@ pub fn check_wire_census(root: &Path) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    /// The parser must agree with a real enum body, including struct variants
-    /// whose fields would otherwise be mistaken for variants.
     #[test]
     fn variants_are_read_through_struct_bodies_and_doc_comments() {
         let source = r#"
@@ -338,9 +273,6 @@ pub enum Wire {
         assert_eq!(variants, vec!["Select", "Welcome", "Exit", "Error"]);
     }
 
-    /// ADR-0136's regression, in miniature: dropping a variant while the
-    /// protocol number stays put must fail, and the report must name the
-    /// variant so the reviewer sees exactly what the peer can no longer decode.
     #[test]
     fn a_removed_variant_without_a_bump_is_rejected() {
         let root = temp_root("removed_without_bump");
@@ -357,14 +289,11 @@ pub enum Wire {
         );
         let blessed = bless_census(&root).unwrap();
         let text = std::fs::read_to_string(&blessed).unwrap();
-        // The census records the *live* protocol number, so the assertion
-        // follows it rather than pinning a literal that every bump invalidates.
         assert!(
             text.contains(&format!("protocol {}", nuo_protocol::PROTOCOL_VERSION)),
             "{text}"
         );
 
-        // Same number, one variant gone — the ADR-0134 shape exactly.
         write_events(
             &root,
             "pub enum AgentRequest {\n    Prompt,\n}\n\
@@ -382,8 +311,6 @@ pub enum Wire {
         );
     }
 
-    /// The other half: a bump with no wire change is also a lie, because it
-    /// tells a reviewer nothing about what moved.
     #[test]
     fn a_bump_with_an_unchanged_surface_is_rejected() {
         let root = temp_root("bump_without_change");
@@ -395,8 +322,6 @@ pub enum Wire {
              pub enum RoundEvent {\n    Text,\n}\n",
         );
         let blessed = bless_census(&root).unwrap();
-        // Rewind the recorded protocol one step, simulating a bump that never
-        // touched the surface.
         let current = nuo_protocol::PROTOCOL_VERSION;
         let previous = current - 1;
         let text = std::fs::read_to_string(&blessed).unwrap().replace(
@@ -417,7 +342,7 @@ pub enum Wire {
             std::env::temp_dir().join(format!("nuo-wire-census-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("crates/nuo-protocol/src")).unwrap();
-        std::fs::create_dir_all(root.join("crates/nuo/src/dev")).unwrap();
+        std::fs::create_dir_all(root.join("crates/nuo-governance/src")).unwrap();
         root
     }
 

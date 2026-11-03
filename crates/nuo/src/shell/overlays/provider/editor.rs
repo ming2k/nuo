@@ -181,11 +181,17 @@ fn effort_block_lines(
         .fg(selected_fg)
         .add_modifier(Modifier::BOLD);
 
+    let (track_marker, track_node, track_h) = if theme.glyphs.corner_tl == "+" {
+        ('*', 'o', '-')
+    } else {
+        (TRACK_MARKER, TRACK_NODE, '─')
+    };
+
     let track: Vec<char> = (0..track_w)
         .map(|col| match columns.iter().position(|&c| c == col) {
-            Some(i) if i == sel_idx => TRACK_MARKER,
-            Some(_) => TRACK_NODE,
-            None => '─',
+            Some(i) if i == sel_idx => track_marker,
+            Some(_) => track_node,
+            None => track_h,
         })
         .collect();
     let marker_col = columns[sel_idx];
@@ -194,7 +200,7 @@ fn effort_block_lines(
     let track_row = Line::from(vec![
         Span::styled(format!("{lo} "), track_style),
         Span::styled(before, track_style),
-        Span::styled(TRACK_MARKER.to_string(), marker_style),
+        Span::styled(track_marker.to_string(), marker_style),
         Span::styled(after, track_style),
         Span::styled(format!(" {hi}"), track_style),
     ]);

@@ -86,7 +86,11 @@ pub(crate) fn build_rounds_table(
     for (i, r) in rounds.iter().enumerate() {
         let is_selected = i == selected_idx;
         let row_style = if is_selected {
-            Style::default().bg(theme.selected_bg)
+            if !theme.elevation.is_chromatic() {
+                Style::default().add_modifier(Modifier::REVERSE)
+            } else {
+                Style::default().bg(theme.selected_bg)
+            }
         } else {
             Style::default()
         };
@@ -254,7 +258,11 @@ pub(crate) fn build_turns_table(
     for (i, att) in attempts.iter().enumerate() {
         let is_selected = i == selected_turn_idx;
         let row_style = if is_selected {
-            Style::default().bg(theme.selected_bg)
+            if !theme.elevation.is_chromatic() {
+                Style::default().add_modifier(Modifier::REVERSE)
+            } else {
+                Style::default().bg(theme.selected_bg)
+            }
         } else {
             Style::default()
         };

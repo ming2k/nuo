@@ -9,10 +9,38 @@ use crate::shell::render::Theme;
 /// spinner tick this is ~1.2s per cycle — calm, not frantic.
 pub const SPINNER_PHASES: usize = 12;
 
-/// The activity indicator glyph: delegates to the active typography glyph set.
-#[allow(dead_code)]
-pub fn spinner_glyph(glyphs: &nuotc::GlyphSet) -> &'static str {
-    glyphs.dot
+/// The activity indicator glyph: delegates to the active typography glyph set for
+/// the current spinner tick phase.
+///
+/// Under `Chromatic` (modern TrueColor terminal), the product's single breathing
+/// anchor is the calm breathing dot (`glyphs.dot`, i.e. `●`).
+/// Under `Structured` / `Hybrid` (VT100, serial getty, Linux console, ANSI-16,
+/// monochrome), TrueColor cosine luminance breathing is physically impossible,
+/// so liveness is conveyed through active frame rotation via the ASCII spinner
+/// (`|`, `/`, `-`, `\`).
+pub fn spinner_glyph(
+    glyphs: &nuotc::GlyphSet,
+    elevation: nuo_ui_primitives::elevation::ElevationArchetype,
+    liveness: Liveness,
+    phase: usize,
+) -> &'static str {
+    match liveness {
+        Liveness::Breathing => {
+            if elevation.is_chromatic() {
+                glyphs.dot
+            } else {
+                const ASCII_SPINNERS: [&str; 4] = ["|", "/", "-", "\\"];
+                ASCII_SPINNERS[phase % ASCII_SPINNERS.len()]
+            }
+        }
+        Liveness::Gated => {
+            if elevation.is_chromatic() {
+                glyphs.dot
+            } else {
+                "!"
+            }
+        }
+    }
 }
 
 /// Cosine luminance sweep between `bg` (dim, at phase 0) and `base` (bright,

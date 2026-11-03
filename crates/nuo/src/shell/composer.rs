@@ -46,10 +46,29 @@ fn overflow_label(dir: char, hidden: usize, full_w: usize) -> String {
 /// panel never jitters as the draft crosses the overflow threshold.
 fn chrome_row(full_w: usize, bg: Color, theme: &Theme, dir: char, hidden: usize) -> Line<'static> {
     if hidden == 0 {
+        if !theme.elevation.is_chromatic() && dir == '↑' {
+            return Line::from(Span::styled(
+                theme.glyphs.border_h.repeat(full_w),
+                Style::default().fg(theme.dim()),
+            ));
+        }
         return Line::from(Span::styled(" ".repeat(full_w), Style::default().bg(bg)));
     }
     let label = overflow_label(dir, hidden, full_w);
     let gap_cols = full_w.saturating_sub(label.chars().count() + 1);
+    if !theme.elevation.is_chromatic() && dir == '↑' {
+        return Line::from(vec![
+            Span::styled(
+                theme.glyphs.border_h.repeat(gap_cols),
+                Style::default().fg(theme.dim()),
+            ),
+            Span::styled(label, Style::default().fg(theme.muted())),
+            Span::styled(
+                theme.glyphs.border_h.to_string(),
+                Style::default().fg(theme.dim()),
+            ),
+        ]);
+    }
     Line::from(vec![
         Span::styled(" ".repeat(gap_cols), Style::default().bg(bg)),
         Span::styled(label, Style::default().bg(bg).fg(theme.muted())),
@@ -104,6 +123,24 @@ fn top_chrome_row(
         let label_len = label.chars().count();
         if full_w > label_len + 2 {
             let gap_cols = full_w.saturating_sub(label_len + 1);
+            if !theme.elevation.is_chromatic() {
+                return Line::from(vec![
+                    Span::styled(
+                        theme.glyphs.border_h.repeat(gap_cols),
+                        Style::default().fg(theme.dim()),
+                    ),
+                    Span::styled(
+                        label,
+                        Style::default()
+                            .fg(theme.brand())
+                            .add_modifier(Modifier::DIM),
+                    ),
+                    Span::styled(
+                        theme.glyphs.border_h.to_string(),
+                        Style::default().fg(theme.dim()),
+                    ),
+                ]);
+            }
             return Line::from(vec![
                 Span::styled(" ".repeat(gap_cols), Style::default().bg(bg)),
                 Span::styled(
@@ -128,6 +165,24 @@ fn top_chrome_row(
         let label_len = label.chars().count();
         if full_w > label_len + 2 {
             let gap_cols = full_w.saturating_sub(label_len + 1);
+            if !theme.elevation.is_chromatic() {
+                return Line::from(vec![
+                    Span::styled(
+                        theme.glyphs.border_h.repeat(gap_cols),
+                        Style::default().fg(theme.dim()),
+                    ),
+                    Span::styled(
+                        label,
+                        Style::default()
+                            .fg(theme.brand())
+                            .add_modifier(Modifier::DIM),
+                    ),
+                    Span::styled(
+                        theme.glyphs.border_h.to_string(),
+                        Style::default().fg(theme.dim()),
+                    ),
+                ]);
+            }
             return Line::from(vec![
                 Span::styled(" ".repeat(gap_cols), Style::default().bg(bg)),
                 Span::styled(

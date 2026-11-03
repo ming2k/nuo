@@ -149,7 +149,7 @@ A symmetric model with an asymmetric picture is still asymmetric to the user. Th
 | --- | --- | --- |
 | `Composer` | lit input panel | `input_surface()` |
 | `Transcript(Browse)` | **pane wash** — the whole transcript surface lifted one quiet step (`pane_focus_edge_style()` on `Reset`-surface profiles) | `pane_focus()` |
-| `Transcript(Entry)` | the wash, plus one **marker cell** in the highlighted entry's gutter | `pane_marker_style()` |
+| `Transcript(Entry)` | the wash, plus one **marker vertical bar** in the highlighted entry's gutter | `pane_marker_style()` |
 
 Three properties are load-bearing, and each is why the previous shape failed:
 

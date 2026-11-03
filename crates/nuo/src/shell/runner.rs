@@ -401,7 +401,7 @@ pub async fn run_attached(
         .with_resume(resume);
 
     // Initialize terminal once and keep it alive across thread switches to eliminate flicker.
-    let profile = nuotc::TerminalProfile::detect();
+    let profile = crate::shell::terminal::detect_terminal_profile();
     crate::shell::terminal::enter_terminal(&profile)?;
     crate::shell::terminal::spawn_signal_guard();
     crate::shell::ensure_panic_hook();

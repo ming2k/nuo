@@ -297,7 +297,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
     // visual. Distinct from `theme.surface()` (the chat surface) so
     // the operator cannot mistake PreAttach for a live chat.
     f.render_widget(
-        &mut Block::default().style(Style::default().bg(Color::Black)),
+        &mut Block::default().style(Style::default().bg(theme.backdrop)),
         area,
     );
 
@@ -362,7 +362,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
         f.render_widget(
             &mut Paragraph::new(lines)
                 .alignment(Alignment::Left)
-                .style(Style::default().bg(Color::Black)),
+                .style(Style::default().bg(theme.backdrop)),
             panel,
         );
         return;
@@ -516,7 +516,7 @@ pub fn draw_pre_attach(f: &mut Frame, state: &PreAttachState, theme: &Theme) {
     f.render_widget(
         &mut Paragraph::new(lines)
             .alignment(Alignment::Left)
-            .style(Style::default().bg(Color::Black)),
+            .style(Style::default().bg(theme.backdrop)),
         panel,
     );
 }

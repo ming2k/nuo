@@ -91,7 +91,7 @@ Standalone glyphs (from `design.rs` and `primitives.rs`):
 | Glyph | Token | Use |
 | :--- | :--- | :--- |
 | `›` | `INPUT_PROMPT_GLYPH` / `USER_MESSAGE_GUTTER_GLYPH` / `AI_OUTPUT_LEAD_GLYPH` | The canonical lead — composer, command-palette query, input injection, question "Other" field, dashboard console, provider search rows, completion-menu suggestions, and the user-message / assistant-turn transcript headers |
-| `▎` | `QUOTE_GUTTER_GLYPH` | Quoted content gutter |
+| `▎` | `QUOTE_GUTTER_GLYPH` / `PANE_MARKER_GLYPH` | Quoted content gutter / transcript focused entry gutter marker |
 | `↳` | `QUESTION_ANSWER_GLYPH` | Answer marker under a question |
 | `│` / `┃` | — | Band borders (thin / thick identity bar) |
 | `▾` / `▸` | — | Expanded / collapsed disclosure markers |

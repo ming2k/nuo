@@ -53,7 +53,7 @@ fn rel(root: &Path, path: &Path) -> String {
 /// legitimately names its own families.
 #[test]
 fn test_inv_tune_01_no_vendor_wire_encoding_or_family_branch_in_core_vocabulary() {
-    let root = nuo::dev::find_workspace_root();
+    let root = nuo_governance::find_workspace_root();
 
     // The files that constitute the *framework's* depth vocabulary and its
     // resolution points. A wire encoding or a family branch here is the defect.
@@ -116,7 +116,7 @@ fn test_inv_tune_01_no_vendor_wire_encoding_or_family_branch_in_core_vocabulary(
 /// of a rule the server owns, and both drifted from the wire.
 #[test]
 fn test_inv_tune_04_no_client_side_knob_resolution() {
-    let root = nuo::dev::find_workspace_root();
+    let root = nuo_governance::find_workspace_root();
     let shell = root.join("crates/nuo/src/shell");
 
     // Resolution primitives that must not appear in the presentation layer.
@@ -177,7 +177,7 @@ fn test_inv_tune_04_no_client_side_knob_resolution() {
 /// reject the whole record and silently drop the user's overrides.
 #[test]
 fn test_inv_tune_03_no_typed_knob_mirrors_beside_the_open_map() {
-    let root = nuo::dev::find_workspace_root();
+    let root = nuo_governance::find_workspace_root();
     // Only the **persisted** carrier is guarded. `ProviderModelInfo::effort` /
     // `thinking` are not mirrors: they are the server's *computed projection*
     // of `Channel::effective_effort` / `thinking_state`, which are in turn read

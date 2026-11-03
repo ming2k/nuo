@@ -191,16 +191,28 @@ impl<'a> ChoiceOptionRow<'a> {
         let mut marker_style =
             style.marker_style(self.marker, self.selected, self.highlighted, theme);
         if is_filled {
-            marker_style = marker_style.bg(style.bg).fg(style.fg);
+            if !theme.elevation.is_chromatic() {
+                marker_style = marker_style.add_modifier(Modifier::REVERSE);
+            } else {
+                marker_style = marker_style.bg(style.bg).fg(style.fg);
+            }
         }
 
         let text_style = if is_filled {
-            Style::default()
-                .bg(style.bg)
-                .fg(style.fg)
-                .add_modifier(Modifier::BOLD)
+            if !theme.elevation.is_chromatic() {
+                Style::default().add_modifier(Modifier::REVERSE | Modifier::BOLD)
+            } else {
+                Style::default()
+                    .bg(style.bg)
+                    .fg(style.fg)
+                    .add_modifier(Modifier::BOLD)
+            }
         } else if self.highlighted {
-            Style::default().fg(style.fg).add_modifier(Modifier::BOLD)
+            if !theme.elevation.is_chromatic() {
+                Style::default().add_modifier(Modifier::REVERSE | Modifier::BOLD)
+            } else {
+                Style::default().fg(style.fg).add_modifier(Modifier::BOLD)
+            }
         } else {
             Style::default().fg(style.fg)
         };

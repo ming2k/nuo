@@ -5,7 +5,7 @@
 //! - Running: `Alt+S steer now` (left) / `Enter queue follow-up` (right)
 //! - Completion: `Esc dismiss` (left) / `Tab / Enter select` (right)
 //! - History: `Esc close` (left) / `Tab / Enter insert` (right)
-use nuotc::{Color, Modifier, Span, Style};
+use nuotc::{Color, Span};
 
 use crate::shell::keymap::{HintSide, Key, LiveHint};
 use crate::shell::modal_keys::live_history_hints;
@@ -264,13 +264,9 @@ pub(crate) fn hint_row_parts(
             .filter(|h| h.side == HintSide::Action)
             .collect();
         let mut right: Vec<Span<'static>> = Vec::new();
-        let action_key_style = Style::default()
-            .fg(theme.keycap_accent())
-            .bg(bg)
-            .add_modifier(Modifier::BOLD);
         if compact || tiny {
             if let Some(last) = actions.last() {
-                right.push(Span::styled(last.display_key(), action_key_style));
+                right.push(Span::styled(last.display_key(), key_style));
                 right.push(Span::styled(format!(" {}", last.label), hint_style));
             }
         } else {
@@ -278,7 +274,7 @@ pub(crate) fn hint_row_parts(
                 if i > 0 {
                     right.push(Span::styled(" / ", hint_style));
                 }
-                right.push(Span::styled(h.display_key(), action_key_style));
+                right.push(Span::styled(h.display_key(), key_style));
             }
             if let Some(last) = actions.last() {
                 right.push(Span::styled(format!(" {}", last.label), hint_style));
@@ -287,20 +283,6 @@ pub(crate) fn hint_row_parts(
         return (left, right);
     }
 
-    let action_key_style = match target {
-        ComposeTarget::Running(crate::shell::app::ComposerSendMode::Steer) => Style::default()
-            .fg(theme.warn())
-            .bg(bg)
-            .add_modifier(Modifier::BOLD),
-        ComposeTarget::Running(crate::shell::app::ComposerSendMode::FollowUp) => Style::default()
-            .fg(theme.info())
-            .bg(bg)
-            .add_modifier(Modifier::BOLD),
-        _ => Style::default()
-            .fg(theme.keycap_accent())
-            .bg(bg)
-            .add_modifier(Modifier::BOLD),
-    };
     let state = match target {
         ComposeTarget::Prompt => HintState::Idle,
         ComposeTarget::Command => HintState::Command,
@@ -334,8 +316,8 @@ pub(crate) fn hint_row_parts(
     }
 
     // Right: action affordances. Multiple keys pair as `Tab / Enter`, with the
-    // verb key styled per ADR-0054 (accent on key, subdued text on label); the
-    // `command` and `retry` suffixes are presentation branding.
+    // verb key styled per ADR-0054 (neutral keycap_fg on key, subdued text on label);
+    // the `command` and `retry` suffixes are presentation branding.
     let mut right: Vec<Span<'static>> = Vec::new();
     let actions: Vec<&crate::shell::keymap::LiveHint> = hints
         .iter()
@@ -345,7 +327,7 @@ pub(crate) fn hint_row_parts(
         if i > 0 {
             right.push(Span::styled(" / ", hint_style));
         }
-        right.push(Span::styled(h.display_key(), action_key_style));
+        right.push(Span::styled(h.display_key(), key_style));
     }
     if let Some(last) = actions.last() {
         right.push(Span::styled(format!(" {}", last.label), hint_style));
@@ -355,7 +337,7 @@ pub(crate) fn hint_row_parts(
     }
     if can_retry && target == ComposeTarget::Prompt {
         right.push(Span::styled("   ", hint_style));
-        right.push(Span::styled("/retry", action_key_style));
+        right.push(Span::styled("/retry", key_style));
         if !compact {
             right.push(Span::styled(" retry", hint_style));
         }
@@ -367,6 +349,7 @@ pub(crate) fn hint_row_parts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nuotc::Modifier;
 
     fn text(spans: &[Span<'static>]) -> String {
         spans.iter().map(|span| span.content.to_string()).collect()
@@ -388,9 +371,9 @@ mod tests {
         // (ADR-0145): a user who never learns it cannot inspect the transcript.
         assert_eq!(text(&left), "Shift-Tab transcript");
         assert_eq!(text(&right), "Enter send");
-        // ADR-0054: "Enter" span must use theme.keycap_accent() and BOLD
+        // "Enter" span must use standard neutral keycap white (theme.keycap_fg()) and BOLD
         assert_eq!(right[0].content, "Enter");
-        assert_eq!(right[0].style.fg, theme.keycap_accent());
+        assert_eq!(right[0].style.fg, theme.keycap_fg());
         assert!(right[0].style.add.contains(Modifier::BOLD));
         // " send" span must use keycap_label()
         assert_eq!(right[1].content, " send");
@@ -411,6 +394,10 @@ mod tests {
         );
         assert_eq!(text(&left), "Tab follow-up mode   Shift-Tab transcript");
         assert_eq!(text(&right), "Enter send steer");
+        // Steer action key uses neutral keycap white, never theme.warn() (ADR-0110)
+        assert_eq!(right[0].content, "Enter");
+        assert_eq!(right[0].style.fg, theme.keycap_fg());
+        assert!(right[0].style.add.contains(Modifier::BOLD));
     }
 
     #[test]
@@ -427,6 +414,9 @@ mod tests {
         );
         assert_eq!(text(&left), "Tab steer mode   Shift-Tab transcript");
         assert_eq!(text(&right), "Enter queue follow-up");
+        assert_eq!(right[0].content, "Enter");
+        assert_eq!(right[0].style.fg, theme.keycap_fg());
+        assert!(right[0].style.add.contains(Modifier::BOLD));
     }
 
     #[test]

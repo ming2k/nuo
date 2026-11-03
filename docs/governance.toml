@@ -1,0 +1,38 @@
+# Nuo Repository Documentation & Architecture Governance Configuration
+# Rule sources: style.md §1, taxonomy.md §2-§3, invariants.md §2,§4, adr.md §4, ADR-0111, ADR-0141
+
+[docs]
+# Directories subject to documentation link and anchor verification
+doc_roots = ["docs"]
+
+# Root-level markdown files governed by repository documentation rules
+root_files = ["README.md", "CHANGELOG.md"]
+
+# User-owned surfaces that are untrusted runtime workspace inputs (ADR-0141, taxonomy.md §3).
+# These files are never scanned as repository documentation and must not be cited as authority.
+user_owned_surfaces = ["AGENTS.md"]
+
+[docs.firewall]
+# Public documentation surfaces that must never link to internal developer docs (taxonomy.md §2)
+public_surfaces = [
+    "docs/tutorials/",
+    "docs/how-to/",
+    "docs/reference/",
+    "docs/explanation/",
+]
+
+# Internal maintainer documentation space
+internal_space = "docs/dev/"
+
+[adr]
+# Canonical ADR directory
+directory = "docs/adr"
+
+# Source files exempt from string literal ADR citation checks (e.g. immutable migrations)
+string_allowlist = [
+    "crates/nuo-persistence/src/db/migrations.rs",
+]
+
+[invariants]
+# Directory where architecture invariant tags [INV-*] are authoritatively defined
+directory = "docs"

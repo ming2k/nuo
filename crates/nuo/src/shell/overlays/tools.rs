@@ -9,7 +9,7 @@
 //!   and structured Draft-07 JSON Schema parameter definitions.
 
 use nuotc::{
-    Frame, Style, {Line, Span},
+    Frame, Modifier, Style, {Line, Span},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -97,14 +97,20 @@ pub fn draw_tools_modal(
             } else {
                 theme.muted()
             };
-            let glyph = if tool.enabled { "●" } else { "○" };
+            let glyph = if !theme.elevation.is_chromatic() {
+                if tool.enabled { "[x]" } else { "[ ]" }
+            } else if tool.enabled {
+                "●"
+            } else {
+                "○"
+            };
             let state = if tool.enabled { "on" } else { "off" };
             let name = truncate_ellipsis(&tool.name, name_col);
             let desc = truncate_ellipsis(&tool.description, desc_budget);
             let badge = format!("[{state}]");
 
             let left_w = GUTTER_W
-                + 2 // glyph + space
+                + glyph.width() + 1 // glyph + space
                 + name_col
                 + 2
                 + desc.width();
@@ -112,19 +118,25 @@ pub fn draw_tools_modal(
             if is_sel {
                 selected_line = Some(body.len());
             }
+
+            let mut gutter_st = Style::default().bg(style.bg);
+            let mut glyph_st = Style::default().bg(style.bg).fg(glyph_color);
+            let mut name_st = Style::default().bg(style.bg).fg(style.fg);
+            let mut dim_st = Style::default().bg(style.bg).fg(style.dim);
+            if is_sel && !theme.elevation.is_chromatic() {
+                gutter_st = gutter_st.add_modifier(Modifier::REVERSE);
+                glyph_st = glyph_st.add_modifier(Modifier::REVERSE | Modifier::BOLD);
+                name_st = name_st.add_modifier(Modifier::REVERSE | Modifier::BOLD);
+                dim_st = dim_st.add_modifier(Modifier::REVERSE);
+            }
+
             body.push(Line::from(vec![
-                Span::styled(" ".repeat(GUTTER_W), Style::default().bg(style.bg)),
-                Span::styled(
-                    format!("{glyph} "),
-                    Style::default().bg(style.bg).fg(glyph_color),
-                ),
-                Span::styled(
-                    format!("{:<w$}  ", name, w = name_col),
-                    Style::default().bg(style.bg).fg(style.fg),
-                ),
-                Span::styled(desc, Style::default().bg(style.bg).fg(style.dim)),
-                Span::styled(" ".repeat(pad), Style::default().bg(style.bg)),
-                Span::styled(badge, Style::default().bg(style.bg).fg(style.dim)),
+                Span::styled(" ".repeat(GUTTER_W), gutter_st),
+                Span::styled(format!("{glyph} "), glyph_st),
+                Span::styled(format!("{:<w$}  ", name, w = name_col), name_st),
+                Span::styled(desc, dim_st),
+                Span::styled(" ".repeat(pad), gutter_st),
+                Span::styled(badge, dim_st),
             ]));
         }
     }
@@ -165,7 +177,13 @@ fn render_tool_detail(
 ) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
-    let status_glyph = if tool.enabled { "●" } else { "○" };
+    let status_glyph = if !theme.elevation.is_chromatic() {
+        if tool.enabled { "[x]" } else { "[ ]" }
+    } else if tool.enabled {
+        "●"
+    } else {
+        "○"
+    };
     let status_color = if tool.enabled {
         theme.ok()
     } else {

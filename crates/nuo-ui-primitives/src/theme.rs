@@ -275,18 +275,15 @@ pub struct Theme {
     /// The pane wash above says *the keyboard is in this pane*. This says *and it
     /// is on this entry*.
     ///
-    /// The cell is a **filled background** rather than a glyph, and that is the
-    /// whole reason the cue lives outside the row's text: a header row's own tone
-    /// is the disclosure × lifecycle × interaction composition, so painting a
-    /// background *under* that composition inverted the running accent and the
-    /// collapsed muted rung the renderers had resolved on purpose. A filled cell
-    /// needs no glyph-set entry either, so it cannot drift between UTF-8 and ASCII
-    /// terminals.
+    /// The cell renders a quiet vertical accent bar ([`crate::design::PANE_MARKER_GLYPH`])
+    /// rather than a kinetic arrow or full-width band. That keeps the cue outside the row's
+    /// text: a header row's own tone is the disclosure × lifecycle × interaction composition,
+    /// so a marker in the gutter leaves the row's composition intact.
     ///
     /// Deliberately *not* the generic `selected_bg` family: a keyboard-ownership
     /// cue must never read as a selection the user made. See
     /// [`Theme::pane_marker_style`] for the archetype-aware style.
-    pub pane_marker_bg: Color,
+    pub pane_marker_fg: Color,
 
     /// The **in-flight** hue (ADR-0110 `[INV-TUI-RUNNING-01]`, amended).
     ///
@@ -363,7 +360,7 @@ impl Default for Theme {
             // is deliberately *below* `user_panel_bg` and `element_bg`, so a
             // sent-message panel inside the pane still separates from its page.
             pane_focus_bg: Color::Rgb(13, 14, 14),
-            pane_marker_bg: Color::Rgb(109, 110, 108),
+            pane_marker_fg: Color::Rgb(142, 161, 145),
             // Liveness owns the one semantic hue nothing else claims: structure
             // is cool (info/brand), outcomes are green/amber/red, and the neutral
             // axis belongs to muted/dim. See `RUNNING_HUE`.
@@ -433,7 +430,7 @@ impl Theme {
             // transcript announces ownership with the marker alone — the
             // brightest named slot, bold, so it never fuses into a semantic hue.
             pane_focus_bg: Color::Reset,
-            pane_marker_bg: Color::White,
+            pane_marker_fg: Color::White,
             running_fg: Color::LightMagenta,
 
             caret_fg: Color::White,
@@ -495,7 +492,7 @@ impl Theme {
             // entry marker is reverse video ([`Theme::pane_marker_style`])
             // and the stored tones stay `Reset` so nothing emits a color escape.
             pane_focus_bg: Color::Reset,
-            pane_marker_bg: Color::Reset,
+            pane_marker_fg: Color::Reset,
             running_fg: Color::Reset,
 
             caret_fg: Color::Reset,
@@ -747,8 +744,8 @@ impl Theme {
             if let Some(val) = pane.wash_bg.as_deref().and_then(Self::color_from_hex) {
                 self.pane_focus_bg = val;
             }
-            if let Some(val) = pane.marker_bg.as_deref().and_then(Self::color_from_hex) {
-                self.pane_marker_bg = val;
+            if let Some(val) = pane.marker_fg.as_deref().and_then(Self::color_from_hex) {
+                self.pane_marker_fg = val;
             }
         }
         if let Some(ref input) = components.input {
@@ -938,7 +935,7 @@ impl Theme {
             // then stripped, because a tinted scheme's text tone would otherwise
             // lend the marker a hue (lavender on catppuccin) and make it read as
             // a state.
-            pane_marker_bg: desaturate(
+            pane_marker_fg: desaturate(
                 mix(background, text, if light { 0.55 } else { 0.50 }),
                 0.85,
             ),
@@ -1333,7 +1330,7 @@ impl Theme {
             command_band_bg,
             command_band_bg_hover,
             pane_focus_bg,
-            pane_marker_bg,
+            pane_marker_fg,
             running_fg,
             caret_fg,
             input_selection_bg,
@@ -1393,7 +1390,7 @@ impl Theme {
             // requirement is "stays distinguishable from the page", not "keeps its
             // elevation", and `the_entry_marker_stays_distinguishable_from_the_lifted_page`
             // is where that separate property is asserted.
-            ("pane_marker_bg", *pane_marker_bg, false),
+            ("pane_marker_fg", *pane_marker_fg, false),
             ("running_fg", *running_fg, false),
             ("caret_fg", *caret_fg, false),
             ("input_selection_bg", *input_selection_bg, false),
@@ -1474,7 +1471,7 @@ impl Theme {
             warning: self.warning,
             success: self.success,
             info: self.info,
-            pane_marker_bg: self.pane_marker_bg,
+            pane_marker_fg: self.pane_marker_fg,
             running_fg: self.running_fg,
             caret_fg: self.caret_fg,
             input_placeholder_fg: self.input_placeholder_fg,
@@ -1551,7 +1548,7 @@ impl Theme {
             ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
             ElevationArchetype::Hybrid => Style::default().bg(self.selected_bg),
             // Reachable on a Chromatic palette whose headroom is gone. It must **not**
-            // borrow `pane_marker_bg`: the two answer different questions ("this pane is
+            // borrow `pane_marker_fg`: the two answer different questions ("this pane is
             // live" vs "the keyboard is on this entry"), and a shared tone makes a
             // browse-focused pane indistinguishable from an entry-marked one — the exact
             // conflation the marker/band split exists to prevent. The gutter is a surface,
@@ -1576,8 +1573,17 @@ impl Theme {
         match self.elevation {
             ElevationArchetype::Structured => Style::default().add_modifier(Modifier::REVERSE),
             ElevationArchetype::Hybrid | ElevationArchetype::Chromatic => {
-                Style::default().bg(self.pane_marker_bg)
+                Style::default().fg(self.pane_marker_fg).bg(self.surface())
             }
+        }
+    }
+
+    /// The glyph used to mark the active transcript entry in the gutter.
+    pub fn pane_marker_glyph(&self) -> &'static str {
+        if self.glyphs.corner_tl == "+" {
+            "|"
+        } else {
+            "▎"
         }
     }
 
@@ -1957,7 +1963,7 @@ impl Theme {
         ComponentsTokens {
             pane: PaneTokens {
                 wash_bg: self.pane_focus_bg,
-                marker_bg: self.pane_marker_bg,
+                marker_fg: self.pane_marker_fg,
             },
             input: InputTokens {
                 bg_active: self.input_bg_active,
@@ -2081,7 +2087,7 @@ pub struct CommandTokens {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PaneTokens {
     pub wash_bg: Color,
-    pub marker_bg: Color,
+    pub marker_fg: Color,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2092,6 +2098,127 @@ pub struct ComponentsTokens {
     pub command: CommandTokens,
     pub crate_tag: Color,
     pub crate_badge: Color,
+}
+
+/// A named design token swatch with label and contrast data (ADR-0147).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwatchRole {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub color: Color,
+    pub contrast_ratio: f32,
+}
+
+/// A structured palette specimen containing the complete design system color tokens (ADR-0147).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColorPaletteSpecimen {
+    pub theme_id: String,
+    pub is_dark: bool,
+    pub surfaces: Vec<SwatchRole>,
+    pub text_ladder: Vec<SwatchRole>,
+    pub signals: Vec<SwatchRole>,
+    pub components: Vec<SwatchRole>,
+}
+
+impl Theme {
+    /// Generate a structured design system color palette specimen (ADR-0147 `[INV-TUI-COLOR-02]`).
+    pub fn palette_specimen(&self, theme_id: impl Into<String>) -> ColorPaletteSpecimen {
+        let bg_c = self.surface();
+        let bg_lum = luminance(bg_c);
+        let is_dark = bg_lum < 150.0;
+
+        let make_swatch = |name: &'static str, desc: &'static str, color: Color| -> SwatchRole {
+            let col_lum = luminance(color);
+            let (l1, l2) = if col_lum >= bg_lum {
+                (col_lum, bg_lum)
+            } else {
+                (bg_lum, col_lum)
+            };
+            let ratio = (l1 + 5.0) / (l2 + 5.0);
+            SwatchRole {
+                name,
+                description: desc,
+                color,
+                contrast_ratio: ratio,
+            }
+        };
+
+        ColorPaletteSpecimen {
+            theme_id: theme_id.into(),
+            is_dark,
+            surfaces: vec![
+                make_swatch(
+                    "Surface",
+                    "Base application viewport background",
+                    self.surface(),
+                ),
+                make_swatch(
+                    "Panel",
+                    "Recessed sidebars, docks and input panels",
+                    self.panel(),
+                ),
+                make_swatch("Raised", "Elevated header bars and tabs", self.raised()),
+                make_swatch(
+                    "Sunken",
+                    "Detail content and recessed card backgrounds",
+                    self.pane_sunken(),
+                ),
+                make_swatch(
+                    "Code",
+                    "Flat code block and transcript diff background",
+                    self.code_surface(),
+                ),
+            ],
+            text_ladder: vec![
+                make_swatch("Text", "High-contrast reading foreground", self.fg()),
+                make_swatch(
+                    "Muted",
+                    "Timestamps, secondary metadata, and hints",
+                    self.muted(),
+                ),
+                make_swatch("Dim", "Inert, disabled, or cancelled states", self.dim()),
+                make_swatch("Heading", "Section titles and bold leads", self.heading()),
+            ],
+            signals: vec![
+                make_swatch(
+                    "Brand",
+                    "Primary selection, active tabs, and identity",
+                    self.brand(),
+                ),
+                make_swatch("Info", "Turn header anchors and structure", self.info()),
+                make_swatch(
+                    "Success",
+                    "Completed steps, git adds, and approvals",
+                    self.ok(),
+                ),
+                make_swatch(
+                    "Warning",
+                    "Confirmations, security notices, and cautions",
+                    self.warn(),
+                ),
+                make_swatch(
+                    "Error",
+                    "Command failures, rejections, and denials",
+                    self.err(),
+                ),
+                make_swatch(
+                    "Running",
+                    "In-flight execution vitality (ADR-0110)",
+                    self.running(),
+                ),
+            ],
+            components: vec![
+                make_swatch("Diff Add", "Diff inserted row tint", self.diff_add_bg()),
+                make_swatch("Diff Del", "Diff deleted row tint", self.diff_del_bg()),
+                make_swatch(
+                    "Pane Marker",
+                    "Gutter keyboard focus accent bar",
+                    self.pane_marker_style().fg,
+                ),
+                make_swatch("Keycap", "Keyboard shortcut badge text", self.keycap_fg()),
+            ],
+        }
+    }
 }
 
 /// The channels of an RGB color, or `None` for `Reset` / named ANSI slots, which
@@ -2386,7 +2513,7 @@ mod tests {
         assert_eq!(lifted.text_muted, theme.text_muted);
         assert_eq!(lifted.running_fg, theme.running_fg);
         assert_eq!(lifted.info, theme.info);
-        assert_eq!(lifted.pane_marker_bg, theme.pane_marker_bg);
+        assert_eq!(lifted.pane_marker_fg, theme.pane_marker_fg);
 
         // And the lift is a translation: every separation is invariant.
         for band in theme.pane_bands() {
@@ -2545,14 +2672,14 @@ mod tests {
             components: Some(crate::color_scheme::ComponentThemesConfig {
                 pane: Some(crate::color_scheme::PaneThemeConfig {
                     wash_bg: Some("#ffffff".to_string()),
-                    marker_bg: Some("#888888".to_string()),
+                    marker_fg: Some("#888888".to_string()),
                 }),
                 ..Default::default()
             }),
             ..Default::default()
         };
         let theme = Theme::from_theme_file(&file);
-        assert_eq!(theme.pane_marker_bg, Color::Rgb(136, 136, 136));
+        assert_eq!(theme.pane_marker_fg, Color::Rgb(136, 136, 136));
         for band in theme.pane_bands() {
             assert!(
                 survives_the_lift(theme.surface(), theme.pane_focus(), band),
@@ -2565,7 +2692,7 @@ mod tests {
             components: Some(crate::color_scheme::ComponentThemesConfig {
                 pane: Some(crate::color_scheme::PaneThemeConfig {
                     wash_bg: Some("#070808".to_string()),
-                    marker_bg: None,
+                    marker_fg: None,
                 }),
                 ..Default::default()
             }),
@@ -2588,7 +2715,7 @@ mod tests {
         let custom = ColorSchemeConfig::default();
         for scheme in Theme::available_color_schemes() {
             let theme = Theme::from_color_scheme(&scheme.id, &custom);
-            let marker = theme.pane_marker_bg;
+            let marker = theme.pane_marker_fg;
             for (state, page) in [("blurred", theme.surface()), ("lifted", theme.pane_focus())] {
                 if page == Color::Reset || marker == Color::Reset {
                     continue;
@@ -2612,7 +2739,7 @@ mod tests {
     fn entry_focus_marker_is_neutral_and_visible() {
         for name in ["zen", "midnight", "nord", "catppuccin", "paper"] {
             let theme = Theme::from_color_scheme(name, &ColorSchemeConfig::default());
-            let marker = theme.pane_marker_bg;
+            let marker = theme.pane_marker_fg;
             let (r, g, b) = rgb(marker);
             // Neutral: no channel may dominate, so the marker cannot be mistaken
             // for a hue-coded lifecycle state.
@@ -2672,7 +2799,7 @@ mod tests {
     fn entry_focus_is_reverse_video_on_a_structured_profile() {
         // VT100 / getty: no colour latitude at all, so the cue is the modifier.
         let mono = Theme::monochrome();
-        assert_eq!(mono.pane_marker_bg, Color::Reset);
+        assert_eq!(mono.pane_marker_fg, Color::Reset);
         assert_eq!(mono.pane_focus(), Color::Reset);
         assert!(
             mono.pane_marker_style()
@@ -2686,9 +2813,9 @@ mod tests {
         // discrete slot rather than an RGB the console would quantize away.
         let hybrid = Theme::ansi16();
         assert_eq!(hybrid.pane_focus(), Color::Reset);
-        assert_eq!(hybrid.pane_marker_bg, Color::White);
-        assert!(!matches!(hybrid.pane_marker_bg, Color::Rgb(..)));
-        assert_eq!(hybrid.pane_marker_style().bg, Color::White);
+        assert_eq!(hybrid.pane_marker_fg, Color::White);
+        assert!(!matches!(hybrid.pane_marker_fg, Color::Rgb(..)));
+        assert_eq!(hybrid.pane_marker_style().fg, Color::White);
         // Liveness is a named slot too — never an RGB.
         assert!(!matches!(hybrid.running(), Color::Rgb(..)));
     }

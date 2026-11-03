@@ -12,7 +12,7 @@
 
 use super::{
     Component,
-    story::{Story, StorybookComponent},
+    story::{Story, StoryEventOutcome, StorybookComponent},
 };
 use crate::shell::declarative::key::Key;
 use nuo_ui_primitives::{ActionStatus, theme::Theme};
@@ -394,6 +394,28 @@ impl StorybookComponent for NoticeCard {
             Key::Enter => Some(NoticeCardMsg::ActivateCurrent),
             Key::Char(' ') => Some(NoticeCardMsg::ToggleExpand),
             _ => None,
+        }
+    }
+
+    fn tick(props: &mut Self::Props, _state: &mut Self::State) -> StoryEventOutcome {
+        let mut consumed = false;
+        for action in &mut props.actions {
+            if let ActionStatus::Running {
+                ref mut spinner_frame,
+                ref mut elapsed_secs,
+            } = action.status
+            {
+                *spinner_frame = (*spinner_frame + 1) % 10;
+                if *spinner_frame == 0 {
+                    *elapsed_secs = Some(elapsed_secs.unwrap_or(0).saturating_add(1));
+                }
+                consumed = true;
+            }
+        }
+        if consumed {
+            StoryEventOutcome::Consumed
+        } else {
+            StoryEventOutcome::Ignored
         }
     }
 }

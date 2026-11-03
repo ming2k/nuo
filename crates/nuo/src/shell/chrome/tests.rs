@@ -531,6 +531,66 @@ fn activity_strip_returns_none_when_all_idle() {
 }
 
 #[test]
+fn activity_strip_rotates_spinner_frames_and_supports_ascii_vt() {
+    let mut theme_ascii = Theme::monochrome();
+    theme_ascii.glyphs = nuotc::ASCII_GLYPHS;
+
+    let paint = |phase: usize, theme: &Theme| -> String {
+        let mut terminal = nuotc::TestTerminal::new(60, 1);
+        terminal.draw(|f| {
+            draw_activity_strip(
+                f,
+                f.area(),
+                None,
+                ActivityStripProps {
+                    status: "waiting for model",
+                    backoff: None,
+                    awaiting_permission: false,
+                    queued_count: 0,
+                    queued_preview: None,
+                    queued_first_is_steer: false,
+                    queue_blocked: false,
+                    tasks_count: 0,
+                    tasks_preview: None,
+                    queue_key: None,
+                },
+                None,
+                phase,
+                theme,
+            );
+        });
+        terminal
+            .buffer()
+            .cells()
+            .iter()
+            .map(|c| c.symbol.as_str())
+            .collect()
+    };
+
+    // Modern DirectColor frames use calm breathing dot (single breathing anchor, zero braille)
+    let f0 = paint(0, &Theme::default());
+    let f1 = paint(1, &Theme::default());
+    assert!(
+        f0.contains("● waiting for model"),
+        "phase 0 breathing dot: {f0:?}"
+    );
+    assert!(
+        f1.contains("● waiting for model"),
+        "phase 1 breathing dot: {f1:?}"
+    );
+
+    // ASCII / VT100 fallback rotates through safe ASCII frames: | / - \
+    let a0 = paint(0, &theme_ascii);
+    let a1 = paint(1, &theme_ascii);
+    let a2 = paint(2, &theme_ascii);
+    let a3 = paint(3, &theme_ascii);
+    assert!(a0.contains("| waiting for model"), "ascii phase 0: {a0:?}");
+    assert!(a1.contains("/ waiting for model"), "ascii phase 1: {a1:?}");
+    assert!(a2.contains("- waiting for model"), "ascii phase 2: {a2:?}");
+    assert!(a3.contains("\\ waiting for model"), "ascii phase 3: {a3:?}");
+}
+
+#[test]
 fn context_usage_spans_render_used_and_percentage() {
     let theme = Theme::default();
     let spans = context_usage_spans(20_200, 256_000, &theme, theme.panel());
@@ -1313,6 +1373,74 @@ fn completion_menu_hover_doc_flyout_shows_alias_to_target_header() {
         found_header,
         "flyout header should show `/auto -> /unattended`, got buffer:\n{}",
         full_text.join("\n")
+    );
+}
+
+#[test]
+fn completion_menu_structured_monochrome_renders_framed_box_and_fits_all_items() {
+    let mut theme = Theme::monochrome();
+    theme.glyphs = nuotc::ASCII_GLYPHS;
+    let completions = vec![
+        crate::shell::completion::Completion {
+            label: "/help".to_string(),
+            description: "Show help".to_string(),
+            insert_text: "/help".to_string(),
+            replace_start: 0,
+            replace_end: 2,
+            kind: crate::shell::completion::CompletionItemKind::Slash,
+            alias_of: None,
+            doc: None,
+        },
+        crate::shell::completion::Completion {
+            label: "/exit".to_string(),
+            description: "Exit shell".to_string(),
+            insert_text: "/exit".to_string(),
+            replace_start: 0,
+            replace_end: 2,
+            kind: crate::shell::completion::CompletionItemKind::Slash,
+            alias_of: None,
+            doc: None,
+        },
+    ];
+    let mut terminal = nuotc::TestTerminal::new(80, 12);
+    terminal.draw(|f| {
+        let mut layout_map = LayoutMap::new();
+        draw_completion_menu(
+            f,
+            &mut layout_map,
+            None,
+            &completions,
+            Some(0),
+            Rect::new(2, 10, 1, 1),
+            &theme,
+        );
+    });
+    let screen = (0..12)
+        .map(|y| {
+            (0..80)
+                .map(|x| {
+                    terminal
+                        .buffer()
+                        .get(x, y)
+                        .map(|c| c.symbol.as_str())
+                        .unwrap_or(" ")
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(screen.contains("/help"), "must render /help item: {screen}");
+    assert!(
+        screen.contains("/exit"),
+        "must render /exit item without truncation: {screen}"
+    );
+    assert!(
+        screen.contains('+'),
+        "must render ASCII border corners: {screen}"
+    );
+    assert!(
+        screen.contains('-'),
+        "must render ASCII horizontal border: {screen}"
     );
 }
 

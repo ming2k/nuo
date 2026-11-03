@@ -418,8 +418,10 @@ fn marking_an_entry_does_not_recolour_its_summary() {
         })
         .expect("the focused entry must be marked");
 
-    let cells = |p: &Painted, y: u16| -> Vec<(String, nuotc::Color, nuotc::Modifier)> {
-        (0..p.terminal.buffer().area().width)
+    // Content columns must be identical on both planes: focus adds a gutter marker,
+    // it may not recolor the summary.
+    let summary_cells = |p: &Painted, y: u16| -> Vec<(String, nuotc::Color, nuotc::Modifier)> {
+        (TRANSCRIPT_H_INSET..p.terminal.buffer().area().width)
             .map(|x| p.terminal.buffer().get(x, y).unwrap())
             // Background is *expected* to differ (that is the pane cue). Only the
             // glyph and its foreground are under test.
@@ -427,9 +429,28 @@ fn marking_an_entry_does_not_recolour_its_summary() {
             .collect()
     };
     assert_eq!(
-        cells(&composer_plane, header_y),
-        cells(&transcript_plane, header_y),
+        summary_cells(&composer_plane, header_y),
+        summary_cells(&transcript_plane, header_y),
         "the pane crossing must not recolor the focused entry's header row"
+    );
+    // The gutter column carries the marker in the transcript plane only.
+    assert_eq!(
+        transcript_plane
+            .terminal
+            .buffer()
+            .get(TRANSCRIPT_H_INSET - 1, header_y)
+            .unwrap()
+            .symbol,
+        theme.pane_marker_glyph()
+    );
+    assert_eq!(
+        composer_plane
+            .terminal
+            .buffer()
+            .get(TRANSCRIPT_H_INSET - 1, header_y)
+            .unwrap()
+            .symbol,
+        " "
     );
 }
 

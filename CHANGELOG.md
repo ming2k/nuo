@@ -8,6 +8,34 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Live Storybook Engine, Sub-Second Hot Loop & Catalog Expansion (ADR-0146)**:
+  - Interactive workbench run loop with non-blocking event polling, continuous timer ticks, and fluid in-flight animation rendering (`Workbench::run_loop`).
+  - Cross-process developer state persistence (`WorkbenchState`) preserving story index, viewport boundary, and theme across recompilation restarts.
+  - Broadened component catalog covering `EmptyHeroCard`, `ModalCard`, `PaletteCard`, `ReasoningCard`, `ToastCard`, `TurnBandCard`, and `WhichKeyCard`.
+- **Semantic Color Governance Firewall & First-Class Palette Specimen Topology (ADR-0147)**:
+  - Mechanical color purity firewall (`nuo-governance::color_purity`) rejecting non-semantic color literals (`Color::Rgb`, `Color::Indexed`, raw names) across component renderers.
+  - Centralized governance configuration in `docs/governance.toml`.
+  - First-class palette specimen model (`Theme::palette_specimen()`) powering visual swatch inspections and live syntax diff previewing in the Appearance settings panel.
+- **Canonical Extreme Fixtures & Zero-Dependency Watch Supervisor (ADR-0148)**:
+  - In-tree `nuo dev watch` supervisor providing continuous hot rebuilds without requiring external tools like `cargo-watch`.
+  - Canonical fixtures reproducing thousand-line folded compiler streams and multi-phase deep cognitive reasoning traces.
+- **Dedicated Governance Crate (`crates/nuo-governance`)**:
+  - Relocated architecture firewalls, ADR lineage validation, documentation link checks, source residency guards, and protocol wire census into a dedicated Layer 1 crate.
+
+### Changed
+
+- **Transcript entry focus marker is a crisp, quiet vertical accent bar (`▎`), not a background block.**
+  - **Minimalism & Zen geometry**: Replaced the obscure, outline-less single-cell background block marker
+    with a sharp vertical accent bar (`▎`, `PANE_MARKER_GLYPH`), falling back to `|` on ASCII glyph sets.
+    This eliminates cognitive ambiguity and visual smudge in low-contrast terminals while avoiding the
+    imperative kinetic clutter and punctuation soup of directional arrows.
+  - **Sage tone for Zen**: The `zen` default theme styles the marker with its signature sage tone
+    (`RGB(142, 161, 145)`), balancing instant at-a-glance locatability with calm reading immersion.
+  - **Clean break**: Renamed theme field and config token `pane_marker_bg` / `marker_bg` to `pane_marker_fg` /
+    `marker_fg` across `Theme` and `PaneThemeConfig` without backward-compatibility debt.
+
 ## [0.0.69] - 2026-11-03
 
 ### Changed

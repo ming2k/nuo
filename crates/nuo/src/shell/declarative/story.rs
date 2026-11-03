@@ -47,6 +47,11 @@ pub trait StorybookComponent: Component {
     fn map_key_to_msg(_key: &Key, _props: &Self::Props, _state: &Self::State) -> Option<Self::Msg> {
         None
     }
+
+    /// Periodic continuous tick driver for live animation and elapsed timers (ADR-0146 `[INV-TUI-STORY-04]`).
+    fn tick(_props: &mut Self::Props, _state: &mut Self::State) -> StoryEventOutcome {
+        StoryEventOutcome::Ignored
+    }
 }
 
 /// Type-erased story instance for the interactive workbench and visual regression runners.
@@ -57,12 +62,14 @@ pub trait AnyStory: Send {
     fn description(&self) -> &'static str;
     fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme);
     fn handle_key(&mut self, key: &Key) -> StoryEventOutcome;
+    fn tick(&mut self) -> StoryEventOutcome;
     fn reset(&mut self);
 }
 
 /// Concrete typed implementation of `AnyStory`.
 pub struct ComponentStoryInstance<C: StorybookComponent + 'static> {
     props: C::Props,
+    initial_props: C::Props,
     state: C::State,
     initial_state: C::State,
     name: &'static str,
@@ -72,7 +79,8 @@ pub struct ComponentStoryInstance<C: StorybookComponent + 'static> {
 impl<C: StorybookComponent + 'static> ComponentStoryInstance<C> {
     pub fn new(story: Story<C::Props, C::State>) -> Self {
         Self {
-            props: story.props,
+            props: story.props.clone(),
+            initial_props: story.props,
             state: story.initial_state.clone(),
             initial_state: story.initial_state,
             name: story.name,
@@ -111,7 +119,12 @@ impl<C: StorybookComponent + 'static> AnyStory for ComponentStoryInstance<C> {
         }
     }
 
+    fn tick(&mut self) -> StoryEventOutcome {
+        C::tick(&mut self.props, &mut self.state)
+    }
+
     fn reset(&mut self) {
+        self.props = self.initial_props.clone();
         self.state = self.initial_state.clone();
     }
 }

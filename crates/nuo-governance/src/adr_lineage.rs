@@ -7,10 +7,10 @@
 //!   to a canonical ADR in `docs/adr/`.
 //!   Immutable shipped migration SQL in `crates/nuo-persistence/src/db/migrations.rs`
 //!   is explicitly exempt from string-literal scanning.
-//!   User-owned surfaces (`doc_links::USER_OWNED_SURFACES`) are not repository
-//!   documentation and are never scanned (taxonomy.md §3, ADR-0141).
+//!   User-owned surfaces (`AGENTS.md`) are not repository documentation and are never scanned.
 
-use crate::dev::doc_links;
+use crate::config::GovernanceConfig;
+use pulldown_cmark::{Event, Options, Parser, Tag};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs;
@@ -18,21 +18,9 @@ use std::path::Path;
 use std::process::Command;
 use walkdir::WalkDir;
 
-const ADR_DIR: &str = "docs/adr";
-
-const STRING_ALLOWLIST: &[&str] = &["crates/nuo-persistence/src/db/migrations.rs"];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LexState {
-    Code,
-    Raw(usize),
-    Str,
-    BlockComment,
-}
-
-pub fn canonical_numbers(root: &Path) -> HashSet<String> {
+pub fn canonical_numbers(root: &Path, config: &GovernanceConfig) -> HashSet<String> {
     let mut have = HashSet::new();
-    let adr_path = root.join(ADR_DIR);
+    let adr_path = root.join(&config.adr.directory);
     let Ok(entries) = fs::read_dir(adr_path) else {
         return have;
     };
@@ -64,6 +52,14 @@ fn dead_tokens<'a>(text: &'a str, have: &HashSet<String>, token_re: &Regex) -> V
         }
     }
     dead
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LexState {
+    Code,
+    Raw(usize),
+    Str,
+    BlockComment,
 }
 
 fn split_rust_line(line: &str, mut state: LexState, scan_re: &Regex) -> (LexState, String, String) {
@@ -144,8 +140,8 @@ fn split_rust_line(line: &str, mut state: LexState, scan_re: &Regex) -> (LexStat
     (state, line[..code_end].to_string(), comment)
 }
 
-fn get_tracked_files(root: &Path) -> Vec<String> {
-    let keep = |rel: &str| !doc_links::USER_OWNED_SURFACES.contains(&rel);
+fn get_tracked_files(root: &Path, config: &GovernanceConfig) -> Vec<String> {
+    let keep = |rel: &str| !config.docs.user_owned_surfaces.contains(&rel.to_string());
 
     if let Ok(output) = Command::new("git")
         .current_dir(root)
@@ -164,7 +160,6 @@ fn get_tracked_files(root: &Path) -> Vec<String> {
         }
     }
 
-    // Fallback if git is not available
     let mut files = Vec::new();
     for entry in WalkDir::new(root)
         .into_iter()
@@ -192,12 +187,16 @@ fn get_tracked_files(root: &Path) -> Vec<String> {
 }
 
 pub fn check_adr_lineage(root: &Path) -> Result<(), String> {
-    let have = canonical_numbers(root);
+    let config = GovernanceConfig::load_from_workspace(root);
+    check_adr_lineage_with_config(root, &config)
+}
+
+pub fn check_adr_lineage_with_config(root: &Path, config: &GovernanceConfig) -> Result<(), String> {
+    let have = canonical_numbers(root, config);
     let token_re = Regex::new(r"ADR-(\d{4})").map_err(|e| e.to_string())?;
-    let fence_re = Regex::new(r"^\s*(?:///?!?\s*)?```").map_err(|e| e.to_string())?;
     let scan_re = Regex::new(r#"r(#*)"|"|//|/\*|\*/"#).map_err(|e| e.to_string())?;
 
-    let files = get_tracked_files(root);
+    let files = get_tracked_files(root, config);
     let mut failures = Vec::new();
 
     for rel_path in files {
@@ -208,26 +207,47 @@ pub fn check_adr_lineage(root: &Path) -> Result<(), String> {
         };
 
         if rel_path.ends_with(".md") {
-            let mut in_fence = false;
-            for (idx, line) in content.lines().enumerate() {
-                let line_num = idx + 1;
-                if fence_re.is_match(line) {
-                    in_fence = !in_fence;
-                    continue;
+            let line_starts: Vec<usize> = std::iter::once(0)
+                .chain(content.match_indices('\n').map(|(i, _)| i + 1))
+                .collect();
+            let get_line_num = |offset: usize| -> usize {
+                match line_starts.binary_search(&offset) {
+                    Ok(idx) => idx + 1,
+                    Err(idx) => idx,
                 }
-                if in_fence {
-                    continue;
-                }
-                if !dead_tokens(line, &have, &token_re).is_empty() {
-                    let preview: String = line.trim().chars().take(110).collect();
-                    failures.push(format!("{rel_path}:{line_num}: {preview}"));
+            };
+
+            let parser = Parser::new_ext(&content, Options::all()).into_offset_iter();
+            let mut in_code_block = false;
+
+            for (event, range) in parser {
+                match event {
+                    Event::Start(Tag::CodeBlock(..)) => {
+                        in_code_block = true;
+                    }
+                    Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
+                        in_code_block = false;
+                    }
+                    Event::Text(text) | Event::Code(text) if !in_code_block => {
+                        for dead in dead_tokens(&text, &have, &token_re) {
+                            let line_num = get_line_num(range.start);
+                            let preview: String = text.trim().chars().take(110).collect();
+                            failures.push(format!("{rel_path}:{line_num}: [{dead}] {preview}"));
+                        }
+                    }
+                    _ => {}
                 }
             }
             continue;
         }
 
+        // Rust file parsing
         let mut state = LexState::Code;
-        let allow_strings = STRING_ALLOWLIST.contains(&rel_path.as_str());
+        let allow_strings = config
+            .adr
+            .string_allowlist
+            .iter()
+            .any(|allow| allow == &rel_path);
 
         for (idx, line) in content.lines().enumerate() {
             let line_num = idx + 1;
@@ -257,8 +277,9 @@ pub fn check_adr_lineage(root: &Path) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "ADR lineage: {} dangling citation(s) — a reference must resolve to a file in {ADR_DIR}/ (docs/dev/standards/adr.md §4):\n{}",
+            "ADR lineage: {} dangling citation(s) — a reference must resolve to a file in {}/ (docs/dev/standards/adr.md §4):\n{}",
             failures.len(),
+            config.adr.directory,
             failures.join("\n")
         ))
     }

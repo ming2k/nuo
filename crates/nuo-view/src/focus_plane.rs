@@ -159,7 +159,7 @@ fn draw_pane_focus_edges(frame: &mut Frame<'_>, outer: Rect, band: Rect, theme: 
 }
 
 /// Paint the **entry marker** for the highlighted entry whose header row is at
-/// `row`: one solid cell in the entry's reserved left gutter.
+/// `row`: one vertical accent bar in the entry's reserved left gutter.
 ///
 /// The gutter is `[outer.x, band.x)`, i.e. the columns the transcript layout
 /// reserves and no content ever paints into, so the marker costs no columns and
@@ -177,7 +177,7 @@ pub fn draw_entry_marker(frame: &mut Frame<'_>, outer: Rect, band: Rect, row: u1
     let style = theme.pane_marker_style();
     // Sit immediately against the content: a marker separated from what it marks
     // by a column of background reads as an unrelated artifact.
-    frame.put(band.x - 1, row, style, " ");
+    frame.put(band.x - 1, row, style, theme.pane_marker_glyph());
 }
 
 /// The marker cell's style, exposed so a test can assert the painted cell without
@@ -185,6 +185,11 @@ pub fn draw_entry_marker(frame: &mut Frame<'_>, outer: Rect, band: Rect, row: u1
 /// column).
 pub fn entry_marker_style(theme: &Theme) -> nuotc::Style {
     theme.pane_marker_style()
+}
+
+/// The glyph used for the entry marker in the gutter.
+pub fn entry_marker_glyph(theme: &Theme) -> &'static str {
+    theme.pane_marker_glyph()
 }
 
 #[cfg(test)]
@@ -452,11 +457,12 @@ mod tests {
             draw_entry_marker(f, OUTER, BAND, 2, &theme);
         });
         let cell = terminal.buffer().get(BAND.x - 1, 2).unwrap();
+        assert_eq!(cell.symbol, theme.pane_marker_glyph());
         assert_eq!(cell.style, theme.pane_marker_style());
         for x in BAND.x..BAND.right() {
             assert_ne!(
-                terminal.buffer().get(x, 2).unwrap().style,
-                theme.pane_marker_style(),
+                terminal.buffer().get(x, 2).unwrap().symbol,
+                theme.pane_marker_glyph(),
                 "column {x} is content: the marker must not cover it"
             );
         }
@@ -474,8 +480,8 @@ mod tests {
         });
         for x in 0..20 {
             assert_ne!(
-                terminal.buffer().get(x, 2).unwrap().style,
-                theme.pane_marker_style(),
+                terminal.buffer().get(x, 2).unwrap().symbol,
+                theme.pane_marker_glyph(),
                 "no gutter, no marker"
             );
         }

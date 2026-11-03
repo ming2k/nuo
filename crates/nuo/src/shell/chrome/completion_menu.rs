@@ -24,6 +24,10 @@ pub fn draw_completion_menu(
 
     const MAX_VISIBLE: usize = 6;
 
+    let has_frame = !theme.elevation.is_chromatic();
+    let frame_v: u16 = if has_frame { 2 } else { 0 };
+    let frame_h: u16 = if has_frame { 2 } else { 0 };
+
     let total = completions.len();
     let scroll_offset = match selected_idx {
         Some(sel) if sel >= MAX_VISIBLE && total > MAX_VISIBLE => {
@@ -33,7 +37,7 @@ pub fn draw_completion_menu(
     };
     let window_end = (scroll_offset + MAX_VISIBLE).min(total);
     let visible_rows = &completions[scroll_offset..window_end];
-    let menu_height = visible_rows.len() as u16;
+    let menu_height = (visible_rows.len() as u16) + frame_v;
 
     let viewport = viewport_rect(frame);
 
@@ -55,7 +59,7 @@ pub fn draw_completion_menu(
         .unwrap_or(0);
 
     let max_menu_width = ((viewport.width as usize) * 3 / 5).max(24);
-    let content_width = (max_cmd + 2).max(18);
+    let content_width = (max_cmd + 2).max(18) + (frame_h as usize);
     let menu_width = (content_width
         .min(max_menu_width)
         .min(viewport.width as usize)) as u16;
@@ -79,17 +83,17 @@ pub fn draw_completion_menu(
     let menu_area = Rect::new(x, y, menu_width, menu_height);
     frame.render_widget(&mut Clear::default(), menu_area);
 
+    let inner_menu = ElevationContainer::overlay().render(frame, menu_area, theme);
+    let menu_w = inner_menu.width as usize;
+
     if let Some(hm) = hit_map {
         hm.mount_completion(menu_area);
         for row in 0..visible_rows.len() {
             let global_idx = row + scroll_offset;
-            let row_rect = Rect::new(menu_area.x, menu_area.y + row as u16, menu_area.width, 1);
+            let row_rect = Rect::new(inner_menu.x, inner_menu.y + row as u16, inner_menu.width, 1);
             hm.mount_completion_item(global_idx, row_rect);
         }
     }
-
-    let inner_menu = ElevationContainer::overlay().render(frame, menu_area, theme);
-    let menu_w = inner_menu.width as usize;
 
     let lines: Vec<Line> = visible_rows
         .iter()
@@ -104,7 +108,7 @@ pub fn draw_completion_menu(
                 crate::shell::completion::CompletionItemKind::SlashAlias
             ) || c.alias_of.is_some();
             let cmd_style = if is_selected {
-                if theme.elevation.is_structured() {
+                if !theme.elevation.is_chromatic() {
                     Style::default().add_modifier(Modifier::REVERSE | Modifier::BOLD)
                 } else {
                     Style::default()
@@ -116,17 +120,31 @@ pub fn draw_completion_menu(
                 c.kind,
                 crate::shell::completion::CompletionItemKind::IntentSuggestion { .. }
             ) {
-                Style::default()
-                    .bg(row_bg)
-                    .fg(theme.info())
-                    .add_modifier(Modifier::BOLD)
+                if !theme.elevation.is_chromatic() {
+                    Style::default()
+                        .fg(theme.info())
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .bg(row_bg)
+                        .fg(theme.info())
+                        .add_modifier(Modifier::BOLD)
+                }
             } else if is_alias {
-                Style::default().bg(row_bg).fg(theme.fg())
+                if !theme.elevation.is_chromatic() {
+                    Style::default().fg(theme.fg())
+                } else {
+                    Style::default().bg(row_bg).fg(theme.fg())
+                }
             } else {
-                Style::default()
-                    .bg(row_bg)
-                    .fg(theme.fg())
-                    .add_modifier(Modifier::BOLD)
+                if !theme.elevation.is_chromatic() {
+                    Style::default().fg(theme.fg()).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                        .bg(row_bg)
+                        .fg(theme.fg())
+                        .add_modifier(Modifier::BOLD)
+                }
             };
 
             let (primary, secondary) = match &c.kind {
@@ -140,11 +158,13 @@ pub fn draw_completion_menu(
                 _ => (c.label.clone(), String::new()),
             };
             let secondary_style = if is_selected {
-                if theme.elevation.is_structured() {
+                if !theme.elevation.is_chromatic() {
                     Style::default().add_modifier(Modifier::REVERSE)
                 } else {
                     Style::default().bg(row_bg).fg(contrast_fg(theme.brand()))
                 }
+            } else if !theme.elevation.is_chromatic() {
+                Style::default().fg(theme.muted())
             } else {
                 Style::default().bg(row_bg).fg(theme.muted())
             };
@@ -156,8 +176,14 @@ pub fn draw_completion_menu(
                 spans.push(Span::styled(secondary, secondary_style));
             }
             if pad > 0 {
-                let pad_style = if is_selected && theme.elevation.is_structured() {
-                    Style::default().add_modifier(Modifier::REVERSE)
+                let pad_style = if is_selected {
+                    if !theme.elevation.is_chromatic() {
+                        Style::default().add_modifier(Modifier::REVERSE)
+                    } else {
+                        Style::default().bg(row_bg)
+                    }
+                } else if !theme.elevation.is_chromatic() {
+                    Style::default()
                 } else {
                     Style::default().bg(row_bg)
                 };
@@ -185,9 +211,21 @@ pub fn draw_completion_menu(
         };
 
         if doc_width >= 20 {
+            let doc_has_frame = !theme.elevation.is_chromatic();
+            let doc_frame_v: u16 = if doc_has_frame { 2 } else { 0 };
+            let doc_frame_h: u16 = if doc_has_frame { 2 } else { 0 };
+
             let doc_bg = theme.panel();
-            let max_text_w = (doc_width as usize).saturating_sub(2).max(10);
+            let max_text_w = (doc_width as usize)
+                .saturating_sub(2 + doc_frame_h as usize)
+                .max(10);
             let mut insp_lines = Vec::new();
+
+            let span_bg = if doc_has_frame {
+                Style::default()
+            } else {
+                Style::default().bg(doc_bg)
+            };
 
             let cat_label = doc.category.as_deref().unwrap_or("Command");
             let alias_row = selected_idx.and_then(|idx| completions.get(idx));
@@ -211,20 +249,14 @@ pub fn draw_completion_menu(
             };
 
             let header_spans = vec![
-                Span::styled(" ", Style::default().bg(doc_bg)),
+                Span::styled(" ", span_bg),
                 Span::styled(
                     header_title,
-                    Style::default()
-                        .bg(doc_bg)
-                        .fg(theme.info())
-                        .add_modifier(Modifier::BOLD),
+                    span_bg.fg(theme.info()).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("  [{cat_label}]"),
-                    Style::default()
-                        .bg(doc_bg)
-                        .fg(theme.muted())
-                        .add_modifier(Modifier::DIM),
+                    span_bg.fg(theme.muted()).add_modifier(Modifier::DIM),
                 ),
             ];
             insp_lines.push(Line::from(header_spans));
@@ -232,13 +264,10 @@ pub fn draw_completion_menu(
             if !doc.summary.is_empty() {
                 for wl in nuo_view::text_layout::wrap_text(&doc.summary, max_text_w) {
                     insp_lines.push(Line::from(vec![
-                        Span::styled(" ", Style::default().bg(doc_bg)),
+                        Span::styled(" ", span_bg),
                         Span::styled(
                             wl.text.to_string(),
-                            Style::default()
-                                .bg(doc_bg)
-                                .fg(theme.fg())
-                                .add_modifier(Modifier::BOLD),
+                            span_bg.fg(theme.fg()).add_modifier(Modifier::BOLD),
                         ),
                     ]));
                 }
@@ -247,15 +276,14 @@ pub fn draw_completion_menu(
             if !doc.usage.is_empty() {
                 let usage_str = format!("Usage: {}", doc.usage.join("  |  "));
                 for wl in nuo_view::text_layout::wrap_text(&usage_str, max_text_w) {
+                    let fg_style = if doc_has_frame {
+                        span_bg.fg(theme.fg())
+                    } else {
+                        span_bg.fg(theme.brand()).add_modifier(Modifier::DIM)
+                    };
                     insp_lines.push(Line::from(vec![
-                        Span::styled(" ", Style::default().bg(doc_bg)),
-                        Span::styled(
-                            wl.text.to_string(),
-                            Style::default()
-                                .bg(doc_bg)
-                                .fg(theme.brand())
-                                .add_modifier(Modifier::DIM),
-                        ),
+                        Span::styled(" ", span_bg),
+                        Span::styled(wl.text.to_string(), fg_style),
                     ]));
                 }
             }
@@ -264,11 +292,8 @@ pub fn draw_completion_menu(
                 let sub_str = format!("  {sub_name} — {sub_summary}");
                 for wl in nuo_view::text_layout::wrap_text(&sub_str, max_text_w) {
                     insp_lines.push(Line::from(vec![
-                        Span::styled(" ", Style::default().bg(doc_bg)),
-                        Span::styled(
-                            wl.text.to_string(),
-                            Style::default().bg(doc_bg).fg(theme.muted()),
-                        ),
+                        Span::styled(" ", span_bg),
+                        Span::styled(wl.text.to_string(), span_bg.fg(theme.muted())),
                     ]));
                 }
             }
@@ -278,7 +303,8 @@ pub fn draw_completion_menu(
             } else {
                 (space_above as usize).clamp(12, 16) as u16
             };
-            let doc_height = (insp_lines.len() as u16).max(menu_height).min(max_flyout_h);
+            let doc_height =
+                ((insp_lines.len() as u16 + doc_frame_v).max(menu_height)).min(max_flyout_h);
             let doc_y = if place_below {
                 menu_area
                     .y
@@ -293,24 +319,29 @@ pub fn draw_completion_menu(
             let doc_area = Rect::new(doc_x, doc_y, doc_width, doc_height);
             frame.render_widget(&mut Clear::default(), doc_area);
 
-            let inner_doc = ElevationContainer::card().render(frame, doc_area, theme);
+            let inner_doc = ElevationContainer::overlay().render(frame, doc_area, theme);
             let doc_w = inner_doc.width as usize;
             let padded_doc_lines: Vec<Line> = (0..inner_doc.height as usize)
                 .map(|idx| {
                     if let Some(mut line) = insp_lines.get(idx).cloned() {
                         let cur_w = line.width();
                         if cur_w < doc_w {
-                            line.spans.push(Span::styled(
-                                " ".repeat(doc_w - cur_w),
-                                Style::default().bg(doc_bg),
-                            ));
+                            let pad_style = if doc_has_frame {
+                                Style::default()
+                            } else {
+                                Style::default().bg(doc_bg)
+                            };
+                            line.spans
+                                .push(Span::styled(" ".repeat(doc_w - cur_w), pad_style));
                         }
                         line
                     } else {
-                        Line::from(vec![Span::styled(
-                            " ".repeat(doc_w),
-                            Style::default().bg(doc_bg),
-                        )])
+                        let pad_style = if doc_has_frame {
+                            Style::default()
+                        } else {
+                            Style::default().bg(doc_bg)
+                        };
+                        Line::from(vec![Span::styled(" ".repeat(doc_w), pad_style)])
                     }
                 })
                 .collect();

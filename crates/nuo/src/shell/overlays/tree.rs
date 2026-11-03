@@ -151,19 +151,26 @@ pub fn draw_tree_modal(
                 selected_line = Some(body.len());
             }
 
+            let is_ascii = theme.glyphs.corner_tl == "+";
             let mut prefix = String::new();
             for _ in 0..row.depth {
-                prefix.push_str("  │");
+                prefix.push_str(if is_ascii { "  |" } else { "  │" });
             }
             if row.depth > 0 {
                 if row.is_last_child {
-                    prefix.push_str("  └─ ");
+                    prefix.push_str(if is_ascii { "  `- " } else { "  └─ " });
                 } else {
-                    prefix.push_str("  ├─ ");
+                    prefix.push_str(if is_ascii { "  +- " } else { "  ├─ " });
                 }
             }
 
-            let marker = if row.is_active { "● " } else { "○ " };
+            let marker = if !theme.elevation.is_chromatic() {
+                if row.is_active { "* " } else { "  " }
+            } else if row.is_active {
+                "● "
+            } else {
+                "○ "
+            };
             let glyph_color = if row.is_active {
                 theme.brand()
             } else {
@@ -184,16 +191,26 @@ pub fn draw_tree_modal(
                 .max(10);
             let label = truncate_ellipsis(&row.label, label_budget);
 
+            let mut gutter_st = Style::default().bg(style.bg);
+            let mut dim_st = Style::default().bg(style.bg).fg(style.dim);
+            let mut glyph_st = Style::default().bg(style.bg).fg(glyph_color);
+            let mut brand_st = Style::default().bg(style.bg).fg(theme.brand());
+            let mut label_st = Style::default().bg(style.bg).fg(style.fg);
+            if is_sel && !theme.elevation.is_chromatic() {
+                gutter_st = gutter_st.add_modifier(nuotc::Modifier::REVERSE);
+                dim_st = dim_st.add_modifier(nuotc::Modifier::REVERSE);
+                glyph_st = glyph_st.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
+                brand_st = brand_st.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
+                label_st = label_st.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
+            }
+
             body.push(Line::from(vec![
-                Span::styled(" ".repeat(GUTTER_W), Style::default().bg(style.bg)),
-                Span::styled(prefix, Style::default().bg(style.bg).fg(style.dim)),
-                Span::styled(marker, Style::default().bg(style.bg).fg(glyph_color)),
-                Span::styled(badge, Style::default().bg(style.bg).fg(theme.brand())),
-                Span::styled(
-                    format!("{:<w$}  ", label, w = label_budget),
-                    Style::default().bg(style.bg).fg(style.fg),
-                ),
-                Span::styled(rel_time, Style::default().bg(style.bg).fg(style.dim)),
+                Span::styled(" ".repeat(GUTTER_W), gutter_st),
+                Span::styled(prefix, dim_st),
+                Span::styled(marker, glyph_st),
+                Span::styled(badge, brand_st),
+                Span::styled(format!("{:<w$}  ", label, w = label_budget), label_st),
+                Span::styled(rel_time, dim_st),
             ]));
         }
     }

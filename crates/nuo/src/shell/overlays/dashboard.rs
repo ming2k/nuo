@@ -272,13 +272,21 @@ pub fn fmt_tokens_compact(tokens: u64) -> String {
 pub fn status_chip(status: ThreadStatus, theme: &Theme) -> (&'static str, Style) {
     match status {
         ThreadStatus::Running => (
-            "● RUNNING",
+            if !theme.elevation.is_chromatic() {
+                "* RUNNING"
+            } else {
+                "● RUNNING"
+            },
             Style::default()
                 .fg(theme.brand())
                 .add_modifier(Modifier::BOLD),
         ),
         ThreadStatus::NeedsApproval => (
-            "▲ APPROVAL",
+            if !theme.elevation.is_chromatic() {
+                "! APPROVAL"
+            } else {
+                "▲ APPROVAL"
+            },
             Style::default()
                 .fg(theme.warn())
                 .add_modifier(Modifier::BOLD),
@@ -757,8 +765,24 @@ fn draw_fleet_table(
             frame.render_widget(&mut RtBlock::default().style(style), cell);
         }
 
-        let sel_marker = if is_selected { "›" } else { " " };
-        let cur_marker = if is_current { "●" } else { " " };
+        let sel_marker = if is_selected {
+            if !theme.elevation.is_chromatic() {
+                ">"
+            } else {
+                "›"
+            }
+        } else {
+            " "
+        };
+        let cur_marker = if is_current {
+            if !theme.elevation.is_chromatic() {
+                "*"
+            } else {
+                "●"
+            }
+        } else {
+            " "
+        };
         let (status_text, status_st) = status_chip(row.status, theme);
 
         let lineage = match row.fork_kind {

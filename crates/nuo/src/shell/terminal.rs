@@ -19,6 +19,24 @@ static KEYBOARD_ENHANCEMENT_ENABLED: AtomicBool = AtomicBool::new(false);
 static MOUSE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static BRACKETED_PASTE_ENABLED: AtomicBool = AtomicBool::new(false);
 
+/// Detect the host terminal capability profile, refining standards detection
+/// with safety fences for Linux virtual consoles (`TERM=linux`), serial lines,
+/// and unadorned consoles.
+pub fn detect_terminal_profile() -> nuotc::TerminalProfile {
+    let mut profile = nuotc::TerminalProfile::detect();
+    let term = std::env::var("TERM")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if term == "linux" || term == "console" || term.starts_with("vt52") {
+        // Linux virtual console (getty on /dev/tty1..6) uses VGA/fbcon 256/512-glyph
+        // fonts where non-ASCII UTF-8 glyphs are frequently missing or broken.
+        profile.charset_standard = nuotc::CharsetStandard::Ascii;
+        profile.supports_mouse = false;
+        profile.supports_sync_update = false;
+    }
+    profile
+}
+
 /// Set up raw mode, alternate screen, mouse capture, and bracketed paste.
 ///
 /// Deliberately does **not** perform the keyboard-enhancement handshake: that
@@ -84,7 +102,7 @@ pub(super) fn negotiate_keyboard_enhancement(profile: &nuotc::TerminalProfile) {
 /// Used both on graceful shutdown and from the signal guard so an externally
 /// killed process (e.g. `pkill nuo`) does not strand the terminal in a
 /// state where every mouse move spews SGR escape codes into the shell.
-pub(super) fn restore_terminal() {
+pub fn restore_terminal() {
     let mut stdout = io::stdout();
 
     if KEYBOARD_ENHANCEMENT_ENABLED.swap(false, Ordering::Relaxed) {
@@ -225,5 +243,22 @@ mod tests {
             supports_sync_update: false,
             supports_mouse: false,
         }
+    }
+
+    #[test]
+    fn detect_terminal_profile_clamps_linux_console_to_ascii() {
+        let prev = std::env::var("TERM").ok();
+        unsafe {
+            std::env::set_var("TERM", "linux");
+        }
+        let profile = detect_terminal_profile();
+        if let Some(val) = prev {
+            unsafe { std::env::set_var("TERM", val) };
+        } else {
+            unsafe { std::env::remove_var("TERM") };
+        }
+        assert_eq!(profile.charset_standard, nuotc::CharsetStandard::Ascii);
+        assert!(!profile.supports_mouse);
+        assert!(!profile.supports_sync_update);
     }
 }

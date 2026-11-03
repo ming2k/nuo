@@ -8,7 +8,9 @@ use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
 use std::time::Instant;
 use unicode_width::UnicodeWidthStr;
 
-use super::common::{classify_liveness, dot_color, format_elapsed, truncate_for_bar};
+use super::common::{
+    classify_liveness, dot_color, format_elapsed, spinner_glyph, truncate_for_bar,
+};
 use crate::shell::keymap::Key;
 use crate::shell::render::Theme;
 use nuo_ui_primitives::components::keycap::{keycap_span, keycap_warn_span};
@@ -147,9 +149,10 @@ pub fn draw_activity_strip(
     // Main status representation
     if status_active || awaiting_permission {
         let liveness = classify_liveness(awaiting_permission);
+        let glyph = spinner_glyph(&theme.glyphs, theme.elevation, liveness, spinner_phase);
         let glyph_color = dot_color(liveness, spinner_phase, theme);
         left_spans.push(Span::styled(
-            format!("{} ", theme.glyphs.dot),
+            format!("{glyph} "),
             Style::default().fg(glyph_color),
         ));
 

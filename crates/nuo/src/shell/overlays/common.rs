@@ -178,15 +178,28 @@ impl McpRow {
     /// short word, and the color shared by both. The connected variant folds
     /// the tool count into the word so the dashboard needs no second line.
     pub fn dashboard_summary(&self, theme: &Theme) -> (String, Color, &'static str) {
+        let (conn_glyph, conn_dot, fail_dot) = if !theme.elevation.is_chromatic() {
+            ("...", "*", "!")
+        } else {
+            ("◌", "●", "●")
+        };
         match self {
             Self::Connected(tools) => (
                 format!("connected ({} tools)", tools.len()),
                 theme.ok(),
-                "●",
+                conn_dot,
             ),
-            Self::Connecting => ("connecting…".to_string(), theme.muted(), "◌"),
-            Self::Disabled => ("disabled".to_string(), theme.muted(), "○"),
-            Self::Failed(reason) => (format!("failed — {reason}"), theme.err(), "●"),
+            Self::Connecting => ("connecting…".to_string(), theme.muted(), conn_glyph),
+            Self::Disabled => (
+                "disabled".to_string(),
+                theme.muted(),
+                if !theme.elevation.is_chromatic() {
+                    " "
+                } else {
+                    "○"
+                },
+            ),
+            Self::Failed(reason) => (format!("failed — {reason}"), theme.err(), fail_dot),
         }
     }
 }
@@ -223,30 +236,16 @@ pub fn selectable_row(
     theme: &Theme,
 ) -> Line<'static> {
     let is_selected = i == selected;
-    let bg = if is_selected {
-        theme.brand()
+    let mark = if !theme.elevation.is_chromatic() {
+        if enabled { "[*]" } else { "[ ]" }
+    } else if enabled {
+        "●"
     } else {
-        theme.panel()
+        "○"
     };
-    let fg = if is_selected {
-        contrast_fg(theme.brand())
-    } else {
-        theme.fg()
-    };
-    let muted = if is_selected {
-        contrast_fg(theme.brand())
-    } else {
-        theme.muted()
-    };
-    let mark = if enabled { "●" } else { "○" };
     let state = if enabled { state_on } else { state_off };
 
-    // The name has priority: reserve the mark prefix and the state badge, give
-    // the name as much of the remaining width as it needs, and let the hint
-    // (description) take only what is left over — truncated, or dropped
-    // entirely when there is no room for it. This keeps the identifying name
-    // legible and elides the description first, rather than the reverse.
-    let mark_w = 2; // mark + space
+    let mark_w = mark.width() + 1; // mark + space
     let state_w = if state.is_empty() {
         0
     } else {
@@ -264,9 +263,6 @@ pub fn selectable_row(
         name.to_string()
     };
 
-    // Whatever the name did not consume is offered to the hint, less its own
-    // "  " separator. Below that, the hint is omitted so the name + badge stay
-    // intact.
     let hint_budget = name_budget
         .saturating_sub(name_text.width())
         .saturating_sub(2);
@@ -276,21 +272,36 @@ pub fn selectable_row(
         hint.to_string()
     };
 
+    let (row_bg, row_fg, row_muted) = if is_selected {
+        if !theme.elevation.is_chromatic() {
+            (theme.panel(), theme.fg(), theme.fg())
+        } else {
+            (
+                theme.brand(),
+                contrast_fg(theme.brand()),
+                contrast_fg(theme.brand()),
+            )
+        }
+    } else {
+        (theme.panel(), theme.fg(), theme.muted())
+    };
+
+    let mut row_style = Style::default().bg(row_bg).fg(row_fg);
+    let mut muted_style = Style::default().bg(row_bg).fg(row_muted);
+    if is_selected && !theme.elevation.is_chromatic() {
+        row_style = row_style.add_modifier(nuotc::Modifier::REVERSE | nuotc::Modifier::BOLD);
+        muted_style = muted_style.add_modifier(nuotc::Modifier::REVERSE);
+    }
+
     let mut spans = vec![
-        Span::styled(format!("{} ", mark), Style::default().bg(bg).fg(fg)),
-        Span::styled(name_text, Style::default().bg(bg).fg(fg)),
+        Span::styled(format!("{} ", mark), row_style),
+        Span::styled(name_text, row_style),
     ];
     if !hint_text.is_empty() {
-        spans.push(Span::styled(
-            format!("  {}", hint_text),
-            Style::default().bg(bg).fg(muted),
-        ));
+        spans.push(Span::styled(format!("  {}", hint_text), muted_style));
     }
     if !state.is_empty() {
-        spans.push(Span::styled(
-            format!("  [{}]", state),
-            Style::default().bg(bg).fg(muted),
-        ));
+        spans.push(Span::styled(format!("  [{}]", state), muted_style));
     }
     Line::from(spans)
 }
@@ -342,5 +353,66 @@ mod tests {
             !visible.starts_with('\u{301}'),
             "viewport must never begin with a detached combining mark"
         );
+    }
+
+    #[test]
+    fn selectable_row_monochrome_uses_brackets_and_reverse_video() {
+        let theme_mono = Theme::monochrome();
+        let selected_line = selectable_row(
+            0,
+            0,
+            "read_text",
+            "Read file contents",
+            true,
+            "enabled",
+            "disabled",
+            60,
+            &theme_mono,
+        );
+        let joined_text: String = selected_line
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            joined_text.contains("[*]"),
+            "monochrome uses [*] mark: {joined_text}"
+        );
+        assert!(!joined_text.contains('●'), "no unicode dot: {joined_text}");
+
+        // Selected line must have REVERSE video
+        for span in &selected_line.spans {
+            assert!(
+                span.style.add.contains(nuotc::Modifier::REVERSE),
+                "selected span must have REVERSE video: {span:?}"
+            );
+        }
+
+        let unselected_line = selectable_row(
+            1,
+            0,
+            "write_file",
+            "Write file contents",
+            false,
+            "enabled",
+            "disabled",
+            60,
+            &theme_mono,
+        );
+        let unsel_text: String = unselected_line
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            unsel_text.contains("[ ]"),
+            "monochrome disabled uses [ ]: {unsel_text}"
+        );
+        for span in &unselected_line.spans {
+            assert!(
+                !span.style.add.contains(nuotc::Modifier::REVERSE),
+                "unselected span must NOT have REVERSE: {span:?}"
+            );
+        }
     }
 }

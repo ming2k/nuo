@@ -16,7 +16,7 @@ use std::path::Path;
 
 use super::{
     Component,
-    story::{Story, StorybookComponent},
+    story::{Story, StoryEventOutcome, StorybookComponent},
 };
 use crate::shell::declarative::key::Key;
 use nuo_ui_primitives::theme::Theme;
@@ -819,6 +819,101 @@ impl StorybookComponent for ToolCard {
                     scroll: 0,
                 },
             ),
+            Story::new(
+                "Code Block With Line Offsets",
+                "File inspection view demonstrating 4-digit line numbering starting at line 1420",
+                ToolCardProps {
+                    tool_name: "read_text".to_string(),
+                    target_path: Some("crates/nuo-protocol/src/codec.rs".to_string()),
+                    status: ToolStatus::Success {
+                        duration_ms: Some(25),
+                    },
+                    payload: ToolPayload::Code {
+                        content: "pub fn decode_packet<R: Read>(mut reader: R) -> Result<Packet, CodecError> {\n    let header = PacketHeader::read_from(&mut reader)?;\n    let mut payload = vec![0u8; header.length as usize];\n    reader.read_exact(&mut payload)?;\n    Ok(Packet::new(header, payload))\n}".to_string(),
+                        start_line: 1420,
+                        language: Some("rust".to_string()),
+                    },
+                },
+                ToolCardState {
+                    expanded: true,
+                    scroll: 0,
+                },
+            ),
+            Story::new(
+                "Search Text Grouped Matches",
+                "Ripgrep token search results showing matched lines and file references",
+                ToolCardProps {
+                    tool_name: "search_text".to_string(),
+                    target_path: None,
+                    status: ToolStatus::Success {
+                        duration_ms: Some(68),
+                    },
+                    payload: ToolPayload::Matches {
+                        query: "INV-TUI-COLOR-01".to_string(),
+                        matches: vec![
+                            "docs/adr/0147.md:22: - [INV-TUI-COLOR-01] Semantic Color Purity".to_string(),
+                            "crates/nuo-governance/src/color_purity.rs:1: //! (ADR-0147 [INV-TUI-COLOR-01])".to_string(),
+                            "crates/nuo-governance/tests/architecture_firewall.rs:36: test_inv_color_purity_firewall".to_string(),
+                        ],
+                    },
+                },
+                ToolCardState {
+                    expanded: true,
+                    scroll: 0,
+                },
+            ),
+            Story::new(
+                "Directory Hierarchy Listing",
+                "Filesystem discovery payload with bulleted file and directory entries",
+                ToolCardProps {
+                    tool_name: "list_dir".to_string(),
+                    target_path: Some("crates/nuo-ui-primitives/src".to_string()),
+                    status: ToolStatus::Success {
+                        duration_ms: Some(12),
+                    },
+                    payload: ToolPayload::Listing {
+                        entries: vec![
+                            "components/ (Directory)".to_string(),
+                            "color_scheme.rs (12.4 KB)".to_string(),
+                            "design.rs (16.2 KB)".to_string(),
+                            "elevation.rs (14.8 KB)".to_string(),
+                            "theme.rs (98.6 KB)".to_string(),
+                        ],
+                    },
+                },
+                ToolCardState {
+                    expanded: true,
+                    scroll: 0,
+                },
+            ),
+            Story::new(
+                "1,000-Line Folded Output (ADR-0115 Closed Compaction)",
+                "Stress test simulating 1,000 lines of compilation logs folded into head and tail",
+                ToolCardProps {
+                    tool_name: "execute_command".to_string(),
+                    target_path: None,
+                    status: ToolStatus::Success {
+                        duration_ms: Some(2140),
+                    },
+                    payload: ToolPayload::Command {
+                        command: "cargo build --workspace --all-targets".to_string(),
+                        output: {
+                            let mut s = String::new();
+                            s.push_str("   Compiling nuotc v0.0.6\n   Compiling nuo-protocol v0.0.69\n   Compiling nuo-host v0.0.69\n   Compiling nuo-ui-primitives v0.0.69\n");
+                            s.push_str("   [... 990 lines of intermediate compilation artifacts folded per ADR-0115 ...]\n");
+                            for i in 995..=1000 {
+                                s.push_str(&format!("   Compiling satellite-crate-{i} v0.0.69\n"));
+                            }
+                            s.push_str("    Finished dev [unoptimized + debuginfo] target(s) in 2.14s\n");
+                            s
+                        },
+                    },
+                },
+                ToolCardState {
+                    expanded: true,
+                    scroll: 0,
+                },
+            ),
         ]
     }
 
@@ -832,6 +927,22 @@ impl StorybookComponent for ToolCard {
             Key::Home | Key::Char('g') => Some(ToolCardMsg::ScrollToTop),
             Key::End | Key::Char('G') => Some(ToolCardMsg::ScrollToBottom),
             _ => None,
+        }
+    }
+
+    fn tick(props: &mut Self::Props, _state: &mut Self::State) -> StoryEventOutcome {
+        if let ToolStatus::Running {
+            ref mut spinner_frame,
+            ref mut elapsed_secs,
+        } = props.status
+        {
+            *spinner_frame = (*spinner_frame + 1) % 10;
+            if *spinner_frame == 0 {
+                *elapsed_secs = Some(elapsed_secs.unwrap_or(0).saturating_add(1));
+            }
+            StoryEventOutcome::Consumed
+        } else {
+            StoryEventOutcome::Ignored
         }
     }
 }

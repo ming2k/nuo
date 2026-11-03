@@ -309,7 +309,11 @@ pub(crate) fn draw_tab_bar(
                     crate::shell::surfaces::TabKind::Dashboard => "dashboard".to_string(),
                     crate::shell::surfaces::TabKind::Settings => "settings".to_string(),
                 };
-                format!(" {label} ")
+                if theme.elevation.is_chromatic() {
+                    format!(" {label} ")
+                } else {
+                    format!("[{label}]")
+                }
             })
             .collect();
 
@@ -357,13 +361,11 @@ pub(crate) fn draw_tab_bar(
             let active = i == tab_bar.active_tab;
             let separator_w = if i < end { 1 } else { 0 };
 
-            let tab_style = if theme.elevation
-                == nuo_ui_primitives::elevation::ElevationArchetype::Structured
-            {
+            let tab_style = if !theme.elevation.is_chromatic() {
                 if active {
                     Style::default().add_modifier(Modifier::REVERSE | Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme.dim())
+                    Style::default().fg(theme.text_muted)
                 }
             } else if active {
                 Style::default()
@@ -1264,6 +1266,55 @@ mod tests {
         );
         assert!(tab_rects[0].1.width > 0);
         assert!(tab_rects[1].1.x > tab_rects[0].1.x);
+    }
+
+    #[test]
+    fn row1_tab_bar_monochrome_renders_brackets_and_reverse_video() {
+        let tabs = vec![
+            crate::shell::surfaces::ClientTab::thread(
+                "sess-01a2b3c4",
+                Some("Refactor".to_string()),
+            ),
+            crate::shell::surfaces::ClientTab::dashboard(),
+        ];
+        let tab_bar = TabBarProps {
+            tabs: Some(&tabs),
+            active_tab: 0,
+            unread_faults: 0,
+        };
+        let mut terminal = nuotc::TestTerminal::new(80, 1);
+        let theme = Theme::monochrome();
+        terminal.draw(|frame| {
+            draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
+        });
+        let cells = terminal.buffer().cells();
+        let row_text: String = cells.iter().map(|c| c.symbol.as_str()).collect();
+        assert!(
+            row_text.contains("[Refactor]"),
+            "active tab must be framed with brackets on monochrome: {row_text}"
+        );
+        assert!(
+            row_text.contains("[dashboard]"),
+            "inactive tab must be framed with brackets on monochrome: {row_text}"
+        );
+
+        // Find cells belonging to "[Refactor]" and verify they have REVERSE | BOLD
+        let refactor_start = row_text.find("[Refactor]").unwrap();
+        for (col, cell) in cells
+            .iter()
+            .enumerate()
+            .skip(refactor_start)
+            .take("[Refactor]".len())
+        {
+            assert!(
+                cell.style.add.contains(nuotc::Modifier::REVERSE),
+                "active tab cell at col {col} must have REVERSE video"
+            );
+            assert!(
+                cell.style.add.contains(nuotc::Modifier::BOLD),
+                "active tab cell at col {col} must have BOLD"
+            );
+        }
     }
 
     #[test]
