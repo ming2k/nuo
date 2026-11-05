@@ -8,6 +8,28 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.72] - 2026-11-05
+
+### Added
+
+- **Command Error Routing, Recoverable Draft Restoration & Notice Toast (ADR-0149)**:
+  - Transcript admission purity: unknown slash commands and command execution faults no longer produce permanent error rows in the dialogue transcript (L0).
+  - Recoverable draft restoration: mistyped or rejected commands are restored into the composer prompt draft rather than lost.
+  - Toast routing: errors route to the transient top-right notice toast (L4) and persistent notices log (L2).
+  - Eliminates synthetic command row deposit and cancellation artifacts when opening modal dialogs via slash commands.
+- **Command Log Residency: Flush Body, Fold Block & Full Log as Scene (ADR-0150)**:
+  - Command log promoted to a dedicated L0 scene (`CommandLog`), retiring the L3 command output modal dialog overlay.
+  - Eliminates left-border rail contraband (`│`) that corrupted terminal selection and copy-pasting (`Shift`-drag), replacing it with clean flush bodies.
+  - Fold compaction block with honest omission counts, failure signatures, and truthful clipboard receipts.
+- **Command Domain Orthogonality & Sovereign Tab Navigation (ADR-0151)**:
+  - Sovereign tab navigation chords across views without modal conflicts.
+  - Purifies the F1 Help modal into a read-only reference dialog by retiring in-modal single-key accelerator direct dispatch (`[INV-HELP-02]`).
+
+### Changed
+
+- **Governance consolidation**:
+  - Inlined architecture firewall, source residency, wire census, and color purity guards directly into `nuo::dev` and workspace integration tests, retiring the standalone `nuo-governance` crate.
+
 ## [0.0.71] - 2026-11-04
 
 ### Fixed

@@ -85,16 +85,16 @@ All internal inter-crate dependencies declared in the root `Cargo.toml` under `[
 ```toml
 [workspace.dependencies]
 # In-house Nuo crates (Cluster B lockstep suite)
-nuo-protocol = { version = "0.0.71", path = "crates/nuo-protocol" }
-nuo-host = { version = "0.0.71", path = "crates/nuo-host" }
-nuo-tool = { version = "0.0.71", path = "crates/nuo-tool" }
-nuo-inference-wire = { version = "0.0.71", path = "crates/nuo-inference-wire", default-features = false }
-nuo-persistence = { version = "0.0.71", path = "crates/nuo-persistence" }
-nuo-harness = { version = "0.0.71", path = "crates/nuo-harness" }
-nuo-provider = { version = "0.0.71", path = "crates/nuo-provider" }
-nuo-model-routing = { version = "0.0.71", path = "crates/nuo-model-routing" }
-nuo-ui-primitives = { version = "0.0.71", path = "crates/nuo-ui-primitives" }
-nuo-view = { version = "0.0.71", path = "crates/nuo-view" }
+nuo-protocol = { version = "0.0.72", path = "crates/nuo-protocol" }
+nuo-host = { version = "0.0.72", path = "crates/nuo-host" }
+nuo-tool = { version = "0.0.72", path = "crates/nuo-tool" }
+nuo-inference-wire = { version = "0.0.72", path = "crates/nuo-inference-wire", default-features = false }
+nuo-persistence = { version = "0.0.72", path = "crates/nuo-persistence" }
+nuo-harness = { version = "0.0.72", path = "crates/nuo-harness" }
+nuo-provider = { version = "0.0.72", path = "crates/nuo-provider" }
+nuo-model-routing = { version = "0.0.72", path = "crates/nuo-model-routing" }
+nuo-ui-primitives = { version = "0.0.72", path = "crates/nuo-ui-primitives" }
+nuo-view = { version = "0.0.72", path = "crates/nuo-view" }
 ```
 
 ### Why Both Fields Are Non-Negotiable:
