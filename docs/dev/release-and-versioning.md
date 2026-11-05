@@ -61,7 +61,6 @@ Every crate in the repository belongs strictly to one of two operational version
 | **`nuo`** | **Cluster B** | Unified public executable (server, CLI, TUI runner) | `version.workspace = true` | Pre-compiled binary |
 | **`nuo-server`** | **Cluster B** | Headless server container runtime & session host | `version.workspace = true` | crates.io package |
 | **`nuo-protocol`** | **Cluster B** | Canonical IPC wire, session entities, discovery DTOs | `version.workspace = true` | crates.io package |
-| **`nuo-governance`**| **Cluster B** | Architectural firewalls, ADR lineage & wire census | `version.workspace = true` | crates.io package |
 | **`nuo-ui-primitives`**| **Cluster B** | Zero-IO generic presentation widgets & layout tokens | `version.workspace = true` | crates.io package |
 | **`nuo-view`** | **Cluster B** | Zero-IO agent domain views, turn headers & cards | `version.workspace = true` | crates.io package |
 | **`nuo-host`** | **Cluster B** | Host environment, process supervision & sandboxing | `version.workspace = true` | crates.io package |
@@ -147,8 +146,7 @@ When releasing a new milestone of the Nuo product and workspace:
    ```bash
    cargo check --workspace
    cargo test --workspace
-   cargo test -p nuo-governance --test architecture_firewall
-   cargo test -p nuo-governance --test doc_governance
+   cargo test -p nuo --test architecture_firewall
    ```
 2. **Bump Workspace Version**:
    - Update `version = "X.Y.Z"` under `[workspace.package]` in root `Cargo.toml`.
@@ -178,7 +176,7 @@ When releasing a new milestone of the Nuo product and workspace:
   - `crates/*` — Layers 1–4 core platform crates, including the host binary `crates/nuo`.
   - `providers/nuo-provider-*` — Provider channel adapters.
   - `tools/nuo-tool-*` — Tool plugins.
-- Zero crates reside directly at the workspace root. Enforced mechanically by `cargo test -p nuo-governance --test architecture_firewall`.
+- Zero crates reside directly at the workspace root. Enforced mechanically by `cargo test -p nuo --test architecture_firewall`.
 
 ### 3. Unified Lockstep Invariant (`[INV-VER-01]`)
 - Host suite crates (`nuo`, `nuo-server`, `nuo-harness`, `nuo-protocol`, `nuo-ui-primitives`, `nuo-view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.
@@ -191,8 +189,7 @@ Before submitting a version bump PR or pushing a release tag, verify:
 
 - [ ] `cargo check --workspace` compiles cleanly without warnings.
 - [ ] `cargo test --workspace` passes all unit and integration tests.
-- [ ] All architectural firewall tests pass: `cargo test -p nuo-governance --test architecture_firewall`.
-- [ ] All documentation governance tests pass: `cargo test -p nuo-governance --test doc_governance`.
+- [ ] All architectural firewall tests pass: `cargo test -p nuo --test architecture_firewall`.
 - [ ] Every internal crate in `[workspace.dependencies]` declares matching `version` and `path`.
-- [ ] Wire surface census matches protocol version (`cargo test -p nuo-governance --test architecture_firewall -- test_inv_wire_census_matches_protocol_version`).
+- [ ] Wire surface census matches protocol version (`cargo test -p nuo --test architecture_firewall -- test_inv_wire_census_matches_protocol_version`).
 - [ ] Changelog has been updated with user-facing and breaking API notes.

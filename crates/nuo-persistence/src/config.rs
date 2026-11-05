@@ -988,33 +988,254 @@ impl ToolVariantsConfig {
 /// User-configured model guidance mappings: exact model id, pattern, or family -> prompt string (ADR-0130).
 ///
 /// Deserialized from the `[model_guidance]` table in `config.toml` / `agent.toml`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(transparent)]
-pub struct ModelGuidanceConfig(pub BTreeMap<String, String>);
+/// Supports provider-scoped subtables (`[model_guidance.<provider>]`),
+/// provider-prefixed keys (`"provider/model"` or `"provider:model"`),
+/// as well as exact model and glob patterns (ADR-0130).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelGuidanceConfig {
+    /// Provider-scoped guidance maps: provider_id -> (pattern/model -> prompt)
+    pub providers: BTreeMap<String, BTreeMap<String, String>>,
+    /// Flat entries: exact model, provider-qualified key ("provider/model"), or global pattern/family
+    pub entries: BTreeMap<String, String>,
+}
+
+impl Serialize for ModelGuidanceConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.entries.len() + self.providers.len()))?;
+        for (k, v) in &self.entries {
+            map.serialize_entry(k, v)?;
+        }
+        for (k, v) in &self.providers {
+            map.serialize_entry(k, v)?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for ModelGuidanceConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum RawGuidanceEntry {
+            Prompt(String),
+            ProviderTable(BTreeMap<String, String>),
+        }
+
+        let raw = BTreeMap::<String, RawGuidanceEntry>::deserialize(deserializer)?;
+        let mut config = ModelGuidanceConfig::default();
+        for (k, v) in raw {
+            match v {
+                RawGuidanceEntry::Prompt(p) => {
+                    config.entries.insert(k, p);
+                }
+                RawGuidanceEntry::ProviderTable(pt) => {
+                    config.providers.insert(k, pt);
+                }
+            }
+        }
+        Ok(config)
+    }
+}
 
 impl ModelGuidanceConfig {
-    /// Whether any guidance entries are configured.
+    /// Whether any guidance entries or provider tables are configured.
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.entries.is_empty() && self.providers.is_empty()
+    }
+
+    /// Insert a flat guidance entry (e.g. `"model"`, `"provider/model"`, or `"*pattern*"`).
+    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        self.entries.insert(key.into(), value.into());
+    }
+
+    /// Insert a provider-scoped guidance entry into `providers[provider]`.
+    pub fn insert_provider(
+        &mut self,
+        provider: impl Into<String>,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) {
+        self.providers
+            .entry(provider.into())
+            .or_default()
+            .insert(key.into(), value.into());
     }
 
     /// Resolve prompt guidance for a concrete model invocation.
     ///
     /// Resolution order:
-    /// 1. Exact model id match (e.g. `"deepseek-flash"`)
-    /// 2. Glob pattern match on model id (e.g. `"*deepseek*"` or `"deepseek/*"`)
-    /// 3. Family exact match (e.g. `"deepseek"`)
-    /// 4. Glob pattern match on family (e.g. `"*deepseek*"`)
-    pub fn resolve(&self, model_id: &str, family: &str) -> Option<&str> {
-        // 1. Exact match on model_id
-        if let Some(text) = self.0.get(model_id) {
+    /// 1. Provider-scoped table: `[model_guidance.<provider>]`
+    ///    a. Exact model id match
+    ///    b. Glob pattern match on model id
+    ///    c. Exact family match
+    ///    d. Glob pattern match on family
+    ///    e. Catch-all `"*"`
+    /// 2. Provider-prefixed flat entries (`"{provider}/{...}"` or `"{provider}:{...}"`)
+    ///    a. Exact match on `"{provider}/{model_id}"` or `"{provider}:{model_id}"`
+    ///    b. Glob pattern match on `"{provider}/{model_id}"` or `"{provider}:{model_id}"`
+    ///    c. Exact match on `"{provider}/{family}"` or `"{provider}:{family}"`
+    ///    d. Glob pattern match on `"{provider}/{family}"` or `"{provider}:{family}"`
+    ///    e. Catch-all `"{provider}/*"` or `"{provider}:*"`
+    /// 3. General model match across providers (only if configured):
+    ///    a. Exact model id match in flat entries (excluding provider-prefixed keys)
+    ///    b. Glob pattern match on model id (excluding provider-prefixed keys)
+    ///    c. Exact family match in flat entries (excluding provider-prefixed keys)
+    ///    d. Glob pattern match on family (excluding provider-prefixed keys)
+    pub fn resolve(&self, provider_id: Option<&str>, model_id: &str, family: &str) -> Option<&str> {
+        let model_lower = model_id.to_ascii_lowercase();
+        let family_lower = family.to_ascii_lowercase();
+
+        // 1. Check provider-scoped table: [model_guidance.<provider>]
+        if let Some(pid) = provider_id {
+            let pid_lower = pid.to_ascii_lowercase();
+            if let Some((_, ptable)) = self
+                .providers
+                .iter()
+                .find(|(k, _)| k.to_ascii_lowercase() == pid_lower)
+            {
+                // 1a. Exact model id in provider table
+                if let Some(text) = ptable.get(model_id) {
+                    return Some(text.as_str());
+                }
+                // 1b. Glob pattern on model id in provider table
+                for (pattern, text) in ptable {
+                    if pattern != "*"
+                        && (pattern.contains('*') || pattern.contains('?'))
+                        && let Ok(glob) = glob::Pattern::new(pattern)
+                        && glob.matches_with(
+                            &model_lower,
+                            glob::MatchOptions {
+                                case_sensitive: false,
+                                require_literal_separator: false,
+                                require_literal_leading_dot: false,
+                            },
+                        )
+                    {
+                        return Some(text.as_str());
+                    }
+                }
+                // 1c. Exact family match in provider table
+                if !family.is_empty() {
+                    if let Some(text) = ptable.get(family) {
+                        return Some(text.as_str());
+                    }
+                    // 1d. Glob pattern on family in provider table
+                    for (pattern, text) in ptable {
+                        if pattern != "*"
+                            && (pattern.contains('*') || pattern.contains('?'))
+                            && let Ok(glob) = glob::Pattern::new(pattern)
+                            && glob.matches_with(
+                                &family_lower,
+                                glob::MatchOptions {
+                                    case_sensitive: false,
+                                    require_literal_separator: false,
+                                    require_literal_leading_dot: false,
+                                },
+                            )
+                        {
+                            return Some(text.as_str());
+                        }
+                    }
+                }
+                // 1e. Catch-all "*" in provider table
+                if let Some(text) = ptable.get("*") {
+                    return Some(text.as_str());
+                }
+            }
+
+            // 2. Check provider-prefixed flat entries ("{provider}/{...}" or "{provider}:{...}")
+            let p_slash = format!("{pid_lower}/");
+            let p_colon = format!("{pid_lower}:");
+            let target_slash = format!("{pid_lower}/{model_lower}");
+            let target_colon = format!("{pid_lower}:{model_lower}");
+
+            // 2a. Exact match on "{provider}/{model_id}" or "{provider}:{model_id}"
+            for (key, text) in &self.entries {
+                let key_lower = key.to_ascii_lowercase();
+                if key_lower == target_slash || key_lower == target_colon {
+                    return Some(text.as_str());
+                }
+            }
+            // 2b. Glob pattern match with provider prefix
+            for (pattern, text) in &self.entries {
+                let pat_lower = pattern.to_ascii_lowercase();
+                if (pat_lower.starts_with(&p_slash) || pat_lower.starts_with(&p_colon))
+                    && (pat_lower.contains('*') || pat_lower.contains('?'))
+                    && let Ok(glob) = glob::Pattern::new(&pat_lower)
+                    && (glob.matches_with(
+                        &target_slash,
+                        glob::MatchOptions {
+                            case_sensitive: false,
+                            require_literal_separator: false,
+                            require_literal_leading_dot: false,
+                        },
+                    ) || glob.matches_with(
+                        &target_colon,
+                        glob::MatchOptions {
+                            case_sensitive: false,
+                            require_literal_separator: false,
+                            require_literal_leading_dot: false,
+                        },
+                    ))
+                {
+                    return Some(text.as_str());
+                }
+            }
+            // 2c/2d. Family match with provider prefix
+            if !family.is_empty() {
+                let fam_slash = format!("{pid_lower}/{family_lower}");
+                let fam_colon = format!("{pid_lower}:{family_lower}");
+                for (key, text) in &self.entries {
+                    let key_lower = key.to_ascii_lowercase();
+                    if key_lower == fam_slash || key_lower == fam_colon {
+                        return Some(text.as_str());
+                    }
+                    if (key_lower.starts_with(&p_slash) || key_lower.starts_with(&p_colon))
+                        && (key_lower.contains('*') || key_lower.contains('?'))
+                        && let Ok(glob) = glob::Pattern::new(&key_lower)
+                        && (glob.matches_with(
+                            &fam_slash,
+                            glob::MatchOptions {
+                                case_sensitive: false,
+                                require_literal_separator: false,
+                                require_literal_leading_dot: false,
+                            },
+                        ) || glob.matches_with(
+                            &fam_colon,
+                            glob::MatchOptions {
+                                case_sensitive: false,
+                                require_literal_separator: false,
+                                require_literal_leading_dot: false,
+                            },
+                        ))
+                    {
+                        return Some(text.as_str());
+                    }
+                }
+            }
+        }
+
+        // 3. Fallback: general model / pattern matches across providers
+        // 3a. Exact match on model_id
+        if let Some(text) = self.entries.get(model_id) {
             return Some(text.as_str());
         }
 
-        let model_lower = model_id.to_ascii_lowercase();
-
-        // 2. Glob pattern matches on model_id
-        for (pattern, text) in &self.0 {
+        // 3b. Glob pattern matches on model_id
+        for (pattern, text) in &self.entries {
+            // Skip patterns with a specific colon-separated provider prefix (e.g. "openai:*")
+            if let Some((p_prefix, _)) = pattern.split_once(':')
+                && provider_id.is_some_and(|pid| !p_prefix.eq_ignore_ascii_case(pid))
+            {
+                continue;
+            }
             if (pattern.contains('*') || pattern.contains('?'))
                 && let Ok(glob) = glob::Pattern::new(pattern)
                 && glob.matches_with(
@@ -1030,15 +1251,19 @@ impl ModelGuidanceConfig {
             }
         }
 
-        // 3. Family exact match
+        // 3c. Family exact match
         if !family.is_empty() {
-            if let Some(text) = self.0.get(family) {
+            if let Some(text) = self.entries.get(family) {
                 return Some(text.as_str());
             }
 
-            let family_lower = family.to_ascii_lowercase();
-            // 4. Glob pattern match on family
-            for (pattern, text) in &self.0 {
+            // 3d. Glob pattern match on family
+            for (pattern, text) in &self.entries {
+                if let Some((p_prefix, _)) = pattern.split_once(':')
+                    && provider_id.is_some_and(|pid| !p_prefix.eq_ignore_ascii_case(pid))
+                {
+                    continue;
+                }
                 if (pattern.contains('*') || pattern.contains('?'))
                     && let Ok(glob) = glob::Pattern::new(pattern)
                     && glob.matches_with(
@@ -1852,14 +2077,13 @@ impl Config {
     ///
     /// Resolution order:
     /// 1. Route-specific override in [`RouteSettings::model_guidance`]
-    /// 2. Exact model id match in [`ModelGuidanceConfig`]
-    /// 3. Glob pattern match in [`ModelGuidanceConfig`] (e.g. `"*deepseek*"`)
-    /// 4. Family exact match in [`ModelGuidanceConfig`]
-    /// 5. Glob pattern match against family
-    /// 6. Baseline default guidance for known model families (ADR-0130)
+    /// 2. Provider-scoped table or provider-prefixed match in [`ModelGuidanceConfig`]
+    /// 3. General model or family match in [`ModelGuidanceConfig`]
+    /// 4. Empty string (no prompt injection across providers)
     pub fn resolve_model_guidance(
         &self,
         route_settings: Option<&RouteSettings>,
+        provider_id: Option<&str>,
         model_id: &str,
         family: &str,
     ) -> String {
@@ -1869,25 +2093,9 @@ impl Config {
             return override_text.clone();
         }
         self.model_guidance
-            .resolve(model_id, family)
+            .resolve(provider_id, model_id, family)
             .map(|s| s.to_string())
-            .or_else(|| Self::default_baseline_model_guidance(model_id, family).map(str::to_string))
             .unwrap_or_default()
-    }
-
-    /// Default baseline behavioral guidance for model families with known dialectal quirks (ADR-0130 Step 5).
-    pub fn default_baseline_model_guidance(model_id: &str, family: &str) -> Option<&'static str> {
-        let lower_model = model_id.to_ascii_lowercase();
-        let lower_family = family.to_ascii_lowercase();
-        if lower_family == "deepseek" || lower_model.contains("deepseek") {
-            Some(
-                "- Speak in direct, concise, natural technical language without bureaucratic filler, prefaces, or empty platitudes.\n\
-             - Never emit unprompted pseudo-tool markers, raw markdown command blocks, or fake command results in message text; all tool calls must be issued exclusively via structured tool calling.\n\
-             - After a tool or shell command finishes, carefully analyze the returned output rather than speculatively re-issuing similar command variations in a loop.",
-            )
-        } else {
-            None
-        }
     }
 
     /// Append project-local `[workspace].additional_roots` to this config's additional roots.
@@ -2239,54 +2447,106 @@ pub(crate) mod tests {
             "*deepseek*" = "General deepseek rule: Speak naturally."
             "deepseek-flash" = "Specific flash rule: Be ultra concise."
             "glm" = "Family rule: Output plain text."
+            "commandcode/*" = "CommandCode wildcard: Direct answers only."
+            "commandcode/deepseek/deepseek-v4-flash-fast" = "CommandCode exact fast: Fast mode."
+
+            [model_guidance.custom_provider]
+            "deepseek-flash" = "Custom provider specific flash."
+            "*" = "Custom provider all."
         "#;
         let cfg: Config = toml::from_str(toml_src).unwrap();
 
-        // 1. Exact model id match wins over glob pattern
-        let flash = cfg.resolve_model_guidance(None, "deepseek-flash", "deepseek");
+        // 1. Provider-scoped subtable exact model match
+        let custom_flash =
+            cfg.resolve_model_guidance(None, Some("custom_provider"), "deepseek-flash", "deepseek");
+        assert_eq!(custom_flash, "Custom provider specific flash.");
+
+        // 2. Provider-scoped subtable wildcard match
+        let custom_other =
+            cfg.resolve_model_guidance(None, Some("custom_provider"), "some-other-model", "other");
+        assert_eq!(custom_other, "Custom provider all.");
+
+        // 3. Provider-prefixed exact match wins over provider wildcard and generic rule
+        let cc_fast = cfg.resolve_model_guidance(
+            None,
+            Some("commandcode"),
+            "deepseek/deepseek-v4-flash-fast",
+            "deepseek",
+        );
+        assert_eq!(cc_fast, "CommandCode exact fast: Fast mode.");
+
+        // 4. Provider-prefixed wildcard match
+        let cc_other = cfg.resolve_model_guidance(
+            None,
+            Some("commandcode"),
+            "deepseek/deepseek-v4-pro",
+            "deepseek",
+        );
+        assert_eq!(cc_other, "CommandCode wildcard: Direct answers only.");
+
+        // 5. Exact model id match wins over glob pattern when no provider rule matches
+        let flash =
+            cfg.resolve_model_guidance(None, Some("official"), "deepseek-flash", "deepseek");
         assert_eq!(flash, "Specific flash rule: Be ultra concise.");
 
-        // 2. Glob pattern matches model ids with relay prefixes
-        let relay = cfg.resolve_model_guidance(None, "openrouter/deepseek-chat:free", "deepseek");
+        // 6. Glob pattern matches model ids with relay prefixes
+        let relay =
+            cfg.resolve_model_guidance(None, None, "openrouter/deepseek-chat:free", "deepseek");
         assert_eq!(relay, "General deepseek rule: Speak naturally.");
 
-        let local = cfg.resolve_model_guidance(None, "deepseek-r1:14b", "deepseek");
+        let local = cfg.resolve_model_guidance(None, None, "deepseek-r1:14b", "deepseek");
         assert_eq!(local, "General deepseek rule: Speak naturally.");
 
-        // 3. Family match when model id doesn't match
-        let glm = cfg.resolve_model_guidance(None, "custom-chat-v1", "glm");
+        // 7. Family match when model id doesn't match
+        let glm = cfg.resolve_model_guidance(None, None, "custom-chat-v1", "glm");
         assert_eq!(glm, "Family rule: Output plain text.");
 
-        // 4. RouteSettings override takes absolute precedence
+        // 8. RouteSettings override takes absolute precedence
         let route = RouteSettings {
             model_guidance: Some("Route override: Custom system rule.".into()),
             ..Default::default()
         };
-        let overridden = cfg.resolve_model_guidance(Some(&route), "deepseek-flash", "deepseek");
+        let overridden = cfg.resolve_model_guidance(
+            Some(&route),
+            Some("commandcode"),
+            "deepseek/deepseek-v4-flash-fast",
+            "deepseek",
+        );
         assert_eq!(overridden, "Route override: Custom system rule.");
 
-        // 5. Unmatched model returns empty string
-        let unknown = cfg.resolve_model_guidance(None, "gpt-4o", "openai");
+        // 9. Unmatched model returns empty string (no prompt injection across providers!)
+        let unknown = cfg.resolve_model_guidance(None, Some("openai"), "gpt-4o", "openai");
         assert_eq!(unknown, "");
 
-        // 6. Unconfigured DeepSeek returns baseline default guidance
+        // 10. Unconfigured DeepSeek returns empty string (clean fallback, no hardcoded baseline prompt)
         let empty_cfg = Config::default();
-        let default_ds = empty_cfg.resolve_model_guidance(None, "deepseek-flash", "deepseek");
-        assert!(default_ds.contains("Never emit unprompted pseudo-tool markers"));
+        let default_ds =
+            empty_cfg.resolve_model_guidance(None, Some("deepseek"), "deepseek-flash", "deepseek");
+        assert_eq!(default_ds, "");
     }
 
     #[test]
     fn model_guidance_round_trips_through_serialize() {
         let mut cfg = Config::default();
-        cfg.model_guidance.0.insert(
+        cfg.model_guidance.insert(
             "*deepseek*".to_string(),
             "Speak natural Chinese.".to_string(),
         );
+        cfg.model_guidance
+            .insert_provider("commandcode", "fast", "Be fast.");
         let serialised = toml::to_string(&cfg).unwrap();
         let parsed: Config = toml::from_str(&serialised).unwrap();
         assert_eq!(
-            parsed.model_guidance.resolve("deepseek-v4", "deepseek"),
+            parsed
+                .model_guidance
+                .resolve(None, "deepseek-v4", "deepseek"),
             Some("Speak natural Chinese.")
+        );
+        assert_eq!(
+            parsed
+                .model_guidance
+                .resolve(Some("commandcode"), "fast", "generic"),
+            Some("Be fast.")
         );
     }
 

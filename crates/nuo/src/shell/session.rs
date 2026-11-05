@@ -199,7 +199,11 @@ pub(crate) fn live_chat_hints(
         HintState::EntryFocused { subagent: false } => &[
             LiveHint::nav(Key::BACKTAB, "composer"),
             LiveHint::nav(Key::plain(' '), "expand"),
-            LiveHint::action(Key::plain('o'), "view log"),
+            LiveHint::action(Key::plain('v'), "view full log"),
+            // `y` on a folded command copies *the rows the fold hides*, not the
+            // whole raw payload: the hint row and the fold block's own sentence
+            // must describe the same verb, or the user learns one behaviour from
+            // the chrome and gets another from the key.
             LiveHint::action(Key::plain('y'), "copy"),
             LiveHint::action(Key::shift_code(KeyCode::Char('Y')), "diagnostic"),
         ],
@@ -291,21 +295,22 @@ pub(crate) fn resolve_chat_surface_key_motion(
         // Only unmodified (or Shift-capitalized) characters are owned as
         // text; every Control/Alt/Super chord is a shared command chord
         // (readline editing, paste, …) handled by the router.
-        // When a target is focused, `y`/`c` copy the target's content and
-        // `Y`/`C` copy it as a diagnostic record. The two are deliberately
-        // different chords rather than one chord with a modifier-read: a plain
-        // `y` must stay the "give me the text" verb people already have in
-        // muscle memory, while the record is the deliberate "give me something
-        // I can paste into a report" verb.
+        // When a target is focused, `v` reads its whole log and `y` copies it,
+        // `Y` copies it as a diagnostic record. One spelling per verb: the fold
+        // block writes its row as a sentence naming these two keys, so the
+        // resolver may not honour a second, unadvertised alias (`o`, `c`) — a
+        // key that works but is never printed is a key nobody can learn, and it
+        // costs a collision (`o` sits one Shift away from `Alt-o` notices, `c`
+        // one modifier away from `Ctrl-c`).
         KeyCode::Char(c)
             if !key
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER) =>
         {
             let entry_focused = keys.entry_focus.is_some();
-            if entry_focused && (c == 'y' || c == 'c') {
+            if entry_focused && c == 'y' {
                 Some(InputAction::CopyFocusedTarget)
-            } else if entry_focused && (c == 'Y' || c == 'C') {
+            } else if entry_focused && c == 'Y' {
                 Some(InputAction::CopyFocusedDiagnostic)
             } else if entry_focused && c == ' ' {
                 // Space is the universal toggle in this TUI's dialogs
@@ -314,7 +319,7 @@ pub(crate) fn resolve_chat_surface_key_motion(
                 // "transcript swallows keys" branch below while the compaction
                 // card advertised it.
                 Some(InputAction::ActivateFocusedTarget)
-            } else if entry_focused && (c == 'o' || c == 'v' || c == 'O' || c == 'V') {
+            } else if entry_focused && c == 'v' {
                 Some(InputAction::ViewFocusedTargetOutput)
             } else if keys.is_transcript_active() {
                 // The transcript plane owns the keyboard: a printable key is
@@ -387,6 +392,50 @@ pub(crate) fn resolve_scene_key_motion(
         crate::shell::surfaces::SceneKind::Subagent => {
             resolve_subagent_key_motion(key, keys, input, cursor_position, motion)
         }
+        // The log scene has no composer and no caret, so the motion handle is
+        // not part of its contract.
+        crate::shell::surfaces::SceneKind::CommandLog => resolve_command_log_key_motion(key, keys),
+        _ => None,
+    }
+}
+
+/// The CommandLog scene's own scheme: it is a **reading** surface, so it owns
+/// only reading verbs and delegates nothing to the chat core.
+///
+/// That is deliberate. The log used to be a dialog, which meant the shared
+/// modal layer answered its keys by guessing which dialog was up; as a scene it
+/// has exactly four facts to serve — scroll, scope, copy, leave — and stating
+/// them here keeps them out of the chat scheme that would otherwise have to know
+/// a log exists.
+pub(crate) fn resolve_command_log_key_motion(
+    key: crate::shell::keymap::Key,
+    keys: &SceneKeys,
+) -> Option<InputAction> {
+    use crate::shell::keymap::SurfaceVerb;
+    let ov = &keys.surface_overrides;
+    // Scene-stack navigation stays available: the log is one push on the tab's
+    // stack, so the standard back/forward verbs work exactly as they do from any
+    // other scene.
+    if ov.matches(key, SurfaceVerb::SceneHistoryBack) {
+        return Some(InputAction::TabHistoryBack);
+    }
+    if ov.matches(key, SurfaceVerb::SceneHistoryForward) {
+        return Some(InputAction::TabHistoryForward);
+    }
+    match key.code {
+        // Leaving is the universal escape hatch, and at this depth it means "back
+        // to the transcript" — never "quit" (`[INV-TUI-CLEAN-02]`). `q` is the
+        // same verb: a full-page reading surface is the one place the pager
+        // gesture belongs, and the log replaced a pager.
+        KeyCode::Esc | KeyCode::Char('q') => Some(InputAction::SceneBack),
+        KeyCode::Up | KeyCode::Char('k') => Some(InputAction::ScrollUp),
+        KeyCode::Down | KeyCode::Char('j') => Some(InputAction::ScrollDown),
+        KeyCode::PageUp => Some(InputAction::ScrollPageUp),
+        KeyCode::PageDown | KeyCode::Char(' ') => Some(InputAction::ScrollPageDown),
+        KeyCode::Home | KeyCode::Char('g') => Some(InputAction::ScrollTop),
+        KeyCode::End | KeyCode::Char('G') => Some(InputAction::ScrollBottom),
+        KeyCode::Char('y') => Some(InputAction::CommandLogCopy),
+        KeyCode::Char('h') => Some(InputAction::CommandLogToggleScope),
         _ => None,
     }
 }
@@ -456,7 +505,6 @@ fn resolve_enter(
             "/settings" | "/config" => InputAction::NavigateSettings,
             "/new" | "/thread" => InputAction::CreateNewSession,
             "/close" => InputAction::CloseTab,
-            "/commands" | "/palette" => InputAction::ViewSwitcherToggle,
             "/threads" | "/sessions" => InputAction::OpenSessions,
             "/models" => InputAction::OpenModels,
             "/connections" => InputAction::OpenConnections,
@@ -1200,46 +1248,56 @@ mod tests {
         );
         assert_eq!(action, Some(InputAction::CopyFocusedTarget));
         assert_eq!(input, "", "yank key must not pollute composer input");
+    }
 
-        // 'c' also copies focused target
+    /// The view verb is spelled `v` — the letter the fold block's sentence
+    /// prints — and nothing else. `o` and `c` were unadvertised aliases: a proxy
+    /// for a key that works but is never shown cannot be learned from the UI, and
+    /// each alias costs a neighbour chord (`Alt-o`, `Ctrl-c`).
+    #[test]
+    fn only_the_advertised_letters_reach_the_entry_verbs() {
+        let press = |c: char| {
+            resolve_chat_surface_key(
+                crate::shell::keymap::Key {
+                    modifiers: KeyModifiers::NONE,
+                    code: KeyCode::Char(c),
+                },
+                &ctx(Mode::FocusedTarget, |_| {}),
+                &mut String::new(),
+                &mut 0,
+            )
+        };
+        assert_eq!(press('v'), Some(InputAction::ViewFocusedTargetOutput));
+        for alias in ['o', 'O', 'V', 'c', 'C'] {
+            assert_eq!(
+                press(alias),
+                Some(InputAction::None),
+                "`{alias}` is not printed anywhere, so it must not act"
+            );
+        }
+        assert_eq!(press('Y'), Some(InputAction::CopyFocusedDiagnostic));
+    }
+
+    /// `Shift-y` is the diagnostic-copy chord, and it is the *only* difference
+    /// from `y`: the lowercase verb keeps its "give me the text" meaning, so a
+    /// muscle-memory `y` is never silently upgraded into a different payload.
+    /// `Shift-C` was its duplicate spelling and is gone: one verb, one chord, one
+    /// word to print.
+    #[test]
+    fn shift_y_emits_a_diagnostic_for_the_focused_target() {
+        let mut input = String::from("");
+        let mut cursor = 0;
         let action = resolve_chat_surface_key(
             crate::shell::keymap::Key {
-                modifiers: KeyModifiers::NONE,
-                code: KeyCode::Char('c'),
+                modifiers: KeyModifiers::SHIFT,
+                code: KeyCode::Char('Y'),
             },
             &ctx(Mode::FocusedTarget, |_| {}),
             &mut input,
             &mut cursor,
         );
-        assert_eq!(action, Some(InputAction::CopyFocusedTarget));
-        assert_eq!(input, "", "copy key must not pollute composer input");
-    }
-
-    /// `Shift-y` / `Shift-C` are the diagnostic-copy chord, and they are the
-    /// *only* difference from `y`/`c`: the lowercase verb keeps its historical
-    /// "give me the text" meaning, so muscle memory is never silently upgraded
-    /// into a different payload.
-    #[test]
-    fn shift_copy_keys_emit_a_diagnostic_for_the_focused_target() {
-        for code in [KeyCode::Char('Y'), KeyCode::Char('C')] {
-            let mut input = String::from("");
-            let mut cursor = 0;
-            let action = resolve_chat_surface_key(
-                crate::shell::keymap::Key {
-                    modifiers: KeyModifiers::SHIFT,
-                    code,
-                },
-                &ctx(Mode::FocusedTarget, |_| {}),
-                &mut input,
-                &mut cursor,
-            );
-            assert_eq!(
-                action,
-                Some(InputAction::CopyFocusedDiagnostic),
-                "{code:?} must request a diagnostic"
-            );
-            assert_eq!(input, "", "copy keys must never pollute the composer");
-        }
+        assert_eq!(action, Some(InputAction::CopyFocusedDiagnostic));
+        assert_eq!(input, "", "copy keys must never pollute the composer");
     }
 
     /// Hints and dispatch share one origin: every chord the entry-focus row

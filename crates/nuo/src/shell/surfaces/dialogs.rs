@@ -204,8 +204,7 @@ pub fn modal_spec_for(kind: DialogKind) -> ModalSpec {
         | DialogKind::Switcher
         | DialogKind::PortShare
         | DialogKind::Help
-        | DialogKind::Notices
-        | DialogKind::CommandOutput => ContentModalSpec::TOOLS.modal_spec(),
+        | DialogKind::Notices => ContentModalSpec::TOOLS.modal_spec(),
     }
 }
 
@@ -668,15 +667,6 @@ fn render_dialog(
                 ctx.theme,
             ))
         }
-        DialogKind::CommandOutput => {
-            let d = view
-                .as_any_mut()
-                .downcast_mut::<CommandOutputDialog>()
-                .expect("kind");
-            Some(crate::shell::overlays::draw_command_output_modal(
-                frame, area, d, ctx.theme,
-            ))
-        }
     }
 }
 
@@ -891,14 +881,6 @@ fn handle_dialog_scroll(view: &mut dyn DialogView, delta: ScrollDelta) -> Dialog
             apply_delta(&mut e.scroll, delta);
             DialogOutcome::Consumed
         }
-        DialogKind::CommandOutput => {
-            let e = view
-                .as_any_mut()
-                .downcast_mut::<CommandOutputDialog>()
-                .expect("kind");
-            apply_delta(&mut e.scroll, delta);
-            DialogOutcome::Consumed
-        }
     }
 }
 
@@ -912,7 +894,7 @@ fn dialog_body_bounds(kind: DialogKind, modal_rect: Rect) -> (u16, u16) {
             modal_rect.y + 5,
             modal_rect.y + modal_rect.height.saturating_sub(3),
         ),
-        DialogKind::Notices | DialogKind::CommandOutput => (
+        DialogKind::Notices => (
             modal_rect.y + 2,
             modal_rect.y + modal_rect.height.saturating_sub(2),
         ),
@@ -1607,7 +1589,7 @@ fn input_dialog(
             }
             DialogOutcome::Consumed
         }
-        DialogKind::PortShare | DialogKind::CommandOutput => DialogOutcome::Consumed,
+        DialogKind::PortShare => DialogOutcome::Consumed,
         DialogKind::Notices => {
             let e = view
                 .as_any_mut()
@@ -1900,17 +1882,6 @@ dialog_entity!(NoticesDialog, Notices, {
     body_height: u16 = 0,
 });
 
-dialog_entity!(CommandOutputDialog, CommandOutput, {
-    /// Command invocation string.
-    command: String = String::new(),
-    /// Process exit code.
-    exit: Option<i32> = None,
-    /// Output lines in arrival order.
-    lines: Vec<String> = Vec::new(),
-    /// Message index in the transcript.
-    message_idx: Option<usize> = None,
-});
-
 /// A snapshot of every session-scoped dialog entity, archived under a
 /// [`SessionId`](crate::shell::surfaces) so returning to a session reinstates exactly
 /// the modal state the user left behind (`[INV-SURFACE-05]`).
@@ -1951,7 +1922,6 @@ pub struct Dialogs {
     pub port_share: PortShareDialog,
     pub help: HelpDialog,
     pub notices: NoticesDialog,
-    pub command_output: CommandOutputDialog,
     /// Per-session archives of the session-scoped entities.
     session_archive: std::collections::HashMap<String, SessionSnapshot>,
     /// The session whose live state the session-scoped entities currently
@@ -2040,7 +2010,6 @@ impl Dialogs {
             DialogKind::PortShare => &self.port_share,
             DialogKind::Help => &self.help,
             DialogKind::Notices => &self.notices,
-            DialogKind::CommandOutput => &self.command_output,
         }
     }
 
@@ -2065,7 +2034,6 @@ impl Dialogs {
             DialogKind::PortShare => &mut self.port_share,
             DialogKind::Help => &mut self.help,
             DialogKind::Notices => &mut self.notices,
-            DialogKind::CommandOutput => &mut self.command_output,
         }
     }
 
@@ -2097,7 +2065,6 @@ impl Dialogs {
             DialogKind::PortShare => Box::new(std::mem::take(&mut self.port_share)),
             DialogKind::Help => Box::new(std::mem::take(&mut self.help)),
             DialogKind::Notices => Box::new(std::mem::take(&mut self.notices)),
-            DialogKind::CommandOutput => Box::new(std::mem::take(&mut self.command_output)),
         }
     }
 
@@ -2178,12 +2145,6 @@ impl Dialogs {
             DialogKind::Notices => {
                 self.notices = *view.into_any().downcast::<NoticesDialog>().expect("kind")
             }
-            DialogKind::CommandOutput => {
-                self.command_output = *view
-                    .into_any()
-                    .downcast::<CommandOutputDialog>()
-                    .expect("kind")
-            }
         }
     }
 
@@ -2208,7 +2169,6 @@ impl Dialogs {
             DialogKind::PortShare => 0,
             DialogKind::Help => 0,
             DialogKind::Notices => self.notices.index,
-            DialogKind::CommandOutput => self.command_output.index,
         }
     }
 
@@ -2233,7 +2193,6 @@ impl Dialogs {
             DialogKind::PortShare => {}
             DialogKind::Help => {}
             DialogKind::Notices => self.notices.index = value,
-            DialogKind::CommandOutput => self.command_output.index = value,
         }
     }
 
@@ -2258,7 +2217,6 @@ impl Dialogs {
             DialogKind::PortShare => false,
             DialogKind::Help => false,
             DialogKind::Notices => self.notices.follow,
-            DialogKind::CommandOutput => self.command_output.follow,
         }
     }
 
@@ -2283,7 +2241,6 @@ impl Dialogs {
             DialogKind::PortShare => false,
             DialogKind::Help => false,
             DialogKind::Notices => self.notices.keys_open,
-            DialogKind::CommandOutput => false,
         }
     }
 
@@ -2309,7 +2266,6 @@ impl Dialogs {
             DialogKind::PortShare => {}
             DialogKind::Help => {}
             DialogKind::Notices => self.notices.keys_open = open,
-            DialogKind::CommandOutput => {}
         }
         if !open {
             *self.keys_scroll_mut(kind) = 0;
@@ -2337,7 +2293,6 @@ impl Dialogs {
             DialogKind::PortShare => &mut self.port_share.scroll,
             DialogKind::Help => &mut self.help.scroll,
             DialogKind::Notices => &mut self.notices.keys_scroll,
-            DialogKind::CommandOutput => &mut self.command_output.scroll,
         }
     }
 

@@ -55,8 +55,10 @@ struct Chords {
     help: String,
     new_tab: String,
     close_tab: String,
+    dashboard: String,
     notices: String,
     settings: String,
+    command_palette: String,
     scene_back: String,
     scene_forward: String,
     focus_prev: String,
@@ -81,8 +83,10 @@ impl Chords {
             help: command(CommandId::OpenHelp),
             new_tab: command(CommandId::NewTab),
             close_tab: command(CommandId::CloseTab),
+            dashboard: command(CommandId::NavigateDashboard),
             notices: command(CommandId::OpenNotices),
             settings: command(CommandId::NavigateSettings),
+            command_palette: command(CommandId::CommandPalette),
             scene_back: verb(SurfaceVerb::SceneHistoryBack),
             scene_forward: verb(SurfaceVerb::SceneHistoryForward),
             focus_prev: verb(SurfaceVerb::FocusPrevTarget),
@@ -176,11 +180,7 @@ pub fn build_help_entries(
             } else {
                 "Notices & diagnostic fault log".to_string()
             };
-            b.row(
-                &format!("o, {}", keys.notices),
-                &notice_desc,
-                Some(HelpActionKind::Notices),
-            );
+            b.row(&keys.notices, &notice_desc, Some(HelpActionKind::Notices));
             b.row(&keys.open_history, "Recall a prompt", None);
             b.row(
                 "/stats",
@@ -191,6 +191,27 @@ pub fn build_help_entries(
                 "/connections",
                 "Model route & connection details",
                 Some(HelpActionKind::Connections),
+            );
+            // The entry verbs. They are not remappable and carry no global
+            // chord — they act on the highlighted transcript entry — so the Help
+            // dialog is the only place a user can discover them without first
+            // focusing a row. Spelling them here is what makes `v`/`y` learnable
+            // rather than folklore.
+            b.row(
+                &format!("{}, Space", keys.focus_next),
+                "Highlight a transcript entry",
+                None,
+            );
+            b.row(
+                "y",
+                "Copy the highlighted entry (a folded command: the rows it hides)",
+                None,
+            );
+            b.row("v", "Read a command entry's whole log as a scene", None);
+            b.row(
+                "Shift-y",
+                "Copy the highlighted entry with its kind, route and timestamp",
+                None,
             );
         }
         SceneKind::Subagent => {
@@ -207,6 +228,13 @@ pub fn build_help_entries(
             b.header("Settings & Preferences");
             b.row("Enter", "Select a category or toggle a setting", None);
             b.row("Esc", "Leave settings", None);
+        }
+        SceneKind::CommandLog => {
+            b.header("Command Log");
+            b.row("y", "Copy the log (invocation + rows)", None);
+            b.row("h", "Toggle full log / hidden rows only", None);
+            b.row("↑/↓, j/k", "Scroll the log", None);
+            b.row("Esc, q", "Back to the transcript", None);
         }
     }
     b.separator();
@@ -233,14 +261,24 @@ pub fn build_help_entries(
     // 3. Client Domain: Tabs & Workspaces
     b.header("Tabs & Workspaces");
     b.row(
-        &format!("t, {}", keys.new_tab),
+        &keys.new_tab,
         "New thread in a new tab",
         Some(HelpActionKind::NewTab),
     );
     b.row(
-        &format!("w, {}", keys.close_tab),
+        &keys.close_tab,
         "Close the active tab",
         Some(HelpActionKind::CloseTab),
+    );
+    b.row(
+        &keys.dashboard,
+        "Navigate to the dashboard tab",
+        Some(HelpActionKind::Dashboard),
+    );
+    b.row(
+        &keys.settings,
+        "Open Settings & appearance tab",
+        Some(HelpActionKind::Settings),
     );
     b.row("Alt-1..9", "Jump directly to tab 1 through 9", None);
     b.separator();
@@ -248,19 +286,9 @@ pub fn build_help_entries(
     // 4. Client Domain: Views & Navigation
     b.header("Views & Navigation");
     b.row(
-        "d",
-        "Navigate to the dashboard (/dashboard)",
-        Some(HelpActionKind::Dashboard),
-    );
-    b.row(
-        "s",
+        "/threads",
         "Open the saved threads overview picker (/threads)",
         Some(HelpActionKind::Sessions),
-    );
-    b.row(
-        &format!(",, {}", keys.settings),
-        "Open Settings & appearance",
-        Some(HelpActionKind::Settings),
     );
     b.separator();
 
@@ -273,8 +301,8 @@ pub fn build_help_entries(
         None,
     );
     b.row(
-        "p",
-        "Open the command palette (quick switcher, /commands)",
+        &keys.command_palette,
+        "Open the command palette",
         Some(HelpActionKind::Switcher),
     );
     b.row("/", "Slash commands & tool execution in the composer", None);
@@ -364,7 +392,9 @@ mod tests {
         assert_eq!(keys.new_tab, "Alt-t");
         assert_eq!(keys.close_tab, "Alt-w");
         assert_eq!(keys.notices, "Alt-o");
+        assert_eq!(keys.dashboard, "Alt-0");
         assert_eq!(keys.settings, "Alt-,");
+        assert_eq!(keys.command_palette, "Ctrl-Shift-p");
         // The scene verbs are `Alt-[` / `Alt-]`; before the chord vocabulary
         // covered punctuation these rendered as `·`, which is why the chord
         // text used to be hardcoded into the SceneBar instead.
@@ -453,6 +483,19 @@ mod tests {
             "expected adaptive height > 22 on 60-row frame, got {}",
             bounds.height
         );
-        assert_eq!(actions.len(), 27);
+        // Every row the builder produces becomes one action slot (most of them
+        // `None`), so the two counts are the same number by construction — the
+        // assertion pins that wiring rather than a magic total that has to be
+        // re-guessed every time a row is added.
+        let expected = build_help_entries(
+            SceneKind::Thread,
+            Some("session-1"),
+            0,
+            &GlobalOverrides::default(),
+            &SurfaceOverrides::default(),
+            &Theme::default(),
+        )
+        .len();
+        assert_eq!(actions.len(), expected);
     }
 }

@@ -362,7 +362,14 @@ impl Provider for OpenAiChatCompletionsProvider {
     }
 
     fn supports_parallel_tool_calls(&self) -> bool {
-        self.dialect.supports_parallel_tool_calls()
+        if self.capabilities.family == "deepseek"
+            || self.capabilities.family.contains("deepseek")
+            || self.endpoint.model.contains("deepseek")
+        {
+            false
+        } else {
+            self.dialect.supports_parallel_tool_calls()
+        }
     }
 
     async fn chat(

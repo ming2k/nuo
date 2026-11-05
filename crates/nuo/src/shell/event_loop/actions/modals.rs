@@ -596,6 +596,9 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
                     }
                 }
             },
+            // The log is a reading surface: it has no list cursor or
+            // sub-layer for ↑/↓ to move, so the key is spent.
+            SceneKind::CommandLog => {}
             SceneKind::Thread | SceneKind::Subagent => {}
         }
     }
@@ -650,6 +653,9 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
                     }
                 }
             },
+            // The log scene keeps its own scroll; ↓ is routed to it by its
+            // scene scheme, not by this list-walk fallback.
+            SceneKind::CommandLog => {}
             SceneKind::Thread | SceneKind::Subagent => {}
         }
     }

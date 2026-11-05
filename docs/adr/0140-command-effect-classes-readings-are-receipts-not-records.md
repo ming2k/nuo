@@ -444,7 +444,7 @@ the test that now fails if it is violated.
 | 4 | The completeness net | `dispatch` brackets every mutation arm by a ledger mark (`LedgerMark`); the four surface arms sit outside it | `[INV-CMD-07]`: `an_unrecorded_act_gains_an_invocation_only_row`, `a_recorded_act_is_not_double_recorded`, `a_session_reset_counts_as_recorded` |
 | 5 | Client filing | catalog-driven staging in `handle_send_slash`; `effect`-driven filing in the `RoundEvent::CommandResult` arm; `ClientNotice::CommandReceipt` | `[INV-CMD-08]`: `reading_appends_a_receipt_and_no_thread_row`, `mutation_settles_a_thread_row_and_files_no_receipt`, `a_failed_reading_is_a_fault_receipt` |
 | 6 | Retirement, not filtering | `CURRENT_SCHEMA_VERSION` → 17; `migrate_session_data` clears a pre-split ledger on load | `pre_split_command_ledger_is_retired_on_load`, `current_schema_keeps_acts_across_the_migration_seam` |
-| 7 | Retire the claims | every doc comment that asserted "each invocation"; `docs/reference/commands.md` gained its *Recorded* column and per-verb classes; `docs/explanation/command-records-and-receipts.md` is the public rationale | `cargo test -p nuo --test doc_governance` |
+| 7 | Retire the claims | every doc comment that asserted "each invocation"; `docs/reference/commands.md` gained its *Recorded* column and per-verb classes; `docs/explanation/command-records-and-receipts.md` is the public rationale | documentation update |
 | 8b | Make a wrong prediction reversible | `TranscriptEdit::WithdrawStagedCommand` — a `Reading` reply removes the row staged on a stale/empty catalog instead of leaving it to `CancelPendingCommands` | `[INV-CMD-08]`: `a_reading_withdraws_its_own_staged_row`, `withdrawal_leaves_other_pending_rows_alone`, `an_unknown_name_is_staged_and_a_known_reading_is_not` |
 | 8 | Close the second writer | `handlers_provider.rs`'s provider-switch ack routes through `record_act_only` (same gate, no duplicate reply — its acknowledgment is a `CommandAck` notice) | `content_purity.rs::command_ledger_has_exactly_one_writer`, `command_effects_are_declared_not_inferred` |
 
@@ -454,7 +454,6 @@ Verification:
 cargo check --workspace --all-targets
 cargo test -p nuo-protocol -p nuo-tool -p nuo-persistence -p nuo-server -p nuo-view -p nuo
 cargo test -p nuo --test architecture_firewall
-cargo test -p nuo --test doc_governance
 cargo clippy --workspace --all-targets
 ```
 
@@ -470,7 +469,8 @@ cargo clippy --workspace --all-targets
   residency), [ADR-0138](0138-notice-catalog-typed-registry-of-every-client-disclosure.md) (typed receipt
   wording), [ADR-0059](0059-canonical-thread-persistence-schema-and-zero-legacy-clean-break.md) (clean
   break, no migration ceremony)
-- Design blueprint: [Command Effect Classes](../dev/blueprints/command-effect-classes.md)
+- Conceptual explanation: [Command Records and Receipts](../explanation/command-records-and-receipts.md)
+- Reference: [Built-in Command Reference](../reference/commands.md)
 - Code: `crates/nuo-server/src/startup.rs` (`define_builtin_commands!`, `BuiltinCmd::effect`),
   `crates/nuo-server/src/handlers_slash/record.rs` (the funnel),
   `crates/nuo-server/src/handlers_slash/dispatch.rs` (the net),

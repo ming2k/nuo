@@ -15,7 +15,7 @@ const CENSUS_ENUMS: &[(&str, &str)] = &[
 ];
 
 /// Where the recorded census lives, relative to the workspace root.
-pub const CENSUS_FILE: &str = "crates/nuo-governance/src/wire-census.txt";
+pub const CENSUS_FILE: &str = "crates/nuo/src/dev/wire-census.txt";
 
 /// A protocol number plus every enum's variant names, in declaration order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,7 +342,7 @@ pub enum Wire {
             std::env::temp_dir().join(format!("nuo-wire-census-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("crates/nuo-protocol/src")).unwrap();
-        std::fs::create_dir_all(root.join("crates/nuo-governance/src")).unwrap();
+        std::fs::create_dir_all(root.join("crates/nuo/src/dev")).unwrap();
         root
     }
 

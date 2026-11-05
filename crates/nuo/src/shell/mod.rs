@@ -945,57 +945,56 @@ pub(crate) async fn run_tui_with_input(
                                 // reply is filed, and nothing else does
                                 // (ADR-0140, `[INV-CMD-08]`). An **act** holds a
                                 // position in the thread, so it settles the staged
-                                // row in place (or materialises the fallback bt
+                                // row in place (or materialises the fallback if
                                 // the act happened before this view was watching).
                                 // A **reading** never touches the thread: its
                                 // reply is a receipt in the client's notice log,
                                 // beside every other disclosure, because a
                                 // measurement of the world is not a thing that was
                                 // said.
-                                match effect {
-                                    nuo_protocol::CommandEffect::Mutation => {
-                                        let mut fallback = TranscriptMessage::command_result(
-                                            name.clone(),
-                                            args.clone(),
-                                            Some(result.clone()),
-                                        )
-                                        .with_sent_at_ms(now_ms!());
-                                        if let Some((round, turn)) =
-                                            positions_by_session.get(&session_id).copied()
-                                        {
-                                            fallback.round = Some(round);
-                                            fallback.turn = Some(turn);
-                                        }
-                                        transcript!(E::SettleCommandResult {
-                                            invocation,
-                                            result,
-                                            fallback: Some(fallback),
-                                        });
+                                //
+                                // Furthermore (ADR-0149, `[INV-CMD-09]`), any failed
+                                // command or unknown command is withdrawn from the thread:
+                                // errors never deface L0 transcript, but route to the
+                                // top-right notice toast and restore the user's draft.
+                                let is_failure = matches!(
+                                    result,
+                                    nuo_protocol::CommandResult::Error { .. }
+                                        | nuo_protocol::CommandResult::UnknownCommand { .. }
+                                );
+                                if is_failure || effect == nuo_protocol::CommandEffect::Reading {
+                                    transcript!(E::WithdrawStagedCommand {
+                                        invocation: invocation.clone(),
+                                        restore_draft: is_failure,
+                                    });
+                                    mutations
+                                        .send(M::NoticeDisclosure(
+                                            crate::shell::app::notice_catalog::ClientNotice::CommandReceipt {
+                                                invocation,
+                                                body: result.to_text(),
+                                                failed: is_failure,
+                                            }
+                                            .render(),
+                                        ))
+                                        .await;
+                                } else {
+                                    let mut fallback = TranscriptMessage::command_result(
+                                        name.clone(),
+                                        args.clone(),
+                                        Some(result.clone()),
+                                    )
+                                    .with_sent_at_ms(now_ms!());
+                                    if let Some((round, turn)) =
+                                        positions_by_session.get(&session_id).copied()
+                                    {
+                                        fallback.round = Some(round);
+                                        fallback.turn = Some(turn);
                                     }
-                                    nuo_protocol::CommandEffect::Reading => {
-                                        // The staged row (if any) was a *prediction*
-                                        // made from the catalog before dispatch. The
-                                        // event is authority: withdraw it, because no
-                                        // thread row will ever settle it.
-                                        transcript!(E::WithdrawStagedCommand {
-                                            invocation: invocation.clone()
-                                        });
-                                        let failed = matches!(
-                                            result,
-                                            nuo_protocol::CommandResult::Error { .. }
-                                                | nuo_protocol::CommandResult::UnknownCommand { .. }
-                                        );
-                                        mutations
-                                            .send(M::NoticeDisclosure(
-                                                crate::shell::app::notice_catalog::ClientNotice::CommandReceipt {
-                                                    invocation,
-                                                    body: result.to_text(),
-                                                    failed,
-                                                }
-                                                .render(),
-                                            ))
-                                            .await;
-                                    }
+                                    transcript!(E::SettleCommandResult {
+                                        invocation,
+                                        result,
+                                        fallback: Some(fallback),
+                                    });
                                 }
                                 if harness.loop_status.is_idle() {
                                     mutations.send(M::SetResponding(false)).await;
@@ -2250,6 +2249,9 @@ pub(crate) async fn run_tui_with_input(
     }
 
     let mut app = App {
+        pending_fold_copy: None,
+        command_log: None,
+        command_log_scroll: 0,
         logs: nuo_view::model::log::SurfaceLogs::new(),
         last_submit_ms: None,
         surface_store: crate::shell::surfaces::SurfaceStore::new(),
@@ -2569,6 +2571,11 @@ pub(crate) async fn run_tui_with_input(
     // Hydrate the prompt history from the server (the SSOT for the shared
     // SQLite store — the TUI never opens the database itself).
     app.send_intent(AgentRequest::QueryInputHistory);
+    // Pre-query provider quotas in background off the first-frame path.
+    app.send_intent(AgentRequest::QueryProviderQuotas {
+        provider: None,
+        force_refresh: false,
+    });
 
     // Negotiate progressive keyboard enhancement *off* the first-frame path.
     //

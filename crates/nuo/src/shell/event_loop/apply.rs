@@ -1200,13 +1200,19 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 // traces carry no height-cache entries — no invalidation.
                 crate::shell::finalize_streaming_reasoning(messages, duration_ms);
             }
-            TranscriptEdit::WithdrawStagedCommand { invocation } => {
+            TranscriptEdit::WithdrawStagedCommand {
+                invocation,
+                restore_draft,
+            } => {
                 // Drop the staged optimistic row: the server's event declared the
-                // reply a reading, so no thread row will ever settle it. Removing
+                // reply a reading or failure, so no thread row will ever settle it. Removing
                 // it HERE — rather than leaving it for `CancelPendingCommands` to
                 // mark `Cancelled` — is what keeps the thread's contents identical
-                // whether or not the catalog had arrived before dispatch.
+                // whether or not the catalog had arrived before dispatch (ADR-0140, ADR-0149).
                 let invocation = invocation.trim().to_string();
+                if restore_draft {
+                    rejected_invocation = Some(invocation.clone());
+                }
                 let before = messages.len();
                 messages.retain(|message| {
                     !(message.raw == invocation

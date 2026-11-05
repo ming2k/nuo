@@ -361,11 +361,7 @@ pub trait Tool: Send + Sync {
     /// zero-argument call reaches the legacy tool with exactly the arguments the
     /// model sent, so `call` implementations that treat `""` as "no arguments"
     /// keep working.
-    async fn execute(
-        &self,
-        ctx: &ToolContext,
-        arguments: serde_json::Value,
-    ) -> Result<ToolOutput> {
+    async fn execute(&self, ctx: &ToolContext, arguments: serde_json::Value) -> Result<ToolOutput> {
         debug_assert!(
             !ctx.is_legacy_call_delegation(),
             "tool `{}` overrides neither `execute` nor `call`; one is required",
@@ -407,13 +403,10 @@ pub trait Tool: Send + Sync {
     async fn call(&self, arguments: &str) -> std::result::Result<String, String> {
         let value: serde_json::Value =
             serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
-        self.execute(
-            &ToolContext::default().mark_legacy_call_delegation(),
-            value,
-        )
-        .await
-        .map(|out| out.to_text())
-        .map_err(|err| err.to_string())
+        self.execute(&ToolContext::default().mark_legacy_call_delegation(), value)
+            .await
+            .map(|out| out.to_text())
+            .map_err(|err| err.to_string())
     }
 
     /// Convenient execution helper using a default context.
@@ -574,10 +567,7 @@ mod delegation_tests {
     /// An `execute`-only tool must keep working through the string entry point.
     #[tokio::test]
     async fn structured_tool_works_through_the_string_entry_point() {
-        assert_eq!(
-            StructuredTool.call("{}").await.unwrap(),
-            r#"structured:{}"#
-        );
+        assert_eq!(StructuredTool.call("{}").await.unwrap(), r#"structured:{}"#);
     }
 
     /// A tool that overrides neither must fail *naming itself*, not recurse

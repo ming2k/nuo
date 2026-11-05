@@ -1053,11 +1053,28 @@ pub fn apply_quotas_to_candidates(
             continue;
         }
 
-        let Some(entry) = quotas
+        // If an earlier temporary quota limit has expired past its reset time, clear it back to usable
+        if !candidate.usable
+            && let Some(reset_ms) = candidate.resets_at_ms
+            && now_ms >= reset_ms
+        {
+            candidate.usable = true;
+            candidate.status_label = None;
+            candidate.reason = None;
+            candidate.resets_at_ms = None;
+        }
+
+        let entry = quotas
             .entries
             .iter()
-            .find(|e| e.name == candidate.provider_id || e.provider == candidate.provider_id)
-        else {
+            .find(|e| e.name == candidate.provider_id)
+            .or_else(|| {
+                quotas
+                    .entries
+                    .iter()
+                    .find(|e| e.provider == candidate.provider_id)
+            });
+        let Some(entry) = entry else {
             continue;
         };
 
@@ -1085,8 +1102,16 @@ pub fn apply_quotas_to_candidates(
             }
         }
 
-        // 2. Generic exact-label fallback for simple periodic buckets
-        if let Some(nuo_protocol::ProviderQuotaData::Periodic(ref periodic)) = entry.quota {
+        // 2. Generic exact-label fallback for simple periodic buckets (Periodic or Composite)
+        let periodic_ref = match entry.quota {
+            Some(nuo_protocol::ProviderQuotaData::Periodic(ref periodic)) => Some(periodic),
+            Some(nuo_protocol::ProviderQuotaData::Composite {
+                periodic: Some(ref periodic),
+                ..
+            }) => Some(periodic),
+            _ => None,
+        };
+        if let Some(periodic) = periodic_ref {
             for bucket in &periodic.buckets {
                 if bucket.used_fraction < 0.999 {
                     continue;
@@ -1097,9 +1122,13 @@ pub fn apply_quotas_to_candidates(
                     }
                 }
 
-                if candidate.model == bucket.label
+                let lower_label = bucket.label.to_ascii_lowercase();
+                let matches_bucket = candidate.model == bucket.label
                     || candidate.model == bucket.unit.as_deref().unwrap_or("")
-                {
+                    || (lower_label.contains("claude") && candidate.model.starts_with("claude-"))
+                    || (lower_label.contains("gemini") && candidate.model.starts_with("gemini-"));
+
+                if matches_bucket {
                     let status_label = match bucket.window {
                         Some(nuo_protocol::QuotaWindowKind::Rolling5Hour) => "disabled: 5h limit",
                         Some(nuo_protocol::QuotaWindowKind::Daily) => "disabled: daily quota",
@@ -2441,5 +2470,85 @@ mod tests {
             argon.reason.as_deref(),
             Some("Requires Google CodeAssist paid entitlement")
         );
+    }
+
+    #[test]
+    fn apply_quotas_re_enables_candidate_when_reset_time_passed() {
+        let picker = ProviderPickerSnapshot {
+            default_id: "antigravity".to_string(),
+            rows: vec![nuo_protocol::ProviderPickerRow {
+                id: "antigravity".to_string(),
+                name: "Antigravity".to_string(),
+                model: "claude-3-7-sonnet".to_string(),
+                key_ready: true,
+                builtin: true,
+                protocol: String::new(),
+                base_url: String::new(),
+                provider: "google-antigravity".to_string(),
+                headers: Default::default(),
+                last_used_ms: None,
+                auth: Default::default(),
+                models: vec!["claude-3-7-sonnet".to_string()],
+                model_info: vec![nuo_protocol::ProviderModelInfo {
+                    model: "claude-3-7-sonnet".to_string(),
+                    name: Some("Claude 3.7 Sonnet".to_string()),
+                    context_window: 200_000,
+                    // Initially disabled with a past reset timestamp (1000ms after epoch)
+                    availability: Some(nuo_protocol::Availability::disabled(
+                        "disabled: 5h limit",
+                        Some("5h rolling quota limit reached".to_string()),
+                        Some(1000),
+                    )),
+                    ..Default::default()
+                }],
+            }],
+        };
+
+        let quotas = nuo_protocol::ProviderQuotaSnapshot {
+            entries: vec![nuo_protocol::ConnectionQuotaEntry {
+                name: "antigravity".to_string(),
+                provider: "google-antigravity".to_string(),
+                provider_label: "Google Antigravity".to_string(),
+                account_id: None,
+                is_default: true,
+                state: nuo_protocol::ConnectionUsageState::Available(Box::new(
+                    nuo_protocol::ProviderUsage {
+                        // Past reset timestamp
+                        model_rules: vec![nuo_protocol::ModelAvailabilityRule {
+                            pattern: "claude-*".to_string(),
+                            availability: nuo_protocol::Availability::disabled(
+                                "disabled: 5h limit",
+                                Some("5h rolling quota limit reached".to_string()),
+                                Some(1000),
+                            ),
+                        }],
+                        ..Default::default()
+                    },
+                )),
+                primary_balance: None,
+                quota: None,
+                plan: None,
+                earliest_reset_ms: None,
+            }],
+            ..Default::default()
+        };
+
+        let ranked = models_flat_filtered_from_with_quotas(
+            &picker,
+            "antigravity",
+            "claude-3-7-sonnet",
+            "",
+            Some(&quotas),
+        );
+
+        let claude = ranked
+            .iter()
+            .find(|r| r.model == "claude-3-7-sonnet")
+            .unwrap();
+        // Since reset time is in the past, candidate must have been restored to usable
+        assert!(claude.usable);
+        assert_eq!(claude.display_status(), None);
+        assert_eq!(claude.reason, None);
+        assert_eq!(claude.resets_at_ms, None);
     }
 }

@@ -192,7 +192,7 @@ fn compose_frame(
 
     let is_fullscreen_scene = matches!(
         app.current_scene(),
-        SceneKind::Dashboard | SceneKind::Settings
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
     );
     let has_overlay = app.surfaces.active_overlay().is_some();
     let chrome_hidden = is_fullscreen_scene;
@@ -516,8 +516,13 @@ fn compose_frame(
             .and_then(|info| info.name.as_deref())
             .filter(|label| !label.is_empty());
         let hint_reasoning = effective_reasoning_effort(app);
-        let model_available = active_provider_row
+        let active_info = app.active_model_info();
+        let in_models = active_provider_row
             .is_none_or(|row| row.models.iter().any(|m| m == &app.current_model));
+        let model_usable = active_info
+            .and_then(|info| info.availability.as_ref())
+            .is_none_or(|avail| avail.usable);
+        let model_available = in_models && model_usable;
         let busy = app.running_sessions.contains(viewed_session_id);
         let _ = busy; // keys-row input; consumed by the composer draw below
         // `/retry` affordance: offered exactly while the viewed
@@ -1262,6 +1267,51 @@ fn compose_frame(
                     );
                     ui.mount(UiKey::ConfigDropdown, popup_area);
                 }
+                Some(rects.area)
+            }
+            SceneKind::CommandLog => {
+                // The log reads one step's payload; a log whose step vanished
+                // (transcript rebuild) is a stated empty state, not a panic and
+                // not a silently blank page.
+                let rects = render::draw_command_log_scene(
+                    f,
+                    render::LogSceneProps {
+                        log: app.command_log.as_ref(),
+                        scroll: &mut app.command_log_scroll,
+                        thread_id: Some(viewed_session_id),
+                        tab_bar: Some(render::TabBarProps {
+                            tabs: Some(app.surfaces.tabs()),
+                            active_tab: app.surfaces.active_tab_index(),
+                            unread_faults: scene_unread_faults,
+                        }),
+                    },
+                    &mut layout_map,
+                    &app.theme,
+                );
+                if let Some(rect) = rects.tab_bar_rect {
+                    ui.mount(UiKey::TabBar, rect);
+                }
+                for (idx, tab_rect) in &rects.tab_rects {
+                    ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+                }
+                if let Some(rect) = rects.tab_prev_rect {
+                    ui.mount(UiKey::TabBarPrev, rect);
+                }
+                if let Some(rect) = rects.tab_next_rect {
+                    ui.mount(UiKey::TabBarNext, rect);
+                }
+                if let Some(rect) = rects.tab_overflow_rect {
+                    ui.mount(UiKey::TabBarOverview, rect);
+                }
+                if let Some(rect) = rects.tab_notices_rect {
+                    ui.mount(UiKey::NoticesBadge, rect);
+                }
+                if let Some(rect) = rects.tab_help_rect {
+                    ui.mount(UiKey::HelpBadge, rect);
+                }
+                // The dashboard's list-body slot stays unset: this scene's scroll
+                // is its own field and its page step is derived from the body
+                // rect the renderer just clamped against.
                 Some(rects.area)
             }
             SceneKind::Thread | SceneKind::Subagent => None,

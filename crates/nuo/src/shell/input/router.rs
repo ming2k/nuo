@@ -197,6 +197,7 @@ fn scrolls_own_body(
             scene,
             crate::shell::surfaces::SceneKind::Dashboard
                 | crate::shell::surfaces::SceneKind::Settings
+                | crate::shell::surfaces::SceneKind::CommandLog
         )
     }
 }
@@ -318,11 +319,13 @@ pub fn route_event_motion(
             // Stage 5: Global Hard-Bound Shortcuts
             // Alt+1..9 tab jump (ADR-0040 [INV-KEY-01])
             // Alt+[ / Alt+] symmetric tab navigation history (ADR-0092 [INV-NAV-03])
+            // Alt+0 dashboard tab (ADR-0151 [INV-PLANE-04])
             // Alt+w close tab, Alt+t new tab, Alt+o notices, Alt+, settings
             if key.modifiers == KeyModifiers::ALT {
                 match key.code {
                     KeyCode::Char('[') => return InputAction::TabHistoryBack,
                     KeyCode::Char(']') => return InputAction::TabHistoryForward,
+                    KeyCode::Char('0') => return InputAction::NavigateDashboard,
                     KeyCode::Char(c) if ('1'..='9').contains(&c) => {
                         let idx = (c as usize) - ('1' as usize);
                         return InputAction::SelectTab(idx);

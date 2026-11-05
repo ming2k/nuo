@@ -3,7 +3,7 @@ id: ADR-0147
 title: "Semantic Color Governance Firewall and First-Class Palette Specimen Topology"
 status: accepted
 date: 2026-03-29
-scope: presentation/nuo-ui-primitives, presentation/nuo-view, shell/nuo, governance/nuo-governance, settings/appearance
+scope: presentation/nuo-ui-primitives, presentation/nuo-view, shell/nuo, settings/appearance
 superseded_by: null
 negative_knowledge: true
 ---
@@ -48,7 +48,7 @@ However, architectural review revealed two critical vulnerabilities in the color
 
 ### 1. Semantic Color Governance Firewall (`[INV-TUI-COLOR-01]`)
 
-We introduce an automated color purity scanner in `nuo-governance` (`check_color_purity`) that enforces complete absence of raw color literals in all presentation source trees (`crates/nuo/src/shell`, `crates/nuo-view/src`, `crates/nuo-ui-primitives/src/components`):
+We introduce an automated color purity scanner (`check_color_purity`, verified by `architecture_firewall`) that enforces complete absence of raw color literals in all presentation source trees (`crates/nuo/src/shell`, `crates/nuo-view/src`, `crates/nuo-ui-primitives/src/components`):
 
 - **Forbidden Literals**: `Color::Rgb(...)`, `Color::White`, `Color::Black`, `Color::Red`, `Color::Green`, `Color::Yellow`, `Color::Blue`, `Color::Magenta`, `Color::Cyan`, `Color::Gray`, `Color::DarkGray`, and all `Color::Light*` tokens.
 - **Permitted Constructs**:
@@ -100,7 +100,7 @@ Users receive instantaneous visual feedback on contrast, readability, and livene
 ## Normative Invariants Established
 
 - **`[INV-TUI-COLOR-01] Semantic Color Purity Firewall`**:
-  Presentation code across `crates/nuo/src/shell`, `crates/nuo-view`, and `crates/nuo-ui-primitives/src/components` MUST NOT hardcode `Color::*` literals (excluding `Color::Reset`). All styling MUST resolve exclusively through `Theme` semantic methods (`theme.text()`, `theme.brand()`, `theme.running()`, `theme.surface()`), mechanically verified by `nuo-governance`.
+  Presentation code across `crates/nuo/src/shell`, `crates/nuo-view`, and `crates/nuo-ui-primitives/src/components` MUST NOT hardcode `Color::*` literals (excluding `Color::Reset`). All styling MUST resolve exclusively through `Theme` semantic methods (`theme.text()`, `theme.brand()`, `theme.running()`, `theme.surface()`), mechanically verified by `architecture_firewall`.
 - **`[INV-TUI-COLOR-02] First-Class Color Palette Specimen`**:
   The presentation substrate MUST expose an authoritative `ColorPaletteSpecimen` model representing the complete design token role catalog. User-facing settings previews and developer Storybooks MUST share this model to eliminate visual discrepancy.
 

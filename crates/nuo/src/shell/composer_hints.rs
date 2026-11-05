@@ -454,7 +454,10 @@ mod tests {
             Some(FocusedEntryKind::Disclosable),
         );
         assert_eq!(text(&left), "Shift-Tab composer   Space expand");
-        assert_eq!(text(&right), "o view log   y copy   Shift-y diagnostic");
+        assert_eq!(
+            text(&right),
+            "v view full log   y copy   Shift-y diagnostic"
+        );
     }
 
     /// The narrowest width keeps only the verb that justified parking focus

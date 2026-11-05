@@ -24,9 +24,10 @@ use super::ResultKind;
 /// a payload that was already cut before any renderer saw it. Collapsing those
 /// two facts into a single "truncated" bool is what used to let the footer
 /// claim "partial kept" over a body nothing had cut.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum OutputCoverage {
     /// The UI holds the whole log and so did the model.
+    #[default]
     Full,
     /// The UI holds the whole log; the model's copy was cut at the context
     /// watermark (`ToolOutput::Shell::truncated`). Nothing is missing here —
@@ -240,6 +241,29 @@ pub fn is_command_body(name: &str, structured: Option<&ToolOutput>) -> bool {
         return false;
     }
     super::presenter_for(name).result_kind() == ResultKind::Command
+}
+
+/// The shell command a command step was invoked with, unwrapped.
+///
+/// Prefers the typed [`ToolOutput::Shell`] payload (present from the moment the
+/// call starts, so it is available while streaming) and falls back to parsing
+/// the JSON arguments for legacy / restored steps recorded without one.
+///
+/// This is the single authority for the `$ command` line: the transcript body,
+/// the full-log scene's title, and the copy payload all read it here, so the
+/// three can never disagree about what was run — which is the whole point of a
+/// receipt (ADR-0140).
+pub fn command_invocation(structured: Option<&ToolOutput>, arguments: &str) -> String {
+    if let Some(ToolOutput::Shell { command, .. }) = structured
+        && !command.is_empty()
+    {
+        return command.clone();
+    }
+    crate::model::document::parse_arguments_kv(arguments)
+        .iter()
+        .find(|(k, _)| k == "command")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default()
 }
 
 /// Materialize a structured `Shell` result's rows.

@@ -78,7 +78,7 @@ pub fn reseed_model_guidance(agent: &Agent, config: &Config) {
     let family = agent.provider.model_capabilities().family;
     let store = nuo_persistence::route_settings::RouteSettingsStore::load();
     let route = store.settings_for(&provider_id, &model);
-    let guidance = config.resolve_model_guidance(route, &model, &family);
+    let guidance = config.resolve_model_guidance(route, Some(&provider_id), &model, &family);
     agent.set_model_guidance(guidance);
 }
 
@@ -93,7 +93,7 @@ mod tests {
         let agent = Agent::new(provider, Vec::new(), nuo_protocol::AgentIdentity::default());
 
         let mut config = Config::default();
-        config.model_guidance.0.insert(
+        config.model_guidance.insert(
             "*none*".to_string(),
             "Prompt engineering: Speak plain Chinese.".to_string(),
         );

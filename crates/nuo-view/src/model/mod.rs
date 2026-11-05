@@ -2,6 +2,7 @@
 //! selection state. These are the data the drawing tree reads and paints into
 //! the engine grid; they hold no drawing logic of their own.
 
+pub mod command_log;
 pub mod diagnostic;
 pub mod document;
 pub mod interactive;

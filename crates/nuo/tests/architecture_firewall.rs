@@ -3,40 +3,40 @@
 
 #[test]
 fn test_inv_arch_firewall_and_topology() {
-    let root = nuo_governance::find_workspace_root();
-    if let Err(e) = nuo_governance::firewall::check_presentation_firewall(&root) {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::firewall::check_presentation_firewall(&root) {
         panic!("Presentation firewall violations:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_arch_cli_lean_link() {
-    let root = nuo_governance::find_workspace_root();
-    if let Err(e) = nuo_governance::firewall::check_lean_cli_link(&root) {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::firewall::check_lean_cli_link(&root) {
         panic!("Lean CLI link violation:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_wire_census_matches_protocol_version() {
-    let root = nuo_governance::find_workspace_root();
-    if let Err(e) = nuo_governance::wire_census::check_wire_census(&root) {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::wire_census::check_wire_census(&root) {
         panic!("Wire surface census violation:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_arch_source_residency() {
-    let root = nuo_governance::find_workspace_root();
-    if let Err(e) = nuo_governance::residency::check_source_residency(&root) {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::residency::check_source_residency(&root) {
         panic!("Source residency violations:\n{e}");
     }
 }
 
 #[test]
 fn test_inv_color_purity_firewall() {
-    let root = nuo_governance::find_workspace_root();
-    if let Err(e) = nuo_governance::color_purity::check_color_purity(&root) {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::color_purity::check_color_purity(&root) {
         panic!("Color purity firewall violation:\n{e}");
     }
 }

@@ -241,8 +241,7 @@ impl App {
                 | DialogKind::SessionTrace
                 | DialogKind::PortShare
                 | DialogKind::Switcher
-                | DialogKind::Help
-                | DialogKind::CommandOutput => {}
+                | DialogKind::Help => {}
             }
         }
     }
@@ -306,6 +305,9 @@ impl App {
             SceneKind::Settings => {
                 self.open_tab(crate::shell::surfaces::ClientTab::settings());
             }
+            // A log belongs to the thread tab it was read from, so it takes the
+            // router's own scene-push path (like `Subagent`), never a workspace
+            // tab allocation.
             _ => {
                 let sheets = self.surfaces.take_sheets();
                 self.surfaces.switch_scene(scene);
@@ -489,6 +491,10 @@ impl App {
                         Some((&mut self.config_detail_scroll, None))
                     }
                 },
+                // The log scene scrolls its own body: routing it through the
+                // transcript's scroll would move a transcript the user cannot
+                // see and leave the visible page frozen.
+                SceneKind::CommandLog => Some((&mut self.command_log_scroll, None)),
                 SceneKind::Dashboard => {
                     if self.host_preview.is_some() {
                         Some((&mut self.host_preview_scroll, None))
@@ -652,42 +658,74 @@ impl App {
         first
     }
 
-    /// Open the dedicated command output log pager modal for the tool step at `mi`.
-    pub(crate) fn open_command_output_dialog(&mut self, mi: usize) {
-        let (command, lines, exit) = {
+    /// Open the **command log scene** for the tool step at `mi`.
+    ///
+    /// The log is derived once, here, from the step's own payload — the scene
+    /// reads a snapshot rather than re-deriving per frame, so a scroll step can
+    /// never be measured against a body that changed shape underneath it.
+    ///
+    /// Opening is a *navigation*, not an overlay: the scene pushes onto the
+    /// active tab's history stack, so `Alt+[` / breadcrumbs / `Esc` all return to
+    /// the transcript through the paths they already use. A step that is not a
+    /// command (or no longer exists) opens nothing and says why, because a reader
+    /// who pressed `v` deserves to know the step is not there rather than
+    /// be dropped into an empty page.
+    pub(crate) fn open_command_log_scene(&mut self, mi: usize) {
+        use nuo_view::model::command_log::CommandLog;
+        use nuo_view::model::document::MessageKind;
+        use nuo_view::tools::shell_output::{ShellOutput, command_invocation, is_command_body};
+
+        let derived = {
             let Some(message) = self.focused_messages().get(mi) else {
                 return;
             };
-            if let nuo_view::model::document::MessageKind::ToolStep {
+            let MessageKind::ToolStep {
+                name,
                 arguments,
                 output,
                 structured,
                 ..
             } = &message.kind
-            {
-                let cmd = crate::shell::disclosure::renderers::payloads::command_for(
-                    structured.as_deref(),
-                    arguments,
-                );
-                let view = nuo_view::tools::shell_output::ShellOutput::derive(
-                    output.as_deref().unwrap_or(""),
-                    structured.as_deref(),
-                );
-                (cmd, view.rows, view.exit)
-            } else {
+            else {
+                return;
+            };
+            if !is_command_body(name, structured.as_deref()) {
                 return;
             }
+            let output = output.as_deref().unwrap_or("");
+            // The fold is re-derived here rather than read off the step: the
+            // rendered fold is a function of the payload and the reveal flag, and
+            // the scene needs the geometry (which rows the transcript kept) to
+            // scope "hidden rows only" correctly.
+            let fold = ShellOutput::derive(output, structured.as_deref()).fold();
+            let mut log = CommandLog::derive(mi, arguments, output, structured.as_deref(), fold);
+            if log.command.is_empty() {
+                log.command = command_invocation(structured.as_deref(), arguments);
+            }
+            log
         };
 
-        self.open_dialog(crate::shell::surfaces::DialogKind::CommandOutput);
-        let dlg = self
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::CommandOutputDialog>();
-        dlg.command = command;
-        dlg.lines = lines;
-        dlg.exit = exit;
-        dlg.scroll = 0;
-        dlg.message_idx = Some(mi);
+        self.command_log = Some(derived);
+        self.command_log_scroll = 0;
+        self.switch_scene(crate::shell::surfaces::SceneKind::CommandLog);
+        self.focus.enter_composer();
+        self.selection = SelectionState::None;
+        self.drag.cancel();
+    }
+
+    /// Leave the command log scene, dropping the derived snapshot.
+    ///
+    /// The snapshot is dropped rather than retained: a transcript rebuild can
+    /// change the step it came from, and a kept snapshot would then be a reading
+    /// of a log that no longer exists. Re-opening re-derives.
+    pub(crate) fn close_command_log_scene(&mut self) -> bool {
+        if self.current_scene() != crate::shell::surfaces::SceneKind::CommandLog {
+            return false;
+        }
+        self.command_log = None;
+        self.command_log_scroll = 0;
+        self.leave_scene();
+        true
     }
 
     /// Persist current TUI presentation preferences into `$XDG_CONFIG_HOME/nuo/terminal.toml` (ADR-0031).
@@ -717,6 +755,10 @@ impl App {
             SceneKind::Settings => {
                 self.config_dropdown = None;
             }
+            // The log view holds no interactive state of its own: its scroll
+            // and scope live on the scene state the router keeps, so leaving it
+            // has nothing to tear down.
+            SceneKind::CommandLog => {}
             SceneKind::Thread | SceneKind::Subagent => {}
         }
     }
@@ -878,6 +920,12 @@ impl App {
 
     /// Step back one level **inside** the active Scene.
     pub(crate) fn scene_back(&mut self) {
+        // The log scene has no sub-layer: `Esc` at this depth means "back to the
+        // transcript", so it pops the scene itself rather than being spent. That
+        // is what the reading surface's own footer promises.
+        if self.close_command_log_scene() {
+            return;
+        }
         if self.current_scene() == SceneKind::Settings {
             if self.config_dropdown.is_some() {
                 self.config_dropdown = None;

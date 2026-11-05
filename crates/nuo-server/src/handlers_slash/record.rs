@@ -65,7 +65,10 @@ fn is_durable(performed: Performed, effect: CommandEffect, result: Option<&Comma
 /// leading slash, then the argument tokens) so the class is resolved from exactly
 /// what the router routed on — the vocabulary's single owner does the deciding,
 /// and no handler can opt in or out.
-fn effect_of(name: &str, args: &str) -> CommandEffect {
+fn effect_of(name: &str, args: &str, result: Option<&CommandResult>) -> CommandEffect {
+    if matches!(result, Some(CommandResult::UnknownCommand { .. })) {
+        return CommandEffect::Reading;
+    }
     let slash = format!("/{name}");
     let mut parts: Vec<&str> = Vec::with_capacity(2);
     parts.push(&slash);
@@ -90,7 +93,7 @@ async fn emit(
     result: Option<CommandResult>,
     duration_ms: Option<u64>,
 ) {
-    let effect = effect_of(name, args);
+    let effect = effect_of(name, args, result.as_ref());
     if is_durable(performed, effect, result.as_ref()) {
         let mut record = CommandRecord::new(name, args);
         if let Some(result) = result.clone() {
@@ -223,7 +226,7 @@ pub(crate) async fn record_act_only(
     args: &str,
     result: CommandResult,
 ) {
-    let effect = effect_of(name, args);
+    let effect = effect_of(name, args, Some(&result));
     if !is_durable(Performed::Here, effect, Some(&result)) {
         return;
     }

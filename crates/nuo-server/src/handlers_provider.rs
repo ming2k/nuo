@@ -486,9 +486,10 @@ pub(crate) async fn add(
             &session_id,
             RoundEvent::Notice(AgentNotice::command_ack(ack)),
         ));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
         return;
     }
 
@@ -636,9 +637,10 @@ pub(crate) async fn edit(
         .await;
     } else {
         let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
     }
 }
 
@@ -816,9 +818,10 @@ pub(crate) async fn rename(
         .await;
     } else {
         let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
     }
 }
 
@@ -864,9 +867,10 @@ pub(crate) async fn include_model(
         }
     }
     nuo_model_routing::prune_stale_models(config, provider_usage);
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// `AgentRequest::ExcludeModel` — exclude/hide a model within a target scope.
@@ -907,9 +911,10 @@ pub(crate) async fn exclude_model(
         }
     }
     nuo_model_routing::prune_stale_models(config, provider_usage);
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// `AgentRequest::ClearModelRule` — clear explicit inclusion, exclusion, or overrides for a model.
@@ -947,9 +952,10 @@ pub(crate) async fn clear_model_rule(
         }
     }
     nuo_model_routing::prune_stale_models(config, provider_usage);
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// `AgentRequest::SetModelCapabilities` — update per-scope model capability overrides.
@@ -990,9 +996,10 @@ pub(crate) async fn set_model_capabilities(
             }
         }
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// `AgentRequest::EditProviderModel` — update the per-(connection, model)
@@ -1080,9 +1087,10 @@ pub(crate) async fn edit_model(
         )
         .await;
     } else {
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
     }
 }
 
@@ -1151,9 +1159,10 @@ pub(crate) async fn edit_model_reasoning(
         )
         .await;
     } else {
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
     }
 }
 
@@ -1244,9 +1253,10 @@ pub(crate) async fn delete(
         // Deleting an inactive connection: refresh the picker + key snapshots
         // without switching the live provider.
         let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
     }
 }
 
@@ -1469,7 +1479,7 @@ pub async fn connect_post_oauth(
             },
         ));
     }
-    let model = nuo_model_routing::build_picker_state(config, provider_usage)
+    let model = build_live_picker_state(config, provider_usage)
         .rows
         .into_iter()
         .find(|r| r.id == provider_id)
@@ -1604,9 +1614,10 @@ async fn activate(
             "Model '{model}' on '{provider_type}' is unavailable or unconfigured."
         )));
         // Re-push the picker so the UI reflects that nothing switched.
-        let _ = resp_tx.send(AgentResponse::ProviderPicker(
-            nuo_model_routing::build_picker_state(config, provider_usage),
-        ));
+        let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+            config,
+            provider_usage,
+        )));
         return;
     };
     *provider_for_task
@@ -1639,9 +1650,10 @@ async fn activate(
         ));
         record_provider_ack(session, &provider_type, &model, ack).await;
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// `AgentRequest::ToggleFavorite` — flip the model id in the favorites list.
@@ -1659,9 +1671,10 @@ pub async fn toggle_favorite(
     if let Err(error) = config.save_preserving_connection_selection() {
         tracing::warn!(?error, "could not persist favorites");
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// `AgentRequest::SetDefaultModel` — make `id` the default AND activate it.
@@ -1737,9 +1750,10 @@ pub fn apply_connection_update(
             },
         ));
     }
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// Close a completed catalog-sync pass: re-derive global state, emit the command
@@ -1773,9 +1787,10 @@ pub fn apply_catalog_sync_outcome(
     }
 
     let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
-    let _ = resp_tx.send(AgentResponse::ProviderPicker(
-        nuo_model_routing::build_picker_state(config, provider_usage),
-    ));
+    let _ = resp_tx.send(AgentResponse::ProviderPicker(build_live_picker_state(
+        config,
+        provider_usage,
+    )));
 }
 
 /// Mask an API key for safe display (e.g. `sk-12...abcd`).
@@ -2026,6 +2041,9 @@ fn extract_quota_metrics(
                 nuo_protocol::ProviderQuotaData::Periodic(p) => {
                     p.buckets.iter().filter_map(|b| b.reset_at_ms).min()
                 }
+                nuo_protocol::ProviderQuotaData::Composite {
+                    periodic: Some(p), ..
+                } => p.buckets.iter().filter_map(|b| b.reset_at_ms).min(),
                 _ => None,
             });
             (
@@ -2204,13 +2222,8 @@ pub async fn query_provider_quotas(
                 build_provider_quota_snapshot(&provider_filter, &entries),
             ));
 
-            let dynamic_rules = collect_cached_dynamic_rules();
             let usage_store = ConnectionUsage::load();
-            let picker = nuo_model_routing::build_picker_state_with_rules(
-                &config,
-                &usage_store,
-                &dynamic_rules,
-            );
+            let picker = build_live_picker_state(&config, &usage_store);
             let _ = resp_tx.send(AgentResponse::ProviderPicker(picker));
         }
     }
@@ -2224,11 +2237,21 @@ pub(crate) fn collect_cached_dynamic_rules()
     for conn in &stores.connections.connections {
         if let Some(nuo_protocol::ConnectionUsageState::Available(usage)) = cache.get(&conn.name) {
             if !usage.model_rules.is_empty() {
-                map.insert(conn.name.clone(), usage.model_rules);
+                map.insert(conn.name.clone(), usage.model_rules.clone());
+                map.entry(conn.provider.clone())
+                    .or_insert_with(|| usage.model_rules.clone());
             }
         }
     }
     map
+}
+
+pub(crate) fn build_live_picker_state(
+    config: &Config,
+    provider_usage: &ConnectionUsage,
+) -> nuo_protocol::ProviderPickerSnapshot {
+    let dynamic_rules = collect_cached_dynamic_rules();
+    nuo_model_routing::build_picker_state_with_rules(config, provider_usage, &dynamic_rules)
 }
 
 /// Query all connections' live provider usage concurrently and stream updates.

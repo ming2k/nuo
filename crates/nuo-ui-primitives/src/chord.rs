@@ -364,6 +364,7 @@ impl Key {
     pub const ALT_P: Key = Key::alt('p');
     pub const ALT_N: Key = Key::alt('n');
     pub const ALT_H: Key = Key::alt('h');
+    pub const ALT_0: Key = Key::alt('0');
     pub const ALT_COMMA: Key = Key::alt(',');
     pub const ALT_DOT: Key = Key::alt('.');
     pub const ALT_UP: Key = Key {
@@ -622,6 +623,16 @@ impl Key {
                     ']' => "Alt-]",
                     ',' => "Alt-,",
                     '.' => "Alt-.",
+                    '0' => "Alt-0",
+                    '1' => "Alt-1",
+                    '2' => "Alt-2",
+                    '3' => "Alt-3",
+                    '4' => "Alt-4",
+                    '5' => "Alt-5",
+                    '6' => "Alt-6",
+                    '7' => "Alt-7",
+                    '8' => "Alt-8",
+                    '9' => "Alt-9",
                     _ => "·",
                 },
                 KeyCode::Enter => "Alt-Enter",

@@ -155,6 +155,20 @@ pub(crate) fn parse_openrouter_key(body: OpenRouterKeyResponse) -> Result<Provid
         .map(|d| d.as_millis() as u64)
         .ok();
 
+    let mut model_rules = Vec::new();
+    if let Some(limit) = data.limit {
+        if data.usage >= limit {
+            model_rules.push(nuo_protocol::ModelAvailabilityRule {
+                pattern: "*".to_string(),
+                availability: nuo_protocol::Availability::disabled(
+                    "disabled: credit limit",
+                    Some("OpenRouter credit limit reached".to_string()),
+                    None,
+                ),
+            });
+        }
+    }
+
     Ok(ProviderUsage {
         plan,
         description: None,
@@ -165,7 +179,7 @@ pub(crate) fn parse_openrouter_key(body: OpenRouterKeyResponse) -> Result<Provid
         }),
         primary_balance: Some(primary_balance),
         metrics,
-        model_rules: Vec::new(),
+        model_rules,
         updated_at_ms: now_ms,
     })
 }

@@ -123,7 +123,8 @@ impl InteractiveEntry for TranscriptMessage {
     fn toggle_expanded(&mut self) -> bool {
         // Pure binary toggle for all collapsible entries (expand ↔ collapse).
         // Step headers never hijack the toggle to dump raw logs into the transcript;
-        // deep output inspection is delegated to dedicated pager / copy affordances.
+        // deep output inspection is delegated to the dedicated log scene / copy
+        // affordances.
         match &mut self.kind {
             MessageKind::ToolStep {
                 expanded,

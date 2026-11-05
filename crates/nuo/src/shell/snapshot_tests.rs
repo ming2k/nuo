@@ -23,26 +23,33 @@ use crate::shell::disclosure::draw_tool_step;
 use crate::shell::render::Theme;
 
 /// Build a finished tool-step message with optional output and expand state.
+///
+/// Disclosure is set through the entry's own verb rather than by writing the
+/// flag, because setting `expanded` also re-derives the message's semantic
+/// blocks — and those blocks are what selection and copy index. A fixture that
+/// merely flipped the flag produced a step whose painted rows and whose block
+/// model described different text, which is exactly the divergence the copy
+/// tests exist to catch.
 fn tool_step(
     name: &str,
     arguments: &str,
     output: Option<&str>,
     expanded: bool,
 ) -> TranscriptMessage {
+    use nuo_view::model::interactive::InteractiveEntry;
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
     if let MessageKind::ToolStep {
         output: out,
-        expanded: exp,
         status,
         ..
     } = &mut m.kind
     {
         *out = output.map(str::to_string);
-        *exp = expanded;
         if output.is_some() {
             *status = nuo_view::model::document::ToolStepStatus::Ok;
         }
     }
+    m.pin_expanded(expanded);
     m
 }
 
@@ -54,12 +61,13 @@ fn tool_step_structured(
     structured: nuo_protocol::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
+    use nuo_view::model::interactive::InteractiveEntry;
     let text = structured.to_text();
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
     m.finish_tool_step("call_test", text, structured, 0);
-    if let MessageKind::ToolStep { expanded: exp, .. } = &mut m.kind {
-        *exp = expanded;
-    }
+    // `pin_expanded` re-derives the body blocks; writing the flag alone leaves
+    // the block model describing the collapsed summary.
+    m.pin_expanded(expanded);
     m
 }
 
@@ -71,16 +79,12 @@ fn tool_step_streaming(
     structured: nuo_protocol::ToolOutput,
     expanded: bool,
 ) -> TranscriptMessage {
+    use nuo_view::model::interactive::InteractiveEntry;
     let mut m = TranscriptMessage::tool_step("call_test", name, arguments);
-    if let MessageKind::ToolStep {
-        structured: s,
-        expanded: exp,
-        ..
-    } = &mut m.kind
-    {
+    if let MessageKind::ToolStep { structured: s, .. } = &mut m.kind {
         *s = Some(Box::new(structured));
-        *exp = expanded;
     }
+    m.pin_expanded(expanded);
     m
 }
 
@@ -120,10 +124,20 @@ fn painted_rows(buf: &nuotc::CellGrid, width: u16, height: u16) -> (String, (Str
 /// Render `msg` as a tool step into a fresh `width x height` buffer and
 /// return the painted grid as trimmed text rows joined by newlines.
 fn render_grid(msg: &TranscriptMessage, width: u16, height: u16) -> String {
+    render_grid_with_map(msg, width, height).0
+}
+
+/// Render one step and hand back the layout map the paint produced.
+///
+/// The snapshot tests only need the grid; the copy-path tests need the *regions*
+/// the same paint registered, because that is where the click hit-test and the
+/// clipboard read their byte offsets from. Sharing one paint keeps the two from
+/// ever describing different frames.
+fn render_grid_with_map(msg: &TranscriptMessage, width: u16, height: u16) -> (String, LayoutMap) {
     let mut terminal = nuotc::TestTerminal::new(width, height);
+    let mut layout_map = LayoutMap::default();
     terminal.draw(|f| {
         let area: Rect = f.area();
-        let mut layout_map = LayoutMap::default();
         let selection = SelectionState::default();
         let theme = Theme::default();
         let mut diff_cache = nuo_view::tools::DiffCache::default();
@@ -178,11 +192,12 @@ fn render_grid(msg: &TranscriptMessage, width: u16, height: u16) -> String {
     // changes (Step 2) visible and reviewable. Symbols are assigned per-frame
     // in first-appearance order; `.` is the terminal default.
     let (bgmap, legend) = background_map(buf);
-    if bgmap.is_empty() {
+    let grid = if bgmap.is_empty() {
         grid
     } else {
         format!("{grid}\n\nbackgrounds:\n{legend}\n{bgmap}")
-    }
+    };
+    (grid, layout_map)
 }
 
 /// Compact per-row background run-length map + legend for a rendered buffer.
@@ -492,6 +507,337 @@ fn execute_command_expanded_folds_long_output_keeping_tail_events() {
         true,
     );
     insta::assert_snapshot!(render_grid(&m, 80, 40));
+}
+
+/// The `$` line is the most obviously copyable row in the whole transcript, and
+/// it used to be the one row that could not be selected: it was painted with
+/// `ctx.paint`, so it registered no region at all.
+///
+/// A drag that starts on the rail, runs across the prompt and into the output
+/// must yield the command and the output — one ordinary copy — with the rail and
+/// the `$` left out of the payload, while the painted row still *shows* them.
+#[test]
+fn dragging_from_the_dollar_prompt_copies_the_command_and_its_output() {
+    use nuo_view::model::layout::SemanticCursor;
+
+    let m = tool_step_structured(
+        "execute_command",
+        r#"{"command":"cargo build"}"#,
+        nuo_protocol::ToolOutput::Shell {
+            command: "cargo build".into(),
+            stdout: "Compiling a\nCompiling b".into(),
+            stderr: String::new(),
+            lines: Vec::new(),
+            exit: Some(0),
+            truncated: false,
+            truncated_note: None,
+            termination: nuo_protocol::tool_output::ShellTermination::Exited,
+            detached_job_id: None,
+        },
+        true,
+    );
+    let (grid, map) = render_grid_with_map(&m, 80, 20);
+
+    // The painted block still states the invocation. It is flush-left: there is
+    // no rail, so the `$` is the body's only per-row mark (ADR-0150).
+    assert!(
+        grid.contains("$ cargo build"),
+        "the prompt line must still be painted:\n{grid}"
+    );
+    assert!(
+        !grid.contains('│'),
+        "a command body carries no left track — it would be copied out with the \
+         output by a shift-drag:\n{grid}"
+    );
+
+    // Locate the rows from the map rather than assuming the step's top: the
+    // summary row and the body's top gap sit above them, and a hard-coded row
+    // index would silently drift the day either gap changes.
+    let prompt_row = map
+        .regions()
+        .iter()
+        .find(|r| r.text.contains("cargo build"))
+        .expect("the prompt row is addressable")
+        .rect
+        .y;
+    let last_output_row = map
+        .regions()
+        .iter()
+        .filter(|r| !r.text.is_empty())
+        .map(|r| r.rect.y)
+        .max()
+        .expect("the body rows are addressable");
+
+    // A drag from the very left margin of the invocation row — before the block,
+    // on the `$` — down through the last output row.
+    let anchor = map
+        .cursor_at(0, prompt_row)
+        .expect("the prompt row resolves a cursor");
+    let head = map
+        .cursor_at(40, last_output_row)
+        .expect("the output row resolves a cursor");
+    let sel = SelectionState::Range { anchor, head };
+    let copied = crate::shell::event_loop::transcript::extract_selection_text(
+        &sel,
+        std::slice::from_ref(&m),
+        "",
+        &map,
+        None,
+    )
+    .expect("a drag over the prompt and output must copy");
+
+    assert_eq!(
+        copied, "cargo build\nCompiling a\nCompiling b",
+        "the `$` is display chrome, never clipboard content"
+    );
+    let _ = SemanticCursor::new(0, 0, 0);
+}
+
+/// The fold block offers two verbs, so it needs two hit targets: a click on
+/// `copy hidden` must not open the log, and a click on `view full log` must not
+/// copy. Both live inside one sentence, so the targets are clause-wide rather
+/// than key-wide — a user who clicks the words `view full log` means that verb.
+#[test]
+fn the_fold_block_registers_one_hit_target_per_verb() {
+    use nuo_view::model::layout::{TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX};
+
+    let stdout = (1..=20)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let m = tool_step_structured(
+        "execute_command",
+        r#"{"command":"cargo build"}"#,
+        nuo_protocol::ToolOutput::Shell {
+            command: "cargo build".into(),
+            stdout,
+            stderr: String::new(),
+            lines: Vec::new(),
+            exit: Some(0),
+            truncated: false,
+            truncated_note: None,
+            termination: nuo_protocol::tool_output::ShellTermination::Exited,
+            detached_job_id: None,
+        },
+        true,
+    );
+    let (grid, map) = render_grid_with_map(&m, 80, 20);
+
+    let view = map
+        .regions()
+        .iter()
+        .find(|r| r.block_idx == TOOL_FOLD_BLOCK_IDX)
+        .expect("the view verb owns a region");
+    let copy = map
+        .regions()
+        .iter()
+        .find(|r| r.block_idx == TOOL_FOLD_COPY_BLOCK_IDX)
+        .expect("the copy verb owns a region");
+
+    // The two targets do not overlap: one click, one verb.
+    assert!(
+        view.rect.x + view.rect.width <= copy.rect.x
+            || copy.rect.x + copy.rect.width <= view.rect.x,
+        "the verbs must not share columns: {view:?} / {copy:?}"
+    );
+    // Both clauses live on the same painted row, under the block's own gutter.
+    assert_eq!(
+        view.rect.y, copy.rect.y,
+        "the two verbs share the sentence row"
+    );
+    // And each really sits on the clause it advertises.
+    assert_eq!(
+        crate::shell::interaction::classify_click(&map, view.rect.x + 1, view.rect.y),
+        crate::shell::interaction::ClickTarget::FoldViewLog { message_idx: 0 }
+    );
+    assert_eq!(
+        crate::shell::interaction::classify_click(&map, copy.rect.x + 1, copy.rect.y),
+        crate::shell::interaction::ClickTarget::FoldCopyRows { message_idx: 0 }
+    );
+    assert!(
+        grid.contains("view full log"),
+        "the block names both verbs in a sentence: {grid}"
+    );
+    assert!(
+        grid.contains("copy hidden"),
+        "the block says what `y` copies: {grid}"
+    );
+}
+
+/// The fold is a **block**: blank row, two annotated rows, blank row, inset two
+/// columns from the body it interrupts, and marked with a bounded gutter rather
+/// than a track.
+///
+/// The geometry is asserted rather than eyeballed because every one of those
+/// facts is a copy guarantee: the blank rows are what keep a shift-drag over the
+/// head or the tail from catching the fold, and the gutter is what keeps the
+/// mark out of columns any output row occupies.
+#[test]
+fn the_fold_is_an_inset_block_with_its_own_bounded_gutter() {
+    use nuo_ui_primitives::design::{
+        BASH_FOLD_CHROME_ROWS, BASH_FOLD_INSET_COLS, bash_fold_gutter_glyph,
+    };
+
+    let stdout = (1..=20)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let m = tool_step_structured(
+        "execute_command",
+        r#"{"command":"cargo build"}"#,
+        nuo_protocol::ToolOutput::Shell {
+            command: "cargo build".into(),
+            stdout,
+            stderr: String::new(),
+            lines: Vec::new(),
+            exit: Some(1),
+            truncated: false,
+            truncated_note: None,
+            termination: nuo_protocol::tool_output::ShellTermination::Exited,
+            detached_job_id: None,
+        },
+        true,
+    );
+    let (grid, map) = render_grid_with_map(&m, 80, 24);
+    let lines: Vec<&str> = grid.lines().collect();
+
+    let fact_row = lines
+        .iter()
+        .position(|l| l.contains("lines hidden"))
+        .expect("the fold states its count");
+    let verb_row = fact_row + 1;
+    assert!(
+        lines[verb_row].contains("view full log"),
+        "the fact and the verbs are two rows, not one: {}",
+        lines[verb_row]
+    );
+
+    // Inset: the mark and the text both start to the right of the body's own
+    // `$`, so the block steps in from the content's left edge.
+    let body_col = lines
+        .iter()
+        .find(|l| l.trim_start().starts_with("$ cargo build"))
+        .map(|l| l.find('$').expect("painted prompt"))
+        .expect("the body is painted");
+    let gutter = bash_fold_gutter_glyph(false);
+    assert_eq!(
+        lines[fact_row].find(gutter),
+        Some(body_col + BASH_FOLD_INSET_COLS),
+        "the fold is inset by BASH_FOLD_INSET_COLS from the body:\n{grid}"
+    );
+    // Both text rows carry the same mark in the same column: they read as one
+    // object, which is what a `↳`-style second mark would break.
+    assert_eq!(
+        lines[verb_row].find(gutter),
+        Some(body_col + BASH_FOLD_INSET_COLS)
+    );
+
+    // Blank rows above and below: the fold never butts against output.
+    assert!(
+        lines[fact_row - 1].trim().is_empty(),
+        "a blank row precedes the block:\n{grid}"
+    );
+    assert!(
+        lines[verb_row + 1].trim().is_empty(),
+        "a blank row follows the block:\n{grid}"
+    );
+    // Those blank rows are budgeted chrome, so folding still saves rows.
+    assert_eq!(
+        (fact_row - 1)..=(verb_row + 1),
+        (fact_row - 1)..=(fact_row - 1 + BASH_FOLD_CHROME_ROWS - 1),
+        "the block occupies exactly BASH_FOLD_CHROME_ROWS rows"
+    );
+
+    // The gutter is bounded: no output row carries it.
+    for line in &lines {
+        if line.contains(gutter) {
+            assert!(
+                line.contains("lines hidden") || line.contains("view full log"),
+                "the gutter mark may only appear on the fold's own rows, found: {line}"
+            );
+        }
+    }
+
+    // And the verbs register on the sentence row, not the fact row.
+    for sentinel in [
+        nuo_view::model::layout::TOOL_FOLD_BLOCK_IDX,
+        nuo_view::model::layout::TOOL_FOLD_COPY_BLOCK_IDX,
+    ] {
+        let region = map
+            .regions()
+            .iter()
+            .find(|r| r.block_idx == sentinel)
+            .expect("each verb owns a region");
+        assert_eq!(region.rect.y as usize, verb_row);
+    }
+}
+
+/// Under width pressure the verb sentence drops whole clauses and never truncates
+/// a word, and the count — the one fact the block exists to carry — survives at
+/// every width.
+#[test]
+fn the_fold_keeps_its_count_and_drops_whole_verb_clauses() {
+    let stdout = (1..=20)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let m = tool_step_structured(
+        "execute_command",
+        r#"{"command":"cargo build"}"#,
+        nuo_protocol::ToolOutput::Shell {
+            command: "cargo build".into(),
+            stdout,
+            stderr: String::new(),
+            lines: Vec::new(),
+            exit: Some(0),
+            truncated: false,
+            truncated_note: None,
+            termination: nuo_protocol::tool_output::ShellTermination::Exited,
+            detached_job_id: None,
+        },
+        true,
+    );
+
+    // Every width the UI supports, not a hand-picked set: the previous gradient
+    // stopped at 44 columns and this test would then have missed the real defect
+    // it now pins (a count cut to `12 lines hidde` and a clause cut to
+    // `press v view f` below 36 columns).
+    for width in nuo_ui_primitives::design::MIN_TERMINAL_COLS..=100 {
+        let grid = render_grid(&m, width, 24);
+        let rows: Vec<&str> = grid.lines().collect();
+        let fact = rows
+            .iter()
+            .find(|l| l.contains("hidden"))
+            .unwrap_or_else(|| panic!("the fold is painted at {width} columns:\n{grid}"));
+        let verbs = fact_row_successor(&rows, fact);
+
+        // The count is one of the chosen whole forms, never a fragment.
+        assert!(
+            ["12 lines hidden (0.1 KB)", "12 lines hidden", "12 hidden"]
+                .iter()
+                .any(|form| fact.contains(form)),
+            "at {width} columns the fact row must carry a whole count, got: {fact}"
+        );
+        // And nothing on either row ends mid-word: a trailing `(` or a
+        // half-written word means a fragment leaked through.
+        for row in [fact, verbs] {
+            let body = row.trim_end();
+            assert!(
+                !body.ends_with('(') && !body.ends_with(", press") && !body.ends_with(", v"),
+                "at {width} columns a row was cut mid-token: {row}"
+            );
+        }
+    }
+}
+
+/// The row painted directly under the fact row (the verb sentence), or `""` when
+/// the fact row is the last painted row.
+fn fact_row_successor<'a>(rows: &[&'a str], fact: &str) -> &'a str {
+    rows.iter()
+        .skip_while(|r| **r != fact)
+        .nth(1)
+        .copied()
+        .unwrap_or("")
 }
 
 #[test]
@@ -2589,4 +2935,147 @@ mod pre_attach_surface {
             );
         }
     }
+}
+
+/// The command log **scene**: a numbered page carrying the whole log, including
+/// the middle the transcript folded away.
+///
+/// Locked as a snapshot because the scene is the destination the fold divider
+/// promises, and its shape (one numbered row per log row, the rail, the outcome
+/// band) is the thing a user navigated into.
+#[test]
+fn command_log_scene_renders_a_numbered_page_of_the_whole_log() {
+    use nuo_view::model::command_log::CommandLog;
+
+    let stdout = (1..=20)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let structured = nuo_protocol::ToolOutput::Shell {
+        command: "cargo build".into(),
+        stdout,
+        stderr: String::new(),
+        lines: Vec::new(),
+        exit: Some(1),
+        truncated: false,
+        truncated_note: None,
+        termination: nuo_protocol::tool_output::ShellTermination::Exited,
+        detached_job_id: None,
+    };
+    let text = structured.to_text();
+    let fold = nuo_view::tools::shell_output::ShellOutput::derive(&text, Some(&structured)).fold();
+    let log = CommandLog::derive(
+        0,
+        r#"{"command":"cargo build"}"#,
+        &text,
+        Some(&structured),
+        fold,
+    );
+
+    let tabs = [crate::shell::surfaces::ClientTab::thread(
+        "s1",
+        Some("build"),
+    )];
+    let mut terminal = nuotc::TestTerminal::new(80, 20);
+    let mut scroll = 0usize;
+    terminal.draw(|f| {
+        let mut layout_map = LayoutMap::default();
+        let _ = crate::shell::overlays::draw_command_log_scene(
+            f,
+            crate::shell::overlays::LogSceneProps {
+                log: Some(&log),
+                scroll: &mut scroll,
+                thread_id: Some("s1"),
+                tab_bar: Some(crate::shell::render::TabBarProps {
+                    tabs: Some(&tabs),
+                    active_tab: 0,
+                    unread_faults: 0,
+                }),
+            },
+            &mut layout_map,
+            &Theme::default(),
+        );
+    });
+    let grid = painted_rows(terminal.buffer(), 80, 20).0;
+    insta::assert_snapshot!(grid);
+}
+
+/// The log scene's footer advertises what pressing `h` will *do*, so it flips with
+/// the scope. A band that kept saying `hidden only` while the reader was already
+/// reading the hidden rows would point at the place they are standing — the same
+/// class of lie as a keycap that does not serve the key it prints.
+#[test]
+fn the_log_scene_footer_names_the_scope_the_toggle_would_reach() {
+    use nuo_view::model::command_log::{CommandLog, LogScope};
+
+    let stdout = (1..=20)
+        .map(|i| format!("line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let structured = nuo_protocol::ToolOutput::Shell {
+        command: "cargo build".into(),
+        stdout,
+        stderr: String::new(),
+        lines: Vec::new(),
+        exit: Some(0),
+        truncated: false,
+        truncated_note: None,
+        termination: nuo_protocol::tool_output::ShellTermination::Exited,
+        detached_job_id: None,
+    };
+    let text = structured.to_text();
+    let fold = nuo_view::tools::shell_output::ShellOutput::derive(&text, Some(&structured)).fold();
+    let mut log = CommandLog::derive(
+        0,
+        r#"{"command":"cargo build"}"#,
+        &text,
+        Some(&structured),
+        fold,
+    );
+    let tabs = [crate::shell::surfaces::ClientTab::thread(
+        "s1",
+        Some("build"),
+    )];
+
+    let render = |log: &CommandLog| {
+        let mut terminal = nuotc::TestTerminal::new(80, 20);
+        let mut scroll = 0usize;
+        terminal.draw(|f| {
+            let mut layout_map = LayoutMap::default();
+            let _ = crate::shell::overlays::draw_command_log_scene(
+                f,
+                crate::shell::overlays::LogSceneProps {
+                    log: Some(log),
+                    scroll: &mut scroll,
+                    thread_id: Some("s1"),
+                    tab_bar: Some(crate::shell::render::TabBarProps {
+                        tabs: Some(&tabs),
+                        active_tab: 0,
+                        unread_faults: 0,
+                    }),
+                },
+                &mut layout_map,
+                &Theme::default(),
+            );
+        });
+        painted_rows(terminal.buffer(), 80, 20).0
+    };
+
+    log.scope = LogScope::Full;
+    let full = render(&log);
+    assert!(
+        full.contains("h hidden only"),
+        "reading the full log, `h` offers the hidden rows:\n{full}"
+    );
+
+    log.scope = LogScope::HiddenOnly;
+    let hidden = render(&log);
+    assert!(
+        hidden.contains("h full log"),
+        "reading the hidden rows, `h` offers the full log back:\n{hidden}"
+    );
+    assert!(
+        !hidden.contains("hidden only"),
+        "the band must not offer the scope the reader is already in:\n{hidden}"
+    );
 }

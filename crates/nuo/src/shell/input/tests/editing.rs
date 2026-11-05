@@ -1394,7 +1394,7 @@ fn text_modal_commands_resolve_and_consume_composer() {
         assert!(
             action.is_text_modal_command(),
             "{cmd} must be flagged as a text modal command so its \
-             invocation is recorded in history + transcript"
+             invocation is recorded in input history"
         );
     }
 }

@@ -18,8 +18,18 @@ pub const COMMAND_RESULT_BLOCK_IDX: usize = usize::MAX - 3;
 pub const NOTICE_BLOCK_IDX: usize = usize::MAX - 4;
 /// Expandable compaction checkpoint card header rows.
 pub const COMPACTED_CARD_BLOCK_IDX: usize = usize::MAX - 6;
-/// Fold chrome row in expanded command step (opens log pager on click).
+/// The `press v view full log` clause of a folded command step's block (opens
+/// the full log scene on click).
+///
+/// The fold block's verb row carries **two** clauses, so it needs two sentinels:
+/// one region per affordance. A single region spanning the row would make "copy
+/// hidden" and "view full log" indistinguishable to the click dispatcher, which
+/// is exactly the kind of single-hit-target-for-two-actions a reader cannot
+/// predict.
 pub const TOOL_FOLD_BLOCK_IDX: usize = usize::MAX - 7;
+/// The fold block's `press y copy hidden` clause (copies the hidden rows).
+/// Sibling of [`TOOL_FOLD_BLOCK_IDX`].
+pub const TOOL_FOLD_COPY_BLOCK_IDX: usize = usize::MAX - 9;
 /// Sentinel message index for live composer input regions.
 ///
 /// Distinct from every block sentinel above: these two id spaces are compared
@@ -644,6 +654,10 @@ mod tests {
             ("COMPACTED_CARD_BLOCK_IDX", COMPACTED_CARD_BLOCK_IDX),
             ("INPUT_MSG_IDX", INPUT_MSG_IDX),
             ("MODAL_DOC_MSG_IDX", MODAL_DOC_MSG_IDX),
+            // The fold divider's two verbs share one painted row and are told
+            // apart only by their sentinel, so they are part of this census.
+            ("TOOL_FOLD_BLOCK_IDX", TOOL_FOLD_BLOCK_IDX),
+            ("TOOL_FOLD_COPY_BLOCK_IDX", TOOL_FOLD_COPY_BLOCK_IDX),
         ];
         for (i, (name_a, a)) in sentinels.iter().enumerate() {
             for (name_b, b) in sentinels.iter().skip(i + 1) {

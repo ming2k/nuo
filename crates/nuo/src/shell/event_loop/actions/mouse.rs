@@ -377,6 +377,22 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
         // generic content → gap → dead) so the event loop
         // only needs a single match.
         match interaction::classify_click(&app.ui.document, x, y) {
+            // The fold block's two verb clauses. `press v view full log` is pure
+            // navigation into the step's own log scene. `press y copy hidden`
+            // needs the clipboard channel, which the pointer handler does not
+            // hold, so it is published as a pending intent the action loop serves
+            // on its next step — the same channel the keyboard uses for the same
+            // verb.
+            ClickTarget::FoldViewLog { message_idx } => {
+                app.open_command_log_scene(message_idx);
+            }
+            ClickTarget::FoldCopyRows { message_idx } => {
+                app.pending_fold_copy = Some(message_idx);
+                app.focus
+                    .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
+                        InteractiveTarget::tool_step(message_idx),
+                    ));
+            }
             ClickTarget::InputBox { cursor } => {
                 // Click inside the live input box: hand the keyboard to the
                 // composer plane so the next keypress edits rather than acting

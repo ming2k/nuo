@@ -187,7 +187,7 @@ Each step is independently verifiable; the sequence is ordered so that no step l
 12. **Documentation sync, same change**: update `docs/dev/subsystems.md` §2.3 and ADR-0015 (mark its `providers/` migration executed); run the full test suite (`cargo test --workspace`).
 
 Execution detail for each step — including the per-file relocation map for tests/examples and the
-per-step verification gates — is in [`docs/dev/blueprints/provider-consolidation-migration.md`](../dev/blueprints/provider-consolidation-migration.md).
+per-step verification gates — was executed in full on 2026-10-06; `nuo-provider-adapters` is retired.
 
 ---
 
@@ -222,7 +222,7 @@ per-step verification gates — is in [`docs/dev/blueprints/provider-consolidati
 ## Links
 
 - Amends: [ADR-0015](0015-dependency-inversion-architecture-for-model-providers.md)
-- Execution runbook: [`docs/dev/blueprints/provider-consolidation-migration.md`](../dev/blueprints/provider-consolidation-migration.md)
+- Execution status: Executed in full on 2026-10-06; `nuo-provider-adapters` retired.
 - Related: [ADR-0014](0014-model-provider-invocation-schemes-oauth-subscription-lane-and-api-key-byok-lane.md), `ADR-0065`
 - Implementation anchors: `nuo-provider-adapters/src/{lib,list_models,client,endpoint}.rs`, `nuo-provider-adapters/src/{protocol,registry,usage,oauth}/`, `providers/nuo-provider-*`, `nuo-provider/src/{capability,registry,descriptor,spec}.rs`, `nuo-server/src/{bootstrap,handlers_provider}.rs`, `nuo-model-codec/src/model_providers.rs`
-- Deferred (tracked, not rejected): model-level pricing, extended capability matrix, provider account/tenant dimension declarations. Extension design recorded in [`docs/dev/provider-extension-design.md`](../dev/blueprints/provider-extension-design.md) — includes the audit finding that provider **health/recovery semantics already exist** (`ProviderErrorKind` + `RetryDisposition`) and need no new fields.
+- Deferred (tracked, not rejected): model-level pricing, extended capability matrix, provider account/tenant dimension declarations. Extension design recorded in [`docs/dev/provider-extension-design.md`](../dev/provider-extension-design.md) — includes the audit finding that provider **health/recovery semantics already exist** (`ProviderErrorKind` + `RetryDisposition`) and need no new fields.

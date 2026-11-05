@@ -84,16 +84,9 @@ exactly the collision this check reports.)
 Only `docs/` is scanned. A tag's authority is an ADR; a `.rs` comment may cite a
 tag but may not mint one.
 
-### Enforcement
+### Uniqueness Discipline
 
-`cargo test -p nuo --test doc_governance` → `test_invariant_tags`
-(`nuo::dev::invariant_tags`). On a collision it reports every definition site
-with its title **and** its rule statement, so the two rules are distinguishable
-without opening either file.
-
-The check is unit-tested in five directions: a single definition passes, a
-duplicate fails, citations are ignored, sites across different files are
-attributed to their files, and a `.rs` fixture cannot mint a tag.
+Invariant tags are centrally curated in `docs/adr/`. Each tag must have a single authoritative definition site, preventing semantic collisions or conflicting definitions.
 
 ### Fixing a Collision
 

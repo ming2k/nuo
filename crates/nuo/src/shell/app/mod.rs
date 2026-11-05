@@ -715,11 +715,29 @@ pub struct App {
     /// Id the armed kill confirmation refers to (kept separately so a dock
     /// selection move between presses can be compared against it).
     pub host_kill_confirm_id: Option<String>,
+    /// The command log the `log` scene is showing, if any.
+    ///
+    /// Held on `App` rather than on the router because it is *content*: the log
+    /// is derived from one transcript step, and re-deriving it when the step's
+    /// payload changes is the transcript's business, not a navigation entity's.
+    /// `None` means the scene has nothing to show — every read path states that
+    /// rather than painting an empty page that looks like a failure.
+    pub command_log: Option<nuo_view::model::command_log::CommandLog>,
+    /// Scroll offset of the log scene's body.
+    pub command_log_scroll: usize,
     /// `/host` Enter on a hosted session: the id to switch to, read by the
     /// caller after the TUI exits to re-attach.
     pub switch_to_target: Option<String>,
     /// Pending action requested by clicking a row in the Help dialog.
     pub pending_help_action: Option<crate::shell::overlays::help::HelpActionKind>,
+    /// Pending "copy the rows this fold hides" request, published by a click on
+    /// a folded command body's `copy` verb.
+    ///
+    /// The pointer handler holds no clipboard channel (the write is an async task
+    /// owned by the action loop), so the click states the *intent* and the loop
+    /// serves it — the same resolution the keyboard path uses, which is what keeps
+    /// one verb from having two different copy implementations.
+    pub pending_fold_copy: Option<usize>,
     /// Request the runner to create and attach to a brand-new thread.
     pub switch_to_new: bool,
     /// Optional opening prompt to submit immediately upon attaching to the new thread.

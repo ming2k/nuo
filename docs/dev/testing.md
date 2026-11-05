@@ -68,6 +68,7 @@ Nuo enforces foundational repository contracts, structural boundaries, and epist
   - Headless server container purity: `nuo-server` must never depend on terminal presentation libraries (`nuotc`, `crossterm`, `nuo-ui-primitives`, `nuo-view`).
   - Source residency: every `.rs` file under a tier root must be reachable from an entry point ([ADR-0124](../adr/0124-source-residency-every-rust-file-reachable-from-a-crate-root.md)).
   - Wire surface census: protocol version bump must coincide with checked-in wire census update ([ADR-0136](../adr/0136-wire-drift-is-a-frame-not-a-disconnect.md)).
+  - `[INV-TUI-COLOR-01]` Color purity firewall: presentation code must use semantic theme tokens instead of raw color literals ([ADR-0147](../adr/0147-semantic-color-governance-firewall-and-first-class-palette-specimen-topology.md)).
 
 ### 4.2 Content Purity & Invariants
 - **Test**: `cargo test -p nuo --test content_purity`
@@ -76,15 +77,7 @@ Nuo enforces foundational repository contracts, structural boundaries, and epist
   - `[INV-DIALOG-01]` Dialog surfaces hold no thread capability.
   - Single writer rule for session command ledger.
 
-### 4.3 Documentation Governance
-- **Test**: `cargo test -p nuo --test doc_governance`
-- **Enforces**:
-  - Target existence, anchor hygiene, relative path rules, and audience firewall (public surfaces must never link into `docs/dev/**`).
-  - Epistemic lineage: every `ADR-NNNN` cited in code or docs must resolve to a canonical ADR file (`docs/dev/standards/adr.md` §4).
-  - Invariant tag uniqueness: every `[INV-*]` definition tag across all ADRs must be globally unique (`docs/dev/standards/invariants.md` §5).
-  - User-owned surface boundary: `AGENTS.md` is untrusted workspace input and must not be cited as repository authority ([ADR-0141](../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md)).
-
-### 4.4 Tuning & Wire Isolation
+### 4.3 Tuning & Wire Isolation
 - **Test**: `cargo test -p nuo --test tuning_firewall`
 - **Enforces**:
   - `[INV-TUNE-01]` No vendor wire encoding or family branch in core vocabulary.

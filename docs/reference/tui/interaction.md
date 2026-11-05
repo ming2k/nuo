@@ -50,7 +50,7 @@ A chat scene hosts two coequal surfaces, and exactly one owns the keyboard:
 | Plane | Owner | Keys |
 | --- | --- | --- |
 | `Composer` | the draft input | printable text, caret motion, readline chords, completion, `Enter` send |
-| `Transcript` | inspection | `↑`/`↓` and page keys scroll; a highlighted entry also accepts `Space` activate, `y` copy, `Shift-y` diagnostic, `o` view log |
+| `Transcript` | inspection | `↑`/`↓` and page keys scroll; a highlighted entry also accepts `Space` activate, `y` copy, `Shift-y` diagnostic, `v` view full log |
 
 The state is one value (`crate::shell::focus::Focus`) carrying the plane plus the transcript's sub-state (`Browse` or `Entry(target)`). Transitioning:
 

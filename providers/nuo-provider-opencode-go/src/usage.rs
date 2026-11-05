@@ -266,6 +266,7 @@ fn parse_go_usage(envelope: GoUsageEnvelope) -> ProviderUsage {
     let mut buckets = Vec::with_capacity(WINDOWS.len());
     let mut metrics = Vec::with_capacity(WINDOWS.len());
     let mut lowest_remaining: Option<u32> = None;
+    let mut model_rules = Vec::new();
 
     for (name, kind, label) in WINDOWS {
         let Some(window) = envelope.usage.get(name) else {
@@ -279,6 +280,26 @@ fn parse_go_usage(envelope: GoUsageEnvelope) -> ProviderUsage {
             (None, Some(remaining)) => Some(remaining),
         };
 
+        let reset_at_ms = window.resets_at.as_deref().and_then(epoch_ms_from_rfc3339);
+        let used_frac = window.used_fraction();
+        if window.is_rate_limited() || used_frac >= 0.999 {
+            let status_label = match kind {
+                QuotaWindowKind::Rolling5Hour => "disabled: 5h limit",
+                QuotaWindowKind::Daily => "disabled: daily quota",
+                QuotaWindowKind::Weekly => "disabled: weekly quota",
+                _ => "disabled: quota",
+            };
+            let reason = format!("{label} quota limit reached for OpenCode Go");
+            model_rules.push(nuo_protocol::ModelAvailabilityRule {
+                pattern: "*".to_string(),
+                availability: nuo_protocol::Availability::disabled(
+                    status_label,
+                    Some(reason),
+                    reset_at_ms,
+                ),
+            });
+        }
+
         // The bucket carries exactly what the surfaces render: the used fraction
         // (progress bar), the reset (countdown), and the window kind (ranking +
         // label). `used_amount` / `total_limit` / `unit` are deliberately left
@@ -289,11 +310,11 @@ fn parse_go_usage(envelope: GoUsageEnvelope) -> ProviderUsage {
             window: Some(kind),
             label: label.to_string(),
             group: None,
-            used_fraction: window.used_fraction(),
+            used_fraction: used_frac,
             used_amount: None,
             total_limit: None,
             unit: None,
-            reset_at_ms: window.resets_at.as_deref().and_then(epoch_ms_from_rfc3339),
+            reset_at_ms,
             reset_time_str: window.resets_at.clone(),
         });
 
@@ -332,7 +353,7 @@ fn parse_go_usage(envelope: GoUsageEnvelope) -> ProviderUsage {
         quota: Some(ProviderQuotaData::Periodic(PeriodicQuota { buckets })),
         primary_balance,
         metrics,
-        model_rules: Vec::new(),
+        model_rules,
         updated_at_ms: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -440,6 +461,13 @@ mod tests {
         assert_eq!(usage.metrics[0].value, "0% (rate-limited)");
         // The exhausted window is the one that runs out first.
         assert_eq!(usage.primary_balance.as_deref(), Some("0%"));
+        assert_eq!(usage.model_rules.len(), 1);
+        assert_eq!(usage.model_rules[0].pattern, "*");
+        assert_eq!(
+            usage.model_rules[0].availability.display_status(),
+            Some("disabled: 5h limit")
+        );
+        assert!(usage.model_rules[0].availability.resets_at_ms.is_some());
     }
 
     #[test]

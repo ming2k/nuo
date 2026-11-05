@@ -195,7 +195,9 @@ impl CatalogMaintenance for ProductCatalogMaintenance {
     fn picker_snapshot(&self) -> Option<nuo_protocol::ProviderPickerSnapshot> {
         let config = nuo_persistence::config::Config::load();
         let usage = nuo_persistence::connection_usage::ConnectionUsage::load();
-        Some(nuo_model_routing::build_picker_state(&config, &usage))
+        Some(crate::handlers_provider::build_live_picker_state(
+            &config, &usage,
+        ))
     }
 }
 

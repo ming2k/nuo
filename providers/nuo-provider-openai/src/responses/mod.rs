@@ -546,7 +546,14 @@ impl Provider for OpenAiResponsesProvider {
     }
 
     fn supports_parallel_tool_calls(&self) -> bool {
-        self.dialect.supports_parallel_tool_calls()
+        if self.capabilities.family == "deepseek"
+            || self.capabilities.family.contains("deepseek")
+            || self.endpoint.model.contains("deepseek")
+        {
+            false
+        } else {
+            self.dialect.supports_parallel_tool_calls()
+        }
     }
 
     async fn chat(
@@ -966,5 +973,26 @@ mod stream_protocol_tests {
             provider.continuation_mode(),
             nuo_provider::ContinuationMode::OpaqueReplay
         );
+    }
+
+    #[test]
+    fn deepseek_on_standard_dialect_disables_parallel_tool_calls_capability() {
+        let provider = OpenAiResponsesProvider::from_static_key(
+            "test-key".to_string(),
+            "deepseek/deepseek-v4-flash-fast".to_string(),
+            "https://api.commandcode.ai/provider/v1/responses",
+        )
+        .with_dialect(nuo_provider::OpenAiResponsesDialect::Standard);
+
+        assert!(!provider.supports_parallel_tool_calls());
+
+        let gpt_provider = OpenAiResponsesProvider::from_static_key(
+            "test-key".to_string(),
+            "gpt-5".to_string(),
+            "https://api.openai.com/v1/responses",
+        )
+        .with_dialect(nuo_provider::OpenAiResponsesDialect::Standard);
+
+        assert!(gpt_provider.supports_parallel_tool_calls());
     }
 }

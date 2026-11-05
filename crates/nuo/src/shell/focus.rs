@@ -53,7 +53,7 @@ pub enum TranscriptFocus {
     #[default]
     Browse,
     /// One activatable entry is highlighted and accepts the entry verbs
-    /// (`Space` activate, `y` copy, `Shift-y` diagnostic, `o` view log).
+    /// (`Space` activate, `y` copy, `Shift-y` diagnostic, `v` view log).
     Entry(InteractiveTarget),
 }
 

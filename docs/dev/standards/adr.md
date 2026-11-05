@@ -121,4 +121,4 @@ A citation is a promise that the reader can inspect the decision. Three rules fo
    - **Nomination**: mention the file as an inline code span, never as bare prose. A bare filename is indistinguishable from an authority claim.
    - **Citation**: a code-styled mention qualified by a section number (for example the string `AGENTS.md §3`) is a citation of the file's content and is rejected. Quote a whole citation as one code span to discuss the defect itself; cite the standards document that owns the rule to state it.
 
-Rules 1 and 3 are mechanical: `cargo test -p nuo --test doc_governance` fails on a dangling `ADR-NNNN` token, on a user-owned surface named outside inline code, and on a code-styled section citation of one.
+These conventions preserve traceability across the repository while preventing circular references or citation of untrusted workspace files.

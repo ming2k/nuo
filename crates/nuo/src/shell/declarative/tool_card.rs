@@ -912,8 +912,8 @@ impl StorybookComponent for ToolCard {
                         query: "INV-TUI-COLOR-01".to_string(),
                         matches: vec![
                             "docs/adr/0147.md:22: - [INV-TUI-COLOR-01] Semantic Color Purity".to_string(),
-                            "crates/nuo-governance/src/color_purity.rs:1: //! (ADR-0147 [INV-TUI-COLOR-01])".to_string(),
-                            "crates/nuo-governance/tests/architecture_firewall.rs:36: test_inv_color_purity_firewall".to_string(),
+                            "crates/nuo/src/dev/color_purity.rs:1: //! (ADR-0147 [INV-TUI-COLOR-01])".to_string(),
+                            "crates/nuo/tests/architecture_firewall.rs:36: test_inv_color_purity_firewall".to_string(),
                         ],
                     },
                 },

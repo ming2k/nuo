@@ -1437,3 +1437,129 @@ fn oauth_success_name_editor_cancel_pops_cleanly() {
         Some(crate::shell::surfaces::DialogKind::Connections)
     );
 }
+
+#[tokio::test]
+async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availability() {
+    let (mut app, _tmp) = app_in_tempdir(&[], &[]);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.tx = tx;
+
+    let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+
+    // 1. Initial picker with a Claude model
+    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+        default_id: "antigravity".to_string(),
+        rows: vec![nuo_protocol::ProviderPickerRow {
+            id: "antigravity".to_string(),
+            name: "Google Antigravity".to_string(),
+            model: "claude-3-7-sonnet".to_string(),
+            key_ready: true,
+            builtin: true,
+            protocol: String::new(),
+            base_url: String::new(),
+            provider: "google-antigravity".to_string(),
+            headers: Default::default(),
+            last_used_ms: None,
+            auth: Default::default(),
+            models: vec!["claude-3-7-sonnet".to_string()],
+            model_info: vec![nuo_protocol::ProviderModelInfo {
+                model: "claude-3-7-sonnet".to_string(),
+                name: Some("Claude 3.7 Sonnet".to_string()),
+                context_window: 200_000,
+                availability: Some(nuo_protocol::Availability::usable()),
+                ..Default::default()
+            }],
+        }],
+    };
+
+    // Initially usable
+    let initial_models = app.models_flat_filtered();
+    assert!(initial_models[0].usable);
+
+    // 2. Open Models dialog via InputAction::OpenModels
+    let open_flow = crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::OpenModels,
+        "s1",
+    )
+    .await;
+    assert_eq!(
+        open_flow,
+        crate::shell::event_loop::actions::ActionFlow::Handled
+    );
+
+    // Must trigger QueryProviderQuotas in background with force_refresh: false
+    let req = rx
+        .try_recv()
+        .expect("should send QueryProviderQuotas request");
+    match req {
+        nuo_protocol::AgentRequest::QueryProviderQuotas {
+            provider,
+            force_refresh,
+        } => {
+            assert_eq!(provider, None);
+            assert!(!force_refresh);
+        }
+        other => panic!("Expected QueryProviderQuotas, got {other:?}"),
+    }
+
+    // 3. Quota snapshot arrives asynchronously: 5h limit reached for claude-*
+    let quotas = nuo_protocol::ProviderQuotaSnapshot {
+        provider_filter: None,
+        entries: vec![nuo_protocol::ConnectionQuotaEntry {
+            name: "antigravity".to_string(),
+            provider: "google-antigravity".to_string(),
+            provider_label: "Google Antigravity".to_string(),
+            account_id: None,
+            is_default: true,
+            state: nuo_protocol::ConnectionUsageState::Available(Box::new(
+                nuo_protocol::ProviderUsage {
+                    model_rules: vec![nuo_protocol::ModelAvailabilityRule {
+                        pattern: "claude-*".to_string(),
+                        availability: nuo_protocol::Availability::disabled(
+                            "disabled: 5h limit",
+                            Some("5h rolling quota limit reached for Claude".to_string()),
+                            Some(1999999999000),
+                        ),
+                    }],
+                    ..Default::default()
+                },
+            )),
+            primary_balance: Some("0% Quota".to_string()),
+            quota: None,
+            plan: None,
+            earliest_reset_ms: None,
+        }],
+        ..Default::default()
+    };
+
+    crate::shell::event_loop::apply::apply(
+        &mut app,
+        &runtime,
+        crate::shell::event_loop::AppMutation::ProviderQuotas(quotas),
+    );
+
+    // 4. Model list now immediately reflects disabled 5h limit
+    let updated_models = app.models_flat_filtered();
+    assert!(!updated_models[0].usable);
+    assert_eq!(
+        updated_models[0].display_status(),
+        Some("disabled: 5h limit")
+    );
+
+    // 5. Trying to activate disabled model intercepts to details dialog
+    let flow = crate::shell::event_loop::actions::dispatch_action_for_test(
+        &mut app,
+        &runtime,
+        crate::shell::input::InputAction::ProviderPickerActivate,
+        "s1",
+    )
+    .await;
+    assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
+    assert!(
+        app.surfaces
+            .dlg::<crate::shell::surfaces::ModelsDialog>()
+            .info_detail
+    );
+}

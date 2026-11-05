@@ -28,8 +28,8 @@ mod dialogs;
 
 #[allow(unused_imports)]
 pub use dialogs::{
-    CommandOutputDialog, ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs,
-    HelpDialog, HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PermissionsDialog,
+    ConnectionsDialog, DialogOutcome, DialogRenderCtx, DialogView, Dialogs, HelpDialog,
+    HistorySearchDialog, McpDialog, ModelsDialog, NoticesDialog, PermissionsDialog,
     PortShareDialog, QueueDialog, QuotasDialog, SessionTraceDialog, SessionTreeDialog,
     SessionsDialog, SkillsDialog, SwitcherDialog, ThreadStatsDialog, ThreadsDialog, ToolsDialog,
     UsageStatsDialog,
@@ -47,6 +47,17 @@ pub enum SceneKind {
     Settings,
     /// Deep-dive inspection into a spawned subagent's execution stream.
     Subagent,
+    /// One command step's whole log, opened from the transcript's fold block
+    /// (`v` / `view full log`) as a peer of the transcript rather than a floating
+    /// dialog over it.
+    ///
+    /// It lives here, in the scene set, for two reasons that are both about
+    /// residency rather than taste: a log is **content**, and content belongs to
+    /// the content layer, never to the L3 layer that exists for spatial
+    /// configuration surfaces (ADR-0116 `[INV-LAYER-01]`); and a scene is what the
+    /// tab stack, breadcrumbs, `Alt+[`, resize and scroll anchoring already
+    /// understand, so reading a log costs no second navigation model.
+    CommandLog,
 }
 
 impl SceneKind {
@@ -57,6 +68,7 @@ impl SceneKind {
             Self::Dashboard => "Session dashboard",
             Self::Settings => "Settings",
             Self::Subagent => "Subagent",
+            Self::CommandLog => "Command log",
         }
     }
 
@@ -64,9 +76,10 @@ impl SceneKind {
     pub fn hint(self) -> &'static str {
         match self {
             Self::Thread => "Esc  home",
-            Self::Dashboard => "/dashboard",
-            Self::Settings => "/config  /settings",
+            Self::Dashboard => "Alt-0",
+            Self::Settings => "Alt-,",
             Self::Subagent => "zoom a subagent task",
+            Self::CommandLog => "v  view log",
         }
     }
 
@@ -77,12 +90,20 @@ impl SceneKind {
             Self::Dashboard => "dashboard",
             Self::Settings => "settings",
             Self::Subagent => "subagent",
+            Self::CommandLog => "log",
         }
     }
 
     /// The breadcrumb label shown in the tab navigation bar (ADR-0040, ADR-0042).
     pub fn breadcrumb_label(self) -> &'static str {
         self.scene_label()
+    }
+
+    /// Whether this scene *is* content the user reads rather than a workspace
+    /// they act in — the property that decides whether the chat pane and its
+    /// composer are hidden behind it.
+    pub fn is_reading_scene(self) -> bool {
+        matches!(self, Self::CommandLog)
     }
 }
 
@@ -107,7 +128,6 @@ pub enum DialogKind {
     PortShare,
     Help,
     Notices,
-    CommandOutput,
 }
 
 impl DialogKind {
@@ -157,7 +177,6 @@ impl DialogKind {
             DialogKind::PortShare => "Port & sharing",
             DialogKind::Help => "Help & Shortcuts",
             DialogKind::Notices => "Notices & Disclosures",
-            DialogKind::CommandOutput => "Command output",
         }
     }
 
@@ -178,11 +197,10 @@ impl DialogKind {
             DialogKind::Queue => "/queue",
             DialogKind::Threads => "/threads",
             DialogKind::SessionTree => "/tree",
-            DialogKind::Switcher => "/palette",
+            DialogKind::Switcher => "Ctrl-Shift-p",
             DialogKind::PortShare => "/port",
             DialogKind::Help => "F1 / Alt-h",
-            DialogKind::Notices => "Alt-o / /notices",
-            DialogKind::CommandOutput => "o / v",
+            DialogKind::Notices => "Alt-o",
         }
     }
 
@@ -209,8 +227,7 @@ impl DialogKind {
             | DialogKind::Mcp
             | DialogKind::Skills
             | DialogKind::Permissions
-            | DialogKind::Queue
-            | DialogKind::CommandOutput => DialogScope::Session,
+            | DialogKind::Queue => DialogScope::Session,
             // Scene: bound to one workspace capability.
             DialogKind::HistorySearch => DialogScope::Scene(SceneKind::Thread),
         }
@@ -230,9 +247,7 @@ impl DialogKind {
     /// dialogs are retained per session; everything else is retained globally.
     pub fn retention_policy(self) -> RetentionPolicy {
         match self {
-            DialogKind::Switcher | DialogKind::PortShare | DialogKind::CommandOutput => {
-                RetentionPolicy::Ephemeral
-            }
+            DialogKind::Switcher | DialogKind::PortShare => RetentionPolicy::Ephemeral,
             _ => match self.scope() {
                 DialogScope::Session => RetentionPolicy::SessionScoped,
                 _ => RetentionPolicy::Retained,
@@ -515,7 +530,10 @@ impl ClientTab {
         // scenes matching its domain, rejecting cross-container pollution.
         match &self.kind {
             TabKind::Thread(_) => {
-                if !matches!(scene, SceneKind::Thread | SceneKind::Subagent) {
+                if !matches!(
+                    scene,
+                    SceneKind::Thread | SceneKind::Subagent | SceneKind::CommandLog
+                ) {
                     tracing::warn!(
                         ?scene,
                         "rejected cross-container scene push onto thread tab"
@@ -1165,7 +1183,11 @@ impl SurfaceRouter {
                 self.open_tab(ClientTab::settings());
                 return;
             }
-            SceneKind::Thread | SceneKind::Subagent => {}
+            // The log view is a thread-tab scene: it is a reading of one
+            // transcript step, so it belongs to the tab that owns that step and
+            // pushes onto that tab's own stack (peer of `Subagent`). A
+            // workspace container would let a thread's log outlive the thread.
+            SceneKind::Thread | SceneKind::Subagent | SceneKind::CommandLog => {}
         }
         self.scene = scene;
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
@@ -1421,7 +1443,6 @@ mod tests {
             DialogKind::Skills,
             DialogKind::Permissions,
             DialogKind::Queue,
-            DialogKind::CommandOutput,
         ] {
             assert_eq!(id.scope(), DialogScope::Session, "{id:?}");
         }

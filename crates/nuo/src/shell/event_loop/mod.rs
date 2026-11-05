@@ -45,7 +45,6 @@ use crate::shell::App;
 use crate::shell::clipboard;
 use crate::shell::clipboard_ops;
 use crate::shell::input::{self};
-use nuo_view::model::document::TranscriptMessage;
 
 use sync::{
     consume_completion_signal, consume_navigation_signals, sync_request_surfaces,
@@ -326,10 +325,15 @@ pub(crate) async fn run_app_loop(
             term_h.saturating_sub(nuo_ui_primitives::design::PAGE_HEADER_ROWS),
         );
         let in_subagent = !app.focus_stack.is_empty();
+        // A full-screen scene replaces the chat pane entirely. The log scene
+        // belongs here: it paints its own page over the whole frame, so reserving
+        // composer height behind it would leave the layout measuring a pane
+        // nobody can see.
         let is_fullscreen_scene = matches!(
             app.current_scene(),
             crate::shell::surfaces::SceneKind::Dashboard
                 | crate::shell::surfaces::SceneKind::Settings
+                | crate::shell::surfaces::SceneKind::CommandLog
         );
         let composer_active = !is_fullscreen_scene && !in_subagent;
         let current_composer_height = if composer_active {
@@ -971,20 +975,17 @@ async fn process_one_event<W: io::Write>(
     // registered commands it has never heard of. `AgentRequest::SlashCommand` is
     // the single admission authority: it answers an unrecognized name with a
     // typed `CommandResult::UnknownCommand` ("Unknown command: /modles. Did you
-    // mean /models?"), which lands as a command block instead of a user turn —
-    // and the applier then hands the draft back to this composer, so a typo
-    // costs one edit rather than a retype (ADR-0119, [INV-CMD-02], [INV-CMD-03]).
+    // mean /models?"), which routes to top-right notice toast instead of
+    // polluting the transcript — and the applier then hands the draft back to
+    // this composer, so a typo costs one edit rather than a retype (ADR-0119,
+    // ADR-0149, [INV-CMD-02], [INV-CMD-03], [INV-CMD-09]).
 
     if action.is_text_modal_command()
         && let Some(entry) = modal_cmd_history
     {
-        let (name, args) = actions::split_command_word(&entry);
-        let mut msg =
-            TranscriptMessage::pending_command(name, args).with_sent_at_ms(now_epoch_ms());
-        msg.cancel_pending_command();
-        app.messages.push(msg);
-        app.layout_height_cache.clear();
-        app.transcript_changed_pending = true;
+        // ADR-0149 `[INV-CMD-10]`: Modal commands intercept locally to open an L3
+        // dialog. They must never emit, stage, or append any message to L0 transcript.
+        // They only record composer input history for key recall.
         app.record_input_history(entry, Vec::new(), Vec::new());
     }
 
@@ -1004,6 +1005,22 @@ async fn process_one_event<W: io::Write>(
         },
     )
     .await;
+
+    // A click on a folded command body's `copy` verb published its intent (the
+    // pointer handler holds no clipboard channel). Serve it here, through the
+    // same `fold_hidden_rows_copy` resolution the identical keyboard verb uses —
+    // one verb, one implementation, one receipt.
+    if let Some(mi) = app.pending_fold_copy.take() {
+        if let Some((text, feedback)) = crate::shell::copy::fold_hidden_rows_copy(app, mi) {
+            clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+            app.copy_toast_message = feedback;
+            app.copy_toast_failed = false;
+            app.copy_toast_until =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        } else {
+            clipboard_ops::show_copy_failure(app, "this step has nothing hidden to copy");
+        }
+    }
 
     let edit_state_after = match edit_buffer {
         EditBuffer::Composer => (app.input.len(), app.cursor_position),

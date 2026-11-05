@@ -240,24 +240,32 @@ pub(crate) fn parse_antigravity_quota(
             0.0
         };
 
-        if used_fraction >= 0.999 {
+        let is_exhausted = used_fraction >= 0.999
+            || bucket.disabled.unwrap_or(false)
+            || (bucket.remaining_amount == Some(0) && bucket.remaining_fraction.is_none());
+
+        if is_exhausted {
             let lower_id = bucket.bucket_id.to_ascii_lowercase();
             let lower_label = label.to_ascii_lowercase();
             let lower_group = group_name.as_deref().unwrap_or("").to_ascii_lowercase();
 
-            let pattern = if lower_group.contains("claude")
+            let patterns: Vec<&str> = if lower_id.starts_with("3p")
+                || (lower_group.contains("claude") && lower_group.contains("gpt"))
+            {
+                vec!["claude-*", "gpt-*"]
+            } else if lower_group.contains("claude")
                 || lower_id.contains("claude")
                 || lower_label.contains("claude")
             {
-                "claude-*"
+                vec!["claude-*"]
             } else if lower_group.contains("gemini")
                 || lower_group.contains("chat")
                 || lower_id.contains("gemini")
                 || lower_label.contains("gemini")
             {
-                "gemini-*"
+                vec!["gemini-*"]
             } else {
-                bucket.bucket_id.as_str()
+                vec![bucket.bucket_id.as_str()]
             };
 
             let status_label = match window_kind {
@@ -278,14 +286,16 @@ pub(crate) fn parse_antigravity_quota(
                 ),
             };
 
-            model_rules.push(nuo_protocol::ModelAvailabilityRule {
-                pattern: pattern.to_string(),
-                availability: nuo_protocol::Availability::disabled(
-                    status_label,
-                    Some(reason),
-                    reset_at_ms,
-                ),
-            });
+            for pattern in patterns {
+                model_rules.push(nuo_protocol::ModelAvailabilityRule {
+                    pattern: pattern.to_string(),
+                    availability: nuo_protocol::Availability::disabled(
+                        status_label,
+                        Some(reason.clone()),
+                        reset_at_ms,
+                    ),
+                });
+            }
         }
 
         let value_str = if let Some(frac) = bucket.remaining_fraction {
@@ -561,5 +571,44 @@ mod tests {
         // Gemini model is not exhausted, so availability must be None
         let gemini_avail = evaluate_antigravity_quota_availability(&usage, "gemini-2.5-pro");
         assert_eq!(gemini_avail, None);
+    }
+
+    #[test]
+    fn evaluates_quota_availability_for_3p_group_and_disabled_flag() {
+        let resp = AntigravityQuotaSummaryResponse {
+            buckets: vec![],
+            groups: vec![AntigravityQuotaGroup {
+                display_name: Some("Claude and GPT models".to_string()),
+                description: Some(
+                    "Models within this group: Claude Opus, Claude Sonnet, GPT-OSS".to_string(),
+                ),
+                buckets: vec![AntigravityQuotaBucket {
+                    bucket_id: "3p-5h".to_string(),
+                    display_name: Some("Five Hour Limit Remaining".to_string()),
+                    window: Some("5h".to_string()),
+                    remaining_fraction: None,
+                    disabled: Some(true),
+                    reset_time: Some("2026-10-14T09:23:10Z".to_string()),
+                    ..Default::default()
+                }],
+            }],
+            description: None,
+        };
+
+        let usage = parse_antigravity_quota(resp).unwrap();
+        // Both claude-* and gpt-* rules should be generated
+        assert_eq!(usage.model_rules.len(), 2);
+        assert_eq!(usage.model_rules[0].pattern, "claude-*");
+        assert_eq!(usage.model_rules[1].pattern, "gpt-*");
+
+        let claude_avail =
+            evaluate_antigravity_quota_availability(&usage, "claude-sonnet-4-6").unwrap();
+        assert!(!claude_avail.is_usable());
+        assert_eq!(claude_avail.display_status(), Some("disabled: 5h limit"));
+
+        let gpt_avail =
+            evaluate_antigravity_quota_availability(&usage, "gpt-oss-120b-medium").unwrap();
+        assert!(!gpt_avail.is_usable());
+        assert_eq!(gpt_avail.display_status(), Some("disabled: 5h limit"));
     }
 }

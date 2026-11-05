@@ -3267,7 +3267,46 @@ impl TranscriptMessage {
             // Expanded tool-step bodies are rendered directly from the
             // structured data (see draw_tool_step), not from parsed
             // markdown. We still populate `blocks` so semantic selection and
-            // copy work: block 0 = display arguments, block 1 = output.
+            // copy work.
+            //
+            // A **command** step is the one case where the painted rows are a
+            // derivation rather than the raw payload: the renderer draws
+            // `$ invocation` and then the rows
+            // [`ShellOutput`](crate::tools::shell_output::ShellOutput) derived —
+            // marker-stripped, carriage-return-resolved, in arrival order. The
+            // blocks must be *that same derivation*, or a drag over a row would
+            // slice a different string than the one on screen: the offsets the
+            // layout registers are offsets into the derived rows, so storing
+            // anything else here makes every selection in a command body land on
+            // the wrong bytes. ADR-0115's "one derivation, three audiences" —
+            // painter, clipboard, and now the document model.
+            if crate::tools::shell_output::is_command_body(name, structured.as_deref()) {
+                let command = crate::tools::shell_output::command_invocation(
+                    structured.as_deref(),
+                    arguments,
+                );
+                let rows = crate::tools::shell_output::ShellOutput::derive(
+                    output.as_deref().unwrap_or(""),
+                    structured.as_deref(),
+                )
+                .rows;
+                // Block 0 is the invocation, block 1 the output rows. The
+                // renderer addresses them the same way, so a selection that
+                // starts on the `$` line and runs into the log copies the
+                // command and the rows under it as one ordinary range.
+                self.raw = command.clone();
+                let mut blocks = vec![Block::Text(Inline::plain(command))];
+                if !rows.is_empty() {
+                    let body = rows.join("\n");
+                    self.raw.push_str("\n\n");
+                    self.raw.push_str(&body);
+                    blocks.push(Block::Text(Inline::plain(body)));
+                }
+                self.blocks = blocks;
+                self.resume_byte = self.raw.len();
+                self.live_blocks = 0;
+                return;
+            }
             let kv = parse_arguments_kv(arguments);
             let display_args: String = kv
                 .iter()

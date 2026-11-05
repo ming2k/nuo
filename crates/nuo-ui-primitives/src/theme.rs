@@ -6,6 +6,7 @@ use nuotc::{Color, Modifier, Style};
 use crate::color_scheme::{
     ColorSchemeConfig, ComponentThemesConfig, NoticeSeverity, SurfacesThemeConfig, ThemeFile,
 };
+use crate::design::bash_fold_gutter_glyph;
 use crate::elevation::ElevationArchetype;
 
 /// Metadata for one color scheme shown by the Appearance config page.
@@ -1735,6 +1736,55 @@ impl Theme {
     }
     pub fn code_surface(&self) -> Color {
         self.code_bg
+    }
+    /// The **command prompt**: the `$ ` on a command's invocation row.
+    ///
+    /// Stated in the brand hue, because it names the *act* ("this ran") rather
+    /// than the content, and it is the one cell of the block that must be
+    /// findable at a glance when scanning a long transcript. On a monochrome
+    /// profile the hue degrades to the content tone; the `$` glyph still says
+    /// what it is.
+    ///
+    /// It is the **only** mark a command body carries per row. A body has no
+    /// left track: a column of `│` down 30 rows of stdout reads as a frame, and
+    /// — because the terminal's own shift-drag selection cannot know which cells
+    /// are chrome — every line the user copied out of the terminal arrived with
+    /// a border glued to its front. Structure is carried by the `$`, by the
+    /// block's surface, and by indentation; nothing else claims a column
+    /// (ADR-0150).
+    pub fn command_prompt(&self) -> Color {
+        if self.is_monochrome() {
+            self.text
+        } else {
+            self.primary
+        }
+    }
+    /// The folded block's **gutter mark**: the single column of `▎` that fronts
+    /// the two rows a fold paints.
+    ///
+    /// It is a *bounded* mark — two rows, not a track — so it can never bleed
+    /// into copied output. Its job is to answer the one question the folded
+    /// region raises: *is this program output or is this the tool talking?* A
+    /// fold states a count and two verbs, none of which the process printed, so
+    /// it is inset from the body's own left edge and tagged with this column;
+    /// everything outside it is verbatim stdout.
+    ///
+    /// The tone is the structural hue (`info`) pulled toward the code surface,
+    /// because the fold is structure at content weight. Reset-based archetypes
+    /// (ANSI-16 / monochrome) have no RGB ladder to step and fall back to the
+    /// plain structural hue — the column still separates the block from the
+    /// rows around it, which is the part that matters.
+    pub fn command_fold_gutter(&self) -> Color {
+        match self.code_bg {
+            Color::Rgb(..) => mix(self.info, self.code_bg, 0.30),
+            _ => self.info,
+        }
+    }
+    /// The pane marker and the fold gutter are the same mark: both say "this
+    /// row is structure, not content". Stating the fold's glyph through the
+    /// theme keeps the two from drifting into two vocabularies for one idea.
+    pub fn command_fold_gutter_glyph(&self) -> &'static str {
+        bash_fold_gutter_glyph(self.glyphs.corner_tl == "+")
     }
     /// Background band of a search-result **file title** row: one subtle step
     /// above the code surface so a file heading reads as a layered header band

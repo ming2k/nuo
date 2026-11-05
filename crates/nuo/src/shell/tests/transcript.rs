@@ -986,6 +986,7 @@ mod command_reply_filing {
             &mut app,
             crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
                 invocation: "/usage".to_string(),
+                restore_draft: false,
             },
         );
 
@@ -1019,6 +1020,7 @@ mod command_reply_filing {
             &mut app,
             crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
                 invocation: "/usage".to_string(),
+                restore_draft: false,
             },
         );
 
@@ -1027,6 +1029,110 @@ mod command_reply_filing {
             app.messages[0].command_result_summary().as_deref(),
             Some("/unattended on"),
             "the act's optimistic row must survive a reading's withdrawal"
+        );
+    }
+
+    /// `[INV-CMD-09]`, `[INV-CMD-12]`: an unknown command or failed command
+    /// withdraws its optimistic staged row from L0 transcript and restores its draft
+    /// back into the empty composer.
+    #[test]
+    fn withdrawal_with_restore_draft_returns_invocation_to_empty_composer() {
+        let mut app = new_app_for_relay_tests();
+        assert!(app.input.is_empty());
+
+        // Optimistically staged on unknown command dispatch
+        app.messages.push(
+            TranscriptMessage::pending_command("modles", "").with_sent_at_ms(1_700_000_000_000),
+        );
+        assert_eq!(app.messages.len(), 1);
+
+        let applied = crate::shell::event_loop::apply::apply_transcript(
+            &mut app,
+            crate::shell::event_loop::mutations::TranscriptEdit::WithdrawStagedCommand {
+                invocation: "/modles".to_string(),
+                restore_draft: true,
+            },
+        );
+
+        assert!(applied);
+        assert_eq!(
+            app.messages.len(),
+            0,
+            "staged row was withdrawn, keeping L0 transcript completely clean"
+        );
+        assert_eq!(
+            app.input, "/modles",
+            "the invocation draft was restored to the composer"
+        );
+        assert_eq!(
+            app.cursor_position,
+            app.input.len(),
+            "cursor placed at end for immediate backspace editing"
+        );
+    }
+
+    /// `[INV-CMD-09]`, `[INV-CMD-11]`: dispatching an unknown slash command
+    /// does not stage any optimistic row in the transcript, and its failure
+    /// receipt renders the error summary into the notice headline for the top-right toast.
+    #[tokio::test]
+    async fn unknown_slash_command_never_stages_and_surfaces_error_headline() {
+        let mut app = new_app_for_relay_tests();
+        app.command_catalog = nuo_server::startup::command_catalog(&[]);
+        let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
+        let session = crate::shell::SessionSource::Remote {
+            session_id: "test-session".to_string(),
+        };
+
+        // Dispatch a mistyped slash command
+        crate::shell::event_loop::actions::commands::handle_send_slash(
+            &mut app,
+            &runtime,
+            &session,
+            "/modles".to_string(),
+        )
+        .await;
+
+        assert!(
+            app.messages.is_empty(),
+            "an unknown slash command must NEVER stage an optimistic row in L0 transcript"
+        );
+
+        // When the server answers with UnknownCommand:
+        let result = nuo_protocol::CommandResult::UnknownCommand {
+            name: "/modles".to_string(),
+            suggestion: Some("/models".to_string()),
+        };
+        let rendered = ClientNotice::CommandReceipt {
+            invocation: "/modles".to_string(),
+            body: result.to_text(),
+            failed: true,
+        }
+        .render();
+
+        assert_eq!(
+            rendered.severity(),
+            nuo_view::model::document::NoticeSeverity::Error
+        );
+        assert!(
+            rendered
+                .title()
+                .starts_with("Unknown command: /modles. Did you mean /models?"),
+            "notice title must carry the actual error and suggestion for the top-right toast"
+        );
+
+        // Recording the notice displays it in toast and records to surface log
+        app.record_notice(rendered);
+        assert_eq!(
+            app.notice_toast_severity,
+            nuo_view::model::document::NoticeSeverity::Error
+        );
+        assert!(
+            app.notice_toast_message
+                .starts_with("Unknown command: /modles. Did you mean /models?")
+        );
+        assert!(
+            app.notice_toast_until.is_some(),
+            "notice toast is armed for display"
         );
     }
 }

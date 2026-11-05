@@ -191,13 +191,25 @@ pub(crate) fn parse_qoder_userinfo(body: QoderUserInfoResponse) -> Result<Provid
         .map(|d| d.as_millis() as u64)
         .ok();
 
+    let mut model_rules = Vec::new();
+    if plan_expired {
+        model_rules.push(nuo_protocol::ModelAvailabilityRule {
+            pattern: "*".to_string(),
+            availability: nuo_protocol::Availability::disabled(
+                "disabled: plan expired",
+                Some("Qoder plan has expired".to_string()),
+                None,
+            ),
+        });
+    }
+
     Ok(ProviderUsage {
         plan: plan_label,
         description: plan_expired.then(|| "plan expired".to_string()),
         quota: Some(ProviderQuotaData::Balance(balance_quota)),
         primary_balance,
         metrics,
-        model_rules: Vec::new(),
+        model_rules,
         updated_at_ms: now_ms,
     })
 }

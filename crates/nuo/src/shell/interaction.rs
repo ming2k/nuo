@@ -26,7 +26,9 @@
 
 use crate::shell::render::INPUT_MSG_IDX;
 use crate::shell::step_interaction::{self, StepKind};
-use nuo_view::model::layout::{LayoutMap, SemanticCursor, TableCellSegment};
+use nuo_view::model::layout::{
+    LayoutMap, SemanticCursor, TOOL_FOLD_BLOCK_IDX, TOOL_FOLD_COPY_BLOCK_IDX, TableCellSegment,
+};
 
 /// The type of clickable region a screen point resolved to.
 ///
@@ -37,6 +39,12 @@ pub enum ClickTarget {
     InputBox { cursor: SemanticCursor },
     /// Click landed on a step summary (tool step or reasoning trace).
     StepSummary { message_idx: usize, kind: StepKind },
+    /// Click landed on the `press v view full log` clause of a folded command
+    /// body: the target is the whole log of the step at `message_idx`.
+    FoldViewLog { message_idx: usize },
+    /// Click landed on the `press y copy hidden` clause of a folded command
+    /// body: copy the rows the fold hides.
+    FoldCopyRows { message_idx: usize },
     /// Click landed inside a table cell. Drag selections are clamped to the
     /// cell's `│` boundaries but the user can select a substring of the
     /// original `cell_text`.
@@ -85,6 +93,27 @@ pub enum ClickTarget {
 ///
 /// This function is pure: it only reads from `layout_map` and returns a value.
 pub fn classify_click(layout_map: &LayoutMap, x: u16, y: u16) -> ClickTarget {
+    // The fold block's two verb clauses are checked before the generic cursor
+    // walk: both are registered as zero-text chrome regions, so `cursor_at` would
+    // resolve them into an empty content hit and the click would do nothing. They
+    // are distinguished by their own sentinels, one region per verb clause,
+    // because a single row-wide target could not tell "copy hidden" from "view
+    // full log".
+    if let Some(region) = layout_map.region_at(x, y) {
+        match region.block_idx {
+            TOOL_FOLD_BLOCK_IDX => {
+                return ClickTarget::FoldViewLog {
+                    message_idx: region.message_idx,
+                };
+            }
+            TOOL_FOLD_COPY_BLOCK_IDX => {
+                return ClickTarget::FoldCopyRows {
+                    message_idx: region.message_idx,
+                };
+            }
+            _ => {}
+        }
+    }
     if let Some(cursor) = layout_map.cursor_at(x, y) {
         // Input box regions carry the INPUT_MSG_IDX sentinel.
         if cursor.message_idx == INPUT_MSG_IDX {

@@ -45,12 +45,14 @@ The Nuo system operates across three orthogonal entity tiers:
 
 These actions govern the client's local tab container and apply uniformly across all mounted viewports:
 
-| Action | Shortcuts / Slash | Semantics | Side Effects |
+| Action | Shortcuts / Triggers | Semantics | Side Effects |
 | :--- | :--- | :--- | :--- |
-| **`OpenTab`** | `Alt+T`, `/new`, `t` in Help (`F1` / `Alt-h`) | Mounts a new tab or focuses an existing singleton tab. | Client-local; requests data stream from Server. |
-| **`CloseTab`** | `Alt+W`, `/close`, `w` in Help (`F1` / `Alt-h`) | Closes the active tab view (**pure Detach**). | If closed tab was a thread, it continues in Autonomous Mode. Closing last tab exits client process cleanly. |
-| **`FocusTab`** | `Alt+1` .. `Alt+9` | Jumps directly to tab at ordinal index. | Repoints Layer 3 content projection instantly. |
-| **`NextTab`** / **`PrevTab`** | `Ctrl+Tab`, `Ctrl+Shift+Tab` | Sequentially cycles through mounted tabs. | Re-anchors viewport. |
+| **`OpenTab`** | `Alt-t` | Mounts a fresh thread in a new tab. | Client-local; requests data stream from Server. |
+| **`CloseTab`** | `Alt-w` | Closes the active tab view (**pure Detach**). | If closed tab was a thread, it continues in Autonomous Mode. Closing last tab exits client process cleanly. |
+| **`DashboardTab`** | `Alt-0` | Mounts or focuses the singleton dashboard tab. | Hub telemetry stream; zero conflict with Readline (ADR-0151). |
+| **`SettingsTab`** | `Alt-,` | Mounts or focuses the singleton settings tab. | Client configuration and appearance inspector. |
+| **`FocusTab`** | `Alt-1` .. `Alt-9` | Jumps directly to tab at ordinal index. | Repoints Layer 3 content projection instantly. |
+| **`TabHistory`** | `Alt-[` / `Alt-]` | Symmetric intra-tab back / forward navigation. | Navigates tab activation stack. |
 
 ---
 

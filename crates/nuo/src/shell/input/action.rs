@@ -371,10 +371,17 @@ pub enum InputAction {
     ToggleFocusPlane,
     /// Activate the current keyboard-focused target (`Enter`).
     ActivateFocusedTarget,
-    /// View the full execution output of the focused target in the dedicated log pager (`o` or `v`).
+    /// Open the focused target's whole log as a **scene** (`o` or `v`), pushed
+    /// onto the active tab's scene stack so `Alt+[` / `Esc` return to the
+    /// transcript through the paths every scene already has (ADR-0150).
     ViewFocusedTargetOutput,
-    /// Copy full command execution output from the command output modal inspector (`y` or `c`).
-    CommandOutputCopy,
+    /// Copy the command-log scene's current slice (`y`): the invocation line plus
+    /// every visible row, or just the hidden middle when the reader scoped the
+    /// view to it.
+    CommandLogCopy,
+    /// Flip the command-log scene between the full log and the rows the
+    /// transcript's fold hid (`h`).
+    CommandLogToggleScope,
     /// Send a key event to the focused transcript target at stack top.
     FocusedTargetKey(crate::shell::keymap::Key),
     /// Copy the content of the currently focused target (`y` or `c` while a step is focused).
@@ -629,7 +636,7 @@ impl InputAction {
     ///
     /// These commands consume the composer text (the typed `/cmd`) the same
     /// way `SendSlash` does, but unlike `SendSlash` they are intercepted
-    /// locally and never forwarded to the harness. The text they consumed is
+    /// locally and never forwarded to the server. The text they consumed is
     /// therefore not carried on the action and would be lost for input-history
     /// purposes; the event loop snapshots the composer before dispatch and uses
     /// this predicate to decide whether to record it.

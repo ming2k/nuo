@@ -1,17 +1,12 @@
-//! Repository Documentation & Architectural Governance Engine for Nuo.
+//! Developer and repository governance tools.
+//!
+//! Replaces legacy `scripts/` Python checkers with native Rust implementations
+//! (ADR-0111).
 
-#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
-
-pub mod adr_lineage;
 pub mod color_purity;
-pub mod config;
-pub mod doc_links;
 pub mod firewall;
-pub mod invariant_tags;
 pub mod residency;
 pub mod wire_census;
-
-pub use config::GovernanceConfig;
 
 use std::path::PathBuf;
 

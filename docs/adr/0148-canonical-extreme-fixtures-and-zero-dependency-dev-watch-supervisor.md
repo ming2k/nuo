@@ -36,7 +36,7 @@ Following [ADR-0146](0146-live-storybook-engine-sub-second-hot-loop-and-broad-ca
 
 - **Zero-Dependency Native Watcher**: Developers must enjoy automated watch-and-reload capabilities directly via `nuo dev storybook --watch` without installing external Cargo extensions or Python/shell scripts.
 - **Deterministic Boundary Testing**: Test fixtures must comprehensively represent production stress cases: 1,000-line shell compilation logs and multi-paragraph reasoning traces.
-- **Strict Adherence to Workspace Governance**: Maintain 100% compliance with `nuo-governance` residency, doc links, and color purity rules.
+- **Strict Adherence to Workspace Governance**: Maintain 100% compliance with workspace residency, wire census, and color purity rules.
 
 ---
 

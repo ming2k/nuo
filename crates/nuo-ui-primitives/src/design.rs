@@ -372,8 +372,8 @@ pub const CODE_BAND_GUTTER_MIN_WIDTH: usize = 2;
 // An expanded command step can emit hundreds of stdout/stderr lines, burying
 // the trailing "events" — the `exit N` line and the termination footer
 // (timeout / blocked / cancelled) — far below the fold. Folding collapses the
-// verbose middle into a three-row negative-space gap (blank / `N lines
-// omitted` / blank), keeping a head of leading context and a tail of trailing
+// verbose middle into a self-contained *block* — a blank row, two annotated
+// rows, a blank row — keeping a head of leading context and a tail of trailing
 // context plus every event footer always visible.
 //
 // The window is deliberately **tail-heavy**, mirroring the model-facing
@@ -391,15 +391,79 @@ pub const CODE_BAND_GUTTER_MIN_WIDTH: usize = 2;
 pub const BASH_FOLD_HEAD_ROWS: usize = 2;
 /// Trailing output lines kept visible below a folded bash middle.
 pub const BASH_FOLD_TAIL_ROWS: usize = 6;
-/// Rows the fold's compact chrome occupies (single embedded divider row).
-pub const BASH_FOLD_CHROME_ROWS: usize = 1;
+/// Rows the fold's compact chrome occupies: one blank row above the folded
+/// block, the two annotated rows that state the fact and its verbs, and one
+/// blank row below.
+///
+/// The blank rows are part of the *chrome budget*, not decoration: they are
+/// what separates the fold from the rows it interrupts, so a reader can select
+/// the head or the tail with a drag without ever catching the fold's own rows.
+/// Counting them here keeps [`bash_fold_applies`]'s closed geometry honest.
+pub const BASH_FOLD_CHROME_ROWS: usize = 4;
 /// Row count at or below which an expanded body renders verbatim — the
 /// smallest body for which folding renders strictly fewer rows.
 pub const BASH_FOLD_MIN_VERBATIM_ROWS: usize =
     BASH_FOLD_HEAD_ROWS + BASH_FOLD_CHROME_ROWS + BASH_FOLD_TAIL_ROWS;
 
-/// Left rail vertical track glyph for command execution blocks (Left Rail style).
-pub const COMMAND_RAIL_GLYPH: &str = "│";
+/// Columns the folded block is inset by, relative to the rows it interrupts.
+///
+/// The fold is *annotative*: it is the one region of a command body that is not
+/// process output, so it steps in from the content's own left edge instead of
+/// claiming a column the output uses. Two columns is enough to read as an inset
+/// and small enough that the block still belongs to the command above it.
+pub const BASH_FOLD_INSET_COLS: usize = 2;
+
+/// Left gutter mark of the folded block: one column wide, painted on both of
+/// the block's text rows so they read as one object rather than two loose
+/// lines.
+///
+/// It is the same glyph the transcript already uses for "this row is a
+/// structure marker, not content" (`Theme::pane_marker_glyph`), which is why
+/// the fold spells it as a constant here rather than inventing a second mark.
+/// A *bounded* mark — not a track down the block — is what keeps stdout clean
+/// for the terminal's own shift-drag selection: everything the user would copy
+/// lives in columns the gutter never touches.
+pub const BASH_FOLD_GUTTER_GLYPH: &str = "▎";
+
+/// The same gutter mark on the ASCII glyph set, where `▎` renders as a box in
+/// many terminals.
+pub const BASH_FOLD_GUTTER_GLYPH_ASCII: &str = "|";
+
+/// The gutter mark a theme actually draws.
+pub const fn bash_fold_gutter_glyph(ascii: bool) -> &'static str {
+    if ascii {
+        BASH_FOLD_GUTTER_GLYPH_ASCII
+    } else {
+        BASH_FOLD_GUTTER_GLYPH
+    }
+}
+
+/// Columns the fold block must be able to spend before it will append a failure
+/// signature to its fact row.
+///
+/// `[INV-FOLD-01]` requires the fold to disclose the failure site it hides, but a
+/// shredder is worse than a silence: `truncate_to_width` cuts at grapheme
+/// boundaries, so a tight budget turns `error[E0425]: cannot find value …` into
+/// `error[E042…` — a string that reads as an error code and is not one. Below
+/// this floor the block prints the count alone, which is honest, and the reader
+/// presses the verb to see the real thing.
+pub const BASH_FOLD_SIGNATURE_MIN_COLS: usize = 8;
+
+/// The key token of the "read the whole log" verb.
+///
+/// `v` for *view*: the fold's second row is written as a sentence, so the key it
+/// highlights has to be the word the sentence says. It is advertised here by one
+/// constant because the fold block, the focused-entry hint row, the command-log
+/// scene's footer and the scene switcher all describe the same gesture — two
+/// literals is how a footer comes to promise a key no handler serves.
+pub const VIEW_LOG_KEY: &str = "v";
+
+/// The key token of the "copy" verb (the rows a fold hides, or the log scene's
+/// visible slice), as every row that advertises it prints it.
+pub const COPY_LOG_KEY: &str = "y";
+
+/// The key token of the log scene's scope toggle (`full` ⇄ `hidden`).
+pub const LOG_SCOPE_KEY: &str = "h";
 
 // The bias is the point of the window: if this ever inverts, the fold would
 // hide the outcome it exists to preserve. Compile-time, so no test run is

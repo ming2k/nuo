@@ -34,8 +34,7 @@ fn dialog_keys_area(frame: &Frame, parent: DialogKind, desired_content_rows: u16
         | DialogKind::Switcher
         | DialogKind::PortShare
         | DialogKind::Help
-        | DialogKind::Notices
-        | DialogKind::CommandOutput => modal_area(frame, FixedModalSpec::PROVIDER),
+        | DialogKind::Notices => modal_area(frame, FixedModalSpec::PROVIDER),
         DialogKind::Tools => {
             let spec = ContentModalSpec::TOOLS;
             let desired = desired_content_rows + modal_chrome_rows(spec.modal_spec());

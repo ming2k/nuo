@@ -466,7 +466,7 @@ impl SessionDriver {
             // favorite / key-ready / last-used) so the picker is ready the moment
             // the user opens it.
             let _ = resp_tx.send(AgentResponse::ProviderPicker(
-                nuo_model_routing::build_picker_state(&config, &provider_usage),
+                crate::handlers_provider::build_live_picker_state(&config, &provider_usage),
             ));
             // Announce the active provider/model as a synthetic `ProviderSwitched`
             // so an attach client (which subscribes to the broadcast only after the
@@ -1058,6 +1058,11 @@ impl SessionDriver {
                             session_id,
                         }
                     }));
+                    let quota_resp_tx = resp_tx.clone();
+                    tokio::spawn(async move {
+                        crate::handlers_provider::query_provider_quotas(&quota_resp_tx, None, true)
+                            .await;
+                    });
                 }
                 AgentRequest::DeleteThread { id } => {
                     let session = session.clone();

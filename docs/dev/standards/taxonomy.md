@@ -49,11 +49,11 @@ Documentation is structured into two surfaces separated by a one-way visibility 
 ```
 
 1. **User Surface**: Addressed to end users and external developers. Emphasizes user workflows, stable API contracts, and usage scenarios.
-2. **Engineering Surface**: Addressed to contributors, maintainers, and development agents. Emphasizes internal subsystem blueprints, architecture decisions, and development standards.
+2. **Engineering Surface**: Addressed to contributors, maintainers, and development agents. Emphasizes internal subsystem architecture, decision records, and development standards.
 3. **Audience Firewall**: Public documentation surfaces (`docs/{tutorials,how-to,reference,explanation}/`) must never contain relative links pointing into the internal maintainer space (`docs/dev/**`). Links into `docs/adr/` remain permitted: a public reader may follow a decision record, but not a contributor runbook.
 4. **Reverse Linking Permitted**: Internal documents may freely link outward to public reference and how-to guides.
 
-The firewall is a mechanical gate, not a convention: `nuo::dev::doc_links` fails the build when a public surface links into `docs/dev/**` (`cargo test -p nuo --test doc_governance -- test_doc_links`).
+This boundary ensures that end-user documentation remains focused on public workflows and does not leak maintainer-internal runbooks.
 
 ---
 
@@ -70,11 +70,9 @@ All other documentation must reside within organized directories under `docs/`.
 
 ### User-Owned Surfaces (Excluded)
 
-A root file may also exist because users expect it there, without being repository documentation. Such files are **outside** every rule in this document and in [`style.md`](style.md): they are neither link-checked, anchor-checked, nor citable as repository authority.
+A root file may also exist because users expect it there, without being repository documentation. Such files are **outside** every rule in this document and in [`style.md`](style.md): they are neither citable as repository authority nor part of the product's documentation.
 
 - `AGENTS.md` — user-authored agent guidance. The product loads it as untrusted workspace input behind the trust gate (`nuo_host::security::PROJECT_RULE_FILES`), alongside `.cursorrules` and `.windsurfrules`. Its shape belongs to whoever owns the workspace, not to this repository ([ADR-0141](../../adr/0141-agents-md-is-user-owned-workspace-input-not-repository-documentation.md)).
 
-The exclusion is mechanical, not conventional. `nuo::dev::doc_links` drops `USER_OWNED_SURFACES` from the governed file set — such a file is never link-, anchor- or absolute-locator-checked, so its owner may restructure it freely — and applies two rules to governed documentation (`cargo test -p nuo --test doc_governance`):
-
-1. **Nomination**: a user-owned surface must be named as an inline code span. A bare filename in prose is rejected, because it is indistinguishable from an authority claim.
+1. **Nomination**: a user-owned surface must be named as an inline code span. A bare filename in prose is avoided, because it is indistinguishable from an authority claim.
 2. **Citation**: a code-styled mention qualified by a section number (for example the string `AGENTS.md §3`) is rejected. Code styling must not launder a citation of the file's contents; to discuss such a defect, quote the whole citation as one code span.

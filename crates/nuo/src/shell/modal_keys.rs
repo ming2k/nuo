@@ -81,7 +81,10 @@ fn has_body_scroll(overlay: Option<OverlaySurface>, scene: SceneKind) -> bool {
                 )
         )
     } else {
-        matches!(scene, SceneKind::Dashboard | SceneKind::Settings)
+        matches!(
+            scene,
+            SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+        )
     }
 }
 
@@ -151,27 +154,6 @@ pub(crate) fn resolve_modal_key(
                     KeyCode::PageDown => return Some(InputAction::ScrollPageDown),
                     KeyCode::Home => return Some(InputAction::ScrollTop),
                     KeyCode::End => return Some(InputAction::ScrollBottom),
-                    KeyCode::Char('t') | KeyCode::Char('T') => {
-                        return Some(InputAction::CreateNewSession);
-                    }
-                    KeyCode::Char('w') | KeyCode::Char('W') => {
-                        return Some(InputAction::CloseTab);
-                    }
-                    KeyCode::Char('d') | KeyCode::Char('D') => {
-                        return Some(InputAction::NavigateDashboard);
-                    }
-                    KeyCode::Char(',') => {
-                        return Some(InputAction::NavigateSettings);
-                    }
-                    KeyCode::Char('p') | KeyCode::Char('P') => {
-                        return Some(InputAction::ViewSwitcherToggle);
-                    }
-                    KeyCode::Char('s') | KeyCode::Char('S') => {
-                        return Some(InputAction::OpenSessions);
-                    }
-                    KeyCode::Char('o') | KeyCode::Char('O') => {
-                        return Some(InputAction::OpenNotices);
-                    }
                     _ => return None,
                 }
             }

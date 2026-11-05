@@ -94,6 +94,8 @@ Standalone glyphs (from `design.rs` and `primitives.rs`):
 | `▎` | `QUOTE_GUTTER_GLYPH` / `PANE_MARKER_GLYPH` | Quoted content gutter / transcript focused entry gutter marker |
 | `↳` | `QUESTION_ANSWER_GLYPH` | Answer marker under a question |
 | `│` / `┃` | — | Band borders (thin / thick identity bar) |
+| `▎` | `BASH_FOLD_GUTTER_GLYPH` | The folded command block's gutter mark (`bash_fold_gutter_glyph` degrades it to `\|` on the ASCII glyph set). Bounded to the block's two text rows, never a track down the body: the block is *annotative* (a count and two verbs no process printed), so it is inset and marked, while every verbatim row stays clean for the terminal's own shift-drag selection (ADR-0150) |
+| `$` | — | The command block's invocation prompt, in `theme.command_prompt()` (brand; content tone on a monochrome profile) |
 | `▾` / `▸` | — | Expanded / collapsed disclosure markers |
 
 The ASCII `<` / `>` transcript leads (and their "Unix stdin/stdout redirection" rationale) are retired: one canonical single guillemet now fronts every lead, per the ADR-0092 single-guillemet typography standard.

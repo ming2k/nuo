@@ -409,15 +409,15 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::CommandPalette,
         label: "Command Palette",
-        hint: "/commands",
+        hint: "Ctrl-Shift-p",
         category: CommandCategory::Global,
         scope: Scope::Global,
-        bindings: &[],
-        slash: Some("/commands"),
+        bindings: &[Key::CTRL_SHIFT_P],
+        slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L0Footer,
         danger: DangerLevel::Safe,
-        description: "Open unified command palette and surface switcher (/commands)",
+        description: "Open unified command palette (Ctrl-Shift-p)",
     },
     CommandSpec {
         id: CommandId::CancelOrBack,
@@ -478,7 +478,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         category: CommandCategory::Global,
         scope: Scope::Global,
         bindings: &[Key::ALT_W],
-        slash: Some("/close"),
+        slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
@@ -669,15 +669,15 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
     CommandSpec {
         id: CommandId::NavigateDashboard,
         label: "Session Dashboard",
-        hint: "/dashboard",
+        hint: "Alt-0",
         category: CommandCategory::Navigate,
         scope: Scope::Global,
-        bindings: &[],
-        slash: Some("/dashboard"),
+        bindings: &[Key::ALT_0],
+        slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open server session orchestrator dashboard (/dashboard)",
+        description: "Open or focus session dashboard tab (Alt-0)",
     },
     CommandSpec {
         id: CommandId::NavigateSettings,
@@ -686,11 +686,11 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         category: CommandCategory::Settings,
         scope: Scope::Global,
         bindings: &[Key::ALT_COMMA],
-        slash: Some("/settings"),
+        slash: None,
         availability: avail_always,
         disclosure: DisclosurePriority::L2Palette,
         danger: DangerLevel::Safe,
-        description: "Open application and appearance settings (Alt-, / /settings)",
+        description: "Open application and appearance settings tab (Alt-,)",
     },
     CommandSpec {
         id: CommandId::OpenQueue,
@@ -1447,11 +1447,11 @@ impl LiveHint {
 /// The canonical global chords a user may remap via the `[keybindings]` config.
 fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
     match cmd {
-        CommandId::CommandPalette => None,
+        CommandId::CommandPalette => Some(Key::CTRL_SHIFT_P),
         CommandId::Quit => Some(Key::CTRL_C),
         CommandId::CloseTab => Some(Key::ALT_W),
         CommandId::NewTab => Some(Key::ALT_T),
-        CommandId::NavigateDashboard => None,
+        CommandId::NavigateDashboard => Some(Key::ALT_0),
         CommandId::NavigateSettings => Some(Key::ALT_COMMA),
         CommandId::KillThread => None,
         CommandId::CopySelection => Some(Key::CTRL_SHIFT_C),
@@ -1475,7 +1475,7 @@ fn canonical_global_chord(cmd: CommandId) -> Option<Key> {
 /// Ctrl+Q queue, Esc dismiss/step-back, Ctrl+C quit,
 /// Ctrl+Shift+C copy), ignoring user overrides. Esc resolves to
 /// [`CommandId::CancelOrBack`], which never navigates between Scenes.
-/// The Command Palette is accessible via `/commands` and user remaps.
+/// The Command Palette is accessible via `Ctrl-Shift-P` and user remaps.
 fn canonical_global_key(key: Key) -> Option<CommandId> {
     if key == Key::F1 || key == Key::ALT_H {
         Some(CommandId::OpenHelp)
@@ -1497,8 +1497,12 @@ fn canonical_global_key(key: Key) -> Option<CommandId> {
         Some(CommandId::CloseTab)
     } else if key == Key::ALT_T {
         Some(CommandId::NewTab)
+    } else if key == Key::ALT_0 {
+        Some(CommandId::NavigateDashboard)
     } else if key == Key::ALT_COMMA {
         Some(CommandId::NavigateSettings)
+    } else if key == Key::CTRL_SHIFT_P {
+        Some(CommandId::CommandPalette)
     } else if key == Key::CTRL_SHIFT_C || key == Key::CMD_C {
         Some(CommandId::CopySelection)
     } else {
@@ -1851,12 +1855,18 @@ mod tests {
 
     #[test]
     fn global_keys_resolve_correctly() {
-        // The Command Palette has no canonical single-stroke chord: it is
-        // opened by the `C-x` scene namespace's `p` verb (ADR-0023).
         assert_eq!(resolve_global_key(Key::CTRL_L), None);
         // Alt-o is the notice viewer's chord: the fault bubble advertises it,
         // so it must resolve to the verb the bubble names.
         assert_eq!(resolve_global_key(Key::ALT_O), Some(CommandId::OpenNotices));
+        assert_eq!(
+            resolve_global_key(Key::ALT_0),
+            Some(CommandId::NavigateDashboard)
+        );
+        assert_eq!(
+            resolve_global_key(Key::CTRL_SHIFT_P),
+            Some(CommandId::CommandPalette)
+        );
         assert_eq!(resolve_global_key(Key::ESC), Some(CommandId::CancelOrBack));
         assert_eq!(resolve_global_key(Key::CTRL_C), Some(CommandId::Quit));
         assert_eq!(resolve_global_key(Key::CTRL_Q), Some(CommandId::OpenQueue));
@@ -2176,21 +2186,17 @@ mod tests {
             Some(CommandId::OpenModels)
         );
         assert_eq!(
-            find_by_slash("/settings").map(|c| c.id),
-            Some(CommandId::NavigateSettings)
+            find_by_slash("/tools").map(|c| c.id),
+            Some(CommandId::OpenTools)
         );
         assert_eq!(
-            find_by_slash("/dashboard").map(|c| c.id),
-            Some(CommandId::NavigateDashboard)
+            find_by_slash("/stats").map(|c| c.id),
+            Some(CommandId::OpenThreadStats)
         );
-        assert_eq!(find_by_slash("/new").map(|c| c.id), Some(CommandId::NewTab));
-        assert_eq!(
-            find_by_slash("/close").map(|c| c.id),
-            Some(CommandId::CloseTab)
-        );
-        assert_eq!(
-            find_by_slash("/commands").map(|c| c.id),
-            Some(CommandId::CommandPalette)
-        );
+        // ADR-0151 [INV-PLANE-01]: Workspace operations carry no slash trigger.
+        assert!(find_by_slash("/settings").is_none());
+        assert!(find_by_slash("/dashboard").is_none());
+        assert!(find_by_slash("/close").is_none());
+        assert!(find_by_slash("/commands").is_none());
     }
 }

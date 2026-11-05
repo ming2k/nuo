@@ -478,7 +478,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             return ok(Mode::Dev(DevAction::Export(out_dir)));
         } else if extra[0] == "census" || extra[0] == "check" {
             return Err(
-                "'nuo dev check' and 'nuo dev census' were consolidated into 'cargo test -p nuo-governance'.\n\n  tip: run 'cargo test -p nuo-governance' to execute all repository governance and architecture firewall gates."
+                "'nuo dev check' and 'nuo dev census' were consolidated into 'cargo test -p nuo --test architecture_firewall'.\n\n  tip: run 'cargo test -p nuo --test architecture_firewall' to execute all architecture firewall gates."
                     .into(),
             );
         } else {

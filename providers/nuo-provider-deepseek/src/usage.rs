@@ -150,13 +150,25 @@ pub(crate) fn parse_deepseek_balance(
         .map(|d| d.as_millis() as u64)
         .ok();
 
+    let mut model_rules = Vec::new();
+    if !body.is_available {
+        model_rules.push(nuo_protocol::ModelAvailabilityRule {
+            pattern: "*".to_string(),
+            availability: nuo_protocol::Availability::disabled(
+                "disabled: balance",
+                Some("DeepSeek account balance is depleted or unavailable".to_string()),
+                None,
+            ),
+        });
+    }
+
     Ok(ProviderUsage {
         plan,
         description: None,
         quota: Some(ProviderQuotaData::Balance(balance_quota)),
         primary_balance: Some(primary_balance),
         metrics,
-        model_rules: Vec::new(),
+        model_rules,
         updated_at_ms: now_ms,
     })
 }

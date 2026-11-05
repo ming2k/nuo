@@ -81,7 +81,7 @@ nuo-repo/
 │   ├── nuo-tool-web/
 │   └── nuo-tool-ast/
 │
-├── docs/                        # Architecture & governance blueprints
+├── docs/                        # Architecture & design documentation
 ├── Cargo.toml                   # Root workspace manifest with glob members
 └── AGENTS.md
 ```

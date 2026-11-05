@@ -426,33 +426,35 @@ fn help_dialog_keyboard_navigation_and_scrolling() {
             KeyEvent::new(KeyCode::End, KeyModifiers::NONE),
             InputAction::ScrollBottom,
         ),
+        // ADR-0151 [INV-PLANE-02]: Help dialog is a pure reference modal.
+        // Bare printable characters do not dispatch modal actions.
         (
             KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
-            InputAction::CreateNewSession,
+            InputAction::None,
         ),
         (
             KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE),
-            InputAction::CloseTab,
+            InputAction::None,
         ),
         (
             KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
-            InputAction::NavigateDashboard,
+            InputAction::None,
         ),
         (
             KeyEvent::new(KeyCode::Char(','), KeyModifiers::NONE),
-            InputAction::NavigateSettings,
+            InputAction::None,
         ),
         (
             KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE),
-            InputAction::ViewSwitcherToggle,
+            InputAction::None,
         ),
         (
             KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
-            InputAction::OpenSessions,
+            InputAction::None,
         ),
         (
             KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE),
-            InputAction::OpenNotices,
+            InputAction::None,
         ),
     ] {
         let action = route_event(
@@ -632,4 +634,40 @@ fn question_mark_in_dialog_search_mode_inserts_char() {
     assert_eq!(action, InputAction::InsertChar('?'));
     assert_eq!(input, "?");
     assert_eq!(cursor, 1);
+}
+
+#[test]
+fn adr_0151_workspace_tab_chords_and_palette_routing() {
+    let mut input = String::new();
+    let mut cursor = 0;
+    let mut drag = SelectionDrag::default();
+
+    // Alt-0 dispatches NavigateDashboard (ADR-0151 [INV-PLANE-04])
+    let action_alt_0 = route_event(
+        Event::Key(KeyEvent::new(KeyCode::Char('0'), KeyModifiers::ALT)),
+        &mut input,
+        &mut cursor,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action_alt_0, InputAction::NavigateDashboard);
+
+    // Ctrl-Shift-P dispatches ViewSwitcherToggle (ADR-0151 [INV-PLANE-05])
+    let action_palette = route_event(
+        Event::Key(KeyEvent::new(
+            KeyCode::Char('p'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        )),
+        &mut input,
+        &mut cursor,
+        Dispatch::default(),
+        &ModalKeys::default(),
+        &SheetKeys::default(),
+        &SceneKeys::default(),
+        &mut drag,
+    );
+    assert_eq!(action_palette, InputAction::ViewSwitcherToggle);
 }

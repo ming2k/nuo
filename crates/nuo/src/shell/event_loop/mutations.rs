@@ -215,7 +215,13 @@ pub(crate) enum TranscriptEdit {
     /// command never answered", which is the opposite of what happened
     /// (ADR-0140 `[INV-CMD-08]`: the event is authority, the catalog is only an
     /// optimisation, and a wrong optimisation must be reversible).
-    WithdrawStagedCommand { invocation: String },
+    ///
+    /// When `restore_draft` is true (ADR-0149), the invocation draft is returned
+    /// to the composer if the composer is currently empty.
+    WithdrawStagedCommand {
+        invocation: String,
+        restore_draft: bool,
+    },
     /// Cancel every still-Pending command row (round boundary with no reply
     /// on this pass).
     CancelPendingCommands,

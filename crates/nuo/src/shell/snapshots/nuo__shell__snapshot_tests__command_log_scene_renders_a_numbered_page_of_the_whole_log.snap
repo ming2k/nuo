@@ -1,0 +1,23 @@
+---
+source: crates/nuo/src/shell/snapshot_tests.rs
+expression: grid
+---
+
+ build                                                                   F1 help
+  log  $ cargo build — exit 1
+   1  line 1
+   2  line 2
+   3  line 3
+   4  line 4
+   5  line 5
+   6  line 6
+   7  line 7
+   8  line 8
+   9  line 9
+  10  line 10
+  11  line 11
+  12  line 12
+  13  line 13
+  14  line 14
+
+  20 rows   1 / 7   exit 1           h hidden only  y copy  ↑/↓ scroll  Esc back

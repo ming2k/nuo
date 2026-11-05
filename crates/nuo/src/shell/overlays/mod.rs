@@ -12,7 +12,7 @@
 //! - [`toast`] — copy / armed-action notice bubbles
 //! - [`common`] — shared helpers (time formatting, truncation, caret, glyphs)
 
-pub mod command_output;
+pub mod command_log;
 pub mod command_palette;
 pub mod common;
 pub mod dashboard;
@@ -48,7 +48,9 @@ pub use dashboard::{
 // `DashboardRects` is used by the event loop via `draw_dashboard`'s return; it
 // is part of the module's public API surface.
 #[allow(unused_imports)]
-pub use command_output::draw_command_output_modal;
+pub use command_log::{
+    LOG_SCENE_CHROME_ROWS, LogSceneProps, LogSceneRects, draw_command_log_scene,
+};
 pub(crate) use command_palette::draw_command_palette;
 pub use dashboard::DashboardRects;
 pub use dialog_keys::draw_dialog_keys;

@@ -33,6 +33,7 @@ pub(crate) use modals::{
     handle_permission_submit, handle_submit_model_editor, modal_page_step, question_effects,
 };
 
+#[allow(unused_imports)]
 pub(super) use commands::split_command_word;
 #[allow(unused_imports)]
 pub(crate) use commands::{
@@ -1678,36 +1679,70 @@ pub(super) async fn dispatch_action<W: std::io::Write>(
             }
         }
         input::InputAction::CopyFocusedTarget => {
+            // On a folded command step, `y` is the divider's `copy` verb: the
+            // user is pointing at a row that says "N lines hidden", so the answer
+            // is those N rows. Every other focused entry keeps the verbatim-entry
+            // meaning, because there is nothing hidden for the label to promise.
             if let Some(target) = app.focus.entry() {
-                clipboard_ops::copy(
-                    app,
-                    crate::shell::copy::CopyRequest::Entry {
-                        message_idx: target.message_idx,
-                    },
-                    viewed_session_id,
-                    copy_tx,
-                    copy_pending,
-                );
+                if let Some((text, feedback)) =
+                    crate::shell::copy::fold_hidden_rows_copy(app, target.message_idx)
+                {
+                    clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+                    app.copy_toast_message = feedback;
+                    app.copy_toast_failed = false;
+                    app.copy_toast_until =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+                } else {
+                    clipboard_ops::copy(
+                        app,
+                        crate::shell::copy::CopyRequest::Entry {
+                            message_idx: target.message_idx,
+                        },
+                        viewed_session_id,
+                        copy_tx,
+                        copy_pending,
+                    );
+                }
             }
         }
         input::InputAction::ViewFocusedTargetOutput => {
             if let Some(target) = app.focus.entry() {
-                app.open_command_output_dialog(target.message_idx);
+                app.open_command_log_scene(target.message_idx);
             }
         }
-        input::InputAction::CommandOutputCopy => {
-            let dlg = app
-                .surfaces
-                .dlg::<crate::shell::surfaces::CommandOutputDialog>();
-            let text = dlg.lines.join("\n");
-            if !text.is_empty() {
-                clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+        input::InputAction::CommandLogCopy => {
+            // The receipt is derived from the same value the bytes came from, so
+            // the toast cannot describe a different slice than the clipboard got.
+            let Some(log) = app.command_log.as_ref() else {
+                return ActionFlow::Handled;
+            };
+            let text = log.copy_text();
+            if text.is_empty() {
                 show_local_toast(
                     app,
-                    "command output copied to clipboard",
-                    false,
-                    std::time::Duration::from_millis(1500),
+                    "this log has no rows to copy",
+                    true,
+                    std::time::Duration::from_millis(1600),
                 );
+                return ActionFlow::Handled;
+            }
+            let feedback = log.copy_feedback();
+            clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
+            app.copy_toast_message = feedback;
+            app.copy_toast_failed = false;
+            app.copy_toast_until =
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+        }
+        input::InputAction::CommandLogToggleScope => {
+            if let Some(log) = app.command_log.as_mut()
+                && log.can_scope_toggle()
+            {
+                log.scope = log.scope.toggled();
+                // The two scopes have different lengths, so a scroll offset that
+                // was valid in one is out of range in the other. Re-anchor at the
+                // top rather than clamping into the middle: the reader just asked
+                // to see a different slice, and the first row of it is the answer.
+                app.command_log_scroll = 0;
             }
         }
         input::InputAction::CopyFocusedDiagnostic => {
@@ -2773,6 +2808,10 @@ pub(super) fn enter_panel(
                 force_refresh: false,
             })
         }
+        DialogKind::Models => Some(AgentRequest::QueryProviderQuotas {
+            provider: None,
+            force_refresh: false,
+        }),
         DialogKind::ThreadStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
             if app.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
@@ -2968,7 +3007,9 @@ pub(super) fn enter_scene(
             app.host_kill_confirm_id = None;
             None
         }
-        SceneKind::Thread | SceneKind::Subagent => None,
+        // The log scene reads state the transcript already holds; entering it
+        // asks the backend for nothing.
+        SceneKind::CommandLog | SceneKind::Thread | SceneKind::Subagent => None,
     };
     if let Some(request) = request
         && !app.send_intent(request)

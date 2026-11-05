@@ -186,7 +186,16 @@ impl ClientNotice {
                     NoticeSeverity::Info
                 },
                 topic: ClientTopic::Command.label(),
-                title: invocation.clone(),
+                title: if *failed {
+                    let first_line = body.lines().next().unwrap_or(body.as_str()).trim();
+                    if first_line.is_empty() {
+                        format!("Failed: {invocation}")
+                    } else {
+                        first_line.to_string()
+                    }
+                } else {
+                    invocation.clone()
+                },
                 detail: Some(body.clone()),
             },
             Self::LinkSendFailed => RenderedNotice {

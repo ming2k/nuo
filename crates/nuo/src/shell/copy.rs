@@ -187,6 +187,48 @@ pub(crate) fn diagnostic_for_current_focus(app: &App) -> Option<CopyRequest> {
     })
 }
 
+/// Resolve "copy the rows this command step's fold hides" into `(text, receipt)`.
+///
+/// This is the fold divider's `copy` verb, and it is deliberately **not**
+/// [`CopyRequest::Entry`]: copying a folded step entry copies the model-facing
+/// payload, which is the whole log plus its framing markers — not what the user
+/// pointed at. They pointed at a divider that says "N lines hidden", so the
+/// answer is exactly those N rows (plus the `$ invocation`, so the paste carries
+/// the question as well as the answer).
+///
+/// `None` when the step holds nothing hidden: a verb that cannot honour its own
+/// label reports that, rather than putting the entire log on the clipboard under
+/// a receipt that claims it copied the hidden part.
+pub(crate) fn fold_hidden_rows_copy(app: &App, mi: usize) -> Option<(String, String)> {
+    use nuo_view::model::command_log::{CommandLog, LogScope};
+    use nuo_view::model::document::MessageKind;
+    use nuo_view::tools::shell_output::{ShellOutput, is_command_body};
+
+    let message = app.focused_messages().get(mi)?;
+    let MessageKind::ToolStep {
+        name,
+        arguments,
+        output,
+        structured,
+        ..
+    } = &message.kind
+    else {
+        return None;
+    };
+    let structured = structured.as_deref();
+    if !is_command_body(name, structured) {
+        return None;
+    }
+    let output = output.as_deref().unwrap_or("");
+    let fold = ShellOutput::derive(output, structured).fold()?;
+    let mut log = CommandLog::derive(mi, arguments, output, structured, Some(fold));
+    log.scope = LogScope::HiddenOnly;
+    if log.is_empty() {
+        return None;
+    }
+    Some((log.copy_text(), log.copy_feedback()))
+}
+
 /// Where this client writes its rolling log, if logging is enabled.
 ///
 /// The record carries the path because "now check the log" is useless advice

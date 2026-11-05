@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 fn workspace_root() -> PathBuf {
-    nuo_governance::find_workspace_root()
+    nuo::dev::find_workspace_root()
 }
 
 fn read(path: &Path) -> String {

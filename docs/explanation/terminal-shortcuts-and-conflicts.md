@@ -111,11 +111,13 @@ To resolve these contradictions without degrading either text editing or applica
 │   ※ Rule: Application actions NEVER steal these chords          │
 ├─────────────────────────────────────────────────────────────────┤
 │ Layer 2: Viewport & Workspace Navigation (Alt & Function Keys)  │
-│   Alt-1..9 (jump tab), Alt-[ / Alt-] (history back/forward)     │
-│   Alt-w (close tab), F1 (keybindings), Shift-Tab (peer plane)   │
+│   Alt-0 (dashboard), Alt-1..9 (jump tab), Alt-, (settings)      │
+│   Alt-[ / Alt-] (history back/forward), Alt-w (close tab)       │
+│   Alt-t (new tab), F1 (keybindings), Shift-Tab (peer plane)     │
+│   Ctrl-Shift-P (command palette)                                │
 ├─────────────────────────────────────────────────────────────────┤
-│ Layer 3: Universal Fallback (First-Class Slash Commands)       │
-│   /dashboard, /settings, /close, /new, /help, /commands         │
+│ Layer 3: Universal Fallback (Thread Commands & Guardrails)      │
+│   /model, /compact, /fork, /diff, /threads, /help               │
 │   ※ Rule: 100% immune to terminal emulator and Option quirks   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -141,11 +143,12 @@ To resolve these contradictions without degrading either text editing or applica
 | **`Shift-Tab`** | Cross composer ⇄ transcript | Symmetric peer-plane crossing | A dedicated CSI sequence (no Kitty requirement, no POSIX line-discipline key, no macOS Option composition); pairs with `Tab`, which acts *inside* the composer plane. |
 | **`F1` / `Alt-h`** | Sovereign Help Dialog | Composer collision | `F1` provides zero-conflict discovery; `Alt-h` provides home-row ergonomics (ADR-0131). |
 | **`Alt-w`** | Close active tab | Avoids `Ctrl-W` word-kill | Keeps `Ctrl-W` intact for backward word deletion in prompts. |
+| **`Alt-t`** | New thread tab | Avoids `Ctrl-T` transpose | Tab creation in workspace. |
+| **`Alt-0`** | Open / switch to Dashboard | Avoids `Alt-D` Readline word-kill | Number-row workspace hub access without stealing `kill-word` (ADR-0151). |
+| **`Alt-,`** | Open / switch to Settings | Collision-free punctuation key | Zero-conflict settings workspace access. |
 | **`Alt-1` .. `Alt-9`** | Jump to tab index | Number row ergonomics | Avoids collision with text typing while enabling instant random tab access. |
 | **`Alt-[` / `Alt-]`** | Tab history back / forward | Avoids `Alt-Left/Right` word skip | Protects word-skipping in composer while giving symmetric navigation (ADR-0092). |
-| **`/dashboard`** | Open / switch to Dashboard | Zero shortcut dependence | Guaranteed routing regardless of terminal emulator key bindings. |
-| **`/settings`** | Open / switch to Settings | Zero shortcut dependence | Clean text command avoiding keyboard mapping ambiguities. |
-| **`/close`** | Close current tab | Terminal emulator fallback | Textual equivalent of `Alt-w` for restricted keyboards. |
+| **`Ctrl-Shift-P`** | Open Command Palette | Zero prompt dependency | Universal editor convention for natural-language action discovery. |
 
 ---
 
@@ -187,5 +190,6 @@ return config
 
 ### Remote SSH & Mobile Environments
 When accessing Nuo over constrained environments (e.g., Mosh, web terminals, tablet keyboards):
-- Use **Slash Commands** (`/dashboard`, `/settings`, `/close`, `/new`, `/commands`).
+- Use **Workspace Chords** (`Alt-0` for dashboard, `Alt-,` for settings, `Alt-w` for close tab, `Alt-t` for new tab, `Alt-1..9` for direct tab switching).
+- Press **`Ctrl-Shift-P`** to access the full Command Palette.
 - Press **`F1`** at any time to inspect active contextual shortcuts and client domain actions.

@@ -194,9 +194,26 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
     }
 
     let mut periodic = None;
+    let mut model_rules = Vec::new();
     if let Some(wl) = body.window_limits {
         let mut buckets = Vec::new();
         if let Some(fh) = wl.five_hour {
+            let used_frac = if fh.cap > 0.0 {
+                (fh.used / fh.cap).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let reset_at_ms = fh.reset_at.map(|s| s * 1000);
+            if wl.limited || used_frac >= 0.999 {
+                model_rules.push(nuo_protocol::ModelAvailabilityRule {
+                    pattern: "*".to_string(),
+                    availability: nuo_protocol::Availability::disabled(
+                        "disabled: 5h limit",
+                        Some("5h rolling quota limit reached for Command Code".to_string()),
+                        reset_at_ms,
+                    ),
+                });
+            }
             buckets.push(window_bucket(
                 "5-Hour Limit",
                 QuotaWindowKind::Rolling5Hour,
@@ -204,6 +221,22 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
             ));
         }
         if let Some(w) = wl.weekly {
+            let used_frac = if w.cap > 0.0 {
+                (w.used / w.cap).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let reset_at_ms = w.reset_at.map(|s| s * 1000);
+            if wl.limited || used_frac >= 0.999 {
+                model_rules.push(nuo_protocol::ModelAvailabilityRule {
+                    pattern: "*".to_string(),
+                    availability: nuo_protocol::Availability::disabled(
+                        "disabled: weekly quota",
+                        Some("Weekly quota limit reached for Command Code".to_string()),
+                        reset_at_ms,
+                    ),
+                });
+            }
             buckets.push(window_bucket("Weekly Limit", QuotaWindowKind::Weekly, w));
         }
         if !buckets.is_empty() {
@@ -236,7 +269,7 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
         quota,
         primary_balance: remaining.map(|r| format!("{r:.2} credits")),
         metrics,
-        model_rules: Vec::new(),
+        model_rules,
         updated_at_ms: now_ms,
     }
 }

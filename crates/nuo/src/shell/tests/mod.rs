@@ -216,6 +216,9 @@ fn app_in_tempdir(files: &[&str], dirs: &[&str]) -> (App, tempfile::TempDir) {
         host_kill_confirm_id: None,
         switch_to_target: None,
         pending_help_action: None,
+        pending_fold_copy: None,
+        command_log: None,
+        command_log_scroll: 0,
         switch_to_new: false,
         switch_to_new_prompt: None,
         switch_to_prompt: None,
@@ -452,6 +455,7 @@ async fn console_dispatch(app: &mut App, line: &str, create_when_bare: bool) {
 }
 
 mod attach_readiness;
+mod command_log_scene;
 mod completion;
 mod elevation_pipeline;
 mod gesture_input;

@@ -265,15 +265,21 @@ pub(crate) async fn handle_send_slash(
     //
     // A **reading** stages nothing: it has no durable row, and painting one would
     // promise a membership in the thread that the server is about to decline.
-    // Its reply lands as a receipt in the notice log instead. When the name is
-    // unknown to the catalog (an extension handler, a project command prompt) the
-    // class is `Mutation` — the over-recording default — so the optimistic row is
-    // staged and the server's authoritative event settles it as usual.
+    // Its reply lands as a receipt in the notice log instead.
+    //
+    // Under ADR-0149 `[INV-CMD-09]`, an unknown command or typo (such as `/modles`)
+    // must NOT stage an optimistic row in the transcript either: staging a row
+    // for a typo only to withdraw it milliseconds later causes jarring visual
+    // flicker on screen. Only commands known to the catalog as state mutations
+    // (`is_known && Mutation`) stage an optimistic row. If an uncatalogued extension
+    // command later succeeds on the server as an act, `SettleCommandResult` uses its
+    // fallback mechanism to materialize the row upon completion.
     let (cmd_name, cmd_args) = split_command_word(&cmd);
+    let is_known = app.command_catalog.find(&format!("/{cmd_name}")).is_some();
     let effect = app
         .command_catalog
         .effect_for(&format!("/{cmd_name}"), cmd_args.split_whitespace().next());
-    let stages_row = effect == nuo_protocol::CommandEffect::Mutation;
+    let stages_row = is_known && effect == nuo_protocol::CommandEffect::Mutation;
 
     let is_new_session_cmd = cmd_name == "new"
         || (cmd_name == "session" && cmd_args.split_whitespace().next() == Some("new"));

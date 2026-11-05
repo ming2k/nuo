@@ -6,7 +6,7 @@
 
 Design notes for extending what a model provider declares: pricing, richer model capability
 matrices, and account/tenant dimensions. Written to be executed **after**
-[ADR-0027](../../adr/0027-provider-definition-single-source-and-adapters-retirement.md) reaches
+[ADR-0027](../adr/0027-provider-definition-single-source-and-adapters-retirement.md) reaches
 `accepted` and `[INV-PROV-06]` holds.
 
 ---

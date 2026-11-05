@@ -111,6 +111,18 @@ pub(crate) fn parse_kimi_balance(body: KimiBalanceResponse) -> Result<ProviderUs
         .map(|d| d.as_millis() as u64)
         .ok();
 
+    let mut model_rules = Vec::new();
+    if !body.status || data.available_balance <= 0.0 {
+        model_rules.push(nuo_protocol::ModelAvailabilityRule {
+            pattern: "*".to_string(),
+            availability: nuo_protocol::Availability::disabled(
+                "disabled: balance",
+                Some("Kimi account balance is depleted".to_string()),
+                None,
+            ),
+        });
+    }
+
     Ok(ProviderUsage {
         plan: if body.status {
             Some("Pay-as-you-go".to_string())
@@ -121,7 +133,7 @@ pub(crate) fn parse_kimi_balance(body: KimiBalanceResponse) -> Result<ProviderUs
         quota: Some(ProviderQuotaData::Balance(balance_quota)),
         primary_balance: Some(primary_balance),
         metrics,
-        model_rules: Vec::new(),
+        model_rules,
         updated_at_ms: now_ms,
     })
 }
