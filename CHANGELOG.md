@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.73] - 2026-11-06
+
 ### Added
 
 - **Notice Center Dialog Storybook Component**:
