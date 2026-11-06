@@ -11,6 +11,7 @@ pub mod empty_hero_card;
 pub use nuo_ui_primitives::key;
 pub mod modal_card;
 pub mod notice_card;
+pub mod notice_dialog_card;
 pub mod palette_card;
 pub mod reasoning_card;
 pub mod story;
@@ -197,8 +198,8 @@ mod tests {
         let catalog = default_catalog();
         assert_eq!(
             catalog.len(),
-            41,
-            "Default catalog must aggregate all 41 canonical stories across 10 domains"
+            46,
+            "Default catalog must aggregate all 46 canonical stories across 11 domains"
         );
 
         for story in &catalog {
@@ -214,7 +215,7 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let exported = workbench::Workbench::export_all_snapshots(temp_dir.path()).unwrap();
-        assert_eq!(exported, 41, "Must export all 41 snapshots to disk");
+        assert_eq!(exported, 46, "Must export all 46 snapshots to disk");
     }
 
     #[test]
@@ -496,5 +497,69 @@ mod tests {
             let outcome = instance.handle_key(&key);
             assert_eq!(outcome, story::StoryEventOutcome::Consumed);
         }
+    }
+
+    #[test]
+    fn test_inv_tui_decl_notice_dialog_pure_state_and_snapshot() {
+        use super::notice_dialog_card::NoticeDialogCard;
+
+        let stories = NoticeDialogCard::stories();
+        assert_eq!(
+            stories.len(),
+            5,
+            "NoticeDialogCard must declare 5 canonical stories (Empty, MultiSeverity, Detail, Overflow, Extreme)"
+        );
+
+        for story in stories {
+            let mut instance = instantiate_story::<NoticeDialogCard>(story);
+            let snapshot = render_story_styled_snapshot(instance.as_ref(), 100, 24);
+            assert!(!snapshot.is_empty());
+            assert!(
+                snapshot.contains("Notices & Disclosures"),
+                "Modal header must render: {snapshot}"
+            );
+
+            // Verify interactive message routing (down arrow)
+            let key = crate::shell::declarative::key::Key::Down;
+            let outcome = instance.handle_key(&key);
+            assert_eq!(outcome, story::StoryEventOutcome::Consumed);
+
+            // Verify detail toggle (Enter)
+            let enter_key = crate::shell::declarative::key::Key::Enter;
+            let outcome_enter = instance.handle_key(&enter_key);
+            assert_eq!(outcome_enter, story::StoryEventOutcome::Consumed);
+
+            // Verify copy command (c)
+            let copy_key = crate::shell::declarative::key::Key::Char('c');
+            let outcome_copy = instance.handle_key(&copy_key);
+            assert_eq!(outcome_copy, story::StoryEventOutcome::Consumed);
+
+            // Verify clear action (x) renders empty guidance
+            let clear_key = crate::shell::declarative::key::Key::Char('x');
+            let outcome_clear = instance.handle_key(&clear_key);
+            assert_eq!(outcome_clear, story::StoryEventOutcome::Consumed);
+            let snap_cleared = render_story_styled_snapshot(instance.as_ref(), 100, 24);
+            assert!(
+                snap_cleared.contains("No operational notices"),
+                "Cleared notice state must project empty guidance: {snap_cleared}"
+            );
+
+            // Verify reset (r) restores populated state
+            let reset_key = crate::shell::declarative::key::Key::Char('r');
+            let outcome_reset = instance.handle_key(&reset_key);
+            assert_eq!(outcome_reset, story::StoryEventOutcome::Consumed);
+        }
+
+        // Verify ADR-0112 [INV-TUI-TIER-02] canonical presenter bridge
+        let lines = vec![
+            nuo_view::model::log::SurfaceLine::disclosure(
+                nuo_view::model::log::LineStatus::Info,
+                "Bridge test",
+                1_700_000_000_000,
+            )
+            .with_label("test"),
+        ];
+        let bridged_props = super::notice_dialog_card::NoticeDialogCardProps::from_lines(&lines);
+        assert_eq!(bridged_props.lines.len(), 1);
     }
 }

@@ -64,7 +64,7 @@ Scene kinds are a closed set of four destinations plus one reading surface per t
 
 On Monochrome and ANSI-16 profiles, background fills converge safely onto `theme.element_bg`.
 
-The TabBar is the one band that **bleeds to both terminal edges** (`TABBAR_H_INSET = 0`): the tier is the shell's own top border, so a gutter there reads as a break in the frame rather than as breathing room, and the `tabbar_bg` fill runs the full width instead of ending in two unpainted strips. It is the only tier that does this — the SceneBar and ThreadContextBar keep `TRANSCRIPT_H_INSET`, so the head narrows by two columns below row 1 instead of the top row floating inward. Legibility is carried *inside* the row: every tab label is projected as `" {label} "`, so the first tab still starts with one column of rail padding and consecutive tabs are separated by a single blank column; and the tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before the right-pinned status cluster, so a truncated rail's `…` / `[▾]` can never butt against the `F1 help` keycap. The brand fallback (`nuo`, drawn when no tabs are open) is flush on the same terms.
+The TabBar is the one band whose `tabbar_bg` **bleeds to both terminal edges**: the tier is the shell's own top border, so a broken background fill would read as a tear in the frame. However, internal interactive content is framed with a 1-column margin at both ends (`TABBAR_H_INSET = 1`), preventing tab pills and the right-pinned status cluster from sticking directly against the terminal window's outer border. Adjacent unselected tabs butt seamlessly against each other without separator gaps, disambiguated by alternating background tones (`theme.panel()` and `theme.body()`) to maximize title space in tight terminal geometries. Active tabs take `theme.selected_bg`. The tab rail's width budget reserves `BAR_LEGEND_GAP_MIN` before the right-pinned status cluster, so a truncated rail's `…` / `[▾]` can never butt against the `F1 help` keycap. The brand fallback (`nuo`, drawn when no tabs are open) is framed on the same terms.
 
 The ThreadContextBar reads **who → how → where** left to right, and the workspace is right-anchored for a correctness reason rather than a compositional one: it is the only element that may shrink, so pinning it to the right edge keeps the governance cluster (role + posture) at a fixed screen position. Toggling `/unattended` therefore grows the left cluster into the gap instead of re-truncating the path, and a narrow terminal degrades by shortening the path rather than by stealing columns from safety.
 
@@ -126,7 +126,7 @@ Sizes come from `crates/nuo-tui/src/design.rs` (non-color tokens). Values below 
 | Token | Value | Meaning |
 | :--- | :--- | :--- |
 | `TRANSCRIPT_H_INSET` | 2 | Uniform horizontal inset applied once at the transcript band entry point; also the SceneBar / ThreadContextBar frame gutter |
-| `TABBAR_H_INSET` | 0 | Horizontal inset of the top `TabBar` tier — deliberately flush to both terminal edges; padding lives inside each tab label instead |
+| `TABBAR_H_INSET` | 1 | Horizontal inset of the top `TabBar` tier content — leaves 1 column of breathing room at each edge while `tabbar_bg` bleeds full width; tabs butt seamlessly with alternating backgrounds |
 | `TRANSCRIPT_BODY_LEADING_INDENT` | 2 | Only indent prose adds atop the already-inset band |
 | `FOOTER_H_INSET` | `= TRANSCRIPT_H_INSET` | Same inset inside the footer band |
 | `MODEL_BAR_INNER_PADDING` | 1 | Edge indent of the model-bar cluster |

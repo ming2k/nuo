@@ -9,15 +9,13 @@
 pub const TRANSCRIPT_H_INSET: u16 = 2;
 
 /// Horizontal inset of the Client Global TabBar (Tier 1), the shell's top
-/// border. Deliberately `0`: a gutter on *that* row reads as a break in the
-/// frame rather than as breathing room, because the row is the frame. The
-/// tab rail therefore starts at column 0 and the right-pinned status cluster
-/// ends on the last column, with the band's own `tabbar_bg` fill carrying the
-/// full width. Legibility is preserved *inside* the row instead: every tab
-/// label is projected as `" {label} "` (one column of rail padding each side),
-/// and the status cluster keeps [`BAR_LEGEND_GAP_MIN`] of clear space from a
-/// truncated tab rail so a `…` or `[▾]` never touches a keycap.
-pub const TABBAR_H_INSET: u16 = 0;
+/// border. Set to `1`: leaving 1 column of padding on each end creates
+/// breathing room between tab pills / keycaps and the terminal edges, while the
+/// row's `tabbar_bg` background fill continues to bleed across the full terminal
+/// width edge-to-edge. Inside the row, adjacent unselected tabs butt seamlessly
+/// against one another without intervening separator gaps, disambiguated by
+/// alternating background tones.
+pub const TABBAR_H_INSET: u16 = 1;
 
 /// Extra leading whitespace applied to prose after the transcript-area gutter.
 /// Now that the horizontal gutter is applied once at the stream entry point,

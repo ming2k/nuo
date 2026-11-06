@@ -183,7 +183,7 @@ fn overflow_indicators_width(hidden_left: usize, hidden_right: usize) -> (usize,
 }
 
 fn window_total_width(tab_widths: &[usize], start: usize, end: usize, total_tabs: usize) -> usize {
-    let tabs_w: usize = tab_widths[start..=end].iter().sum::<usize>() + (end - start);
+    let tabs_w: usize = tab_widths[start..=end].iter().sum::<usize>();
     let (left_w, right_w, overview_w) = overflow_indicators_width(start, total_tabs - 1 - end);
     tabs_w + left_w + right_w + overview_w
 }
@@ -202,7 +202,7 @@ pub(crate) fn compute_tab_window(
     let active = active.min(total - 1);
 
     // If all tabs fit without overflow indicators:
-    let all_w: usize = tab_widths.iter().sum::<usize>() + (total - 1);
+    let all_w: usize = tab_widths.iter().sum::<usize>();
     if all_w <= available_w {
         return (0, total - 1);
     }
@@ -265,12 +265,12 @@ pub(crate) fn draw_tab_bar(
 
     let bg = theme.tabbar_bg();
     let fill = Style::default().bg(bg);
-    // Tier 1 is the one band that bleeds to both terminal edges: the tab rail
-    // *is* the shell's top border, so a gutter on this row would read as a
-    // break in the frame rather than as breathing room. Legibility is carried
-    // inside the row instead — each tab label is projected with one column of
-    // its own padding, and the status cluster keeps a legend gap from a
-    // truncated rail.
+    // Tier 1 bleeds its tabbar_bg fill to both terminal edges so the top bar
+    // forms a continuous frame line. Inside the row, TABBAR_H_INSET (1) leaves
+    // 1 column of breathing room at each end so tab pills and the right-pinned
+    // status cluster do not touch the terminal borders. Consecutive unselected
+    // tabs butt seamlessly against each other without intervening separator gaps,
+    // disambiguated by alternating background colors.
     let pad = TABBAR_H_INSET as usize;
     let text_width = full_width.saturating_sub(2 * pad);
 
@@ -333,11 +333,9 @@ pub(crate) fn draw_tab_bar(
         if start > 0 {
             let left_text = format!("‹{} ", start);
             let ind_w = left_text.width();
-            let ind_style = Style::default()
-                .fg(theme.brand())
-                .add_modifier(Modifier::BOLD);
+            let ind_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
 
-            let hit_start = rect.x;
+            let hit_start = current_x;
             let hit_end = current_x.saturating_add(ind_w as u16);
             if hit_start < rect.right() {
                 let w = hit_end.min(rect.right()).saturating_sub(hit_start);
@@ -359,7 +357,6 @@ pub(crate) fn draw_tab_bar(
             .take(end - start + 1)
         {
             let active = i == tab_bar.active_tab;
-            let separator_w = if i < end { 1 } else { 0 };
 
             let tab_style = if !theme.elevation.is_chromatic() {
                 if active {
@@ -381,12 +378,8 @@ pub(crate) fn draw_tab_bar(
                 Style::default().bg(inactive_bg).fg(theme.text_muted)
             };
 
-            let hit_start = if i == 0 && start == 0 {
-                rect.x
-            } else {
-                current_x
-            };
-            let hit_end = current_x.saturating_add((tab_w + separator_w) as u16);
+            let hit_start = current_x;
+            let hit_end = current_x.saturating_add(tab_w as u16);
             if hit_start < rect.right() {
                 let w = hit_end.min(rect.right()).saturating_sub(hit_start);
                 if w > 0 {
@@ -397,12 +390,6 @@ pub(crate) fn draw_tab_bar(
             spans.push(Span::styled(text.clone(), tab_style));
             used_tab_w += tab_w;
             current_x = current_x.saturating_add(tab_w as u16);
-
-            if i < end {
-                spans.push(Span::styled(" ", fill));
-                used_tab_w += separator_w;
-                current_x = current_x.saturating_add(separator_w as u16);
-            }
         }
 
         // Right overflow indicator: N›
@@ -410,9 +397,7 @@ pub(crate) fn draw_tab_bar(
             let hidden_right = tabs.len() - 1 - end;
             let right_text = format!(" {}›", hidden_right);
             let ind_w = right_text.width();
-            let ind_style = Style::default()
-                .fg(theme.brand())
-                .add_modifier(Modifier::BOLD);
+            let ind_style = fill.fg(theme.brand()).add_modifier(Modifier::BOLD);
 
             let hit_start = current_x;
             let hit_end = current_x.saturating_add(ind_w as u16);
@@ -432,9 +417,7 @@ pub(crate) fn draw_tab_bar(
         if start > 0 || end + 1 < tabs.len() {
             let overview_text = " [▾]";
             let ind_w = overview_text.width();
-            let overview_style = Style::default()
-                .fg(theme.heading())
-                .add_modifier(Modifier::DIM);
+            let overview_style = fill.fg(theme.heading()).add_modifier(Modifier::DIM);
 
             let hit_start = current_x;
             let hit_end = current_x.saturating_add(ind_w as u16);
@@ -476,7 +459,7 @@ pub(crate) fn draw_tab_bar(
         spans.extend(help_affordance.render_tabbar_spans(theme, bg));
         spans.push(Span::styled(" ".repeat(pad), fill));
 
-        frame.render_widget(&mut Paragraph::new(Line::from(spans)), rect);
+        frame.render_widget(&mut Paragraph::new(Line::from(spans)).style(fill), rect);
         return TabBarNavRects {
             tab_rects,
             prev_rect,
@@ -521,7 +504,7 @@ pub(crate) fn draw_tab_bar(
     spans.extend(help_affordance.render_tabbar_spans(theme, bg));
     spans.push(Span::styled(" ".repeat(pad), fill));
 
-    frame.render_widget(&mut Paragraph::new(Line::from(spans)), rect);
+    frame.render_widget(&mut Paragraph::new(Line::from(spans)).style(fill), rect);
     TabBarNavRects {
         tab_rects: Vec::new(),
         prev_rect: None,
@@ -1118,10 +1101,9 @@ mod tests {
         );
     }
 
-    /// Tier 1 is the only band that bleeds to both terminal edges: the tab
-    /// rail *is* the shell's top border, so no frame gutter may re-appear on
-    /// either side. Tiers 2 and 3 keep the gutter, so the two shapes must not
-    /// converge.
+    /// Tier 1 bleeds its tabbar_bg fill to both terminal edges so the top bar
+    /// forms a continuous frame line. Inside the row, TABBAR_H_INSET (1) leaves
+    /// 1 column of breathing room at each end.
     #[test]
     fn row1_bleeds_to_both_terminal_edges() {
         for width in [44u16, 80, 120] {
@@ -1147,13 +1129,24 @@ mod tests {
                 .collect();
             assert_eq!(row.width(), width as usize, "row fills the width: {row:?}");
             assert_eq!(
-                nav.tab_rects[0].1.x, 0,
-                "the tab rail starts at the left terminal edge (w={width}): {row:?}"
+                nav.tab_rects[0].1.x, 1,
+                "the tab rail starts at column 1 (inset by 1): {row:?}"
             );
             assert_eq!(
                 nav.help_rect.expect("help affordance").right(),
-                width,
-                "the status cluster ends at the right terminal edge (w={width}): {row:?}"
+                width - 1,
+                "the status cluster ends 1 column before the terminal edge: {row:?}"
+            );
+            let cells = terminal.buffer().cells();
+            assert_eq!(
+                cells[0].style.bg,
+                Theme::default().tabbar_bg(),
+                "left edge column 0 is filled with tabbar_bg"
+            );
+            assert_eq!(
+                cells[width as usize - 1].style.bg,
+                Theme::default().tabbar_bg(),
+                "right edge column is filled with tabbar_bg"
             );
         }
     }
@@ -1173,8 +1166,8 @@ mod tests {
         };
         let row = render_row1(80, tab_bar);
         assert!(
-            row.starts_with(" thread#b3c4"),
-            "leading label keeps one column of rail padding: {row:?}"
+            row.starts_with("  thread#b3c4"),
+            "leading label keeps 1-col edge margin and internal padding: {row:?}"
         );
     }
 
@@ -1253,7 +1246,7 @@ mod tests {
         assert_eq!(tab_rects[1].0, 1);
         assert_eq!(tab_rects[2].0, 2);
         assert_eq!(tab_rects[0].1.y, 0);
-        assert_eq!(tab_rects[0].1.x, 0, "tab 0 subsumes leading pad");
+        assert_eq!(tab_rects[0].1.x, 1, "tab 0 starts after 1-column margin");
         assert_eq!(
             tab_rects[1].1.x,
             tab_rects[0].1.right(),
@@ -1266,6 +1259,141 @@ mod tests {
         );
         assert!(tab_rects[0].1.width > 0);
         assert!(tab_rects[1].1.x > tab_rects[0].1.x);
+
+        let cells = terminal.buffer().cells();
+        // Edge margins painted with tabbar_bg
+        assert_eq!(cells[0].style.bg, theme.tabbar_bg());
+        assert_eq!(cells[79].style.bg, theme.tabbar_bg());
+
+        // Tab 0 is active -> selected_bg
+        let t0_x = tab_rects[0].1.x as usize;
+        assert_eq!(cells[t0_x].style.bg, theme.selected_bg);
+
+        // Tab 1 is inactive, odd index 1 -> theme.body()
+        let t1_x = tab_rects[1].1.x as usize;
+        assert_eq!(cells[t1_x].style.bg, theme.body());
+
+        // Tab 2 is inactive, even index 2 -> theme.panel()
+        let t2_x = tab_rects[2].1.x as usize;
+        assert_eq!(cells[t2_x].style.bg, theme.panel());
+    }
+
+    #[test]
+    fn row1_seamless_tabs_alternate_backgrounds_and_preserve_active_contrast() {
+        let tabs = vec![
+            crate::shell::surfaces::ClientTab::thread("sess-0", Some("Task 0".to_string())),
+            crate::shell::surfaces::ClientTab::thread("sess-1", Some("Task 1".to_string())),
+            crate::shell::surfaces::ClientTab::thread("sess-2", Some("Task 2".to_string())),
+            crate::shell::surfaces::ClientTab::thread("sess-3", Some("Task 3".to_string())),
+            crate::shell::surfaces::ClientTab::dashboard(),
+        ];
+
+        // Case 1: active in the middle (tab 2)
+        {
+            let tab_bar = TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 2,
+                unread_faults: 0,
+            };
+            let mut terminal = nuotc::TestTerminal::new(100, 1);
+            let theme = Theme::default();
+            let mut nav = TabBarNavRects::default();
+            terminal.draw(|frame| {
+                nav = draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
+            });
+
+            assert_eq!(nav.tab_rects.len(), 5);
+            // Verify strict 1-column margin at left edge
+            assert_eq!(nav.tab_rects[0].1.x, 1);
+            let cells = terminal.buffer().cells();
+            assert_eq!(cells[0].style.bg, theme.tabbar_bg(), "col 0 has tabbar_bg");
+            assert_eq!(cells[99].style.bg, theme.tabbar_bg(), "col 99 has tabbar_bg");
+            assert_eq!(
+                nav.help_rect.expect("help").right(),
+                99,
+                "help affordance ends 1 col before terminal right edge"
+            );
+
+            // Verify seamless tiling without gaps between any adjacent tabs
+            for i in 0..4 {
+                assert_eq!(
+                    nav.tab_rects[i + 1].1.x,
+                    nav.tab_rects[i].1.right(),
+                    "tab {} and tab {} butt seamlessly",
+                    i,
+                    i + 1
+                );
+            }
+
+            // Verify backgrounds
+            assert_eq!(
+                cells[nav.tab_rects[0].1.x as usize].style.bg,
+                theme.panel(),
+                "tab 0 inactive even index -> panel"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[1].1.x as usize].style.bg,
+                theme.body(),
+                "tab 1 inactive odd index -> body"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[2].1.x as usize].style.bg,
+                theme.selected_bg,
+                "tab 2 active -> selected_bg"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[3].1.x as usize].style.bg,
+                theme.body(),
+                "tab 3 inactive odd index -> body"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[4].1.x as usize].style.bg,
+                theme.panel(),
+                "tab 4 inactive even index -> panel"
+            );
+        }
+
+        // Case 2: active at start (tab 0)
+        {
+            let tab_bar = TabBarProps {
+                tabs: Some(&tabs),
+                active_tab: 0,
+                unread_faults: 0,
+            };
+            let mut terminal = nuotc::TestTerminal::new(100, 1);
+            let theme = Theme::default();
+            let mut nav = TabBarNavRects::default();
+            terminal.draw(|frame| {
+                nav = draw_tab_bar(frame, frame.area(), &tab_bar, &theme);
+            });
+
+            let cells = terminal.buffer().cells();
+            assert_eq!(
+                cells[nav.tab_rects[0].1.x as usize].style.bg,
+                theme.selected_bg,
+                "tab 0 active -> selected_bg"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[1].1.x as usize].style.bg,
+                theme.body(),
+                "tab 1 inactive odd -> body"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[2].1.x as usize].style.bg,
+                theme.panel(),
+                "tab 2 inactive even -> panel"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[3].1.x as usize].style.bg,
+                theme.body(),
+                "tab 3 inactive odd -> body"
+            );
+            assert_eq!(
+                cells[nav.tab_rects[4].1.x as usize].style.bg,
+                theme.panel(),
+                "tab 4 inactive even -> panel"
+            );
+        }
     }
 
     #[test]
@@ -2007,6 +2135,11 @@ mod tests {
         assert!(
             nav.prev_rect.is_some(),
             "must have prev_rect for left indicator"
+        );
+        assert_eq!(
+            nav.prev_rect.unwrap().x,
+            1,
+            "prev indicator starts at column 1"
         );
         assert!(
             nav.next_rect.is_some(),

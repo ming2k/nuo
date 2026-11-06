@@ -292,8 +292,7 @@ pub fn content_modal_probe(frame: &Frame, geometry: ContentModalSpec) -> Rect {
     even_width(rect)
 }
 
-pub fn content_modal_area(frame: &Frame, geometry: ContentModalSpec, desired_rows: u16) -> Rect {
-    let area = frame.area();
+pub fn content_modal_area_in(area: Rect, geometry: ContentModalSpec, desired_rows: u16) -> Rect {
     let mut max_h = ((area.height as u32 * geometry.max_viewport_percent as u32) / 100) as u16;
     if let Some(limit) = geometry.max_height_rows {
         max_h = max_h.min(limit);
@@ -307,6 +306,10 @@ pub fn content_modal_area(frame: &Frame, geometry: ContentModalSpec, desired_row
         rect = Rect::new(left, rect.y, max_cols, rect.height);
     }
     even_width(rect)
+}
+
+pub fn content_modal_area(frame: &Frame, geometry: ContentModalSpec, desired_rows: u16) -> Rect {
+    content_modal_area_in(frame.area(), geometry, desired_rows)
 }
 
 /// Recess the live surface behind a modal, per its [`Recess`] policy.
@@ -960,5 +963,27 @@ mod tests {
                 "content_modal_area vertically centered at height {rows}: top_gap={top_gap}, bot_gap={bot_gap}"
             );
         }
+    }
+
+    #[test]
+    fn content_modal_area_in_centers_within_arbitrary_sub_rect() {
+        let sub_area = Rect::new(30, 5, 80, 30);
+        let modal = content_modal_area_in(sub_area, ContentModalSpec::TOOLS, 20);
+        assert!(modal.x >= sub_area.x, "modal left boundary respects sub_area");
+        assert!(
+            modal.right() <= sub_area.right(),
+            "modal right boundary respects sub_area"
+        );
+        assert!(modal.y >= sub_area.y, "modal top boundary respects sub_area");
+        assert!(
+            modal.bottom() <= sub_area.bottom(),
+            "modal bottom boundary respects sub_area"
+        );
+        let left_gap = modal.x.saturating_sub(sub_area.x);
+        let right_gap = sub_area.right().saturating_sub(modal.right());
+        assert!(
+            (left_gap as i32 - right_gap as i32).abs() <= 2,
+            "modal is horizontally centered in sub_area: left_gap={left_gap}, right_gap={right_gap}"
+        );
     }
 }

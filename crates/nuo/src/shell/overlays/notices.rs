@@ -29,7 +29,8 @@ use crate::shell::render::Theme;
 use crate::shell::surfaces::NoticesDialog;
 use nuo_ui_primitives::elevation::modal_frame;
 use nuo_ui_primitives::primitives::{
-    ContentModalSpec, FooterHint, content_modal_area, keyvocab, modal_header, render_modal_footer,
+    ContentModalSpec, FooterHint, content_modal_area_in, keyvocab, modal_header,
+    render_modal_footer,
 };
 use nuo_view::model::log::{LineStatus, SurfaceLine};
 
@@ -45,13 +46,13 @@ pub fn wrapped_row_count(text: &str, width: usize) -> usize {
 /// Draw the sovereign notice center modal dialog with an authentic card-stack layout.
 pub fn draw_notices_modal(
     frame: &mut Frame,
-    _area: Rect,
+    area: Rect,
     lines: &[SurfaceLine],
     dialog: &mut NoticesDialog,
     theme: &Theme,
 ) -> Rect {
     let geometry = ContentModalSpec::TOOLS;
-    let bounds = content_modal_area(frame, geometry, 24);
+    let bounds = content_modal_area_in(area, geometry, 24);
     let f = modal_frame(frame, bounds, theme, true, true);
 
     let faults = lines.iter().filter(|l| l.status.is_fault()).count();

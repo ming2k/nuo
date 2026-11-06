@@ -8,6 +8,19 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Notice Center Dialog Storybook Component**:
+  - Pure declarative `NoticeDialogCard` component with 5 canonical stories (`Empty`, `MultiSeverity`, `Detail`, `Overflow`, `Extreme`) for sovereign visual inspection of `DialogKind::Notices` (ADR-0134, ADR-0146).
+  - Generalized `content_modal_area_in` primitive to center modal frames within arbitrary sub-rectangles.
+
+### Changed
+
+- **TabBar Edge Margins & Seamless Alternating Tab Strip**:
+  - **1-column end margins (`TABBAR_H_INSET = 1`)**: While `tabbar_bg` continues to bleed edge-to-edge across the full terminal row, interactive content (tab rail and right-pinned status cluster) is now inset by 1 column on both ends, providing visual breathing room and eliminating collision against terminal window borders.
+  - **Seamless tabs without dead gaps**: Removed 1-column separator blanks between tabs. Adjacent tabs now butt seamlessly against each other, recovering horizontal space for tab titles and delaying overflow paging in compact terminal geometries.
+  - **Alternating background distinction**: Unselected tabs alternate between `theme.panel()` and `theme.body()` to guarantee crisp, instant visual boundaries between adjacent inactive tabs, while the selected tab commands `theme.selected_bg`.
+
 ## [0.0.72] - 2026-11-05
 
 ### Added

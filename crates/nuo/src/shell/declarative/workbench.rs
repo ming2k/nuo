@@ -15,6 +15,7 @@ use super::ask_user::AskUser;
 use super::empty_hero_card::EmptyHeroCard;
 use super::modal_card::ModalCard;
 use super::notice_card::NoticeCard;
+use super::notice_dialog_card::NoticeDialogCard;
 use super::palette_card::PaletteCard;
 use super::reasoning_card::ReasoningCard;
 use super::story::{AnyStory, StorybookComponent, instantiate_story};
@@ -700,6 +701,11 @@ pub fn default_catalog() -> Vec<Box<dyn AnyStory>> {
     // 10. ReasoningTrace (Disclosure) - 3 stories
     for story in ReasoningCard::stories() {
         catalog.push(instantiate_story::<ReasoningCard>(story));
+    }
+
+    // 11. NoticeCenterDialog (Overlays) - 5 stories
+    for story in NoticeDialogCard::stories() {
+        catalog.push(instantiate_story::<NoticeDialogCard>(story));
     }
 
     catalog
