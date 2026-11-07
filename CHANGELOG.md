@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+## [0.0.74] - 2026-11-07
+
 ### Added
 
 - **Universal Text Overflow, One-Pass Column Budgets & Focus Reveal (ADR-0152)**:
