@@ -8,6 +8,13 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.77] - 2026-11-07
+
+### Fixed
+
+- **Apple and Windows builds.** `nuo-host` now casts `TIOCSCTTY` to `c_ulong` (it is `u32` on Apple targets), and `nuo-tool` imports `Path` for its `#[cfg(windows)]` PowerShell probe. Both arms had never been compiled before the release job first ran on `v0.0.76`; a macOS/Windows `cargo check --workspace --all-targets` matrix now gates them on `main`.
+- **Tag releases create their GitHub Release before uploading.** `upload-rust-binary-action` only uploads to an existing release, so the release job now runs `create-gh-release-action` first, cutting the release body from this changelog.
+
 ## [0.0.76] - 2026-11-07
 
 ### Changed
