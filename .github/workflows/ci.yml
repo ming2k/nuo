@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    # A `v*` tag must trigger this workflow, or the `release` job below — whose
+    # `if` matches `refs/tags/v*` — can never run. `branches` alone excludes tag
+    # pushes, which silently made every past tag produce no binaries.
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -80,6 +84,10 @@ jobs:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ${{ matrix.os }}
+    permissions:
+      # Uploading a release asset needs a write token; the repository default may
+      # be read-only, which would make the runner fail after a full build.
+      contents: write
     timeout-minutes: 60
     strategy:
       fail-fast: false
