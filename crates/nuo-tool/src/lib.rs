@@ -442,11 +442,11 @@ pub trait Tool: Send + Sync {
     /// This tool's OpenAI-family function schema.
     ///
     /// Delegates to the crate's single envelope definition
-    /// ([`registry::function_envelope`]) rather than re-spelling it: three
+    /// (`registry::function_envelope`) rather than re-spelling it: three
     /// verbatim copies of this shape existed in this crate, and the copies are
     /// what drift.
     ///
-    /// The protocol-neutral form is [`ToolSpec`](nuo_provider::capability::ToolSpec);
+    /// The protocol-neutral form is `ToolSpec`;
     /// this method exists only for the OpenAI-family envelope every
     /// compatible surface consumes.
     fn to_openai_function(&self) -> serde_json::Value {

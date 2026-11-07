@@ -1,6 +1,6 @@
-# Manual Testing Guide
+# Build & Run Guide
 
-This guide describes how to run and manually verify **Nuo** directly from source.
+This guide describes how to build, run, and verify **Nuo** directly from source.
 
 Nuo requires no synthetic harnesses, test runners, or multi-step ceremony for manual testing: **compile the unified binary with `cargo`, inject your provider environment variables, and run.**
 

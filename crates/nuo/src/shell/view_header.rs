@@ -29,7 +29,7 @@
 //!   the right edge, where it shortens from the ancestor end and therefore
 //!   never moves the governance cluster around.
 use nuotc::{Frame, Line, Modifier, Paragraph, Rect, Span, Style};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use super::{
     BAR_LEGEND_GAP_MIN, CONTEXT_BAR_WORKSPACE_MIN_COLS, JOIN_ENUMERATE_COLS, STEP_MIN_WIDTH,
@@ -973,8 +973,7 @@ fn id_tail(id: &str) -> &str {
     if len <= 4 { id } else { &id[len - 4..] }
 }
 
-/// Truncate `s` to at most `max_width` display columns using the theme's
-/// ellipsis glyph.
+/// Truncate `s` to at most `max_width` display columns, keeping its head.
 fn truncate_to_width(s: &str, max_width: usize) -> String {
     truncate_with(s, max_width, "…")
 }
@@ -985,29 +984,17 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
 /// non-Unicode terminal degrades with the rest of the chrome
 /// (`theme.glyphs.ellipsis` is `...` under `ASCII_GLYPHS`, `…` under
 /// `UNICODE_GLYPHS`). The result never exceeds `max_width`, marker included.
+///
+/// The mechanics are the substrate's (ADR-0152 `[INV-TEXT-OVERFLOW-01]`): this
+/// alias exists only to thread the caller's marker through.
 fn truncate_with(s: &str, max_width: usize, ellipsis: &str) -> String {
-    let ellipsis_w = ellipsis.width();
-    if max_width == 0 {
-        return String::new();
-    }
-    if s.width() <= max_width {
-        return s.to_string();
-    }
-    // `max_width == 1` with a wide marker has no room for content; emitting the
-    // bare marker is still honest about the truncation.
-    let budget = max_width.saturating_sub(ellipsis_w);
-    let mut out = String::new();
-    let mut current_width = 0;
-    for ch in s.chars() {
-        let ch_width = ch.width().unwrap_or(0);
-        if current_width + ch_width > budget {
-            break;
-        }
-        out.push(ch);
-        current_width += ch_width;
-    }
-    out.push_str(ellipsis);
-    out
+    nuo_ui_primitives::components::overflow::fit_with(
+        s,
+        max_width,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+        ellipsis,
+    )
+    .text
 }
 
 #[cfg(test)]
@@ -1307,7 +1294,11 @@ mod tests {
             assert_eq!(nav.tab_rects[0].1.x, 1);
             let cells = terminal.buffer().cells();
             assert_eq!(cells[0].style.bg, theme.tabbar_bg(), "col 0 has tabbar_bg");
-            assert_eq!(cells[99].style.bg, theme.tabbar_bg(), "col 99 has tabbar_bg");
+            assert_eq!(
+                cells[99].style.bg,
+                theme.tabbar_bg(),
+                "col 99 has tabbar_bg"
+            );
             assert_eq!(
                 nav.help_rect.expect("help").right(),
                 99,
@@ -1337,8 +1328,7 @@ mod tests {
                 "tab 1 inactive odd index -> body"
             );
             assert_eq!(
-                cells[nav.tab_rects[2].1.x as usize].style.bg,
-                theme.selected_bg,
+                cells[nav.tab_rects[2].1.x as usize].style.bg, theme.selected_bg,
                 "tab 2 active -> selected_bg"
             );
             assert_eq!(
@@ -1369,8 +1359,7 @@ mod tests {
 
             let cells = terminal.buffer().cells();
             assert_eq!(
-                cells[nav.tab_rects[0].1.x as usize].style.bg,
-                theme.selected_bg,
+                cells[nav.tab_rects[0].1.x as usize].style.bg, theme.selected_bg,
                 "tab 0 active -> selected_bg"
             );
             assert_eq!(

@@ -287,23 +287,19 @@ pub fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Truncate to `max` display columns, appending the theme's ellipsis.
+/// Truncate to `max` display columns using the substrate's overflow
+/// vocabulary (ADR-0152 `[INV-TEXT-OVERFLOW-01]`).
+///
+/// Notice text is prose, so it keeps its head; there is deliberately no second
+/// truncation implementation in this module — a local copy is how two surfaces
+/// come to disagree about how a string is shortened.
 pub fn truncate_ellipsis(text: &str, max: usize) -> String {
-    if text.width() <= max {
-        return text.to_string();
-    }
-    let ellipsis = "…";
-    let budget = max.saturating_sub(ellipsis.width());
-    let mut out = String::new();
-    for ch in text.chars() {
-        let w = ch.to_string().width();
-        if out.width() + w > budget {
-            break;
-        }
-        out.push(ch);
-    }
-    out.push_str(ellipsis);
-    out
+    nuo_ui_primitives::components::overflow::fit(
+        text,
+        max,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }
 
 /// Greedy word wrap to `width` display columns, for the expanded detail body.

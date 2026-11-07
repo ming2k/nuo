@@ -510,17 +510,17 @@ fn pct(part: i64, whole: i64) -> String {
     format!("{}%", (part as f64 / whole as f64 * 100.0).round() as i64)
 }
 
+/// Clamp a usage-table label to `max_width` columns, keeping its head.
+///
+/// Table labels are prose, so the substrate's `End` overflow applies
+/// (ADR-0152 `[INV-TEXT-OVERFLOW-01]`); this alias keeps the local vocabulary.
 fn truncate(text: &str, max_width: usize) -> String {
-    use unicode_width::UnicodeWidthStr;
-    if text.width() <= max_width {
-        return text.to_string();
-    }
-    if max_width <= 1 {
-        return "…".to_string();
-    }
-    let mut out: String = text.chars().take(max_width.saturating_sub(1)).collect();
-    out.push('…');
-    out
+    nuo_ui_primitives::components::overflow::fit(
+        text,
+        max_width,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }
 
 #[cfg(test)]

@@ -22,8 +22,8 @@
 //! The multi-session host and the unified session server have landed on top of
 //! it — the "one session per process" posture is gone:
 //!
-//! - [`registry::SessionRegistry`] owns every live session across every
-//!   project, one [`registry::HostedSession`] per assembled harness, and
+//! - [`registry::ThreadRegistry`] owns every live session across every
+//!   project, one [`registry::HostedThread`] per assembled harness, and
 //!   lazily resumes persisted sessions on attach.
 //! - [`host`] is the server runtime; the `nuo` binary runs it via
 //!   `nuo start --fg`, or a frontend starts it on demand.

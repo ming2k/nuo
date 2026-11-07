@@ -54,7 +54,7 @@ pub enum Interaction {
     /// cell the row carries in its reserved gutter
     /// ([`crate::focus_plane::draw_entry_marker`]) — on top of the pane wash that
     /// says the keyboard is in the transcript at all
-    /// ([`crate::focus_plane::draw_pane_wash`]).
+    /// ([`crate::focus_plane::draw_pane_focus`]).
     Focused,
     /// Both at once: the keyboard owns the entry **and** the pointer is on it.
     ///

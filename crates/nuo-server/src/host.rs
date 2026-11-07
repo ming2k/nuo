@@ -171,7 +171,7 @@ pub async fn run_with_gate(
 /// [`run_with_gate`] with an externally supplied registry: integration tests
 /// host hand-built sessions (no assembly) and observe the drain through the
 /// same registry the run loop drives. Production always builds its own
-/// ([`SessionRegistry::new`]) via [`run_with_gate`].
+/// ([`crate::registry::ThreadRegistry::new`]) via [`run_with_gate`].
 pub async fn run_with_registry(
     identity: HostIdentity,
     opts: HostOptions,

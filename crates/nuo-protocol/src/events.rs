@@ -448,20 +448,20 @@ pub enum AgentRequest {
     },
     /// Revoke a single cached "always allow" permission rule. The harness
     /// removes it from the in-memory allowlist and replies with an updated
-    /// [`AgentResponse::SessionContext`] so the modal reflects the change.
+    /// [`AgentResponse::ThreadContext`] so the modal reflects the change.
     RevokePermission {
         tool: String,
         scope: String,
     },
     /// Clear every cached "always allow" permission rule for this process.
     /// The harness drops the whole in-memory allowlist and replies with an
-    /// updated [`AgentResponse::SessionContext`] so the permissions manager
+    /// updated [`AgentResponse::ThreadContext`] so the permissions manager
     /// modal reflects the now-empty list.
     ClearAllPermissions,
     /// Enable or disable a tool for the current session. Disabled tools are
     /// hidden from the model (their schemas are not sent) and rejected if the
     /// model still tries to call them. The harness replies with an updated
-    /// [`AgentResponse::SessionContext`].
+    /// [`AgentResponse::ThreadContext`].
     ToggleTool {
         name: String,
         enabled: bool,
@@ -473,7 +473,7 @@ pub enum AgentRequest {
     /// enabling reconnects it from `[mcp.<name>]` config and re-discovers its
     /// tools. Session-scoped — config.toml is not rewritten, so a restart
     /// restores the configured state. The harness replies with an updated
-    /// [`AgentResponse::SessionContext`].
+    /// [`AgentResponse::ThreadContext`].
     ToggleMcpServer {
         name: String,
         enabled: bool,
@@ -482,7 +482,7 @@ pub enum AgentRequest {
     /// tools (the per-server analogue of the periodic catalog refresh). Used by
     /// the `/mcp` modal's `r` action to recover a crashed/failed server on
     /// demand. The harness replies with an updated
-    /// [`AgentResponse::SessionContext`].
+    /// [`AgentResponse::ThreadContext`].
     ReconnectMcpServer {
         name: String,
     },
@@ -1307,10 +1307,10 @@ pub enum RoundEvent {
     /// `effect` is the server's authoritative class for this invocation
     /// (ADR-0140) and it decides where the reply is filed — nothing else does:
     ///
-    /// - [`CommandEffect::Mutation`] — an act. A durable row already exists in
+    /// - [`crate::CommandEffect::Mutation`] — an act. A durable row already exists in
     ///   the session's command ledger; the client settles the staged thread row
     ///   in place, so the act holds its position in the conversation.
-    /// - [`CommandEffect::Reading`] — a report of the world at the moment of
+    /// - [`crate::CommandEffect::Reading`] — a report of the world at the moment of
     ///   asking. **No** ledger row exists and none may be fabricated: the reply
     ///   is an ephemeral receipt on the client. A reading is answered in full,
     ///   it is simply never asserted later as still true.

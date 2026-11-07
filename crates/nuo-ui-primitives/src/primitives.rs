@@ -969,12 +969,18 @@ mod tests {
     fn content_modal_area_in_centers_within_arbitrary_sub_rect() {
         let sub_area = Rect::new(30, 5, 80, 30);
         let modal = content_modal_area_in(sub_area, ContentModalSpec::TOOLS, 20);
-        assert!(modal.x >= sub_area.x, "modal left boundary respects sub_area");
+        assert!(
+            modal.x >= sub_area.x,
+            "modal left boundary respects sub_area"
+        );
         assert!(
             modal.right() <= sub_area.right(),
             "modal right boundary respects sub_area"
         );
-        assert!(modal.y >= sub_area.y, "modal top boundary respects sub_area");
+        assert!(
+            modal.y >= sub_area.y,
+            "modal top boundary respects sub_area"
+        );
         assert!(
             modal.bottom() <= sub_area.bottom(),
             "modal bottom boundary respects sub_area"

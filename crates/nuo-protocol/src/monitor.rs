@@ -33,7 +33,7 @@ pub struct MonitorAction {
     pub include_idle: bool,
 }
 
-/// How the session behind a [`MonitoredSession`] row is hosted. Under
+/// How the session behind a [`MonitoredThread`] row is hosted. Under
 /// Unified ownership every session is server-held, so this is
 /// always [`Hosted`](Self::Hosted); the field is kept on the wire (with its
 /// serde default) so rows produced before the distinction was removed still

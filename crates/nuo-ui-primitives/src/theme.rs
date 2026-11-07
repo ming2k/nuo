@@ -276,7 +276,7 @@ pub struct Theme {
     /// The pane wash above says *the keyboard is in this pane*. This says *and it
     /// is on this entry*.
     ///
-    /// The cell renders a quiet vertical accent bar ([`crate::design::PANE_MARKER_GLYPH`])
+    /// The cell renders a quiet vertical accent bar ([`Theme::pane_marker_glyph`])
     /// rather than a kinetic arrow or full-width band. That keeps the cue outside the row's
     /// text: a header row's own tone is the disclosure × lifecycle × interaction composition,
     /// so a marker in the gutter leaves the row's composition intact.
@@ -1262,7 +1262,7 @@ impl Theme {
     ///
     /// A hand-written list of "the surfaces that matter" drifts the moment someone
     /// adds one. The defence is not discipline, it is the **exhaustive
-    /// destructure**: every field of `Theme` is named in [`Self::background_fields`]
+    /// destructure**: every field of `Theme` is named in `Self::background_fields`
     /// exactly once, so adding a field is a compile error until the author says
     /// whether it is a background. Fields marked `false` are foregrounds or
     /// non-surface metadata — the enum arm is where that judgement is recorded, and it

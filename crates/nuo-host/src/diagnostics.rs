@@ -33,7 +33,7 @@ pub fn diagnostics_file() -> PathBuf {
 
 /// Record a diagnostic event to the persistent journal.
 ///
-/// If file size exceeds [`MAX_DIAGNOSTICS_FILE_BYTES`], the oldest entries are pruned.
+/// If file size exceeds `MAX_DIAGNOSTICS_FILE_BYTES`, the oldest entries are pruned.
 pub fn record_event(process_kind: &str, event_kind: &str, summary: &str, details: Option<&str>) {
     let timestamp_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)

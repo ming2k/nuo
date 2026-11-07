@@ -3,17 +3,18 @@ use nuotc::{
     Frame, {Line, Span}, {Modifier, Style},
 };
 
-use super::super::common::truncate_ellipsis;
 use super::common::{
     draw_picker_search_row, match_set, place_picker_search_cursor, render_pricing_detail_rows,
     search_empty_body, split_search_body,
 };
 use crate::shell::render::Theme;
+use nuo_ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
 use nuo_ui_primitives::components::detail::{
     DetailLayout, format_detail_label, render_progress_bar_spans,
 };
 use nuo_ui_primitives::components::options::{ChoiceTone, choice_style};
-use nuo_ui_primitives::components::row::{GUTTER, ListRow, RowGroup, RowStyledAtom};
+use nuo_ui_primitives::components::overflow::{Overflow, TextCell, WidthAware};
+use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
 use nuo_ui_primitives::primitives::{
     BodyRenderOptions, FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN,
     breadcrumb_parts, keyvocab, modal_area, modal_frame, modal_header, modal_header_parts,
@@ -23,11 +24,19 @@ use nuo_view::components::selectable_body::{RowSegment, SelectableRow, render_se
 use nuo_view::model::layout::LayoutMap;
 use nuo_view::model::selection::SelectionState;
 use nuo_view::providers::RankedProvider;
+use unicode_width::UnicodeWidthStr;
+
+/// The floor below which a connection name is a fragment rather than a name.
+const CONNECTION_NAME_MIN_WIDTH: usize = 12;
+/// The connection name's relative maximum width: the row's identity, but not the
+/// whole row.
+const CONNECTION_NAME_MAX_SHARE: usize = 46;
+/// The provider type's relative maximum width.
+const CONNECTION_TYPE_MAX_SHARE: usize = 20;
 
 /// Properties for rendering the Connections modal.
 pub struct ConnectionsModalProps<'a> {
     pub providers: &'a [RankedProvider],
-    pub current_provider: &'a str,
     pub modal_index: usize,
     pub query: &'a str,
     pub cursor_position: usize,
@@ -60,7 +69,6 @@ pub fn draw_connections_modal(
 ) -> nuotc::Rect {
     let ConnectionsModalProps {
         providers,
-        current_provider,
         modal_index,
         query,
         cursor_position,
@@ -220,7 +228,6 @@ pub fn draw_connections_modal(
     let body = provider_list_body(
         providers,
         connection_usages,
-        current_provider,
         modal_index,
         theme,
         body_rect.width as usize,
@@ -252,68 +259,154 @@ pub fn draw_connections_modal(
     area
 }
 
-/// Build the **Connections** provider list body via the shared [`nuo_ui_primitives::components::row::ListRow`]
-/// standard.
+/// Build the **Connections** provider list body via the shared
+/// [`nuo_ui_primitives::components::row::ListRow`] standard.
+///
+/// # Column budget (ADR-0152 `[INV-ROW-GRID-01]`)
+///
+/// Three fields share the row: the connection name (the row's identity), the
+/// provider *type* (`openai`, `anthropic`, …) and — when the server reported
+/// usage — a right-pinned balance badge. The name used to be funded by halving
+/// the body width, which ignored the other two: on a wide terminal it was
+/// needlessly cut in half, and on a narrow one the type column was pushed
+/// straight through the badge. Both are now resolved by the same one-pass
+/// budget the Models list uses, so no field is funded out of another's loss.
 pub(crate) fn provider_list_body(
     providers: &[RankedProvider],
     connection_usages: Option<
         &std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
     >,
-    _current_provider: &str,
     modal_index: usize,
     theme: &Theme,
     body_width: usize,
 ) -> Vec<Line<'static>> {
-    let name_budget = (body_width / 2).saturating_sub(GUTTER + 1).max(1);
+    let balance_of = |rp: &RankedProvider| -> Option<&str> {
+        connection_usages
+            .and_then(|usages| usages.get(&rp.id))
+            .and_then(|state| match state {
+                nuo_protocol::ConnectionUsageState::Available(usage) => {
+                    usage.primary_balance.as_deref()
+                }
+                _ => None,
+            })
+    };
+
+    let type_of = |rp: &RankedProvider| nuo_view::providers::provider_type_label(&rp.provider);
+
+    let name_demand = providers
+        .iter()
+        .map(|rp| rp.label.width())
+        .max()
+        .unwrap_or(0);
+    let type_demand = providers
+        .iter()
+        .filter_map(type_of)
+        .map(UnicodeWidthStr::width)
+        .max()
+        .unwrap_or(0);
+    let balance_demand = providers
+        .iter()
+        .filter_map(balance_of)
+        .map(UnicodeWidthStr::width)
+        .max()
+        .unwrap_or(0);
+
+    // The balance badge is pinned to the trailing edge, so it is *reserved*
+    // rather than placed: it never competes with the fields it annotates.
+    let balance_reserve = if balance_demand > 0 {
+        balance_demand + GROUP_GAP
+    } else {
+        0
+    };
+
+    let specs = [
+        // The connection name is the row's identity and absorbs all slack.
+        ColumnSpec::new(
+            name_demand,
+            CONNECTION_NAME_MIN_WIDTH,
+            CONNECTION_NAME_MAX_SHARE,
+        ),
+        // The provider type is secondary: it yields first, and vanishes when it
+        // cannot be drawn **in full** rather than leaving an `Anthr…` stub — a
+        // stub of a dialect name identifies nothing. Its floor is therefore its
+        // whole demand, which makes the column all-or-nothing.
+        ColumnSpec::new(type_demand, type_demand, CONNECTION_TYPE_MAX_SHARE)
+            .droppable()
+            .priority(2),
+    ];
+    let solved = Grid::new(body_width)
+        .gutter(GUTTER)
+        .gap(GROUP_GAP)
+        .max_gap(MAX_JUSTIFIED_GAP)
+        .reserve_tail(balance_reserve)
+        .justify(true)
+        .layout(&specs);
+    let columns = solved.columns;
 
     let mut body: Vec<Line<'static>> = Vec::new();
     for (sel, rp) in providers.iter().enumerate() {
         let is_selected = sel == modal_index;
         let style = choice_style(ChoiceTone::Filled, is_selected, theme);
         let matched = match_set(rp.m.as_ref());
+        let mut groups: Vec<RowGroup> = Vec::new();
 
-        let name = truncate_ellipsis(&rp.label, name_budget);
-        let mut identity = RowGroup::fixed();
-        for (char_idx, c) in name.chars().enumerate() {
-            let cs = if matched.contains(&char_idx) {
-                Style::default()
-                    .bg(style.bg)
-                    .fg(if is_selected { style.fg } else { theme.brand() })
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-                    .bg(style.bg)
-                    .fg(style.fg)
-                    .add_modifier(Modifier::BOLD)
-            };
-            identity = identity.styled(
-                RowStyledAtom {
-                    text: c.to_string(),
-                    style: cs,
-                },
-                0,
+        // 1. Connection name — the row's identity, bold, with its fuzzy-match
+        //    glyphs highlighted. Highlight indices are rebased by `TextCell`, so
+        //    a truncated name still highlights the glyphs it actually paints.
+        let name_col = column(&columns, 0);
+        let name_budget = name_col.map_or(0, |c| c.width);
+        let name_cell = TextCell::new(
+            rp.label.as_str(),
+            Overflow::End,
+            Style::default()
+                .bg(style.bg)
+                .fg(style.fg)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlighted(
+            (!matched.is_empty()).then_some(&matched),
+            Style::default()
+                .bg(style.bg)
+                .fg(if is_selected { style.fg } else { theme.brand() })
+                .add_modifier(Modifier::BOLD),
+        );
+        groups.push(
+            RowGroup::column(name_col.map_or(GUTTER, |c| c.start))
+                .spans(name_cell.render_width(name_budget)),
+        );
+
+        // 2. Provider type — which wire dialect this connection speaks.
+        if let Some(label) = type_of(rp)
+            && let Some(type_col) = column(&columns, 1)
+        {
+            let type_cell = TextCell::new(
+                label,
+                Overflow::End,
+                Style::default().bg(style.bg).fg(style.dim),
+            );
+            groups.push(
+                RowGroup::column(type_col.start).spans(type_cell.render_width(type_col.width)),
             );
         }
 
-        let mut row = ListRow::new(style, body_width).group(identity);
-
-        if let Some(usages) = connection_usages
-            && let Some(nuo_protocol::ConnectionUsageState::Available(usage)) = usages.get(&rp.id)
-            && let Some(balance) = &usage.primary_balance
+        // 3. Balance — right-pinned, and only when the server reported one *and*
+        //    the solver funded the reserve. Painting a badge the solver did not
+        //    reserve would push the row past its body, which is exactly the
+        //    overflow the reserve exists to prevent.
+        if solved.reserve
+            && let Some(balance) = balance_of(rp)
         {
-            row = row.group(RowGroup::trailing().styled(
-                RowStyledAtom {
-                    text: balance.clone(),
-                    style: Style::default().fg(if is_selected { style.fg } else { theme.success }),
-                },
+            groups.push(RowGroup::trailing().text(
+                balance,
+                if is_selected { style.fg } else { theme.success },
                 0,
             ));
         }
 
-        if let Some(label) = nuo_view::providers::provider_type_label(&rp.provider) {
-            row = row.group(RowGroup::midpoint().text(label, style.dim, 0));
+        let mut row = ListRow::new(style, body_width);
+        for group in groups {
+            row = row.group(group);
         }
-
         body.push(row.finish());
     }
     body

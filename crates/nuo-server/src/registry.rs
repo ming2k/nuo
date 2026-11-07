@@ -46,7 +46,7 @@ pub struct HostedThread {
     /// and the registry can read rows out for snapshots.
     pub tracker: Arc<Mutex<MonitorTracker>>,
     /// Durable workspace trust store for the project at
-    /// [`HostedSession::workspace_root`]. Reachable through
+    /// [`HostedThread::workspace_root`]. Reachable through
     /// [`AttachHandle`] so the WS attach path can push the trust decision to a
     /// client when the workspace contributions are unreviewed
     /// (`WorkspaceTrustState::needs_review`).
@@ -248,7 +248,7 @@ impl ResolveOutcome {
 /// The host-level observability topic: one broadcast channel
 /// carrying [`MonitorEvent`] diffs for every hosted session. The registry is
 /// the only publisher; any number of monitor clients subscribe. A fresh
-/// subscriber is expected to first take a [`SessionRegistry::monitor_snapshot`]
+/// subscriber is expected to first take a [`ThreadRegistry::monitor_snapshot`]
 /// so events published before it subscribed are not lost.
 pub type MonitorBus = broadcast::Sender<MonitorEvent>;
 

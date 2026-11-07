@@ -17,7 +17,7 @@
 //! `load_session_ir` had no source for it, so it hardcoded `None` — every folded
 //! session silently un-folded on reload. A compacted session *does* record its
 //! horizon durably: the transcript's own `Compact` directive holds the
-//! checkpoint's `seq`. [`derive_horizon`] maps that back to a node id, and it is
+//! checkpoint's `seq`. `derive_horizon` maps that back to a node id, and it is
 //! stored on the newest node's `provider_meta` — the established home for
 //! protocol-private state that must survive a verbatim round trip (the Gemini
 //! thought-signature lane uses it too). It is never sent on the wire, so it costs

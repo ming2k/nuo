@@ -34,6 +34,14 @@ fn test_inv_arch_source_residency() {
 }
 
 #[test]
+fn test_inv_text_overflow_and_column_budget_firewall() {
+    let root = nuo::dev::find_workspace_root();
+    if let Err(e) = nuo::dev::text_overflow::check_text_overflow(&root) {
+        panic!("Text overflow / column budget firewall violation:\n{e}");
+    }
+}
+
+#[test]
 fn test_inv_color_purity_firewall() {
     let root = nuo::dev::find_workspace_root();
     if let Err(e) = nuo::dev::color_purity::check_color_purity(&root) {

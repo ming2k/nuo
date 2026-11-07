@@ -6,6 +6,7 @@
 pub mod color_purity;
 pub mod firewall;
 pub mod residency;
+pub mod text_overflow;
 pub mod wire_census;
 
 use std::path::PathBuf;

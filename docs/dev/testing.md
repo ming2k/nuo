@@ -87,4 +87,4 @@ Nuo enforces foundational repository contracts, structural boundaries, and epist
 
 ## 5. Manual & Exploratory Verification
 
-For running and manually testing the interactive TUI, headless prompt execution, and server lifecycle from source, consult the [Manual Testing Guide](manual-testing.md).
+For running and manually testing the interactive TUI, headless prompt execution, and server lifecycle from source, consult the [Build & Run Guide](build-and-run.md).

@@ -488,7 +488,6 @@ fn render_dialog(
                 ctx.layout_map,
                 crate::shell::overlays::provider::connections::ConnectionsModalProps {
                     providers: &providers,
-                    current_provider: &app.current_provider,
                     modal_index: d.index,
                     query: &d.query.text,
                     cursor_position: d.query.cursor,
@@ -531,8 +530,6 @@ fn render_dialog(
                 ctx.layout_map,
                 crate::shell::overlays::provider::models::ModelsModalProps {
                     models: &models,
-                    current_provider: &app.current_provider,
-                    current_model: &app.current_model,
                     modal_index: d.index,
                     query: &d.query.text,
                     cursor_position: d.query.cursor,
@@ -544,6 +541,7 @@ fn render_dialog(
                     spinner_phase: ctx.spinner_phase,
                     info_detail: d.info_detail,
                     info_scroll: &mut d.info_scroll,
+                    reveal_active: &mut d.reveal_active,
                 },
                 ctx.theme,
                 ctx.selection,
@@ -1804,6 +1802,11 @@ dialog_entity!(ModelsDialog, Models, {
     info_detail: bool = false,
     /// Body scroll offset of the model-info sub-view.
     info_scroll: usize = 0,
+    /// Whether the focused row is currently revealing a cell that does not fit
+    /// (`[INV-TUI-MARQUEE-01]`). Written by the draw, read by the event loop:
+    /// the animation heartbeat stays alive exactly while something moves and
+    /// sleeps the moment nothing does, so an idle list costs no repaints.
+    reveal_active: bool = false,
 });
 
 dialog_entity!(ConnectionsDialog, Connections, {

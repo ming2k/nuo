@@ -1,7 +1,7 @@
 //! Typed slash-command effects, records, and results.
 //!
 //! A `/` command is an *operation on the session*, not a conversation turn, and
-//! it is one of exactly two kinds ([`CommandEffect`], ADR-0140):
+//! it is one of exactly two kinds ([`crate::CommandEffect`], ADR-0140):
 //!
 //! - an **act** (`Mutation`) that changes durable state. Only an act is recorded
 //!   in the durable **command ledger** ([`CommandRecord`]);
@@ -283,7 +283,7 @@ impl CommandResult {
 ///
 /// Persisted on the session as the `commands` ledger. The message stream is pure
 /// dialogue; these records are the **acts** that happened — a command declared
-/// [`CommandEffect::Reading`] never reaches this ledger (ADR-0140), so every row
+/// [`crate::CommandEffect::Reading`] never reaches this ledger (ADR-0140), so every row
 /// here is a fact whose truth does not decay. `result: None` means the invocation
 /// is recorded but the reply could not be read back (an invocation-only row
 /// written by the dispatch completeness net).

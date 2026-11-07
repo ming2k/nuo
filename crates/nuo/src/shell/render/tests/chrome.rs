@@ -129,7 +129,6 @@ fn redesigned_components_render_without_panicking() {
             &mut LayoutMap::new(),
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "mock",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -153,8 +152,6 @@ fn redesigned_components_render_without_panicking() {
             &mut LayoutMap::new(),
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &[],
-                current_provider: "mock",
-                current_model: "mock-model",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -166,6 +163,7 @@ fn redesigned_components_render_without_panicking() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &nuo_view::model::selection::SelectionState::None,

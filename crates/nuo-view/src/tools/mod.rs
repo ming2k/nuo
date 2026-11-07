@@ -649,17 +649,19 @@ pub fn diff_hunks_for_with_offset(
     }
 }
 
-/// Truncate to `max_chars` characters, appending an ellipsis when clipped.
-/// Local copy of `document::truncate`; the document-side copy is removed in
-/// step 2 once `argument_summary` is gone.
+/// Clamp `value` to `max_chars` characters, keeping its head.
+///
+/// A tool argument summary is prose (a query, a path fragment), so it degrades
+/// from the tail. Routed through the substrate's one overflow implementation so
+/// it cannot drift from every other truncation in the product (ADR-0152
+/// `[INV-TEXT-OVERFLOW-01]`).
 pub fn truncate(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars();
-    let prefix = chars.by_ref().take(max_chars).collect::<String>();
-    if chars.next().is_some() {
-        format!("{}...", prefix)
-    } else {
-        prefix
-    }
+    nuo_ui_primitives::components::overflow::fit(
+        value,
+        max_chars,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }
 
 #[cfg(test)]

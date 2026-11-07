@@ -14,6 +14,7 @@ use std::path::Path;
 use super::ask_user::AskUser;
 use super::empty_hero_card::EmptyHeroCard;
 use super::modal_card::ModalCard;
+use super::model_row_card::ModelRowCard;
 use super::notice_card::NoticeCard;
 use super::notice_dialog_card::NoticeDialogCard;
 use super::palette_card::PaletteCard;
@@ -681,6 +682,11 @@ pub fn default_catalog() -> Vec<Box<dyn AnyStory>> {
     // 6. ModalDialog (Overlays) - 3 stories
     for story in ModalCard::stories() {
         catalog.push(instantiate_story::<ModalCard>(story));
+    }
+
+    // 6b. ModelRow (Overlays) - 4 stories: the column-budget ladder
+    for story in ModelRowCard::stories() {
+        catalog.push(instantiate_story::<ModelRowCard>(story));
     }
 
     // 7. TurnBand (Transcript) - 3 stories

@@ -14,7 +14,7 @@
 //! * **evict** — the task's death invalidates the state it owned. The session
 //!   driver is the only example: after a driver panic nothing about the
 //!   session is trustworthy, so the session is torn down through the standard
-//!   [`SessionRegistry::kill_session`](crate::registry::SessionRegistry) path
+//!   [`ThreadRegistry::kill_thread`](crate::registry::ThreadRegistry) path
 //!   (clients then lazy-resume it on the next attach).
 //! * **isolate** — the task must survive individual bad inputs. The monitor
 //!   tap folds every agent response; a poison event costs one dropped frame,

@@ -33,7 +33,7 @@ pub fn provider_key_status(_config: &Config) -> Vec<(String, bool)> {
 /// agent, and MCP per-server tool names by matching the `mcp__<server>__*`
 /// naming convention against the agent's installed tools.
 ///
-/// Sent in reply to [`nuo_protocol::AgentRequest::QuerySessionContext`] and re-sent
+/// Sent in reply to [`nuo_protocol::AgentRequest::QueryThreadContext`] and re-sent
 /// after any mutation ([`nuo_protocol::AgentRequest::RevokePermission`] /
 /// [`nuo_protocol::AgentRequest::ToggleTool`]) so the modal always reflects the
 /// post-change state.

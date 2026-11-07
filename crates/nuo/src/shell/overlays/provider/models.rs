@@ -5,14 +5,17 @@ use nuotc::{
 
 use unicode_width::UnicodeWidthStr;
 
-use super::super::common::truncate_ellipsis;
 use super::common::{
     draw_picker_search_row, match_set, place_picker_search_cursor, render_pricing_detail_rows,
     search_empty_body, split_search_bottom,
 };
 use crate::shell::render::Theme;
+use nuo_ui_primitives::components::columns::{Column, ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
 use nuo_ui_primitives::components::detail::DetailLayout;
 use nuo_ui_primitives::components::options::{ChoiceTone, choice_style};
+use nuo_ui_primitives::components::overflow::{
+    MarqueeCadence, Overflow, TextCell, WidthAware, marquee_offset, window_max_offset,
+};
 use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER, ListRow, RowGroup};
 use nuo_ui_primitives::primitives::{
     BodyRenderOptions, FixedModalSpec, FooterHint, FooterHintWithBand, SCROLL_EDGE_MARGIN,
@@ -24,21 +27,9 @@ use nuo_view::model::layout::LayoutMap;
 use nuo_view::model::selection::SelectionState;
 use nuo_view::providers::{ModelBodyLine, RankedModel, models_body_lines};
 
-/// The minimum columns the secondary **wire-id** column must have available
-/// before it renders at all. Below this a wire id degenerates into an
-/// unreadable fragment, and a fragment of the only string the user can type is
-/// worse than no string: the row then leads with the label alone, the mirror of
-/// a row whose provider published no label at all. The floor is deliberately
-/// above a bare fragment — `deep…` would read as a different model rather than
-/// as an abbreviation of `deepseek-flash`. (Restores the pre-multi-field-search
-/// `MIN_SUFFIX_BUDGET` floor, which the id-first column layout dropped.)
-const MIN_ID_COLUMN_WIDTH: usize = 10;
-
 /// Properties for rendering the Models modal.
 pub struct ModelsModalProps<'a> {
     pub models: &'a [RankedModel],
-    pub current_provider: &'a str,
-    pub current_model: &'a str,
     pub modal_index: usize,
     pub query: &'a str,
     pub cursor_position: usize,
@@ -54,6 +45,11 @@ pub struct ModelsModalProps<'a> {
     pub spinner_phase: usize,
     pub info_detail: bool,
     pub info_scroll: &'a mut usize,
+    /// Set by the draw: whether the focused row is currently revealing a cell
+    /// that does not fit. The dialog stores it so the event loop can keep its
+    /// animation heartbeat alive exactly while something is moving, and let it
+    /// sleep the moment nothing is.
+    pub reveal_active: &'a mut bool,
 }
 
 /// Draw the **Models** flat model picker modal (`/models`).
@@ -66,8 +62,6 @@ pub fn draw_models_modal(
 ) -> nuotc::Rect {
     let ModelsModalProps {
         models,
-        current_provider,
-        current_model,
         modal_index,
         query,
         cursor_position,
@@ -79,14 +73,18 @@ pub fn draw_models_modal(
         spinner_phase,
         info_detail,
         info_scroll,
+        reveal_active,
     } = props;
+    // Cleared up front: the detail sub-view and the empty states never reveal
+    // anything, so only the list path below may set it.
+    *reveal_active = false;
     let area = modal_area(frame, FixedModalSpec::MODELS);
     let f = modal_frame(frame, area, theme, true, true);
 
     let header_rect = f.header;
 
     if info_detail && let Some(rm) = models.get(modal_index.min(models.len().saturating_sub(1))) {
-        let display = rm.name.as_deref().unwrap_or(rm.model.as_str());
+        let display = rm.display_label();
         let breadcrumbs = nuo_ui_primitives::primitives::breadcrumb_parts("Models", display);
         nuo_ui_primitives::elevation::modal_header_parts(frame, header_rect, &breadcrumbs, theme);
 
@@ -241,14 +239,14 @@ pub fn draw_models_modal(
         return area;
     }
 
-    let (body, row_line) = model_list_body(
+    let (body, row_line, revealing) = model_list_body_at(
         models,
-        current_provider,
-        current_model,
         modal_index,
         theme,
         body_rect.width as usize,
+        spinner_phase as u64 * REVEAL_PHASE_MS,
     );
+    *reveal_active = revealing;
 
     let follow = if follow_selection {
         row_line.get(modal_index).copied()
@@ -278,18 +276,104 @@ pub fn draw_models_modal(
     area
 }
 
-/// Build the **Models** flat model list body via the shared [`nuo_ui_primitives::components::row::ListRow`]
-/// standard, **sectioned into three labeled groups** — Favorites, Recent, All models.
-pub(crate) fn model_list_body(
+/// The millisecond cost of one animation phase, shared by every time-driven
+/// surface (spinner, reveal). `spinner_phase` counts 100 ms ticks, so a phase
+/// index converts to elapsed milliseconds by this constant — the reveal cadence
+/// then lives in [`MarqueeCadence`] alone instead of being re-derived here.
+const REVEAL_PHASE_MS: u64 = 100;
+
+/// The floor below which the model-name column stops being readable: enough for
+/// `Claude Sonnet` plus an ellipsis, so the family is always identifiable.
+const NAME_MIN_WIDTH: usize = 16;
+/// The name's relative maximum width. The name is the row's identity, but it is
+/// not the whole row: capping it is what keeps the connection column — the one
+/// answering *whose quota am I spending?* — legible beside it.
+const NAME_MAX_SHARE: usize = 34;
+/// The wire id's floor. Below this `deepseek-flash` degenerates into `deep…`,
+/// which reads as a *different* model rather than as an abbreviation, so the
+/// column drops instead of truncating that far.
+const ID_MIN_WIDTH: usize = 12;
+/// The wire id's relative maximum width. An id is a technical handle, not prose:
+/// it earns less of the row than the name it annotates.
+const ID_MAX_SHARE: usize = 18;
+/// Capability tags (`vis`, `high`) are at most ten columns and are cosmetic.
+const SPECS_MAX_SHARE: usize = 10;
+/// The connection's floor: enough for `anthropic`, `openai-work`, `deepseek`.
+/// This column is never sacrificed to fund a verbose neighbour.
+const CONNECTION_MIN_WIDTH: usize = 10;
+/// The connection's relative maximum width.
+const CONNECTION_MAX_SHARE: usize = 24;
+
+/// The status word a row carries, or `""` when it is simply usable.
+fn row_status(rm: &RankedModel) -> &str {
+    if !rm.usable {
+        rm.display_status().unwrap_or("disabled")
+    } else if rm.availability_overridden {
+        "overridden"
+    } else if rm.availability_stale {
+        "stale"
+    } else {
+        ""
+    }
+}
+
+/// The reasoning-effort tag a row carries, or `""`.
+fn model_effort_tag(rm: &RankedModel) -> &str {
+    if !rm.usable {
+        return "";
+    }
+    match (rm.thinking, rm.effort.as_deref()) {
+        (Some(true), Some(effort)) => effort,
+        (Some(true), None) => "on",
+        (Some(false), _) if !rm.effort_levels.is_empty() => "off",
+        (None, Some(effort)) => effort,
+        _ => "",
+    }
+}
+
+/// Build the **Models** flat model list body via the shared
+/// [`nuo_ui_primitives::components::row::ListRow`] standard, **sectioned into
+/// three labeled groups** — Favorites, Recent, All models.
+///
+/// # Column budget (ADR-0152 `[INV-ROW-GRID-01]`)
+///
+/// The five fields are resolved once per frame by
+/// [`nuo_ui_primitives::components::columns`], *before* a single cell is fitted.
+/// Each field declares what its data actually needs, the floor below which it
+/// stops being readable, and its own relative maximum width; the solver then
+/// reconciles the sum against the body and emits every column's start by one
+/// left-to-right accumulation. No column's position is derived from a
+/// neighbour's demand, which is what used to let a long model name push the
+/// connection column off the row.
+///
+/// | field | overflow | floor | max share | why |
+/// | :--- | :--- | ---: | ---: | :--- |
+/// | model name | `End` | 16 | 34% | prose: the head carries the meaning |
+/// | wire id | `Middle` | 12 | 18% | `claude…0219`: both ends discriminate |
+/// | specs | `End` | 0 | 10% | `vis` + effort, ten columns at most |
+/// | connection | `End` | 10 | 24% | *whose quota am I spending?* |
+/// | status | `End` | 0 | 14% | right-pinned badge, reserved not placed |
+///
+/// # Reveal (`[INV-TUI-MARQUEE-01]`)
+///
+/// The focused row may slide any cell that overflows, so a truncated tail is
+/// reachable without widening the terminal. Every other row stays static: a
+/// table in which every row drifts is unreadable and burns CPU proportional to
+/// the row count. Motion marks focus.
+/// [`model_list_body`] at a specific point in the reveal animation, also
+/// reporting whether the focused row is currently revealing anything.
+///
+/// The report is what lets the runtime gate its animation heartbeat: an idle
+/// list must not repaint at 10 fps merely because reveal *exists*.
+pub(crate) fn model_list_body_at(
     models: &[RankedModel],
-    _current_provider: &str,
-    _current_model: &str,
     modal_index: usize,
     theme: &Theme,
     body_width: usize,
-) -> (Vec<Line<'static>>, Vec<usize>) {
+    elapsed_ms: u64,
+) -> (Vec<Line<'static>>, Vec<usize>, bool) {
     if models.is_empty() {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), false);
     }
     let (geometry, row_line) = models_body_lines(models);
     let mut body: Vec<Line> = Vec::with_capacity(geometry.len() + 3);
@@ -301,163 +385,10 @@ pub(crate) fn model_list_body(
         ))
     };
 
-    // ------------------------------------------------------------------
-    // Column layout: demand-driven with percentage width caps.
-    // Each column has a percentage cap based on dialog width (rounded to integer
-    // for the terminal TUI grid).
-    // Context size column is removed; specs only houses vision and reasoning effort tags.
-    // ------------------------------------------------------------------
-
-    // 1. Connection Column: provider label, capped at ~20% of dialog width (min 8).
-    let max_conn_len = models
-        .iter()
-        .map(|m| m.provider_label.width())
-        .max()
-        .unwrap_or(8);
-    let conn_cap = ((body_width * 20 + 50) / 100).max(8);
-    let conn_width = max_conn_len.clamp(8, conn_cap).min(body_width);
-
-    // 2. Status Column: trailing status badge ("disabled", "stale", etc.), capped at ~15%.
-    let max_status_len = models
-        .iter()
-        .map(|rm| {
-            if !rm.usable {
-                rm.display_status().unwrap_or("disabled").width()
-            } else if rm.availability_overridden {
-                "overridden".width()
-            } else if rm.availability_stale {
-                "stale".width()
-            } else {
-                0
-            }
-        })
-        .max()
-        .unwrap_or(0);
-
-    let status_cap = (body_width * 15 + 50) / 100;
-    let status_width = if max_status_len > 0 {
-        max_status_len.min(status_cap).max(6)
-    } else {
-        0
-    };
-    let status_demand = if status_width > 0 {
-        status_width + GROUP_GAP
-    } else {
-        0
-    };
-
-    // 3. Specs Column: CAP (vision, 3 cols) + EFFORT (e.g. "high", up to max_effort_len).
-    // Context size is completely removed from the model list row.
-    let any_vision = models.iter().any(|m| m.vision == Some(true));
-    fn model_effort_tag(rm: &RankedModel) -> &str {
-        if rm.usable {
-            match (rm.thinking, rm.effort.as_deref()) {
-                (Some(true), Some(effort)) => effort,
-                (Some(true), None) => "on",
-                (Some(false), _) if !rm.effort_levels.is_empty() => "off",
-                (None, Some(effort)) => effort,
-                _ => "",
-            }
-        } else {
-            ""
-        }
-    }
-    let max_effort_len = models
-        .iter()
-        .map(|m| model_effort_tag(m).width())
-        .max()
-        .unwrap_or(0);
-    let any_effort = max_effort_len > 0;
-    let specs_demand = match (any_vision, any_effort) {
-        (true, true) => 3 + 1 + max_effort_len,
-        (true, false) => 3,
-        (false, true) => max_effort_len,
-        (false, false) => 0,
-    };
-    let specs_cap = (body_width * 12 + 50) / 100;
-    let specs_width = specs_demand.min(specs_cap);
-    let specs_space = if specs_width > 0 {
-        specs_width + GROUP_GAP
-    } else {
-        0
-    };
-
-    // 4. Primary Identity (Model Label) & Secondary Wire ID:
-    let has_distinct_id = models.iter().any(|m| {
-        m.name
-            .as_deref()
-            .is_some_and(|name| name != m.model.as_str())
-    });
-    let label_width = |m: &RankedModel| m.name.as_deref().unwrap_or(m.model.as_str()).width();
-    let max_label_len = models.iter().map(label_width).max().unwrap_or(20);
-    let label_cap = (body_width * 60 + 50) / 100;
-    let preferred_label_len = max_label_len.clamp(18, label_cap);
-
-    // 5. Connection Column Positioning:
-    // Sized on-demand and aligned across rows. Allocate ~70% to identity + specs,
-    // adapting on-demand if the primary label needs more room within bounds.
-    let right_demand = conn_width + status_demand + GROUP_GAP;
-    let max_conn_col = body_width.saturating_sub(right_demand);
-    let min_conn_col = (GUTTER + preferred_label_len + specs_space + GROUP_GAP).clamp(
-        (GUTTER + 18 + GROUP_GAP).min(body_width),
-        max_conn_col.max(GUTTER + 18 + GROUP_GAP),
-    );
-    let target_conn_col = (body_width * 70 + 50) / 100;
-    let conn_col = target_conn_col.clamp(min_conn_col, max_conn_col.max(min_conn_col));
-
-    // Space available for identity before specs/connection:
-    let id_region_limit = conn_col.saturating_sub(specs_space);
-    let net_id_space = id_region_limit.saturating_sub(GUTTER + GROUP_GAP);
-    let id_cap = ((body_width * 30 + 50) / 100).max(MIN_ID_COLUMN_WIDTH);
-
-    // Demand-driven identity allocation:
-    let shared_label_cap = (body_width * 45 + 50) / 100;
-    let label_demand = max_label_len.clamp(18, shared_label_cap);
-    let id_avail = net_id_space.saturating_sub(label_demand + GROUP_GAP);
-    let can_fit_id = has_distinct_id && id_avail >= MIN_ID_COLUMN_WIDTH;
-
-    let (label_col_width, show_id_column, id_col, id_budget) = if can_fit_id {
-        let max_id_len = models
-            .iter()
-            .filter(|m| m.name.as_deref().is_some_and(|n| n != m.model.as_str()))
-            .map(|m| m.model.width())
-            .max()
-            .unwrap_or(MIN_ID_COLUMN_WIDTH);
-        let id_needed = max_id_len.clamp(MIN_ID_COLUMN_WIDTH, id_cap);
-        let mut l_width = label_demand;
-
-        // If wire id doesn't need all available room, let label expand to satisfy demand:
-        if id_avail > id_needed && max_label_len > l_width {
-            let spare = id_avail - id_needed;
-            l_width += (max_label_len - l_width).min(spare);
-        }
-
-        let id_col = GUTTER + l_width + GROUP_GAP;
-        let id_budget = id_region_limit
-            .saturating_sub(id_col + GROUP_GAP)
-            .min(id_cap);
-        (l_width, true, id_col, id_budget)
-    } else {
-        let w = if net_id_space < 18 {
-            net_id_space
-        } else {
-            max_label_len.clamp(18, label_cap.min(net_id_space))
-        };
-        (w, false, 0, 0)
-    };
-
-    let can_fit_specs = specs_width > 0
-        && conn_col
-            >= (GUTTER
-                + label_col_width
-                + (if show_id_column {
-                    id_budget + GROUP_GAP
-                } else {
-                    0
-                })
-                + GROUP_GAP
-                + specs_space);
-    let specs_col = conn_col.saturating_sub(specs_width + GROUP_GAP);
+    let layout = ModelColumns::measure(models, body_width);
+    let revealing = models
+        .get(modal_index)
+        .is_some_and(|rm| layout.overflows(rm));
 
     for line in geometry {
         match line {
@@ -473,185 +404,406 @@ pub(crate) fn model_list_body(
             ModelBodyLine::Row(row) => {
                 let rm = &models[row];
                 let is_selected = row == modal_index;
-                let disabled = !rm.usable;
-                let style = choice_style(ChoiceTone::Filled, is_selected && !disabled, theme);
-
-                let status_text = if disabled {
-                    rm.display_status().unwrap_or("disabled").to_string()
-                } else if rm.availability_overridden {
-                    "overridden".to_string()
-                } else if rm.availability_stale {
-                    "stale".to_string()
-                } else {
-                    String::new()
-                };
-
-                let cap_text = if rm.vision == Some(true) { "vis" } else { "" };
-                let effort_text = model_effort_tag(rm);
-
-                // 1. Provider label — the row's PRIMARY column, always bold.
-                // The provider's own name for the model (`Qwen3.8-Flash`) is
-                // what the row reads as; it falls back to the wire id when the
-                // catalog publishes no label (the stock OpenAI/Gemini case), so
-                // the column is never empty. Identity itself is unaffected by
-                // what is drawn: activation, favorites, hiding and every config
-                // surface still key on `rm.model` (docs/reference/tui/modals.md
-                // "name-first, id-fallback"; — the display name is
-                // presentation, never the wire value).
-                let display = rm.name.as_deref().unwrap_or(rm.model.as_str());
-                let distinct_name = rm.name.as_deref().filter(|name| *name != rm.model.as_str());
-                let label_text = truncate_ellipsis(display, label_col_width);
-                // Highlighting indexes what is drawn, per column: a labelled row
-                // highlights its name via `match_name`, an unlabelled one its id
-                // via `match_id`. A row kept alive by the *other* field (or by
-                // the connection name) renders unhighlighted, because its
-                // `match_*` is then `None` — never a mis-indexed `m`, whose
-                // positions belong to whichever field matched first.
-                let label_matched = match_set(if distinct_name.is_some() {
-                    rm.match_name.as_ref()
-                } else {
-                    rm.match_id.as_ref()
-                });
-                let label_fg = if disabled { theme.dim() } else { style.fg };
-                let label_match_fg = if disabled {
-                    theme.dim()
-                } else if is_selected {
-                    style.fg
-                } else {
-                    theme.brand()
-                };
-                let label_modifier = if disabled {
-                    Modifier::empty()
-                } else {
-                    Modifier::BOLD
-                };
-                let label_group = RowGroup::fixed().matched_text(
-                    &label_text,
-                    Style::default()
-                        .bg(style.bg)
-                        .fg(label_fg)
-                        .add_modifier(label_modifier),
-                    Style::default()
-                        .bg(style.bg)
-                        .fg(label_match_fg)
-                        .add_modifier(label_modifier),
-                    &label_matched,
-                    0,
-                );
-
-                let mut list_row = ListRow::new(style, body_width).group(label_group);
-
-                // 2. Wire ID — the SECONDARY column, dimmed, anchored at
-                // (label_col_width + 2), and only when a name label leads: an
-                // unlabelled row already draws the id in column 1. The id must
-                // never hide behind the name — it is the string that goes on the
-                // wire and into `hidden_models`/favorites/route settings — but
-                // it drops entirely when the identity column cannot fund a
-                // readable width, since a useless mid-word truncation of the
-                // only typeable handle is worse than its absence.
-                if distinct_name.is_some() && show_id_column {
-                    let id_text = truncate_ellipsis(&rm.model, id_budget);
-                    let id_matched = match_set(rm.match_id.as_ref());
-                    let id_fg = if disabled { theme.dim() } else { style.dim };
-                    let id_match_fg = if disabled {
-                        theme.dim()
-                    } else if is_selected {
-                        style.fg
-                    } else {
-                        theme.brand()
-                    };
-                    let id_modifier = if disabled {
-                        Modifier::empty()
-                    } else {
-                        Modifier::BOLD
-                    };
-                    let id_group = RowGroup::column(id_col).matched_text(
-                        &id_text,
-                        Style::default().bg(style.bg).fg(id_fg),
-                        Style::default()
-                            .bg(style.bg)
-                            .fg(id_match_fg)
-                            .add_modifier(id_modifier),
-                        &id_matched,
-                        0,
-                    );
-                    list_row = list_row.group(id_group);
-                }
-
-                // 3. Capabilities: vision ("vis", 3) + reasoning effort
-                if can_fit_specs {
-                    let mut specs_group = RowGroup::column(specs_col);
-                    if any_vision {
-                        let cap_fg = if disabled { theme.dim() } else { theme.ok() };
-                        if !cap_text.is_empty() {
-                            specs_group = specs_group.text(format!("{cap_text:>3}"), cap_fg, 0);
-                        } else {
-                            specs_group = specs_group.text("   ", style.dim, 0);
-                        }
-                    }
-
-                    if any_effort {
-                        let effort_fg = if disabled { theme.dim() } else { theme.info() };
-                        let gap = if any_vision { 1 } else { 0 };
-                        if !effort_text.is_empty() {
-                            specs_group = specs_group.text(effort_text, effort_fg, gap);
-                        }
-                    }
-                    list_row = list_row.group(specs_group);
-                }
-
-                // 4. Connection Name: Starts at conn_col, dimmed, with connection match highlighting.
-                let status_len = if status_text.is_empty() {
-                    0
-                } else {
-                    status_text.width() + GROUP_GAP
-                };
-                let conn_budget = body_width
-                    .saturating_sub(conn_col + status_len + GROUP_GAP)
-                    .max(1);
-                let conn_text = truncate_ellipsis(&rm.provider_label, conn_budget);
-                let conn_matched = match_set(rm.match_connection.as_ref());
-                let conn_fg = if disabled { theme.dim() } else { style.dim };
-                let conn_match_fg = if disabled {
-                    theme.dim()
-                } else if is_selected {
-                    style.fg
-                } else {
-                    theme.brand()
-                };
-                let conn_modifier = if disabled {
-                    Modifier::empty()
-                } else {
-                    Modifier::BOLD
-                };
-                let conn_group = RowGroup::column(conn_col).matched_text(
-                    &conn_text,
-                    Style::default().bg(style.bg).fg(conn_fg),
-                    Style::default()
-                        .bg(style.bg)
-                        .fg(conn_match_fg)
-                        .add_modifier(conn_modifier),
-                    &conn_matched,
-                    0,
-                );
-                list_row = list_row.group(conn_group);
-
-                // 5. Dedicated STATUS column: right-aligned trailing group, empty for usable models.
-                if !status_text.is_empty() {
-                    let status_fg = if disabled {
-                        theme.dim()
-                    } else if is_selected {
-                        list_row.fill_fg()
-                    } else {
-                        theme.ok()
-                    };
-                    list_row = list_row.group(RowGroup::trailing().text(status_text, status_fg, 0));
-                }
-                body.push(list_row.finish());
+                body.push(layout.row(rm, is_selected, theme, elapsed_ms));
             }
         }
     }
-    (body, row_line)
+    (body, row_line, revealing)
+}
+
+/// Column indices into [`ModelColumns::columns`].
+const COL_NAME: usize = 0;
+const COL_ID: usize = 1;
+const COL_SPECS: usize = 2;
+const COL_CONNECTION: usize = 3;
+
+/// The resolved column geometry of the Models list.
+///
+/// Built once per frame so every row shares one budget: a column present in row
+/// 3 must start at the same offset in row 30, or the table stops reading as a
+/// table.
+struct ModelColumns {
+    columns: Vec<Column>,
+    /// Whether the trailing status badge is funded. The solver decides, because
+    /// it is the only thing that knows whether honouring the badge would starve a
+    /// column it kept — and painting a badge the solver did not reserve overflows
+    /// the row.
+    status_badge_funded: bool,
+    body_width: usize,
+    /// Whether any row draws a `vis` tag, which decides whether the specs
+    /// column reserves its three columns at all.
+    any_vision: bool,
+    /// Whether any row draws an effort tag.
+    any_effort: bool,
+    /// Whether any row carries a name distinct from its wire id — i.e. whether
+    /// the id column has anything to show.
+    has_distinct_id: bool,
+    /// The atomic width of the capability-tag block. The column is all-or-
+    /// nothing: painting part of it would misalign the effort down the column.
+    specs_demand: usize,
+}
+
+impl ModelColumns {
+    fn measure(models: &[RankedModel], body_width: usize) -> Self {
+        let any_vision = models.iter().any(|m| m.vision == Some(true));
+        let max_effort = models
+            .iter()
+            .map(|m| model_effort_tag(m).width())
+            .max()
+            .unwrap_or(0);
+        let any_effort = max_effort > 0;
+        let has_distinct_id = models.iter().any(RankedModel::has_distinct_name);
+
+        let name_demand = models
+            .iter()
+            .map(|m| m.display_label().width())
+            .max()
+            .unwrap_or(0);
+        let id_demand = models
+            .iter()
+            .filter(|m| m.has_distinct_name())
+            .map(|m| m.model.width())
+            .max()
+            .unwrap_or(0);
+        let specs_demand = match (any_vision, any_effort) {
+            (true, true) => 3 + 1 + max_effort,
+            (true, false) => 3,
+            (false, true) => max_effort,
+            (false, false) => 0,
+        };
+        let conn_demand = models
+            .iter()
+            .map(|m| m.provider_label.width())
+            .max()
+            .unwrap_or(0);
+        let status_demand = models
+            .iter()
+            .map(|m| row_status(m).width())
+            .max()
+            .unwrap_or(0);
+
+        // The trailing badge is *reserved*, never placed: it is pinned to the
+        // right edge, so funding it from the pool the columns draw on would make
+        // it a competitor instead of an anchor.
+        let status_reserve = if status_demand > 0 {
+            status_demand + GROUP_GAP
+        } else {
+            0
+        };
+
+        let specs = [
+            // The name absorbs slack first: it is the row's identity, and a wide
+            // terminal is exactly where a long name becomes readable.
+            ColumnSpec::new(name_demand, NAME_MIN_WIDTH, NAME_MAX_SHARE),
+            // The wire id is the first thing to drop: a fragment of the only
+            // typeable handle is worse than its absence, and the id stays
+            // reachable through the focused row's reveal and the detail view.
+            ColumnSpec::new(id_demand, ID_MIN_WIDTH, ID_MAX_SHARE)
+                .droppable()
+                .priority(1),
+            // Capability tags are an *atomic* block: a fixed-slot composite of
+            // `vis` plus effort, whose blanks keep the effort aligned down the
+            // column. A partially funded block would misalign every row, so its
+            // floor is its whole demand and it drops as a unit instead.
+            ColumnSpec::new(specs_demand, specs_demand, SPECS_MAX_SHARE)
+                .droppable()
+                .priority(3),
+            // The connection answers "whose quota am I spending?" — it is never
+            // sacrificed to fund a verbose model name.
+            ColumnSpec::new(conn_demand, CONNECTION_MIN_WIDTH, CONNECTION_MAX_SHARE),
+        ];
+
+        let solved = Grid::new(body_width)
+            .gutter(GUTTER)
+            .gap(GROUP_GAP)
+            .max_gap(MAX_JUSTIFIED_GAP)
+            .reserve_tail(status_reserve)
+            .justify(true)
+            .layout(&specs);
+        let columns = solved.columns;
+
+        Self {
+            columns,
+            status_badge_funded: solved.reserve,
+            body_width,
+            any_vision,
+            any_effort,
+            has_distinct_id,
+            specs_demand,
+        }
+    }
+
+    fn column(&self, index: usize) -> Option<Column> {
+        column(&self.columns, index)
+    }
+
+    /// Whether any cell of this row is wider than the column it must fit.
+    ///
+    /// Only the focused row acts on this — it is the row the reader is looking
+    /// at — but the modal reports it so the runtime knows whether to keep its
+    /// animation heartbeat alive.
+    fn overflows(&self, rm: &RankedModel) -> bool {
+        let mut any = false;
+        if let Some(c) = self.column(COL_NAME) {
+            any |= rm.display_label().width() > c.width;
+        }
+        if rm.has_distinct_name()
+            && self.has_distinct_id
+            && let Some(c) = self.column(COL_ID)
+        {
+            any |= rm.model.width() > c.width;
+        }
+        if let Some(c) = self.column(COL_CONNECTION) {
+            any |= rm.provider_label.width() > c.width;
+        }
+        any
+    }
+
+    /// The overflow strategy for one cell of one row.
+    ///
+    /// `static_overflow` is the field's own semantic strategy, used whenever the
+    /// row is not the focused one: a wire id degrades to `claude…0219` rather
+    /// than losing its discriminating tail. The focused row instead *reveals*
+    /// whatever does not fit, because motion is how the list says "this is the
+    /// line you are reading".
+    ///
+    /// The marker's width comes from the theme (`…` is one column, ASCII `...` is
+    /// three): the travel range must reserve exactly that many, or the window
+    /// cannot reach the last columns of the string on a terminal that degrades
+    /// the glyph.
+    fn overflow(
+        is_selected: bool,
+        static_overflow: Overflow,
+        total: usize,
+        budget: usize,
+        elapsed_ms: u64,
+        marker_width: usize,
+    ) -> Overflow {
+        if is_selected && total > budget {
+            Overflow::Window {
+                offset: marquee_offset(
+                    window_max_offset(total, budget, marker_width),
+                    elapsed_ms,
+                    MarqueeCadence::default(),
+                ),
+            }
+        } else {
+            static_overflow
+        }
+    }
+
+    /// Paint one model row into the resolved geometry.
+    fn row(
+        &self,
+        rm: &RankedModel,
+        is_selected: bool,
+        theme: &Theme,
+        elapsed_ms: u64,
+    ) -> Line<'static> {
+        let marker_width = theme.glyphs.ellipsis.width();
+        let disabled = !rm.usable;
+        let style = choice_style(ChoiceTone::Filled, is_selected && !disabled, theme);
+        let mut groups: Vec<RowGroup> = Vec::new();
+
+        let label_fg = if disabled { theme.dim() } else { style.fg };
+        let label_match_fg = if disabled {
+            theme.dim()
+        } else if is_selected {
+            style.fg
+        } else {
+            theme.brand()
+        };
+        let label_modifier = if disabled {
+            Modifier::empty()
+        } else {
+            Modifier::BOLD
+        };
+
+        // 1. Model name — the row's primary identity: the provider's own name
+        // when it publishes one, the wire id otherwise, so the column is never
+        // empty. Identity itself is unaffected by what is drawn — activation,
+        // favorites, hiding and every configuration surface still key on
+        // `rm.model` (docs/reference/tui/modals.md, "name-first, id-fallback").
+        //
+        // Highlighting indexes what is drawn, per column: a labelled row
+        // highlights its name via `match_name`, an unlabelled one its id via
+        // `match_id`. A row kept alive by the *other* field (or by the
+        // connection name) renders unhighlighted, because its `match_*` is then
+        // empty — never a mis-indexed `m`, whose positions belong to whichever
+        // field matched first.
+        let distinct_name = rm.has_distinct_name();
+        let label_matched = match_set(if distinct_name {
+            rm.match_name.as_ref()
+        } else {
+            rm.match_id.as_ref()
+        });
+        let name_col = self.column(COL_NAME);
+        let name_budget = name_col.map_or(0, |c| c.width);
+        let name_cell = TextCell::new(
+            rm.display_label(),
+            Self::overflow(
+                is_selected,
+                Overflow::End,
+                rm.display_label().width(),
+                name_budget,
+                elapsed_ms,
+                marker_width,
+            ),
+            Style::default()
+                .bg(style.bg)
+                .fg(label_fg)
+                .add_modifier(label_modifier),
+        )
+        .ellipsis(theme.glyphs.ellipsis)
+        .highlighted(
+            (!label_matched.is_empty()).then_some(&label_matched),
+            Style::default()
+                .bg(style.bg)
+                .fg(label_match_fg)
+                .add_modifier(label_modifier),
+        );
+        groups.push(
+            RowGroup::column(name_col.map_or(GUTTER, |c| c.start))
+                .spans(name_cell.render_width(name_budget)),
+        );
+
+        // 2. Wire id — the secondary column, dimmed. Only drawn when a distinct
+        // name leads: an unlabelled row already draws the id in column 1. The id
+        // must never hide behind the name — it is the string that goes on the
+        // wire and into `hidden_models`/favorites/route settings — but it drops
+        // entirely when the budget cannot fund a readable width, since a
+        // useless mid-word truncation of the only typeable handle is worse than
+        // its absence.
+        if distinct_name
+            && self.has_distinct_id
+            && let Some(id_col) = self.column(COL_ID)
+        {
+            let id_matched = match_set(rm.match_id.as_ref());
+            let id_fg = if disabled { theme.dim() } else { style.dim };
+            let id_match_fg = if disabled {
+                theme.dim()
+            } else if is_selected {
+                style.fg
+            } else {
+                theme.brand()
+            };
+            let id_modifier = if disabled {
+                Modifier::empty()
+            } else {
+                Modifier::BOLD
+            };
+            let id_cell = TextCell::new(
+                rm.model.as_str(),
+                Self::overflow(
+                    is_selected,
+                    Overflow::Middle,
+                    rm.model.width(),
+                    id_col.width,
+                    elapsed_ms,
+                    marker_width,
+                ),
+                Style::default().bg(style.bg).fg(id_fg),
+            )
+            .ellipsis(theme.glyphs.ellipsis)
+            .highlighted(
+                (!id_matched.is_empty()).then_some(&id_matched),
+                Style::default()
+                    .bg(style.bg)
+                    .fg(id_match_fg)
+                    .add_modifier(id_modifier),
+            );
+            groups.push(RowGroup::column(id_col.start).spans(id_cell.render_width(id_col.width)));
+        }
+
+        // 3. Capability tags: vision (`vis`) + reasoning effort. Context size is
+        // deliberately absent from the list (ADR-0129) — it belongs to the
+        // detail view, where there is room to explain it.
+        if let Some(specs_col) = self
+            .column(COL_SPECS)
+            .filter(|c| c.width >= self.specs_demand)
+        {
+            let mut specs_group = RowGroup::column(specs_col.start);
+            if self.any_vision {
+                let cap_fg = if disabled { theme.dim() } else { theme.ok() };
+                let text = if rm.vision == Some(true) {
+                    "vis"
+                } else {
+                    "   "
+                };
+                specs_group = specs_group.text(text, cap_fg, 0);
+            }
+            if self.any_effort {
+                let effort_fg = if disabled { theme.dim() } else { theme.info() };
+                let gap = usize::from(self.any_vision);
+                specs_group = specs_group.text(model_effort_tag(rm), effort_fg, gap);
+            }
+            groups.push(specs_group);
+        }
+
+        // 4. Connection — whose quota this model spends.
+        if let Some(conn_col) = self.column(COL_CONNECTION) {
+            let conn_matched = match_set(rm.match_connection.as_ref());
+            let conn_fg = if disabled { theme.dim() } else { style.dim };
+            let conn_match_fg = if disabled {
+                theme.dim()
+            } else if is_selected {
+                style.fg
+            } else {
+                theme.brand()
+            };
+            let conn_modifier = if disabled {
+                Modifier::empty()
+            } else {
+                Modifier::BOLD
+            };
+            let conn_cell = TextCell::new(
+                rm.provider_label.as_str(),
+                Self::overflow(
+                    is_selected,
+                    Overflow::End,
+                    rm.provider_label.width(),
+                    conn_col.width,
+                    elapsed_ms,
+                    marker_width,
+                ),
+                Style::default().bg(style.bg).fg(conn_fg),
+            )
+            .ellipsis(theme.glyphs.ellipsis)
+            .highlighted(
+                (!conn_matched.is_empty()).then_some(&conn_matched),
+                Style::default()
+                    .bg(style.bg)
+                    .fg(conn_match_fg)
+                    .add_modifier(conn_modifier),
+            );
+            groups.push(
+                RowGroup::column(conn_col.start).spans(conn_cell.render_width(conn_col.width)),
+            );
+        }
+
+        // 5. Status — a right-pinned badge, empty for usable models. Trailing
+        // anchoring keeps it out of the column budget entirely, so no left-hand
+        // column can shift it and it can never shift one — but only while the
+        // solver says the reserve is funded. On a body too narrow to hold both,
+        // the badge yields to the row's identity rather than overflowing it.
+        let status_text = row_status(rm);
+        if self.status_badge_funded && !status_text.is_empty() {
+            let status_fg = if disabled {
+                theme.dim()
+            } else if is_selected {
+                style.fg
+            } else {
+                theme.ok()
+            };
+            groups.push(RowGroup::trailing().text(status_text, status_fg, 0));
+        }
+
+        let mut list_row = ListRow::new(style, self.body_width);
+        for group in groups {
+            list_row = list_row.group(group);
+        }
+        list_row.finish()
+    }
 }
 
 /// The Models empty-state body: shown when no model exists (no provider configured

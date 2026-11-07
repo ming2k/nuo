@@ -894,7 +894,7 @@ impl TranscriptMessage {
 
     /// Label this `Role::User` message with its turn origin (slash command /
     /// shell passthrough). No-op for non-user messages, which never surface
-    /// an origin. Builder-style, used alongside [`Self::queued`].
+    /// an origin. Builder-style, used alongside `queued`.
     pub fn with_origin(mut self, origin: UserMessageOrigin) -> Self {
         self.origin = origin;
         self
@@ -966,7 +966,7 @@ impl TranscriptMessage {
     /// Correlate this message with a busy-Enter steer by its
     /// harness-side input id, so the response listener can settle the entry
     /// when the insert is admitted or handed back. Builder-style companion of
-    /// [`Self::queued`].
+    /// `queued`.
     pub fn with_insert_id(mut self, insert_id: impl Into<String>) -> Self {
         self.insert_id = Some(insert_id.into());
         self
@@ -1681,7 +1681,7 @@ impl TranscriptMessage {
 
     /// Append a subagent event as a nested child of this tool step.
     ///
-    /// `disclosure` is the same [`DisclosureSource`] the primary transcript
+    /// `disclosure` is the same [`crate::disclosure_config::DisclosureSource`] the primary transcript
     /// uses, so a child trace / step resolves its default-expand state from one
     /// policy instead of a hardcoded guess. The folding path is not a second
     /// presentation authority: what a reloaded child shows
@@ -3522,14 +3522,19 @@ fn duration_text(duration_ms: Option<u64>) -> String {
     }
 }
 
+/// Clamp `value` to `max_chars` characters, keeping its head.
+///
+/// Routed through the substrate's overflow vocabulary so a document label and a
+/// modal label degrade identically (ADR-0152 `[INV-TEXT-OVERFLOW-01]`). The
+/// budget is in characters here, which for the ASCII labels this clamps is the
+/// same as columns.
 fn truncate(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars();
-    let prefix = chars.by_ref().take(max_chars).collect::<String>();
-    if chars.next().is_some() {
-        format!("{}...", prefix)
-    } else {
-        prefix
-    }
+    nuo_ui_primitives::components::overflow::fit(
+        value,
+        max_chars,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }
 
 /// Extract the latest active milestone or heading from reasoning content.

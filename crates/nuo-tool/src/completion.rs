@@ -70,7 +70,7 @@ pub struct CommandExample {
 ///
 /// `effect` is the command's declared [`CommandEffect`] (ADR-0140): it tells a
 /// frontend, *before dispatch*, whether to stage an optimistic thread row. It is
-/// an optimisation only — [`crate::RoundEvent::CommandResult`] carries the
+/// an optimisation only — `RoundEvent::CommandResult` carries the
 /// authoritative class after the fact, so a client that never fetched a catalog
 /// still files the reply correctly.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

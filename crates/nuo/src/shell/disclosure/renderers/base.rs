@@ -136,25 +136,19 @@ pub(crate) fn advance_plain_blank_rows(
     }
 }
 
+/// Clamp a fold summary to one line of `max_width` columns.
+///
+/// A fold summary is prose that must be cut at its first line break rather than
+/// flattened — splicing two unrelated sentences into one run-on would misreport
+/// what the fold hides. That is exactly
+/// [`fit_line`](nuo_ui_primitives::components::overflow::fit_line), so this is a
+/// thin alias over the substrate's overflow vocabulary rather than a fourth
+/// private copy of it (ADR-0152 `[INV-TEXT-OVERFLOW-01]`).
 pub(crate) fn truncate_to_width(text: &str, max_width: usize) -> String {
-    use unicode_segmentation::UnicodeSegmentation;
-    use unicode_width::UnicodeWidthStr;
-
-    if text.width() <= max_width && !text.contains(['\n', '\r']) {
-        return text.to_string();
-    }
-    let budget = max_width.saturating_sub(1);
-    let mut out = String::new();
-    for g in text.graphemes(true) {
-        if g == "\n" || g == "\r" || g == "\r\n" {
-            break;
-        }
-        let w = g.width();
-        if out.width() + w > budget {
-            break;
-        }
-        out.push_str(g);
-    }
-    out.push('…');
-    out
+    nuo_ui_primitives::components::overflow::fit_line(
+        text,
+        max_width,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }

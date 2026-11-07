@@ -8,6 +8,20 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Universal Text Overflow, One-Pass Column Budgets & Focus Reveal (ADR-0152)**:
+  - **Semantic text overflow (`nuo-ui-primitives::components::overflow`)**: Unified string fitting (`fit()`, `fit_with()`, `fit_line()`) respecting semantic strategies (`End`, `Middle`, `Start`, `Window`). Preserves distinguishing suffixes on versioned wire IDs and hashes (`claude-3-7…-20250219`), keeps path tails, and rebases fuzzy search highlight spans.
+  - **One-pass column budget solver (`nuo-ui-primitives::components::columns`)**: Eliminates bidirectional column pushing and multi-percentage collisions. Solves column widths through priority degradation, honest dropping of optional fields at narrow terminal widths, and demand-bounded slack restoration.
+  - **In-place focused row reveal**: Overflowing cells on the focused table row slide declaratively via a ping-pong marquee window tied to the event loop's 100 ms animation cadence.
+  - **Declarative storybook coverage**: Added `ModelRowCard` story family (`Comfortable`, `Contended`, `Narrow`, `Reveal`), advancing the canonical storybook catalog to 50 stories across 12 domains.
+  - **Text overflow and column budget governance firewall (`[INV-TEXT-OVERFLOW-01]`, `[INV-ROW-GRID-01]`)**: Mechanical gate preventing ad-hoc ellipsis construction and unbudgeted percentage arithmetic in presentation modules.
+
+### Fixed
+
+- **Rustdoc intra-doc link integrity**: Fixed broken and private intra-doc links across 8 core packages (`nuo-ui-primitives`, `nuo-host`, `nuo-harness`, `nuo-tool`, `nuo-view`, `nuo-persistence`, `nuo-protocol`, `nuo-server`), restoring clean `cargo doc --workspace --no-deps` execution under strict workspace lints.
+- **Developer documentation link references**: Renamed manual testing guide to `docs/dev/build-and-run.md` and repaired internal cross-references.
+
 ## [0.0.73] - 2026-11-06
 
 ### Added

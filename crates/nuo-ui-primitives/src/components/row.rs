@@ -398,6 +398,27 @@ impl RowGroup {
         self
     }
 
+    /// Append an already-rendered sequence of spans as one group member, painted
+    /// verbatim.
+    ///
+    /// This is how a [`WidthAware`](super::overflow::WidthAware) cell — which
+    /// decided its own narrow form from the budget it was handed — enters a row:
+    /// the parent must not slice the child's text, so it hands over the finished
+    /// spans and lets them paint. The caller owns each span's background so the
+    /// row fill stays unbroken.
+    pub fn spans(mut self, spans: impl IntoIterator<Item = Span<'static>>) -> Self {
+        for span in spans {
+            self = self.styled(
+                RowStyledAtom {
+                    text: span.content.into_owned(),
+                    style: span.style,
+                },
+                0,
+            );
+        }
+        self
+    }
+
     /// The visible width of this group's atoms plus their intra-group gaps.
     fn width(&self) -> usize {
         self.atoms.iter().map(|(a, gap)| gap + a.width()).sum()

@@ -590,6 +590,30 @@ impl RankedModel {
         self.section
     }
 
+    /// Whether the provider published a name that differs from the wire id, so
+    /// the row has a *distinct* identity to lead with.
+    ///
+    /// `Some(name)` equal to `model` is not distinct: the provider repeated the
+    /// id, and drawing it twice would waste a column to say the same thing.
+    pub fn has_distinct_name(&self) -> bool {
+        self.name
+            .as_deref()
+            .is_some_and(|name| name != self.model.as_str())
+    }
+
+    /// The row's primary identity as drawn: the provider's own label when it
+    /// published a distinct one, the wire id otherwise. Never empty
+    /// ("name-first, id-fallback").
+    ///
+    /// Presentation only — the wire value every config surface keys on is still
+    /// [`Self::model`].
+    pub fn display_label(&self) -> &str {
+        self.name
+            .as_deref()
+            .filter(|name| *name != self.model.as_str())
+            .unwrap_or(self.model.as_str())
+    }
+
     /// Formats the context window size as a compact string (e.g. "128k", "200k", "1M").
     pub fn format_context_window(&self) -> String {
         format_context_tokens(self.context_window)

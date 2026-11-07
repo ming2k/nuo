@@ -1168,18 +1168,18 @@ fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// Width-aware truncation with an ellipsis tail (mirrors `truncate_str` in
-/// the token report's overlay, kept local so the dock is self-contained).
+/// Clamp a dock label to `max_width` columns, keeping its head.
+///
+/// Dock labels are prose. The mechanics live in the substrate's one overflow
+/// implementation (ADR-0152 `[INV-TEXT-OVERFLOW-01]`); a local copy here is
+/// precisely how the dock and the token report would drift apart.
 fn truncate_display(text: &str, max_width: usize) -> String {
-    if text.width() <= max_width {
-        text.to_string()
-    } else if max_width <= 1 {
-        "…".to_string()
-    } else {
-        let mut out: String = text.chars().take(max_width - 1).collect();
-        out.push('…');
-        out
-    }
+    nuo_ui_primitives::components::overflow::fit(
+        text,
+        max_width,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }
 
 /// Left-align `text` into a fixed display-width field with trailing spaces.

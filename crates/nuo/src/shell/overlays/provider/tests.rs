@@ -2,8 +2,11 @@ use super::common::{draw_picker_search_row, place_picker_search_cursor};
 use super::editor::effort_block_rows;
 use super::*;
 use crate::shell::render::Theme;
+use nuo_ui_primitives::components::columns::{ColumnSpec, Grid, MAX_JUSTIFIED_GAP, column};
+use nuo_ui_primitives::components::row::{GROUP_GAP, GUTTER};
 use nuo_view::providers::PROVIDER_PRESETS;
 use nuotc::Rect;
+use unicode_width::UnicodeWidthStr;
 
 /// Render the whole frame buffer back to a single string (rows joined by
 /// `\n`), the standard readback helper for layout-level modal assertions.
@@ -671,8 +674,6 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
-                current_provider: "openai",
-                current_model: "gpt-5.5",
                 modal_index,
                 query,
                 cursor_position: query.len(),
@@ -684,6 +685,7 @@ fn render_models_modal(modal_index: usize, query: &str, search: bool) -> String 
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -777,8 +779,6 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
-                current_provider: "openai",
-                current_model: "gpt-5.5",
                 modal_index: ranked
                     .iter()
                     .position(|r| r.model == "gmodel")
@@ -793,6 +793,7 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -803,9 +804,8 @@ fn models_modal_lists_provider_locked_rows_greyed_with_a_lock_tag() {
     assert!(text.contains("disabled"), "disabled tag renders");
 
     // ADR-0076: verify that locked rows render completely dimmed without bold weight
-    let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
-        &ranked, "openai", "gpt-5.5", 0, &theme, 72,
-    );
+    let (lines, _, _) =
+        crate::shell::overlays::provider::models::model_list_body_at(&ranked, 0, &theme, 72, 0);
     let locked_line = lines
         .iter()
         .find(|l| {
@@ -896,8 +896,6 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
-                current_provider: "openai",
-                current_model: "gpt-5.5",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -909,6 +907,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -939,8 +938,6 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
-                current_provider: "openai",
-                current_model: "gpt-5.5",
                 modal_index: degraded_idx,
                 query: "",
                 cursor_position: 0,
@@ -952,6 +949,7 @@ fn models_modal_shows_the_providers_own_reason_verbatim() {
                 spinner_phase: 0,
                 info_detail: true,
                 info_scroll: &mut info_scroll,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -1012,22 +1010,26 @@ fn models_modal_leads_with_the_provider_label_and_keeps_the_id_visible() {
 
 #[test]
 fn models_modal_drops_the_id_column_when_narrow_never_the_label() {
-    // The label owns the identity region; the wire id fills only its leftover
-    // padding. So on a cramped terminal the ID column vanishes rather than
-    // truncating the label or overflowing into the provider column — the row
-    // then reads exactly like a row whose provider published no label.
-    let narrow = render_labelled_models_modal(60);
+    // The id column is the row's first casualty: a fragment of the only
+    // typeable handle reads as a *different* model, so the column vanishes
+    // whole rather than degrading (ADR-0152 `[INV-ROW-GRID-01]`). The label it
+    // annotates is never sacrificed to keep it alive.
+    let narrow = render_labelled_models_modal(40);
     let row = narrow
         .lines()
-        .find(|line| line.contains("DeepSeek V4.1 Flash"))
+        .find(|line| line.contains("DeepSeek V4.1"))
         .expect("labelled row renders on a narrow terminal");
     assert!(
         !row.contains("gemini-3-pro"),
         "no room for the id column means no id column: {row:?}"
     );
+    // The label is *not* what paid for the id: at this width it is squeezed by
+    // the shared budget like every other column, and never by a neighbour that
+    // no longer fits. What the assertion pins is that dropping the id bought the
+    // label room, not that the label is immune to truncation.
     assert!(
-        !row.contains("…Flash") && !row.contains("Flash…"),
-        "the label is never truncated to fund the id column: {row:?}"
+        !row.contains("Deep…"),
+        "the label keeps its own head: {row:?}"
     );
 
     // The wider render proves the two differ only by the id column, so the
@@ -1035,6 +1037,101 @@ fn models_modal_drops_the_id_column_when_narrow_never_the_label() {
     let wide = render_labelled_models_modal(110);
     assert!(wide.contains("DeepSeek V4.1 Flash"));
     assert!(wide.contains("gemini-3-pro"));
+}
+
+#[test]
+fn models_modal_static_rows_truncate_by_semantics_while_the_focus_reveals() {
+    // Two halves of one contract (ADR-0152):
+    //
+    // 1. A **static** row degrades a wire id in the middle, because both its
+    //    ends discriminate (`claude…0219` names the family *and* the version).
+    //    Head-truncating it would destroy exactly the part that differs from the
+    //    model above it.
+    // 2. The **focused** row instead reveals the full string by sliding a window
+    //    over it — the terminal has no tooltip, so motion is the only way a
+    //    truncated tail is reachable without widening the window. The window
+    //    discloses itself: a leading marker once it has scrolled past the head.
+    let theme = Theme::default();
+    let model = "claude-3-7-sonnet-20250219";
+    let row = |name: &str| nuo_view::providers::RankedModel {
+        section: nuo_view::providers::ModelSection::All,
+        provider_id: "anthropic".to_string(),
+        model: model.to_string(),
+        name: Some(name.to_string()),
+        provider_label: "anthropic".to_string(),
+        effort: None,
+        thinking: None,
+        effort_levels: vec![],
+        favorite: false,
+        usable: true,
+        status_label: None,
+        resets_at_ms: None,
+        vision: None,
+        context_window: 200_000,
+        reason: None,
+        availability_overridden: false,
+        availability_stale: false,
+        last_used_ms: None,
+        match_id: None,
+        match_name: None,
+        match_connection: None,
+        relevance_score: 0,
+    };
+    let ranked = vec![
+        row("Claude 3.7 Sonnet Production"),
+        row("Claude 3.7 Sonnet Preview"),
+    ];
+
+    // The row that is *not* focused is the second one, so it truncates by the
+    // field's semantics; the first row reveals.
+    let render = |selected: usize, elapsed_ms: u64| {
+        let (lines, _, revealing) = crate::shell::overlays::provider::models::model_list_body_at(
+            &ranked, selected, &theme, 70, elapsed_ms,
+        );
+        let texts: Vec<String> = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        (texts, revealing)
+    };
+
+    let (texts, _) = render(0, 0);
+    let unfocused = texts
+        .iter()
+        .find(|t| t.contains("Previ") || t.contains("Pre…"))
+        .expect("second row renders");
+    assert!(
+        unfocused.contains('…'),
+        "a static row truncates its id: {unfocused:?}"
+    );
+    assert!(
+        unfocused.contains("0219") || unfocused.contains("20250"),
+        "middle truncation keeps the id's discriminating tail: {unfocused:?}"
+    );
+
+    // The focused row reveals instead of truncating: at rest it shows the head,
+    // and later in the cycle the same cell shows a *different* slice of the same
+    // string — which is what proves the window slides rather than the text being
+    // re-truncated.
+    let (rest, revealing) = render(0, 0);
+    assert!(revealing, "the focused row reports that it is revealing");
+    let focused_at_rest = rest
+        .iter()
+        .find(|t| t.contains("Production") || t.contains("Produ…"))
+        .expect("focused row renders");
+    let (slid, _) = render(0, 2_000);
+    let focused_later = slid
+        .iter()
+        .find(|t| t.contains("Produ") || t.contains("20250219") || t.contains("…aude"))
+        .expect("focused row still renders");
+    assert_ne!(
+        focused_at_rest, focused_later,
+        "the focused row's cell slides instead of staying truncated"
+    );
+    assert!(
+        focused_later.contains('…'),
+        "a window discloses that it is a window: {focused_later:?}"
+    );
 }
 
 #[test]
@@ -1089,21 +1186,16 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
         relevance_score: 0,
     };
     let ranked = vec![row1, row2];
-    // Test on body_width = 58 (typical 80-col terminal under FixedModalSpec::PROVIDER)
-    let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
-        &ranked,
-        "cc-main",
-        "deepseek-flash",
-        0,
-        &theme,
-        58,
-    );
+    // body_width = 58: the width a 72-column terminal leaves the MODELS modal's
+    // body. The name no longer fits, so this is exactly the case the column
+    // budget exists for.
+    let (lines, _, _) =
+        crate::shell::overlays::provider::models::model_list_body_at(&ranked, 0, &theme, 58, 0);
     let line1 = lines
         .iter()
         .find(|l| {
             let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-            eprintln!("CHECKING: {text:?}");
-            text.contains("DeepSeek V4.1 Flash Fast (latest)")
+            text.contains("DeepSeek V4.1")
         })
         .expect("row1 line rendered");
     let line2 = lines
@@ -1117,22 +1209,42 @@ fn models_modal_long_label_preserves_connection_column_alignment_and_gap() {
     let text1: String = line1.spans.iter().map(|s| s.content.as_ref()).collect();
     let text2: String = line2.spans.iter().map(|s| s.content.as_ref()).collect();
 
-    let cc_main_idx = text1.find("cc-main").expect("cc-main rendered");
-    let ga_main_idx = text2.find("ga-main").expect("ga-main rendered");
+    // Display columns, not byte offsets: a truncated cell carries `…`, which is
+    // three bytes wide but one column, so byte arithmetic would report a
+    // misalignment that does not exist on screen.
+    let col_of = |text: &str, needle: &str| {
+        let byte = text.find(needle).expect("needle rendered");
+        unicode_width::UnicodeWidthStr::width(&text[..byte])
+    };
+    let cc_main_idx = col_of(&text1, "cc-main");
+    let ga_main_idx = col_of(&text2, "ga-main");
 
-    // 1. Connection column must be strictly aligned between rows
+    // 1. The connection column starts at the same column in both rows, however
+    //    long the name above it happens to be — positions come from the shared
+    //    budget, never from a neighbour's demand.
     assert_eq!(
         cc_main_idx, ga_main_idx,
         "connection column must align across rows: line1={text1:?}, line2={text2:?}"
     );
 
-    // 2. Separation between model label and connection column must be at least GROUP_GAP (2)
-    let label1_end = text1.find("DeepSeek V4.1 Flash Fast (latest)").unwrap()
-        + "DeepSeek V4.1 Flash Fast (latest)".len();
+    // 2. A truncated label still leaves at least GROUP_GAP before the connection
+    //    column: the columns may shrink, they may never touch.
+    let label1_end =
+        unicode_width::UnicodeWidthStr::width(&text1[..text1.find("DeepSeek V4.1").unwrap()])
+            + "DeepSeek V4.1".len();
     assert!(
         cc_main_idx >= label1_end + nuo_ui_primitives::components::row::GROUP_GAP,
-        "label and connection column must have at least GROUP_GAP separation: gap = {}, text1={text1:?}",
+        "label and connection column must keep GROUP_GAP separation: \
+         gap = {}, text1={text1:?}",
         cc_main_idx - label1_end
+    );
+
+    // 3. The connection is legible in full. The reported defect was that a long
+    //    model name starved this column down to `c…`; a floor of ten columns
+    //    means the account a model spends is always readable.
+    assert!(
+        text1.contains("cc-main") && text2.contains("ga-main"),
+        "the connection is never truncated to a fragment: {text1:?} / {text2:?}"
     );
 }
 
@@ -1164,14 +1276,8 @@ fn models_modal_omits_context_size_from_list_rows_but_keeps_specs_tags() {
         relevance_score: 0,
     };
     let ranked = vec![row];
-    let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
-        &ranked,
-        "anthropic",
-        "claude-3-7-sonnet",
-        0,
-        &theme,
-        90,
-    );
+    let (lines, _, _) =
+        crate::shell::overlays::provider::models::model_list_body_at(&ranked, 0, &theme, 90, 0);
     let line = lines
         .iter()
         .find(|l| {
@@ -1261,14 +1367,8 @@ fn models_modal_column_widths_respect_percentage_caps_and_demand() {
     // On body_width = 100:
     // Connection cap is 20% (20 cols), status is 0, specs cap is 12% (12 cols).
     // Primary label cap is 60% (60 cols).
-    let (lines, _) = crate::shell::overlays::provider::models::model_list_body(
-        &ranked,
-        "openai",
-        "gpt-4o-2024-11-20",
-        0,
-        &theme,
-        100,
-    );
+    let (lines, _, _) =
+        crate::shell::overlays::provider::models::model_list_body_at(&ranked, 0, &theme, 100, 0);
 
     let text1: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
     let text2: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
@@ -1317,8 +1417,6 @@ fn render_labelled_models_modal(width: u16) -> String {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
-                current_provider: "openai",
-                current_model: "gpt-5.5",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -1330,6 +1428,7 @@ fn render_labelled_models_modal(width: u16) -> String {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -1409,8 +1508,6 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &ranked,
-                current_provider: "qoder",
-                current_model: "qfmodel",
                 modal_index: 0,
                 query,
                 cursor_position: 0,
@@ -1422,6 +1519,7 @@ fn render_qoder_models_modal(width: u16, query: &str) -> String {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -1644,8 +1742,6 @@ fn models_modal_empty_state_centered_copy_and_footer() {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &[],
-                current_provider: "",
-                current_model: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -1657,6 +1753,7 @@ fn models_modal_empty_state_centered_copy_and_footer() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -1683,8 +1780,6 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &[],
-                current_provider: "",
-                current_model: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -1696,6 +1791,7 @@ fn models_modal_refreshing_state_renders_spinner_and_indicator() {
                 spinner_phase: 1,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -1720,8 +1816,6 @@ fn models_modal_search_empty_state() {
             &mut lm,
             crate::shell::overlays::provider::models::ModelsModalProps {
                 models: &[],
-                current_provider: "",
-                current_model: "",
                 modal_index: 0,
                 query: "xyz",
                 cursor_position: 3,
@@ -1733,6 +1827,7 @@ fn models_modal_search_empty_state() {
                 spinner_phase: 0,
                 info_detail: false,
                 info_scroll: &mut 0,
+                reveal_active: &mut false,
             },
             &theme,
             &selection,
@@ -1784,7 +1879,6 @@ fn connections_modal_empty_state_centered_copy_and_footer() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -1825,7 +1919,6 @@ fn connections_modal_search_empty_state() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "nonexistent",
                 cursor_position: 11,
@@ -1907,7 +2000,6 @@ fn connections_modal_detail_view_renders_info_and_usage() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -1950,7 +2042,6 @@ fn connections_modal_detail_view_renders_info_and_usage() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2048,7 +2139,6 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2119,7 +2209,6 @@ fn connections_modal_detail_view_renders_initial_loading_state_when_detail_is_no
                 &mut lm,
                 crate::shell::overlays::provider::connections::ConnectionsModalProps {
                     providers: &[],
-                    current_provider: "",
                     modal_index: 0,
                     query: "",
                     cursor_position: 0,
@@ -2211,7 +2300,6 @@ fn connections_modal_detail_view_renders_fetching_state() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2252,7 +2340,6 @@ fn connections_modal_detail_view_renders_fetching_state() {
                 &mut lm,
                 crate::shell::overlays::provider::connections::ConnectionsModalProps {
                     providers: &[],
-                    current_provider: "",
                     modal_index: 0,
                     query: "",
                     cursor_position: 0,
@@ -2447,7 +2534,6 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2487,7 +2573,6 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2570,7 +2655,6 @@ fn connections_modal_standalone_detail_renders_single_level_header() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2656,7 +2740,6 @@ fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usag
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2693,7 +2776,6 @@ fn connections_modal_commandcode_details_has_clean_headers_and_left_aligned_usag
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2784,7 +2866,6 @@ fn connections_modal_detail_wraps_second_column_with_indent() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -2918,7 +2999,6 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -3006,7 +3086,6 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
             &mut lm,
             crate::shell::overlays::provider::connections::ConnectionsModalProps {
                 providers: &[],
-                current_provider: "",
                 modal_index: 0,
                 query: "",
                 cursor_position: 0,
@@ -3564,4 +3643,239 @@ fn periodic_quota_buckets_redesign_layout_order_and_styling() {
         !empty_in_quota,
         "quota groups must be contiguous without artificial blank lines: {text}"
     );
+}
+
+/// A connection row as the Connections list receives it.
+fn ranked_connection(id: &str, label: &str, provider: &str) -> nuo_view::providers::RankedProvider {
+    nuo_view::providers::RankedProvider {
+        id: id.to_string(),
+        name: label.to_string(),
+        model: "gpt-5.5".to_string(),
+        models: vec!["gpt-5.5".to_string()],
+        builtin: false,
+        provider: provider.to_string(),
+        label: label.to_string(),
+        m: None,
+    }
+}
+
+#[test]
+fn connections_long_name_never_starves_the_type_or_the_balance_badge() {
+    // The same defect as the Models list, in the sibling surface: the name used
+    // to be funded by halving the body width, which ignored both the provider
+    // *type* column beside it and the balance badge pinned to the right edge.
+    let theme = Theme::default();
+    let providers = vec![
+        ranked_connection(
+            "relay-1",
+            "DeepSeek Enterprise Relay (staging, eu-west-1, prepaid)",
+            "openai",
+        ),
+        ranked_connection("direct", "Anthropic", "anthropic"),
+    ];
+    let mut usages = std::collections::HashMap::new();
+    usages.insert(
+        "relay-1".to_string(),
+        nuo_protocol::ConnectionUsageState::Available(Box::new(nuo_protocol::ProviderUsage {
+            primary_balance: Some("$12.40".to_string()),
+            ..Default::default()
+        })),
+    );
+
+    for body_width in [50usize, 66, 90] {
+        let lines = crate::shell::overlays::provider::connections::provider_list_body(
+            &providers,
+            Some(&usages),
+            0,
+            &theme,
+            body_width,
+        );
+        let texts: Vec<String> = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect();
+        let relay = &texts[0];
+        let anthropic = &texts[1];
+
+        // 1. The balance badge survives at every width — it is reserved, not
+        //    placed, so no left-hand column can push it away.
+        assert!(
+            relay.contains("$12.40"),
+            "body {body_width}: the balance badge is never starved: {relay:?}"
+        );
+
+        // 2. The provider type is the row's *optional* field: it must be the first
+        //    thing to go when the body cannot hold it — never the name, never the
+        //    badge. Whether it survives is not a guessed width threshold; it is
+        //    whatever the solver decided, so the assertion asks the solver rather
+        //    than hardcoding "66 columns is probably enough".
+        let type_specs = [
+            ColumnSpec::new(
+                "DeepSeek Enterprise Relay (staging, eu-west-1, prepaid)".width(),
+                12,
+                46,
+            ),
+            ColumnSpec::new("OpenAI Platform".width(), "OpenAI Platform".width(), 20)
+                .droppable()
+                .priority(2),
+        ];
+        let solved = Grid::new(body_width)
+            .gutter(GUTTER)
+            .gap(GROUP_GAP)
+            .max_gap(MAX_JUSTIFIED_GAP)
+            .reserve_tail("$12.40".width() + GROUP_GAP)
+            .justify(true)
+            .layout(&type_specs);
+        let type_funded = column(&solved.columns, 1).is_some();
+        let has_type = relay.contains("OpenAI") || relay.contains("openai");
+        assert_eq!(
+            type_funded, has_type,
+            "body {body_width}: the type column appears exactly when the solver funds it: {relay:?}"
+        );
+        assert!(
+            relay.contains("DeepSeek"),
+            "body {body_width}: the name is never the casualty: {relay:?}"
+        );
+        // The type column is the *last* occurrence: a connection may well be
+        // named after its own provider, so the first hit would be the name.
+        let type_col = |text: &str, needle: &str| {
+            text.rfind(needle)
+                .map(|b| unicode_width::UnicodeWidthStr::width(&text[..b]))
+        };
+        // When the type column is present in both rows it must be at the same
+        // column — a conditional assertion that can silently skip is not an
+        // assertion. The rows differ in name length, so a per-row column would
+        // show up here immediately.
+        let a = type_col(relay, "OpenAI").or_else(|| type_col(relay, "openai"));
+        let b = type_col(anthropic, "Anthropic").or_else(|| type_col(anthropic, "anthropic"));
+        assert_eq!(
+            a.is_some(),
+            b.is_some(),
+            "body {body_width}: the type column is all-or-nothing across rows: {texts:?}"
+        );
+        if let Some(a) = a {
+            assert_eq!(
+                a,
+                b.expect("checked above"),
+                "body {body_width}: type column aligns: {texts:?}"
+            );
+        }
+
+        // 3. The rows never overflow the body they were given.
+        for text in &texts {
+            assert!(
+                unicode_width::UnicodeWidthStr::width(text.as_str()) <= body_width,
+                "body {body_width}: row overflows: {text:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn models_modal_never_paints_a_one_column_stub_in_place_of_a_field() {
+    // A one-column `…` identifies nothing, so the solver drops the field whole
+    // (ADR-0152 phase 3c). This pins the *visible* consequence: at no width may
+    // a connection column be rendered as a single-column fragment, and the row's
+    // identity must always survive.
+    let theme = Theme::default();
+    let row =
+        |name: &str, model: &str, conn: &str, usable: bool| nuo_view::providers::RankedModel {
+            section: nuo_view::providers::ModelSection::All,
+            provider_id: "p".to_string(),
+            model: model.to_string(),
+            name: Some(name.to_string()),
+            provider_label: conn.to_string(),
+            effort: None,
+            thinking: None,
+            effort_levels: vec![],
+            favorite: false,
+            usable,
+            status_label: (!usable).then(|| "disabled".to_string()),
+            resets_at_ms: None,
+            vision: None,
+            context_window: 1,
+            reason: None,
+            availability_overridden: false,
+            availability_stale: false,
+            last_used_ms: None,
+            match_id: None,
+            match_name: None,
+            match_connection: None,
+            relevance_score: 0,
+        };
+    let ranked = vec![
+        row("Model Name", "model-id", "connection", false),
+        row("Ok", "ok", "c", true),
+    ];
+
+    for body_width in 12..=60 {
+        let (lines, _, _) = crate::shell::overlays::provider::models::model_list_body_at(
+            &ranked, 5, &theme, body_width, 0,
+        );
+        let text: String = lines
+            .iter()
+            .find(|l| {
+                let t: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+                t.contains("Model") || t.contains("Mode")
+            })
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect())
+            .unwrap_or_default();
+        assert!(
+            !text.is_empty(),
+            "body {body_width}: the row's identity is never dropped"
+        );
+        // A lone ellipsis field would read as `…` surrounded by gaps.
+        assert!(
+            !text.contains("  …  ") && !text.trim_end().ends_with("  …"),
+            "body {body_width}: no field may degrade to a one-column stub: {text:?}"
+        );
+        assert!(
+            unicode_width::UnicodeWidthStr::width(text.as_str()) <= body_width,
+            "body {body_width}: the row never overflows: {text:?}"
+        );
+    }
+}
+
+#[test]
+fn connections_never_overflow_when_the_balance_badge_yields() {
+    // The badge yields to the connection name on a body too narrow for both. What
+    // must never happen is the other outcome: the solver reclaiming the badge's
+    // columns while the renderer keeps painting the badge, which puts the row past
+    // its body.
+    let theme = Theme::default();
+    let providers = vec![
+        ranked_connection("relay-1", "DeepSeek Enterprise Relay", "openai"),
+        ranked_connection("direct", "Anthropic", "anthropic"),
+    ];
+    let mut usages = std::collections::HashMap::new();
+    usages.insert(
+        "relay-1".to_string(),
+        nuo_protocol::ConnectionUsageState::Available(Box::new(nuo_protocol::ProviderUsage {
+            primary_balance: Some("$12.40".to_string()),
+            ..Default::default()
+        })),
+    );
+
+    for body_width in 12..=70 {
+        let lines = crate::shell::overlays::provider::connections::provider_list_body(
+            &providers,
+            Some(&usages),
+            0,
+            &theme,
+            body_width,
+        );
+        for line in &lines {
+            let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+            assert!(
+                unicode_width::UnicodeWidthStr::width(text.as_str()) <= body_width,
+                "body {body_width}: the row overflows: {text:?}"
+            );
+        }
+        // The identity survives even where the badge cannot.
+        let first: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            first.contains("Deep") || first.contains("Dee"),
+            "body {body_width}: the name is never the casualty: {first:?}"
+        );
+    }
 }

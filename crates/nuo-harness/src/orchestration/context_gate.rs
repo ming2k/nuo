@@ -1,7 +1,7 @@
 //! The mid-turn context projection gate.
 //!
 //! `project_context_if_needed` hands the live window to a
-//! [`ContextProjectionGate`] between ReAct turns, once request pressure crosses
+//! [`crate::ContextProjectionGate`] between ReAct turns, once request pressure crosses
 //! the model-relative threshold. Nothing ever installed one: `bootstrap.rs`
 //! carried a comment describing the install — "install a gate that …" — with no
 //! code under it, so the hot path always took its `let Some(gate) = gate else`

@@ -16,7 +16,7 @@
 //!
 //! # The three conditions
 //!
-//! [`is_durable`] is the whole residency policy, and each condition exists
+//! `is_durable` is the whole residency policy, and each condition exists
 //! because of a distinct failure:
 //!
 //! 1. **The command is an act.** A reading (`/usage`, `/diff`, `/jobs`, `/help`)

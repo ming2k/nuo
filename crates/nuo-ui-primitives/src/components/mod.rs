@@ -1,4 +1,5 @@
 pub mod action;
+pub mod columns;
 pub mod detail;
 pub mod dropdown;
 pub mod footer;
@@ -8,6 +9,7 @@ pub mod list;
 pub mod meta_strip;
 pub mod modal;
 pub mod options;
+pub mod overflow;
 pub mod path;
 pub mod popover;
 pub mod row;

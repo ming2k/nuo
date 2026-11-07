@@ -67,6 +67,14 @@ jobs:
       - name: source residency
         run: cargo test -p nuo --test architecture_firewall -- test_inv_arch_source_residency --nocapture
 
+      # [INV-COLOR-01] / ADR-0147: semantic color tokens and palette purity.
+      - name: color purity firewall
+        run: cargo test -p nuo --test architecture_firewall -- test_inv_color_purity_firewall --nocapture
+
+      # [INV-TEXT-OVERFLOW-01] / [INV-ROW-GRID-01] / ADR-0152: universal text overflow and column budget.
+      - name: text overflow firewall
+        run: cargo test -p nuo --test architecture_firewall -- test_inv_text_overflow_and_column_budget_firewall --nocapture
+
   release:
     name: release binary (${{ matrix.target }})
     needs: verify

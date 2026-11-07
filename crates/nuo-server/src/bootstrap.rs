@@ -84,7 +84,7 @@ pub struct BootstrapParams {
     /// Server-wide authoritative connection usage shared across all hosted sessions.
     pub shared_provider_usage: Option<crate::SharedConnectionUsage>,
     /// Optional readiness-stage sink (ADR-0133). The hosted-session builder
-    /// uses it to publish [`nuo_protocol::SessionPhase::Preparing`] transitions
+    /// uses it to publish [`nuo_protocol::ThreadPhase::Preparing`] transitions
     /// while local assembly runs. Tests and in-process frontends pass `None`.
     pub phase_sink: Option<PhaseSink>,
 }

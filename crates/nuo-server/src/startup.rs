@@ -196,7 +196,7 @@ macro_rules! define_builtin_commands {
 ///   because `from_slash` is the vocabulary's single owner (ADR-0119 §2b).
 /// - A name outside the built-in vocabulary — an application-registered handler,
 ///   a project command prompt, the retired `/btw` steering — is
-///   [`CommandEffect::Mutation`]. Extension code may have mutated anything, and a
+///   [`nuo_protocol::CommandEffect::Mutation`]. Extension code may have mutated anything, and a
 ///   missing record is unrecoverable while a spurious one is only noisy.
 ///
 /// `/role` is why `effect: { bare, verb }` has no default: the bare invocation

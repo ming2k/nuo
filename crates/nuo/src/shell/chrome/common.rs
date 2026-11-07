@@ -118,25 +118,17 @@ pub fn tilde_home(path: &std::path::Path) -> String {
     nuo_ui_primitives::components::path::tilde_shorten(path)
 }
 
-/// Truncate `s` to at most `max` display cells, appending `…` when cut.
+/// Truncate `s` to at most `max` display cells, keeping its head.
+///
+/// A bar label is prose (a session title, a workspace name), so it degrades from
+/// the tail. The mechanics live in the substrate's one overflow implementation
+/// (ADR-0152 `[INV-TEXT-OVERFLOW-01]`); this alias exists only to keep the
+/// caller's vocabulary.
 pub(crate) fn truncate_for_bar(s: &str, max: usize) -> String {
-    if nuotc::str_len(s) <= max {
-        s.to_string()
-    } else if max == 0 {
-        String::new()
-    } else if max == 1 {
-        "…".to_string()
-    } else {
-        let mut used = 0usize;
-        let mut head = String::new();
-        for piece in nuotc::graphemes(s) {
-            let width = piece.width as usize;
-            if used + width > max - 1 {
-                break;
-            }
-            head.push_str(piece.text);
-            used += width;
-        }
-        format!("{head}…")
-    }
+    nuo_ui_primitives::components::overflow::fit(
+        s,
+        max,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }

@@ -377,25 +377,28 @@ pub(crate) async fn run_app_loop(
         }
 
         let viewed_animating = app.viewed_chrome().responding;
+        // The Models dialog is live in two cases: a catalog refresh is in
+        // flight (the header spinner), or the focused row is revealing a cell
+        // that does not fit (`[INV-TUI-MARQUEE-01]`). The second is reported by
+        // the draw itself, so an idle list — every row static, nothing hidden —
+        // costs no repaints at all.
+        let models_live = app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Models)
+            && {
+                let d = app
+                    .surfaces
+                    .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
+                d.refreshing || d.reveal_active
+            };
         let animating = viewed_animating
             || app.has_live_transport_setback()
             || !app.pending_images.is_empty()
             || app.input_drag_scroll.is_some()
-            || ((app
+            || models_live
+            || (app
                 .surfaces
-                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
+                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
                 .refreshing
-                || app
-                    .surfaces
-                    .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-                    .refreshing)
-                && matches!(
-                    app.active_dialog(),
-                    Some(
-                        crate::shell::surfaces::DialogKind::Models
-                            | crate::shell::surfaces::DialogKind::Connections
-                    )
-                ));
+                && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Connections));
 
         let is_typing_active = app.last_key_press.elapsed() < std::time::Duration::from_millis(150);
         let animation_draw = animating && !is_typing_active;

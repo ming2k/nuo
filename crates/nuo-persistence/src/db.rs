@@ -41,7 +41,7 @@ pub use migrations::{
 #[cfg(test)]
 mod tests;
 
-/// One projected message row inside a [`SessionTranscriptView`].
+/// One projected message row inside a [`ThreadTranscriptView`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionMessageView {
     pub seq: u64,

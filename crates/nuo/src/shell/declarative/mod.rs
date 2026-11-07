@@ -10,6 +10,7 @@ pub mod ask_user;
 pub mod empty_hero_card;
 pub use nuo_ui_primitives::key;
 pub mod modal_card;
+pub mod model_row_card;
 pub mod notice_card;
 pub mod notice_dialog_card;
 pub mod palette_card;
@@ -198,8 +199,8 @@ mod tests {
         let catalog = default_catalog();
         assert_eq!(
             catalog.len(),
-            46,
-            "Default catalog must aggregate all 46 canonical stories across 11 domains"
+            50,
+            "Default catalog must aggregate all 50 canonical stories across 12 domains"
         );
 
         for story in &catalog {
@@ -215,7 +216,7 @@ mod tests {
 
         let temp_dir = tempfile::tempdir().unwrap();
         let exported = workbench::Workbench::export_all_snapshots(temp_dir.path()).unwrap();
-        assert_eq!(exported, 46, "Must export all 46 snapshots to disk");
+        assert_eq!(exported, 50, "Must export all 50 snapshots to disk");
     }
 
     #[test]

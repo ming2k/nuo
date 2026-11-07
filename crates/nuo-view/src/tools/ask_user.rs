@@ -128,13 +128,14 @@ mod tests {
             ]
         });
         let summary = summary(&args);
-        // `truncate` appends a 3-char ellipsis past the take budget.
+        // The clamp is now a strict *column* budget: the marker is inside it,
+        // not appended past it (ADR-0152 `[INV-TEXT-OVERFLOW-01]`).
         assert!(
-            summary.chars().count() <= SUMMARY_BUDGET + 3,
+            unicode_width::UnicodeWidthStr::width(summary.as_str()) <= SUMMARY_BUDGET,
             "summary leaked past the header budget: {summary:?}"
         );
         assert!(
-            summary.ends_with("..."),
+            summary.ends_with('…'),
             "a clipped header must signal elision: {summary:?}"
         );
     }

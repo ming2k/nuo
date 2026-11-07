@@ -1,7 +1,7 @@
 //! Per-session monitor state machines.
 //!
 //! A [`MonitorTracker`] taps one hosted session's [`AgentResponse`] broadcast
-//! and maintains the [`SessionStatus`] + accounting row a control panel
+//! and maintains the [`ThreadStatus`] + accounting row a control panel
 //! renders. The tap lives in the session's broadcast-tap task
 //! ([`crate::registry`]), which calls [`MonitorTracker::observe`] for every
 //! response; the registry owns publishing the resulting
@@ -35,7 +35,7 @@ pub struct MonitorTracker {
 impl MonitorTracker {
     /// Seed the tracker for a session that has just been (re-)hosted.
     ///
-    /// `seed_status` is the registry's bootstrap verdict: [`SessionStatus::Running`]
+    /// `seed_status` is the registry's bootstrap verdict: [`ThreadStatus::Running`]
     /// when the resumed transcript's tail shows an unfinished round (the
     /// driver will re-drive it), otherwise [`ThreadStatus::Idle`].
     pub fn bootstrap(mut base: MonitoredThread, seed_status: ThreadStatus) -> Self {

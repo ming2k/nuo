@@ -43,32 +43,24 @@ pub fn one_line(s: &str) -> String {
         .collect()
 }
 
-/// Truncate `s` to fit `max` display columns, appending `…` when it doesn't.
-/// Width-aware so CJK/wide glyphs don't break the column budget. Used by table-
-/// like modal rows to cap a long first column and leave room for the rest.
+/// Truncate prose to fit `max` display columns, keeping its head.
+///
+/// A thin alias over [`fit`](nuo_ui_primitives::components::overflow::fit) for
+/// the many call sites whose field is prose — a session title, a description, a
+/// key hint. It exists so those sites read as "this is prose", and so that any
+/// field whose meaning lives at its *tail* is forced to name a different
+/// strategy rather than inheriting the wrong one by habit
+/// (ADR-0152 `[INV-TEXT-OVERFLOW-01]`).
+///
+/// A field that is an identity — a path, a wire id, a hash — must call `fit`
+/// with `Start`/`Middle` instead.
 pub fn truncate_ellipsis(s: &str, max: usize) -> String {
-    use unicode_width::UnicodeWidthChar;
-    if max == 0 {
-        return String::new();
-    }
-    if s.width() <= max {
-        return s.to_string();
-    }
-    if max == 1 {
-        return "…".to_string();
-    }
-    let mut out = String::new();
-    let mut w = 0usize;
-    for c in s.chars() {
-        let cw = UnicodeWidthChar::width(c).unwrap_or(0).max(1);
-        if w + cw > max - 1 {
-            break;
-        }
-        out.push(c);
-        w += cw;
-    }
-    out.push('…');
-    out
+    nuo_ui_primitives::components::overflow::fit(
+        s,
+        max,
+        nuo_ui_primitives::components::overflow::Overflow::End,
+    )
+    .text
 }
 
 /// Display column of the caret within a rendered input field, given its char
