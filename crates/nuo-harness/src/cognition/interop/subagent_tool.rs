@@ -1306,6 +1306,7 @@ impl SubagentTool {
                 on_event(nuo_protocol::SubagentEvent::StreamReasoningEnd(content));
             }
             nuo_protocol::AgentEvent::ToolCall {
+                announcement: _,
                 id,
                 name,
                 arguments,

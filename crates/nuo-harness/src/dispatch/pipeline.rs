@@ -97,6 +97,7 @@ impl Agent {
         tool_calls: &[ToolCall],
         messages: &[Message],
         state: &mut RoundState,
+        announcements: &std::collections::HashMap<usize, u64>,
         on_event: &mut F,
     ) -> PreparedDispatch
     where
@@ -221,9 +222,10 @@ impl Agent {
             .map(|_| format!("call_{}", uuid::Uuid::new_v4()))
             .collect();
         tracing::info!(count = tool_calls.len(), "dispatching native tool calls");
-        for (call, id) in tool_calls.iter().zip(&call_ids) {
+        for (index, (call, id)) in tool_calls.iter().zip(&call_ids).enumerate() {
             tracing::debug!(tool = %call.name, "tool call");
             on_event(AgentEvent::ToolCall {
+                announcement: announcements.get(&index).copied(),
                 id: id.clone(),
                 name: call.name.clone(),
                 arguments: call.arguments.clone(),

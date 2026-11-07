@@ -94,6 +94,29 @@ pub(crate) type TurnPersistFn =
 /// It is `None` on subagents, the review diagnostic, and tests.
 pub(crate) type RequestProjectionFn = Arc<dyn Fn(nuo_protocol::RequestProjection) + Send + Sync>;
 
+/// Tool-output retention budget for the per-request history projection.
+///
+/// The newest `verbatim_tokens` of tool output stay intact; the next band up to
+/// `retention_tokens` is frozen to a bounded head plus its re-fetch pointer;
+/// anything older is cleared to a one-line placeholder. `retention_tokens == 0`
+/// disables the projection entirely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ToolOutputProjectionBudget {
+    pub(crate) verbatim_tokens: usize,
+    pub(crate) retention_tokens: usize,
+}
+
+impl Default for ToolOutputProjectionBudget {
+    fn default() -> Self {
+        Self {
+            verbatim_tokens:
+                nuo_protocol::context_lifecycle::DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS as usize,
+            retention_tokens: nuo_protocol::context_lifecycle::DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
+                as usize,
+        }
+    }
+}
+
 /// Title-established observer fired by the background session titler
 /// (ADR-0022).
 ///
@@ -189,6 +212,10 @@ pub struct Agent {
     /// ReAct turns. `0` disables mid-round projection. Derived from the active
     /// model's context window.
     context_prune_threshold_tokens: Arc<std::sync::Mutex<usize>>,
+    /// Tool-output retention budget for the per-request history projection.
+    /// Seeded from the context policy and re-seeded on every model switch so a
+    /// long ReAct round cannot accumulate every tool byte it ever produced.
+    tool_output_projection: Arc<std::sync::Mutex<ToolOutputProjectionBudget>>,
     /// Optional mid-turn model-context projection gate.
     context_projection_gate: Arc<std::sync::Mutex<Option<Arc<dyn ContextProjectionGate>>>>,
     /// Learned per-route image-input suppression: the
@@ -583,7 +610,15 @@ impl StreamingRoundState {
         &mut self,
         project: impl FnOnce(&mut nuo_protocol::ModelRequest) -> usize,
     ) -> Option<usize> {
-        self.pending_request.as_mut().map(project)
+        self.pending_request.as_mut().map(|request| {
+            let changed = project(request);
+            if changed > 0 {
+                // The cacheable-prefix identity must describe the bytes this
+                // attempt will actually send.
+                request.recompute_revisions();
+            }
+            changed
+        })
     }
 }
 

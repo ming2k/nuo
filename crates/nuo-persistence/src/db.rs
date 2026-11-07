@@ -88,7 +88,6 @@ fn serde_plain(kind: nuo_protocol::DirectiveKind) -> rusqlite::Result<&'static s
     Ok(match kind {
         nuo_protocol::DirectiveKind::Prune => "prune",
         nuo_protocol::DirectiveKind::Compact => "compact",
-        nuo_protocol::DirectiveKind::Freeze => "freeze",
     })
 }
 

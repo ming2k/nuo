@@ -46,8 +46,9 @@ pub use model::{
     RequirementRevision, SourceInterval, SourceManifest, TaskState, Tombstone,
 };
 pub use policy::{
-    CONTEXT_POLICY_SCHEMA_VERSION, ContextPolicy, LegacyKeyRejected, PolicyError,
-    reject_legacy_runtime_key,
+    CONTEXT_POLICY_SCHEMA_VERSION, ContextPolicy, DEFAULT_MAX_INPUT_TOKENS,
+    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS,
+    LegacyKeyRejected, PolicyError, reject_legacy_runtime_key,
 };
 pub use retrieval::{
     AuthScope, CursorBinding, HandleScheme, HandleScope, InspectError, InspectHandle,

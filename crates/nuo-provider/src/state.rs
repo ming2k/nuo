@@ -124,26 +124,76 @@ pub enum ProviderCursorState {
 /// Provider-private replay material attached to the assistant graph node.
 pub type ProviderArtifacts = serde_json::Map<String, serde_json::Value>;
 
-/// Stable semantic fingerprint of the provider-visible conversation. System
-/// instructions and provider-private metadata are intentionally excluded:
-/// instructions are a request envelope, while artifacts are credentials for
-/// replaying the semantic node rather than part of its meaning.
-#[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
-pub fn semantic_context_head<'a>(messages: impl IntoIterator<Item = &'a Message>) -> String {
-    let mut digest = Sha256::new();
-    for message in messages {
-        update_semantic_message(&mut digest, message);
-    }
-    format!("sha256:{:x}", digest.finalize())
+/// The complete revision set one request assembly derives from its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestRevisions {
+    /// Semantic head of the provider-visible conversation.
+    pub semantic_head: String,
+    /// Envelope identity (instructions, system rows, tool declarations).
+    pub envelope_fingerprint: String,
+    /// Cacheable-prefix identity (instructions, tool declarations, messages).
+    pub prefix_fingerprint: String,
 }
 
-/// Fold one message's semantic content (role, text, tool trace, images) into a
-/// digest. Instructions and provider-private metadata are excluded; see
-/// [`semantic_context_head`].
+/// Derive every request revision in **one** traversal of the message list.
+///
+/// The three digests differ only in scope and order, not in the per-message
+/// bytes: each non-system message contributes the same serialized semantic
+/// payload to the head and to the prefix, and each system row contributes its
+/// content to the envelope. Computing them together removes the duplicate
+/// O(conversation bytes) serialization pass the assembly path used to pay per
+/// turn.
 #[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
-fn update_semantic_message(digest: &mut Sha256, message: &Message) {
+pub fn request_revisions<T: Serialize>(
+    instructions: &crate::instructions::InstructionBundle,
+    messages: &[Message],
+    tools: &[T],
+) -> RequestRevisions {
+    let mut semantic = Sha256::new();
+    let mut prefix = Sha256::new();
+    let mut envelope = Sha256::new();
+    for slice in &instructions.slices {
+        for digest in [&mut prefix, &mut envelope] {
+            digest.update(slice.id.as_bytes());
+            digest.update([slice.tier as u8]);
+            digest.update(slice.content.as_bytes());
+            digest.update([0xff]);
+        }
+    }
+    let tools_bytes = serde_json::to_vec(tools).expect("tool declarations serialize");
+    prefix.update(&tools_bytes);
+    prefix.update([0xfe]);
+    for message in messages {
+        if message.role == Role::System {
+            envelope.update(message.content.as_bytes());
+            envelope.update([0xff]);
+            continue;
+        }
+        let Some(payload) = semantic_message_payload(message) else {
+            continue;
+        };
+        semantic.update(&payload);
+        semantic.update([0xff]);
+        prefix.update(&payload);
+        prefix.update([0xff]);
+    }
+    envelope.update(&tools_bytes);
+    RequestRevisions {
+        semantic_head: format!("sha256:{:x}", semantic.finalize()),
+        envelope_fingerprint: format!("sha256:{:x}", envelope.finalize()),
+        prefix_fingerprint: format!("sha256:{:x}", prefix.finalize()),
+    }
+}
+
+/// Serialize one message's semantic (wire-meaningful) content.
+///
+/// The shape is the single source of truth for both the semantic head and the
+/// cacheable prefix. System rows have no semantic payload (they belong to the
+/// request envelope instead).
+#[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
+fn semantic_message_payload(message: &Message) -> Option<Vec<u8>> {
     if message.role == Role::System {
-        return;
+        return None;
     }
     let semantic = serde_json::json!({
         "role": message.role,
@@ -154,8 +204,23 @@ fn update_semantic_message(digest: &mut Sha256, message: &Message) {
         "tool_call_id": message.tool_call_id,
         "images": message.images,
     });
-    digest.update(serde_json::to_vec(&semantic).expect("semantic message serializes"));
-    digest.update([0xff]);
+    Some(serde_json::to_vec(&semantic).expect("semantic message serializes"))
+}
+
+/// Stable semantic fingerprint of the provider-visible conversation. System
+/// instructions and provider-private metadata are intentionally excluded:
+/// instructions are a request envelope, while artifacts are credentials for
+/// replaying the semantic node rather than part of its meaning.
+#[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
+pub fn semantic_context_head<'a>(messages: impl IntoIterator<Item = &'a Message>) -> String {
+    let mut digest = Sha256::new();
+    for message in messages {
+        if let Some(payload) = semantic_message_payload(message) {
+            digest.update(&payload);
+            digest.update([0xff]);
+        }
+    }
+    format!("sha256:{:x}", digest.finalize())
 }
 
 /// Stable identity of the cacheable request prefix `S | H | I`: the
@@ -179,7 +244,10 @@ pub fn request_prefix_fingerprint<T: Serialize>(
     digest.update(serde_json::to_vec(tools).expect("tool declarations serialize"));
     digest.update([0xfe]);
     for message in messages {
-        update_semantic_message(&mut digest, message);
+        if let Some(payload) = semantic_message_payload(message) {
+            digest.update(&payload);
+            digest.update([0xff]);
+        }
     }
     format!("sha256:{:x}", digest.finalize())
 }
@@ -313,5 +381,31 @@ mod tests {
             cursor: cursor.clone(),
         };
         assert_eq!(state, ProviderCursorState::Ready { cursor });
+    }
+
+    #[test]
+    fn one_pass_revisions_match_the_standalone_fingerprints() {
+        let instructions = crate::instructions::InstructionBundle::default();
+        let messages = vec![
+            Message::new(Role::System, "system zero"),
+            Message::new(Role::User, "hello"),
+            Message::new(Role::System, "system one"),
+            Message::new(Role::Assistant, "hi"),
+            Message::new(Role::System, "system two"),
+        ];
+        let tools: Vec<crate::ToolSpec> = Vec::new();
+        let revisions = request_revisions(&instructions, &messages, &tools);
+        assert_eq!(
+            revisions.semantic_head,
+            semantic_context_head(messages.iter())
+        );
+        assert_eq!(
+            revisions.prefix_fingerprint,
+            request_prefix_fingerprint(&instructions, &messages, &tools)
+        );
+        assert_eq!(
+            revisions.envelope_fingerprint,
+            request_envelope_fingerprint(&instructions, &messages, &tools)
+        );
     }
 }

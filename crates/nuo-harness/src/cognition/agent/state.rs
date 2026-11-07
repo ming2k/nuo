@@ -162,6 +162,9 @@ impl Agent {
                 nuo_protocol::token_ledger::ROOT_ACTOR_ID.to_string(),
             ),
             context_prune_threshold_tokens: Arc::new(std::sync::Mutex::new(0)),
+            tool_output_projection: Arc::new(std::sync::Mutex::new(
+                crate::cognition::agent::ToolOutputProjectionBudget::default(),
+            )),
             context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
             images_suppressed: Arc::new(std::sync::RwLock::new(None)),
             hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
@@ -209,6 +212,32 @@ impl Agent {
             .context_prune_threshold_tokens
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = budget_tokens;
+    }
+
+    /// Install the tool-output retention budget for the per-request projection.
+    ///
+    /// `retention_tokens == 0` disables the projection; a non-zero horizon is
+    /// clamped to at least the verbatim window so the two bands can never
+    /// invert. Called at startup and after every model switch, because the
+    /// horizon is part of the versioned context policy.
+    pub fn set_tool_output_projection(&self, verbatim_tokens: usize, retention_tokens: usize) {
+        let budget = crate::cognition::agent::ToolOutputProjectionBudget {
+            verbatim_tokens,
+            retention_tokens: retention_tokens.max(verbatim_tokens),
+        };
+        *self
+            .tool_output_projection
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = budget;
+    }
+
+    pub(crate) fn tool_output_projection_budget(
+        &self,
+    ) -> crate::cognition::agent::ToolOutputProjectionBudget {
+        *self
+            .tool_output_projection
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Replace the per-model tool-variant selection and re-resolve the
@@ -416,7 +445,7 @@ impl Agent {
         let mut enriched: Vec<Message> = messages
             .iter()
             .filter(|message| message.role != Role::System)
-            .cloned()
+            .map(Message::clone_without_children)
             .collect();
         // `[INV-REF-03]`/`[INV-REF-04]`: canonicalize `@`-addresses
         // and consume suppressed escapes on the provider-facing view only, and
@@ -445,6 +474,30 @@ impl Agent {
         crate::cognition::agent::remove_empty_assistant_messages(&mut enriched);
         enriched.retain(|message| !message.is_command_echo());
         self.project_images_away_if_unusable(&mut enriched);
+
+        // Bound the historical tool-result bodies. This is a request projection:
+        // the durable transcript keeps every byte, while the provider sees the
+        // newest band verbatim, a frozen head (with its spool/artifact pointer)
+        // for the next band, and a one-line placeholder beyond the retention
+        // horizon.
+        //
+        // Only deliveries that replay the whole conversation need this. A
+        // `RemoteStored` route anchors on `previous_response_id` and sends only
+        // the delta; freezing an *old* message there would change the local
+        // semantic head and invalidate the remote cursor every turn, turning a
+        // cheap continuation into a full replay. Those routes get their relief
+        // from the bounded compaction policy instead.
+        let continuation = self.provider.continuation_mode();
+        let tool_output_budget = self.tool_output_projection_budget();
+        if tool_output_budget.retention_tokens > 0
+            && continuation != nuo_protocol::ContinuationMode::RemoteStored
+        {
+            nuo_protocol::project_historical_tool_outputs(
+                &mut enriched,
+                tool_output_budget.verbatim_tokens,
+                tool_output_budget.retention_tokens,
+            );
+        }
 
         // `E_n` (the request-local temporary context) is empty by default
         // code structure is delivered on demand
@@ -475,10 +528,7 @@ impl Agent {
         let context = self.system_prompt_context(&tools);
         self.model_request_assembler
             .assemble_prepared(enriched, temporary_context, &context, &tools)
-            .with_route_state(
-                &self.provider.route_fingerprint(),
-                self.provider.continuation_mode(),
-            )
+            .with_route_state(&self.provider.route_fingerprint(), continuation)
     }
 
     /// Compile a [`nuo_protocol::ModelRequest`] directly from a canonical [`nuo_protocol::SessionIR`]
@@ -1206,11 +1256,6 @@ impl Agent {
     /// Access the harness cognitive pipeline for out-of-band typed execution.
     pub fn cognitive(&self) -> crate::cognition::pipeline::CognitivePipeline {
         crate::cognition::pipeline::CognitivePipeline::new(self.provider.clone())
-    }
-
-    /// Access the Spatiotemporal Aspect Engine governing lifecycle phases.
-    pub fn aspects(&self) -> crate::cognition::aspects::AspectEngine {
-        crate::cognition::aspects::AspectEngine::new(self.harness_tasks())
     }
 
     /// Access the atomic extensions bound to this agent.

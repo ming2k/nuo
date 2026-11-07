@@ -2,12 +2,17 @@
 
 use std::sync::{Arc, OnceLock};
 
-use netune::{Client, ClientConfig, Pool, TcpConnector, TlsConnector};
+use netune::{Client, ClientConfig, Pool, TcpConnector, TlsRouterConnector};
 
 /// Build a direct netune client with platform certificate verification.
-pub fn direct_client(config: ClientConfig) -> Result<Client<TlsConnector<TcpConnector>>, String> {
-    let connector =
-        TlsConnector::platform(TcpConnector::new()).map_err(|error| error.to_string())?;
+///
+/// The router connector honours a request's named TLS profile
+/// ([`RequestBuilder::tls_profile`](super::RequestBuilder::tls_profile)),
+/// which is how a provider presents a non-default wire identity.
+pub fn direct_client(
+    config: ClientConfig,
+) -> Result<Client<TlsRouterConnector<TcpConnector>>, String> {
+    let connector = TlsRouterConnector::new(TcpConnector::new());
     Ok(Client::new(connector, Pool::default(), config))
 }
 
@@ -16,13 +21,19 @@ pub fn direct_client(config: ClientConfig) -> Result<Client<TlsConnector<TcpConn
 /// Every model provider, catalog query, and authentication call converges on
 /// this single client instance to share socket pools and TLS session caches,
 /// avoiding redundant DNS/TCP/TLS handshakes to common provider endpoints.
-pub fn shared_client() -> &'static Arc<Client<TlsConnector<TcpConnector>>> {
-    static CLIENT: OnceLock<Arc<Client<TlsConnector<TcpConnector>>>> = OnceLock::new();
-    CLIENT.get_or_init(|| match direct_client(ClientConfig::default()) {
-        Ok(client) => Arc::new(client),
-        Err(error) => {
-            tracing::error!(%error, "shared netune client init failed");
-            std::process::exit(101);
+pub fn shared_client() -> &'static Arc<Client<TlsRouterConnector<TcpConnector>>> {
+    static CLIENT: OnceLock<Arc<Client<TlsRouterConnector<TcpConnector>>>> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        let config = ClientConfig {
+            enable_http2: true,
+            ..ClientConfig::default()
+        };
+        match direct_client(config) {
+            Ok(client) => Arc::new(client),
+            Err(error) => {
+                tracing::error!(%error, "shared netune client init failed");
+                std::process::exit(101);
+            }
         }
     })
 }

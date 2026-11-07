@@ -17,6 +17,11 @@ negative_knowledge: true
 
 ---
 
+> **Amended by [ADR-0154](0154-delete-unwired-spatiotemporal-aspect-engine-and-dead-cognitive-tasks.md):**
+> the `aspects` member listed for `cognition/`/`orchestration/` below was deleted
+> because it had no production consumer. The layering rules in this record are
+> unchanged.
+
 ## Context and Problem Statement
 
 ADR-0100 consolidated the cognitive runtime onto a single crate (`nuo-harness`) and

@@ -218,7 +218,6 @@ pub fn message(choice: &Value, content_filter: impl FnOnce(&str, bool) -> String
         origin: None,
         timestamp: Some(nuo_tool::todos::unix_now()),
         sent_at_ms: None,
-        cache_frozen: false,
     }
 }
 

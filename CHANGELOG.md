@@ -8,6 +8,32 @@ the project adheres to the federated SemVer model described in
 
 ## Unreleased
 
+### Added
+
+- **Antigravity channel adopts the `agy` 1.5.3 wire identity**:
+  - **Version and user agent**: `ANTIGRAVITY_VERSION` / `ANTIGRAVITY_BUILD_NUMBER` move to the shipped `1.5.3` / `1016078699` capture (`antigravity/cli/1.5.3`), and `docs/reference/openapi/antigravity.yml` is refreshed from the same capture.
+  - **Per-request wire identity**: every Antigravity surface — generation, interactions, OAuth, and quota — now sends `tls_profile("antigravity-cli")`. `RequestBuilder`/`RequestParts` carry the profile through the transport, and the shared client negotiates HTTP/2 and routes the profile through netune's `TlsRouterConnector`.
+  - **netune v0.0.6**: the `antigravity-cli` profile pairs Go's `crypto/tls` ClientHello (`h2,http/1.1`, no GREASE, Go cipher and group order) with Go's `net/http` HTTP/2 framing (Go `SETTINGS` order, 1 GiB connection window, `:authority`-first pseudo-headers). A Go hello over Chrome framing would have been a more distinctive hybrid than either real stack.
+- **Announcement identity and retraction (ADR-0026 amendment)**: the harness mints a process-unique announcement id at `ToolCallStarted` and carries it through `ToolInputProgress` and the discharging `ToolCall`; every abandoned attempt emits `RoundEvent::ToolAnnouncementsRetracted`; the frontend removes exactly those provisional rows and never renders them as cancellations. Protocol 21 → 22, with the wire census re-blessed. New invariants `[INV-ANN-01..05]` (opaque identity, retraction not cancellation, dispatch survives retraction, scoped retraction, every abort path retracts).
+
+### Changed
+
+- **Turn latency: effective input ceiling, tool-output retention, and image normalization (ADR-0153)**:
+  - **Effective input ceiling**: `ContextPolicy` gains `max_input_tokens` (default 128k); every watermark now derives from `min(declared_window, max_input_tokens)`. A 1M-token route compacts at ~109k instead of ~850k, so long ReAct rounds no longer run every turn at a quarter-million-token prompt.
+  - **Request-projected tool-output retention**: historical tool results are banded from the tail (verbatim / frozen head / cleared placeholder) on full-replay deliveries. Both lossy bands preserve the `Spool File` / `Artifact Path` / `Virtual Path` re-fetch pointer. `RemoteStored` continuations are exempt so their `previous_response_id` cursor stays valid.
+  - **Ingest image normalization**: clipboard, pasted-file, tool-produced, and rehydrated-artifact images are downscaled to a 1568 px long edge and a 4 MiB encoded budget, with JPEG fallback for oversized lossless payloads.
+  - **One-pass request revisions**: semantic head, envelope fingerprint, and cacheable-prefix fingerprint are derived in a single traversal; `cache_plan()` reuses the prefix identity. Request projection also stops copying nested subagent transcripts.
+  - **Clean break**: removed the never-wired `Message::cache_frozen` flag and `Freeze` projection directive; `freeze_tool_output` is now a live, idempotent request-projection primitive.
+
+### Fixed
+
+- **Command Code Goat: a healthy windowed plan no longer disables every model.** Exhaustion now keys on the control plane's per-window `exceeded` verdict (with a 99.9% used floor for a server that answers at capacity without flipping it), not the plan-level `windowLimits.limited`, which is `true` for every windowed plan. `resetAt` is passed through as the epoch-millisecond tick it is; scaling it as seconds pinned the reset roughly 56 000 years into the future, so an expired limit never re-enabled its models.
+- **Wire census re-bless restored.** `cargo test -p nuo --test architecture_firewall -- --ignored bless_wire_census` regenerates `crates/nuo/src/dev/wire-census.txt`; the canned header no longer points at the retired `nuo dev census` command.
+
+### Removed
+
+- **Unwired Spatiotemporal Aspect Engine and dead cognitive tasks (ADR-0154)**: Deleted the `cognition::aspects` module (`AspectEngine`, `AspectPhase`, `AspectVerdict`, `AspectHook`), the per-round `PreFlight` model call (its verdict was only logged), the empty round-EOL hook, and the caller-less `EnvironmentSensorTask`. Removed the corresponding protocol types (`ExecutionTier`, `PreFlightRouteInput/Output`, `PreFlightRouterTask`, `EnvironmentSensorInput`, `EnvironmentReminderOutput`, `EnvironmentSensorTask`) and `HarnessTaskPipeline::{route_pre_flight, sense_environment}`. This removes up to 1 s of dead latency before every user round.
+
 ## [0.0.74] - 2026-11-07
 
 ### Added

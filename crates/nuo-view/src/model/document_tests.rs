@@ -1382,23 +1382,25 @@ fn push_stream_stays_bounded_on_long_streams() {
 fn announced_tool_step_collapses_and_tracks_input_bytes() {
     // ADR-0026: a call announced before its arguments finish.
     let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_input_slot(0)
+        .with_announcement(7)
         .with_round(1)
         .with_turn(2);
     assert!(step.is_announced_pending_tool_step());
-    assert!(step.is_announced_pending_tool_step_for_slot(0));
-    assert!(!step.is_announced_pending_tool_step_for_slot(1));
+    assert!(step.is_announced_pending_tool_step_for(7));
+    assert!(!step.is_announced_pending_tool_step_for(8));
+    assert_eq!(step.announcement_id(), Some(7));
 
     // Count-only progress records the bytes and renders a static clause.
-    assert!(step.set_tool_input_bytes("", 4096));
+    assert!(step.set_tool_input_bytes(4096));
     let summary = step.tool_step_summary().expect("summary");
     assert!(summary.contains("receiving input"), "got: {summary}");
     assert!(summary.contains("KB"), "got: {summary}");
 
     // Dispatch collapses: re-key onto the call id and clear pre-dispatch state.
-    assert!(step.rekey_tool_step("call_9"));
+    assert!(step.collapse_tool_call("call_9", "{}"));
     assert_eq!(step.tool_step_call_id(), Some("call_9"));
     assert!(!step.is_announced_pending_tool_step());
+    assert_eq!(step.announcement_id(), None);
     let summary = step.tool_step_summary().expect("summary");
     assert!(!summary.contains("receiving input"), "got: {summary}");
 
@@ -1407,28 +1409,25 @@ fn announced_tool_step_collapses_and_tracks_input_bytes() {
 }
 
 #[test]
-fn orphan_announced_tool_step_is_cancelled_not_left_running() {
-    // ADR-0023 safety net: an announced-but-never-dispatched step must not hang.
-    let mut step =
-        TranscriptMessage::tool_step(String::new(), "edit_text", String::new()).with_input_slot(0);
-    assert!(step.set_tool_input_bytes("", 1024));
-    assert!(step.cancel_pending_announced_tool_step());
-    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Cancelled));
+fn only_announced_steps_expose_a_retraction_key() {
+    // An announced step is retractable by its opaque id...
+    let announced = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
+        .with_announcement(42);
+    assert!(announced.is_announced_pending_tool_step());
+    assert_eq!(announced.announcement_id(), Some(42));
 
-    // A dispatched (id-bearing) step is NOT touched by the orphan sweep.
-    let mut dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
-    assert!(dispatched.push_tool_stream("call_1", &nuo_protocol::ToolStream::Stdout("y\n".into())));
-    assert!(!dispatched.cancel_pending_announced_tool_step());
-    assert_eq!(
-        dispatched.tool_step_status(),
-        Some(ToolStepStatus::Executing)
-    );
+    // ...while a dispatched call has no announcement left to retract. There is
+    // deliberately no "cancel an announcement" transition: a never-dispatched
+    // step is removed by the frontend, not terminalized as if a call existed.
+    let dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
+    assert!(!dispatched.is_announced_pending_tool_step());
+    assert_eq!(dispatched.announcement_id(), None);
 }
 
 #[test]
 fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
-    let mut step =
-        TranscriptMessage::tool_step(String::new(), "edit_text", String::new()).with_input_slot(0);
+    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
+        .with_announcement(1);
     assert_eq!(
         step.tool_step_summary().expect("summary"),
         "Edit text (receiving input)"
@@ -1468,23 +1467,23 @@ fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
 fn announced_command_and_find_steps_collapse_with_arguments() {
     let mut cmd_step =
         TranscriptMessage::tool_step(String::new(), "execute_command", String::new())
-            .with_input_slot(0);
+            .with_announcement(1);
     assert!(cmd_step.collapse_tool_call("c1", r#"{"command":"git status"}"#));
     assert_eq!(
         cmd_step.tool_step_summary().expect("summary"),
         "Run git (running)"
     );
 
-    let mut find_step =
-        TranscriptMessage::tool_step(String::new(), "find_files", String::new()).with_input_slot(1);
+    let mut find_step = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
+        .with_announcement(2);
     assert!(find_step.collapse_tool_call("c2", r#"{"patterns":["*.rs"],"path":"."}"#));
     assert_eq!(
         find_step.tool_step_summary().expect("summary"),
         "Find *.rs in . (executing)"
     );
 
-    let mut find_in_path =
-        TranscriptMessage::tool_step(String::new(), "find_files", String::new()).with_input_slot(2);
+    let mut find_in_path = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
+        .with_announcement(3);
     assert!(find_in_path.collapse_tool_call("c3", r#"{"patterns":["*.rs"],"path":"src"}"#));
     assert_eq!(
         find_in_path.tool_step_summary().expect("summary"),
@@ -1496,9 +1495,9 @@ fn announced_command_and_find_steps_collapse_with_arguments() {
 fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     use crate::model::document::ToolExecutionPhase;
 
-    // 1. Announce step with slot 0 (Ingesting phase)
-    let mut step =
-        TranscriptMessage::tool_step(String::new(), "edit_text", String::new()).with_input_slot(0);
+    // 1. Announce the step (Ingesting phase)
+    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
+        .with_announcement(1);
     assert_eq!(
         step.tool_execution_phase(),
         Some(ToolExecutionPhase::Ingesting { bytes: None })

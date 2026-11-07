@@ -25,6 +25,18 @@ fn test_inv_wire_census_matches_protocol_version() {
     }
 }
 
+/// Rewrites `crates/nuo/src/dev/wire-census.txt` from the tree.
+///
+/// Ignored by default because it mutates the repository: run it deliberately, in the same
+/// commit as a `PROTOCOL_VERSION` bump, after the wire surface has settled.
+#[test]
+#[ignore = "writes wire-census.txt; run deliberately after a protocol bump"]
+fn bless_wire_census() {
+    let root = nuo::dev::find_workspace_root();
+    let path = nuo::dev::wire_census::bless_census(&root).expect("bless wire census");
+    eprintln!("blessed {}", path.display());
+}
+
 #[test]
 fn test_inv_arch_source_residency() {
     let root = nuo::dev::find_workspace_root();

@@ -159,6 +159,7 @@ pub async fn run_headless(
                     }
                 }
                 RoundEvent::ToolCall {
+                    announcement: _,
                     id,
                     name,
                     arguments,

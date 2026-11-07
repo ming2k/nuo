@@ -15,17 +15,30 @@ pub fn active_context_window(agent: &Agent) -> usize {
     agent.provider.model_capabilities().context_window
 }
 
-/// Re-seed the mid-turn prune threshold from the active model's context window.
-/// Called at startup and after every provider/model switch so mid-turn relief
-/// tracks the live model instead of a frozen, model-agnostic budget. A no-op
-/// when pruning is disabled (no gate is installed in that case).
-pub fn reseed_prune_threshold(agent: &Agent, config: &Config) {
-    if !config.context.lightweight_degradation_enabled {
-        return;
-    }
+/// Re-seed the agent's model-relative context controls.
+///
+/// Called at startup and after every provider/model switch so relief tracks the
+/// live model instead of a frozen, model-agnostic budget. Two independent
+/// controls:
+///
+/// - the mid-turn prune threshold (pressure relief; `0` when lightweight
+///   degradation is disabled), and
+/// - the per-request tool-output retention bands, which are always installed:
+///   they are a wire-shaping bound, not a pressure-relief tier, and a stateless
+///   route that re-uploads the whole conversation benefits from them even when
+///   compaction is off.
+pub fn reseed_context_policy(agent: &Agent, config: &Config) {
     let window = active_context_window(agent);
     let budget = config.context.resolve_budget(window);
-    agent.set_context_prune_threshold(budget.prune_threshold_tokens);
+    agent.set_context_prune_threshold(if config.context.lightweight_degradation_enabled {
+        budget.prune_threshold_tokens
+    } else {
+        0
+    });
+    agent.set_tool_output_projection(
+        config.context.recent_observation_protect_tokens as usize,
+        config.context.tool_output_retention_tokens as usize,
+    );
 }
 
 /// Install the mid-turn projection gate for `session`.

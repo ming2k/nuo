@@ -16,6 +16,7 @@ pub mod environment;
 pub mod fs;
 pub mod fs_watcher;
 pub mod fsutil;
+pub mod image;
 pub mod ipc;
 pub mod lock;
 pub mod opener;

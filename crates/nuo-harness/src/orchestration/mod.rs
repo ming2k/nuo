@@ -1020,24 +1020,6 @@ pub async fn execute_round(
         }
     }
 
-    // Phase 1: Pre-flight Aspect Evaluation
-    if !input.hidden && !input.is_retry() {
-        if token.is_cancelled() {
-            return Err(HarnessError::Interrupted);
-        }
-        let aspects = agent.aspects();
-        let pre_flight = tokio::select! {
-            _ = token.cancelled() => return Err(HarnessError::Interrupted),
-            pf = aspects.evaluate_pre_flight(&input.prompt, false) => pf,
-        };
-        tracing::debug!(
-            tier = ?pre_flight.tier,
-            thinking = pre_flight.enable_thinking,
-            complexity = pre_flight.estimated_complexity,
-            "Spatiotemporal Aspect: Pre-flight evaluated"
-        );
-    }
-
     // The prompt is now admitted. Bump exactly once before request assembly so
     // hooks, token accounting, todos, and emitted positions share one round
     // number. A prompt rejected by UserPromptSubmit never opens a round.
@@ -1706,9 +1688,6 @@ pub async fn execute_round(
         tracing::warn!(error = %err, "could not persist round counter");
     }
 
-    // Phase 5: Round EOL Aspect Hook
-    agent.aspects().fire_round_eol(&agent, Arc::clone(&session));
-
     // The cross-session usage aggregate is deliberately NOT computed here. It
     // folds every day blob in the 400-day window (~85-110 ms release, ~410-430
     // ms debug against a year of history) and would sit on the critical path to
@@ -1857,16 +1836,22 @@ pub fn relay_agent_event(
             round_response(session_id, RoundEvent::StreamReasoningEnd(content))
         }
         AgentEvent::ToolCall {
+            announcement,
             id,
             name,
             arguments,
         } => round_response(
             session_id,
             RoundEvent::ToolCall {
+                announcement,
                 id,
                 name,
                 arguments,
             },
+        ),
+        AgentEvent::ToolAnnouncementsRetracted { announcements } => round_response(
+            session_id,
+            RoundEvent::ToolAnnouncementsRetracted { announcements },
         ),
         // The preview rides the same relay as the call it describes (ADR-0125).
         // It is classified `Ephemera` on the far side, so no frontend can persist
@@ -1896,10 +1881,22 @@ pub fn relay_agent_event(
         AgentEvent::ToolStream { id, stream } => {
             round_response(session_id, RoundEvent::ToolStream { id, stream })
         }
-        AgentEvent::ToolCallStarted { index, id, name } => {
-            round_response(session_id, RoundEvent::ToolCallStarted { index, id, name })
-        }
+        AgentEvent::ToolCallStarted {
+            announcement,
+            index,
+            id,
+            name,
+        } => round_response(
+            session_id,
+            RoundEvent::ToolCallStarted {
+                announcement,
+                index,
+                id,
+                name,
+            },
+        ),
         AgentEvent::ToolInputProgress {
+            announcement,
             index,
             id,
             bytes,
@@ -1907,6 +1904,7 @@ pub fn relay_agent_event(
         } => round_response(
             session_id,
             RoundEvent::ToolInputProgress {
+                announcement,
                 index,
                 id,
                 bytes,

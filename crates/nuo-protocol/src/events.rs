@@ -1178,6 +1178,7 @@ impl RoundEvent {
             | Self::StreamReasoningDelta(_)
             | Self::StreamReasoningEnd(_)
             | Self::ToolCall { .. }
+            | Self::ToolAnnouncementsRetracted { .. }
             | Self::ToolResult { .. }
             | Self::ToolStream { .. }
             | Self::ToolCancelled { .. }
@@ -1335,9 +1336,19 @@ pub enum RoundEvent {
     /// [`Round`]: AgentResponse::Round
     Error(String),
     ToolCall {
+        /// The announcement this call discharges, when the call's name was
+        /// announced earlier in the same attempt. `None` for whole-argument
+        /// providers and the text fallback.
+        announcement: Option<u64>,
         id: String,
         name: String,
         arguments: String,
+    },
+    /// ADR-0026: an attempt ended before its announced calls could be
+    /// dispatched. The frontend retracts the named provisional steps; it must
+    /// not render them as cancellations (no call ever existed).
+    ToolAnnouncementsRetracted {
+        announcements: Vec<u64>,
     },
     /// A **pure** preview of what a call will do, emitted strictly before any
     /// execution (ADR-0125).
@@ -1378,15 +1389,26 @@ pub enum RoundEvent {
     },
     /// A tool call announced **before its arguments finished streaming**
     /// (ADR-0026). Mirrors [`AgentEvent::ToolCallStarted`]: `name` is known,
-    /// `arguments` are still arriving, `index` keys the announced step so the
-    /// later whole-argument [`RoundEvent::ToolCall`] collapses onto it.
+    /// `arguments` are still arriving, and the later whole-argument
+    /// [`RoundEvent::ToolCall`] collapses onto it by the same announcement id.
     ToolCallStarted {
+        /// Opaque, process-unique identity for this announcement. Every later
+        /// event about the same provisional step — progress, collapse,
+        /// retraction — carries this id, so a frontend never has to reconstruct
+        /// identity from a provider slot, a round, or arrival order.
+        announcement: u64,
+        /// The provider's tool-call slot (informational; correlation is by
+        /// `announcement`).
         index: usize,
         id: Option<String>,
         name: String,
     },
     /// ADR-0026 / ADR-0046: Tool call arguments input progress and streaming partial projection.
     ToolInputProgress {
+        /// The announcement this tick belongs to.
+        announcement: u64,
+        /// The provider's tool-call slot (informational; correlation is by
+        /// `announcement`).
         index: usize,
         id: Option<String>,
         bytes: usize,
@@ -2043,9 +2065,22 @@ pub enum AgentEvent {
     },
     ReasoningEnd(String),
     ToolCall {
+        /// The announcement this call discharges, when the call's name was
+        /// announced earlier in the same attempt. `None` for whole-argument
+        /// providers and the text fallback.
+        announcement: Option<u64>,
         id: String,
         name: String,
         arguments: String,
+    },
+    /// ADR-0026: an attempt ended before its announced calls could be
+    /// dispatched (provider error, truncated stream, loop cut, replaced
+    /// attempt). Each id names a provisional step that will never become a
+    /// call, so the frontend must **retract** the rows — not cancel them: a
+    /// cancellation asserts that a call existed and was stopped, which would
+    /// be a lie.
+    ToolAnnouncementsRetracted {
+        announcements: Vec<u64>,
     },
     /// A **pure** preview of what a call will do, emitted strictly before any
     /// execution (ADR-0125).
@@ -2089,17 +2124,29 @@ pub enum AgentEvent {
     /// call, strictly before the arguments finish, so a frontend can create a
     /// running step and move the activity phase to the tool verb instead of
     /// showing the misleading `answering` phase while the model plans a call.
-    /// `index` is the provider's tool-call slot; the whole-argument
-    /// [`AgentEvent::ToolCall`] for the same slot later collapses onto the step
-    /// this announced. `id` is the provider-supplied id once it has arrived
-    /// (may be `None` — the harness mints the dispatch id only at dispatch).
+    /// `index` is the provider's tool-call slot (informational); the
+    /// whole-argument [`AgentEvent::ToolCall`] later collapses onto the step
+    /// this announced by carrying the same announcement id. `id` is the
+    /// provider-supplied id once it has arrived (may be `None` — the harness
+    /// mints the dispatch id only at dispatch).
     ToolCallStarted {
+        /// Opaque, process-unique identity for this announcement. Every later
+        /// event about the same provisional step — progress, collapse,
+        /// retraction — carries this id, so a frontend never has to reconstruct
+        /// identity from a provider slot, a round, or arrival order.
+        announcement: u64,
+        /// The provider's tool-call slot (informational; correlation is by
+        /// `announcement`).
         index: usize,
         id: Option<String>,
         name: String,
     },
     /// ADR-0026 / ADR-0046: Tool call arguments input progress and streaming partial projection.
     ToolInputProgress {
+        /// The announcement this tick belongs to.
+        announcement: u64,
+        /// The provider's tool-call slot (informational; correlation is by
+        /// `announcement`).
         index: usize,
         id: Option<String>,
         bytes: usize,

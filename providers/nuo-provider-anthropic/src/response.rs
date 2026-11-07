@@ -215,7 +215,6 @@ pub fn into_message(
         origin: None,
         timestamp: Some(nuo_tool::todos::unix_now()),
         sent_at_ms: None,
-        cache_frozen: false,
     }
 }
 

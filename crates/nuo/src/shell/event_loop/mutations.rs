@@ -94,27 +94,30 @@ pub(crate) enum TranscriptEdit {
     /// A tool step started (`message` is fully built and stamped).
     ToolStart { message: TranscriptMessage },
     /// ADR-0026: announce a tool call whose name is known but whose arguments
-    /// are still streaming. Creates a `Running` step keyed by the provider
-    /// `slot`; the later whole-argument `ToolCall` collapses it onto the
-    /// dispatch-assigned call id via [`TranscriptEdit::ToolCallCollapse`].
+    /// are still streaming. Creates a `Running` step keyed by the opaque
+    /// announcement id the message carries; the later whole-argument `ToolCall`
+    /// collapses it onto the dispatch-assigned call id via
+    /// [`TranscriptEdit::ToolCallCollapse`].
     ToolAnnounce {
-        /// Provider tool-call slot (the correlation key, unique per turn).
-        slot: usize,
         /// The tool name (for the disclosure default; the step carries it too).
         name: String,
         /// The step to insert (call id empty until dispatch).
         message: TranscriptMessage,
     },
     /// ADR-0026: collapse a provider-streamed announcement onto the
-    /// dispatch-assigned call id, selecting the pending step announced for
-    /// `slot`. A no-op when no announcement is pending (providers that deliver
-    /// whole arguments never announce), so the caller falls through to a normal
-    /// insert.
+    /// dispatch-assigned call id. `fallback` is inserted unchanged when no
+    /// pending announcement matches — the announcement may have been retracted
+    /// with a dead attempt, and the dispatched call must never disappear.
     ToolCallCollapse {
-        slot: usize,
+        announcement: u64,
         call_id: String,
         arguments: String,
+        fallback: TranscriptMessage,
     },
+    /// ADR-0026: retract provisional steps whose attempt ended before dispatch.
+    /// A retracted step is removed, never terminalized: no call ever existed,
+    /// so a `cancelled` row would assert something false.
+    ToolAnnouncementsRetracted { announcements: Vec<u64> },
     /// ADR-0125: attach a pure preview to the in-flight step it describes, so the
     /// turn's whole footprint is visible before anything runs. The preview lands in
     /// the step's `structured` field (the same one a completed diff renders from),
@@ -129,7 +132,7 @@ pub(crate) enum TranscriptEdit {
     },
     /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call.
     ToolInputProgress {
-        slot: usize,
+        announcement: u64,
         bytes: usize,
         arguments: Option<String>,
     },
@@ -150,10 +153,6 @@ pub(crate) enum TranscriptEdit {
         id: String,
         fallback: Option<TranscriptMessage>,
     },
-    /// ADR-0026: freeze any tool step that was announced but never dispatched
-    /// (its round ended mid-arguments). `Cancelled` is the honest terminal
-    /// state; this is a safety net so an announced step can never hang.
-    FrozenOrphanToolSteps,
     /// Live partial tool output (bash stdout) accumulating into the running
     /// step.
     ToolStream { id: String, stream: ToolStream },

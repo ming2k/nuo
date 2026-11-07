@@ -20,6 +20,9 @@ pub struct RequestParts {
     pub body: Option<Bytes>,
     /// Whole-request timeout, applied only to non-streaming requests.
     pub timeout: Option<Duration>,
+    /// Named TLS/HTTP2 identity to present for this request (netune profile).
+    /// `None` keeps the connector's stock identity.
+    pub tls_profile: Option<&'static str>,
     /// Where this attempt's transport telemetry goes.
     pub telemetry: TransportTelemetry,
 }
@@ -32,6 +35,7 @@ pub struct RequestBuilder {
     headers: HeaderMap,
     body: Option<Bytes>,
     timeout: Option<Duration>,
+    tls_profile: Option<&'static str>,
     telemetry: TransportTelemetry,
 }
 
@@ -43,8 +47,15 @@ impl RequestBuilder {
             headers: HeaderMap::new(),
             body: None,
             timeout: None,
+            tls_profile: None,
             telemetry: TransportTelemetry::new(),
         }
+    }
+
+    /// Present a named TLS/HTTP2 identity (netune profile) for this request.
+    pub fn tls_profile(mut self, profile: &'static str) -> Self {
+        self.tls_profile = Some(profile);
+        self
     }
 
     /// Attach the attempt's telemetry handle.
@@ -115,6 +126,7 @@ impl RequestBuilder {
             headers: self.headers,
             body: self.body,
             timeout: self.timeout,
+            tls_profile: self.tls_profile,
             telemetry: self.telemetry,
         })
     }
@@ -152,6 +164,19 @@ mod tests {
         assert_eq!(parts.headers.get("x-a").unwrap(), "1");
         assert_eq!(parts.timeout, Some(Duration::from_secs(3)));
         assert!(parts.body.is_none());
+    }
+
+    #[test]
+    fn a_named_tls_profile_is_carried_to_the_transport() {
+        let parts = RequestBuilder::new(Method::GET, "https://example.invalid/v1")
+            .tls_profile("antigravity-cli")
+            .build("Test")
+            .expect("build");
+        assert_eq!(parts.tls_profile, Some("antigravity-cli"));
+        let plain = RequestBuilder::new(Method::GET, "https://example.invalid/v1")
+            .build("Test")
+            .expect("build");
+        assert_eq!(plain.tls_profile, None);
     }
 
     #[test]

@@ -173,6 +173,11 @@ pub struct ModelRequest {
     pub context_relation: ContextRelation,
     /// Request-envelope version (instructions/tools/controls).
     pub envelope_revision: EnvelopeRevision,
+    /// Cacheable-prefix identity, derived together with the other revisions at
+    /// assembly time. Runtime-only: [`Self::cache_plan`] reads it so a forensic
+    /// archive write never re-serializes the whole conversation.
+    #[serde(skip)]
+    pub cached_prefix_fingerprint: String,
     /// Per-request prompt-cache intent. Ephemeral requests default to disabled.
     pub prompt_cache_preference: PromptCachePreference,
 }
@@ -192,6 +197,7 @@ impl ModelRequest {
             context_revision: ContextRevision::empty(),
             context_relation: ContextRelation::Initial,
             envelope_revision: EnvelopeRevision::ephemeral(),
+            cached_prefix_fingerprint: String::new(),
             prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
@@ -211,6 +217,7 @@ impl ModelRequest {
             context_revision: ContextRevision::empty(),
             context_relation: ContextRelation::Initial,
             envelope_revision: EnvelopeRevision::ephemeral(),
+            cached_prefix_fingerprint: String::new(),
             prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
@@ -249,6 +256,7 @@ impl ModelRequest {
             context_revision: ContextRevision::empty(),
             context_relation: ContextRelation::Initial,
             envelope_revision: EnvelopeRevision::ephemeral(),
+            cached_prefix_fingerprint: String::new(),
             prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
@@ -273,6 +281,7 @@ impl ModelRequest {
             context_revision: ContextRevision::empty(),
             context_relation: ContextRelation::Initial,
             envelope_revision: EnvelopeRevision::ephemeral(),
+            cached_prefix_fingerprint: String::new(),
             prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
@@ -299,6 +308,7 @@ impl ModelRequest {
             context_revision: ContextRevision::empty(),
             context_relation: ContextRelation::Initial,
             envelope_revision: EnvelopeRevision::ephemeral(),
+            cached_prefix_fingerprint: String::new(),
             prompt_cache_preference: PromptCachePreference::default(),
         }
         .with_recomputed_revisions()
@@ -317,23 +327,31 @@ impl ModelRequest {
     }
 
     pub fn with_recomputed_revisions(mut self) -> Self {
+        self.recompute_revisions();
+        self
+    }
+
+    /// Recompute every request revision after mutating [`Self::messages`].
+    ///
+    /// The only legitimate in-place mutation on an assembled request is a
+    /// projection that withholds content for one attempt (the image-input
+    /// probe). Any such mutation must call this so the cached prefix identity
+    /// never describes bytes the provider is no longer being sent.
+    pub fn recompute_revisions(&mut self) {
+        let revisions = request_revisions(&self.instructions, &self.messages, &self.tool_specs);
         self.context_revision = ContextRevision {
             sequence: self
                 .messages
                 .iter()
                 .filter(|message| message.role != nuo_tool::Role::System)
                 .count() as u64,
-            head: Some(semantic_context_head(self.messages.iter())),
+            head: Some(revisions.semantic_head),
         };
         self.envelope_revision = EnvelopeRevision {
             sequence: 0,
-            fingerprint: request_envelope_fingerprint(
-                &self.instructions,
-                &self.messages,
-                &self.tool_specs,
-            ),
+            fingerprint: revisions.envelope_fingerprint,
         };
-        self
+        self.cached_prefix_fingerprint = revisions.prefix_fingerprint;
     }
 
     pub fn with_prompt_cache_preference(mut self, preference: PromptCachePreference) -> Self {
@@ -358,8 +376,17 @@ impl ModelRequest {
     /// prefix `S | H | I` plus message counts separated from `E`. See
     /// [`CachePlan`] and.
     pub fn cache_plan(&self) -> CachePlan {
+        // Assembly already walks the conversation once to derive every revision;
+        // reuse that prefix identity instead of serializing it a second time.
+        // The fallback exists only for a request built without the revision
+        // pass (there is no such production constructor).
+        let prefix_fingerprint = if self.cached_prefix_fingerprint.is_empty() {
+            request_prefix_fingerprint(&self.instructions, &self.messages, &self.tool_specs)
+        } else {
+            self.cached_prefix_fingerprint.clone()
+        };
         CachePlan::new(
-            request_prefix_fingerprint(&self.instructions, &self.messages, &self.tool_specs),
+            prefix_fingerprint,
             self.messages.len(),
             self.temporary_context.len(),
         )

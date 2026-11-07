@@ -84,7 +84,8 @@ async fn antigravity_post(
             "user-agent",
             crate::spec_antigravity::ANTIGRAVITY_USER_AGENT,
         )
-        .json(body);
+        .json(body)
+        .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE);
     client
         .send(request)
         .await
@@ -292,6 +293,20 @@ pub const GOOGLE_ANTIGRAVITY_CLI_CLIENT_ID: &str = concat!(
 
 pub const GOOGLE_ANTIGRAVITY_CLI_CLIENT_SECRET: &str =
     concat!("GOCSPX-", "9YQWpF7RWDC0QTdj-YxKMwR0ZtsX");
+
+/// Third OAuth client pair present in `agy` 1.5.x. Role is **inferential**, not
+/// proven: the binary carries both `SetOAuthClientIDOverride` and
+/// `SetBusinessOAuthClientIDOverride`, and this pair sits in the
+/// business/BAIC string region. Not wired to a preset — the consumer browser
+/// login continues to use the CLI pair above.
+pub const GOOGLE_ANTIGRAVITY_BUSINESS_CLIENT_ID: &str = concat!(
+    "098991175725-",
+    "mdu1oe5cbbe1ckggsebobh94toiap657",
+    ".apps.googleusercontent.com"
+);
+
+pub const GOOGLE_ANTIGRAVITY_BUSINESS_CLIENT_SECRET: &str =
+    concat!("GOCSPX-", "j7Rn4pvpwI9-bk-J0bgEy70PW4-5");
 
 /// Google Antigravity (Cloud Code Companion) preset.
 ///

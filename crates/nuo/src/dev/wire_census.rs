@@ -31,7 +31,7 @@ impl Census {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "# Wire surface census — regenerate with `nuo dev census --bless`."
+            "# Wire surface census — regenerate with `cargo test -p nuo --test architecture_firewall -- --ignored bless_wire_census`."
         );
         let _ = writeln!(
             out,

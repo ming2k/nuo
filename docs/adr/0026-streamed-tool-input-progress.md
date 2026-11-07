@@ -262,6 +262,54 @@ Concretely:
   (`[INV-STREAM-TOOL-05]`); a test asserting the absence of an animated per-step
   glyph is the regression net.
 
+## 2026-11-07 Amendment: Announcement Identity and Retraction
+
+The original decision made an announcement a provisional *step* and relied on a
+round-boundary "orphan sweep" to terminalize one that never dispatched as
+`Cancelled`. A live incident exposed the consequence: a fast model lane that
+announces a burst of tool names and then dies mid-arguments produced a wall of
+`Run command (cancelled ...)` rows, none of which described a call that ever
+existed. The sweep was also global over the shared transcript, so one session's
+round boundary could terminalize another session's pending announcement.
+
+The lifecycle is therefore tightened:
+
+- The harness mints a **process-unique announcement id** at `ToolCallStarted`
+  and carries it through `ToolInputProgress` and the discharging `ToolCall`.
+  Correlation is by that opaque id — never by provider slot, turn position, or
+  arrival order.
+- An announcement has exactly two fates: **collapse** into the dispatched call,
+  or **retraction**. It is never terminalized. `Cancelled` keeps its original
+  meaning: a call existed and was stopped.
+- Every abandoned attempt emits `ToolAnnouncementsRetracted { announcements }`
+  before returning (provider error, truncated arguments, missing completion,
+  invalid response, loop cut). The frontend removes exactly those provisional
+  rows.
+- A round that ends with live announcements retracts them by id as a safety net.
+  There is no whole-buffer sweep.
+- If a `ToolCall` arrives for an announcement that is gone, the frontend inserts
+  the dispatched step normally: the call is real even when the provisional row
+  is not.
+
+New invariants:
+
+- `[INV-ANN-01]` **Opaque identity.** Announcement correlation uses the
+  harness-minted id only; provider slots and arrival order are not identity.
+- `[INV-ANN-02]` **Retraction, not cancellation.** A never-dispatched
+  announcement is removed; it must never render as `Cancelled`/`Interrupted`.
+- `[INV-ANN-03]` **Dispatch survives retraction.** A real call is inserted even
+  when its announcement was retracted or never arrived.
+- `[INV-ANN-04]` **Scoped retraction.** Retraction names ids; no operation may
+  remove another session's (or another attempt's) provisional rows.
+- `[INV-ANN-05]` **Every abort path retracts.** Any attempt that announced and
+  then did not dispatch must emit retraction on the way out.
+
+Rejected: keep the global `FrozenOrphanToolSteps` sweep (it fabricates
+cancellations and crosses session boundaries); keep the per-session FIFO of
+provider slots (it depends on arrival order and silently mis-pairs after a
+retraction); reuse `AssistantDiscard` for tool announcements (it also pops the
+retained assistant text, which a loop cut deliberately keeps).
+
 ## Links
 
 - Related ADRs: [ADR-0003](0003-autonomous-terminal-canvas-substrate-nuotc.md) (retained canvas / coalescing budget),

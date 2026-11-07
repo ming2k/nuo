@@ -154,10 +154,9 @@ pub(crate) use governance::{bash_policy, permission_policy, permission_store, sh
 pub use governance::{guard, interaction, stream_loop_detector, trajectory_guard};
 
 // -----------------------------------------------------------------------------
-// Subsystem: Orchestration — per-round policy, lifecycle, titles & aspects
+// Subsystem: Orchestration — per-round policy, lifecycle & titles
 // -----------------------------------------------------------------------------
 pub mod orchestration;
-pub use cognition::aspects::AspectEngine;
 pub use cognition::pipeline::{
     CognitiveError, CognitivePipeline, HarnessTaskError, HarnessTaskPipeline,
 };

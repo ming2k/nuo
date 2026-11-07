@@ -31,7 +31,13 @@ pub(crate) fn visible_user(kind: InjectionKind, content: impl Into<String>) -> M
 }
 
 /// Build the user-role image companion for a tool result.
+///
+/// The attachment is normalized at this single choke point: a tool that returns
+/// an image (e.g. `read_image` on a screenshot) must not inject the raw
+/// multi-megabyte payload that every later request would replay.
 pub(crate) fn tool_image(source: &str, mime: String, data: String) -> Message {
+    let (data, mime) =
+        nuo_host::image::normalize_base64_image(&data, &mime).unwrap_or((data, mime));
     Message::new(Role::User, format!("Image from {source}"))
         .with_images(vec![ImagePart { mime, data }])
         .with_origin(InjectionOrigin::new(InjectionKind::ToolImage))

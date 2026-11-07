@@ -155,12 +155,10 @@ pub use agent_role::{
     MainAgent, MainAgentRole, SessionRoleManifest, SubAgent, SubAgentRole,
 };
 pub use cognitive::{
-    CognitiveModelPreference, CognitiveTask, EnvironmentReminderOutput, EnvironmentSensorInput,
-    EnvironmentSensorTask, ExecutionTier, HarnessTask, HarnessTaskModelPreference,
-    PreFlightRouteInput, PreFlightRouteOutput, PreFlightRouterTask, StreamLoopChannel,
-    StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict, ThreadDigest,
-    ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask,
-    TrajectoryLoopVerdict,
+    CognitiveModelPreference, CognitiveTask, HarnessTask, HarnessTaskModelPreference,
+    StreamLoopChannel, StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict,
+    ThreadDigest, ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput,
+    TrajectoryLoopReviewerTask, TrajectoryLoopVerdict,
 };
 pub use execution_policy::{ContextLifecycle, ExecutionPolicy, PolicyViolation};
 pub mod history;
@@ -271,11 +269,13 @@ pub use monitor::*;
 pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError};
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
-    ContextBudget, LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,
+    ContextBudget, FROZEN_TOOL_OUTPUT_HEAD_CHARS, FROZEN_TOOL_OUTPUT_HEAD_LINES,
+    LayeredRequestWeights, MessageContentFingerprint, MessageTokenWeights,
     PRUNE_QUANTUM_FLOOR_TOKENS, PruneOutcome, RequestTokenEstimate, TAIL_QUARANTINE_TOKENS,
-    ToolSchemaWeights, estimate_bytes, estimate_draft_tokens, estimate_message_tokens,
-    estimate_semantic_json_tokens, estimate_tokens, estimate_tokens_weighted, freeze_tool_output,
-    layered_request_weights, prune_tool_results,
+    ToolOutputProjection, ToolSchemaWeights, estimate_bytes, estimate_draft_tokens,
+    estimate_message_tokens, estimate_semantic_json_tokens, estimate_tokens,
+    estimate_tokens_weighted, freeze_tool_output, layered_request_weights,
+    project_historical_tool_outputs, prune_tool_results,
 };
 pub use secret::SecretString;
 pub use session_title::{TITLE_MAX_LEN, ThreadTitle, clean_title};
@@ -315,9 +315,15 @@ pub use policy_schema::*;
 /// reply where the server says it belongs instead of inferring it. A mixed pair
 /// would disagree about which replies are durable rows, which is the exact
 /// asymmetry the field removes — hence a hard floor rather than a tolerant field.
-pub const PROTOCOL_VERSION: u32 = 21;
+///
+/// 21: Tool announcement retraction (`RoundEvent::ToolAnnouncementsRetracted`).
+/// When a streamed attempt ends before its announced calls are dispatched, the
+/// server names the provisional announcements the frontend must retract. A peer
+/// that does not model the frame leaves phantom tool steps in the transcript,
+/// so the field is a hard floor: every client at 21 must move with it.
+pub const PROTOCOL_VERSION: u32 = 22;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 21;
+pub const MIN_PROTOCOL_VERSION: u32 = 22;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

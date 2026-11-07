@@ -828,7 +828,7 @@ pub async fn assemble_with_store(
     // runs one round to completion and never reaches `execute_round`'s pre-round
     // prune or compaction).
     if config.context.lightweight_degradation_enabled {
-        crate::agent_setup::reseed_prune_threshold(&agent, &config);
+        crate::agent_setup::reseed_context_policy(&agent, &config);
         // The settings closure resolves the window from the *live* provider each
         // time the gate runs, so a `/model` switch needs no re-install.
         let config_for_settings = config.clone();

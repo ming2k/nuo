@@ -22,16 +22,17 @@ enum PostEdit {
     ClearCache,
 }
 
-/// ADR-0026: resolve a *still-pending* announced tool step by its provider
-/// `slot`. Pending steps carry an empty call id and are stamped with their slot
-/// at announcement, so the match is exact and unique per turn.
+/// ADR-0026: resolve a *still-pending* announced tool step by the opaque
+/// announcement id minted by the harness. Pending steps carry an empty call id
+/// and that id, so the match is exact and cannot collide with another session's
+/// step even when both share a round and turn.
 fn find_pending_announced_tool_step_mut(
     messages: &mut [nuo_view::model::document::TranscriptMessage],
-    slot: usize,
+    announcement: u64,
 ) -> Option<&mut nuo_view::model::document::TranscriptMessage> {
     messages
         .iter_mut()
-        .rfind(|message| message.is_announced_pending_tool_step_for_slot(slot))
+        .rfind(|message| message.is_announced_pending_tool_step_for(announcement))
 }
 
 /// Apply one mutation. Returns whether anything changed that a frame must
@@ -964,12 +965,7 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
                 messages.push(message);
             }
-            TranscriptEdit::ToolAnnounce {
-                slot,
-                name,
-                message,
-            } => {
-                let _ = slot;
+            TranscriptEdit::ToolAnnounce { name, message } => {
                 // Insert the announced (pending) step, applying the same
                 // lifecycle-aware disclosure default a finished step gets; the
                 // following `ToolCallCollapse` re-keys it onto the dispatch id.
@@ -988,15 +984,44 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 messages.push(message);
             }
             TranscriptEdit::ToolCallCollapse {
-                slot,
+                announcement,
                 call_id,
                 arguments,
+                fallback,
             } => {
-                if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
+                if let Some(step) = find_pending_announced_tool_step_mut(messages, announcement) {
                     // Re-key onto the dispatch id, store completed arguments,
-                    // and clear the pre-dispatch slot/byte state in one transition.
+                    // and clear the pre-dispatch announcement/byte state in one
+                    // transition.
                     step.collapse_tool_call(call_id, arguments);
                     post = PostEdit::Invalidate(step.id);
+                } else {
+                    // The attempt that announced this call was already retracted
+                    // (or never announced at all). The dispatched call is real
+                    // and must appear, so fall back to a normal insert.
+                    let mut message = fallback;
+                    let (round, turn) = (message.round, message.turn);
+                    message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
+                    messages.push(message);
+                }
+            }
+            TranscriptEdit::ToolAnnouncementsRetracted { announcements } => {
+                if announcements.is_empty() {
+                    changed = false;
+                } else {
+                    let ids: std::collections::HashSet<u64> = announcements.into_iter().collect();
+                    let before = messages.len();
+                    messages.retain(|message| {
+                        !(message.is_announced_pending_tool_step()
+                            && message
+                                .announcement_id()
+                                .is_some_and(|id| ids.contains(&id)))
+                    });
+                    if messages.len() == before {
+                        changed = false;
+                    } else {
+                        post = PostEdit::ClearCache;
+                    }
                 }
             }
             TranscriptEdit::ToolPreview { id, preview } => {
@@ -1010,27 +1035,19 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 }
             }
             TranscriptEdit::ToolInputProgress {
-                slot,
+                announcement,
                 bytes,
                 arguments,
             } => {
-                if let Some(step) = find_pending_announced_tool_step_mut(messages, slot) {
-                    let id = step.tool_step_call_id().unwrap_or_default().to_string();
-                    let mut changed = step.set_tool_input_bytes(&id, bytes);
+                if let Some(step) = find_pending_announced_tool_step_mut(messages, announcement) {
+                    let mut changed = step.set_tool_input_bytes(bytes);
                     if let Some(args) = arguments {
-                        if step.set_tool_streaming_arguments(&id, args) {
+                        if step.set_tool_streaming_arguments(args) {
                             changed = true;
                         }
                     }
                     if changed {
                         post = PostEdit::Invalidate(step.id);
-                    }
-                }
-            }
-            TranscriptEdit::FrozenOrphanToolSteps => {
-                for message in messages.iter_mut() {
-                    if message.cancel_pending_announced_tool_step() {
-                        post = PostEdit::Invalidate(message.id);
                     }
                 }
             }

@@ -230,7 +230,8 @@ impl GoogleInteractionsProvider {
 
         let req_builder = RequestBuilder::new(http::Method::POST, &url)
             .headers(headers)
-            .json(&body);
+            .json(&body)
+            .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE);
 
         self.client
             .send_raw(req_builder, "Google")

@@ -21,7 +21,7 @@ use nuo_protocol::{
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
-use crate::agent_setup::{reseed_model_guidance, reseed_prune_threshold, reseed_tool_variants};
+use crate::agent_setup::{reseed_context_policy, reseed_model_guidance, reseed_tool_variants};
 use crate::session_view::provider_key_status;
 
 /// `AgentRequest::SwitchConnection` — persist the chosen key/url/model/default,
@@ -1624,7 +1624,7 @@ async fn activate(
         .write()
         .unwrap_or_else(|error| error.into_inner()) = new_p;
 
-    reseed_prune_threshold(agent, config);
+    reseed_context_policy(agent, config);
     // The gate itself needs no re-install: its settings closure resolves the
     // window from the live provider on every projection, so the thresholds already
     // follow this switch.

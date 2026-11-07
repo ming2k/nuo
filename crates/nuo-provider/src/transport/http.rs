@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use http::{HeaderMap, Method, StatusCode};
-use netune::{Client, Target, TcpConnector, TlsConnector};
+use netune::{Client, Target, TcpConnector, TlsRouterConnector};
 
 pub use super::encoding::encode_component;
 use super::encoding::form_encode;
@@ -26,6 +26,8 @@ pub struct Request {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<Body>,
+    /// Named TLS/HTTP2 identity to present for this request (netune profile).
+    pub tls_profile: Option<&'static str>,
 }
 
 impl Request {
@@ -35,7 +37,14 @@ impl Request {
             url: url.into(),
             headers: Vec::new(),
             body: None,
+            tls_profile: None,
         }
+    }
+
+    /// Present a named TLS/HTTP2 identity (netune profile) for this request.
+    pub fn tls_profile(mut self, profile: &'static str) -> Self {
+        self.tls_profile = Some(profile);
+        self
     }
 
     pub fn header(mut self, name: &str, value: impl Into<String>) -> Self {
@@ -82,7 +91,7 @@ impl Reply {
 /// A pooled control-plane HTTP handle.
 #[derive(Clone)]
 pub struct Http {
-    client: Arc<Client<TlsConnector<TcpConnector>>>,
+    client: Arc<Client<TlsRouterConnector<TcpConnector>>>,
     timeout: Duration,
 }
 
@@ -101,7 +110,11 @@ impl Http {
     }
 
     pub async fn send(&self, request: Request) -> Result<Reply, String> {
-        let (target, path) = Target::from_url(&request.url).map_err(|error| error.to_string())?;
+        let (mut target, path) =
+            Target::from_url(&request.url).map_err(|error| error.to_string())?;
+        if let Some(profile) = request.tls_profile {
+            target = target.with_tls_profile(profile);
+        }
         let mut head = netune::RequestHead::new(request.method.clone(), path);
         let mut content_type = None;
         for (name, value) in &request.headers {

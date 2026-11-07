@@ -870,7 +870,6 @@ pub(crate) fn load_session_full(
                 let kind = match kind.as_str() {
                     "prune" => nuo_protocol::DirectiveKind::Prune,
                     "compact" => nuo_protocol::DirectiveKind::Compact,
-                    "freeze" => nuo_protocol::DirectiveKind::Freeze,
                     _ => return None,
                 };
                 let payload: nuo_protocol::DirectivePayload =

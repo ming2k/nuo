@@ -66,12 +66,24 @@ impl PlatformClipboard {
     }
 
     /// Read the system clipboard, preferring image, then file references, then plain text.
+    ///
+    /// Clipboard images are normalized at this boundary: a Retina screenshot is
+    /// routinely several megabytes, and every later provider request would
+    /// replay it verbatim. Decoding is CPU-bound, so it runs on the blocking
+    /// pool; an image the normalizer cannot improve is returned untouched.
     pub async fn read() -> ClipboardRead {
         if let Some(bytes) = read_image_bytes().await {
-            return ClipboardRead::Image {
-                data: bytes,
-                mime: "image/png".to_string(),
-            };
+            let (data, mime) = tokio::task::spawn_blocking(move || {
+                match crate::image::normalize_image(&bytes, "image/png") {
+                    Some(normalized) => (normalized.data, normalized.mime),
+                    None => (bytes, "image/png".to_string()),
+                }
+            })
+            .await
+            .unwrap_or_else(|_| (Vec::new(), "image/png".to_string()));
+            if !data.is_empty() {
+                return ClipboardRead::Image { data, mime };
+            }
         }
         let files = read_file_paths().await;
         if !files.is_empty() {

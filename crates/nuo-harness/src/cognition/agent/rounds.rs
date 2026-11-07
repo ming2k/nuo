@@ -1,5 +1,42 @@
 use super::*;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Process-unique identity for a tool-call announcement (ADR-0026).
+///
+/// The frontend treats this id as opaque. It survives a retry, so a stale
+/// announcement is retracted by exactly its own id, and two sessions that
+/// happen to share a `(round, turn, slot)` can never collapse or retract each
+/// other's provisional rows.
+static NEXT_ANNOUNCEMENT_ID: AtomicU64 = AtomicU64::new(1);
+
+fn next_announcement_id() -> u64 {
+    NEXT_ANNOUNCEMENT_ID.fetch_add(1, Ordering::Relaxed)
+}
+
+/// What one provider attempt already put on the wire: whether assistant text
+/// was streamed, and which tool calls were announced (provider slot → opaque
+/// announcement id). Both facts are per-attempt, not per-round, so they travel
+/// together and never leak into the round's durable state.
+struct StreamedAttempt<'a> {
+    text: bool,
+    announcements: &'a std::collections::HashMap<usize, u64>,
+}
+
+/// Retract every announcement this attempt produced that no `ToolCall`
+/// discharged. An empty set emits nothing, so the normal path carries no
+/// no-op wire event.
+fn retract_announcements<F: FnMut(AgentEvent)>(
+    announcements: &mut std::collections::HashMap<usize, u64>,
+    on_event: &mut F,
+) {
+    if announcements.is_empty() {
+        return;
+    }
+    let announcements = announcements.drain().map(|(_, id)| id).collect();
+    on_event(AgentEvent::ToolAnnouncementsRetracted { announcements });
+}
+
 /// A stream-loop cutoff is recoverable once per user round. A second cutoff
 /// ends generation so a model that ignores the guidance cannot consume the
 /// context indefinitely.
@@ -574,8 +611,12 @@ impl Agent {
             // dispatch still waits for the whole object after the stream ends
             // ([INV-STREAM-TOOL-01]).
             const TOOL_INPUT_PROGRESS_STEP: usize = 4096;
-            let mut announced_tool_calls: std::collections::HashSet<usize> =
-                std::collections::HashSet::new();
+            // Provider slot -> the opaque announcement identity the frontend
+            // keys the provisional row by. A slot is announced at most once per
+            // attempt; a retry mints fresh ids, so the previous attempt's rows
+            // are retracted rather than re-used.
+            let mut announcements: std::collections::HashMap<usize, u64> =
+                std::collections::HashMap::new();
             let mut reported_tool_input_bytes: std::collections::HashMap<usize, usize> =
                 std::collections::HashMap::new();
 
@@ -690,6 +731,7 @@ impl Agent {
                                     STREAM_IDLE_TIMEOUT.as_secs()
                                 );
                                 request_accounting.record_error(&err_msg);
+                                retract_announcements(&mut announcements, &mut on_event);
                                 return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Timeout, err_msg).retryable(None)));
                             }
                         };
@@ -697,6 +739,7 @@ impl Agent {
                             Ok(event) => event,
                             Err(error) => {
                                 request_accounting.record_error(error.to_string());
+                                retract_announcements(&mut announcements, &mut on_event);
                                 return Err(HarnessError::from(error));
                             }
                         };
@@ -712,6 +755,7 @@ impl Agent {
                             let err_msg = "Provider emitted data after the terminal completion event."
                                 .to_string();
                             request_accounting.record_error(&err_msg);
+                            retract_announcements(&mut announcements, &mut on_event);
                             return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Protocol, err_msg).retryable(None)));
                         }
                         request_accounting.observe_stream_event(
@@ -811,14 +855,14 @@ impl Agent {
                                 // the arguments keep streaming. The execution
                                 // gate is untouched — dispatch still waits for
                                 // the whole object after the stream ends.
-                                if !announced_tool_calls.contains(&index)
-                                    && !call.name.is_empty()
-                                {
-                                    announced_tool_calls.insert(index);
+                                if !announcements.contains_key(&index) && !call.name.is_empty() {
+                                    let announcement = next_announcement_id();
+                                    announcements.insert(index, announcement);
                                     let announced_id =
                                         (!call.id.is_empty()).then(|| call.id.clone());
                                     let announced_name = call.name.clone();
                                     on_event(AgentEvent::ToolCallStarted {
+                                        announcement,
                                         index,
                                         id: announced_id,
                                         name: announced_name,
@@ -834,12 +878,15 @@ impl Agent {
                                     reported_tool_input_bytes.insert(index, total);
                                     let progress_id =
                                         (!call.id.is_empty()).then(|| call.id.clone());
-                                    on_event(AgentEvent::ToolInputProgress {
-                                        index,
-                                        id: progress_id,
-                                        bytes: total,
-                                        arguments: Some(call.arguments.clone()),
-                                    });
+                                    if let Some(&announcement) = announcements.get(&index) {
+                                        on_event(AgentEvent::ToolInputProgress {
+                                            announcement,
+                                            index,
+                                            id: progress_id,
+                                            bytes: total,
+                                            arguments: Some(call.arguments.clone()),
+                                        });
+                                    }
                                 }
                             }
                             ProviderStreamEvent::Usage(usage) => {
@@ -875,6 +922,7 @@ impl Agent {
                         "Provider stream ended mid-tool-call; the response was likely truncated."
                             .to_string();
                     request_accounting.record_error(&err_msg);
+                    retract_announcements(&mut announcements, &mut on_event);
                     return Err(HarnessError::Provider(
                         nuo_protocol::ProviderError::new(
                             "harness",
@@ -893,6 +941,7 @@ impl Agent {
                         call.name
                     );
                     request_accounting.record_error(&err_msg);
+                    retract_announcements(&mut announcements, &mut on_event);
                     return Err(HarnessError::Provider(
                         nuo_protocol::ProviderError::new(
                             "harness",
@@ -942,6 +991,7 @@ impl Agent {
                 let err_msg = "Provider stream ended without a terminal completion event; response state was not committed."
                     .to_string();
                 request_accounting.record_error(&err_msg);
+                retract_announcements(&mut announcements, &mut on_event);
                 return Err(HarnessError::Provider(
                     nuo_protocol::ProviderError::new(
                         "harness",
@@ -1012,6 +1062,13 @@ impl Agent {
                 }
             });
 
+            // A cut stream's tool-call fragments are never executable intent,
+            // so anything it announced is retracted here — before the recovery
+            // request announces its own calls.
+            if stream_loop_incident.is_some() {
+                retract_announcements(&mut announcements, &mut on_event);
+            }
+
             if emitted_text {
                 on_event(AgentEvent::AssistantEnd(content.clone()));
             }
@@ -1042,6 +1099,7 @@ impl Agent {
                         call.name
                     );
                     request_accounting.record_error(&err_msg);
+                    retract_announcements(&mut announcements, &mut on_event);
                     return Err(HarnessError::Provider(
                         nuo_protocol::ProviderError::new(
                             "harness",
@@ -1079,7 +1137,6 @@ impl Agent {
                     origin: None,
                     timestamp: None,
                     sent_at_ms: None,
-                    cache_frozen: false,
                 };
                 cursor.local_head = nuo_protocol::semantic_context_head(
                     messages.iter().chain(std::iter::once(&prospective)),
@@ -1129,9 +1186,9 @@ impl Agent {
                 // live one it replaced. Stamped from the attempt's own recorded
                 // boundary so live and resume read the same instant.
                 sent_at_ms: Some(request_accounting.started_at_epoch_ms()),
-                cache_frozen: false,
             };
             if !valid_assistant_response(&response) {
+                retract_announcements(&mut announcements, &mut on_event);
                 return Err(empty_response_error(&response));
             }
             // The request checkpoint is consumed only after a complete,
@@ -1175,17 +1232,25 @@ impl Agent {
 
             // `emitted_text` means assistant text was already streamed to the
             // UI; a text-fallback tool call must then retract it via a discard.
-            if self
+            let dispatched = self
                 .dispatch_tool_calls(
                     &response,
                     messages,
                     &mut round.state,
-                    emitted_text,
+                    StreamedAttempt {
+                        text: emitted_text,
+                        announcements: &announcements,
+                    },
                     cancel,
                     &mut on_event,
                 )
-                .await?
-            {
+                .await;
+            // The preflight emits a `ToolCall` for every retained call, so each
+            // announcement is discharged here regardless of the dispatch
+            // outcome. Clearing prevents a later abort from retracting rows the
+            // frontend already collapsed onto live calls.
+            announcements.clear();
+            if dispatched? {
                 round.turn_index += 1;
                 self.set_current_turn(round.turn_index as u64);
                 if self.check_hard_stop(round.turn_index).is_break() {
@@ -1275,7 +1340,7 @@ impl Agent {
     /// up-front `ToolCall` events, concurrent execution with FIFO-ordered
     /// results, and pursuit/mode updates — lives in exactly one place.
     ///
-    /// `streamed_text` is true when the response text was already streamed to
+    /// `attempt.text` is true when the response text was already streamed to
     /// the UI, so a recognised text-fallback tool call retracts it with an
     /// `AssistantDiscard`. Returns `true` when a tool-carrying ReAct turn ran
     /// (the caller should loop again), `false` when the round is complete.
@@ -1292,7 +1357,7 @@ impl Agent {
         response: &Message,
         messages: &mut Vec<Message>,
         state: &mut RoundState,
-        streamed_text: bool,
+        attempt: StreamedAttempt<'_>,
         cancel: &CancellationToken,
         on_event: &mut F,
     ) -> Result<bool, HarnessError>
@@ -1314,7 +1379,7 @@ impl Agent {
             //   3. schedule — concurrent execution through the ToolScheduler;
             //   4. finalize — input-ordered recording, post-tool hooks, nudge.
             let prepared = self
-                .dispatch_preflight(tool_calls, messages, state, on_event)
+                .dispatch_preflight(tool_calls, messages, state, attempt.announcements, on_event)
                 .await;
             let outcome = if prepared.exec_indices.is_empty() {
                 None
@@ -1341,7 +1406,7 @@ impl Agent {
 
         // Text-based fallback: any provider may emit a JSON tool call as text.
         if let Some(call) = crate::tool_call::parse_text_tool_call(&response.content) {
-            if streamed_text {
+            if attempt.text {
                 on_event(AgentEvent::AssistantDiscard);
             }
             tracing::debug!(tool = %call.name, "tool call (text fallback)");
@@ -1395,6 +1460,7 @@ impl Agent {
             };
             let call_id = format!("call_{}", uuid::Uuid::new_v4());
             on_event(AgentEvent::ToolCall {
+                announcement: None,
                 id: call_id.clone(),
                 name: call.name.clone(),
                 arguments: call.arguments.clone(),

@@ -257,7 +257,6 @@ fn restored_reasoning_is_not_shown_as_running() {
         origin: None,
         timestamp: None,
         sent_at_ms: None,
-        cache_frozen: false,
     };
 
     let restored = transcript_messages_from_core(vec![message], &config::TuiConfig::default());
@@ -298,7 +297,6 @@ fn restored_native_tool_calls_are_visible() {
         origin: None,
         timestamp: None,
         sent_at_ms: None,
-        cache_frozen: false,
     };
 
     let restored = transcript_message_from_core(message).unwrap();
@@ -338,7 +336,6 @@ fn restored_tool_results_merge_into_steps_in_fifo_order() {
             origin: None,
             timestamp: None,
             sent_at_ms: None,
-            cache_frozen: false,
         },
         Message::tool_result(
             &ToolCall {

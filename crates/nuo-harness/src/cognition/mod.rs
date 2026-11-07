@@ -1,7 +1,6 @@
 //! Cognition — the single agent's mind: the ReAct loop, prompt assembly,
 //! conversation context, causal compaction, and agent interoperability.
 pub mod agent;
-pub mod aspects;
 pub mod budget;
 pub mod compaction;
 pub mod context_lifecycle;

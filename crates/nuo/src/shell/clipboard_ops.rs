@@ -345,10 +345,20 @@ fn image_mime_for_path(path: &std::path::Path) -> Option<&'static str> {
 }
 
 /// Read a pasted file's bytes if it is a supported image, keyed by extension.
+///
+/// Oversized raster images are normalized at this boundary (downscaled to the
+/// provider's efficient edge and re-encoded to fit the byte budget). A file the
+/// normalizer leaves alone is used verbatim.
 fn read_image_file(path: &std::path::Path) -> Option<(Vec<u8>, String)> {
     let mime = image_mime_for_path(path)?.to_string();
     let data = std::fs::read(path).ok()?;
-    (!data.is_empty()).then_some((data, mime))
+    if data.is_empty() {
+        return None;
+    }
+    if let Some(normalized) = nuo_host::image::normalize_image(&data, &mime) {
+        return Some((normalized.data, normalized.mime));
+    }
+    Some((data, mime))
 }
 
 /// Question-modal "Other" field paste. Unlike the readline modals, this field

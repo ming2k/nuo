@@ -36,15 +36,25 @@ struct WindowLimit {
     used: f64,
     #[serde(default)]
     cap: f64,
+    /// The control plane's own verdict that *this* window has tripped. This is
+    /// the trip signal — never `windowLimits.limited`, which is a property of
+    /// the *plan* (a windowed plan reports `limited: true` even while nothing
+    /// has tripped, which is exactly the healthy `individual-goat` benchmark).
+    #[serde(default)]
+    exceeded: bool,
+    /// Epoch-millisecond clock tick (`docs/reference/openapi/commandcode-goat.yml`
+    /// `WindowLimit.resetAt`).
     #[serde(default, rename = "resetAt")]
     reset_at: Option<u64>,
 }
 
 /// The windowed rate limits (`windowLimits`).
+///
+/// `windowLimits.limited` is deliberately not modelled: it describes the *plan's*
+/// shape, not whether a window has tripped, so a healthy windowed plan reports
+/// `true`. The per-window `exceeded` flag is the trip signal.
 #[derive(Debug, Deserialize)]
 struct WindowLimits {
-    #[serde(default)]
-    limited: bool,
     #[serde(default)]
     exceeded: Option<String>,
     #[serde(default, rename = "fiveHour")]
@@ -120,8 +130,42 @@ fn plan_label(plan_id: &str) -> String {
         .join(" ")
 }
 
+/// A reported `resetAt` tick, kept only when present and non-zero.
+///
+/// The value is already an epoch-millisecond clock tick, so it is passed
+/// through unchanged (`[INV-LANE-05]`: the client never rescales the control
+/// plane's answer).
 fn reset_at_ms(raw: Option<u64>) -> Option<u64> {
     raw.filter(|tick| *tick > 0)
+}
+
+/// Whether the control plane reports this window as tripped.
+///
+/// `exceeded` is authoritative. The used fraction is a defensive floor for a
+/// server that answers at 100% without flipping the flag; a healthy window at
+/// 0.4 / 14 credits is never mistaken for an exhausted one.
+fn window_tripped(limit: &WindowLimit) -> bool {
+    limit.exceeded || (limit.cap > 0.0 && (limit.used / limit.cap) >= 0.999)
+}
+
+/// The provider's own "window exhausted" rule, replayed verbatim.
+///
+/// The reset tick is the window's reported `resetAt` (epoch **milliseconds**);
+/// scaling it as seconds pinned the countdown ~56 000 years into the future, so
+/// an expired limit never re-enabled its models.
+fn exhausted_window_rule(
+    status_label: &str,
+    reason: &str,
+    reset_at: Option<u64>,
+) -> nuo_protocol::ModelAvailabilityRule {
+    nuo_protocol::ModelAvailabilityRule {
+        pattern: "*".to_string(),
+        availability: nuo_protocol::Availability::disabled(
+            status_label,
+            Some(reason.to_string()),
+            reset_at_ms(reset_at),
+        ),
+    }
 }
 
 fn window_bucket(label: &str, window: QuotaWindowKind, limit: WindowLimit) -> QuotaWindowBucket {
@@ -198,21 +242,15 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
     if let Some(wl) = body.window_limits {
         let mut buckets = Vec::new();
         if let Some(fh) = wl.five_hour {
-            let used_frac = if fh.cap > 0.0 {
-                (fh.used / fh.cap).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let reset_at_ms = fh.reset_at.map(|s| s * 1000);
-            if wl.limited || used_frac >= 0.999 {
-                model_rules.push(nuo_protocol::ModelAvailabilityRule {
-                    pattern: "*".to_string(),
-                    availability: nuo_protocol::Availability::disabled(
-                        "disabled: 5h limit",
-                        Some("5h rolling quota limit reached for Command Code".to_string()),
-                        reset_at_ms,
-                    ),
-                });
+            // `limited` is the plan's shape; the window has *tripped* only when
+            // the control plane says so. Treating `limited` as the trip signal
+            // disabled every model on a healthy windowed plan.
+            if window_tripped(&fh) {
+                model_rules.push(exhausted_window_rule(
+                    "disabled: 5h limit",
+                    "5h rolling quota limit reached for Command Code",
+                    fh.reset_at,
+                ));
             }
             buckets.push(window_bucket(
                 "5-Hour Limit",
@@ -221,30 +259,21 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
             ));
         }
         if let Some(w) = wl.weekly {
-            let used_frac = if w.cap > 0.0 {
-                (w.used / w.cap).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let reset_at_ms = w.reset_at.map(|s| s * 1000);
-            if wl.limited || used_frac >= 0.999 {
-                model_rules.push(nuo_protocol::ModelAvailabilityRule {
-                    pattern: "*".to_string(),
-                    availability: nuo_protocol::Availability::disabled(
-                        "disabled: weekly quota",
-                        Some("Weekly quota limit reached for Command Code".to_string()),
-                        reset_at_ms,
-                    ),
-                });
+            if window_tripped(&w) {
+                model_rules.push(exhausted_window_rule(
+                    "disabled: weekly quota",
+                    "Weekly quota limit reached for Command Code",
+                    w.reset_at,
+                ));
             }
             buckets.push(window_bucket("Weekly Limit", QuotaWindowKind::Weekly, w));
         }
         if !buckets.is_empty() {
             periodic = Some(PeriodicQuota { buckets });
         }
-        if wl.limited
-            && let Some(reason) = wl.exceeded.as_deref().filter(|r| !r.is_empty())
-        {
+        // The server names *which* window tripped (e.g. `"5-hour"` / `"weekly"`)
+        // and is surfaced verbatim, never parsed into a local decision.
+        if let Some(reason) = wl.exceeded.as_deref().filter(|r| !r.is_empty()) {
             metrics.push(UsageMetric {
                 label: "Window Limit".to_string(),
                 value: format!("exceeded ({reason})"),
@@ -271,5 +300,111 @@ fn parse_commandcode_credits(body: CommandCodeCreditsResponse) -> ProviderUsage 
         metrics,
         model_rules,
         updated_at_ms: now_ms,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(json: &str) -> ProviderUsage {
+        let body: CommandCodeCreditsResponse = serde_json::from_str(json).expect("wire body");
+        parse_commandcode_credits(body)
+    }
+
+    fn window_buckets(usage: &ProviderUsage) -> &[QuotaWindowBucket] {
+        match usage.quota.as_ref() {
+            Some(ProviderQuotaData::Composite {
+                periodic: Some(p), ..
+            }) => &p.buckets,
+            other => panic!("expected a composite quota with periodic windows, got {other:?}"),
+        }
+    }
+
+    // The live `individual-goat` benchmark (ADR-0014): a windowed plan reports
+    // `limited: true` while nothing has tripped. That must not disable models,
+    // and the reported `resetAt` is already epoch milliseconds.
+    #[test]
+    fn healthy_windowed_plan_never_disables_models() {
+        let usage = parse(
+            r#"{
+                "credits": { "planId": "individual-goat", "monthlyCredits": 69.597485352,
+                             "purchasedCredits": 0, "freeCredits": 0 },
+                "windowLimits": {
+                    "limited": true, "exceeded": null,
+                    "fiveHour": { "used": 0.402514648, "cap": 14, "exceeded": false,
+                                  "resetAt": 1791119912775 },
+                    "weekly":   { "used": 0.402514648, "cap": 35, "exceeded": false,
+                                  "resetAt": 1791706712775 }
+                }
+            }"#,
+        );
+
+        assert!(
+            usage.model_rules.is_empty(),
+            "a healthy plan must keep its models usable: {:?}",
+            usage.model_rules
+        );
+        assert_eq!(usage.plan.as_deref(), Some("Individual Goat"));
+        assert_eq!(usage.primary_balance.as_deref(), Some("69.60 credits"));
+
+        let buckets = window_buckets(&usage);
+        assert_eq!(buckets.len(), 2);
+        assert_eq!(buckets[0].window, Some(QuotaWindowKind::Rolling5Hour));
+        assert_eq!(buckets[1].window, Some(QuotaWindowKind::Weekly));
+        // `resetAt` is milliseconds: rescaling it as seconds produced a tick
+        // ~56 000 years in the future.
+        assert_eq!(buckets[0].reset_at_ms, Some(1791119912775));
+        assert_eq!(buckets[1].reset_at_ms, Some(1791706712775));
+        assert!((buckets[0].used_fraction - 0.028751).abs() < 1e-5);
+    }
+
+    #[test]
+    fn tripped_window_disables_models_with_a_millisecond_reset() {
+        let usage = parse(
+            r#"{
+                "windowLimits": {
+                    "limited": true, "exceeded": "5-hour",
+                    "fiveHour": { "used": 14, "cap": 14, "exceeded": true,
+                                  "resetAt": 1791119912775 }
+                }
+            }"#,
+        );
+
+        assert_eq!(usage.model_rules.len(), 1);
+        let rule = &usage.model_rules[0];
+        assert_eq!(rule.pattern, "*");
+        assert!(!rule.availability.usable);
+        assert_eq!(
+            rule.availability.status_label.as_deref(),
+            Some("disabled: 5h limit")
+        );
+        assert_eq!(rule.availability.resets_at_ms, Some(1791119912775));
+        assert!(
+            usage
+                .metrics
+                .iter()
+                .any(|m| { m.label == "Window Limit" && m.value == "exceeded (5-hour)" })
+        );
+    }
+
+    // A capped window whose `exceeded` flag was not flipped is still exhausted.
+    #[test]
+    fn a_window_at_cap_is_exhausted_even_without_the_flag() {
+        let usage = parse(
+            r#"{
+                "windowLimits": {
+                    "limited": true, "exceeded": null,
+                    "weekly": { "used": 35, "cap": 35, "exceeded": false, "resetAt": 0 }
+                }
+            }"#,
+        );
+        assert_eq!(usage.model_rules.len(), 1);
+        assert_eq!(
+            usage.model_rules[0].availability.status_label.as_deref(),
+            Some("disabled: weekly quota")
+        );
+        // A zero tick is "no reported reset", never epoch 0.
+        assert_eq!(usage.model_rules[0].availability.resets_at_ms, None);
     }
 }

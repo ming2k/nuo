@@ -8,7 +8,7 @@ use nuo_protocol::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::spec_antigravity::ANTIGRAVITY_USER_AGENT;
+use crate::spec_antigravity::{ANTIGRAVITY_TLS_PROFILE, ANTIGRAVITY_USER_AGENT};
 
 use crate::oauth::ANTIGRAVITY_RETRIEVE_QUOTA_SUMMARY_URL;
 
@@ -98,7 +98,8 @@ impl AntigravityUsageFetcher {
         let request = nuo_provider::transport::Request::new(netune::Method::POST, &endpoint)
             .header("authorization", format!("Bearer {api_key}"))
             .header("user-agent", ANTIGRAVITY_USER_AGENT)
-            .json(&req_body);
+            .json(&req_body)
+            .tls_profile(ANTIGRAVITY_TLS_PROFILE);
         let resp = client
             .send(request)
             .await
@@ -138,7 +139,8 @@ pub async fn retrieve_antigravity_quota_summary(
     )
     .header("authorization", format!("Bearer {access_token}"))
     .header("user-agent", ANTIGRAVITY_USER_AGENT)
-    .json(&req_body);
+    .json(&req_body)
+    .tls_profile(ANTIGRAVITY_TLS_PROFILE);
     let resp = client.send(request).await.map_err(|e| {
         nuo_provider::auth::AuthError::Transport(format!("retrieveUserQuotaSummary failed: {e}"))
     })?;

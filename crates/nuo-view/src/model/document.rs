@@ -75,9 +75,9 @@ pub struct ToolInvocation {
     /// ADR-0026: argument bytes received so far while the call's arguments
     /// stream; `None` once dispatched or when the arguments arrived whole.
     pub input_bytes: Option<usize>,
-    /// ADR-0026: the provider's tool-call slot while pre-dispatch; `None` once
-    /// dispatched or for a never-announced step.
-    pub input_slot: Option<usize>,
+    /// ADR-0026: the opaque announcement identity while pre-dispatch; `None`
+    /// once dispatched or for a never-announced step.
+    pub announcement: Option<u64>,
     pub children: Vec<TranscriptMessage>,
 }
 
@@ -123,7 +123,7 @@ impl ToolInvocation {
             awaiting: false,
             activity: None,
             input_bytes: None,
-            input_slot: None,
+            announcement: None,
             children: Vec::new(),
         }
     }
@@ -290,12 +290,13 @@ pub enum MessageKind {
         /// "foldable", not "streaming") and never an animated glyph
         /// (`[INV-STREAM-TOOL-05]`).
         input_bytes: Option<usize>,
-        /// ADR-0026: the provider's tool-call slot for a step that was
-        /// announced before dispatch. `Some(index)` while the call's arguments
-        /// stream (so a repeated announcement for the same slot — a retried
-        /// turn — supersedes the prior one); `None` once dispatched or for a
-        /// step that was never announced (whole-argument providers, history).
-        input_slot: Option<usize>,
+        /// ADR-0026: the opaque announcement identity for a step that was
+        /// announced before dispatch. `Some(id)` while the call's arguments
+        /// stream; `None` once dispatched or for a step that was never
+        /// announced (whole-argument providers, history). The harness mints a
+        /// fresh id per attempt, so a retried turn's stale announcement is
+        /// retracted by id rather than silently re-used.
+        announcement: Option<u64>,
         /// Child events emitted by a subagent spawned from this tool step.
         children: Vec<TranscriptMessage>,
     },
@@ -1004,17 +1005,17 @@ impl TranscriptMessage {
         self
     }
 
-    /// ADR-0023: stamp the provider tool-call slot on a pre-dispatch step, the
-    /// correlation key for the announce → collapse handshake.
-    pub fn with_input_slot(mut self, slot: usize) -> Self {
+    /// ADR-0026: stamp the opaque announcement identity on a pre-dispatch
+    /// step — the correlation key for the announce → collapse handshake.
+    pub fn with_announcement(mut self, announcement: u64) -> Self {
         if let MessageKind::ToolStep {
-            input_slot,
+            announcement: current,
             status,
             execution_started_at,
             ..
         } = &mut self.kind
         {
-            *input_slot = Some(slot);
+            *current = Some(announcement);
             *status = ToolStepStatus::Ingesting;
             *execution_started_at = None;
         }
@@ -1022,53 +1023,62 @@ impl TranscriptMessage {
     }
 
     /// ADR-0026: whether this tool step was announced before its arguments
-    /// finished streaming — it carries a provider slot and no dispatch id yet.
+    /// finished streaming — it carries an announcement id and no dispatch id yet.
     pub fn is_announced_pending_tool_step(&self) -> bool {
         matches!(
             &self.kind,
             MessageKind::ToolStep {
                 id,
-                input_slot: Some(_),
+                announcement: Some(_),
                 ..
             } if id.is_empty()
         )
     }
 
-    /// ADR-0026: whether this is the still-pending announced step for `slot`.
-    pub fn is_announced_pending_tool_step_for_slot(&self, slot: usize) -> bool {
+    /// ADR-0026: the opaque announcement identity this provisional step was
+    /// created under; `None` for a dispatched or never-announced step.
+    pub fn announcement_id(&self) -> Option<u64> {
+        match &self.kind {
+            MessageKind::ToolStep { announcement, .. } => *announcement,
+            _ => None,
+        }
+    }
+
+    /// ADR-0026: whether this is the still-pending announced step for
+    /// `announcement`.
+    pub fn is_announced_pending_tool_step_for(&self, announcement: u64) -> bool {
         matches!(
             &self.kind,
             MessageKind::ToolStep {
                 id,
-                input_slot: Some(s),
+                announcement: Some(current),
                 ..
-            } if id.is_empty() && *s == slot
+            } if id.is_empty() && *current == announcement
         )
     }
 
-    /// ADR-0026: record count-only input progress for `call_id` (the step's own
-    /// dispatch id — empty while pre-dispatch). Returns whether the count moved.
-    pub fn set_tool_input_bytes(&mut self, call_id: &str, bytes: usize) -> bool {
-        let MessageKind::ToolStep {
-            id, input_bytes, ..
-        } = &mut self.kind
-        else {
+    /// ADR-0026: record count-only input progress on this announced step.
+    /// The caller has already resolved the step by announcement id.
+    /// Returns whether the count moved.
+    pub fn set_tool_input_bytes(&mut self, bytes: usize) -> bool {
+        let MessageKind::ToolStep { input_bytes, .. } = &mut self.kind else {
             return false;
         };
-        if id != call_id || *input_bytes == Some(bytes) {
+        if *input_bytes == Some(bytes) {
             return false;
         }
         *input_bytes = Some(bytes);
         true
     }
 
-    /// ADR-0046: record streaming partial arguments for `call_id` (the step's own
-    /// dispatch id — empty while pre-dispatch). Returns whether the arguments changed.
-    pub fn set_tool_streaming_arguments(&mut self, call_id: &str, args: String) -> bool {
-        let MessageKind::ToolStep { id, arguments, .. } = &mut self.kind else {
+    /// ADR-0046: record streaming partial arguments on this announced step.
+    /// The caller has already resolved the step by announcement id.
+    /// Returns whether the arguments changed.
+    pub fn set_tool_streaming_arguments(&mut self, args: String) -> bool {
+        let MessageKind::ToolStep { arguments, .. } = &mut self.kind else {
             return false;
         };
-        if id != call_id || *arguments == args {
+        if *arguments == args {
             return false;
         }
         *arguments = args;
@@ -1117,7 +1127,7 @@ impl TranscriptMessage {
         let MessageKind::ToolStep {
             id,
             arguments: step_arguments,
-            input_slot,
+            announcement,
             input_bytes,
             status,
             execution_started_at,
@@ -1126,63 +1136,15 @@ impl TranscriptMessage {
         else {
             return false;
         };
-        let was_pending = input_slot.is_some();
+        let was_pending = announcement.is_some();
         *id = call_id;
         *step_arguments = arguments;
-        *input_slot = None;
+        *announcement = None;
         *input_bytes = None;
         *status = ToolStepStatus::Executing;
         *execution_started_at = Some(std::time::Instant::now());
         self.refresh_tool_step();
         was_pending
-    }
-
-    /// ADR-0026: collapse a pre-dispatch step onto its dispatch `call_id` —
-    /// re-key the id and clear the slot/byte pre-dispatch state in one step.
-    /// ADR-0046: transition from Ingesting to Executing phase by capturing `execution_started_at`.
-    pub fn rekey_tool_step(&mut self, call_id: impl Into<String>) -> bool {
-        let call_id = call_id.into();
-        let MessageKind::ToolStep {
-            id,
-            input_slot,
-            input_bytes,
-            status,
-            execution_started_at,
-            ..
-        } = &mut self.kind
-        else {
-            return false;
-        };
-        let was_pending = input_slot.is_some();
-        *id = call_id;
-        *input_slot = None;
-        *input_bytes = None;
-        *status = ToolStepStatus::Executing;
-        *execution_started_at = Some(std::time::Instant::now());
-        self.refresh_tool_step();
-        was_pending
-    }
-
-    /// ADR-0026: mark an announced-but-never-dispatched step as cancelled so it
-    /// never hangs. Dispatched steps (with an id) are left untouched.
-    pub fn cancel_pending_announced_tool_step(&mut self) -> bool {
-        let MessageKind::ToolStep {
-            id,
-            input_slot,
-            input_bytes,
-            status,
-            ..
-        } = &mut self.kind
-        else {
-            return false;
-        };
-        if !id.is_empty() || input_slot.is_none() {
-            return false;
-        }
-        *status = ToolStepStatus::Cancelled;
-        *input_slot = None;
-        *input_bytes = None;
-        true
     }
 
     /// Stamp the visible send time for a user-authored message.
@@ -1247,7 +1209,7 @@ impl TranscriptMessage {
                 activity: None,
                 retry: None,
                 input_bytes: None,
-                input_slot: None,
+                announcement: None,
                 children: Vec::new(),
             },
             delivery: DeliveryStatus::default(),
@@ -3004,7 +2966,7 @@ impl TranscriptMessage {
             status,
             duration_ms,
             input_bytes,
-            input_slot,
+            announcement,
             ..
         } = &self.kind
         else {
@@ -3014,7 +2976,7 @@ impl TranscriptMessage {
         // ADR-0026: while the call's arguments are still streaming (announced,
         // not yet dispatched) append a count-only progress clause. It is a
         // static clause — never a `+`/`-` disclosure marker, never animated.
-        let streaming = match (input_slot, input_bytes) {
+        let streaming = match (announcement, input_bytes) {
             (Some(_), Some(bytes)) => format!(" (receiving input {} KB)", bytes / 1024),
             (Some(_), None) => " (receiving input)".to_string(),
             (None, _) => String::new(),
@@ -3211,7 +3173,7 @@ impl TranscriptMessage {
             activity,
             retry: _,
             input_bytes,
-            input_slot,
+            announcement,
             children,
         } = &self.kind
         else {
@@ -3233,7 +3195,7 @@ impl TranscriptMessage {
             awaiting: *awaiting,
             activity: activity.clone(),
             input_bytes: *input_bytes,
-            input_slot: *input_slot,
+            announcement: *announcement,
             children: children.clone(),
         })
     }
@@ -3257,7 +3219,7 @@ impl TranscriptMessage {
             activity: _,
             retry: _,
             input_bytes,
-            input_slot,
+            announcement,
             children: _,
         } = &self.kind
         else {
@@ -3347,7 +3309,7 @@ impl TranscriptMessage {
             };
             let summary = crate::tools::summary_for(name, effective_args, profile.as_deref());
             let suffix = match status {
-                ToolStepStatus::Ingesting => match (input_slot, input_bytes) {
+                ToolStepStatus::Ingesting => match (announcement, input_bytes) {
                     (Some(_), Some(bytes)) => format!(" (receiving input {} KB)", bytes / 1024),
                     (Some(_), None) => " (receiving input)".to_string(),
                     (None, _) => String::new(),

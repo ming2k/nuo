@@ -80,7 +80,7 @@ mod owned {
     use bytes::Bytes;
     use futures::StreamExt;
     use futures::stream::BoxStream;
-    use netune::{Connector, TcpConnector, TlsConnector};
+    use netune::{Connector, TcpConnector, TlsRouterConnector};
     use netune_trace::{
         AttemptRef, ConnectionInfo, EndpointRef, EventKind, Fidelity, Recorder, RequestTrace,
         TraceId, derive,
@@ -176,12 +176,12 @@ mod owned {
     pub type TraceSink = Arc<dyn Fn(RequestTrace) + Send + Sync>;
 
     /// The owned netune transport implementation.
-    pub struct NetTransport<C: Connector = TlsConnector<TcpConnector>> {
+    pub struct NetTransport<C: Connector = TlsRouterConnector<TcpConnector>> {
         client: std::sync::Arc<netune::Client<C>>,
         sink: Option<TraceSink>,
     }
 
-    impl NetTransport<TlsConnector<TcpConnector>> {
+    impl NetTransport<TlsRouterConnector<TcpConnector>> {
         pub fn new() -> Result<Self, String> {
             Ok(Self {
                 client: std::sync::Arc::clone(super::super::network::shared_client()),
@@ -190,7 +190,7 @@ mod owned {
         }
 
         pub fn from_shared_client(
-            client: std::sync::Arc<netune::Client<TlsConnector<TcpConnector>>>,
+            client: std::sync::Arc<netune::Client<TlsRouterConnector<TcpConnector>>>,
         ) -> Self {
             Self { client, sink: None }
         }
@@ -223,12 +223,15 @@ mod owned {
     #[async_trait::async_trait]
     impl<C: Connector> Transport for NetTransport<C> {
         async fn send(&self, parts: RequestParts) -> Result<HttpResponse, TransportError> {
-            let (target, path) = netune::Target::from_url(&parts.url).map_err(|error| {
+            let (mut target, path) = netune::Target::from_url(&parts.url).map_err(|error| {
                 TransportError::InvalidRequest {
                     label: parts.label,
                     message: format!("invalid url: {error}"),
                 }
             })?;
+            if let Some(profile) = parts.tls_profile {
+                target = target.with_tls_profile(profile);
+            }
             let authority = target.authority.clone();
 
             let mut head = netune::RequestHead::new(parts.method.clone(), path);

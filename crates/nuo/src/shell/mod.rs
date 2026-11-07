@@ -514,13 +514,14 @@ pub(crate) async fn run_tui_with_input(
             // first component is thinking, or a tool announcement, carries the
             // same time as one that starts with prose.
             let mut turn_sent_at_by_session = HashMap::<String, u64>::new();
-            // ADR-0026: per-session announced-but-unclaimed provider slots, in
-            // announcement order. The translator stamps the step's `input_slot`;
-            // the applier resolves the collapse and the progress ticks by that
-            // slot. A whole-argument provider never announces, so the queue
-            // stays empty and every `ToolCall` inserts normally.
-            let mut announced_slots_by_session =
-                HashMap::<String, std::collections::VecDeque<usize>>::new();
+            // ADR-0026: per-session live announcement ids (announced, not yet
+            // collapsed or retracted). This is *not* how a `ToolCall` finds its
+            // step — the event carries its announcement id — but a round that
+            // ends while an announcement is still live is a bug or an abrupt
+            // interrupt, and this set lets the boundary retract exactly those
+            // rows instead of sweeping the whole shared buffer.
+            let mut live_announcements_by_session =
+                HashMap::<String, std::collections::HashSet<u64>>::new();
             // A session switch replaces the transcript before its authoritative
             // idle HarnessState arrives. Rebase the reconstructed tail exactly
             // once when that snapshot supplies the persisted round counter.
@@ -1202,19 +1203,25 @@ pub(crate) async fn run_tui_with_input(
                                     duration_ms,
                                 });
                             }
-                            RoundEvent::ToolCallStarted { index, id, name } => {
+                            RoundEvent::ToolCallStarted {
+                                announcement,
+                                index: _,
+                                id,
+                                name,
+                            } => {
                                 // ADR-0026: the call is named but its arguments
                                 // are still streaming. Show a running step and
                                 // move the phase to the tool verb now, instead
                                 // of leaving the bar on the misleading
                                 // `answering` phase for the whole argument
                                 // stream. The step's call id stays empty until
-                                // dispatch; `ToolCall` collapses onto it.
+                                // dispatch; the `ToolCall` carrying this
+                                // announcement id collapses onto it.
                                 let _ = id;
-                                announced_slots_by_session
+                                live_announcements_by_session
                                     .entry(session_id.clone())
                                     .or_default()
-                                    .push_back(index);
+                                    .insert(announcement);
 
                                 mutations
                                     .send(M::SetPhase(Some(Phase::Tool(
@@ -1241,18 +1248,15 @@ pub(crate) async fn run_tui_with_input(
                                 // carries the turn's send time so the live band
                                 // shows `HH:MM` exactly as the resumed one does.
                                 .with_sent_at_ms(turn_sent_at!(session_id))
-                                .with_input_slot(index);
+                                .with_announcement(announcement);
                                 if let Some((round, turn)) = position {
                                     message = message.with_round(round).with_turn(turn);
                                 }
-                                transcript!(E::ToolAnnounce {
-                                    slot: index,
-                                    name,
-                                    message,
-                                });
+                                transcript!(E::ToolAnnounce { name, message });
                             }
                             RoundEvent::ToolInputProgress {
-                                index,
+                                announcement,
+                                index: _,
                                 id,
                                 bytes,
                                 arguments,
@@ -1263,12 +1267,27 @@ pub(crate) async fn run_tui_with_input(
                                 mutations.send(M::SetResponding(true)).await;
 
                                 transcript!(E::ToolInputProgress {
-                                    slot: index,
+                                    announcement,
                                     bytes,
                                     arguments,
                                 });
                             }
+                            RoundEvent::ToolAnnouncementsRetracted { announcements } => {
+                                // The attempt that made these announcements died
+                                // before dispatch. Drop the provisional rows;
+                                // they never described a call, so a terminal
+                                // "cancelled" row would be a lie.
+                                if let Some(live) =
+                                    live_announcements_by_session.get_mut(&session_id)
+                                {
+                                    for announcement in &announcements {
+                                        live.remove(announcement);
+                                    }
+                                }
+                                transcript!(E::ToolAnnouncementsRetracted { announcements });
+                            }
                             RoundEvent::ToolCall {
+                                announcement,
                                 id,
                                 name,
                                 arguments,
@@ -1288,33 +1307,37 @@ pub(crate) async fn run_tui_with_input(
                                 // component) carries, so collapsing an announcement
                                 // onto the dispatch id cannot change the band header.
                                 let sent_at_ms = turn_sent_at!(session_id);
-                                // ADR-0026: collapse onto the announced step for
-                                // this call's provider slot, if one is pending.
-                                // Otherwise (a whole-argument provider, or an
-                                // announcement that never arrived) insert
-                                // normally.
-                                let announced_slot = announced_slots_by_session
-                                    .get_mut(&session_id)
-                                    .and_then(|queue| queue.pop_front());
-                                match announced_slot {
-                                    Some(slot) => {
-                                        transcript!(E::ToolCallCollapse {
-                                            slot,
-                                            call_id: id,
-                                            arguments,
-                                        });
+                                // Build the dispatch step once. The applier either
+                                // collapses the provisional row named by
+                                // `announcement` onto it, or inserts this message
+                                // when that announcement no longer exists (the
+                                // attempt was retracted, or the provider never
+                                // announced).
+                                let mut message = TranscriptMessage::tool_step(
+                                    id.clone(),
+                                    name,
+                                    arguments.clone(),
+                                )
+                                .with_attribution(provider, model)
+                                .with_effort(effort)
+                                .with_sent_at_ms(sent_at_ms);
+                                if let Some((round, turn)) = position {
+                                    message = message.with_round(round).with_turn(turn);
+                                }
+                                if let Some(announcement) = announcement {
+                                    if let Some(live) =
+                                        live_announcements_by_session.get_mut(&session_id)
+                                    {
+                                        live.remove(&announcement);
                                     }
-                                    None => {
-                                        let mut message =
-                                            TranscriptMessage::tool_step(id, name, arguments)
-                                                .with_attribution(provider, model)
-                                                .with_effort(effort)
-                                                .with_sent_at_ms(sent_at_ms);
-                                        if let Some((round, turn)) = position {
-                                            message = message.with_round(round).with_turn(turn);
-                                        }
-                                        transcript!(E::ToolStart { message });
-                                    }
+                                    transcript!(E::ToolCallCollapse {
+                                        announcement,
+                                        call_id: id,
+                                        arguments,
+                                        fallback: message,
+                                    });
+                                } else {
+                                    transcript!(E::ToolStart { message });
                                 }
 
                                 mutations.send(M::SetResponding(true)).await;
@@ -1563,16 +1586,24 @@ pub(crate) async fn run_tui_with_input(
                                     .map(|started| started.elapsed().as_millis() as u64);
                                 if !running {
                                     retry_progress = None;
-                                    // ADR-0026: no announced step survives its
-                                    // round; the queue is drained so a later
-                                    // call cannot claim a stale slot.
-                                    announced_slots_by_session.remove(&session_id);
+                                    // ADR-0026: every announcement belongs to a
+                                    // turn of this session. If any are still
+                                    // live at the boundary, their attempt ended
+                                    // without a retraction (an abrupt interrupt,
+                                    // or a producer bug); retract them rather
+                                    // than leaving a row that can never finish.
+                                    // Keyed by id, so no other session's
+                                    // provisional rows can be touched.
+                                    let live = live_announcements_by_session
+                                        .remove(&session_id)
+                                        .unwrap_or_default();
+                                    if !live.is_empty() {
+                                        transcript!(E::ToolAnnouncementsRetracted {
+                                            announcements: live.into_iter().collect(),
+                                        });
+                                    }
                                 }
                                 transcript!(E::FinalizeOrphanedReasoning { duration_ms });
-                                // ADR-0026: safety net — a step announced but
-                                // never dispatched (its round died mid
-                                // arguments) is cancelled, never left running.
-                                transcript!(E::FrozenOrphanToolSteps);
                             }
                             RoundEvent::TodosUpdated(_) => {}
                             RoundEvent::UnattendedChanged(enabled) => {

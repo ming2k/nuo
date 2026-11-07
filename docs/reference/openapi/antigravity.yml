@@ -1,7 +1,24 @@
 # OpenAPI 3.1 reference for the Google Antigravity (Cloud Code) v1internal surface,
-# reverse engineered from Google Antigravity CLI (`agy`) 1.3.6
-# (/home/ming/.local/bin/agy, stripped Go ELF, 208 MB, build 999748552)
+# reverse engineered from Google Antigravity CLI (`agy`) 1.5.3
+# (/home/ming/.local/bin/agy, stripped Go ELF, 246,837,648 bytes)
 # and live-verified against a real consumer (Google One) account.
+#
+# 2026-11-07 revision (agy 1.5.2 -> 1.5.3): live capture of a full inference
+# turn under an intercepting HTTPS proxy (mitmproxy) plus TLS ClientHello and
+# HTTP/2 frame capture on the raw socket. What this revision adds:
+#   - identity: UA cl counter is now 1016078699 (was 999748552); release stamp
+#     1.5.3-6604829099950080; toolchain go1.28-20261102-RC00 cl/1012564305
+#     +298f53e483 X:fieldtrack,boringcrypto,simd,nogolistexportnewformat.
+#   - transport: every Cloud Code call is HTTP/2 (`h2` ALPN); the 1.3.x capture
+#     was HTTP/1.1 over a browser-shaped stack. The wire fingerprint (TLS
+#     ClientHello + h2 SETTINGS/WINDOW_UPDATE + pseudo-header order) is recorded
+#     under `x-network-fingerprint`; the matching implementation is netune's
+#     `Preset::AntigravityCli` + `H2Fingerprint::go`.
+#   - a third OAuth client pair exists in 1.5.3 (business/BAIC lane); its role is
+#     inferential (`SetBusinessOAuthClientIDOverride`) and is marked as such.
+#   - risk control: this account was served `403 TOS_VIOLATION` at the inference
+#     verb while every account/catalog verb stayed 200. The exact rejection shape
+#     and the out-of-band telemetry channel are recorded under `x-risk-control`.
 #
 # 2026-10-23 revision: re-verified against the installed `agy` 1.3.6→1.4.0
 # lineage and a paid-pro consumer account (tier G1_PRO): the inference
@@ -31,7 +48,7 @@
 openapi: 3.1.0
 info:
   title: Google Antigravity (Cloud Code) Internal API
-  version: 1.3.6
+  version: 1.5.3
   summary: >-
     The Cloud Code companion surface behind the `agy` CLI: an OAuth2 (Google
     Cloud Platform scope set) authenticated envelope that wraps Google-native
@@ -69,36 +86,39 @@ info:
     `"project"` field. Requests without a project are still served but are the
     documented trigger for HTTP 429 `RESOURCE_EXHAUSTED` under load.
 
-    Auth (wire truth, binary + live 2026-10-14): OAuth2 Authorization Code +
+    Auth (wire truth, binary + live 2026-11-07): OAuth2 Authorization Code +
     PKCE (S256). Authorize endpoint `https://accounts.google.com/o/oauth2/auth`
     (exact string in the binary; the `/v2/` variant appears nowhere). The CLI's
     login surface is **web-hosted, not loopback**: the flow completes at
     `https://antigravity.google/oauth-callback` (the CLI prints a sign-in link
     for the user — "Share this sign-in link with the user" — and polls for the
     result; success page `https://antigravity.google/auth-success?app=…`). The
-    binary contains a generic loopback callback builder
-    (`http://localhost:%d/auth/callback`) from its auth stack, but no fixed
-    preferred port exists (the constant 51121 appears nowhere; it was a nuo
-    invention from the Cloud Code IDE preset). Token exchange at
+    1.5.3 bundle adds a loopback bridge on the fixed port `127.0.0.1:4713`
+    (path `/auth/callback`, also the CLI's local RPC/agent bridge), but the
+    login redirect URI remains the web host. Token exchange at
     `https://oauth2.googleapis.com/token`; the standard
     `urn:ietf:params:oauth:grant-type:device_code` grant is also present in the
-    auth stack. Scopes extracted from the binary: `cloud-platform`,
-    `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs`,
-    `aicode` (plus `offline_access` and drive.* scopes used by auxiliary
-    lanes). `openid` / `access_type=offline` / `prompt=consent` /
-    `include_granted_scopes` appear **nowhere** in the CLI's OAuth parameter
-    strings — first-party integrations that send them are client-side
-    extensions, not wire truth. Two client identities exist in the bundle:
-    the Cloud Code IDE pair and the standalone CLI pair (see
-    `x-cli-constants`).
+    auth stack, and `code_challenge` / `code_challenge_method` confirm PKCE is
+    in the CLI's own authorize parameters. Scopes extracted from the binary:
+    `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`,
+    `experimentsandconfigs`, `aicode` (plus `offline_access` — present as a
+    string in 1.5.3 — and drive.* scopes used by auxiliary lanes). `openid` /
+    `access_type=offline` / `prompt=consent` / `include_granted_scopes` still
+    appear **nowhere** in the CLI's OAuth parameter strings — first-party
+    integrations that send them are client-side extensions, not wire truth.
+    Three client identities exist in the 1.5.3 bundle: the Cloud Code IDE pair,
+    the standalone CLI pair, and a business/BAIC pair discovered by the
+    `SetBusinessOAuthClientIDOverride` symbol (see `x-cli-constants`).
 
     Client identity (the admission gate): the backend routes inference only for
     requests whose `User-Agent` carries the `antigravity/cli/` brand. The full
     observed form is
     `antigravity/cli/{version} (aidev_client; os_type={os}; arch={arch}; cl={build}; auth_method={method})`
-    — live capture of 1.3.6:
-    `antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)`.
-    Differential probing (live) established:
+    — live capture of 1.5.3:
+    `antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)`.
+    Since 1.5.x the CLI speaks **HTTP/2** to every Cloud Code endpoint (the
+    TLS ClientHello and HTTP/2 framing are part of its observable identity; see
+    `x-network-fingerprint`). Differential probing (live) established:
     - `cl=` is **not** discriminated (`cl=0` and the real build number are both admitted).
     - `auth_method=consumer` matches subscription accounts; `business` exists in
       the bundle for enterprise surfaces.
@@ -112,8 +132,12 @@ info:
       distinguishability debt, not fidelity.
   x-provenance: live + bundle
   x-cli-constants:
-    cliVersion: 1.3.6
-    cliBuildNumber: "999748552"
+    cliVersion: 1.5.3
+    # The `cl=` counter stamped into the User-Agent, live-captured 2026-11-07.
+    cliBuildNumber: "1016078699"
+    releaseStamp: 1.5.3-6604829099950080
+    toolchain: go1.28-20261102-RC00 cl/1012564305 +298f53e483 X:fieldtrack,boringcrypto,simd,nogolistexportnewformat
+    binarySizeBytes: 246837648
     clientKind: aidev_client
     authMethodConsumer: consumer
     oauth:
@@ -124,14 +148,36 @@ info:
         - https://antigravity.google/oauth-callback
       redirectNote: >-
         Web-hosted completion (antigravity.google), not a loopback redirect:
-        the CLI prints the sign-in link and polls for the result. No preferred
-        port is compiled in (the constant 51121 appears nowhere in the binary;
-        it was a nuo invention).
+        the CLI prints the sign-in link and polls for the result. 1.5.3 also
+        compiles a fixed loopback bridge at 127.0.0.1:4713 (path
+        /auth/callback) for its local RPC/agent surface, but the login redirect
+        URI remains https://antigravity.google/oauth-callback. The constant
+        51121 still appears nowhere (it was a nuo invention).
       clientMetadataUrl: https://antigravity.google/oauth/client-metadata.json
-      cloudCodeClientId: 1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com
-      cloudCodeClientSecret: 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
-      cliClientId: 884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com
-      cliClientSecret: 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
+      # OAuth credentials are recorded as redacted placeholders, never literals:
+      # the live pair is embedded in the public CLI binary and mirrored by
+      # `providers/nuo-provider-google-antigravity/src/oauth.rs`. A repository
+      # does not need a second copy of a live credential, and copying one here
+      # trips secret-scanning push protection. What this file owns is provenance
+      # and shape, not the secret.
+      cloudCodeClientId: "<redacted: Google OAuth client id>"
+      cloudCodeClientSecret: "<redacted>"
+      cliClientId: "<redacted: Google OAuth client id>"
+      cliClientSecret: "<redacted>"
+      # Third pair, new in 1.5.x. Role is inferential, not proven: the client id
+      # sits in the auth/config string region next to "BAIC Telemetry Client" /
+      # "InferenceInteraction", and the bundle carries both
+      # SetOAuthClientIDOverride and SetBusinessOAuthClientIDOverride. The pair
+      # below is therefore recorded as the *candidate business/BAIC* pair, not
+      # as a consumer-flow fact.
+      businessClientId:
+        value: "<redacted: Google OAuth client id>"
+        provenance: bundle
+        confidence: inferential
+      businessClientSecret:
+        value: "<redacted>"
+        provenance: bundle
+        confidence: inferential
       scopes:
         - https://www.googleapis.com/auth/cloud-platform
         - https://www.googleapis.com/auth/userinfo.email
@@ -140,26 +186,39 @@ info:
         - https://www.googleapis.com/auth/experimentsandconfigs
         - https://www.googleapis.com/auth/aicode
       scopeNote: >-
-        Extracted from the binary's scope strings (live 2026-10-14); `openid`,
+        Extracted from the binary's scope strings (live 2026-11-07); `openid`,
         `access_type=offline`, `prompt=consent` and `include_granted_scopes`
         appear nowhere in the CLI's OAuth parameter strings and are NOT part
-        of the observed request set. First-party integrations that send them
-        are client-side extensions, not wire truth.
+        of the observed request set. `offline_access` now exists as a string in
+        1.5.3, but the observed authorize parameter set is unchanged; PKCE
+        (`code_challenge`, `code_challenge_method`) is confirmed present.
+        First-party integrations that add the missing parameters are
+        client-side extensions, not wire truth.
     companionProject: aicode-consumers
     defaultTierId: free-tier
     minAdmittedProductVersion: "1.2"
     userAgents:
-      real136: antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
-      nuoEmulated: antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
+      real153: antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)
+      nuoEmulated: antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)
+      real136Legacy: antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
     requestHeaders:
       summary: >-
-        The shipped client sends exactly four headers on every Cloud Code call:
-        Authorization, Content-Type, Accept-Encoding, User-Agent. No
-        `x-goog-api-client`, no other client-identity marker (live 2026-10-14).
+        The shipped 1.5.3 client sends exactly four request headers on every
+        Cloud Code call: Authorization, Content-Type, Accept-Encoding,
+        User-Agent. No `x-goog-api-client`, no other client-identity marker.
+        Plus the HTTP/2 transport's implicit `:authority`, `:method`, `:path`,
+        `:scheme` and `content-length`. Header insertion order across the four
+        is not stable (Go map iteration); four permutations were observed on
+        the wire (see `x-network-fingerprint.headerOrder`).
+      transport: h2
     otherHosts:
       aicode: https://aicode.googleapis.com
+      aicodeConfigVerb: https://aicode.googleapis.com/v1alpha:fetchConfig
       businessAicode: businessaicode.googleapis.com
       preprod: https://preprod-daily-cloudcode-pa.sandbox.googleapis.com
+      telemetry: https://play.googleapis.com/log
+      autoUpdater: https://antigravity-cli-auto-updater-974169037036.us-central1.run.app
+      pluginsMarketplace: https://www.gstatic.com/antigravity/plugins/marketplace.json
   license:
     name: Internal reference
     url: https://antigravity.google/docs/cli/reference
@@ -202,9 +261,10 @@ paths:
         First call of every session (the CLI's "eligibility check"). Returns the
         account's tier inventory and the companion project to route with.
 
-        The real 1.3.6 client sends the **minimal** body `{"metadata":
+        The real client sends the **minimal** body `{"metadata":
         {"ideType": "ANTIGRAVITY"}}` — no ideVersion/ideName/platform/pluginType.
-        A richer metadata object (ideVersion, ideName, platform=LINUX_AMD64,
+        Re-confirmed byte-for-byte on 1.5.3 (`Content-Length: 38`). A richer
+        metadata object (ideVersion, ideName, platform=LINUX_AMD64,
         pluginType=GEMINI, as the older Cloud Code clients sent) is also
         accepted (live probe: 200). The minimal form is the wire-truth.
 
@@ -217,8 +277,8 @@ paths:
             schema:
               $ref: "#/components/schemas/LoadCodeAssistRequest"
             examples:
-              agy136:
-                summary: Exact body the shipped 1.3.6 CLI sends (x-provenance live)
+              agy153:
+                summary: Exact body the shipped 1.5.3 CLI sends (x-provenance live)
                 value:
                   metadata:
                     ideType: ANTIGRAVITY
@@ -1854,6 +1914,8 @@ x-admission-band:
     auto-updating wild client population, which retires floor-hugging pins
     first, so the top of the band is the max-headroom seat.
   userAgents:
+    - value: antigravity/cli/1.5.3 (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)
+      verdict: admitted on 2026-11-07 (the shipped 1.5.3 identity; account/catalog verbs 200, inference later blocked by TOS_VIOLATION — an account action, not a UA rejection; see x-risk-control)
     - value: antigravity/cli/1.4.0 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
       verdict: admitted (re-probed 2026-10-23 — the installed 1.4.0 lineage reaches inference with the 1.3.6 build counter; see note below)
     - value: antigravity/cli/1.3.6 (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)
@@ -1867,24 +1929,192 @@ x-admission-band:
     - value: antigravity/1.2.12 (…) — no cli brand segment
       verdict: admitted on this capture (earlier backend generations 404'd this form; keep the brand)
   versionNote: >-
-    The installed `agy` reports 1.4.0 (Language server version: 1.4.0 in its
-    own logs; go1.28-20260921-RC02 cl/985595000 toolchain in its Go buildinf).
-    The per-request `cl=` counter is therefore not discriminated (1592 = cl=0
-    admitted 2026-10-14; 1.4.0 + cl=999748552 admitted 2026-10-23). The brand
+    The installed `agy` auto-updated from 1.5.2 to 1.5.3 mid-capture
+    (246,837,648 bytes; build stamp 1.5.3-6604829099950080; go1.28-20261102-RC00
+    cl/1012564305 +298f53e483, boringcrypto). The per-request `cl=` counter is
+    therefore not discriminated (cl=0 admitted 2026-10-14; 1.4.0 + cl=999748552
+    admitted 2026-10-23; 1.5.3 + cl=1016078699 admitted 2026-11-07). The brand
     `"antigravity/cli/"` segment and the `aidev_client; os_type; arch; …;
     auth_method=consumer` anatomy remain the load-bearing identity — the
-    literal `antigravity/cli/{version}` string appears nowhere in the 1.4.0
-    binary image (assembled at runtime from format pieces
-    `os_type=%s` / `cl=%d` / `auth_method=%s` / `"%s/%s (%s)"` adjacent to the
-    `User-Agent` constant in the string table), yet the live-admitted form
-    still reads `antigravity/cli/{version} (…)` — the assembled product of
-    those pieces, unchanged from 1.3.6.
+    literal `antigravity/cli/{version}` string appears nowhere in the binary
+    image (assembled at runtime from format pieces `os_type=%s` / `cl=%d` /
+    `auth_method=%s` / `"%s/%s (%s)"` adjacent to the `User-Agent` constant in
+    the string table), yet the live form still reads
+    `antigravity/cli/{version} (…)` — the assembled product of those pieces.
   fullCombination:
-    fact: tracked version 1.3.6 + real build cl=999748552 + x-goog-api-client header + rich loadCodeAssist metadata body
-    verdict: admitted end-to-end (every v1internal verb 200, inference green) — the exact combination nuo ships
+    fact: tracked version 1.5.3 + real build cl=1016078699 + HTTP/2 + Go-shaped TLS hello + h2 framing + the four-header set
+    verdict: admitted end-to-end on 2026-11-07 for account/catalog/quota traffic; inference returned 403 TOS_VIOLATION for this account (see x-risk-control) — the wire identity itself was not rejected.
   headers:
     - header: x-goog-api-client
       verdict: not sent by the real CLI; ignored by the backend. Removed from the nuo profile (2026-10-14) — marker parity with a header the real client never sends is distinguishability debt, not fidelity.
   bodyShapes:
     - fact: loadCodeAssist minimal metadata body
       verdict: admitted; the rich legacy metadata shape is also admitted. nuo mirrors the minimal form.
+
+x-network-fingerprint:
+  summary: >-
+    Wire identity beyond headers: the TLS ClientHello and HTTP/2 framing of
+    `agy` 1.5.3 (Go 1.28, boringcrypto). Captured 2026-11-07 on a fresh
+    connection to daily-cloudcode-pa.googleapis.com by peeking the raw
+    ClientHello record (MSG_PEEK, TLS untouched) and decoding the h2 frames
+    before mitmproxy terminated TLS.
+  provenance: live
+  transport: h2
+  headerOrder:
+    summary: >-
+      Go's h2 client does not stabilise header order: four permutations of the
+      same four-header set were observed across requests. Pseudo-header order
+      is fixed.
+    pseudoHeaders:
+      - ":authority"
+      - ":method"
+      - ":path"
+      - ":scheme"
+    observedPermutations:
+      - [content-type, authorization, content-length, accept-encoding, user-agent]
+      - [authorization, user-agent, content-type, content-length, accept-encoding]
+      - [authorization, accept-encoding, user-agent]
+      - [user-agent, content-type, authorization, content-length, accept-encoding]
+  http2:
+    settings:
+      - { id: "0x0002", name: ENABLE_PUSH, value: 0 }
+      - { id: "0x0004", name: INITIAL_WINDOW_SIZE, value: 4194304 }
+      - { id: "0x0005", name: MAX_FRAME_SIZE, value: 1048576 }
+      - { id: "0x0006", name: MAX_HEADER_LIST_SIZE, value: 10485760 }
+    connectionWindowUpdate: 1073741824
+    headerTableSize: 4096
+    priorityFrames: none
+    frameBytes: >-
+      SETTINGS len 24: 0002 00000000 | 0004 00400000 | 0005 00100000 |
+      0006 00a00000, then WINDOW_UPDATE len 4 on stream 0: 40000000.
+  tls:
+    legacyVersion: "0x0301"
+    recordVersion: "0x0303"
+    supportedVersions: ["0x0304", "0x0303"]
+    cipherSuites:
+      - { id: "0xc02b", name: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, rustls: true }
+      - { id: "0xc02f", name: TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, rustls: true }
+      - { id: "0xc02c", name: TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, rustls: true }
+      - { id: "0xc030", name: TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, rustls: true }
+      - { id: "0xcca9", name: TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, rustls: true }
+      - { id: "0xcca8", name: TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, rustls: true }
+      - { id: "0xc009", name: TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, rustls: false }
+      - { id: "0xc013", name: TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, rustls: false }
+      - { id: "0xc00a", name: TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, rustls: false }
+      - { id: "0xc014", name: TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, rustls: false }
+      - { id: "0x1301", name: TLS_AES_128_GCM_SHA256, rustls: true }
+      - { id: "0x1302", name: TLS_AES_256_GCM_SHA384, rustls: true }
+      - { id: "0x1303", name: TLS_CHACHA20_POLY1305_SHA256, rustls: true }
+    extensionOrder:
+      - "0x0000"
+      - "0x000b"
+      - "0xff01"
+      - "0x0017"
+      - "0x0012"
+      - "0x0005"
+      - "0x000a"
+      - "0x000d"
+      - "0x0032"
+      - "0x0010"
+      - "0x002b"
+      - "0x0033"
+    supportedGroups: ["0x11ec", "0x11eb", "0x11ed", "0x001d", "0x0017", "0x0018", "0x0019"]
+    keyShare: [{ group: "0x11ec", bytes: 1216 }, { group: "0x001d", bytes: 32 }]
+    signatureAlgorithms:
+      ["0x0904", "0x0905", "0x0906", "0x0804", "0x0403", "0x0807",
+       "0x0805", "0x0806", "0x0401", "0x0501", "0x0601", "0x0503", "0x0603"]
+    signatureAlgorithmsCert:
+      ["0x0904", "0x0905", "0x0906", "0x0804", "0x0403", "0x0807",
+       "0x0805", "0x0806", "0x0401", "0x0501", "0x0601", "0x0503",
+       "0x0603", "0x0201", "0x0203"]
+    alpn: [h2, http/1.1]
+    sni: present
+    grease: false
+    padding: false
+    ja3: >-
+      771,49195,49199,49196,49200,52393,52392,49161,49171,49162,49172,
+      4865,4866,4867,0,11,65281,23,18,5,10,13,50,16,43,51,
+      4588,4587,4589,29,23,24,25,0
+    ja3Md5: 047514f2ccd8b013647df2d9e189c231
+    ja4: t13d1312h1_7864b4adc6a0_cd1b3511567d_7117e252e3bb
+  nuoImplementation:
+    tlsProfile: netune::Preset::AntigravityCli ("antigravity-cli")
+    http2Fingerprint: netune_http2::H2Fingerprint::go()
+    selection: >-
+      providers/nuo-provider-google-antigravity stamps
+      RequestBuilder::tls_profile(ANTIGRAVITY_TLS_PROFILE) on every Cloud Code
+      inference, retry, quota, loadCodeAssist and onboardUser request. The
+      shared netune client uses TlsRouterConnector and enable_http2, so the same
+      name selects the TLS hello and the h2 framing; netune keys its connection
+      pool on the profile name, so a profiled request never reuses a
+      default-identity socket. The generic fetchAvailableModels catalog fetch
+      still presents the stock identity (it carries the 1.5.3 UA but not the
+      named profile).
+    residualDivergences:
+      - >-
+        rustls cannot offer Go's four CBC suites; the other nine are the same
+        set but rustls emits them in provider order, so the JA3 cipher hash
+        differs even though the set matches.
+      - >-
+        rustls has no renegotiation_info (ff01), extended_master_secret (0017),
+        SCT (0012), status_request (0005), or ML-DSA (0904/0905/0906)
+        implementations, and owns extension order — the JA3/JA4 extension hash
+        cannot match Go's.
+      - >-
+        rustls has no SecP256r1MLKEM768 / SecP384r1MLKEM1024 (0x11eb/0x11ed),
+        so two of Go's seven supported groups are absent.
+    verdict: >-
+      Negotiates like the CLI (h2 first, TLS 1.3, no GREASE, no browser
+      extensions) and frames like Go; a byte-exact Go hello needs a Go-shaped
+      TLS engine, not a rustls profile.
+
+x-risk-control:
+  summary: >-
+    Observed enforcement of account risk control during the 2026-11-07 capture.
+    The exact shape matters because it distinguishes an account action from a
+    wire-identity rejection.
+  provenance: live
+  observedAt: 2026-11-07
+  status: 403
+  responseShape:
+    code: 403
+    status: PERMISSION_DENIED
+    message: >-
+      This service has been disabled in this account for violation of Terms of
+      Service. Please submit an appeal to continue using this product.
+    details:
+      - "@type": type.googleapis.com/google.rpc.ErrorInfo
+        reason: TOS_VIOLATION
+        domain: cloudcode-pa.googleapis.com
+        metadata:
+          uiMessage: "true"
+          appeal_url: https://forms.gle/hGzM9MEUv2azZsrb9
+          appeal_url_link_text: Submit Appeal
+  enforcementPoint: >-
+    Inference only. On the same credential, loadCodeAssist,
+    fetchAvailableModels, fetchAdminControls, listExperiments,
+    retrieveUserQuotaSummary, fetchUserInfo, writeTrajectoryAcls, and
+    aicode.googleapis.com/v1alpha:fetchConfig all returned 200; only
+    v1internal:streamGenerateContent returned 403 TOS_VIOLATION. The block is
+    therefore an account verdict applied at the inference verb, not a client
+    admission failure.
+  outOfBandChannels:
+    - channel: clearcut
+      endpoint: https://play.googleapis.com/log
+      note: >-
+        HTTP/2 POSTs carrying antigravity_ide_installation_id, client version,
+        os/arch and log events. Runs regardless of inference admission, so it is
+        a separate identity/fingerprint surface.
+    - channel: crash/error reporting
+      note: >-
+        Error reports include Go stack traces; the CLI's error envelope also
+        carries short_error/status/error_code/code_kind/retryable/error_id.
+    - channel: auto-updater
+      endpoint: https://antigravity-cli-auto-updater-974169037036.us-central1.run.app
+      note: "Checked on a 15-minute floor (\"Last check was less than 15 minutes ago, skipping update\")."
+  guidance: >-
+    A 403 with reason TOS_VIOLATION is not fixable by changing the User-Agent,
+    TLS profile, or client id — those were all accepted. It is an account-level
+    action; the only in-band response is the appeal link. Keep this
+    distinction when triaging provider failures: wire-identity problems surface
+    as 404/400 at admission, risk-control as this 403 at inference.

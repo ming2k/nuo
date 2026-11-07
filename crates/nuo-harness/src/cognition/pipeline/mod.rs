@@ -13,11 +13,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use nuo_protocol::{
-    EnvironmentReminderOutput, EnvironmentSensorInput, EnvironmentSensorTask, ExecutionTier,
-    Message, ModelRequest, PreFlightRouteInput, PreFlightRouteOutput, PreFlightRouterTask,
-    Provider, Role, StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict,
-    ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask,
-    TrajectoryLoopVerdict,
+    Message, ModelRequest, Provider, Role, StreamLoopReviewInput, StreamLoopReviewerTask,
+    StreamLoopVerdict, ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput,
+    TrajectoryLoopReviewerTask, TrajectoryLoopVerdict,
 };
 
 /// Errors that can occur during a harness task consultation.
@@ -164,35 +162,6 @@ impl HarnessTaskPipeline {
             }
         }
     }
-
-    /// Evaluate pre-flight intent and select an execution tier with fail-open fallback.
-    pub async fn route_pre_flight(&self, input: PreFlightRouteInput) -> PreFlightRouteOutput {
-        self.consult_with_fallback(
-            PreFlightRouterTask,
-            input,
-            PreFlightRouteOutput {
-                tier: ExecutionTier::StandardEngineering,
-                enable_thinking: false,
-                estimated_complexity: 5,
-            },
-        )
-        .await
-    }
-
-    /// Sense workspace environment facts and synthesize dynamic reminder text.
-    pub async fn sense_environment(
-        &self,
-        input: EnvironmentSensorInput,
-    ) -> EnvironmentReminderOutput {
-        self.consult_with_fallback(
-            EnvironmentSensorTask,
-            input,
-            EnvironmentReminderOutput {
-                reminder_text: None,
-            },
-        )
-        .await
-    }
 }
 
 #[cfg(test)]
@@ -315,65 +284,5 @@ mod tests {
             })
             .await;
         assert_eq!(verdict, StreamLoopVerdict::No);
-    }
-
-    #[tokio::test]
-    async fn route_pre_flight_parses_and_fails_open() {
-        let json = r#"{"tier":"fast_direct","enable_thinking":false,"estimated_complexity":2}"#;
-        let provider = Arc::new(MockProvider {
-            response: Ok(format!("```json\n{json}\n```")),
-        });
-        let res = CognitivePipeline::new(provider)
-            .route_pre_flight(PreFlightRouteInput {
-                user_prompt: "hello".into(),
-                has_active_error: false,
-            })
-            .await;
-        assert_eq!(res.tier, ExecutionTier::FastDirect);
-        assert_eq!(res.estimated_complexity, 2);
-
-        let provider_err = Arc::new(MockProvider {
-            response: Err("timeout".into()),
-        });
-        let fallback = CognitivePipeline::new(provider_err)
-            .route_pre_flight(PreFlightRouteInput {
-                user_prompt: "hello".into(),
-                has_active_error: false,
-            })
-            .await;
-        assert_eq!(fallback.tier, ExecutionTier::StandardEngineering);
-    }
-
-    #[tokio::test]
-    async fn environment_sensor_parses_and_fails_open() {
-        let json = r#"{"reminder_text":"Dirty branch: 3 files changed."}"#;
-        let provider = Arc::new(MockProvider {
-            response: Ok(json.into()),
-        });
-        let res = CognitivePipeline::new(provider)
-            .sense_environment(EnvironmentSensorInput {
-                active_branch: "main".into(),
-                dirty_files_count: 3,
-                dirty_files_sample: vec!["src/main.rs".into()],
-                compiler_error: None,
-            })
-            .await;
-        assert_eq!(
-            res.reminder_text.as_deref(),
-            Some("Dirty branch: 3 files changed.")
-        );
-
-        let provider_err = Arc::new(MockProvider {
-            response: Err("failed".into()),
-        });
-        let fallback = CognitivePipeline::new(provider_err)
-            .sense_environment(EnvironmentSensorInput {
-                active_branch: "main".into(),
-                dirty_files_count: 0,
-                dirty_files_sample: vec![],
-                compiler_error: None,
-            })
-            .await;
-        assert_eq!(fallback.reminder_text, None);
     }
 }

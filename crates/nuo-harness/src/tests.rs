@@ -259,6 +259,120 @@ fn agent_installs_its_stateful_todo_tools() {
 }
 
 #[test]
+fn model_request_bands_historical_tool_outputs() {
+    let agent = agent();
+    agent.set_tool_output_projection(10, 200);
+    let newest = Message::tool_result(&ToolCall::new("c1", "read_text", "{}"), "n".repeat(200));
+    let middle = Message::tool_result(
+        &ToolCall::new("c2", "read_text", "{}"),
+        format!(
+            "[read_text result]:\n{}\n- Spool File: \"/tmp/middle.log\"",
+            (0..120)
+                .map(|i| format!("middle line {i}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    );
+    let oldest = Message::tool_result(
+        &ToolCall::new("c3", "execute_command", "{}"),
+        format!(
+            "[execute_command result]:\n{}\n- Spool File: \"/tmp/oldest.log\"",
+            "old output\n".repeat(200)
+        ),
+    );
+    let messages = vec![
+        Message::new(Role::User, "start"),
+        oldest,
+        Message::new(Role::Assistant, "working"),
+        middle,
+        newest,
+    ];
+
+    let request = agent.model_request(&messages);
+    let tools: Vec<&Message> = request
+        .messages
+        .iter()
+        .filter(|message| message.role == Role::Tool)
+        .collect();
+    assert_eq!(tools.len(), 3);
+    // Oldest band: cleared to a one-line placeholder, pointer preserved.
+    assert!(tools[0].content.starts_with("[cleared tool result:"));
+    assert!(
+        tools[0]
+            .content
+            .contains("- Spool File: \"/tmp/oldest.log\"")
+    );
+    // Middle band: frozen head, pointer preserved.
+    assert!(tools[1].content.contains("Previous turn output compacted"));
+    assert!(
+        tools[1]
+            .content
+            .contains("- Spool File: \"/tmp/middle.log\"")
+    );
+    // Newest band: verbatim.
+    assert_eq!(tools[2].content, "n".repeat(200));
+}
+
+#[test]
+fn remote_stored_continuations_are_exempt_from_tool_output_projection() {
+    struct RemoteStoredProvider;
+    #[async_trait]
+    impl Provider for RemoteStoredProvider {
+        async fn chat(
+            &self,
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+            Ok(nuo_protocol::ProviderCompletion::message(Message::new(
+                Role::Assistant,
+                "ok",
+            )))
+        }
+        async fn stream_chat(
+            &self,
+            _request: nuo_protocol::ModelRequest,
+        ) -> Result<
+            BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+            nuo_protocol::ProviderError,
+        > {
+            Ok(Box::pin(stream::empty()))
+        }
+        fn continuation_mode(&self) -> nuo_protocol::ContinuationMode {
+            nuo_protocol::ContinuationMode::RemoteStored
+        }
+    }
+
+    let agent = Arc::new(Agent::new(
+        Arc::new(RemoteStoredProvider),
+        Vec::new(),
+        crate::AgentIdentity::default(),
+    ));
+    agent.set_tool_output_projection(10, 200);
+    let oldest = Message::tool_result(
+        &ToolCall::new("c1", "execute_command", "{}"),
+        format!(
+            "[execute_command result]:\n{}\n- Spool File: \"/tmp/old.log\"",
+            "old output\n".repeat(200)
+        ),
+    );
+    let messages = vec![
+        Message::new(Role::User, "start"),
+        oldest,
+        Message::new(Role::Assistant, "done"),
+    ];
+    let request = agent.model_request(&messages);
+    let tool = request
+        .messages
+        .iter()
+        .find(|message| message.role == Role::Tool)
+        .expect("tool result present");
+    // Freezing an old message would change the semantic head and invalidate
+    // `previous_response_id`; the remote-stored route must see it verbatim.
+    assert!(tool.content.starts_with("[execute_command result]:"));
+    assert!(!tool.content.contains("Previous turn output compacted"));
+    assert!(!tool.content.starts_with("[cleared tool result:"));
+}
+
+#[test]
 fn todo_state_is_scoped_to_one_agent() {
     let first = agent();
     let second = agent();
@@ -697,6 +811,97 @@ async fn streamed_tool_input_is_announced_then_progressed_before_completion() {
         .filter(|event| matches!(event, AgentEvent::ToolCallStarted { .. }))
         .count();
     assert_eq!(announcements, 1);
+
+    // The dispatch discharges *that exact* announcement, so a frontend can
+    // collapse by identity instead of guessing from slot order.
+    let announced_id = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCallStarted {
+                announcement, name, ..
+            } if name == "big_tool" => Some(*announcement),
+            _ => None,
+        })
+        .expect("announcement id");
+    let discharged_id = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCall {
+                announcement, name, ..
+            } if name == "big_tool" => Some(*announcement),
+            _ => None,
+        })
+        .expect("tool call");
+    assert_eq!(discharged_id, Some(announced_id));
+}
+
+#[tokio::test]
+async fn an_aborted_stream_retracts_its_announcements_rather_than_cancelling_them() {
+    // ADR-0026 lifecycle: a call announced by an attempt that dies before
+    // dispatch (here: truncated arguments, which is exactly the fast-model
+    // failure shape) must be **retracted**. It must not surface as a
+    // `ToolCall`, and no `ToolCancelled` may be synthesized for a call that
+    // never existed.
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![vec![
+            ProviderStreamEvent::ToolCallDelta {
+                index: 0,
+                id: Some("call_dead".to_string()),
+                name: Some("big_tool".to_string()),
+                arguments: "{\"value\":\"unterminated".to_string(),
+            },
+        ]])),
+        vec![Arc::new(RecordingTool::read("big_tool", "ok"))],
+        crate::AgentIdentity::default(),
+    ));
+    let mut messages = vec![Message::new(Role::User, "go")];
+    let mut events = Vec::new();
+    let result = agent
+        .run_streaming_with_events(&mut messages, &CancellationToken::new(), |event| {
+            events.push(event)
+        })
+        .await;
+
+    assert!(
+        result.is_err(),
+        "a truncated tool argument aborts the attempt"
+    );
+
+    let announced = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCallStarted {
+                announcement, name, ..
+            } if name == "big_tool" => Some(*announcement),
+            _ => None,
+        })
+        .expect("the call must have been announced before the stream died");
+    let retracted: Vec<u64> = events
+        .iter()
+        .flat_map(|event| match event {
+            AgentEvent::ToolAnnouncementsRetracted { announcements } => announcements.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert_eq!(
+        retracted,
+        vec![announced],
+        "exactly the dead attempt's announcement is retracted"
+    );
+    assert!(
+        !events.iter().any(|event| matches!(
+            event,
+            AgentEvent::ToolCall { name, .. } if name == "big_tool"
+        )),
+        "a never-executable call must not be dispatched"
+    );
+    assert!(
+        !events.iter().any(|event| matches!(
+            event,
+            AgentEvent::ToolCancelled { name, .. } if name == "big_tool"
+        )),
+        "retraction is not cancellation: no cancel event for a call that never existed"
+    );
 }
 
 #[tokio::test]
@@ -2092,6 +2297,13 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
             AgentEvent::ToolCall {
                 name, arguments, ..
             } => Some(format!("tool-call {name} {arguments}")),
+            // The ids are process-unique by design, so the assertion stream
+            // carries the retraction's shape (how many provisional rows died),
+            // never the opaque values themselves.
+            AgentEvent::ToolAnnouncementsRetracted { announcements } => Some(format!(
+                "tool-announcements-retracted {}",
+                announcements.len()
+            )),
             AgentEvent::ToolCallStarted { index, name, .. } => {
                 Some(format!("tool-call-started {index} {name}"))
             }

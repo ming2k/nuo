@@ -356,6 +356,7 @@ impl GoogleProvider {
         let mut req_builder = RequestBuilder::new(http::Method::POST, &url)
             .headers(headers.clone())
             .json(&body)
+            .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE)
             .with_telemetry(request.transport_telemetry.clone());
         if let Some(t) = timeout {
             req_builder = req_builder.timeout(t);
@@ -382,6 +383,7 @@ impl GoogleProvider {
             let mut retry_builder = RequestBuilder::new(http::Method::POST, &retry_url)
                 .headers(retry_headers)
                 .json(&retry_body)
+                .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE)
                 .with_telemetry(request.transport_telemetry.clone());
             if let Some(t) = timeout {
                 retry_builder = retry_builder.timeout(t);

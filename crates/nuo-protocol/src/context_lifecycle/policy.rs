@@ -23,6 +23,23 @@ pub const DEFAULT_CAPTURE_BYTES_PER_EXECUTION: u64 = 256 * 1024 * 1024;
 pub const DEFAULT_SESSION_ARTIFACT_QUOTA_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// Default TTL for non-fact attempt diagnostics: 24 hours.
 pub const DEFAULT_ATTEMPT_DIAGNOSTIC_TTL_MS: u64 = 24 * 60 * 60 * 1_000;
+/// Default effective input ceiling, in tokens.
+///
+/// A model's advertised context window is a *hard* ceiling, not a performance
+/// target: prefill and attention cost scale with the tokens actually sent, so a
+/// 1M-token route that never compacts turns every ReAct turn into a multi-second
+/// wait. The policy derives every watermark from the **effective** window
+/// `min(declared_window, max_input_tokens)`, which keeps the working set inside
+/// the region where a turn stays interactive.
+pub const DEFAULT_MAX_INPUT_TOKENS: u64 = 128_000;
+/// Default horizon, in tokens, for tool-result retention.
+///
+/// Tool results younger than this (measured from the tail) are kept in a bounded
+/// projected shape; older ones are cleared to an informative placeholder. The
+/// newest [`ContextPolicy::recent_observation_protect_tokens`] stay verbatim.
+pub const DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS: u64 = 24_000;
+/// Default verbatim window for the newest tool output, in tokens.
+pub const DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS: u64 = 6_000;
 /// Default inspect page ceiling, in tokens.
 pub const DEFAULT_INSPECT_PAGE_TOKENS: u64 = 2048;
 /// Maximum inspect page ceiling, in tokens.
@@ -49,7 +66,19 @@ pub struct ContextPolicy {
     pub checkpoint_enabled: bool,
     pub lightweight_degradation_enabled: bool,
     pub fallback_window_tokens: u64,
+    /// Hard cap on the effective input window used for budget derivation.
+    ///
+    /// Watermarks are fractions of this capped window, never of the model's
+    /// advertised maximum. Without it, a 1M-token route compacts at 850k tokens
+    /// and every turn pays the prefill cost of a small book.
+    #[serde(default = "default_max_input_tokens")]
+    pub max_input_tokens: u64,
     pub recent_observation_protect_tokens: u64,
+    /// Absolute token horizon for tool-result retention, measured from the tail
+    /// of the projected request. Tool results beyond this horizon are cleared to
+    /// an informative placeholder.
+    #[serde(default = "default_tool_output_retention_tokens")]
+    pub tool_output_retention_tokens: u64,
     pub checkpoint_max_calls: u32,
     pub checkpoint_max_reduction_depth: u32,
     /// Raw-artifact capture chunk size.
@@ -83,7 +112,9 @@ impl Default for ContextPolicy {
             checkpoint_enabled: true,
             lightweight_degradation_enabled: true,
             fallback_window_tokens: 32_000,
-            recent_observation_protect_tokens: 6_000,
+            max_input_tokens: DEFAULT_MAX_INPUT_TOKENS,
+            recent_observation_protect_tokens: DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS,
+            tool_output_retention_tokens: DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS,
             checkpoint_max_calls: 16,
             checkpoint_max_reduction_depth: 4,
             capture_chunk_bytes: DEFAULT_CAPTURE_CHUNK_BYTES,
@@ -129,6 +160,13 @@ pub enum PolicyError {
         /// The single-call timeout.
         call: u64,
     },
+    /// The tool-output retention horizon is shorter than the verbatim window.
+    RetentionBelowProtect {
+        /// The configured retention horizon.
+        retention: u64,
+        /// The configured verbatim window.
+        protect: u64,
+    },
     /// The stamped schema version is not the one this runtime knows.
     UnknownSchemaVersion {
         /// The version found on the record.
@@ -158,6 +196,10 @@ impl std::fmt::Display for PolicyError {
             PolicyError::CheckpointBudgetBelowCallTimeout { total, call } => write!(
                 f,
                 "checkpoint total budget {total} is below a single call timeout {call}"
+            ),
+            PolicyError::RetentionBelowProtect { retention, protect } => write!(
+                f,
+                "tool-output retention horizon {retention} is below the verbatim window {protect}"
             ),
             PolicyError::UnknownSchemaVersion { found, expected } => write!(
                 f,
@@ -200,10 +242,25 @@ impl ContextPolicy {
             ("gc_batch_objects", self.gc_batch_objects as u64),
             ("gc_batch_ms", self.gc_batch_ms),
             ("fallback_window_tokens", self.fallback_window_tokens),
+            ("max_input_tokens", self.max_input_tokens),
+            (
+                "recent_observation_protect_tokens",
+                self.recent_observation_protect_tokens,
+            ),
+            (
+                "tool_output_retention_tokens",
+                self.tool_output_retention_tokens,
+            ),
         ] {
             if value == 0 {
                 return Err(PolicyError::InvalidLimit { name: name.into() });
             }
+        }
+        if self.tool_output_retention_tokens < self.recent_observation_protect_tokens {
+            return Err(PolicyError::RetentionBelowProtect {
+                retention: self.tool_output_retention_tokens,
+                protect: self.recent_observation_protect_tokens,
+            });
         }
         if self
             .capture_chunk_bytes
@@ -247,20 +304,26 @@ impl ContextPolicy {
     }
 
     /// Resolve model window into runtime context budget thresholds (ADR-0031).
+    ///
+    /// The declared window is capped by [`Self::max_input_tokens`] before any
+    /// watermark is derived. The cap is what keeps a 1M-token route from
+    /// advertising a 850k-token compaction threshold it can never usefully
+    /// reach: `W` is a capability ceiling, while the budget is a *performance*
+    /// contract.
     pub fn resolve_budget(&self, window_tokens: usize) -> crate::ContextBudget {
-        let window = if window_tokens == 0 {
-            self.fallback_window_tokens as usize
+        let declared = if window_tokens == 0 {
+            self.fallback_window_tokens
         } else {
-            window_tokens
-        }
-        .max(1);
+            u64::try_from(window_tokens).unwrap_or(u64::MAX)
+        };
+        let window = declared.min(self.max_input_tokens).max(1);
         let threshold = |fraction: f64| (window as f64 * fraction) as usize;
         let quantum_floor = 512.max(threshold(0.05));
         let soft_frac = self.watermarks.soft_bp as f64 / 10_000.0;
         let hard_frac = self.watermarks.hard_bp as f64 / 10_000.0;
         let target_frac = self.watermarks.target_bp as f64 / 10_000.0;
         crate::ContextBudget {
-            window_tokens: window,
+            window_tokens: window as usize,
             prune_threshold_tokens: threshold(soft_frac),
             compaction_threshold_tokens: threshold(hard_frac),
             target_tokens: threshold(target_frac),
@@ -268,6 +331,14 @@ impl ContextPolicy {
             cruise_low_tokens: threshold(soft_frac * 0.8),
         }
     }
+}
+
+fn default_max_input_tokens() -> u64 {
+    DEFAULT_MAX_INPUT_TOKENS
+}
+
+fn default_tool_output_retention_tokens() -> u64 {
+    DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
 }
 
 /// A legacy key the runtime refuses (`INV-POLICY-01`).
@@ -352,5 +423,85 @@ mod tests {
     fn capture_pending_bytes_are_bounded() {
         let p = ContextPolicy::default();
         assert_eq!(p.capture_pending_bytes_per_stream(), 64 * 1024 * 16);
+    }
+
+    #[test]
+    fn declared_window_is_capped_by_the_effective_input_ceiling() {
+        let policy = ContextPolicy::default();
+        // A 1M-token route is capped at the policy's 128k working set: the
+        // watermarks are fractions of the *effective* window, so compaction
+        // engages while turns are still interactive.
+        let budget = policy.resolve_budget(1_000_000);
+        assert_eq!(budget.window_tokens, 128_000);
+        assert_eq!(budget.prune_threshold_tokens, 83_200); // 65%
+        assert_eq!(budget.compaction_threshold_tokens, 108_800); // 85%
+        assert_eq!(budget.target_tokens, 64_000); // 50%
+
+        // A route narrower than the cap keeps its own window.
+        let narrow = policy.resolve_budget(64_000);
+        assert_eq!(narrow.window_tokens, 64_000);
+        assert_eq!(narrow.prune_threshold_tokens, 41_600);
+
+        // An unknown window still falls back, then caps.
+        let unknown = policy.resolve_budget(0);
+        assert_eq!(unknown.window_tokens, 32_000);
+    }
+
+    #[test]
+    fn a_retention_horizon_below_the_verbatim_window_is_rejected() {
+        let policy = ContextPolicy {
+            recent_observation_protect_tokens: 8_000,
+            tool_output_retention_tokens: 6_000,
+            ..ContextPolicy::default()
+        };
+        assert!(matches!(
+            policy.validate().unwrap_err(),
+            PolicyError::RetentionBelowProtect {
+                retention: 6_000,
+                protect: 8_000,
+            }
+        ));
+    }
+
+    #[test]
+    fn new_limits_default_when_absent_from_an_existing_policy_document() {
+        // A v1 policy document written before the performance ceiling existed
+        // still parses; the new knobs take their documented defaults rather than
+        // silently inheriting a 1M-token working set.
+        let source = r#"
+            schema_version = 1
+            preferred_recent_rounds = 6
+            checkpoint_enabled = true
+            lightweight_degradation_enabled = true
+            fallback_window_tokens = 32000
+            recent_observation_protect_tokens = 6000
+            checkpoint_max_calls = 16
+            checkpoint_max_reduction_depth = 4
+            capture_chunk_bytes = 65536
+            capture_queue_chunks = 16
+            capture_bytes_per_execution = 268435456
+            session_artifact_quota_bytes = 2147483648
+            attempt_diagnostic_ttl_ms = 86400000
+            inspect_page_tokens = 2048
+            checkpoint_call_timeout_ms = 45000
+            checkpoint_total_timeout_ms = 120000
+            gc_batch_objects = 1000
+            gc_batch_ms = 100
+
+            [watermarks]
+            soft_bp = 6500
+            hard_bp = 8500
+            target_bp = 5000
+        "#;
+        let policy: ContextPolicy = toml::from_str(source).expect("v1 document parses");
+        assert_eq!(policy.max_input_tokens, DEFAULT_MAX_INPUT_TOKENS);
+        assert_eq!(
+            policy.tool_output_retention_tokens,
+            DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS
+        );
+        assert_eq!(
+            policy.resolve_budget(1_000_000).prune_threshold_tokens,
+            83_200
+        );
     }
 }

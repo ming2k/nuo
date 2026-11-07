@@ -386,16 +386,23 @@ impl OffstreamSource for ArtifactSource {
         if let Some(mime) = detect_image_mime(&bytes) {
             use base64::{Engine, engine::general_purpose::STANDARD};
             let b64 = STANDARD.encode(&bytes);
+            // Rehydrated screenshots are replayed through every subsequent
+            // provider request; bound them at the same ingest boundary as a
+            // pasted attachment. Non-raster or already-small payloads fall
+            // through unchanged.
+            let (mime, b64) = nuo_host::image::normalize_base64_image(&b64, mime)
+                .map(|(data, mime)| (mime, data))
+                .unwrap_or_else(|| (mime.to_string(), b64));
+            let raw_len = b64.len() * 3 / 4;
             return Ok(PagedOffstreamContent::new(
                 format!(
-                    "[Rehydrated visual artifact: mime={mime} ({} bytes) | handle: artifact:{key}]",
-                    bytes.len()
+                    "[Rehydrated visual artifact: mime={mime} (~{raw_len} bytes) | handle: artifact:{key}]"
                 ),
                 None,
                 1,
             )
             .with_media(nuo_protocol::ImagePart {
-                mime: mime.to_string(),
+                mime,
                 data: b64,
             }));
         }

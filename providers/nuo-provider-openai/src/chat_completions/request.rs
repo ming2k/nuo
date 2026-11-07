@@ -825,7 +825,6 @@ mod tests {
             origin: None,
             timestamp: None,
             sent_at_ms: None,
-            cache_frozen: false,
         };
         let good_result = Message {
             role: Role::Tool,

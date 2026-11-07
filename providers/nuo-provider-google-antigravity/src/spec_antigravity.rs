@@ -154,10 +154,16 @@ pub const MODELS: &[Model] = &[
 
 inventory::submit!(nuo_provider::model::BaselineModels(MODELS));
 
-pub const ANTIGRAVITY_VERSION: &str = "1.3.6";
-pub const ANTIGRAVITY_BUILD_NUMBER: &str = "999748552";
-pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.3.6 \
-     (aidev_client; os_type=linux; arch=amd64; cl=999748552; auth_method=consumer)";
+pub const ANTIGRAVITY_VERSION: &str = "1.5.3";
+/// The `cl=` counter the shipped 1.5.3 binary stamps (live capture 2026-11-07).
+pub const ANTIGRAVITY_BUILD_NUMBER: &str = "1016078699";
+pub const ANTIGRAVITY_USER_AGENT: &str = "antigravity/cli/1.5.3 \
+     (aidev_client; os_type=linux; arch=amd64; cl=1016078699; auth_method=consumer)";
+
+/// netune TLS/HTTP2 profile name for the `agy` wire identity: a Go-shaped
+/// hello (`h2,http/1.1` ALPN, no GREASE) paired with Go's HTTP/2 framing
+/// (see `netune::Preset::AntigravityCli` / `H2Fingerprint::go`).
+pub const ANTIGRAVITY_TLS_PROFILE: &str = "antigravity-cli";
 
 pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
     dialect: nuo_provider::ProviderDialect::Antigravity,

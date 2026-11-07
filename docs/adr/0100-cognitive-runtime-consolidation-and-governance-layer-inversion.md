@@ -19,6 +19,10 @@ negative_knowledge: true
 
 ---
 
+> **Amended by [ADR-0154](0154-delete-unwired-spatiotemporal-aspect-engine-and-dead-cognitive-tasks.md):**
+> the `aspects` module named in the module graph below was deleted because it had
+> no production consumer. The consolidation decision in this record is unchanged.
+
 ## Context and Problem Statement
 
 Three accepted ADRs diagnosed the same structural defect and none of them, in the end,

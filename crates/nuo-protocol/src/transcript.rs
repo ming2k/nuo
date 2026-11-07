@@ -110,10 +110,6 @@ pub struct MessagePayload {
     /// Exact user-authored send time (milliseconds), UI sidecar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sent_at_ms: Option<u64>,
-    /// The provider-visible shape of this entry is permanently settled; no
-    /// later assembly pass may transform it again (KV-cache prefix stability).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cache_frozen: bool,
 }
 
 /// Kind-specific payload of an entry.
@@ -205,7 +201,6 @@ impl TranscriptEntry {
                 reasoning_content: message.reasoning_content.clone(),
                 injection,
                 sent_at_ms: message.sent_at_ms,
-                cache_frozen: message.cache_frozen,
             })),
         }
     }
@@ -253,7 +248,6 @@ impl TranscriptEntry {
             origin: payload.injection.clone(),
             timestamp: Some(self.created_at_ms / 1000),
             sent_at_ms: payload.sent_at_ms,
-            cache_frozen: payload.cache_frozen,
         })
     }
 
@@ -279,8 +273,6 @@ pub enum DirectiveKind {
     Prune,
     /// A history range is replaced by a single checkpoint entry.
     Compact,
-    /// An entry's provider-visible shape is byte-frozen.
-    Freeze,
 }
 
 /// Kind-specific payload of a projection directive.
@@ -304,13 +296,6 @@ pub enum DirectivePayload {
     Compact {
         /// The checkpoint entry's membership seq.
         checkpoint_seq: u64,
-    },
-    /// The entry at `up_to_seq` presents exactly this content in views from
-    /// now on (byte-frozen truncated tool output).
-    #[serde(rename = "freeze")]
-    Freeze {
-        /// The frozen content that views must present verbatim.
-        shape: String,
     },
 }
 
@@ -424,7 +409,6 @@ impl Transcript {
     ///   referenced checkpoint, which is included once;
     /// - a `prune` replaces the bodies of the listed tool results with their
     ///   informative placeholders;
-    /// - a `freeze` pins the exact content an entry presents;
     /// - later directives win over earlier ones for the same entry.
     pub fn project(&self) -> Vec<(u64, Message)> {
         // Reduce the directive history into view state. Later directives win.
@@ -434,7 +418,6 @@ impl Transcript {
             std::collections::HashMap::new();
         let mut pruned_media: std::collections::HashMap<u64, String> =
             std::collections::HashMap::new();
-        let mut frozen: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
         for directive in &self.directives {
             match &directive.payload {
                 DirectivePayload::Prune {
@@ -452,9 +435,6 @@ impl Transcript {
                     compact_watermark =
                         Some(compact_watermark.unwrap_or(0).max(directive.up_to_seq));
                     checkpoint_seq = Some(*cp);
-                }
-                DirectivePayload::Freeze { shape } => {
-                    frozen.insert(directive.up_to_seq, shape.clone());
                 }
             }
         }
@@ -511,10 +491,6 @@ impl Transcript {
             if let Some(placeholder) = pruned_media.get(&entry.seq) {
                 message.content = placeholder.clone();
                 message.images = None;
-            }
-            if let Some(shape) = frozen.get(&entry.seq) {
-                message.content = shape.clone();
-                message.cache_frozen = true;
             }
             view.push((entry.seq, message));
         }
@@ -726,24 +702,6 @@ mod tests {
         assert_eq!(view.len(), 1);
         assert_eq!(view[0].0, 6);
         assert_eq!(view[0].1.content, "checkpoint b");
-    }
-
-    #[test]
-    fn freeze_pins_entry_content_and_flags_cache_frozen() {
-        let mut transcript = Transcript::new();
-        transcript.push(assistant_tool_call(0, "call-1"));
-        transcript.push(tool_entry(1, "call-1", "long output that was truncated"));
-        transcript.push_directive(ProjectionDirective {
-            seq: 0,
-            kind: DirectiveKind::Freeze,
-            up_to_seq: 1,
-            payload: DirectivePayload::Freeze {
-                shape: "truncated head…".into(),
-            },
-        });
-        let view = transcript.project();
-        assert_eq!(view[1].1.content, "truncated head…");
-        assert!(view[1].1.cache_frozen);
     }
 
     #[test]

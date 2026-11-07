@@ -835,37 +835,184 @@ fn truncate_middle(content: &str, call_id: Option<&str>) -> String {
     format!("{head}\n[... {dropped}{ELIDED_MARKER}\n{tail}")
 }
 
-/// Freeze one historical tool output into its **final, single-pass** provider
-/// shape. This is the only compaction a tool result ever takes: whichever
-/// bound bites first (25 lines or 1200 chars) fixes the content once, with a
-/// marker carrying the true line/byte counts of what was dropped. The result
-/// is idempotent — freezing an already-frozen body is a no-op — and callers
-/// pair it with `Message::cache_frozen` so no later pass ever reshapes the
-/// message. Re-deriving the shape per assembly round (the previous
-/// position-driven ladder) broke the server-side KV-cache prefix on two
-/// consecutive rounds; freezing at record time keeps it stable forever
+/// Head lines kept by [`freeze_tool_output`].
+pub const FROZEN_TOOL_OUTPUT_HEAD_LINES: usize = 12;
+/// Head characters kept by [`freeze_tool_output`] when the result has few lines
+/// but is still oversized.
+pub const FROZEN_TOOL_OUTPUT_HEAD_CHARS: usize = 800;
+
+/// Split a rendered tool result from its durable re-fetch pointer.
+///
+/// Every spooling path appends one of `- Spool File: "…"`, `- Artifact Path:
+/// "…"`, or `- Virtual Path: "…"` as the final line. Both the freeze and the
+/// clear projections must preserve it: truncating the pointer away would leave
+/// the model unable to re-read what it just lost.
+fn split_tool_reference(content: &str) -> (&str, Option<&str>) {
+    let trimmed = content.trim_end_matches(['\n', '\r']);
+    let Some(last) = trimmed.rsplit('\n').next() else {
+        return (content, None);
+    };
+    let candidate = last.trim();
+    const PREFIXES: [&str; 3] = [
+        "- Spool File: \"",
+        "- Artifact Path: \"",
+        "- Virtual Path: \"",
+    ];
+    if PREFIXES.iter().any(|prefix| candidate.starts_with(prefix)) {
+        let body_end = trimmed.len().saturating_sub(last.len());
+        let body = trimmed[..body_end].trim_end_matches(['\n', '\r']);
+        (body, Some(candidate))
+    } else {
+        (content, None)
+    }
+}
+
+fn is_recent_compacted(content: &str) -> bool {
+    content.contains(RECENT_COMPACTED_MARKER)
+}
+
+/// The short tool name carried by a rendered result header
+/// (`[read_text result]:` → `read_text`).
+fn rendered_tool_label(content: &str) -> String {
+    let first = content.lines().next().unwrap_or("").trim();
+    if let Some(inner) = first
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(" result]:"))
+        && !inner.trim().is_empty()
+    {
+        return inner.trim().to_string();
+    }
+    first.chars().take(60).collect()
+}
+
+/// Freeze one historical tool output into its final, single-pass projected
+/// shape.
+///
+/// The body is bounded to a head (12 lines or 800 chars), the durable re-fetch
+/// pointer is preserved verbatim, and the marker carries the true line/byte
+/// counts of what was dropped. Idempotence matters: the projection runs on every
+/// request, so an already-frozen body must come back byte-identical.
 pub fn freeze_tool_output(content: &str) -> String {
-    let lines: Vec<&str> = content.lines().collect();
-    if lines.len() > 25 {
-        let kept = lines[..15].join("\n");
+    if is_recent_compacted(content) {
+        return content.to_string();
+    }
+    let (body, reference) = split_tool_reference(content);
+    if body.is_empty() {
+        return content.to_string();
+    }
+    let lines: Vec<&str> = body.lines().collect();
+    let shaped = if lines.len() > FROZEN_TOOL_OUTPUT_HEAD_LINES {
+        let kept = lines[..FROZEN_TOOL_OUTPUT_HEAD_LINES].join("\n");
         format!(
             "{}\n\n[... {RECENT_COMPACTED_MARKER} ({} lines omitted, {} of {} bytes shown) ...]",
             kept,
-            lines.len() - 15,
+            lines.len() - FROZEN_TOOL_OUTPUT_HEAD_LINES,
             kept.len(),
-            content.len()
+            body.len()
         )
-    } else if content.len() > 1200 {
-        let prefix: String = content.chars().take(800).collect();
+    } else if body.len() > FROZEN_TOOL_OUTPUT_HEAD_CHARS {
+        let prefix: String = body.chars().take(FROZEN_TOOL_OUTPUT_HEAD_CHARS).collect();
         format!(
             "{}\n\n[... {RECENT_COMPACTED_MARKER} ({} of {} bytes shown) ...]",
             prefix,
             prefix.len(),
-            content.len()
+            body.len()
         )
     } else {
-        content.to_string()
+        return content.to_string();
+    };
+    match reference {
+        Some(reference) => format!("{shaped}\n{reference}"),
+        None => shaped,
     }
+}
+
+/// Clear one historical tool output to an informative one-line placeholder,
+/// preserving its durable re-fetch pointer.
+fn clear_tool_output(content: &str) -> String {
+    let (body, reference) = split_tool_reference(content);
+    let lines = body.lines().count();
+    let bytes = body.len();
+    let label = rendered_tool_label(body);
+    let cleared = format!(
+        "{CLEARED_TOOL_PREFIX} {label} ({lines} lines, {bytes} bytes elided to protect context)]"
+    );
+    match reference {
+        Some(reference) => format!("{cleared}\n{reference}"),
+        None => cleared,
+    }
+}
+
+/// What [`project_historical_tool_outputs`] changed in one projection pass.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ToolOutputProjection {
+    /// Results replaced by their bounded head + re-fetch pointer.
+    pub frozen: usize,
+    /// Results replaced by a one-line placeholder.
+    pub cleared: usize,
+}
+
+impl ToolOutputProjection {
+    pub const fn is_empty(self) -> bool {
+        self.frozen == 0 && self.cleared == 0
+    }
+}
+
+/// Bound every *historical* tool result in one request projection.
+///
+/// This is a **request projection**, not a history rewrite: the durable
+/// transcript keeps the full result (and its spooled bytes), while the provider
+/// sees a fixed shape. Three bands, measured from the tail on the *original*
+/// message weights (which are immutable facts, so a result can only ever move
+/// outward, never oscillate between bands):
+///
+/// - the newest `verbatim_recent_tokens` of tool output stay verbatim;
+/// - the next band, up to `retention_tokens`, is [`freeze_tool_output`];
+/// - anything older is `clear_tool_output`.
+///
+/// This is what keeps a long ReAct round's prompt from accumulating every tool
+/// byte it ever produced. It applies to every full-replay delivery: a stateless
+/// route that re-uploads the conversation benefits just as much as an opaque
+/// replay. A remote-stored continuation is exempt at the call site — freezing an
+/// old message would change its local anchor and invalidate the cursor.
+pub fn project_historical_tool_outputs(
+    messages: &mut [Message],
+    verbatim_recent_tokens: usize,
+    retention_tokens: usize,
+) -> ToolOutputProjection {
+    let retention = retention_tokens.max(verbatim_recent_tokens);
+    let mut outcome = ToolOutputProjection::default();
+    let mut newer_tokens = 0usize;
+    for message in messages.iter_mut().rev() {
+        if message.role != Role::Tool {
+            continue;
+        }
+        let tokens = estimate_message_tokens(message).max(0) as usize;
+        if message.content.is_empty() {
+            newer_tokens = newer_tokens.saturating_add(tokens);
+            continue;
+        }
+        if newer_tokens >= retention {
+            if !is_cleared(&message.content) {
+                let cleared = clear_tool_output(&message.content);
+                if cleared != message.content {
+                    message.content = cleared;
+                    outcome.cleared += 1;
+                }
+            }
+        } else if newer_tokens >= verbatim_recent_tokens
+            && !is_cleared(&message.content)
+            && !is_recent_compacted(&message.content)
+        {
+            let frozen = freeze_tool_output(&message.content);
+            if frozen != message.content {
+                message.content = frozen;
+                outcome.frozen += 1;
+            }
+        }
+        newer_tokens = newer_tokens.saturating_add(tokens);
+    }
+    outcome
 }
 
 pub fn estimate_message_tokens(message: &Message) -> i64 {
@@ -1704,5 +1851,73 @@ mod tests {
         assert!(messages[0].content.contains("Artifact Path"));
         assert!(messages[0].content.contains(".png"));
         assert!(!messages[0].content.contains("Guidance:"));
+    }
+
+    fn tool_with_spool(id: &str, name: &str, body: &str) -> Message {
+        Message::tool_result(
+            &call(id, name, "{}"),
+            format!("[{name} result]:\n{body}\n- Spool File: \"/tmp/nuo/{id}.log\""),
+        )
+    }
+
+    #[test]
+    fn historical_tool_outputs_are_banded_from_the_tail() {
+        let newest = tool_with_spool("newest", "read_text", &"n".repeat(400));
+        let warm = tool_with_spool("warm", "execute_command", &"w\n".repeat(2_000));
+        let cold = tool_with_spool("cold", "find_files", &"c\n".repeat(500));
+        let mut messages = vec![cold, warm, newest];
+
+        let out = project_historical_tool_outputs(&mut messages, 10, 200);
+
+        // The newest result stays verbatim.
+        assert!(messages[2].content.contains(&"n".repeat(400)));
+        assert!(!messages[2].content.contains(RECENT_COMPACTED_MARKER));
+        // The warm band is frozen, and keeps its re-fetch pointer.
+        assert!(messages[1].content.contains(RECENT_COMPACTED_MARKER));
+        assert!(
+            messages[1]
+                .content
+                .contains("- Spool File: \"/tmp/nuo/warm.log\"")
+        );
+        // The cold band is cleared, and keeps its re-fetch pointer.
+        assert!(messages[0].content.starts_with(CLEARED_TOOL_PREFIX));
+        assert!(
+            messages[0]
+                .content
+                .contains("- Spool File: \"/tmp/nuo/cold.log\"")
+        );
+        assert_eq!(
+            out,
+            ToolOutputProjection {
+                frozen: 1,
+                cleared: 1
+            }
+        );
+
+        // Re-projecting the same window is a no-op: the shape is final.
+        let again = project_historical_tool_outputs(&mut messages, 10, 200);
+        assert!(again.is_empty());
+        assert!(messages[1].content.contains(RECENT_COMPACTED_MARKER));
+        assert!(messages[0].content.starts_with(CLEARED_TOOL_PREFIX));
+    }
+
+    #[test]
+    fn freezing_a_large_result_is_idempotent_and_keeps_the_pointer() {
+        let body = (0..80)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let original = format!("[read_text result]:\n{body}\n- Spool File: \"/tmp/a.log\"");
+        let frozen = freeze_tool_output(&original);
+        assert!(frozen.contains(RECENT_COMPACTED_MARKER));
+        assert!(frozen.contains("- Spool File: \"/tmp/a.log\""));
+        assert!(frozen.lines().count() < original.lines().count());
+        assert_eq!(freeze_tool_output(&frozen), frozen);
+    }
+
+    #[test]
+    fn a_short_result_is_not_frozen() {
+        let original = "[read_text result]:\nok\n- Spool File: \"/tmp/a.log\"";
+        assert_eq!(freeze_tool_output(original), original);
     }
 }
