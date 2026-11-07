@@ -55,14 +55,16 @@ pulldown-cmark = "0.13"
 # netune is distributed by git tag only: the crates.io `0.1.x` line is yanked
 # and unmaintained, and the registry `0.0.1` is a stale stub. Pin the release
 # tag here; `Cargo.lock` records the exact commit for reproducible builds.
-# v0.0.6 adds the per-request TLS/HTTP2 identity path (`Target::with_tls_profile`,
-# `TlsRouterConnector`, `Preset::AntigravityCli`) that the Antigravity channel
-# presents, and keeps runtime-affine pooling: a keep-alive socket dialled by one
-# tokio runtime is discarded rather than handed to another, which is how a
-# process-global `shared_client()` pool could surface
+# v0.0.7 keeps the per-request TLS/HTTP2 identity path
+# (`Target::with_tls_profile`, `TlsRouterConnector`, `Preset::AntigravityCli`)
+# that the Antigravity channel presents, and fixes HTTP/3 traces so a recorder
+# that serves several requests derives them per exchange rather than attributing
+# them all to the first. It also keeps runtime-affine pooling: a keep-alive
+# socket dialled by one tokio runtime is discarded rather than handed to
+# another, which is how a process-global `shared_client()` pool could surface
 # `RUNTIME_SHUTTING_DOWN_ERROR` as a provider transport failure.
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.6" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.6" }
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.7" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.7" }
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 windows-sys = "0.61"
