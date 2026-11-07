@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.78] - 2026-11-07
+
 ### Fixed
 
 - **Turn persistence is O(delta) by contract, not by inference.** `commit_turn` deep-compared the caller's whole window against the durable projection on every commit to decide append-vs-rebuild. The caller now declares `CommitBasis::{Appended, Reprojected}` (`Reprojected` is set only when a context projection rewrote committed messages) and the store verifies an append claim with a single tail comparison. The causal mirror's cross-save linkage is now proved: a coverage probe detects an empty/truncated/rewound graph and rebuilds it from the durable transcript inside the same transaction, instead of linking a tail onto nothing. The blob ledger reuses the hashes the row write already computed instead of decoding every image twice, and a failed publish no longer records a reference ([ADR-0155](docs/adr/0155-turn-persistence-is-o-delta-and-storage-maintenance-never-blocks-the-writer.md)).
