@@ -543,7 +543,11 @@ mod native {
             if unsafe { libc::dup2(fd, 0) } < 0 {
                 return Err(io::Error::last_os_error());
             }
-            if unsafe { libc::ioctl(0, libc::TIOCSCTTY, 0) } != 0 {
+            // `TIOCSCTTY` is `c_ulong` on Linux but `u32` on Apple targets, so the
+            // cast is required on one platform and redundant on the other.
+            #[allow(clippy::unnecessary_cast)]
+            let request = libc::TIOCSCTTY as libc::c_ulong;
+            if unsafe { libc::ioctl(0, request, 0) } != 0 {
                 return Err(io::Error::last_os_error());
             }
             Ok(())

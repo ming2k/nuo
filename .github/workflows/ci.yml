@@ -79,6 +79,23 @@ jobs:
       - name: text overflow firewall
         run: cargo test -p nuo --test architecture_firewall -- test_inv_text_overflow_and_column_budget_firewall --nocapture
 
+  # The verify job runs on Linux only, so `#[cfg(windows)]` / `#[cfg(unix)]` arms had
+  # never been compiled before the release job first ran. Two platform checks make the
+  # cross-platform surface mechanical instead of discovering it while cutting a tag.
+  platform-check:
+    name: platform check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets
+
   # `upload-rust-binary-action` uploads to an existing release; it does not create one
   # ("release not found"). This job cuts the GitHub Release from the CHANGELOG section
   # for the tag before the platform matrix uploads its archives.

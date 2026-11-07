@@ -5,6 +5,8 @@ use crate::output::ToolOutput;
 use crate::risk::RiskProfile;
 use async_trait::async_trait;
 use serde_json::json;
+#[cfg(windows)]
+use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
