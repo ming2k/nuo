@@ -1484,7 +1484,7 @@ mod tests {
             out.extend_from_slice(&snap);
 
             // The skew, sandwiched *between* two valid events.
-            const SKEWED: &[u8] = br#"{"type":"Response","NoSuchVariant":{}}"#;
+            const SKEWED: &[u8] = br#"{"type":"Response","response":{"NoSuchVariant":{}}}"#;
             out.extend_from_slice(&(SKEWED.len() as u32).to_be_bytes());
             out.extend_from_slice(SKEWED);
 
@@ -1556,7 +1556,7 @@ mod tests {
         }
 
         // The exact shape that killed the client.
-        const SKEWED: &[u8] = br#"{"type":"Response","RetryResolved":{"attempt":1}}"#;
+        const SKEWED: &[u8] = br#"{"type":"Response","response":{"RetryResolved":{"attempt":1}}}"#;
         out.extend_from_slice(&(SKEWED.len() as u32).to_be_bytes());
         out.extend_from_slice(SKEWED);
 
@@ -1933,7 +1933,8 @@ mod tests {
 
             // The exact shape that killed the client: a `Response` envelope
             // naming a variant this build no longer has.
-            const SKEWED: &[u8] = br#"{"type":"Response","RetryResolved":{"attempt":1}}"#;
+            const SKEWED: &[u8] =
+                br#"{"type":"Response","response":{"RetryResolved":{"attempt":1}}}"#;
             out.extend_from_slice(&(SKEWED.len() as u32).to_be_bytes());
             out.extend_from_slice(SKEWED);
 

@@ -1546,7 +1546,8 @@ impl SessionDriver {
                         workspace.as_deref(),
                         limit,
                         &resp_tx,
-                    );
+                    )
+                    .await;
                 }
                 AgentRequest::UpdateTuiLayout(layout) => {
                     let _ = resp_tx.send(AgentResponse::TuiLayoutUpdated(layout));

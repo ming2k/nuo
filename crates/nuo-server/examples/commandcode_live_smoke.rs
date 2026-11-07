@@ -58,7 +58,10 @@ async fn main() {
         Role::User,
         "Please reply with 'Hello from Command Code OpenAI!' and nothing else.",
     )]);
-    match provider_chat.stream_chat_events(req_chat).await {
+    match provider_chat
+        .stream_chat_events(&req_chat, nuo_provider::TransportTelemetry::default())
+        .await
+    {
         Ok(mut stream) => {
             print!("Response: ");
             while let Some(event) = stream.next().await {
@@ -93,7 +96,10 @@ async fn main() {
         Role::User,
         "Please reply with 'Hello from Command Code Anthropic!' and nothing else.",
     )]);
-    match provider_anthropic.stream_chat_events(req_anthropic).await {
+    match provider_anthropic
+        .stream_chat_events(&req_anthropic, nuo_provider::TransportTelemetry::default())
+        .await
+    {
         Ok(mut stream) => {
             print!("Response: ");
             while let Some(event) = stream.next().await {

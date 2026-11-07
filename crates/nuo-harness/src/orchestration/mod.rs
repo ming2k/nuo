@@ -36,7 +36,7 @@ use crate::{Agent, RequestTokenEstimate, RoundBegin, RoundLifecycle};
 use nuo_persistence::{
     CommitTurn,
     config::Config,
-    session::{ContextProjectionCheckpoint, ContextProjectionResult, SessionStore},
+    session::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, SessionStore},
 };
 use nuo_protocol::{
     AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
@@ -204,7 +204,7 @@ impl Provider for ProxyProvider {
 
     async fn chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         let p = self
             .holder
@@ -214,7 +214,7 @@ impl Provider for ProxyProvider {
         let provider_id = p.provider_id();
         let model = p.model();
         let started = Instant::now();
-        let capture = self.begin_capture(&provider_id, &model, "chat", &request);
+        let capture = self.begin_capture(&provider_id, &model, "chat", request);
         let result = p.chat(request).await;
         if let Some(capture) = capture {
             let item = match &result {
@@ -235,7 +235,8 @@ impl Provider for ProxyProvider {
     }
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -247,8 +248,8 @@ impl Provider for ProxyProvider {
             .clone();
         let provider_id = p.provider_id();
         let model = p.model();
-        let capture = self.begin_capture(&provider_id, &model, "stream_chat", &request);
-        let stream = p.stream_chat(request).await;
+        let capture = self.begin_capture(&provider_id, &model, "stream_chat", request);
+        let stream = p.stream_chat(request, telemetry).await;
         match (capture, stream) {
             (Some(capture), Err(error)) => {
                 write_capture(
@@ -269,7 +270,8 @@ impl Provider for ProxyProvider {
     }
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -281,8 +283,8 @@ impl Provider for ProxyProvider {
             .clone();
         let provider_id = p.provider_id();
         let model = p.model();
-        let capture = self.begin_capture(&provider_id, &model, "stream_chat_events", &request);
-        let stream = p.stream_chat_events(request).await;
+        let capture = self.begin_capture(&provider_id, &model, "stream_chat_events", request);
+        let stream = p.stream_chat_events(request, telemetry).await;
         match (capture, stream) {
             (Some(capture), Err(error)) => {
                 write_capture(
@@ -1101,6 +1103,7 @@ pub async fn execute_round(
     session
         .commit_turn(CommitTurn {
             messages: &round_history,
+            basis: CommitBasis::Appended,
             round_counter: Some(admitted_round),
             usage_records: &[],
             retry_point: None,
@@ -1150,9 +1153,17 @@ pub async fn execute_round(
                     .as_ref()
                     .map(|ledger| ledger.pending_records_for_session(&session_id));
                 let usage_slice = usage_records.as_deref().unwrap_or(&[]);
+                // A mid-turn context projection may have rewritten committed
+                // messages; only then does the store need to compare history.
+                let basis = if agent.take_history_reprojected() {
+                    CommitBasis::Reprojected
+                } else {
+                    CommitBasis::Appended
+                };
                 let outcome = session
                     .commit_turn(CommitTurn {
                         messages: &snapshot,
+                        basis,
                         round_counter: Some(agent.round_count()),
                         usage_records: usage_slice,
                         retry_point: None,
@@ -1556,6 +1567,11 @@ pub async fn execute_round(
     let committed_revision = session
         .commit_turn(CommitTurn {
             messages: &round_history,
+            basis: if agent.take_history_reprojected() {
+                CommitBasis::Reprojected
+            } else {
+                CommitBasis::Appended
+            },
             round_counter: None,
             usage_records: usage_slice,
             retry_point,
@@ -2161,7 +2177,7 @@ mod title_tests {
     impl nuo_protocol::Provider for TitleProvider {
         async fn chat(
             &self,
-            _request: ModelRequest,
+            _request: &ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             self.consults.fetch_add(1, Ordering::SeqCst);
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
@@ -2171,7 +2187,8 @@ mod title_tests {
         }
         async fn stream_chat(
             &self,
-            _request: ModelRequest,
+            _request: &ModelRequest,
+            _telemetry: nuo_provider::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -2180,7 +2197,8 @@ mod title_tests {
         }
         async fn stream_chat_events(
             &self,
-            _request: ModelRequest,
+            _request: &ModelRequest,
+            _telemetry: nuo_provider::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<
                 'static,

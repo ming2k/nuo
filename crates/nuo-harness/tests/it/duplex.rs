@@ -46,7 +46,7 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -55,7 +55,8 @@ impl Provider for IdleProvider {
     }
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -212,7 +213,7 @@ struct StreamWriteCallProvider(AtomicUsize);
 impl Provider for StreamWriteCallProvider {
     async fn chat(
         &self,
-        _: nuo_protocol::ModelRequest,
+        _: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Err(nuo_protocol::ProviderError::new(
             "mock",
@@ -222,7 +223,8 @@ impl Provider for StreamWriteCallProvider {
     }
     async fn stream_chat(
         &self,
-        _: nuo_protocol::ModelRequest,
+        _: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -231,7 +233,8 @@ impl Provider for StreamWriteCallProvider {
     }
     async fn stream_chat_events(
         &self,
-        _: nuo_protocol::ModelRequest,
+        _: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -420,6 +423,7 @@ async fn a_dispatched_subagent_opens_and_writes_its_own_session() {
                 nuo_protocol::Role::User,
                 "parent question",
             )],
+            basis: nuo_persistence::session::CommitBasis::Appended,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,

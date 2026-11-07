@@ -127,7 +127,7 @@ mod tests {
     impl nuo_protocol::Provider for DummyProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             Ok(nuo_protocol::ProviderCompletion::message(
                 nuo_protocol::Message::new(nuo_protocol::Role::Assistant, "ok"),
@@ -135,7 +135,8 @@ mod tests {
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,

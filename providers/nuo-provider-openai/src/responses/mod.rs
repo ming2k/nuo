@@ -398,31 +398,23 @@ impl OpenAiResponsesProvider {
 
     fn build_body(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
         stream: bool,
     ) -> Result<serde_json::Value, ProviderError> {
         let cache_plan = self
             .prompt_cache
-            .resolve(&request)
+            .resolve(request)
             .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            delivery,
-            temporary_context,
-            ..
-        } = request;
-        messages.extend(temporary_context);
         request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 reasoning_effort: self.reasoning_effort,
-                delivery: &delivery,
+                delivery: &request.delivery,
                 store: self.store,
                 dialect: self.dialect,
                 cache_plan: &cache_plan,
@@ -437,9 +429,11 @@ impl OpenAiResponsesProvider {
     /// interface instead of maintaining a second, unsupported wire path.
     async fn collect_streaming_completion(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, ProviderError> {
-        let mut stream = self.stream_chat_events(request).await?;
+        let mut stream = self
+            .stream_chat_events(request, nuo_provider::TransportTelemetry::default())
+            .await?;
         let mut streamed_usage = None;
         let mut completion_meta = None;
 
@@ -558,15 +552,13 @@ impl Provider for OpenAiResponsesProvider {
 
     async fn chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
         if self.dialect == nuo_provider::OpenAiResponsesDialect::ChatGpt {
             return self.collect_streaming_completion(request).await;
         }
         let label = self.label();
-        // `build_body` consumes the request, so the attempt's telemetry handle
-        // is lifted out first.
-        let transport_telemetry = request.transport_telemetry.clone();
+        let transport_telemetry = nuo_provider::TransportTelemetry::default();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, false)?;
         let resp = self
@@ -615,19 +607,17 @@ impl Provider for OpenAiResponsesProvider {
 
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
         let label = self.label();
-        // `build_body` consumes the request, so the attempt's telemetry handle
-        // is lifted out first.
-        let transport_telemetry = request.transport_telemetry.clone();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, true)?;
         let resp = self
-            .send_request(&body, true, &turn_context, &transport_telemetry)
+            .send_request(&body, true, &turn_context, &telemetry)
             .await?;
         let stream = nuo_provider::transport::sse::data_payloads(resp, label).map(|item| {
             let data = item.map_err(ProviderError::from)?;
@@ -644,19 +634,17 @@ impl Provider for OpenAiResponsesProvider {
 
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
         let label = self.label();
-        // `build_body` consumes the request, so the attempt's telemetry handle
-        // is lifted out first.
-        let transport_telemetry = request.transport_telemetry.clone();
         let turn_context = Arc::clone(&request.turn_context);
         let body = self.build_body(request, true)?;
         let resp = self
-            .send_request(&body, true, &turn_context, &transport_telemetry)
+            .send_request(&body, true, &turn_context, &telemetry)
             .await?;
         let model_catalog_etag = models_etag(&resp.headers);
 

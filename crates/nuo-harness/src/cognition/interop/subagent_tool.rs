@@ -1011,6 +1011,7 @@ impl SubagentTool {
             if let Err(error) = session
                 .commit_turn(nuo_persistence::session::CommitTurn {
                     messages: &seed,
+                    basis: nuo_persistence::session::CommitBasis::Appended,
                     round_counter: Some(1),
                     usage_records: &[],
                     retry_point: None,
@@ -1075,14 +1076,22 @@ impl SubagentTool {
             // seen (which it must refuse — a projection is an append-only fact, not
             // a rewritten history).
             let persist_session = std::sync::Arc::clone(session);
+            let persist_agent = std::sync::Arc::clone(&subagent);
             subagent.set_turn_persist(std::sync::Arc::new(
                 move |messages: &[nuo_protocol::Message]| {
                     let session = std::sync::Arc::clone(&persist_session);
+                    let agent = std::sync::Arc::clone(&persist_agent);
                     let snapshot = messages.to_vec();
                     Box::pin(async move {
+                        let basis = if agent.take_history_reprojected() {
+                            nuo_persistence::session::CommitBasis::Reprojected
+                        } else {
+                            nuo_persistence::session::CommitBasis::Appended
+                        };
                         session
                             .commit_turn(nuo_persistence::session::CommitTurn {
                                 messages: &snapshot,
+                                basis,
                                 round_counter: None,
                                 usage_records: &[],
                                 retry_point: None,
@@ -1371,7 +1380,7 @@ mod tests {
     impl Provider for CannedProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                 Role::Assistant,
@@ -1380,7 +1389,8 @@ mod tests {
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1416,7 +1426,7 @@ mod tests {
     impl Provider for FlakyThenOkProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                 Role::Assistant,
@@ -1426,7 +1436,8 @@ mod tests {
 
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1438,7 +1449,8 @@ mod tests {
 
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1463,9 +1475,9 @@ mod tests {
     impl Provider for RecordingProvider {
         async fn chat(
             &self,
-            request: nuo_protocol::ModelRequest,
+            request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
-            *self.request.lock().unwrap() = Some(request);
+            *self.request.lock().unwrap() = Some(request.clone());
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                 Role::Assistant,
                 "found 3 relevant files",
@@ -1474,12 +1486,13 @@ mod tests {
 
         async fn stream_chat(
             &self,
-            request: nuo_protocol::ModelRequest,
+            request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
         > {
-            *self.request.lock().unwrap() = Some(request);
+            *self.request.lock().unwrap() = Some(request.clone());
             Ok(Box::pin(stream::once(async {
                 Ok("found 3 relevant files".to_string())
             })))
@@ -1650,7 +1663,7 @@ mod tests {
     impl Provider for GatedProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                 Role::Assistant,
@@ -1659,7 +1672,8 @@ mod tests {
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1668,7 +1682,8 @@ mod tests {
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,

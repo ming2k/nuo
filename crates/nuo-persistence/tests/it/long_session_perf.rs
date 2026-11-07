@@ -7,7 +7,7 @@
 
 use std::time::Instant;
 
-use nuo_persistence::session::{CommitTurn, SessionStore};
+use nuo_persistence::session::{CommitBasis, CommitTurn, SessionStore};
 use nuo_protocol::{Message, Role};
 
 #[tokio::test]
@@ -21,6 +21,7 @@ async fn long_session_commit_turn_scales_with_delta_not_session_length() {
     store
         .commit_turn(CommitTurn {
             messages: &initial_msg,
+            basis: CommitBasis::Appended,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,
@@ -45,6 +46,7 @@ async fn long_session_commit_turn_scales_with_delta_not_session_length() {
         store
             .commit_turn(CommitTurn {
                 messages: &current_messages,
+                basis: CommitBasis::Appended,
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,
@@ -66,6 +68,7 @@ async fn long_session_commit_turn_scales_with_delta_not_session_length() {
         store
             .commit_turn(CommitTurn {
                 messages: &current_messages,
+                basis: CommitBasis::Appended,
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,

@@ -1341,7 +1341,7 @@ fn apply_chrome(app: &mut App, session_id: &str, edit: ChromeEdit) {
                     chrome.round_started_at = Some(std::time::Instant::now());
                 }
                 if chrome.phase.is_none() {
-                    chrome.set_phase(Some(Phase::Preparing));
+                    chrome.set_phase(Some(Phase::Admitting));
                 }
             } else {
                 chrome.set_phase(None);

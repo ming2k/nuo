@@ -319,7 +319,7 @@ pub async fn compact_causal_nodes(
     let messages = vec![Message::new(Role::User, prompt_body)];
     let request = ModelRequest::ephemeral(messages).with_instructions(instructions);
 
-    let response = match tokio::time::timeout(COMPACTION_TIMEOUT, provider.chat(request)).await {
+    let response = match tokio::time::timeout(COMPACTION_TIMEOUT, provider.chat(&request)).await {
         Ok(Ok(msg)) => msg,
         Ok(Err(err)) => return Err(format!("Compaction LLM call failed: {}", err)),
         Err(_) => return Err("Compaction LLM call timed out".to_string()),

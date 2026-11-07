@@ -32,7 +32,8 @@ use crate::shell::event_loop::AppMutation;
 fn an_unknown_wire_variant_does_not_end_the_stream() {
     // A payload shaped exactly like the real one: a `Response` envelope whose
     // inner `AgentResponse` variant this build no longer models.
-    let skewed = br#"{"type":"Response","RetryResolved":{"attempt":1,"max_attempts":30}}"#;
+    let skewed =
+        br#"{"type":"Response","response":{"RetryResolved":{"attempt":1,"max_attempts":30}}}"#;
 
     match nuo_protocol::decode_wire_payload(skewed) {
         nuo_protocol::WireFrame::Undecodable { envelope, detail } => {
@@ -43,7 +44,7 @@ fn an_unknown_wire_variant_does_not_end_the_stream() {
                  tell which side drifted"
             );
             assert!(
-                detail.contains("AgentResponse"),
+                detail.contains("RetryResolved"),
                 "the disclosure must name the enum that failed, got: {detail}"
             );
         }

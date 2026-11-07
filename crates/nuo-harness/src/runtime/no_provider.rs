@@ -44,7 +44,7 @@ impl NoProvider {
 impl Provider for NoProvider {
     async fn chat(
         &self,
-        _request: ModelRequest,
+        _request: &ModelRequest,
     ) -> Result<ProviderCompletion, nuo_protocol::ProviderError> {
         Err(nuo_protocol::ProviderError::new(
             "none",
@@ -55,7 +55,8 @@ impl Provider for NoProvider {
 
     async fn stream_chat(
         &self,
-        _request: ModelRequest,
+        _request: &ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -99,13 +100,14 @@ mod tests {
         impl Provider for Other {
             async fn chat(
                 &self,
-                _request: ModelRequest,
+                _request: &ModelRequest,
             ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
                 unreachable!()
             }
             async fn stream_chat(
                 &self,
-                _request: ModelRequest,
+                _request: &ModelRequest,
+                _telemetry: nuo_provider::TransportTelemetry,
             ) -> Result<
                 BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
                 nuo_protocol::ProviderError,

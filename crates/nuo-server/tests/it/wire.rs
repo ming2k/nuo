@@ -73,7 +73,10 @@ async fn openai_chat_completions_parses_content_reasoning_tool_calls_and_headers
         "nuo-test/1",
     );
     let message = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("chat should succeed")
         .message;
@@ -154,7 +157,10 @@ async fn chatgpt_responses_chat_uses_streaming_transport_and_dynamic_credentials
     )
     .with_dialect(nuo_provider::OpenAiResponsesDialect::ChatGpt);
     let message = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("credential-source bearer should reach the ChatGPT backend")
         .message;
@@ -182,7 +188,10 @@ async fn openai_chat_completions_strips_tool_call_echo_when_native_calls_present
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let message = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("chat should succeed")
         .message;
@@ -212,7 +221,10 @@ async fn openai_chat_completions_classifies_server_error_as_retryable() {
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let error = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect_err("5xx must surface as an error");
 
@@ -250,7 +262,10 @@ async fn openai_chat_completions_omits_auth_header_when_api_key_is_empty() {
         "ua",
     );
     let message = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("keyless chat should succeed")
         .message;
@@ -275,7 +290,10 @@ async fn openai_chat_completions_decode_failure_embeds_raw_body() {
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let error = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect_err("non-JSON 200 must surface as a decode error");
 
@@ -313,7 +331,10 @@ async fn openai_stream_parses_text_reasoning_and_tool_call_deltas() {
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let stream = provider
-        .stream_chat_events(vec![Message::new(Role::User, "hi")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("stream should open");
     let events = collect_events(stream).await;
@@ -394,7 +415,10 @@ async fn openrouter_stream_uses_gateway_dialect_and_returns_replay_artifacts() {
 
     let events = collect_events(
         provider
-            .stream_chat_events(vec![Message::new(Role::User, "inspect")].into())
+            .stream_chat_events(
+                &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "inspect")]),
+                nuo_provider::TransportTelemetry::default(),
+            )
             .await
             .expect("OpenRouter stream should open"),
     )
@@ -447,7 +471,10 @@ async fn openai_stream_strips_echo_text_when_native_tool_calls_stream_in() {
     let provider =
         OpenAiChatCompletionsProvider::with_base_url("k".to_string(), "m".to_string(), &url);
     let stream = provider
-        .stream_chat_events(vec![Message::new(Role::User, "hi")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("stream should open");
     let events = collect_events(stream).await;
@@ -496,7 +523,10 @@ async fn anthropic_chat_assembles_text_thinking_and_tool_use() {
         "ua",
     );
     let message = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("chat should succeed")
         .message;
@@ -544,7 +574,10 @@ async fn anthropic_stream_parses_tool_use_block_and_argument_fragments() {
         "ua",
     );
     let stream = provider
-        .stream_chat_events(vec![Message::new(Role::User, "hi")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("stream should open");
     let events = collect_events(stream).await;
@@ -590,7 +623,10 @@ async fn anthropic_stream_surfaces_in_band_error_event() {
         "ua",
     );
     let stream = provider
-        .stream_chat_events(vec![Message::new(Role::User, "hi")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("stream should open");
     let items = stream.collect::<Vec<_>>().await;
@@ -638,7 +674,10 @@ async fn assert_factory_body(mut channel: Channel, expected: Value) {
 
     let provider = build_provider_for_channel(&channel, "anthropic", None);
     let msg = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("factory-built provider chat must succeed")
         .message;
@@ -699,7 +738,10 @@ async fn deepseek_factory_body_carries_only_its_own_reasoning_surface() {
 
     let provider = build_provider_for_channel(&channel, "deepseek", None);
     let completion = provider
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .expect("factory-built DeepSeek provider chat must succeed");
     assert_eq!(completion.message.content, "ok");
@@ -1380,7 +1422,10 @@ async fn opencode_go_wire_request_carries_session_and_client_headers() {
     let provider =
         build_provider_for_channel(&channel, "opencode-go", Some("ses_wire_affinity_999"));
     let msg = provider
-        .chat(vec![Message::new(Role::User, "hello")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hello",
+        )]))
         .await
         .expect("opencode-go provider chat must succeed")
         .message;
@@ -1423,7 +1468,10 @@ async fn opencode_go_anthropic_wire_request_carries_session_headers() {
     let provider =
         build_provider_for_channel(&channel, "opencode-go", Some("ses_anthropic_wire_777"));
     let msg = provider
-        .chat(vec![Message::new(Role::User, "hello")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hello",
+        )]))
         .await
         .expect("opencode-go anthropic-wire provider chat must succeed")
         .message;
@@ -1506,7 +1554,7 @@ async fn opencode_go_portable_responses_lane_sends_flat_tools_and_session() {
 
     let provider = build_provider_for_channel(&channel, "opencode-go", Some("ses_portable_go_555"));
     let completion = provider
-        .chat(request)
+        .chat(&request)
         .await
         .expect("portable Responses lane must complete");
     assert_eq!(completion.message.content, "portable ok");

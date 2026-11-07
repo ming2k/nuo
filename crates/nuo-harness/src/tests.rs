@@ -14,7 +14,7 @@ struct StreamingReadTool(Arc<AtomicUsize>);
 impl Provider for TestProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -24,7 +24,8 @@ impl Provider for TestProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -40,7 +41,7 @@ impl Provider for TestProvider {
 impl Provider for HintProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -50,7 +51,8 @@ impl Provider for HintProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -69,14 +71,15 @@ impl Provider for HintProvider {
 impl Provider for PermissionTestProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         unreachable!("streaming path should be used")
     }
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -86,7 +89,8 @@ impl Provider for PermissionTestProvider {
 
     async fn stream_chat_events(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -119,7 +123,7 @@ impl Provider for PermissionTestProvider {
 impl Provider for StreamingToolProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Err(nuo_protocol::ProviderError::new(
             "mock",
@@ -130,7 +134,8 @@ impl Provider for StreamingToolProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -140,7 +145,8 @@ impl Provider for StreamingToolProvider {
 
     async fn stream_chat_events(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -320,7 +326,7 @@ fn remote_stored_continuations_are_exempt_from_tool_output_projection() {
     impl Provider for RemoteStoredProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
                 Role::Assistant,
@@ -329,7 +335,8 @@ fn remote_stored_continuations_are_exempt_from_tool_output_projection() {
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -630,22 +637,24 @@ async fn provider_turn_context_survives_tools_and_retries_but_not_new_rounds() {
     impl Provider for RecordingProvider {
         async fn chat(
             &self,
-            request: nuo_protocol::ModelRequest,
+            request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             self.inner.chat(request).await
         }
         async fn stream_chat(
             &self,
-            request: nuo_protocol::ModelRequest,
+            request: &nuo_protocol::ModelRequest,
+            telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
         > {
-            self.inner.stream_chat(request).await
+            self.inner.stream_chat(request, telemetry).await
         }
         async fn stream_chat_events(
             &self,
-            request: nuo_protocol::ModelRequest,
+            request: &nuo_protocol::ModelRequest,
+            telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<nuo_protocol::ProviderEventStream, nuo_protocol::ProviderError> {
             let first = {
                 let mut contexts = self.contexts.lock().unwrap();
@@ -660,7 +669,7 @@ async fn provider_turn_context_survives_tools_and_retries_but_not_new_rounds() {
                 )
                 .retryable(None));
             }
-            self.inner.stream_chat_events(request).await
+            self.inner.stream_chat_events(request, telemetry).await
         }
     }
     let provider = Arc::new(RecordingProvider {
@@ -963,13 +972,14 @@ async fn stalled_provider_stream_times_out_as_retryable() {
     impl Provider for StalledStreamProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -978,7 +988,8 @@ async fn stalled_provider_stream_times_out_as_retryable() {
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1016,13 +1027,14 @@ async fn stream_ending_mid_tool_call_is_retryable() {
     impl Provider for TruncatedToolCallProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1031,7 +1043,8 @@ async fn stream_ending_mid_tool_call_is_retryable() {
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1094,13 +1107,14 @@ async fn empty_assistant_response_is_retryable_not_terminal() {
     impl Provider for EmptyFrameProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1109,7 +1123,8 @@ async fn empty_assistant_response_is_retryable_not_terminal() {
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1169,13 +1184,14 @@ async fn stream_with_truncated_tool_arguments_is_retryable() {
     impl Provider for TruncatedArgumentsProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1184,7 +1200,8 @@ async fn stream_with_truncated_tool_arguments_is_retryable() {
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1270,13 +1287,14 @@ async fn interrupt_settles_in_flight_request_with_estimated_prompt() {
     impl Provider for PendingProvider {
         async fn chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1285,7 +1303,8 @@ async fn interrupt_settles_in_flight_request_with_estimated_prompt() {
         }
         async fn stream_chat_events(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1356,13 +1375,14 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
     impl Provider for SlowStreamProvider {
         async fn chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1371,7 +1391,8 @@ async fn interrupted_stream_books_exact_not_cumulative_completion_tokens() {
         }
         async fn stream_chat_events(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1477,13 +1498,14 @@ async fn stream_request_that_never_resolves_times_out() {
     impl Provider for PendingStreamProvider {
         async fn chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1492,7 +1514,8 @@ async fn stream_request_that_never_resolves_times_out() {
         }
         async fn stream_chat_events(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1532,13 +1555,14 @@ async fn reasoning_only_response_is_accepted_not_treated_as_empty() {
     impl Provider for ReasoningOnlyProvider {
         async fn chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("streaming path should be used")
         }
         async fn stream_chat(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1547,7 +1571,8 @@ async fn reasoning_only_response_is_accepted_not_treated_as_empty() {
         }
         async fn stream_chat_events(
             &self,
-            _request: nuo_protocol::ModelRequest,
+            _request: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
@@ -1805,7 +1830,7 @@ struct GatedSubagentProvider {
 impl Provider for GatedSubagentProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -1814,7 +1839,8 @@ impl Provider for GatedSubagentProvider {
     }
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -1823,7 +1849,8 @@ impl Provider for GatedSubagentProvider {
     }
     async fn stream_chat_events(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<nuo_protocol::ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -2128,12 +2155,12 @@ impl ScriptedProvider {
 impl Provider for ScriptedProvider {
     async fn chat(
         &self,
-        request: nuo_protocol::ModelRequest,
+        request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         self.cognitive_requests
             .lock()
             .unwrap_or_else(|error| error.into_inner())
-            .push(request);
+            .push(request.clone());
         let reply = self
             .cognitive_replies
             .lock()
@@ -2148,7 +2175,8 @@ impl Provider for ScriptedProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -2158,7 +2186,8 @@ impl Provider for ScriptedProvider {
 
     async fn stream_chat_events(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -3385,7 +3414,7 @@ struct TwoEventProvider;
 impl Provider for TwoEventProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Err(nuo_protocol::ProviderError::new(
             "mock",
@@ -3395,7 +3424,8 @@ impl Provider for TwoEventProvider {
     }
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -3408,7 +3438,8 @@ impl Provider for TwoEventProvider {
     }
     async fn stream_chat_events(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,
@@ -3436,7 +3467,10 @@ async fn debug_trace_writes_one_file_per_chat() {
     // Off by default, and a call while off writes nothing.
     assert!(!proxy.debug_capture_enabled());
     proxy
-        .chat(vec![Message::new(Role::User, "hi")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hi",
+        )]))
         .await
         .unwrap();
     let off_count = std::fs::read_dir(&dir).map(|entries| entries.count()).ok();
@@ -3446,11 +3480,17 @@ async fn debug_trace_writes_one_file_per_chat() {
     proxy.set_debug_capture(true, dir.clone());
     assert!(proxy.debug_capture_enabled());
     proxy
-        .chat(vec![Message::new(Role::User, "hello")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "hello",
+        )]))
         .await
         .unwrap();
     proxy
-        .chat(vec![Message::new(Role::User, "again")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "again",
+        )]))
         .await
         .unwrap();
     let entries: Vec<_> = std::fs::read_dir(&dir)
@@ -3479,7 +3519,10 @@ async fn debug_trace_writes_one_file_per_chat() {
     proxy.set_debug_capture(false, dir.clone());
     assert!(!proxy.debug_capture_enabled());
     proxy
-        .chat(vec![Message::new(Role::User, "after off")].into())
+        .chat(&nuo_provider::ModelRequest::new(vec![Message::new(
+            Role::User,
+            "after off",
+        )]))
         .await
         .unwrap();
     let after: Vec<_> = std::fs::read_dir(&dir)
@@ -3505,7 +3548,10 @@ async fn debug_trace_aggregates_a_full_stream_into_one_file() {
     // Drive the stream fully; on completion the wrapper drops and flushes the
     // aggregated record.
     let stream = proxy
-        .stream_chat_events(vec![Message::new(Role::User, "hi")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(Role::User, "hi")]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .unwrap();
     let items: Vec<_> = stream.collect::<Vec<_>>().await;
@@ -4183,7 +4229,7 @@ struct DummyCustomProvider {
 impl Provider for DummyCustomProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -4193,7 +4239,8 @@ impl Provider for DummyCustomProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,

@@ -7,9 +7,15 @@
 //!
 //! `commit_turn` is the live seam: the one place every completed turn — and its
 //! tool results — passes through. Mirroring there keeps the two views convergent
-//! without a second writer racing the transcript. It is idempotent: the entry id
-//! is the node id, so `INSERT OR IGNORE` on `(session_id, id)` writes each
-//! message node exactly once.
+//! without a second writer racing the transcript.
+//!
+//! The mirror is **incremental**: a save mirrors only the entries above the
+//! durable membership watermark it is already writing, never the whole
+//! transcript. The earlier implementation planned every entry on every save —
+//! re-serializing the complete conversation to JSON per ReAct turn — which made
+//! a turn's persistence cost grow with the session's history (seconds per turn
+//! on a long session, and the dominant WAL producer). Node identity is the
+//! entry id, so a replay over an already-mirrored range is still a no-op.
 //!
 //! # The compacted horizon
 //!
@@ -34,12 +40,12 @@ struct PlannedNode {
     payload: String,
 }
 
-/// Build the rows for a transcript, tagging the newest one with the horizon.
+/// Build the rows for `entries` (a delta slice on the hot path), tagging the
+/// newest one with the horizon.
 fn plan_nodes(
-    data: &crate::session::SessionData,
+    entries: &[nuo_protocol::TranscriptEntry],
     initial_parent: Option<String>,
 ) -> Vec<PlannedNode> {
-    let entries = &data.transcript.entries;
     let mut rows: Vec<PlannedNode> = Vec::with_capacity(entries.len());
     // A commit receives only the *delta* (entries above the durable watermark),
     // so a chain restarted at `None` here would leave every commit as its own
@@ -79,16 +85,30 @@ fn plan_nodes(
     rows
 }
 
-/// Mirror a committed transcript into `causal_nodes` (idempotent).
+/// Mirror `entries` (a whole transcript on a rewrite, the appended slice on a
+/// delta save) into `causal_nodes`.
 ///
 /// Sequence numbers are the transcript's own `entry.seq` — the same sequence
 /// `entry_memberships` uses — so the fact table and the membership table stay
 /// joinable and a node's identity is its entry's identity.
+///
+/// `replace` deletes the session's graph first: a rebuilt transcript restarts
+/// its sequence at zero, so keeping the old facts would duplicate the
+/// conversation and violate `UNIQUE(session_id, seq)`. A delta save links its
+/// first node to the graph's newest fact; the caller is responsible for having
+/// verified that the graph is contiguous with the slice (see
+/// `super::session_store`'s coverage check, which rebuilds instead of
+/// orphaning when it is not).
+///
+/// Returns the number of planned nodes — the direct measure of the write's
+/// work.
 pub fn mirror_transcript(
     conn: &Connection,
-    data: &crate::session::SessionData,
-    replaced: bool,
-) -> Result<()> {
+    session_id: &str,
+    updated_at: u64,
+    entries: &[nuo_protocol::TranscriptEntry],
+    replace: bool,
+) -> Result<usize> {
     // `threads` owns the session identity; `causal_nodes.session_id` references
     // it, so a mirror that ran before the thread row existed would be dropped by
     // the foreign key. A missing thread is an upstream bug, not a reason to lose
@@ -96,30 +116,29 @@ pub fn mirror_transcript(
     let exists: Option<i64> = conn
         .query_row(
             "SELECT 1 FROM threads WHERE id = ?1",
-            params![data.id],
+            params![session_id],
             |row| row.get(0),
         )
         .optional()?;
     if exists.is_none() {
-        return Ok(());
+        return Ok(0);
     }
 
-    // A full rewrite means the transcript was *replaced* — a rebuild, a leaf
-    // switch, a fork hydration. The graph mirrors the transcript, so the old
-    // facts are no longer this session's facts and keeping them would both
-    // duplicate the conversation and collide on `UNIQUE(session_id, seq)` (a
-    // rebuilt transcript restarts its sequence at zero).
-    if replaced {
+    if replace {
         conn.execute(
             "DELETE FROM causal_nodes WHERE session_id = ?1",
-            params![data.id],
+            params![session_id],
         )?;
     }
 
-    let initial_parent = crate::db::ir_mirror::newest_leaf(conn, &data.id)?;
-    let rows = plan_nodes(data, initial_parent);
+    let initial_parent = if replace {
+        None
+    } else {
+        newest_position(conn, session_id)?.map(|(id, _)| id)
+    };
+    let rows = plan_nodes(entries, initial_parent);
     if rows.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let mut stmt = conn.prepare_cached(
@@ -139,15 +158,15 @@ pub fn mirror_transcript(
     for node in &rows {
         stmt.execute(params![
             node.id,
-            data.id,
+            session_id,
             node.parent_id,
             node.seq as i64,
             node.kind,
             node.payload,
-            data.updated_at as i64 * 1000,
+            updated_at as i64 * 1000,
         ])?;
     }
-    Ok(())
+    Ok(rows.len())
 }
 
 /// Read the compaction horizon back out of the graph.
@@ -182,16 +201,85 @@ pub fn read_horizon(conn: &Connection, session_id: &str) -> Result<Option<String
 /// is then the only honest answer, and it is the same one `ExecutionRecord`
 /// makes when it hydrates facts without a cursor.
 pub fn newest_leaf(conn: &Connection, session_id: &str) -> Result<Option<String>> {
+    Ok(newest_position(conn, session_id)?.map(|(id, _)| id))
+}
+
+/// The lineage position a new fact attaches to.
+///
+/// `threads.active_leaf` is the authority when set: a fold moves the cursor to
+/// the checkpoint (or the kept tail), and appending to the highest surviving
+/// node instead would build a segment the fold's cursor cannot reach. Sessions
+/// that only ever appended leave it `NULL`; the newest non-compaction node is
+/// then the only honest answer.
+///
+/// `seq` is what the save path compares against the appended slice's first
+/// sequence to decide whether the graph is contiguous with the transcript or
+/// must be rebuilt.
+pub(crate) fn newest_position(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Option<(String, u64)>> {
+    let active_leaf: Option<String> = conn
+        .query_row(
+            "SELECT active_leaf FROM threads WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    if let Some(leaf) = active_leaf
+        && let Some(seq) = conn
+            .query_row(
+                "SELECT seq FROM causal_nodes WHERE session_id = ?1 AND id = ?2",
+                params![session_id, leaf],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+    {
+        return Ok(Some((leaf, seq.max(0) as u64)));
+    }
     conn.query_row(
         r#"
-        SELECT id FROM causal_nodes
+        SELECT id, seq FROM causal_nodes
         WHERE session_id = ?1 AND kind <> 'compaction'
         ORDER BY seq DESC LIMIT 1
         "#,
         params![session_id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .optional()
+}
+
+/// True when a dialogue entry exists in `(after_seq, before_seq)` that the
+/// graph has not mirrored. `after_seq == None` means "from the beginning".
+///
+/// This is the coverage probe behind the save path's repair decision: a graph
+/// that is missing any dialogue fact in the appended range cannot simply have
+/// the new tail linked onto it — the resulting segment would be unreachable
+/// from the root and invisible to `linear_path`.
+pub(crate) fn has_unmirrored_dialogue(
+    conn: &Connection,
+    session_id: &str,
+    after_seq: Option<u64>,
+    before_seq: u64,
+) -> Result<bool> {
+    let after = after_seq.map(|seq| seq as i64).unwrap_or(-1);
+    conn.query_row(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM entry_memberships m
+            JOIN entries e ON e.id = m.entry_id
+            WHERE m.session_id = ?1
+              AND m.seq > ?2
+              AND m.seq < ?3
+              AND e.kind = 'message'
+              AND e.role IS NOT NULL
+            LIMIT 1
+        )
+        "#,
+        params![session_id, after, before_seq as i64],
+        |row| row.get(0),
+    )
 }
 
 /// The Session IR's declarative policy, projected from one thread row.

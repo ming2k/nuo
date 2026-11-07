@@ -374,28 +374,20 @@ impl Provider for OpenAiChatCompletionsProvider {
 
     async fn chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
         let cache_plan = self
             .prompt_cache
-            .resolve(&request)
+            .resolve(request)
             .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            transport_telemetry,
-            ..
-        } = request;
-        messages.extend(temporary_context);
         let body = request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream: false,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 reasoning_effort: self.reasoning_effort,
                 dialect: self.dialect,
                 cache_plan: &cache_plan,
@@ -405,7 +397,7 @@ impl Provider for OpenAiChatCompletionsProvider {
 
         let label = self.label();
         let resp = self
-            .send_request(&body, false, &transport_telemetry)
+            .send_request(&body, false, &nuo_provider::TransportTelemetry::default())
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, label).await?;
 
@@ -447,31 +439,24 @@ impl Provider for OpenAiChatCompletionsProvider {
 
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
         let cache_plan = self
             .prompt_cache
-            .resolve(&request)
+            .resolve(request)
             .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            transport_telemetry,
-            ..
-        } = request;
-        messages.extend(temporary_context);
         let body = request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream: true,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 reasoning_effort: self.reasoning_effort,
                 dialect: self.dialect,
                 cache_plan: &cache_plan,
@@ -479,7 +464,7 @@ impl Provider for OpenAiChatCompletionsProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &transport_telemetry).await?;
+        let response = self.send_request(&body, true, &telemetry).await?;
 
         let pipeline = self.pipeline.clone();
         let label = self.label();
@@ -495,31 +480,24 @@ impl Provider for OpenAiChatCompletionsProvider {
 
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
         let cache_plan = self
             .prompt_cache
-            .resolve(&request)
+            .resolve(request)
             .map_err(|e| ProviderError::invalid_request(self.label(), e))?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            transport_telemetry,
-            ..
-        } = request;
-        messages.extend(temporary_context);
         let body = request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream: true,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 reasoning_effort: self.reasoning_effort,
                 dialect: self.dialect,
                 cache_plan: &cache_plan,
@@ -527,7 +505,7 @@ impl Provider for OpenAiChatCompletionsProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &transport_telemetry).await?;
+        let response = self.send_request(&body, true, &telemetry).await?;
 
         // Tool-call echo filter shared between the body and the end-of-stream
         // flush: it suppresses any content that mirrors a native tool call
@@ -674,11 +652,13 @@ mod tests {
 
     fn body_with_tools(tools: &[Arc<dyn Tool>]) -> serde_json::Value {
         let request = ModelRequest::with_tools(vec![Message::new(Role::User, "go")], tools);
-        let (messages, tool_specs) = request.into_parts();
+        let messages = request.messages.clone();
+        let tool_specs = request.tool_specs.clone();
         static DEFAULT_CACHE_PLAN: nuo_provider::ResolvedCachePolicy =
             nuo_provider::ResolvedCachePolicy::Unsupported;
         request::body(
-            messages,
+            &messages,
+            &[],
             request::BodyInput {
                 model: "test-model",
                 stream: false,

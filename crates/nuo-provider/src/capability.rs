@@ -132,18 +132,6 @@ impl ToolSpec {
 pub struct ModelRequest {
     #[serde(skip)]
     pub turn_context: Arc<ProviderTurnContext>,
-    /// The telemetry handle of the attempt issuing this request.
-    ///
-    /// Created by the attempt's owner immediately before dispatch and filled by
-    /// the transport that executes it. Runtime-only, like [`Self::turn_context`]:
-    /// not serialized, not persisted, never on the wire — a monotonic clock
-    /// reading is meaningful only inside the process that took it.
-    ///
-    /// A retry reuses the turn's assembled request, so the owner must stamp a
-    /// *fresh* handle onto the per-attempt clone it dispatches. Sharing one
-    /// across attempts would attribute one attempt's timings to another.
-    #[serde(skip)]
-    pub transport_telemetry: TransportTelemetry,
     /// Structured instruction manifest (tiers: Base, Session, Task, Ephemeral).
     #[serde(default, skip_serializing_if = "InstructionBundle::is_empty")]
     pub instructions: InstructionBundle,
@@ -187,7 +175,6 @@ impl ModelRequest {
     pub fn new(messages: Vec<Message>) -> Self {
         Self {
             turn_context: Arc::default(),
-            transport_telemetry: TransportTelemetry::default(),
             instructions: InstructionBundle::default(),
             messages,
             temporary_context: Vec::new(),
@@ -207,7 +194,6 @@ impl ModelRequest {
     pub fn ephemeral(messages: Vec<Message>) -> Self {
         Self {
             turn_context: Arc::default(),
-            transport_telemetry: TransportTelemetry::default(),
             instructions: InstructionBundle::default(),
             messages,
             temporary_context: Vec::new(),
@@ -246,7 +232,6 @@ impl ModelRequest {
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
         Self {
             turn_context: Arc::default(),
-            transport_telemetry: TransportTelemetry::default(),
             instructions: InstructionBundle::default(),
             messages,
             temporary_context: Vec::new(),
@@ -271,7 +256,6 @@ impl ModelRequest {
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
         Self {
             turn_context: Arc::default(),
-            transport_telemetry: TransportTelemetry::default(),
             instructions,
             messages,
             temporary_context: Vec::new(),
@@ -298,7 +282,6 @@ impl ModelRequest {
         tool_specs.sort_by(|a, b| a.name.cmp(&b.name));
         Self {
             turn_context: Arc::default(),
-            transport_telemetry: TransportTelemetry::default(),
             instructions,
             messages,
             temporary_context: Vec::new(),
@@ -392,17 +375,16 @@ impl ModelRequest {
         )
     }
 
+    /// The provider-visible message sequence: the conversation followed by the
+    /// request-local temporary tail (`E_n`). Borrowed on purpose — building a
+    /// wire body must never require a deep copy of the window.
+    pub fn wire_messages(&self) -> impl Iterator<Item = &Message> {
+        self.messages.iter().chain(self.temporary_context.iter())
+    }
+
     /// Borrow tool declarations in the optional form used by request builders.
     pub fn tool_specs(&self) -> Option<&[ToolSpec]> {
         (!self.tool_specs.is_empty()).then_some(self.tool_specs.as_slice())
-    }
-
-    /// Consume the request into the provider-facing `(messages, tool_specs)`
-    /// pair. Request-local `E_n` is appended after the conversation so the wire
-    /// tail matches the assembled request; it is never silent-dropped.
-    pub fn into_parts(mut self) -> (Vec<Message>, Vec<ToolSpec>) {
-        self.messages.append(&mut self.temporary_context);
-        (self.messages, self.tool_specs)
     }
 }
 
@@ -449,20 +431,30 @@ pub type ProviderTextStream = BoxStream<'static, Result<String, crate::ProviderE
 pub type ProviderEventStream =
     BoxStream<'static, Result<ProviderStreamEvent, crate::ProviderError>>;
 
+/// The provider surface is **borrowed**: the harness owns the assembled
+/// request for the whole logical turn (retries reuse it), so a provider must
+/// not require a deep copy of the conversation to build a wire body. Streaming
+/// calls additionally take the *attempt's* transport telemetry, because a retry
+/// must hand the transport a fresh handle while the request itself stays
+/// unchanged.
 #[async_trait]
 pub trait Provider: Send + Sync {
-    async fn chat(&self, request: ModelRequest)
-    -> Result<ProviderCompletion, crate::ProviderError>;
+    async fn chat(
+        &self,
+        request: &ModelRequest,
+    ) -> Result<ProviderCompletion, crate::ProviderError>;
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: TransportTelemetry,
     ) -> Result<ProviderTextStream, crate::ProviderError>;
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: TransportTelemetry,
     ) -> Result<ProviderEventStream, crate::ProviderError> {
         let events = self
-            .stream_chat(request)
+            .stream_chat(request, telemetry)
             .await?
             .filter_map(|item| async move {
                 match item {

@@ -775,6 +775,7 @@ mod subagent_store_tests {
         parent
             .commit_turn(CommitTurn {
                 messages: &[Message::new(Role::User, "parent question")],
+                basis: CommitBasis::Appended,
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,
@@ -794,6 +795,7 @@ mod subagent_store_tests {
         child
             .commit_turn(CommitTurn {
                 messages: &[Message::new(Role::User, "subagent task")],
+                basis: CommitBasis::Appended,
                 round_counter: Some(1),
                 usage_records: &[],
                 retry_point: None,

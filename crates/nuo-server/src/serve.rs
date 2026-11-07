@@ -1359,6 +1359,101 @@ fn generate_token() -> String {
     )
 }
 
+/// Consecutive streamed deltas are coalesced for this long before framing.
+///
+/// A provider emits a delta per SSE event — a few characters at a time. One
+/// frame per delta means one JSON encode, one length prefix and one write
+/// syscall per few characters. Eight milliseconds is below the perceptual
+/// threshold and cuts the frame count by an order of magnitude on a normal
+/// answer.
+const STREAM_COALESCE_WINDOW: std::time::Duration = std::time::Duration::from_millis(8);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeltaKind {
+    Text,
+    Reasoning,
+}
+
+/// One run of streamed deltas waiting to be framed.
+#[derive(Debug)]
+struct PendingDelta {
+    thread_id: String,
+    kind: DeltaKind,
+    text: String,
+}
+
+impl PendingDelta {
+    fn into_response(self) -> AgentResponse {
+        let event = match self.kind {
+            DeltaKind::Text => nuo_protocol::RoundEvent::StreamDelta(self.text),
+            DeltaKind::Reasoning => nuo_protocol::RoundEvent::StreamReasoningDelta(self.text),
+        };
+        AgentResponse::Round {
+            thread_id: self.thread_id,
+            event,
+        }
+    }
+}
+
+/// Split a response into its streamable delta, or hand it back untouched.
+///
+/// `Err` means "not a delta" — the caller flushes the pending run first so
+/// ordering is never reordered against a non-delta event.
+#[allow(clippy::result_large_err)] // handing the untouched response back is the point
+fn take_delta(response: AgentResponse) -> Result<(String, DeltaKind, String), AgentResponse> {
+    match response {
+        AgentResponse::Round { thread_id, event } => match event {
+            nuo_protocol::RoundEvent::StreamDelta(text) => Ok((thread_id, DeltaKind::Text, text)),
+            nuo_protocol::RoundEvent::StreamReasoningDelta(text) => {
+                Ok((thread_id, DeltaKind::Reasoning, text))
+            }
+            event => Err(AgentResponse::Round { thread_id, event }),
+        },
+        other => Err(other),
+    }
+}
+
+/// Append `text` to the pending run when it continues the same channel;
+/// otherwise hand back the displaced run for the caller to send first.
+fn queue_delta(
+    pending: &mut Option<PendingDelta>,
+    thread_id: String,
+    kind: DeltaKind,
+    text: String,
+) -> Option<PendingDelta> {
+    if let Some(current) = pending.as_mut()
+        && current.kind == kind
+        && current.thread_id == thread_id
+    {
+        current.text.push_str(&text);
+        return None;
+    }
+    pending.replace(PendingDelta {
+        thread_id,
+        kind,
+        text,
+    })
+}
+
+async fn send_delta(wire_sink: &mut BoxWireSink, delta: PendingDelta) -> Result<(), String> {
+    wire_sink
+        .send(Wire::Response {
+            response: delta.into_response(),
+        })
+        .await
+        .map_err(|e| format!("wire send: {e}"))
+}
+
+async fn flush_delta(
+    wire_sink: &mut BoxWireSink,
+    pending: &mut Option<PendingDelta>,
+) -> Result<(), String> {
+    match pending.take() {
+        Some(delta) => send_delta(wire_sink, delta).await,
+        None => Ok(()),
+    }
+}
+
 #[allow(clippy::result_large_err)]
 async fn handle_wire_stream(
     mut wire_sink: BoxWireSink,
@@ -1544,23 +1639,49 @@ async fn handle_wire_stream(
             .map_err(|e| format!("send thread phase: {e}"))?;
     }
 
+    // Consecutive streamed deltas ride one frame per coalescing window. Any
+    // non-delta event, a channel lag, a channel close, or the client's end
+    // frame flushes the pending run first, so ordering is never reordered.
+    let mut pending_delta: Option<PendingDelta> = None;
+    let mut flush_deadline: Option<tokio::time::Instant> = None;
+
     loop {
         tokio::select! {
+            _ = tokio::time::sleep_until(
+                flush_deadline.unwrap_or_else(tokio::time::Instant::now),
+            ), if flush_deadline.is_some() => {
+                flush_delta(&mut wire_sink, &mut pending_delta).await?;
+                flush_deadline = None;
+            }
             resp = rx.recv() => match resp {
-                Ok(response @ AgentResponse::ThreadSnapshot(_)) => {
+                Ok(response) => {
                     if let AgentResponse::ThreadSnapshot(snapshot) = &response {
                         last_snapshot = Some((**snapshot).clone());
                     }
-                    if let Err(e) = wire_sink.send(Wire::Response { response }).await {
-                        return Err(format!("wire send: {e}"));
-                    }
-                }
-                Ok(response) => {
-                    if let Err(e) = wire_sink.send(Wire::Response { response }).await {
-                        return Err(format!("wire send: {e}"));
+                    match take_delta(response) {
+                        Ok((thread_id, kind, text)) => {
+                            if let Some(displaced) =
+                                queue_delta(&mut pending_delta, thread_id, kind, text)
+                            {
+                                send_delta(&mut wire_sink, displaced).await?;
+                            }
+                            if flush_deadline.is_none() {
+                                flush_deadline =
+                                    Some(tokio::time::Instant::now() + STREAM_COALESCE_WINDOW);
+                            }
+                        }
+                        Err(response) => {
+                            flush_delta(&mut wire_sink, &mut pending_delta).await?;
+                            flush_deadline = None;
+                            if let Err(e) = wire_sink.send(Wire::Response { response }).await {
+                                return Err(format!("wire send: {e}"));
+                            }
+                        }
                     }
                 }
                 Err(broadcast::error::RecvError::Lagged(n)) => {
+                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
+                    flush_deadline = None;
                     // A slow client fell behind and the bus dropped events.
                     // Re-anchor from the authoritative snapshot instead of
                     // letting the view drift.
@@ -1589,7 +1710,10 @@ async fn handle_wire_stream(
                     }
                     continue;
                 }
-                Err(broadcast::error::RecvError::Closed) => break,
+                Err(broadcast::error::RecvError::Closed) => {
+                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
+                    break;
+                }
             },
             msg = wire_source.next() => match msg {
                 Some(Ok(WireFrame::Wire(Wire::Request { request: AgentRequest::EndThread }))) => {
@@ -1616,8 +1740,10 @@ async fn handle_wire_stream(
                             }
                         }
                     }
-                    // Flush the terminal `Exit` (and anything behind it) so the
-                    // client observes a graceful end marker.
+                    // Flush the pending delta run, then the terminal `Exit`
+                    // (and anything behind it) so the client observes a
+                    // graceful end marker.
+                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
                     while let Ok(event) = rx.try_recv() {
                         if wire_sink.send(Wire::Response { response: event }).await.is_err() {
                             break;
@@ -1656,7 +1782,10 @@ async fn handle_wire_stream(
                 }
                 Some(Ok(WireFrame::Wire(_))) => {}
                 Some(Err(e)) => tracing::warn!(error = %e, "nuo server: bad wire request"),
-                None => break,
+                None => {
+                    flush_delta(&mut wire_sink, &mut pending_delta).await?;
+                    break;
+                }
             },
         }
     }
@@ -2082,17 +2211,81 @@ mod tests {
         assert_eq!(closed.tcp_port, 0);
         assert!(!closed.tcp_active);
     }
+    /// Deltas coalesce only while they continue the same channel; a channel or
+    /// thread change displaces the run so the caller can preserve order.
     #[test]
-    fn end_thread_serializes_as_flattened_null_unit_variant() {
-        // `EndThread` is a unit variant flattened into the `Wire::Request`
-        // envelope, so it must appear as a key with a `null` value next to
-        // `"type"` — the same shape `Interrupt` uses, and what the Web app's
-        // `requestFrame({ EndThread: null })` sends.
+    fn stream_deltas_coalesce_until_the_channel_changes() {
+        let mut pending = None;
+        assert!(
+            queue_delta(&mut pending, "t".into(), DeltaKind::Text, "he".into()).is_none(),
+            "the first delta opens a run"
+        );
+        assert!(
+            queue_delta(&mut pending, "t".into(), DeltaKind::Text, "llo".into()).is_none(),
+            "a contiguous text delta joins the run"
+        );
+        assert_eq!(pending.as_ref().expect("run open").text, "hello");
+
+        let displaced = queue_delta(&mut pending, "t".into(), DeltaKind::Reasoning, "why".into())
+            .expect("a channel change displaces the text run");
+        assert_eq!(displaced.kind, DeltaKind::Text);
+        assert_eq!(displaced.text, "hello");
+        assert_eq!(
+            pending.as_ref().expect("run open").kind,
+            DeltaKind::Reasoning
+        );
+
+        let displaced = queue_delta(&mut pending, "u".into(), DeltaKind::Reasoning, "x".into())
+            .expect("a thread change displaces the run");
+        assert_eq!(displaced.thread_id, "t");
+        assert_eq!(displaced.text, "why");
+    }
+
+    /// Only the two streamed delta variants are coalescible; everything else
+    /// must be flushed through in order.
+    #[test]
+    fn take_delta_matches_only_stream_events() {
+        for (event, expected_kind) in [
+            (
+                nuo_protocol::RoundEvent::StreamDelta("x".into()),
+                DeltaKind::Text,
+            ),
+            (
+                nuo_protocol::RoundEvent::StreamReasoningDelta("r".into()),
+                DeltaKind::Reasoning,
+            ),
+        ] {
+            let (thread_id, kind, text) = take_delta(AgentResponse::Round {
+                thread_id: "s".into(),
+                event,
+            })
+            .expect("a stream delta");
+            assert_eq!(thread_id, "s");
+            assert_eq!(kind, expected_kind);
+            assert!(!text.is_empty());
+        }
+
+        let non_delta = AgentResponse::Round {
+            thread_id: "s".into(),
+            event: nuo_protocol::RoundEvent::StreamEnd("done".into()),
+        };
+        assert!(
+            take_delta(non_delta).is_err(),
+            "a stream end is an ordering barrier, not a delta"
+        );
+    }
+
+    #[test]
+    fn end_thread_serializes_as_a_nested_unit_variant() {
+        // The envelope carries its payload in a named field; flattening it
+        // forced the decoder to buffer every frame into an intermediate map.
+        // A unit `AgentRequest` is an externally tagged variant, hence the
+        // string body.
         let text = serde_json::to_string(&Wire::Request {
             request: AgentRequest::EndThread,
         })
         .expect("serialize EndThread");
-        assert_eq!(text, r#"{"type":"Request","EndThread":null}"#);
+        assert_eq!(text, r#"{"type":"Request","request":"EndThread"}"#);
     }
     #[test]
     fn generate_token_is_nonempty_hex() {

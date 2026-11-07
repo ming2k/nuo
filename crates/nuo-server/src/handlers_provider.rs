@@ -2888,13 +2888,14 @@ mod tests {
         impl nuo_protocol::Provider for LiveStubProvider {
             async fn chat(
                 &self,
-                _request: ModelRequest,
+                _request: &ModelRequest,
             ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
                 unreachable!("stub is never invoked")
             }
             async fn stream_chat(
                 &self,
-                _request: ModelRequest,
+                _request: &ModelRequest,
+                _telemetry: nuo_provider::TransportTelemetry,
             ) -> Result<
                 futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
                 nuo_protocol::ProviderError,

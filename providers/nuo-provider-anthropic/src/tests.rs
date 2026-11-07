@@ -56,13 +56,25 @@ fn image_message(text: &str) -> Message {
     }])
 }
 
+fn body_of(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
+    request::body(&messages, &[], input)
+}
+
+fn body_with_caps_of(
+    messages: Vec<Message>,
+    input: BodyInput<'_>,
+    capabilities: &nuo_provider::ModelCapabilities,
+) -> Value {
+    request::body_with_capabilities(&messages, &[], input, capabilities)
+}
+
 #[test]
 fn declared_text_only_route_projects_image_blocks_away() {
     // Anthropic `image` blocks were emitted unconditionally before, so
     // a route that declares no image input failed the whole turn.
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
-    let body = request::body_with_capabilities(
+    let body = body_with_caps_of(
         vec![image_message("look")],
         body_input(&provider, false),
         &caps_with_vision(Some(false)),
@@ -78,7 +90,7 @@ fn declared_text_only_route_projects_image_blocks_away() {
 fn undeclared_route_keeps_image_blocks() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
-    let body = request::body_with_capabilities(
+    let body = body_with_caps_of(
         vec![image_message("look")],
         body_input(&provider, false),
         &caps_with_vision(None),
@@ -94,7 +106,7 @@ fn undeclared_route_keeps_image_blocks() {
 fn request_body_lifts_system_to_top_level() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
-    let body = request::body(
+    let body = body_of(
         vec![
             Message::new(Role::System, "you are concise"),
             Message::new(Role::User, "hi"),
@@ -111,7 +123,7 @@ fn request_body_lifts_system_to_top_level() {
 fn request_body_serializes_tool_result_as_user_block() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
-    let body = request::body(
+    let body = body_of(
         vec![
             Message::new(Role::User, "run it"),
             Message {
@@ -191,8 +203,9 @@ fn request_body_includes_tools_in_anthropic_shape() {
         vec![Message::new(Role::User, "hi")],
         &tools,
     );
-    let (messages, tool_specs) = request.into_parts();
-    let body = request::body(
+    let messages = request.messages.clone();
+    let tool_specs = request.tool_specs.clone();
+    let body = body_of(
         messages,
         BodyInput {
             model: &provider.endpoint.model,
@@ -257,8 +270,9 @@ fn cache_breakpoints_use_all_four_slots() {
         ],
         &tools,
     );
-    let (messages, tool_specs) = request.into_parts();
-    let body = request::body(
+    let messages = request.messages.clone();
+    let tool_specs = request.tool_specs.clone();
+    let body = body_of(
         messages,
         BodyInput {
             model: &provider.endpoint.model,
@@ -294,8 +308,9 @@ fn disabled_cache_plan_omits_cache_breakpoints() {
         ],
         &tools,
     );
-    let (messages, tool_specs) = request.into_parts();
-    let body = request::body(
+    let messages = request.messages.clone();
+    let tool_specs = request.tool_specs.clone();
+    let body = body_of(
         messages,
         BodyInput {
             model: &provider.endpoint.model,
@@ -324,8 +339,9 @@ fn cache_breakpoints_never_exceed_four_cap() {
         })
         .collect();
     let request = nuo_provider::capability::ModelRequest::with_tools(history, &tools);
-    let (messages, tool_specs) = request.into_parts();
-    let body = request::body(
+    let messages = request.messages.clone();
+    let tool_specs = request.tool_specs.clone();
+    let body = body_of(
         messages,
         BodyInput {
             model: &provider.endpoint.model,
@@ -347,7 +363,7 @@ fn cache_breakpoints_never_exceed_four_cap() {
 fn cache_breakpoints_use_default_five_minute_ttl() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
-    let body = request::body(
+    let body = body_of(
         vec![
             Message::new(Role::System, "sys"),
             Message::new(Role::User, "hi"),
@@ -380,7 +396,7 @@ fn cache_breakpoints_degrade_when_regions_absent() {
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let mut input = body_input(&provider, false);
     input.cache_plan = &DEFAULT_EXPLICIT_CACHE_PLAN;
-    let body = request::body(
+    let body = body_of(
         vec![
             Message::new(Role::User, "first"),
             Message::new(Role::Assistant, "second"),
@@ -399,7 +415,7 @@ fn cache_breakpoints_skip_non_stampable_system_shape() {
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
     let mut input = body_input(&provider, false);
     input.cache_plan = &DEFAULT_EXPLICIT_CACHE_PLAN;
-    let body = request::body(
+    let body = body_of(
         vec![
             Message::new(Role::System, ""),
             Message::new(Role::User, "hi"),
@@ -417,7 +433,7 @@ fn cache_breakpoints_skip_non_stampable_system_shape() {
 fn claude_request_body_omits_thinking_by_default() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "claude-opus-4-8".to_string(), "https://x");
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -436,7 +452,7 @@ fn claude_request_body_injects_adaptive_thinking_when_opted_in() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "claude-opus-4-8".to_string(), "https://x")
             .with_thinking(ThinkingConfig::default().with_mode(ReasoningMode::Adaptive));
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -460,7 +476,7 @@ fn haiku_uses_manual_thinking_not_adaptive_when_opted_in() {
             .with_mode(ReasoningMode::Adaptive)
             .with_effort(Effort::Max),
     );
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -484,7 +500,7 @@ fn haiku_omits_thinking_and_beta_when_off() {
         "claude-haiku-4-5-20251001".to_string(),
         "https://x",
     );
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -507,7 +523,7 @@ fn sonnet_46_clamps_xhigh_to_high_but_opus_48_keeps_it() {
             .with_mode(ReasoningMode::Adaptive)
             .with_effort(Effort::Xhigh),
     );
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&sonnet, false),
     );
@@ -520,7 +536,7 @@ fn sonnet_46_clamps_xhigh_to_high_but_opus_48_keeps_it() {
                     .with_mode(ReasoningMode::Adaptive)
                     .with_effort(Effort::Xhigh),
             );
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&opus, false),
     );
@@ -534,7 +550,7 @@ fn unknown_relay_model_omits_thinking_by_default() {
         "some-unknown-relay-model".to_string(),
         "https://x",
     );
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -548,7 +564,7 @@ fn unknown_relay_model_omits_thinking_by_default() {
 fn known_relay_model_also_defaults_to_thinking_off() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "minimax-m3".to_string(), "https://x");
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -567,7 +583,7 @@ fn non_default_effort_is_stamped_into_output_config() {
                     .with_mode(ReasoningMode::Adaptive)
                     .with_effort(Effort::Max),
             );
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -607,7 +623,7 @@ fn explicit_high_effort_is_honored_not_swallowed() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "claude-opus-4-8".to_string(), "https://x")
             .with_thinking(ThinkingConfig::default().with_effort(Effort::High));
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -622,7 +638,7 @@ fn effort_without_thinking_stays_decoupled() {
     let provider =
         AnthropicMessagesProvider::new("k".to_string(), "claude-opus-4-8".to_string(), "https://x")
             .with_thinking(ThinkingConfig::default().with_effort(Effort::Medium));
-    let body = request::body(
+    let body = body_of(
         vec![Message::new(Role::User, "hi")],
         body_input(&provider, false),
     );
@@ -651,7 +667,7 @@ fn assistant_message_replays_signed_thinking_block() {
         }),
         ..Message::new(Role::Assistant, "")
     };
-    let wire = request::message_obj(prior);
+    let wire = request::message_obj(&prior, &Default::default()).expect("assistant turn survives");
     let blocks = wire["content"]
         .as_array()
         .expect("content is a block array");
@@ -674,7 +690,7 @@ fn assistant_message_omits_unsigned_thinking_without_signature() {
         provider_meta: None,
         ..Message::new(Role::Assistant, "")
     };
-    let wire = request::message_obj(prior);
+    let wire = request::message_obj(&prior, &Default::default()).expect("assistant turn survives");
     let blocks = wire["content"].as_array().unwrap();
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0]["type"], "text");
@@ -684,7 +700,7 @@ fn assistant_message_omits_unsigned_thinking_without_signature() {
 #[test]
 fn assistant_message_omits_thinking_block_when_no_reasoning() {
     let prior = Message::new(Role::Assistant, "just text");
-    let wire = request::message_obj(prior);
+    let wire = request::message_obj(&prior, &Default::default()).expect("assistant turn survives");
     let blocks = wire["content"].as_array().unwrap();
     assert_eq!(blocks.len(), 1);
     assert_eq!(blocks[0]["type"], "text");

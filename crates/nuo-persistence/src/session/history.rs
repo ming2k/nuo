@@ -2,14 +2,38 @@
 //! bookkeeping, fork/lineage queries, and the session tree.
 use super::*;
 
+/// What the caller guarantees about the durable projection.
+///
+/// `commit_turn` used to *infer* append-vs-rebuild by deep-comparing the
+/// caller's whole window against the durable projection on every commit — an
+/// O(history) scan on the turn hot path. The caller already knows: round
+/// admission and turn boundaries append, while a context projection rewrites
+/// committed messages. It now states which; the store verifies the claim with
+/// a single-message tail check instead of scanning history. A failed check
+/// degrades to [`Self::Reprojected`], so a wrong claim costs a comparison, not
+/// data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitBasis {
+    /// `messages` is the durable projection plus appended messages. The store
+    /// appends the tail without comparing history.
+    Appended,
+    /// `messages` may differ anywhere: a projection rewrote committed
+    /// messages, a rebuild happened, or the caller cannot prove appending.
+    /// The store compares and rebuilds as needed.
+    Reprojected,
+}
+
 /// One unified turn commit for [`SessionStore::commit_turn`]. `messages` is
-/// the full current window (O(delta) against the durable projection);
-/// `round_counter` is committed only when it differs; `usage_records` are
-/// upserted only where they changed; `retry_point` arms or clears the retry
-/// affordance; `round_interrupt` records an interrupted outcome.
+/// the full current window; `basis` says whether its committed prefix is known
+/// to be untouched; `round_counter` is committed only when it differs;
+/// `usage_records` are upserted only where they changed; `retry_point` arms or
+/// clears the retry affordance; `round_interrupt` records an interrupted
+/// outcome.
 #[derive(Debug, Clone)]
 pub struct CommitTurn<'a> {
     pub messages: &'a [Message],
+    /// The caller's guarantee about the committed prefix.
+    pub basis: CommitBasis,
     pub round_counter: Option<u64>,
     pub usage_records: &'a [nuo_protocol::RequestUsageRecord],
     pub retry_point: Option<Option<nuo_protocol::RetryPoint>>,
@@ -53,9 +77,10 @@ pub struct ForkOutcome {
 }
 
 impl<'a> CommitTurn<'a> {
-    pub fn new(messages: &'a [Message]) -> Self {
+    pub fn new(messages: &'a [Message], basis: CommitBasis) -> Self {
         Self {
             messages,
+            basis,
             round_counter: None,
             usage_records: &[],
             retry_point: None,
@@ -363,26 +388,39 @@ impl SessionStore {
             let mut state = self.state.lock().await;
 
             // 1. Message-tail delta against the projection.
-            let durable_len = state.get_or_project_messages().len();
-            let prefix_matches = commit.messages.len() >= durable_len
-                && wire_eq(
-                    &commit.messages[..durable_len],
-                    state.get_or_project_messages(),
-                );
+            //
+            // The caller states whether the committed prefix is untouched. An
+            // `Appended` claim is verified by one tail comparison — not by
+            // deep-comparing the whole window, which made every turn boundary
+            // scan the session's history. A failed check falls through to the
+            // safe path, so a wrong claim costs a comparison, never data.
+            let (durable_len, tail_ok) = {
+                let projection = state.get_or_project_messages();
+                let len = projection.len();
+                let tail_ok = len == 0
+                    || (commit.messages.len() >= len
+                        && commit.messages[len - 1].semantic_wire_eq(&projection[len - 1]));
+                (len, tail_ok)
+            };
+            let appended = commit.basis == CommitBasis::Appended
+                && commit.messages.len() >= durable_len
+                && tail_ok;
             let old_entries_len = state.data.transcript.entries.len();
             let mut children = Vec::new();
             let mut full_rewrite = false;
-            if commit.messages.len() > durable_len && prefix_matches {
+            if appended {
                 let tail = &commit.messages[durable_len..];
-                for message in tail {
-                    state
-                        .data
-                        .transcript
-                        .push(nuo_protocol::TranscriptEntry::from_message(0, message));
+                if !tail.is_empty() {
+                    for message in tail {
+                        state
+                            .data
+                            .transcript
+                            .push(nuo_protocol::TranscriptEntry::from_message(0, message));
+                    }
+                    children = admit_subagent_children(&mut state.data, tail);
+                    state.append_to_projection_cache(tail);
+                    state.data.updated_at = unix_timestamp();
                 }
-                children = admit_subagent_children(&mut state.data, tail);
-                state.append_to_projection_cache(tail);
-                state.data.updated_at = unix_timestamp();
             } else if !wire_eq(commit.messages, state.get_or_project_messages()) {
                 state.data.transcript = rebuild_transcript_from_messages(commit.messages);
                 state.data.generation = uuid::Uuid::new_v4().to_string();
@@ -770,6 +808,12 @@ impl SessionStore {
     /// Project the current session state into canonical [`nuo_protocol::SessionIR`].
     pub async fn session_ir(&self) -> nuo_protocol::SessionIR {
         let session_id = self.id().await;
+        // Read-your-writes: the causal graph is built off the hot path, so a
+        // reader must drain this session's pending delta before hydrating it.
+        // A flush failure is disclosed, not papered over: the IR would be stale.
+        if let Err(error) = self.writer.flush_derived_session(session_id.clone()).await {
+            tracing::warn!(%error, %session_id, "could not flush derived indexes before hydrating the Session IR");
+        }
         if let Ok(reader) = self.writer.reader()
             && let Ok(Some(ir)) = reader.load_session_ir(&session_id)
         {

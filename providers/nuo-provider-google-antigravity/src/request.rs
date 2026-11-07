@@ -231,8 +231,8 @@ pub fn body_with_capabilities(
     capabilities: &nuo_provider::ModelCapabilities,
 ) -> Value {
     let (messages, _dropped_images) =
-        nuo_provider::project_images_for_route(model, messages, capabilities);
-    body_inner(messages, input)
+        nuo_provider::project_images_for_route(model, &messages, capabilities);
+    body_inner(messages.into_owned(), input)
 }
 
 fn body_inner(messages: Vec<Message>, input: BodyInput<'_>) -> Value {

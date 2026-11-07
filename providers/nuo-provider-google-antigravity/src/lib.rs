@@ -305,12 +305,15 @@ impl GoogleProvider {
     /// as a separate method so the downgrade path is explicit and testable.
     async fn stream_chat_events_without_thinking(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
-        let (response, shape) = self.send_google_request(&request, true, true, None).await?;
+        let (response, shape) = self
+            .send_google_request(request, &telemetry, true, true, None)
+            .await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {
@@ -334,6 +337,7 @@ impl GoogleProvider {
     async fn send_google_request(
         &self,
         request: &ModelRequest,
+        telemetry: &nuo_provider::TransportTelemetry,
         is_stream: bool,
         omit_thinking: bool,
         timeout: Option<std::time::Duration>,
@@ -350,14 +354,14 @@ impl GoogleProvider {
         }
         let auth = auth_result.map_err(|e| ProviderError::authentication("Google", e))?;
         let (url, headers, body) =
-            self.prepare_request_for_auth(request.clone(), is_stream, omit_thinking, &auth);
+            self.prepare_request_for_auth(request, is_stream, omit_thinking, &auth);
         let shape = self.request_shape(&body);
 
         let mut req_builder = RequestBuilder::new(http::Method::POST, &url)
             .headers(headers.clone())
             .json(&body)
             .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE)
-            .with_telemetry(request.transport_telemetry.clone());
+            .with_telemetry(telemetry.clone());
         if let Some(t) = timeout {
             req_builder = req_builder.timeout(t);
         }
@@ -373,18 +377,14 @@ impl GoogleProvider {
                 .force_refresh_auth_after(&auth.token)
                 .await
                 .map_err(|error| ProviderError::authentication("Google", error))?;
-            let (retry_url, retry_headers, retry_body) = self.prepare_request_for_auth(
-                request.clone(),
-                is_stream,
-                omit_thinking,
-                &refreshed_auth,
-            );
+            let (retry_url, retry_headers, retry_body) =
+                self.prepare_request_for_auth(request, is_stream, omit_thinking, &refreshed_auth);
             let retry_shape = self.request_shape(&retry_body);
             let mut retry_builder = RequestBuilder::new(http::Method::POST, &retry_url)
                 .headers(retry_headers)
                 .json(&retry_body)
                 .tls_profile(crate::spec_antigravity::ANTIGRAVITY_TLS_PROFILE)
-                .with_telemetry(request.transport_telemetry.clone());
+                .with_telemetry(telemetry.clone());
             if let Some(t) = timeout {
                 retry_builder = retry_builder.timeout(t);
             }
@@ -590,14 +590,20 @@ impl GoogleProvider {
     /// prerogative — the turn itself is not an error.
     async fn chat_without_thinking(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
         tracing::warn!(
             model = %self.endpoint.model,
             "upstream rejected thinkingConfig; retrying without disclosed thinking (chain withheld by upstream)"
         );
         let (response, shape) = self
-            .send_google_request(&request, false, true, Some(self.client.request_timeout()))
+            .send_google_request(
+                request,
+                &nuo_provider::TransportTelemetry::default(),
+                false,
+                true,
+                Some(self.client.request_timeout()),
+            )
             .await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
@@ -633,7 +639,7 @@ impl GoogleProvider {
     #[cfg(test)]
     fn prepare_request(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
         is_stream: bool,
         omit_thinking: bool,
     ) -> (String, http::header::HeaderMap, serde_json::Value) {
@@ -643,7 +649,7 @@ impl GoogleProvider {
 
     fn prepare_request_for_auth(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
         is_stream: bool,
         omit_thinking: bool,
         auth: &nuo_provider::ResolvedAuth,
@@ -668,14 +674,8 @@ impl GoogleProvider {
         // validates on the backend that issued it, and the model id alone cannot
         // distinguish AI Studio from Cloud Code or from a relay.
         let signature_origin = self.signature_origin();
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            ..
-        } = request;
-        messages.extend(temporary_context);
+        let mut messages = request.messages.clone();
+        messages.extend(request.temporary_context.iter().cloned());
         // Shared route-scoped image projection: Google's
         // `inline_data` parts were previously emitted unconditionally, so a
         // route that declares no image input failed the turn instead of having
@@ -684,8 +684,8 @@ impl GoogleProvider {
             &self.endpoint.model,
             messages,
             request::BodyInput {
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 include_thoughts,
                 thinking,
                 signature_origin: &signature_origin,
@@ -832,11 +832,17 @@ impl Provider for GoogleProvider {
 
     async fn chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
         let omit = self.thinking_was_rejected();
         let (response, shape) = self
-            .send_google_request(&request, false, omit, Some(self.client.request_timeout()))
+            .send_google_request(
+                request,
+                &nuo_provider::TransportTelemetry::default(),
+                false,
+                omit,
+                Some(self.client.request_timeout()),
+            )
             .await?;
         let response = match ensure_success(response, "Google", Some(&self.endpoint.model)).await {
             Ok(response) => response,
@@ -885,13 +891,16 @@ impl Provider for GoogleProvider {
 
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
-        let (response, shape) = self.send_google_request(&request, true, omit, None).await?;
+        let (response, shape) = self
+            .send_google_request(request, &telemetry, true, omit, None)
+            .await?;
         let response = match ensure_success(response, "Google", Some(&self.endpoint.model)).await {
             Ok(response) => response,
             Err(e) => {
@@ -932,13 +941,16 @@ impl Provider for GoogleProvider {
 
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
         let omit = self.thinking_was_rejected();
-        let (response, shape) = self.send_google_request(&request, true, omit, None).await?;
+        let (response, shape) = self
+            .send_google_request(request, &telemetry, true, omit, None)
+            .await?;
         let response = match ensure_success(response, "Google", Some(&self.endpoint.model)).await {
             Ok(response) => response,
             Err(e) => {
@@ -964,7 +976,10 @@ impl Provider for GoogleProvider {
                         model = %self.endpoint.model,
                         "upstream rejected thinkingConfig; streaming without disclosed thinking (chain withheld by upstream)"
                     );
-                    return Box::pin(self.stream_chat_events_without_thinking(request)).await;
+                    return Box::pin(
+                        self.stream_chat_events_without_thinking(request, telemetry.clone()),
+                    )
+                    .await;
                 }
                 return Err(e);
             }
@@ -1200,7 +1215,7 @@ mod tests {
             )
             .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
-            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
                 body["model"], expected,
                 "model id {id} must match expected wire id {expected}"
@@ -1224,7 +1239,7 @@ mod tests {
             .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             p.reasoning_effort = Some(effort);
-            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
             assert_eq!(body["model"], "gemini-3.8-flash-tiered");
             assert!(!body["request"]["generationConfig"]["thinkingConfig"].is_null());
         }
@@ -1239,7 +1254,7 @@ mod tests {
         .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
         let (_, _, body_claude) =
-            p_claude.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            p_claude.prepare_request(&ModelRequest::new(Vec::new()), false, false);
         assert!(body_claude["request"]["generationConfig"]["thinkingConfig"].is_null());
     }
 
@@ -1265,7 +1280,7 @@ mod tests {
             .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
             .with_project_id("proj-1");
             p.reasoning_effort = Some(effort);
-            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
                 body["model"], expected,
                 "effort {effort:?} must reach its registered argon entity"
@@ -1281,7 +1296,7 @@ mod tests {
         )
         .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
-        let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+        let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
         assert_eq!(body["model"], "gemini-4-argon-medium");
     }
 
@@ -1317,7 +1332,7 @@ mod tests {
             .with_project_id("proj-1");
             p.capabilities.effort_entities = observed.clone();
             p.reasoning_effort = effort;
-            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
                 body["model"], expected,
                 "effort {effort:?} must reach its registered 5-5 entity"
@@ -1360,7 +1375,7 @@ mod tests {
             .with_project_id("proj-1");
             assert!(p.capabilities.effort_entities.is_empty());
             p.reasoning_effort = effort;
-            let (_, _, body) = p.prepare_request(ModelRequest::new(Vec::new()), false, false);
+            let (_, _, body) = p.prepare_request(&ModelRequest::new(Vec::new()), false, false);
             assert_eq!(
                 body["model"], expected,
                 "offline floor for {model} must hit its registered entity"
@@ -1404,7 +1419,7 @@ mod tests {
         let p = GoogleProvider::new("k".to_string(), "gemini-3.7-flash".to_string())
             .with_model_capabilities(capabilities)
             .with_reasoning_effort(Some(nuo_provider::Effort::High));
-        let (_, _, with) = p.prepare_request(ModelRequest::new(Vec::new()), true, false);
+        let (_, _, with) = p.prepare_request(&ModelRequest::new(Vec::new()), true, false);
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["includeThoughts"],
             true
@@ -1414,7 +1429,7 @@ mod tests {
             "HIGH"
         );
 
-        let (_, _, without) = p.prepare_request(ModelRequest::new(Vec::new()), true, true);
+        let (_, _, without) = p.prepare_request(&ModelRequest::new(Vec::new()), true, true);
         assert!(
             without["generationConfig"]["thinkingConfig"].is_null(),
             "the entire thinkingConfig object must be absent after downgrade"
@@ -1441,12 +1456,12 @@ mod tests {
         let p = GoogleProvider::new("k".to_string(), "gemini-2.5-pro".to_string())
             .with_model_capabilities(capabilities)
             .with_reasoning_effort(Some(nuo_provider::Effort::High));
-        let (_, _, with) = p.prepare_request(ModelRequest::new(Vec::new()), true, false);
+        let (_, _, with) = p.prepare_request(&ModelRequest::new(Vec::new()), true, false);
         assert_eq!(
             with["generationConfig"]["thinkingConfig"]["thinkingBudget"],
             32768
         );
-        let (_, _, without) = p.prepare_request(ModelRequest::new(Vec::new()), true, true);
+        let (_, _, without) = p.prepare_request(&ModelRequest::new(Vec::new()), true, true);
         assert!(without["generationConfig"]["thinkingConfig"].is_null());
     }
 
@@ -1459,7 +1474,7 @@ mod tests {
         );
         let auth = nuo_provider::ResolvedAuth::new("AIza-key");
         let (url, headers, _) =
-            p.prepare_request_for_auth(ModelRequest::new(Vec::new()), false, true, &auth);
+            p.prepare_request_for_auth(&ModelRequest::new(Vec::new()), false, true, &auth);
         assert!(url.ends_with(":generateContent"), "{url}");
         assert!(
             !url.contains("key="),
@@ -1556,7 +1571,7 @@ mod tests {
         )
         .with_dialect(nuo_provider::dialects::GoogleGenerateContentDialect::Antigravity)
         .with_project_id("proj-1");
-        let (_, _, body) = p.prepare_request(ModelRequest::new(messages), false, false);
+        let (_, _, body) = p.prepare_request(&ModelRequest::new(messages), false, false);
         assert_eq!(
             body["request"]["contents"][1]["parts"][1]["thoughtSignature"],
             request::SKIP_THOUGHT_SIGNATURE_VALIDATOR,
@@ -1591,7 +1606,7 @@ mod tests {
             serde_json::json!(p.signature_origin()),
         );
         let (_, _, body) = p.prepare_request(
-            ModelRequest::new(vec![
+            &ModelRequest::new(vec![
                 Message::new(Role::User, "inspect"),
                 Message {
                     tool_calls: Some(vec![call.clone()]),

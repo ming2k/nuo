@@ -84,7 +84,7 @@ mod tests {
     impl Provider for MockTitleProvider {
         async fn chat(
             &self,
-            _request: ModelRequest,
+            _request: &ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             self.consult_count.fetch_add(1, Ordering::SeqCst);
             Ok(nuo_protocol::ProviderCompletion::message(Message::new(
@@ -95,7 +95,8 @@ mod tests {
 
         async fn stream_chat(
             &self,
-            _request: ModelRequest,
+            _request: &ModelRequest,
+            _telemetry: nuo_provider::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,

@@ -424,7 +424,10 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
         if streaming {
             use futures::StreamExt;
             let mut stream = provider
-                .stream_chat(ModelRequest::new(vec![]))
+                .stream_chat(
+                    &ModelRequest::new(vec![]),
+                    nuo_provider::TransportTelemetry::default(),
+                )
                 .await
                 .unwrap();
             let mut output = String::new();
@@ -433,7 +436,7 @@ async fn declared_antigravity_provider_sends_internal_requests_from_derived_chan
             }
             assert_eq!(output, "ok");
         } else {
-            provider.chat(ModelRequest::new(vec![])).await.unwrap();
+            provider.chat(&ModelRequest::new(vec![])).await.unwrap();
         }
         mock.assert_async().await;
     }

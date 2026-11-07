@@ -16,7 +16,7 @@ struct IdleProvider;
 impl Provider for IdleProvider {
     async fn chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -26,7 +26,8 @@ impl Provider for IdleProvider {
 
     async fn stream_chat(
         &self,
-        _request: nuo_protocol::ModelRequest,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,

@@ -215,6 +215,11 @@ impl Tool for ArchivistSearchHistoryTool {
         let limit = args["limit"].as_u64().unwrap_or(20).clamp(1, 100) as usize;
         let filter = workspace.map(|w| nuo_protocol::WorkspaceFilter::Path(w.into()));
 
+        // FTS is derived off the hot path; recall must see every committed
+        // transcript row, so drain the pending queue before reading.
+        if let Err(error) = get_persistence_handle().flush_derived_all().await {
+            tracing::warn!(%error, "could not flush derived indexes before archive search");
+        }
         let reader = read_store()?;
         // Two-stage recall (Layer 3, deterministic leg): strict
         // AND first; an empty strict result widens to OR so a gist whose

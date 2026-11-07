@@ -83,7 +83,13 @@ async fn main() {
 
     // Round 1: plain streaming text.
     let stream = provider
-        .stream_chat_events(vec![Message::new(Role::User, "Reply with exactly: OK")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(
+                Role::User,
+                "Reply with exactly: OK",
+            )]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("stream opens");
     let mut text = String::new();
@@ -129,7 +135,13 @@ async fn main() {
     .with_id("qianwen-smoke".to_string())
     .with_reasoning_effort(Some(Effort::None));
     let stream = provider_off
-        .stream_chat_events(vec![Message::new(Role::User, "Reply with exactly: OK")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(
+                Role::User,
+                "Reply with exactly: OK",
+            )]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("off-stream opens");
     let mut reasoning_off = 0usize;
@@ -156,7 +168,7 @@ async fn main() {
         )],
         &[std::sync::Arc::new(WeatherTool) as std::sync::Arc<dyn Tool>],
     );
-    let completion = provider.chat(request).await.expect("tool round completes");
+    let completion = provider.chat(&request).await.expect("tool round completes");
     let calls = completion.message.tool_calls.clone().unwrap_or_default();
     println!(
         "round 3 (tools): calls={} {}",

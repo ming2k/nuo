@@ -46,16 +46,24 @@ pub struct BodyInput<'a> {
 }
 
 /// Build the `/messages` request body from the harness message list.
-pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
+pub fn body(
+    conversation: &[Message],
+    temporary_context: &[Message],
+    input: BodyInput<'_>,
+) -> Value {
     let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
-    body_with_capabilities(messages, input, &capabilities)
+    body_with_capabilities(conversation, temporary_context, input, &capabilities)
 }
 
 /// Build a request with a provider-channel capability view. The provider calls
 /// this for trusted remote metadata; [`body`] remains the static-baseline entry
 /// point for standalone callers and tests.
+///
+/// The message list is **borrowed**: the harness owns the assembled request for
+/// the whole turn, and building a wire body must not copy the conversation.
 pub fn body_with_capabilities(
-    messages: Vec<Message>,
+    conversation: &[Message],
+    temporary_context: &[Message],
     input: BodyInput<'_>,
     capabilities: &nuo_provider::ModelCapabilities,
 ) -> Value {
@@ -73,8 +81,8 @@ pub fn body_with_capabilities(
     // to emit `image` blocks unconditionally, so a route that declares no image
     // input failed the whole turn on a request the client could have projected
     // correctly. The prose always survives; only the pixels are dropped.
-    let (messages, _dropped_images) =
-        nuo_provider::project_images_for_route(model_id, messages, capabilities);
+    let (conversation, _dropped_images) =
+        nuo_provider::project_images_for_route(model_id, conversation, capabilities);
 
     let tool_specs = tool_specs.map(|specs| {
         json!(
@@ -106,8 +114,9 @@ pub fn body_with_capabilities(
         (String::new(), String::new())
     };
 
-    let mut conversation: Vec<Message> = Vec::with_capacity(messages.len());
-    for message in messages {
+    let mut visible: Vec<&Message> =
+        Vec::with_capacity(conversation.len() + temporary_context.len());
+    for message in conversation.iter().chain(temporary_context.iter()) {
         if message.role == Role::System {
             if !static_system_text.is_empty() {
                 static_system_text.push_str("\n\n");
@@ -115,7 +124,7 @@ pub fn body_with_capabilities(
             static_system_text.push_str(&message.content);
             continue;
         }
-        conversation.push(message);
+        visible.push(message);
     }
 
     let system_text = match (
@@ -129,33 +138,22 @@ pub fn body_with_capabilities(
     };
 
     // Every assistant `tool_calls` must be followed by a corresponding `tool`
-    // result. Collect the ids that got a result, then strip unanswered calls.
-    let answered: std::collections::HashSet<String> = conversation
+    // result. Collect the ids that got a result; unanswered calls are dropped
+    // at serialization instead of mutating (and therefore copying) the
+    // conversation.
+    let answered: std::collections::HashSet<&str> = visible
         .iter()
-        .filter_map(|m| {
-            if m.role == Role::Tool {
-                m.tool_call_id.clone()
-            } else {
-                None
-            }
-        })
+        .filter(|m| m.role == Role::Tool)
+        .filter_map(|m| m.tool_call_id.as_deref())
         .collect();
-    conversation.retain_mut(|m| {
-        if m.role != Role::Assistant {
-            return true;
-        }
-        if let Some(calls) = m.tool_calls.as_mut() {
-            calls.retain(|c| answered.contains(&c.id));
-            if calls.is_empty() {
-                m.tool_calls = None;
-            }
-        }
-        !m.content.is_empty() || m.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
-    });
+    let wire_messages: Vec<Value> = visible
+        .iter()
+        .filter_map(|message| message_obj(message, &answered))
+        .collect();
 
     let mut body = json!({
         "model": model_id,
-        "messages": conversation.into_iter().map(message_obj).collect::<Vec<_>>(),
+        "messages": wire_messages,
         "max_tokens": max_tokens,
         "stream": stream,
     });
@@ -424,18 +422,21 @@ fn stamp_thinking(
 /// `user` messages carrying `tool_result` blocks. Content is always a block
 /// array; plain text becomes `[{type:"text", text}]`, and images become
 /// `image` blocks.
-pub fn message_obj(m: Message) -> Value {
+///
+/// Assistant turns are filtered here rather than by mutating the caller's
+/// window: a tool call whose result is missing is dropped, and a turn left with
+/// no content and no surviving call disappears entirely (Anthropic rejects an
+/// empty turn). `None` means "do not emit this message".
+pub fn message_obj(m: &Message, answered: &std::collections::HashSet<&str>) -> Option<Value> {
     match m.role {
-        Role::Tool => {
-            json!({
-                "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": m.tool_call_id.unwrap_or_default(),
-                    "content": m.content,
-                }],
-            })
-        }
+        Role::Tool => Some(json!({
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": m.tool_call_id.as_deref().unwrap_or_default(),
+                "content": m.content,
+            }],
+        })),
         Role::Assistant => {
             let mut blocks: Vec<Value> = Vec::new();
             // Replay the prior turn's thinking FIRST (Anthropic requires a
@@ -443,7 +444,7 @@ pub fn message_obj(m: Message) -> Value {
             // we have reasoning text AND its server-assigned signature.
             if let Some(reasoning) = m.reasoning_content.as_ref()
                 && !reasoning.is_empty()
-                && let Some(sig) = thinking_signature_of(&m)
+                && let Some(sig) = thinking_signature_of(m)
             {
                 blocks.push(json!({
                     "type": "thinking",
@@ -454,8 +455,10 @@ pub fn message_obj(m: Message) -> Value {
             if !m.content.is_empty() {
                 blocks.push(json!({"type":"text","text": m.content}));
             }
+            let mut surviving_calls = 0usize;
             if let Some(calls) = m.tool_calls.as_ref() {
-                for call in calls {
+                for call in calls.iter().filter(|c| answered.contains(c.id.as_str())) {
+                    surviving_calls += 1;
                     blocks.push(json!({
                         "type": "tool_use",
                         "id": call.id,
@@ -464,12 +467,17 @@ pub fn message_obj(m: Message) -> Value {
                     }));
                 }
             }
-            json!({"role": "assistant", "content": blocks})
+            // Keep the turn exactly as the previous `retain_mut` did: content
+            // or a surviving call. A reasoning-only turn is dropped.
+            if m.content.is_empty() && surviving_calls == 0 {
+                return None;
+            }
+            Some(json!({"role": "assistant", "content": blocks}))
         }
         _ => {
             // user / system-fallback: content as typed blocks (text + images).
-            let blocks = content_blocks(&m);
-            json!({"role": "user", "content": blocks})
+            let blocks = content_blocks(m);
+            Some(json!({"role": "user", "content": blocks}))
         }
     }
 }

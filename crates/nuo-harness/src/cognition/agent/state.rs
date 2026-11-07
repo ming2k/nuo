@@ -166,6 +166,7 @@ impl Agent {
                 crate::cognition::agent::ToolOutputProjectionBudget::default(),
             )),
             context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
+            history_reprojected: std::sync::atomic::AtomicBool::new(false),
             images_suppressed: Arc::new(std::sync::RwLock::new(None)),
             hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
             trajectory_guard_config: Arc::new(std::sync::RwLock::new(
@@ -496,6 +497,7 @@ impl Agent {
                 &mut enriched,
                 tool_output_budget.verbatim_tokens,
                 tool_output_budget.retention_tokens,
+                &self.token_weights,
             );
         }
 
@@ -1197,9 +1199,21 @@ impl Agent {
             && !replacement.is_empty()
         {
             *messages = replacement;
+            self.history_reprojected
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// Consume the "a projection replaced the live window" marker.
+    ///
+    /// The next durable commit must not take the append-only fast path: the
+    /// caller's committed prefix may have been rewritten. Consuming (rather
+    /// than reading) resets the round's state at the same boundary.
+    pub(crate) fn take_history_reprojected(&self) -> bool {
+        self.history_reprojected
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn set_thread_id(&self, thread_id: impl Into<String>) {

@@ -314,25 +314,17 @@ impl Provider for AnthropicMessagesProvider {
 
     async fn chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
     ) -> Result<nuo_provider::ProviderCompletion, nuo_provider::ProviderError> {
-        let cache_plan = self.resolve_cache_plan(&request)?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            transport_telemetry,
-            ..
-        } = request;
-        messages.extend(temporary_context);
+        let cache_plan = self.resolve_cache_plan(request)?;
         let body = request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream: false,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 max_tokens: self.max_tokens,
                 thinking: self.thinking,
                 cache_plan: &cache_plan,
@@ -341,7 +333,7 @@ impl Provider for AnthropicMessagesProvider {
         );
 
         let resp = self
-            .send_request(&body, false, &transport_telemetry)
+            .send_request(&body, false, &nuo_provider::TransportTelemetry::default())
             .await?;
         let response_json: serde_json::Value = decode_response_json(resp, "Anthropic").await?;
 
@@ -369,28 +361,21 @@ impl Provider for AnthropicMessagesProvider {
 
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
-        let cache_plan = self.resolve_cache_plan(&request)?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            transport_telemetry,
-            ..
-        } = request;
-        messages.extend(temporary_context);
+        let cache_plan = self.resolve_cache_plan(request)?;
         let body = request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream: true,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 max_tokens: self.max_tokens,
                 thinking: self.thinking,
                 cache_plan: &cache_plan,
@@ -398,7 +383,7 @@ impl Provider for AnthropicMessagesProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &transport_telemetry).await?;
+        let response = self.send_request(&body, true, &telemetry).await?;
 
         // Reuse the shared SSE byte reassembly; each payload is one Anthropic
         // event JSON. Map to text deltas only (this is the simple stream path).
@@ -412,28 +397,21 @@ impl Provider for AnthropicMessagesProvider {
 
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<ProviderStreamEvent, nuo_provider::ProviderError>>,
         nuo_provider::ProviderError,
     > {
-        let cache_plan = self.resolve_cache_plan(&request)?;
-        let ModelRequest {
-            instructions,
-            mut messages,
-            tool_specs,
-            temporary_context,
-            transport_telemetry,
-            ..
-        } = request;
-        messages.extend(temporary_context);
+        let cache_plan = self.resolve_cache_plan(request)?;
         let body = request::body_with_capabilities(
-            messages,
+            &request.messages,
+            &request.temporary_context,
             request::BodyInput {
                 model: &self.endpoint.model,
                 stream: true,
-                instructions: Some(&instructions),
-                tool_specs: (!tool_specs.is_empty()).then_some(tool_specs.as_slice()),
+                instructions: Some(&request.instructions),
+                tool_specs: request.tool_specs(),
                 max_tokens: self.max_tokens,
                 thinking: self.thinking,
                 cache_plan: &cache_plan,
@@ -441,7 +419,7 @@ impl Provider for AnthropicMessagesProvider {
             &self.capabilities,
         );
 
-        let response = self.send_request(&body, true, &transport_telemetry).await?;
+        let response = self.send_request(&body, true, &telemetry).await?;
 
         let sig_stash = signature::SignatureStash::shared();
         let terminal_stash = sig_stash.clone();

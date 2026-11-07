@@ -321,9 +321,9 @@ pub use policy_schema::*;
 /// server names the provisional announcements the frontend must retract. A peer
 /// that does not model the frame leaves phantom tool steps in the transcript,
 /// so the field is a hard floor: every client at 21 must move with it.
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 22;
+pub const MIN_PROTOCOL_VERSION: u32 = 23;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -546,6 +546,13 @@ pub struct ServerEndpointsReport {
 }
 
 /// The unified wire envelope on every connection.
+///
+/// Payloads are **nested** (`{"type":"response","response":{…}}`), never
+/// flattened into the envelope. `#[serde(flatten)]` forces the decoder to
+/// buffer the frame into an intermediate map before it can name the inner
+/// enum, which is a per-frame allocation and copy on the stream hot path —
+/// the one place a frame is measured in tens of microseconds. A nested field
+/// decodes straight into its type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 #[allow(clippy::large_enum_variant)]
@@ -598,20 +605,11 @@ pub enum Wire {
     },
 
     /// Full-duplex client agent request envelope.
-    Request {
-        #[serde(flatten)]
-        request: AgentRequest,
-    },
+    Request { request: AgentRequest },
     /// Full-duplex server agent response envelope.
-    Response {
-        #[serde(flatten)]
-        response: AgentResponse,
-    },
+    Response { response: AgentResponse },
     /// Server observability event envelope.
-    Monitor {
-        #[serde(flatten)]
-        event: MonitorEvent,
-    },
+    Monitor { event: MonitorEvent },
     /// Connection-level error envelope.
     Error {
         message: String,
@@ -737,27 +735,35 @@ impl Encoder<Wire> for NativeWireCodec {
     type Error = io::Error;
 
     fn encode(&mut self, item: Wire, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let serialized = serde_json::to_vec(&item).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Failed to serialize Wire payload: {e}"),
-            )
-        })?;
-
-        if serialized.len() > MAX_WIRE_FRAME_SIZE {
+        // Serialize straight into the frame buffer behind a reserved length
+        // prefix. The previous shape allocated a complete `Vec` per frame and
+        // copied it in — two allocations and a full copy for every streamed
+        // delta.
+        let start = dst.len();
+        dst.put_u32(0);
+        let serialized = {
+            let mut writer = dst.writer();
+            serde_json::to_writer(&mut writer, &item)
+        };
+        if let Err(error) = serialized {
+            dst.truncate(start);
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!(
-                    "Serialized Wire payload length {} exceeds maximum limit {}",
-                    serialized.len(),
-                    MAX_WIRE_FRAME_SIZE
-                ),
+                format!("Failed to serialize Wire payload: {error}"),
             ));
         }
 
-        dst.reserve(4 + serialized.len());
-        dst.put_u32(serialized.len() as u32);
-        dst.put_slice(&serialized);
+        let length = dst.len() - start - 4;
+        if length > MAX_WIRE_FRAME_SIZE {
+            dst.truncate(start);
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Serialized Wire payload length {length} exceeds maximum limit {MAX_WIRE_FRAME_SIZE}"
+                ),
+            ));
+        }
+        dst[start..start + 4].copy_from_slice(&(length as u32).to_be_bytes());
         Ok(())
     }
 }
@@ -779,7 +785,7 @@ mod readiness_protocol_tests {
     #[test]
     fn undecodable_frame_is_a_frame_outcome_not_a_stream_error() {
         // A well-framed payload naming a variant that no longer exists here.
-        let payload = br#"{"type":"Response","RetryResolved":{"attempt":1}}"#;
+        let payload = br#"{"type":"Response","response":{"RetryResolved":{"attempt":1}}}"#;
         let frame = decode_wire_payload(payload);
         match frame {
             WireFrame::Undecodable { envelope, detail } => {
@@ -789,8 +795,8 @@ mod readiness_protocol_tests {
                     "the disclosure must name the envelope direction, got: {detail}"
                 );
                 assert!(
-                    detail.contains("AgentResponse"),
-                    "the disclosure must name the enum that failed, got: {detail}"
+                    detail.contains("RetryResolved"),
+                    "the disclosure must name the variant that failed, got: {detail}"
                 );
             }
             WireFrame::Wire(other) => {
@@ -799,12 +805,39 @@ mod readiness_protocol_tests {
         }
     }
 
+    /// `[INV-WIRE-07]`: a frame that fails to encode leaves the buffer exactly
+    /// as it was. A half-written frame would shift every subsequent length
+    /// prefix, turning one rejected payload into a dead stream.
+    #[test]
+    fn an_oversize_frame_is_not_left_in_the_buffer() {
+        let mut buf = BytesMut::new();
+        buf.extend_from_slice(b"keep");
+        let before = buf.len();
+
+        let error = NativeWireCodec
+            .encode(
+                Wire::Error {
+                    message: "x".repeat(MAX_WIRE_FRAME_SIZE + 1),
+                    code: None,
+                },
+                &mut buf,
+            )
+            .expect_err("an oversize frame must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            buf.len(),
+            before,
+            "a failed encode must leave the frame buffer untouched"
+        );
+        assert_eq!(&buf[..], b"keep");
+    }
+
     /// The frame is consumed either way, so the *next* frame on the same
     /// length-prefixed stream must decode normally. This is what makes
     /// "continue reading" a sound recovery instead of a desynchronized guess.
     #[test]
     fn the_stream_stays_aligned_after_an_undecodable_frame() {
-        let unknown = br#"{"type":"Response","NoSuchVariant":{}}"#;
+        let unknown = br#"{"type":"Response","response":{"NoSuchVariant":{}}}"#;
         let good = serde_json::to_vec(&Wire::Error {
             message: "still here".to_string(),
             code: None,

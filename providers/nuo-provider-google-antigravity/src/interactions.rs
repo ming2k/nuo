@@ -264,8 +264,8 @@ impl Provider for GoogleInteractionsProvider {
         }
     }
 
-    async fn chat(&self, request: ModelRequest) -> Result<ProviderCompletion, ProviderError> {
-        let response = self.send_interactions_request(&request, false).await?;
+    async fn chat(&self, request: &ModelRequest) -> Result<ProviderCompletion, ProviderError> {
+        let response = self.send_interactions_request(request, false).await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {
@@ -304,9 +304,10 @@ impl Provider for GoogleInteractionsProvider {
 
     async fn stream_chat(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<ProviderTextStream, ProviderError> {
-        let events = self.stream_chat_events(request).await?;
+        let events = self.stream_chat_events(request, telemetry).await?;
         let text_stream = events.filter_map(|ev| async move {
             match ev {
                 Ok(ProviderStreamEvent::TextDelta(txt)) => Some(Ok(txt)),
@@ -318,9 +319,10 @@ impl Provider for GoogleInteractionsProvider {
 
     async fn stream_chat_events(
         &self,
-        request: ModelRequest,
+        request: &ModelRequest,
+        _telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<ProviderEventStream, ProviderError> {
-        let response = self.send_interactions_request(&request, true).await?;
+        let response = self.send_interactions_request(request, true).await?;
         let response = ensure_success(response, "Google", Some(&self.endpoint.model))
             .await
             .map_err(|e| {

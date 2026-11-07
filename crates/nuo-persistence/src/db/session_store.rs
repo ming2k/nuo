@@ -139,6 +139,11 @@ pub(crate) fn list_subagent_sessions(
 
 /// Delete a session and cascade all its events, messages, and command records.
 pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool> {
+    // Derived rows carry no foreign key to `threads` (FTS is a virtual table
+    // and `causal_nodes` predates the thread schema), so the membership trigger
+    // was what used to reclaim FTS rows. With derived indexing off the hot path
+    // the deletion is explicit and ordered before the owning row disappears.
+    crate::db::derived::purge_session(conn, session_id)?;
     let affected = conn.execute("DELETE FROM threads WHERE id = ?1", params![session_id])?;
     Ok(affected > 0)
 }
@@ -373,9 +378,13 @@ pub(crate) fn save_session_inner(
                 "DELETE FROM blob_refs WHERE session_id = ?1",
                 params![data.id],
             )?;
+            let mut refs: Vec<String> = Vec::new();
             for entry in &data.transcript.entries {
-                upsert_entry(conn, blob_store, entry)?;
+                refs.extend(upsert_entry(conn, blob_store, entry)?);
                 insert_membership(conn, data.id.as_str(), entry.seq, entry.id.as_str())?;
+            }
+            for unknown in &data.unknown_entries {
+                refs.extend(extract_content_blob(&unknown.payload_json));
             }
             for unknown in &data.unknown_entries {
                 upsert_entry_row(
@@ -393,12 +402,7 @@ pub(crate) fn save_session_inner(
                 )?;
                 insert_membership(conn, data.id.as_str(), unknown.seq, unknown.id.as_str())?;
             }
-            record_blob_refs(
-                conn,
-                data.id.as_str(),
-                &data.transcript.entries,
-                &data.unknown_entries,
-            )?;
+            record_blob_refs(conn, data.id.as_str(), &refs)?;
             for record in &data.request_usage_records {
                 insert_usage_record_tx(conn, data.id.as_str(), record)?;
             }
@@ -418,11 +422,10 @@ pub(crate) fn save_session_inner(
                 .transcript
                 .entries
                 .partition_point(|entry| (entry.seq as i64) <= watermark);
-            let mut new_entries = Vec::new();
+            let mut refs: Vec<String> = Vec::new();
             for entry in &data.transcript.entries[entry_start..] {
-                upsert_entry(conn, blob_store, entry)?;
+                refs.extend(upsert_entry(conn, blob_store, entry)?);
                 insert_membership(conn, data.id.as_str(), entry.seq, entry.id.as_str())?;
-                new_entries.push(entry);
             }
             let directive_watermark: i64 = conn.query_row(
                 "SELECT COALESCE(MAX(seq), -1) FROM projections WHERE session_id = ?1",
@@ -436,20 +439,26 @@ pub(crate) fn save_session_inner(
             for directive in &data.transcript.directives[directive_start..] {
                 insert_directive(conn, data.id.as_str(), directive)?;
             }
-            let new_entries: Vec<nuo_protocol::TranscriptEntry> =
-                new_entries.into_iter().cloned().collect();
-            record_blob_refs(conn, data.id.as_str(), &new_entries, &[])?;
+            record_blob_refs(conn, data.id.as_str(), &refs)?;
             for record in usage_upserts {
                 insert_usage_record_tx(conn, data.id.as_str(), record)?;
             }
         }
 
-        // Mirror the transcript's dialogue into the canonical fact substrate.
-        // The Session IR reads `causal_nodes`, and no live path ever wrote it, so
-        // every IR consumer (compaction above all) saw an empty graph. Runs after
-        // the transcript rows in this same transaction so the two views commit or
-        // roll back together.
-        crate::db::ir_mirror::mirror_transcript(conn, data, full)?;
+        // Derived indexes are **not** written here. The commit only records the
+        // durable transcript and enqueues the session; the causal mirror and
+        // FTS index are advanced off the hot path by
+        // `derived::advance_batch` (idle) or `derived::flush_session` (a reader
+        // that needs them). A full rewrite resets both views first: entry
+        // identities and sequences restarted, so every derived row is stale by
+        // construction.
+        let through = data.transcript.entries.last().map(|entry| entry.seq);
+        let now_ms = crate::db::unix_ms();
+        if full {
+            crate::db::derived::reset_for_rebuild(conn, &data.id, through, now_ms)?;
+        } else if let Some(through) = through {
+            crate::db::derived::enqueue(conn, &data.id, through, now_ms)?;
+        }
 
         // D3: the revision advance and the receipt land in the
         // same transaction as the facts they describe, so recovery can
@@ -535,40 +544,63 @@ fn insert_unknown_directive(
 /// Write one entry row, offloading an oversized body to the CAS when this
 /// engine has a blob store. The offload applies only to the
 /// row about to be inserted: already-durable rows keep their stored shape.
+///
+/// Returns every blob hash this row references, so the caller can maintain
+/// `blob_refs` from the hashes the write already computed. The earlier shape
+/// re-decoded each image *again* in the reference ledger — a second base64
+/// decode and hash per image per save.
 fn upsert_entry(
     conn: &Connection,
     blob_store: Option<&BlobStore>,
     entry: &nuo_protocol::TranscriptEntry,
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut hashes: Vec<String> = Vec::new();
+    // The payload is cheap to clone (the body lives in the row's `content`
+    // column, not in the payload). The body itself is cloned only when it is
+    // about to be cleared after offloading — never for an ordinary message.
     let mut payload = entry.payload.clone();
-    let mut content = entry.content.clone();
-    if content
-        .as_ref()
-        .is_some_and(|c| c.len() > CAS_THRESHOLD_BYTES)
-        && let nuo_protocol::EntryPayload::Message(message_payload) = &mut payload
-        && message_payload.content_blob.is_none()
-        && let Some(blob_store) = blob_store
-    {
-        let hash = blob_store
-            .put(content.as_deref().unwrap_or_default().as_bytes())
-            .map_err(rusqlite::Error::InvalidParameterName)?;
-        message_payload.content_blob = Some(hash);
-        if let Some(c) = &mut content {
-            c.clear();
+    let mut body_offloaded = false;
+    if let nuo_protocol::EntryPayload::Message(message_payload) = &mut payload {
+        if let Some(blob_store) = blob_store
+            && message_payload.content_blob.is_none()
+            && entry
+                .content
+                .as_ref()
+                .is_some_and(|body| body.len() > CAS_THRESHOLD_BYTES)
+        {
+            let hash = blob_store
+                .put(entry.content.as_deref().unwrap_or_default().as_bytes())
+                .map_err(rusqlite::Error::InvalidParameterName)?;
+            message_payload.content_blob = Some(hash);
+            body_offloaded = true;
         }
-    }
-    // Durable CAS publication for multimodal images
-    if let Some(blob_store) = blob_store
-        && let nuo_protocol::EntryPayload::Message(message_payload) = &payload
-        && let Some(images) = &message_payload.images
-    {
-        use base64::{Engine, engine::general_purpose::STANDARD};
-        for img in images {
-            if let Ok(bytes) = STANDARD.decode(&img.data) {
-                let _ = blob_store.put(&bytes);
+        // Record the reference whether this save created it or found it: a
+        // store opened without a blob store still owns the refs its rows
+        // already carry.
+        if let Some(hash) = &message_payload.content_blob {
+            hashes.push(hash.clone());
+        }
+        // Durable CAS publication for multimodal images. A failed publish does
+        // not produce a reference: recording a hash for bytes that never
+        // landed would keep a missing blob marked live.
+        if let Some(blob_store) = blob_store
+            && let Some(images) = &message_payload.images
+        {
+            use base64::{Engine, engine::general_purpose::STANDARD};
+            for img in images {
+                if let Ok(bytes) = STANDARD.decode(&img.data)
+                    && let Ok(hash) = blob_store.put(&bytes)
+                {
+                    hashes.push(hash);
+                }
             }
         }
     }
+    let row_content: Option<&str> = if body_offloaded {
+        Some("")
+    } else {
+        entry.content.as_deref()
+    };
     let payload = serde_json::to_string(&payload)
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     upsert_entry_row(
@@ -581,13 +613,14 @@ fn upsert_entry(
                 "message"
             },
             role: entry.role.map(role_str),
-            content: content.as_deref(),
+            content: row_content,
             origin: entry.origin.map(origin_str),
             hidden: entry.hidden,
             created_at_ms: entry.created_at_ms,
             payload: payload.as_str(),
         },
-    )
+    )?;
+    Ok(hashes)
 }
 
 fn upsert_entry_row(conn: &Connection, row: EntryEnvelope<'_>) -> Result<()> {
@@ -628,36 +661,11 @@ fn upsert_entry_row(conn: &Connection, row: EntryEnvelope<'_>) -> Result<()> {
     Ok(())
 }
 
-/// Maintain the durable blob reference ledger for the entries this save
-/// touches. Callers pass exactly the entries whose memberships they wrote.
-fn record_blob_refs(
-    conn: &Connection,
-    session_id: &str,
-    entries: &[nuo_protocol::TranscriptEntry],
-    unknown: &[crate::session::UnknownEntryRow],
-) -> Result<()> {
-    let mut refs: Vec<String> = Vec::new();
-    for entry in entries {
-        if let nuo_protocol::EntryPayload::Message(payload) = &entry.payload {
-            if let Some(hash) = &payload.content_blob {
-                refs.push(hash.clone());
-            }
-            if let Some(images) = &payload.images {
-                use base64::{Engine, engine::general_purpose::STANDARD};
-                for img in images {
-                    if let Ok(bytes) = STANDARD.decode(&img.data) {
-                        refs.push(crate::blobs::BlobStore::hash(&bytes));
-                    }
-                }
-            }
-        }
-    }
-    for row in unknown {
-        if let Some(hash) = extract_content_blob(&row.payload_json) {
-            refs.push(hash);
-        }
-    }
-    for hash in refs {
+/// Maintain the durable blob reference ledger for the blobs this save
+/// touches. Callers pass exactly the hashes the row writes already produced —
+/// the ledger never re-decodes or re-hashes content.
+fn record_blob_refs(conn: &Connection, session_id: &str, hashes: &[String]) -> Result<()> {
+    for hash in hashes {
         conn.execute(
             "INSERT OR IGNORE INTO blob_refs (session_id, hash) VALUES (?1, ?2)",
             params![session_id, hash],

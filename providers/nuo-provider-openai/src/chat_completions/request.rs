@@ -147,16 +147,26 @@ pub struct BodyInput<'a> {
 /// `images` — so durable sidecars (`children`, `subagent_meta`, `origin`) never
 /// reach the wire. Serialization is therefore a pure projection of the
 /// session: no field on the wire exists that the session did not produce.
-pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Value {
+pub fn body(
+    conversation: &[Message],
+    temporary_context: &[Message],
+    input: BodyInput<'_>,
+) -> Value {
     let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
-    body_with_capabilities(messages, input, &capabilities)
+    body_with_capabilities(conversation, temporary_context, input, &capabilities)
 }
 
 /// Build a request with a provider-channel capability view. The provider calls
 /// this for trusted remote metadata; [`body`] remains the static-baseline entry
 /// point for standalone callers and tests.
+///
+/// The window is **borrowed**. Provider-specific cleanup (orphan tool results,
+/// unanswered calls, DeepSeek reasoning hygiene) materializes a copy only of
+/// the messages it actually changes; every other message is serialized from the
+/// caller's window in place.
 pub fn body_with_capabilities(
-    messages: Vec<Message>,
+    conversation: &[Message],
+    temporary_context: &[Message],
     input: BodyInput<'_>,
     capabilities: &nuo_provider::ModelCapabilities,
 ) -> Value {
@@ -170,7 +180,15 @@ pub fn body_with_capabilities(
         cache_plan,
     } = input;
 
-    let mut messages = messages;
+    // A route that declared no image input has its attachments dropped (text
+    // survives; the model simply does not see the pixels, and OpenAI rejects
+    // `image_url` outright). The policy lives in `crate::vision` so all four
+    // transports project identically, and an *undeclared* route keeps its
+    // images instead of losing them silently.
+    let (conversation, _dropped_images) =
+        nuo_provider::project_images_for_route(model_id, conversation, capabilities);
+
+    let mut system_message: Option<Message> = None;
     if let Some(instructions) = instructions
         && !instructions.is_empty()
     {
@@ -184,77 +202,82 @@ pub fn body_with_capabilities(
             (true, true) => String::new(),
         };
         if !text.is_empty() {
-            messages.insert(0, Message::new(Role::System, text));
+            system_message = Some(Message::new(Role::System, text));
         }
     }
-
-    // A route that declared no image input has its attachments dropped (text
-    // survives; the model simply does not see the pixels, and OpenAI rejects
-    // `image_url` outright). The policy lives in `crate::vision` so all four
-    // transports project identically, and an *undeclared* route keeps its
-    // images instead of losing them silently.
-    let (messages, _dropped_images) =
-        nuo_provider::project_images_for_route(model_id, messages, capabilities);
 
     // OpenAI rejects any `tool` message whose `tool_call_id` does not match
     // a `tool_call` on a preceding assistant message. Drop orphan tool
     // results (e.g. from text-fallback calls or older saved sessions) so the
     // request can never fail with "tool_call_id is not found".
     let mut known_ids = std::collections::HashSet::new();
-    let mut messages: Vec<Message> = messages
-        .into_iter()
-        .filter(|message| {
-            if !valid_provider_message(message) {
-                return false;
-            }
-            match message.role {
-                Role::Assistant => {
-                    if let Some(calls) = message.tool_calls.as_ref() {
-                        for call in calls {
-                            known_ids.insert(call.id.clone());
-                        }
+    let mut refs: Vec<&Message> =
+        Vec::with_capacity(conversation.len() + temporary_context.len() + 1);
+    if let Some(system) = system_message.as_ref() {
+        refs.push(system);
+    }
+    for message in conversation.iter().chain(temporary_context.iter()) {
+        if !valid_provider_message(message) {
+            continue;
+        }
+        match message.role {
+            Role::Assistant => {
+                if let Some(calls) = message.tool_calls.as_ref() {
+                    for call in calls {
+                        known_ids.insert(call.id.clone());
                     }
-                    true
                 }
-                Role::Tool => message
+                refs.push(message);
+            }
+            Role::Tool => {
+                if message
                     .tool_call_id
                     .as_ref()
-                    .is_some_and(|id| !id.is_empty() && known_ids.contains(id)),
-                _ => true,
+                    .is_some_and(|id| !id.is_empty() && known_ids.contains(id))
+                {
+                    refs.push(message);
+                }
             }
-        })
-        .collect();
+            _ => refs.push(message),
+        }
+    }
 
     // Every assistant `tool_calls` must be followed by a corresponding
     // `tool` result message. Collect the ids that *did* get a result, then
     // strip unanswered calls from every assistant message so the request is
     // always valid — whether the turn was interrupted, the session was
     // mid-tool when saved, or older turns lost their results.
-    let answered: std::collections::HashSet<String> = messages
+    let answered: std::collections::HashSet<&str> = refs
         .iter()
-        .filter_map(|m| {
-            if m.role == Role::Tool {
-                m.tool_call_id.clone()
-            } else {
-                None
-            }
-        })
+        .filter(|m| m.role == Role::Tool)
+        .filter_map(|m| m.tool_call_id.as_deref())
         .collect();
-    messages.retain_mut(|m| {
-        if m.role != Role::Assistant {
-            return true;
+    // Copy only the assistant turns that actually lose a call; everything else
+    // stays borrowed. A turn left with no content and no surviving call is
+    // dropped (an empty assistant message is illegal on the wire).
+    let mut cleaned: Vec<std::borrow::Cow<'_, Message>> = Vec::with_capacity(refs.len());
+    for message in refs {
+        if message.role != Role::Assistant
+            || !message
+                .tool_calls
+                .as_ref()
+                .is_some_and(|calls| calls.iter().any(|c| !answered.contains(c.id.as_str())))
+        {
+            cleaned.push(std::borrow::Cow::Borrowed(message));
+            continue;
         }
-        if let Some(calls) = m.tool_calls.as_mut() {
-            calls.retain(|c| answered.contains(&c.id));
+        let mut owned = message.clone();
+        if let Some(calls) = owned.tool_calls.as_mut() {
+            calls.retain(|c| answered.contains(c.id.as_str()));
             if calls.is_empty() {
-                m.tool_calls = None;
+                owned.tool_calls = None;
             }
         }
-        // Keep the message only if it still carries content or at least one
-        // surviving tool call; a completely empty assistant message is illegal
-        // on the wire.
-        !m.content.is_empty() || m.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty())
-    });
+        if owned.content.is_empty() && owned.tool_calls.is_none() {
+            continue;
+        }
+        cleaned.push(std::borrow::Cow::Owned(owned));
+    }
 
     let tool_specs = tool_specs.map(|specs| {
         json!(
@@ -280,13 +303,25 @@ pub fn body_with_capabilities(
     // reasoning_content on the active (latest) assistant turn only; older assistant turns with
     // tool_calls have their reasoning pruned to "" (satisfying upstream schema verification
     // without inflating the prompt with historical thinking).
-    let last_assistant_idx = messages.iter().rposition(|m| m.role == Role::Assistant);
-    let wire_messages: Vec<Value> = messages
-        .into_iter()
+    let last_assistant_idx = cleaned
+        .iter()
+        .rposition(|message| message.role == Role::Assistant);
+    let wire_messages: Vec<Value> = cleaned
+        .iter_mut()
         .enumerate()
-        .map(|(idx, mut message)| {
-            if dialect.replays_reasoning_content() && Some(idx) != last_assistant_idx {
-                message.reasoning_content = None;
+        .map(|(idx, message)| {
+            if dialect.replays_reasoning_content()
+                && Some(idx) != last_assistant_idx
+                && message.reasoning_content.is_some()
+            {
+                match message {
+                    std::borrow::Cow::Borrowed(borrowed) => {
+                        let mut owned = (*borrowed).clone();
+                        owned.reasoning_content = None;
+                        *message = std::borrow::Cow::Owned(owned);
+                    }
+                    std::borrow::Cow::Owned(owned) => owned.reasoning_content = None,
+                }
             }
             message_obj(message, dialect)
         })
@@ -347,7 +382,7 @@ fn valid_provider_message(message: &Message) -> bool {
 
 /// Convert a harness [`Message`] to an OpenAI message object (role + content,
 /// with optional `tool_calls` / `tool_call_id`).
-pub fn message_obj(m: Message, dialect: OpenAiChatDialect) -> Value {
+pub fn message_obj(m: &Message, dialect: OpenAiChatDialect) -> Value {
     let openrouter_reasoning_details = m
         .provider_meta
         .as_ref()
@@ -355,7 +390,7 @@ pub fn message_obj(m: Message, dialect: OpenAiChatDialect) -> Value {
         .cloned();
     let reasoning_content = m
         .reasoning_content
-        .clone()
+        .as_deref()
         .filter(|value| !value.is_empty());
     let mut map = json!({
         "role": match m.role {
@@ -364,23 +399,23 @@ pub fn message_obj(m: Message, dialect: OpenAiChatDialect) -> Value {
             Role::System => "system",
             Role::Tool => "tool",
         },
-        "content": content(&m),
+        "content": content(m),
     });
-    if let Some(tool_calls) = m.tool_calls {
+    if let Some(tool_calls) = m.tool_calls.as_ref() {
         map["tool_calls"] = json!(
             tool_calls
-                .into_iter()
+                .iter()
                 .map(|tc| {
                     json!({
-                        "id": tc.id,
+                        "id": &tc.id,
                         "type": "function",
-                        "function": {"name": tc.name, "arguments": tc.arguments}
+                        "function": {"name": &tc.name, "arguments": &tc.arguments}
                     })
                 })
                 .collect::<Vec<_>>()
         );
     }
-    if let Some(tool_call_id) = m.tool_call_id {
+    if let Some(tool_call_id) = m.tool_call_id.as_deref() {
         map["tool_call_id"] = json!(tool_call_id);
     }
     if m.role == Role::Assistant {
@@ -433,6 +468,18 @@ pub fn content(m: &Message) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn body_of(messages: Vec<nuo_tool::Message>, input: BodyInput<'_>) -> Value {
+        body(&messages, &[], input)
+    }
+
+    fn body_with_caps_of(
+        messages: Vec<nuo_tool::Message>,
+        input: BodyInput<'_>,
+        capabilities: &nuo_provider::ModelCapabilities,
+    ) -> Value {
+        body_with_capabilities(&messages, &[], input, capabilities)
+    }
     use nuo_tool::ToolCall;
 
     static DEFAULT_CACHE_PLAN: nuo_provider::ResolvedCachePolicy =
@@ -481,7 +528,7 @@ mod tests {
 
     #[test]
     fn declared_text_only_route_strips_image_parts() {
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![image_message("look")],
             test_body_input("test-model", false, None, None, &DEFAULT_CACHE_PLAN),
             &caps_with_vision(Some(false)),
@@ -497,7 +544,7 @@ mod tests {
         // An endpoint that advertises no vision field must not have
         // its images silently stripped — the request goes out as-is and a
         // provider that cannot take it says so.
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![image_message("look")],
             test_body_input("test-model", false, None, None, &DEFAULT_CACHE_PLAN),
             &caps_with_vision(None),
@@ -513,7 +560,7 @@ mod tests {
 
     #[test]
     fn request_filters_empty_assistant_history() {
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "hello"),
                 Message::new(Role::Assistant, ""),
@@ -528,7 +575,7 @@ mod tests {
 
     #[test]
     fn request_includes_reasoning_effort_when_configured() {
-        let body = super::body(
+        let body = body_of(
             vec![Message::new(Role::User, "think")],
             test_body_input(
                 "gpt-5.5",
@@ -587,7 +634,7 @@ mod tests {
     #[test]
     fn deepseek_replays_reasoning_content_and_passes_none_through() {
         let (assistant, tool_result) = assistant_that_thought();
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "inspect"), assistant, tool_result],
             BodyInput {
                 model: "deepseek-flash",
@@ -618,7 +665,7 @@ mod tests {
     fn deepseek_replays_empty_reasoning_content_when_tool_calls_present_without_reasoning() {
         let (mut assistant, tool_result) = assistant_that_thought();
         assistant.reasoning_content = None;
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "inspect"), assistant, tool_result],
             BodyInput {
                 model: "deepseek-flash",
@@ -645,7 +692,7 @@ mod tests {
         let (mut assistant2, tool2) = assistant_that_thought();
         assistant2.reasoning_content = Some("latest thoughts".into());
 
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![
                 Message::new(Role::User, "first"),
                 assistant1,
@@ -675,7 +722,7 @@ mod tests {
     #[test]
     fn standard_chat_surface_never_replays_reasoning_content() {
         let (assistant, tool_result) = assistant_that_thought();
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "inspect"), assistant, tool_result],
             BodyInput {
                 model: "deepseek-flash",
@@ -738,7 +785,7 @@ mod tests {
             effort_entities: Vec::new(),
             default_effort: None,
         };
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "inspect"), assistant, tool_result],
             BodyInput {
                 model: "nex-agi/nex-n2.5-pro:free",
@@ -783,7 +830,7 @@ mod tests {
             routing_key: Some("session-42".into()),
             max_breakpoints: None,
         };
-        let body = super::body(
+        let body = body_of(
             vec![Message::new(Role::User, "hi")],
             test_body_input("kimi-k2.7-code", false, None, None, &cache_plan),
         );
@@ -792,7 +839,7 @@ mod tests {
 
     #[test]
     fn request_omits_prompt_cache_key_when_absent() {
-        let body = super::body(
+        let body = body_of(
             vec![Message::new(Role::User, "hi")],
             test_body_input("gpt-5.5", false, None, None, &DEFAULT_CACHE_PLAN),
         );
@@ -841,7 +888,7 @@ mod tests {
             ..Message::new(Role::Tool, "empty id")
         };
 
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "hi"),
                 assistant_with_call,
@@ -878,7 +925,7 @@ mod tests {
         };
 
         // Case 1: trailing unanswered assistant (the original bug)
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "go"),
                 Message {
@@ -896,7 +943,7 @@ mod tests {
         );
 
         // Case 2: assistant with content but no tool result
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "go"),
                 Message {
@@ -920,7 +967,7 @@ mod tests {
         );
 
         // Case 3: partially answered call set
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "go"),
                 Message {
@@ -941,7 +988,7 @@ mod tests {
         assert_eq!(calls[0]["id"], "a");
 
         // Case 4: multiple consecutive unanswered assistants
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "go"),
                 Message {
@@ -961,7 +1008,7 @@ mod tests {
         assert!(msgs[2].get("tool_calls").is_none());
 
         // Case 5: fully healthy conversation (no stripping)
-        let body = super::body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "go"),
                 Message {

@@ -17,6 +17,7 @@ mod actor;
 pub mod backup;
 mod connection;
 pub mod context_store;
+pub(crate) mod derived;
 pub mod garbage_collection;
 mod handle;
 pub mod history_search;
@@ -1008,6 +1009,18 @@ pub(crate) enum PersistenceCommand {
     SaveSessionDelta {
         delta: Box<nuo_protocol::SessionDelta>,
         ack: oneshot::Sender<Result<(), PersistenceError>>,
+    },
+    /// Drain one session's derived indexes (causal graph + FTS) to its durable
+    /// end. The read-your-writes boundary: call before hydrating the Session IR
+    /// or searching that session.
+    FlushDerivedSession {
+        session_id: String,
+        ack: oneshot::Sender<Result<usize, PersistenceError>>,
+    },
+    /// Drain every pending session's derived indexes. Transcript search spans
+    /// sessions, so it cannot scope a flush to one id.
+    FlushDerivedAll {
+        ack: oneshot::Sender<Result<usize, PersistenceError>>,
     },
     /// Commit immutable execution facts to the canonical context store.
     CommitContextFacts {

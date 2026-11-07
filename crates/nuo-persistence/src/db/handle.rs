@@ -1041,6 +1041,35 @@ impl PersistenceHandle {
         )
     }
 
+    /// Drain one session's derived indexes (causal graph + FTS) to its durable
+    /// end. The read-your-writes boundary: call before hydrating the Session IR
+    /// or searching that session's transcript.
+    pub async fn flush_derived_session(
+        &self,
+        session_id: String,
+    ) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::FlushDerivedSession {
+                session_id,
+                ack: ack_tx,
+            })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
+    /// Drain every pending session's derived indexes. Transcript search spans
+    /// sessions, so it cannot scope a flush to one id.
+    pub async fn flush_derived_all(&self) -> Result<usize, PersistenceError> {
+        let (ack_tx, ack_rx) = oneshot::channel();
+        self.supervisor
+            .send(PersistenceCommand::FlushDerivedAll { ack: ack_tx })
+            .await
+            .map_err(|_| PersistenceError::WriterDown)?;
+        ack_rx.await.map_err(|_| PersistenceError::WriterDown)?
+    }
+
     /// Commit immutable execution facts asynchronously through the single writer.
     pub async fn commit_context_facts(
         &self,

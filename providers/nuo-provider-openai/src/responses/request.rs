@@ -67,16 +67,21 @@ pub struct BodyInput<'a> {
 /// and results are reconciled so the request is always wire-valid: every
 /// `function_call_output` references a preceding `function_call`, and every
 /// `function_call` has its output (mirrors the chat-completions builder).
-pub fn body(messages: Vec<Message>, input: BodyInput<'_>) -> Result<Value, RequestBuildError> {
+pub fn body(
+    conversation: &[Message],
+    temporary_context: &[Message],
+    input: BodyInput<'_>,
+) -> Result<Value, RequestBuildError> {
     let capabilities = nuo_provider::ModelCapabilities::for_channel(input.model, None);
-    body_with_capabilities(messages, input, &capabilities)
+    body_with_capabilities(conversation, temporary_context, input, &capabilities)
 }
 
 /// Build a request with a provider-channel capability view. The provider calls
 /// this for trusted remote metadata; [`body`] remains the static-baseline entry
 /// point for standalone callers and tests.
 pub fn body_with_capabilities(
-    messages: Vec<Message>,
+    conversation: &[Message],
+    temporary_context: &[Message],
     input: BodyInput<'_>,
     capabilities: &nuo_provider::ModelCapabilities,
 ) -> Result<Value, RequestBuildError> {
@@ -95,7 +100,7 @@ pub fn body_with_capabilities(
     // A remote continuation already owns the anchor assistant's function calls
     // server-side. Its new input therefore carries only their outputs, which
     // the tool-trace projection must retain without looking for local calls.
-    let remote_call_ids = remote_parent_call_ids(&messages, delivery);
+    let remote_call_ids = remote_parent_call_ids(conversation, delivery);
 
     // Fold system instructions and legacy messages into `instructions`,
     // project images for this route's declared support (the Responses API
@@ -103,8 +108,12 @@ pub fn body_with_capabilities(
     // continuation down to only the locally new suffix. The image policy is
     // shared with every other transport (`crate::vision`): only a
     // route that *declared* no image input loses its attachments.
-    let (messages, _dropped_images) =
-        nuo_provider::project_images_for_route(model_id, messages, capabilities);
+    let (conversation, _dropped_images) =
+        nuo_provider::project_images_for_route(model_id, conversation, capabilities);
+    let messages: Vec<&Message> = conversation
+        .iter()
+        .chain(temporary_context.iter())
+        .collect();
     let (mut instructions, ephemeral_instructions) = if let Some(bundle) = input_instructions {
         (
             bundle.render_system_instructions(),
@@ -113,7 +122,7 @@ pub fn body_with_capabilities(
     } else {
         (String::new(), String::new())
     };
-    let mut working: Vec<Message> = Vec::with_capacity(messages.len());
+    let mut working: Vec<&Message> = Vec::with_capacity(messages.len());
     for (index, m) in messages.into_iter().enumerate() {
         match m.role {
             Role::System => {
@@ -135,7 +144,7 @@ pub fn body_with_capabilities(
         }
     }
 
-    let working: Vec<Message> = working.into_iter().filter(valid_message).collect();
+    let working: Vec<&Message> = working.into_iter().filter(|m| valid_message(m)).collect();
 
     let mut input_items: Vec<InputItem> = Vec::new();
     // Ephemeral instruction slice is emitted as a developer item rather than polluting
@@ -159,7 +168,7 @@ pub fn body_with_capabilities(
     for (m_idx, m) in working.into_iter().enumerate() {
         match m.role {
             Role::User => {
-                input_items.push(InputItem::plain(message_item("user", &m, "input_text")));
+                input_items.push(InputItem::plain(message_item("user", m, "input_text")));
             }
             Role::Assistant => {
                 let is_latest_assistant = Some(m_idx) == last_assistant_idx;
@@ -285,7 +294,7 @@ pub fn body_with_capabilities(
                 if !m.content.is_empty() {
                     input_items.push(InputItem::plain(message_item(
                         "assistant",
-                        &m,
+                        m,
                         "output_text",
                     )));
                 }
@@ -301,7 +310,7 @@ pub fn body_with_capabilities(
             }
             Role::Tool => {
                 let call_id = m.tool_call_id.clone().unwrap_or_default();
-                input_items.push(InputItem::function_call_output(call_id, m.content));
+                input_items.push(InputItem::function_call_output(call_id, m.content.clone()));
             }
             Role::System => {} // folded into instructions above
         }
@@ -587,6 +596,21 @@ pub fn has_input_image(body: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn body_of(
+        messages: Vec<nuo_tool::Message>,
+        input: BodyInput<'_>,
+    ) -> Result<Value, RequestBuildError> {
+        body(&messages, &[], input)
+    }
+
+    fn body_with_caps_of(
+        messages: Vec<nuo_tool::Message>,
+        input: BodyInput<'_>,
+        capabilities: &nuo_provider::ModelCapabilities,
+    ) -> Result<Value, RequestBuildError> {
+        body_with_capabilities(&messages, &[], input, capabilities)
+    }
     use nuo_tool::ToolCall;
 
     static DEFAULT_DELIVERY: nuo_provider::RequestDelivery =
@@ -656,7 +680,7 @@ mod tests {
         let specs = [tool];
         let mut input = portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN);
         input.tool_specs = Some(&specs);
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi")],
             input,
             &deepseek_capabilities(),
@@ -702,7 +726,7 @@ mod tests {
             arguments: "{}".to_string(),
         }]);
 
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi"), assistant],
             portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
             &deepseek_capabilities(),
@@ -747,7 +771,7 @@ mod tests {
             arguments: "{}".to_string(),
         }]);
 
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi"), older, latest],
             portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
             &deepseek_capabilities(),
@@ -777,7 +801,7 @@ mod tests {
     /// request with items that no upstream asked for.
     #[test]
     fn portable_dialect_omits_reasoning_on_plain_text_turns() {
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![
                 Message::new(Role::User, "hi"),
                 Message::new(Role::Assistant, "Hello!"),
@@ -803,7 +827,7 @@ mod tests {
         let mut assistant = Message::new(Role::Assistant, "done");
         assistant.reasoning_content = Some("reasoned it through".to_string());
 
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi"), assistant],
             portable_body_input(&DEFAULT_DELIVERY, &DEFAULT_CACHE_PLAN),
             &deepseek_capabilities(),
@@ -855,7 +879,7 @@ mod tests {
 
     #[test]
     fn deepseek_dialect_emits_only_the_fields_its_schema_defines() {
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi")],
             deepseek_body_input(Some(Effort::None), false, &DEFAULT_CACHE_PLAN),
             &deepseek_capabilities(),
@@ -892,7 +916,7 @@ mod tests {
         let mut input = deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN);
         let specs = [tool];
         input.tool_specs = Some(&specs);
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "run tool")],
             input,
             &deepseek_capabilities(),
@@ -935,7 +959,7 @@ mod tests {
             description: "test".into(),
             parameters: json!({"type": "object"}),
         }];
-        let body = body(
+        let body = body_of(
             vec![Message::new(Role::User, "run tool")],
             test_body_input(
                 "deepseek/deepseek-v4.1-flash",
@@ -977,7 +1001,7 @@ mod tests {
         let mut tool = Message::new(Role::Tool, "tool output");
         tool.tool_call_id = Some("call_1".into());
 
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "run tool"), assistant, tool],
             deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN),
             &deepseek_capabilities(),
@@ -1018,7 +1042,7 @@ mod tests {
         let mut tool2 = Message::new(Role::Tool, "out2");
         tool2.tool_call_id = Some("call_2".into());
 
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![
                 Message::new(Role::User, "run 1"),
                 assistant1,
@@ -1061,7 +1085,7 @@ mod tests {
         ]);
         let mut input = deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN);
         input.instructions = Some(&bundle);
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi")],
             input,
             &deepseek_capabilities(),
@@ -1084,7 +1108,7 @@ mod tests {
 
     #[test]
     fn standard_dialect_keeps_openai_summary_and_encrypted_reasoning() {
-        let body = body(
+        let body = body_of(
             vec![Message::new(Role::User, "hi")],
             test_body_input(
                 "gpt-5.6-sol",
@@ -1112,7 +1136,7 @@ mod tests {
             effort_levels: Vec::new(),
             ..deepseek_capabilities()
         };
-        let body = body_with_capabilities(
+        let body = body_with_caps_of(
             vec![Message::new(Role::User, "hi")],
             deepseek_body_input(None, false, &DEFAULT_CACHE_PLAN),
             &capabilities,
@@ -1123,7 +1147,7 @@ mod tests {
 
     #[test]
     fn system_messages_fold_into_instructions() {
-        let body = body(
+        let body = body_of(
             vec![
                 Message::new(Role::System, "be concise"),
                 Message::new(Role::User, "hi"),
@@ -1157,7 +1181,7 @@ mod tests {
             tool_call_id: Some("call_1".into()),
             ..Message::new(Role::Tool, "file.txt")
         };
-        let body = body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "list files"),
                 assistant_with_call(call, "running it"),
@@ -1195,7 +1219,7 @@ mod tests {
             name: "second".into(),
             arguments: "{}".into(),
         };
-        let body = body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "first turn"),
                 assistant_with_call(first_call.clone(), ""),
@@ -1265,7 +1289,7 @@ mod tests {
             name: "second".into(),
             arguments: "{}".into(),
         };
-        let body = body(
+        let body = body_of(
             vec![
                 opaque_assistant(first.clone(), "fc_1"),
                 Message::tool_result(&first, "one"),
@@ -1306,7 +1330,7 @@ mod tests {
             continuation_id: "resp_1".into(),
             input_start: 2,
         };
-        let body = body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "look it up"),
                 assistant_with_call(call.clone(), ""),
@@ -1339,7 +1363,7 @@ mod tests {
             name: "bash".into(),
             arguments: "{}".into(),
         };
-        let body = body(
+        let body = body_of(
             vec![
                 Message::new(Role::User, "go"),
                 assistant_with_call(call, "thinking"),
@@ -1363,7 +1387,7 @@ mod tests {
 
     #[test]
     fn reasoning_summary_always_requested_with_effort_when_supported() {
-        let body = body(
+        let body = body_of(
             vec![Message::new(Role::User, "hi")],
             test_body_input(
                 "gpt-5.6-sol",
@@ -1384,7 +1408,7 @@ mod tests {
 
     #[test]
     fn stateless_requests_preserve_encrypted_reasoning_and_parallel_tools() {
-        let request = body_with_capabilities(
+        let request = body_with_caps_of(
             vec![Message::new(Role::User, "hi")],
             test_body_input(
                 "gpt-5.6-sol",
@@ -1488,7 +1512,7 @@ mod tests {
         };
         let caps = nuo_provider::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
-        let payload = body_with_capabilities(
+        let payload = body_with_caps_of(
             vec![msg],
             test_body_input(
                 "gpt-4o",
@@ -1535,7 +1559,7 @@ mod tests {
         };
         let caps = nuo_provider::ModelCapabilities::for_channel("gpt-4o", Some(&remote));
 
-        let payload = body_with_capabilities(
+        let payload = body_with_caps_of(
             vec![msg],
             test_body_input(
                 "gpt-4o",
@@ -1568,7 +1592,7 @@ mod tests {
             provider_meta: Some(provider_meta),
             ..Message::new(Role::Assistant, "previous answer")
         };
-        let error = body(
+        let error = body_of(
             vec![assistant, Message::new(Role::User, "continue")],
             test_body_input(
                 "gpt-5.6-sol",
@@ -1587,7 +1611,7 @@ mod tests {
 
     #[test]
     fn orphan_tool_output_fails_instead_of_disappearing() {
-        let error = body(
+        let error = body_of(
             vec![Message {
                 tool_call_id: Some("missing_call".to_string()),
                 ..Message::new(Role::Tool, "result")

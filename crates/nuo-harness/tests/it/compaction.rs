@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use nuo_harness::orchestration::{ContextProjectionSettings, compact_round_history};
 use nuo_harness::{Agent, AgentIdentity};
+use nuo_persistence::session::CommitBasis;
 use nuo_persistence::session::{CommitTurn, SessionStore};
 use nuo_protocol::{Message, Role};
 
@@ -55,6 +56,7 @@ async fn commit_rounds(session: &SessionStore, rounds: usize) -> Vec<Message> {
         session
             .commit_turn(CommitTurn {
                 messages: &committed,
+                basis: CommitBasis::Appended,
                 round_counter: Some(index as u64 + 1),
                 usage_records: &[],
                 retry_point: None,
@@ -278,6 +280,7 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
     session
         .commit_turn(CommitTurn {
             messages: &committed,
+            basis: CommitBasis::Appended,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,

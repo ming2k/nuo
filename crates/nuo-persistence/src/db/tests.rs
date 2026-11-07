@@ -367,6 +367,196 @@ fn delta_save_appends_only_rows_above_the_watermark() {
     assert_eq!(reloaded.transcript.entries[1].seq, 1);
 }
 
+/// A save enqueues derived work; it never mirrors or indexes inline.
+///
+/// This is the contract that keeps a turn off the derived-index path: the
+/// commit writes the transcript and a pending row, and a drain produces the
+/// graph and the FTS rows.
+#[test]
+fn a_save_enqueues_derived_work_and_a_flush_produces_it() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    data.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::User, "one"),
+    ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+
+    assert_eq!(
+        count_causal_nodes(&engine.conn),
+        0,
+        "the save derives nothing"
+    );
+    let fts: i64 = engine
+        .conn
+        .query_row("SELECT COUNT(*) FROM fts_entries", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(fts, 0, "the save indexes nothing");
+
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+    assert_eq!(count_causal_nodes(&engine.conn), 1);
+    let fts: i64 = engine
+        .conn
+        .query_row("SELECT COUNT(*) FROM fts_entries", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(fts, 1);
+
+    // A later delta is enqueued again and drained to the transcript's end.
+    data.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::User, "two"),
+    ));
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &data,
+        false,
+        &[],
+        &CommitGuard::default(),
+    )
+    .unwrap();
+    assert_eq!(count_causal_nodes(&engine.conn), 1, "still queued");
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+    assert_eq!(count_causal_nodes(&engine.conn), 2);
+}
+
+/// A transcript whose graph is missing (a session saved before the live mirror
+/// existed, or restored from migration) must be backfilled, not linked onto a
+/// missing parent.
+///
+/// Mirroring only the appended tail onto an empty graph builds an orphaned
+/// segment: `linear_path` walks it from the newest fact and stops, so
+/// compaction reads a conversation that begins mid-history. The predecessor
+/// check turns that into a one-time full backfill.
+#[test]
+fn a_missing_graph_is_backfilled_instead_of_linked_onto_nothing() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    data.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::User, "one"),
+    ));
+    data.transcript.push(TranscriptEntry::from_message(
+        1,
+        &Message::new(Role::Assistant, "two"),
+    ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+    assert_eq!(
+        count_causal_nodes(&engine.conn),
+        2,
+        "the drain mirrored both entries"
+    );
+
+    // The graph predates the live mirror.
+    engine.conn.execute("DELETE FROM causal_nodes", []).unwrap();
+    assert_eq!(count_causal_nodes(&engine.conn), 0);
+
+    data.transcript.push(TranscriptEntry::from_message(
+        2,
+        &Message::new(Role::User, "three"),
+    ));
+    session_store::save_session_inner(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &data,
+        false,
+        &[],
+        &CommitGuard::default(),
+    )
+    .unwrap();
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+
+    assert_eq!(
+        count_causal_nodes(&engine.conn),
+        3,
+        "the drain must backfill the missing history, not just the delta"
+    );
+    let root_parent: Option<String> = engine
+        .conn
+        .query_row(
+            "SELECT parent_id FROM causal_nodes WHERE seq = 0",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        root_parent.is_none(),
+        "a backfill starts a fresh chain, never a cycle"
+    );
+    let parent: String = engine
+        .conn
+        .query_row(
+            "SELECT parent_id FROM causal_nodes WHERE seq = 2",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        parent, data.transcript.entries[1].id,
+        "the appended node must link to its transcript predecessor"
+    );
+}
+
+fn count_causal_nodes(conn: &Connection) -> i64 {
+    conn.query_row("SELECT COUNT(*) FROM causal_nodes", [], |row| row.get(0))
+        .unwrap()
+}
+
+/// Append-only commits must leave one contiguous parent chain. Each save
+/// mirrors only its own delta, so linkage *across* saves is the whole
+/// contract — a broken link makes `linear_path` see only the newest segment,
+/// which is precisely how compaction silently stops engaging.
+#[test]
+fn a_delta_chain_links_across_saves() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    for round in 0..3u64 {
+        data.transcript.push(TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::User, format!("user {round}")),
+        ));
+        data.transcript.push(TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::Assistant, format!("assistant {round}")),
+        ));
+        session_store::save_session_inner(
+            &engine.conn,
+            engine.blob_store.as_ref(),
+            &data,
+            false,
+            &[],
+            &CommitGuard::default(),
+        )
+        .unwrap();
+        crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+    }
+
+    let mut stmt = engine
+        .conn
+        .prepare("SELECT seq, id, parent_id FROM causal_nodes ORDER BY seq")
+        .unwrap();
+    let rows: Vec<(u64, String, Option<String>)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .map(|row| row.unwrap())
+        .collect();
+    assert_eq!(rows.len(), 6, "one node per entry");
+    assert!(rows[0].2.is_none(), "the chain starts at the root");
+    for window in rows.windows(2) {
+        assert_eq!(
+            window[1].2.as_deref(),
+            Some(window[0].1.as_str()),
+            "seq {} must link to seq {}",
+            window[1].0,
+            window[0].0
+        );
+    }
+}
+
 #[test]
 fn generation_mismatch_escalates_delta_to_full_rewrite() {
     use nuo_protocol::{Message, Role, TranscriptEntry};
@@ -1388,6 +1578,7 @@ mod supervision {
         );
         data.transcript.push(TranscriptEntry::from_message(0, &msg));
         save_session_full(&engine, &data).unwrap();
+        crate::db::derived::flush_all(&engine.conn).unwrap();
 
         // Bare multi-word query (the shape that used to blow up MATCH
         // with `no such column: needle`).
@@ -1455,6 +1646,7 @@ mod supervision {
             data.transcript.push(TranscriptEntry::from_message(0, &msg));
             save_session_full(&engine, &data).unwrap();
         }
+        crate::db::derived::flush_all(&engine.conn).unwrap();
 
         // Strict: both words together appear in no single entry.
         let strict =
@@ -1645,7 +1837,7 @@ async fn create_backup_and_with_reader_roundtrip() {
 }
 
 #[test]
-fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
+fn derived_fts_rows_align_with_memberships_and_are_purged() {
     use nuo_protocol::{Message, Role, TranscriptEntry};
 
     let engine = DatabaseEngine::open_in_memory().unwrap();
@@ -1656,7 +1848,16 @@ fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
     ));
     save_session_full(&engine, &data).unwrap();
 
-    // Verify fts_entries has the entry and matches rowid
+    // The save queues; it does not index.
+    let queued: i64 = engine
+        .conn
+        .query_row("SELECT COUNT(*) FROM fts_entries", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(queued, 0);
+
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+
+    // The rowid is the membership rowid, so `snippet`/`bm25` joins stay valid.
     let fts_rowid: i64 = engine
         .conn
         .query_row(
@@ -1675,20 +1876,24 @@ fn fast_fts_triggers_align_rowids_and_delete_in_sync() {
         .unwrap();
     assert_eq!(fts_rowid, membership_rowid);
 
-    // Verify FTS search works
     let results =
         history_search::search_history(&engine.conn, "unique_needle_for_fts_test", None, 10)
             .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].session_id, data.id);
 
-    // Deleting session deletes entry_memberships and cascades via trigger to fts_entries
+    // Deleting a session purges both derived views and the cursor/queue rows.
     session_store::delete_session(&engine.conn, &data.id).unwrap();
-    let fts_count: i64 = engine
-        .conn
-        .query_row("SELECT COUNT(*) FROM fts_entries", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(fts_count, 0);
+    let count = |table: &str| -> i64 {
+        engine
+            .conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(count("fts_entries"), 0);
+    assert_eq!(count("causal_nodes"), 0);
+    assert_eq!(count("derived_cursors"), 0);
+    assert_eq!(count("derived_pending"), 0);
 }
 
 #[test]
@@ -1908,6 +2113,13 @@ fn a_full_rewrite_replaces_the_mirrored_facts() {
         )
         .unwrap()
     };
+    // Derived work is queued by the save and produced by the drain.
+    assert_eq!(
+        mirrored(&engine.conn, &data.id),
+        0,
+        "the commit derives nothing inline"
+    );
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
     assert_eq!(
         mirrored(&engine.conn, &data.id),
         2,
@@ -1926,6 +2138,7 @@ fn a_full_rewrite_replaces_the_mirrored_facts() {
         &CommitGuard::default(),
     )
     .expect("a rebuilt transcript must replace the facts, not collide with them");
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
     assert_eq!(
         mirrored(&engine.conn, &data.id),
         1,

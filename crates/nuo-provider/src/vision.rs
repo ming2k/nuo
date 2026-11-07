@@ -28,25 +28,37 @@ use nuo_tool::Message;
 /// caller that wants to tell the user can count them without re-scanning the
 /// request. Text content is always preserved: the model just does not see the
 /// pixels.
-pub fn project_images_for_route(
+///
+/// The projected list is borrowed in the overwhelmingly common case (the route
+/// accepts images, or the window carries none): the provider builds a wire body
+/// from the caller's window without copying it. Only a route that rejects
+/// images *while the window carries some* materializes an owned projection.
+pub fn project_images_for_route<'a>(
     model: &str,
-    messages: Vec<Message>,
+    messages: &'a [Message],
     capabilities: &ModelCapabilities,
-) -> (Vec<Message>, usize) {
-    if capabilities.accepts_images() {
-        return (messages, 0);
+) -> (std::borrow::Cow<'a, [Message]>, usize) {
+    let carries_images = messages.iter().any(|message| {
+        message
+            .images
+            .as_ref()
+            .is_some_and(|images| !images.is_empty())
+    });
+    if capabilities.accepts_images() || !carries_images {
+        return (std::borrow::Cow::Borrowed(messages), 0);
     }
 
     let mut dropped = 0usize;
     let projected = messages
-        .into_iter()
-        .map(|mut message| {
+        .iter()
+        .map(|message| {
+            let mut message = message.clone();
             if let Some(images) = message.images.take() {
                 dropped += images.len();
             }
             message
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     if dropped > 0 {
         tracing::debug!(
@@ -56,7 +68,7 @@ pub fn project_images_for_route(
             "dropping images for a route that declares no image input",
         );
     }
-    (projected, dropped)
+    (std::borrow::Cow::Owned(projected), dropped)
 }
 
 #[cfg(test)]
@@ -81,7 +93,7 @@ mod tests {
     #[test]
     fn declared_text_only_route_drops_images_and_counts_them() {
         let messages = vec![image_message("look"), Message::new(Role::Assistant, "hm")];
-        let (projected, dropped) = project_images_for_route("m", messages, &caps(Some(false)));
+        let (projected, dropped) = project_images_for_route("m", &messages, &caps(Some(false)));
         assert_eq!(dropped, 1);
         assert!(projected[0].images.is_none());
         // The prose survives — only the pixels are gone.
@@ -93,7 +105,7 @@ mod tests {
         // The whole point of: an endpoint that advertises nothing must
         // not have its images silently stripped.
         let messages = vec![image_message("look")];
-        let (projected, dropped) = project_images_for_route("m", messages, &caps(None));
+        let (projected, dropped) = project_images_for_route("m", &messages, &caps(None));
         assert_eq!(dropped, 0);
         assert_eq!(projected[0].images.as_ref().map(Vec::len), Some(1));
     }
@@ -101,7 +113,7 @@ mod tests {
     #[test]
     fn declared_vision_route_keeps_images() {
         let messages = vec![image_message("look")];
-        let (projected, dropped) = project_images_for_route("m", messages, &caps(Some(true)));
+        let (projected, dropped) = project_images_for_route("m", &messages, &caps(Some(true)));
         assert_eq!(dropped, 0);
         assert_eq!(projected[0].images.as_ref().map(Vec::len), Some(1));
     }

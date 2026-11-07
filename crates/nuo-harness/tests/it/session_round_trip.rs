@@ -39,7 +39,7 @@ struct TestStreamProvider;
 impl Provider for TestStreamProvider {
     async fn chat(
         &self,
-        _request: ModelRequest,
+        _request: &ModelRequest,
     ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
         Ok(nuo_protocol::ProviderCompletion::message(Message::new(
             Role::Assistant,
@@ -49,7 +49,8 @@ impl Provider for TestStreamProvider {
 
     async fn stream_chat(
         &self,
-        _request: ModelRequest,
+        _request: &ModelRequest,
+        _telemetry: nuo_provider::TransportTelemetry,
     ) -> Result<
         BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
         nuo_protocol::ProviderError,

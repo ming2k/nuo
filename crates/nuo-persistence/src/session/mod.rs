@@ -458,7 +458,10 @@ pub(crate) fn verify_checksum(data: &SessionData, session_id: &str) {
 
 /// Characters above which a message content is moved to the blob store.
 /// Rehydrate entry bodies from `content_blob` references after loading.
-fn load_session_blobs(data: &mut SessionData, blob_store: &BlobStore) -> Result<(), String> {
+pub(crate) fn load_session_blobs(
+    data: &mut SessionData,
+    blob_store: &BlobStore,
+) -> Result<(), String> {
     for entry in data.transcript.entries.iter_mut() {
         let EntryPayload::Message(payload) = &mut entry.payload else {
             continue;
@@ -1234,7 +1237,7 @@ pub async fn summarize_with_provider(
     let response = match tokio::time::timeout(
         SUMMARIZATION_TIMEOUT,
         provider
-            .chat(nuo_protocol::ModelRequest::ephemeral(messages).with_instructions(instructions)),
+            .chat(&nuo_protocol::ModelRequest::ephemeral(messages).with_instructions(instructions)),
     )
     .await
     {
@@ -1373,7 +1376,7 @@ mod history;
 
 #[cfg(test)]
 pub(crate) use history::rebuild_transcript_from_messages as rebuild_for_test;
-pub use history::{CommitTurn, ForkOutcome, ForkTarget};
+pub use history::{CommitBasis, CommitTurn, ForkOutcome, ForkTarget};
 mod store;
 #[cfg(test)]
 mod tests;

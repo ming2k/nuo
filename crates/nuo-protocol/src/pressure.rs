@@ -979,6 +979,7 @@ pub fn project_historical_tool_outputs(
     messages: &mut [Message],
     verbatim_recent_tokens: usize,
     retention_tokens: usize,
+    weights: &MessageTokenWeights,
 ) -> ToolOutputProjection {
     let retention = retention_tokens.max(verbatim_recent_tokens);
     let mut outcome = ToolOutputProjection::default();
@@ -987,7 +988,12 @@ pub fn project_historical_tool_outputs(
         if message.role != Role::Tool {
             continue;
         }
-        let tokens = estimate_message_tokens(message).max(0) as usize;
+        // The band boundaries are measured on the *original* (never-mutated)
+        // message bytes, and this projection runs on every request build —
+        // three or four times per round. Re-tokenizing here made each pass
+        // re-read every historical tool output; the shared weights cache
+        // charges each body exactly once per session.
+        let tokens = (*weights.weight(message)).max(0) as usize;
         if message.content.is_empty() {
             newer_tokens = newer_tokens.saturating_add(tokens);
             continue;
@@ -1867,7 +1873,8 @@ mod tests {
         let cold = tool_with_spool("cold", "find_files", &"c\n".repeat(500));
         let mut messages = vec![cold, warm, newest];
 
-        let out = project_historical_tool_outputs(&mut messages, 10, 200);
+        let weights = MessageTokenWeights::new();
+        let out = project_historical_tool_outputs(&mut messages, 10, 200, &weights);
 
         // The newest result stays verbatim.
         assert!(messages[2].content.contains(&"n".repeat(400)));
@@ -1895,7 +1902,7 @@ mod tests {
         );
 
         // Re-projecting the same window is a no-op: the shape is final.
-        let again = project_historical_tool_outputs(&mut messages, 10, 200);
+        let again = project_historical_tool_outputs(&mut messages, 10, 200, &weights);
         assert!(again.is_empty());
         assert!(messages[1].content.contains(RECENT_COMPACTED_MARKER));
         assert!(messages[0].content.starts_with(CLEARED_TOOL_PREFIX));

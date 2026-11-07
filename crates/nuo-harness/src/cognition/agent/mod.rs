@@ -218,6 +218,11 @@ pub struct Agent {
     tool_output_projection: Arc<std::sync::Mutex<ToolOutputProjectionBudget>>,
     /// Optional mid-turn model-context projection gate.
     context_projection_gate: Arc<std::sync::Mutex<Option<Arc<dyn ContextProjectionGate>>>>,
+    /// Set when a context projection replaced the live window; consumed by the
+    /// next durable commit to pick [`CommitBasis::Reprojected`] instead of the
+    /// O(delta) append path. Conservative by construction: a spurious `true`
+    /// costs one comparison, a missing `true` could persist a stale prefix.
+    history_reprojected: std::sync::atomic::AtomicBool,
     /// Learned per-route image-input suppression: the
     /// [`RouteFingerprint`] of the route on
     /// which a provider rejected image input, once the harness has seen that
@@ -1674,13 +1679,14 @@ mod tests {
     impl nuo_protocol::Provider for NoopProvider {
         async fn chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             unreachable!("decide_command_stdin must not call the provider")
         }
         async fn stream_chat(
             &self,
-            _: nuo_protocol::ModelRequest,
+            _: &nuo_protocol::ModelRequest,
+            _telemetry: nuo_protocol::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,

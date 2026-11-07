@@ -138,7 +138,33 @@ pub fn save_session_delta(conn: &Connection, delta: &SessionDelta) -> Result<()>
             }
         }
 
-        // 2b. A fold advances the cursor onto its checkpoint.
+        // 2b. A delta that writes causal facts advances the causal cursor.
+        //
+        // The only production writers of this path are an IR fold and a fork,
+        // and both supply a graph that represents the transcript through the
+        // rows already durable (a fold was hydrated after a read-your-writes
+        // flush; a fork copies the parent's path). Advancing the cursor is what
+        // stops the async mirror from re-mirroring — and therefore relinking —
+        // facts this delta just committed.
+        if !delta.new_nodes.is_empty() {
+            let membership_max: i64 = conn.query_row(
+                "SELECT COALESCE(MAX(seq), -1) FROM entry_memberships WHERE session_id = ?1",
+                params![delta.session_id],
+                |row| row.get(0),
+            )?;
+            let node_max = delta
+                .new_nodes
+                .iter()
+                .map(|node| node.seq as i64)
+                .max()
+                .unwrap_or(-1);
+            let causal = membership_max.max(node_max);
+            if causal >= 0 {
+                crate::db::derived::advance_causal_cursor(conn, &delta.session_id, causal as u64)?;
+            }
+        }
+
+        // 2c. A fold advances the cursor onto its checkpoint.
         //
         // `append_compaction` deliberately leaves the live `active_leaf` alone
         // (the preserved tail stays the cursor), but the checkpoint it creates

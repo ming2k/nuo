@@ -5,14 +5,14 @@
 use super::*;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 27;
+pub const CURRENT_DB_VERSION: u32 = 28;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "fd2ca6684a71f723221bcc5382dd6b2b44c45f9f404dd764503df713a29f703f";
+    "8989710022bdfad5d1f61be38b5843c9e767f63ae9fda1e01328abcefc4ebdd6";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
@@ -82,7 +82,12 @@ pub fn configure_connection(conn: &mut Connection) -> Result<()> {
     conn.pragma_update(None, "synchronous", "FULL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "journal_size_limit", 16777216)?; // 16MB WAL recycling
-    conn.pragma_update(None, "wal_autocheckpoint", 1000)?; // 1000 pages (~4MB)
+    // Checkpointing is owned by the storage-maintenance thread, which runs on
+    // its own connection with a short busy timeout. SQLite's automatic
+    // checkpoint runs inside the *writer's* commit path; against a pinned WAL
+    // it then walks the whole wal-index on every commit, which is exactly the
+    // latency cliff that turned ordinary turns into 20–55 second stalls.
+    conn.pragma_update(None, "wal_autocheckpoint", 0)?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
     Ok(())
 }
@@ -561,6 +566,21 @@ pub const MIGRATIONS: &[Migration] = &[
         // steps of the same batch, so a backfill there would run against a
         // pre-migration schema.
         version: 27,
+        sql: "",
+    },
+    Migration {
+        // Split the write path from the derived indexes.
+        //
+        // FTS indexing and the causal fact mirror used to run inside the
+        // commit transaction (the trigger) or immediately after it (the live
+        // mirror). Both are derived from `entries`/`entry_memberships`, so
+        // neither belongs on the path a turn waits for. This migration drops
+        // the FTS triggers, creates durable per-session cursors and the
+        // pending queue, and seeds the cursors from the state the old paths
+        // left behind: every existing FTS row is accounted for, and the causal
+        // cursor resumes from the graph's newest fact (a legacy gap is
+        // repaired on the first drain).
+        version: 28,
         sql: "",
     },
 ];
@@ -1622,6 +1642,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 }
                 if migration.version == 27 {
                     apply_causal_fact_backfill_schema(&tx)?;
+                }
+                if migration.version == 28 {
+                    apply_derived_index_schema(&tx)?;
                 }
             }
         }
@@ -2739,6 +2762,60 @@ pub fn apply_workspace_effect_journal_schema(tx: &rusqlite::Transaction) -> Resu
 /// `state` entries are projections with no node kind, so they are excluded —
 /// exactly as the live mirror excludes them. A `checkpoint` entry becomes a
 /// `compaction` node, matching the serializer.
+/// Migration 28: move both derived indexes off the commit path.
+///
+/// Dropping the membership triggers is the load-bearing part: from here on the
+/// only writer of `fts_entries` is the derived-index worker, and the only
+/// writer of `causal_nodes` is that worker plus an explicit IR fold. The
+/// cursors seed from the state those paths left behind, so the switch neither
+/// re-indexes the whole database nor loses rows.
+pub fn apply_derived_index_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    tx.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS trg_memberships_ai;
+        DROP TRIGGER IF EXISTS trg_memberships_ad;
+        DROP TRIGGER IF EXISTS trg_entries_ai;
+        DROP TRIGGER IF EXISTS trg_entries_ad;
+
+        CREATE TABLE IF NOT EXISTS derived_cursors (
+            session_id TEXT PRIMARY KEY,
+            causal_seq INTEGER NOT NULL DEFAULT -1,
+            fts_seq    INTEGER NOT NULL DEFAULT -1
+        );
+        CREATE TABLE IF NOT EXISTS derived_pending (
+            session_id     TEXT PRIMARY KEY,
+            through_seq    INTEGER NOT NULL,
+            enqueued_at_ms INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_derived_pending_age
+            ON derived_pending(enqueued_at_ms ASC);
+        "#,
+    )?;
+
+    // Seed only sessions that do not have a cursor yet, so a re-run (or a
+    // database that already drained) is never rolled back to the pre-worker
+    // state. A synthetic or partially-migrated schema may not carry both
+    // tables yet; the cursor then starts empty and the first drain on a real
+    // session fills it.
+    if !table_exists(tx, "threads")? || !table_exists(tx, "entry_memberships")? {
+        return Ok(());
+    }
+    tx.execute_batch(
+        r#"
+        INSERT INTO derived_cursors (session_id, causal_seq, fts_seq)
+        SELECT t.id,
+               COALESCE((SELECT MAX(c.seq) FROM causal_nodes c
+                          WHERE c.session_id = t.id AND c.kind <> 'compaction'), -1),
+               COALESCE((SELECT MAX(m.seq) FROM entry_memberships m
+                          WHERE m.session_id = t.id), -1)
+          FROM threads t
+         WHERE true
+        ON CONFLICT(session_id) DO NOTHING;
+        "#,
+    )?;
+    Ok(())
+}
+
 pub fn apply_causal_fact_backfill_schema(tx: &rusqlite::Transaction) -> Result<()> {
     if !table_exists(tx, "entry_memberships")? || !table_exists(tx, "entries")? {
         return Ok(());

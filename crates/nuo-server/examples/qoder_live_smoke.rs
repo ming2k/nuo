@@ -81,7 +81,13 @@ async fn main() {
     .with_pipeline(build_qoder_pipeline());
 
     let stream = provider
-        .stream_chat_events(vec![Message::new(Role::User, "Reply with exactly: OK")].into())
+        .stream_chat_events(
+            &nuo_provider::ModelRequest::new(vec![Message::new(
+                Role::User,
+                "Reply with exactly: OK",
+            )]),
+            nuo_provider::TransportTelemetry::default(),
+        )
         .await
         .expect("stream opens");
     let mut text = String::new();

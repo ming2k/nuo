@@ -78,7 +78,8 @@ impl ContextProjectionGate for PruningProjectionGate {
     async fn project_context(&self, mut messages: Vec<Message>) -> Option<Vec<Message>> {
         let settings = (self.settings)();
         let before = messages.len();
-        let tokens_before = nuo_protocol::pressure::estimate_tokens(&messages);
+        let tokens_before =
+            nuo_protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
 
         // Tier 1: clear stale tool bodies. In place, wire-compatible, no message
         // removed — so a failure here leaves the window exactly as it was.
@@ -99,7 +100,8 @@ impl ContextProjectionGate for PruningProjectionGate {
         // followed by a summarization call — that is the expensive tier, and
         // spending it on a healthy window is how compaction gets a reputation for
         // being slow.
-        let tokens_after_prune = nuo_protocol::pressure::estimate_tokens(&messages);
+        let tokens_after_prune =
+            nuo_protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
         if tokens_after_prune > settings.budget.prune_threshold_tokens {
             let mode = CompactionCutMode::TargetTokens(settings.budget.target_tokens.max(1));
             match compact_round_history_with_mode(
@@ -130,7 +132,8 @@ impl ContextProjectionGate for PruningProjectionGate {
             }
         }
 
-        let tokens_after = nuo_protocol::pressure::estimate_tokens(&messages);
+        let tokens_after =
+            nuo_protocol::pressure::estimate_tokens_weighted(&messages, &self.weights);
         // Returning `Some` replaces the live list, so only claim a replacement
         // when something actually changed. `Some` with an identical window would
         // force a pointless request re-assembly every turn.

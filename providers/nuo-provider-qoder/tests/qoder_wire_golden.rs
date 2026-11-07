@@ -271,7 +271,8 @@ fn envelope_for(body: &serde_json::Value) -> serde_json::Value {
 #[test]
 fn qoder_golden_wire_projects_the_requested_effort_into_parameters() {
     let body = nuo_provider_openai::chat_completions::request::body_with_capabilities(
-        vec![nuo_tool::Message::new(nuo_tool::Role::User, "Say OK only.")],
+        &[nuo_tool::Message::new(nuo_tool::Role::User, "Say OK only.")],
+        &[],
         nuo_provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,
@@ -322,7 +323,8 @@ fn qoder_golden_wire_without_a_catalog_ladder_invents_no_effort() {
         "the baseline declares no ladder; this test is about the offline path"
     );
     let body = nuo_provider_openai::chat_completions::request::body_with_capabilities(
-        vec![nuo_tool::Message::new(nuo_tool::Role::User, "Say OK only.")],
+        &[nuo_tool::Message::new(nuo_tool::Role::User, "Say OK only.")],
+        &[],
         nuo_provider_openai::chat_completions::request::BodyInput {
             model: "qfmodel",
             stream: true,

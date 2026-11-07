@@ -249,6 +249,14 @@ impl PersistenceCommand {
                     guarded(|| crate::db::session_ir::save_session_delta(&engine.conn, &delta));
                 let _ = ack.send(res);
             }
+            Self::FlushDerivedSession { session_id, ack } => {
+                let res = guarded(|| crate::db::derived::flush_session(&engine.conn, &session_id));
+                let _ = ack.send(res);
+            }
+            Self::FlushDerivedAll { ack } => {
+                let res = guarded(|| crate::db::derived::flush_all(&engine.conn));
+                let _ = ack.send(res);
+            }
             Self::CommitContextFacts { commit, ack } => {
                 let borrowed = commit.as_borrowed();
                 let res = crate::db::context_store::commit_facts(&engine.conn, &borrowed);
@@ -332,6 +340,9 @@ impl PersistenceCommand {
                 let _ = ack.send(Err(error));
             }
             Self::SaveSessionDelta { ack, .. } => {
+                let _ = ack.send(Err(error));
+            }
+            Self::FlushDerivedSession { ack, .. } | Self::FlushDerivedAll { ack } => {
                 let _ = ack.send(Err(error));
             }
             Self::CommitContextFacts { ack, .. } | Self::CommitContextView { ack, .. } => {
@@ -602,24 +613,24 @@ pub(super) async fn run_supervisor(
     });
 }
 
-/// Record the D7 storage-pressure signals on the writer thread: WAL
-/// size, usage-projection backlog and lag, and reader age. A large WAL or an
-/// old reader is what prevents checkpoint reclamation. Never logs prompt
-/// contents or credentials.
-fn log_storage_metrics(db_path: &Path, engine: &DatabaseEngine, reader_ages: &ReaderAges) {
-    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
-    let wal_bytes = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+/// Record the D7 storage-pressure signals: WAL size, usage-projection backlog
+/// and lag, and reader age. A large WAL or an old reader is what prevents
+/// checkpoint reclamation. Never logs prompt contents or credentials.
+///
+/// Runs on the maintenance thread's own connection, never on the writer: the
+/// queries below are cheap, but *any* work on the writer thread is work the
+/// next turn waits for.
+fn log_storage_metrics(db_path: &Path, conn: &Connection, reader_ages: &ReaderAges) {
+    let wal_bytes = wal_bytes(db_path);
     let main_bytes = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
-    let (backlog, oldest_revision): (i64, Option<i64>) = engine
-        .conn
+    let (backlog, oldest_revision): (i64, Option<i64>) = conn
         .query_row(
             "SELECT COUNT(*), MIN(revision) FROM usage_dirty",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap_or((0, None));
-    let revision: i64 = engine
-        .conn
+    let revision: i64 = conn
         .query_row("SELECT revision FROM usage_clock WHERE id=1", [], |row| {
             row.get(0)
         })
@@ -639,32 +650,121 @@ fn log_storage_metrics(db_path: &Path, engine: &DatabaseEngine, reader_ages: &Re
     );
 }
 
-/// WAL size beyond which the writer attempts a bounded checkpoint (
-/// D7: "checkpoint or reader pressure must not grow without limit").
+/// WAL size beyond which a checkpoint is attempted.
 const WAL_CHECKPOINT_THRESHOLD_BYTES: u64 = 32 * 1024 * 1024;
+/// WAL size at which the condition is a durability/throughput *incident*, not
+/// routine pressure. Reaching this is logged at error level: it can only
+/// happen when a snapshot is pinned for minutes, and it must be visible.
+const WAL_HARD_CAP_BYTES: u64 = 512 * 1024 * 1024;
 /// Age beyond which an active reader snapshot is reported as the pressure
 /// that keeps the WAL from being reclaimed.
 const READER_AGE_WARN_MS: u64 = 30_000;
+/// First retry delay after a checkpoint that could not complete. Doubles on
+/// every consecutive failure up to [`WAL_BACKOFF_MAX`].
+const WAL_BACKOFF_BASE: Duration = Duration::from_secs(5);
+/// Ceiling for the checkpoint retry ladder. A pinned snapshot may last an
+/// hour; retrying it every five seconds buys nothing and costs everything.
+const WAL_BACKOFF_MAX: Duration = Duration::from_secs(300);
+/// How often the maintenance thread wakes. This is *not* the checkpoint
+/// cadence — the backoff ladder owns that.
+const MAINTENANCE_TICK: Duration = Duration::from_millis(500);
+/// Storage metrics cadence. Debug-level: cheap, but not free.
+const METRICS_INTERVAL: Duration = Duration::from_secs(5);
+/// Busy timeout for the maintenance connection. Small on purpose: a
+/// checkpoint that cannot make progress returns immediately and the thread
+/// goes back to sleep. It must never park a lock the writer needs.
+const MAINTENANCE_BUSY_TIMEOUT: Duration = Duration::from_millis(100);
+/// Retry delay when the maintenance connection itself cannot open. Opening a
+/// WAL database can fail transiently while another connection rebuilds the
+/// shared-memory index, so the thread retries rather than exits.
+const MAINTENANCE_OPEN_RETRY: Duration = Duration::from_secs(5);
 
-/// D7: bound WAL growth and surface reader pressure. Runs on the
-/// writer thread between transactions.
+fn wal_bytes(db_path: &Path) -> u64 {
+    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
+    std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0)
+}
+
+/// The retry ladder for a checkpoint that cannot complete.
+struct WalBackoff {
+    next_attempt: Instant,
+    delay: Duration,
+}
+
+impl WalBackoff {
+    fn new() -> Self {
+        Self {
+            next_attempt: Instant::now(),
+            delay: WAL_BACKOFF_BASE,
+        }
+    }
+
+    /// A checkpoint attempt would be allowed now.
+    fn due(&self) -> bool {
+        Instant::now() >= self.next_attempt
+    }
+
+    /// Record a failed attempt: the next one is strictly later.
+    fn failed(&mut self) -> Duration {
+        let delay = self.delay;
+        self.next_attempt = Instant::now() + delay;
+        self.delay = (self.delay * 2).min(WAL_BACKOFF_MAX);
+        delay
+    }
+
+    /// Record progress: cadence returns to the base delay. A pass that fully
+    /// drains the WAL resets the ladder; one that merely advances keeps the
+    /// base cadence so it can advance again soon.
+    fn progressed(&mut self, fully_drained: bool) {
+        self.next_attempt = Instant::now() + WAL_BACKOFF_BASE;
+        self.delay = if fully_drained {
+            WAL_BACKOFF_BASE
+        } else {
+            self.delay.min(WAL_BACKOFF_MAX)
+        };
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalCheckpointOutcome {
+    BelowThreshold,
+    Deferred,
+    Advanced { log_frames: i64, backfilled: i64 },
+    FullyDrained { log_frames: i64 },
+    Failed,
+}
+
+/// Bound WAL growth without ever blocking the writer.
 ///
-/// Graduated policy:
-/// - When no reader snapshots are active (`reader_ages.active() == 0`), attempts
-///   `TRUNCATE` checkpoint to reclaim and shrink the WAL to zero bytes.
-/// - When active readers exist, attempts `PASSIVE` checkpoint to reclaim
-///   unpinned frames without blocking reader threads.
-/// - If WAL exceeds 2x threshold while readers remain active, escalates warning.
-/// - Runs `PRAGMA optimize` to refresh SQLite query planner statistics.
+/// The policy is deliberately small:
+///
+/// 1. **PASSIVE only.** A checkpoint never waits for a reader. `TRUNCATE` is
+///    attempted *after* a PASSIVE pass has fully backfilled the log and no
+///    reader snapshot is registered — i.e. only when it cannot wait on
+///    anything. The historic implementation chose `TRUNCATE` whenever
+///    `active_readers == 0`, and a single untracked snapshot then made every
+///    attempt park the writer for the full busy timeout — 20–55 second turns.
+/// 2. **Backoff on no progress.** A pinned WAL is not retried every tick.
+/// 3. **Hard cap surfaced.** Crossing [`WAL_HARD_CAP_BYTES`] is an error-level
+///    signal, because by then some snapshot has been pinned for minutes.
 fn maintain_storage_pressure(
     db_path: &Path,
-    engine: &DatabaseEngine,
+    conn: &Connection,
     reader_ages: &ReaderAges,
     wal_threshold_bytes: u64,
     reader_warn_ms: u64,
-) {
+    backoff: &mut WalBackoff,
+) -> WalCheckpointOutcome {
+    let wal_bytes = wal_bytes(db_path);
+    if wal_bytes < wal_threshold_bytes {
+        return WalCheckpointOutcome::BelowThreshold;
+    }
+    if !backoff.due() {
+        return WalCheckpointOutcome::Deferred;
+    }
+
     let active_readers = reader_ages.active();
-    if let Some(age_ms) = reader_ages.oldest_age().map(|age| age.as_millis() as u64)
+    let oldest_reader_ms = reader_ages.oldest_age().map(|age| age.as_millis() as u64);
+    if let Some(age_ms) = oldest_reader_ms
         && age_ms >= reader_warn_ms
     {
         warn!(
@@ -672,44 +772,165 @@ fn maintain_storage_pressure(
             active_readers, "a long-lived reader snapshot is pinning the WAL"
         );
     }
-    let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
-    let wal_bytes = std::fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
-    if wal_bytes < wal_threshold_bytes {
-        return;
+    if wal_bytes >= WAL_HARD_CAP_BYTES {
+        tracing::error!(
+            wal_bytes,
+            active_readers,
+            oldest_reader_ms = oldest_reader_ms.unwrap_or(0),
+            "WAL exceeded the hard cap: a reader snapshot has pinned it for minutes"
+        );
     }
 
-    let checkpoint_sql = if active_readers == 0 {
-        "PRAGMA wal_checkpoint(TRUNCATE)"
-    } else {
-        if wal_bytes >= wal_threshold_bytes.saturating_mul(2) {
-            warn!(
-                wal_bytes,
-                active_readers,
-                "WAL size exceeded 2x threshold with active readers; checkpointing in degraded PASSIVE mode"
-            );
-        }
-        "PRAGMA wal_checkpoint(PASSIVE)"
+    let checkpoint = |sql: &str| {
+        conn.query_row(sql, [], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
     };
 
-    match engine.conn.query_row(checkpoint_sql, [], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, i64>(1)?,
-            row.get::<_, i64>(2)?,
-        ))
-    }) {
-        Ok((0, log_frames, checkpointed)) => {
-            info!(
-                wal_bytes,
-                log_frames, checkpointed, active_readers, "reclaimed WAL after pressure threshold"
-            );
-            let _ = engine.conn.execute_batch("PRAGMA optimize;");
+    let (busy, log_frames, backfilled) = match checkpoint("PRAGMA wal_checkpoint(PASSIVE)") {
+        Ok(result) => result,
+        Err(error) => {
+            let delay_ms = backoff.failed().as_millis() as u64;
+            warn!(%error, wal_bytes, retry_in_ms = delay_ms, "WAL checkpoint failed");
+            return WalCheckpointOutcome::Failed;
         }
-        Ok((busy, log_frames, checkpointed)) => warn!(
+    };
+
+    if busy != 0 {
+        let delay_ms = backoff.failed().as_millis() as u64;
+        warn!(
             wal_bytes,
-            busy, log_frames, checkpointed, active_readers, "WAL checkpoint could not complete"
-        ),
-        Err(error) => warn!(%error, checkpoint_sql, "WAL checkpoint failed"),
+            busy,
+            log_frames,
+            backfilled,
+            active_readers,
+            oldest_reader_ms = oldest_reader_ms.unwrap_or(0),
+            retry_in_ms = delay_ms,
+            "WAL checkpoint could not complete; backing off"
+        );
+        return WalCheckpointOutcome::Failed;
+    }
+
+    let fully_drained = log_frames == backfilled;
+    backoff.progressed(fully_drained);
+    if !fully_drained {
+        info!(
+            wal_bytes,
+            log_frames, backfilled, active_readers, "WAL checkpoint advanced"
+        );
+        return WalCheckpointOutcome::Advanced {
+            log_frames,
+            backfilled,
+        };
+    }
+
+    // Only now is TRUNCATE safe to attempt: every frame is already in the
+    // database, so the call has nothing to wait for. It can still lose a race
+    // with a reader; the 100 ms busy timeout makes that a cheap no-op.
+    if active_readers == 0
+        && let Ok((0, frames, _)) = checkpoint("PRAGMA wal_checkpoint(TRUNCATE)")
+    {
+        let _ = conn.execute_batch("PRAGMA optimize;");
+        info!(wal_bytes, frames, "reclaimed WAL after pressure threshold");
+    }
+    WalCheckpointOutcome::FullyDrained { log_frames }
+}
+
+/// The maintenance thread's lifetime. Signalling stops it; joining guarantees
+/// its connection is gone before the next writer generation opens (a stale
+/// connection cannot pin the WAL, but it can hold the checkpoint lock for a
+/// tick, and "deterministic teardown" is cheaper to reason about than "it
+/// would have been fine").
+struct MaintenanceThread {
+    stop: std::sync::mpsc::Sender<()>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl MaintenanceThread {
+    fn spawn(db_path: PathBuf, reader_ages: Arc<ReaderAges>) -> Self {
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+        let join = match std::thread::Builder::new()
+            .name("nuo-storage-maintenance".into())
+            .spawn(move || run_maintenance(db_path, reader_ages, stop_rx))
+        {
+            Ok(join) => Some(join),
+            Err(error) => {
+                warn!(
+                    %error,
+                    "storage maintenance thread could not start; \
+                     the WAL is now bounded only by the retire checkpoint"
+                );
+                None
+            }
+        };
+        Self {
+            stop: stop_tx,
+            join,
+        }
+    }
+}
+
+impl Drop for MaintenanceThread {
+    fn drop(&mut self) {
+        let _ = self.stop.send(());
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
+
+/// Open the maintenance connection. Not an engine: this thread runs no
+/// migrations and never serves a command. It needs write access only for
+/// checkpointing, and a short busy timeout so a lock race is a no-op.
+fn open_maintenance_connection(db_path: &Path) -> Result<Connection> {
+    let conn = Connection::open(db_path)?;
+    conn.busy_timeout(MAINTENANCE_BUSY_TIMEOUT)?;
+    Ok(conn)
+}
+
+fn run_maintenance(
+    db_path: PathBuf,
+    reader_ages: Arc<ReaderAges>,
+    stop: std::sync::mpsc::Receiver<()>,
+) {
+    let mut conn: Option<Connection> = None;
+    let mut next_open = Instant::now();
+    let mut backoff = WalBackoff::new();
+    let mut last_metrics = Instant::now() - METRICS_INTERVAL;
+
+    while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = stop.recv_timeout(MAINTENANCE_TICK)
+    {
+        if conn.is_none() {
+            if Instant::now() < next_open {
+                continue;
+            }
+            match open_maintenance_connection(&db_path) {
+                Ok(opened) => conn = Some(opened),
+                Err(error) => {
+                    next_open = Instant::now() + MAINTENANCE_OPEN_RETRY;
+                    warn!(%error, "storage maintenance could not open its connection; retrying");
+                    continue;
+                }
+            }
+        }
+        let Some(conn) = conn.as_ref() else { continue };
+
+        if last_metrics.elapsed() >= METRICS_INTERVAL {
+            last_metrics = Instant::now();
+            log_storage_metrics(&db_path, conn, &reader_ages);
+        }
+        let _ = maintain_storage_pressure(
+            &db_path,
+            conn,
+            &reader_ages,
+            WAL_CHECKPOINT_THRESHOLD_BYTES,
+            READER_AGE_WARN_MS,
+            &mut backoff,
+        );
     }
 }
 
@@ -750,25 +971,14 @@ async fn spawn_writer(
             // still live.
             let mut engine = Some(engine);
             let mut foreground = 0u32;
-            // D7 measurement contract: sample storage pressure on the
-            // writer thread (the only place with the engine) and never log
-            // prompt contents or credentials.
-            const METRICS_INTERVAL: Duration = Duration::from_secs(5);
-            let mut last_metrics = Instant::now();
+            // WAL pressure is managed by a thread with its own connection, so
+            // no checkpoint can ever block the next command. Dropping the
+            // guard stops and joins it before this generation exits.
+            let mut maintenance = Some(MaintenanceThread::spawn(
+                metrics_path.clone(),
+                Arc::clone(&reader_ages),
+            ));
             loop {
-                if last_metrics.elapsed() >= METRICS_INTERVAL
-                    && let Some(engine) = engine.as_ref()
-                {
-                    last_metrics = Instant::now();
-                    log_storage_metrics(&metrics_path, engine, &reader_ages);
-                    maintain_storage_pressure(
-                        &metrics_path,
-                        engine,
-                        &reader_ages,
-                        WAL_CHECKPOINT_THRESHOLD_BYTES,
-                        READER_AGE_WARN_MS,
-                    );
-                }
                 if let Some(engine) = engine.as_ref()
                     && (rx.is_empty() || foreground >= 16)
                 {
@@ -782,10 +992,34 @@ async fn spawn_writer(
                         _ => {}
                     }
                 }
+                // Derived indexes (causal graph + FTS) are advanced only while
+                // no command is waiting. A commit enqueues the session; this
+                // drain — and an explicit flush on the read path — does the
+                // indexing. Bounded so the next command never waits behind a
+                // backlog.
+                if rx.is_empty()
+                    && let Some(engine) = engine.as_ref()
+                {
+                    match crate::db::derived::advance_batch(
+                        &engine.conn,
+                        crate::db::derived::IDLE_BATCH,
+                    ) {
+                        Ok(n) if n > 0 && rx.is_empty() => {
+                            std::thread::sleep(Duration::from_millis(1));
+                            continue;
+                        }
+                        Err(error) => warn!(%error, "derived index drain failed"),
+                        _ => {}
+                    }
+                }
                 let Some(command) = rx.blocking_recv() else {
                     break;
                 };
                 if let PersistenceCommand::RetireEngine { ack } = command {
+                    // Stop the maintenance thread first: its connection must not
+                    // contend with the retire checkpoint for the checkpoint
+                    // lock, and it must not survive into the next generation.
+                    drop(maintenance.take());
                     // Copy every WAL frame into the main database while the
                     // engine is still fully functional: the
                     // close-time checkpoint is a heuristic — it can be
@@ -852,21 +1086,26 @@ async fn spawn_writer(
 mod tests {
     use super::*;
 
-    /// D7: the maintenance pass checkpoints a pressured WAL and
-    /// reports an over-age reader without wedging the engine.
+    /// The maintenance pass is safe in every state: no WAL, a pressured WAL,
+    /// and a registered (over-age) reader snapshot. It must never panic and
+    /// must leave the engine usable.
     #[test]
-    fn maintain_storage_pressure_bounds_the_wal_and_reports_old_readers() {
+    fn maintenance_is_safe_in_every_wal_state() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuo.db");
         let engine = DatabaseEngine::open(&path, None).unwrap();
         let reader_ages = ReaderAges::default();
-        // A registered snapshot is "old enough" at any non-negative bound.
+        // A registered snapshot is reported as over-age at any non-negative
+        // bound.
         let _id = reader_ages.register();
 
-        // Threshold 0 forces the checkpoint branch; warn bound 0 forces the
-        // reader-pressure report. Must not panic and must leave the engine
-        // usable.
-        maintain_storage_pressure(&path, &engine, &reader_ages, 0, 0);
+        let mut backoff = WalBackoff::new();
+        let outcome =
+            maintain_storage_pressure(&path, &engine.conn, &reader_ages, 0, 0, &mut backoff);
+        assert!(matches!(
+            outcome,
+            WalCheckpointOutcome::FullyDrained { .. } | WalCheckpointOutcome::Advanced { .. }
+        ));
 
         let version: u32 = engine
             .conn
@@ -875,20 +1114,106 @@ mod tests {
         assert_eq!(version, CURRENT_DB_VERSION);
     }
 
+    /// A completed pass schedules the next one; it never spins the writer.
     #[test]
-    fn maintain_storage_pressure_truncates_when_no_active_readers() {
+    fn a_completed_pass_enters_backoff_before_retrying() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nuo.db");
         let engine = DatabaseEngine::open(&path, None).unwrap();
         let reader_ages = ReaderAges::default();
-        assert_eq!(reader_ages.active(), 0);
+        let mut backoff = WalBackoff::new();
 
-        maintain_storage_pressure(&path, &engine, &reader_ages, 0, 0);
+        let first =
+            maintain_storage_pressure(&path, &engine.conn, &reader_ages, 0, u64::MAX, &mut backoff);
+        assert!(matches!(
+            first,
+            WalCheckpointOutcome::FullyDrained { .. } | WalCheckpointOutcome::Advanced { .. }
+        ));
+        let second =
+            maintain_storage_pressure(&path, &engine.conn, &reader_ages, 0, u64::MAX, &mut backoff);
+        assert_eq!(second, WalCheckpointOutcome::Deferred);
+    }
 
-        let version: u32 = engine
+    /// The incident's invariant: a snapshot the reader pool cannot see must not
+    /// turn maintenance into a blocking wait, and must not make it choose
+    /// TRUNCATE.
+    ///
+    /// This reproduces the 2026-11-07 shape exactly: `active_readers == 0` while
+    /// SQLite reports a pinned WAL. The old policy selected
+    /// `wal_checkpoint(TRUNCATE)` on the writer thread with a 5 s busy timeout
+    /// and parked every queued write behind it.
+    #[test]
+    fn a_pinned_snapshot_never_makes_maintenance_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nuo.db");
+        let engine = DatabaseEngine::open(&path, None).unwrap();
+        engine
             .conn
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .execute_batch("CREATE TABLE t(x INTEGER); INSERT INTO t VALUES (1);")
             .unwrap();
-        assert_eq!(version, CURRENT_DB_VERSION);
+
+        // A read snapshot opened *after* the first frame and held across the
+        // next write. It is deliberately not a `DbReader`, so the pool's age
+        // registry reports zero active readers — the exact false negative the
+        // incident logs showed.
+        let pinned = Connection::open(&path).unwrap();
+        pinned.execute_batch("BEGIN DEFERRED").unwrap();
+        let _: i64 = pinned
+            .query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0))
+            .unwrap();
+        engine
+            .conn
+            .execute_batch("INSERT INTO t VALUES (2);")
+            .unwrap();
+
+        let maintenance = open_maintenance_connection(&path).unwrap();
+        let reader_ages = ReaderAges::default();
+        assert_eq!(reader_ages.active(), 0);
+        let mut backoff = WalBackoff::new();
+
+        let started = Instant::now();
+        let outcome =
+            maintain_storage_pressure(&path, &maintenance, &reader_ages, 0, u64::MAX, &mut backoff);
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "maintenance must not wait on a pinned snapshot; took {elapsed:?}"
+        );
+        match outcome {
+            WalCheckpointOutcome::Advanced {
+                log_frames,
+                backfilled,
+            } => assert!(
+                backfilled < log_frames,
+                "PASSIVE must stop at the snapshot's mark, not report a drained log"
+            ),
+            other => panic!("expected a partial PASSIVE checkpoint, got {other:?}"),
+        }
+        // The next attempt is on the ladder, not immediately.
+        assert_eq!(
+            maintain_storage_pressure(&path, &maintenance, &reader_ages, 0, u64::MAX, &mut backoff),
+            WalCheckpointOutcome::Deferred
+        );
+    }
+
+    /// Below the threshold the pass is a file-stat and nothing else.
+    #[test]
+    fn a_small_wal_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nuo.db");
+        let engine = DatabaseEngine::open(&path, None).unwrap();
+        let reader_ages = ReaderAges::default();
+        let mut backoff = WalBackoff::new();
+
+        let outcome = maintain_storage_pressure(
+            &path,
+            &engine.conn,
+            &reader_ages,
+            u64::MAX,
+            u64::MAX,
+            &mut backoff,
+        );
+        assert_eq!(outcome, WalCheckpointOutcome::BelowThreshold);
     }
 }

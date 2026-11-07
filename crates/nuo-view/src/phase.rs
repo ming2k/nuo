@@ -34,8 +34,17 @@ pub enum Phase {
     /// Admission acknowledged; the driver hasn't started building the
     /// request yet (`queued`, armed by the frontend itself).
     Queued,
-    /// Local request assembly: `"starting request"` → `"saving request"` →
-    /// `"preparing context"`.
+    /// Round admission: hooks ran and the durable turn commit is being
+    /// written (`"starting request"`).
+    Admitting,
+    /// The round's durable commit is in flight (`"saving request"`).
+    ///
+    /// This is a **storage** phase, not a context phase. Folding it into
+    /// [`Self::Preparing`] made a 35-second SQLite write look like context
+    /// assembly and hid the only signal that could have named the stall.
+    Saving,
+    /// Local request assembly: token estimation, pruning, compaction
+    /// (`"preparing context"`).
     Preparing,
     /// The model request is in flight, waiting for the first byte.
     AwaitingModel,
@@ -112,7 +121,9 @@ impl Phase {
     pub fn classify(label: &str) -> Self {
         match label {
             "queued" => Self::Queued,
-            "starting request" | "saving request" | "preparing context" => Self::Preparing,
+            "starting request" => Self::Admitting,
+            "saving request" => Self::Saving,
+            "preparing context" => Self::Preparing,
             "waiting for model" => Self::AwaitingModel,
             // Historical primary-stream labels; today superseded by direct
             // delta stamping but kept folding for resilience.
@@ -139,6 +150,8 @@ impl Phase {
     pub fn label(&self) -> Cow<'_, str> {
         match self {
             Self::Queued => Cow::Borrowed("queued"),
+            Self::Admitting => Cow::Borrowed("starting request"),
+            Self::Saving => Cow::Borrowed("saving request"),
             Self::Preparing => Cow::Borrowed("preparing context"),
             Self::AwaitingModel => Cow::Borrowed("waiting for model"),
             Self::Reasoning => Cow::Borrowed("thinking"),
@@ -207,8 +220,8 @@ mod tests {
     fn vocabulary_closure() {
         let known = [
             ("queued", Phase::Queued),
-            ("starting request", Phase::Preparing),
-            ("saving request", Phase::Preparing),
+            ("starting request", Phase::Admitting),
+            ("saving request", Phase::Saving),
             ("preparing context", Phase::Preparing),
             ("waiting for model", Phase::AwaitingModel),
             ("responding", Phase::Answering),
@@ -245,7 +258,11 @@ mod tests {
         );
         assert!(!matches!(
             Phase::classify("Retrying after backoff (2/8)"),
-            Phase::AwaitingModel | Phase::Preparing | Phase::Queued
+            Phase::AwaitingModel
+                | Phase::Preparing
+                | Phase::Saving
+                | Phase::Admitting
+                | Phase::Queued
         ));
     }
 
@@ -264,6 +281,8 @@ mod tests {
 
         for phase in [
             Phase::Queued,
+            Phase::Admitting,
+            Phase::Saving,
             Phase::Preparing,
             Phase::Reasoning,
             Phase::Answering,

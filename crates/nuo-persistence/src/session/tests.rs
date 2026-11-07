@@ -261,6 +261,7 @@ async fn prune_commit_after_new_user_turn_with_unsynced_timestamp_succeeds() {
     store
         .commit_turn(CommitTurn {
             messages: &[user("turn 1"), assistant_message, tool_result.clone()],
+            basis: CommitBasis::Appended,
             round_counter: Some(1),
             usage_records: &[],
             retry_point: None,
@@ -279,6 +280,7 @@ async fn prune_commit_after_new_user_turn_with_unsynced_timestamp_succeeds() {
     store
         .commit_turn(CommitTurn {
             messages: &round_history,
+            basis: CommitBasis::Appended,
             round_counter: Some(2),
             usage_records: &[],
             retry_point: None,
@@ -337,7 +339,7 @@ async fn commit_turn_persists_window_counter_and_usage() {
     let mut messages = store.model_window().await;
     messages.push(assistant("ok"));
     store
-        .commit_turn(CommitTurn::new(&messages).tap_counter(3))
+        .commit_turn(CommitTurn::new(&messages, CommitBasis::Appended).tap_counter(3))
         .await
         .unwrap();
     assert_eq!(store.model_window().await.len(), 2);
@@ -359,7 +361,10 @@ async fn commit_turn_rebuilds_on_divergence() {
         .await
         .unwrap();
     store
-        .commit_turn(CommitTurn::new(&[user("replaced")]))
+        .commit_turn(CommitTurn::new(
+            &[user("replaced")],
+            CommitBasis::Reprojected,
+        ))
         .await
         .unwrap();
     let window = store.model_window().await;
@@ -367,17 +372,86 @@ async fn commit_turn_rebuilds_on_divergence() {
     assert_eq!(window[0].content, "replaced");
 }
 
+/// An `Appended` claim is verified, not trusted: a tail that does not match the
+/// durable projection degrades to the safe path and rebuilds. A wrong claim
+/// costs a comparison, never a persisted prefix that disagrees with the caller.
+#[tokio::test]
+async fn a_broken_appended_claim_falls_back_to_a_rebuild() {
+    let store = store("basis-fallback").await;
+    let first = vec![user("a"), assistant("b")];
+    store
+        .commit_turn(CommitTurn::new(&first, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    // Same length, different tail, but the caller *claims* append-only.
+    let claimed_append = vec![user("a"), assistant("CHANGED")];
+    store
+        .commit_turn(CommitTurn::new(&claimed_append, CommitBasis::Appended))
+        .await
+        .unwrap();
+    let window = store.model_window().await;
+    assert_eq!(window.len(), 2);
+    assert_eq!(window[1].content, "CHANGED");
+}
+
+/// A reprojection that keeps the window length still rewrites the transcript.
+/// Length alone is not identity: a prune clears committed tool bodies in place.
+#[tokio::test]
+async fn reprojected_basis_rewrites_an_equally_sized_window() {
+    let store = store("basis-reproject").await;
+    let first = vec![user("a"), assistant("b")];
+    store
+        .commit_turn(CommitTurn::new(&first, CommitBasis::Appended))
+        .await
+        .unwrap();
+
+    let reprojected = vec![user("a"), assistant("pruned body")];
+    store
+        .commit_turn(CommitTurn::new(&reprojected, CommitBasis::Reprojected))
+        .await
+        .unwrap();
+    let window = store.model_window().await;
+    assert_eq!(window[1].content, "pruned body");
+}
+
+/// The IR is a derived view: a commit only enqueues it, so `session_ir()` must
+/// drain the session before hydrating. Without the flush this reads an empty
+/// graph (the failure mode compaction hits as `Ok(None)`).
+#[tokio::test]
+async fn session_ir_flushes_pending_derived_work() {
+    let store = store("ir-flush").await;
+    store
+        .commit_turn(CommitTurn::new(
+            &[user("question"), assistant("answer")],
+            CommitBasis::Appended,
+        ))
+        .await
+        .unwrap();
+
+    let ir = store.session_ir().await;
+    assert_eq!(
+        ir.history.nodes.len(),
+        2,
+        "session_ir must flush the pending causal mirror"
+    );
+    assert!(ir.state.active_leaf.is_some());
+}
+
 #[tokio::test]
 async fn commit_turn_honors_the_revision_precondition() {
     let store = store("commit-guard").await;
     let messages = vec![user("hello")];
-    let first = store.commit_turn(CommitTurn::new(&messages)).await.unwrap();
+    let first = store
+        .commit_turn(CommitTurn::new(&messages, CommitBasis::Appended))
+        .await
+        .unwrap();
 
     // A precondition that does not match the durable revision fails closed.
     let stale = store
         .commit_turn(CommitTurn {
             expected_revision: Some(first + 5),
-            ..CommitTurn::new(&messages)
+            ..CommitTurn::new(&messages, CommitBasis::Appended)
         })
         .await
         .unwrap_err();
@@ -387,7 +461,7 @@ async fn commit_turn_honors_the_revision_precondition() {
     let advanced = store
         .commit_turn(CommitTurn {
             expected_revision: Some(first),
-            ..CommitTurn::new(&messages)
+            ..CommitTurn::new(&messages, CommitBasis::Appended)
         })
         .await
         .unwrap();
@@ -1086,7 +1160,10 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
     let mut window = store.model_window().await;
     window.push(parent);
     window.push(result);
-    store.commit_turn(CommitTurn::new(&window)).await.unwrap();
+    store
+        .commit_turn(CommitTurn::new(&window, CommitBasis::Appended))
+        .await
+        .unwrap();
 
     // The parent's tool entry carries a SubagentRef into a Subagent-kind
     // session whose transcript holds the child messages.

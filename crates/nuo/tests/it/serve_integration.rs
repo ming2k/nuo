@@ -377,7 +377,7 @@ async fn test_select_then_attach_round_trip() {
     }
 
     ws.send(WsMessage::Text(
-        serde_json::json!({"type":"Request","Chat":{"text":"hi","images":[]}})
+        serde_json::json!({"type":"Request","request":{"Chat":{"text":"hi","images":[]}}})
             .to_string()
             .into(),
     ))
@@ -1150,7 +1150,7 @@ async fn attach_end_session_tears_down_and_notifies() {
 
     // Declare the session ended — raw frame shape the Web app sends.
     ws.send(WsMessage::Text(
-        r#"{"type":"Request","EndThread":null}"#.into(),
+        r#"{"type":"Request","request":"EndThread"}"#.into(),
     ))
     .await
     .unwrap();

@@ -87,7 +87,7 @@ impl HarnessTaskPipeline {
         let response = tokio::time::timeout(
             timeout,
             self.provider
-                .chat(ModelRequest::ephemeral(messages).with_instructions(instructions)),
+                .chat(&ModelRequest::ephemeral(messages).with_instructions(instructions)),
         )
         .await
         .map_err(|_| CognitiveError::Timeout(timeout))?
@@ -178,7 +178,7 @@ mod tests {
     impl Provider for MockProvider {
         async fn chat(
             &self,
-            _req: ModelRequest,
+            _req: &ModelRequest,
         ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
             match &self.response {
                 Ok(content) => Ok(nuo_protocol::ProviderCompletion::message(Message::new(
@@ -195,7 +195,8 @@ mod tests {
 
         async fn stream_chat(
             &self,
-            _req: ModelRequest,
+            _req: &ModelRequest,
+            _telemetry: nuo_provider::TransportTelemetry,
         ) -> Result<
             futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
             nuo_protocol::ProviderError,
