@@ -959,10 +959,10 @@ impl StorybookComponent for ToolCard {
                         command: "cargo build --workspace --all-targets".to_string(),
                         output: {
                             let mut s = String::new();
-                            s.push_str("   Compiling nuotc v0.0.6\n   Compiling nuo-protocol v0.0.75\n   Compiling nuo-host v0.0.75\n   Compiling nuo-ui-primitives v0.0.75\n");
+                            s.push_str("   Compiling nuotc v0.0.6\n   Compiling nuo-protocol v0.0.76\n   Compiling nuo-host v0.0.76\n   Compiling nuo-ui-primitives v0.0.76\n");
                             s.push_str("   [... 990 lines of intermediate compilation artifacts folded per ADR-0115 ...]\n");
                             for i in 995..=1000 {
-                                s.push_str(&format!("   Compiling satellite-crate-{i} v0.0.75\n"));
+                                s.push_str(&format!("   Compiling satellite-crate-{i} v0.0.76\n"));
                             }
                             s.push_str("    Finished dev [unoptimized + debuginfo] target(s) in 2.14s\n");
                             s

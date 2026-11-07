@@ -6,6 +6,18 @@ The format loosely follows [Keep a Changelog](https://keepachangelog.com/), and
 the project adheres to the federated SemVer model described in
 [ADR-0004](docs/adr/0004-federated-cluster-semver-and-release-topology.md).
 
+## [Unreleased]
+
+## [0.0.76] - 2026-11-07
+
+### Changed
+
+- **netune v0.0.7**: HTTP/3 traces on one client are derived per exchange instead of attributing every request to the first. The per-request TLS/HTTP2 identity path used by the Antigravity channel is unchanged.
+
+### Fixed
+
+- **Tag releases produce binaries again.** `on.push` listed only `branches`, so the `release` job's `refs/tags/v*` condition could never match and no past tag built a binary. `tags: ["v*"]` is now in the trigger, and the job declares `contents: write` so asset upload does not depend on a read-only repository default.
+
 ## [0.0.75] - 2026-11-07
 
 ### Added
