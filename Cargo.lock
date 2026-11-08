@@ -1529,8 +1529,8 @@ dependencies = [
 
 [[package]]
 name = "netune"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 dependencies = [
  "base64",
  "brotli",
@@ -1553,13 +1553,13 @@ dependencies = [
 
 [[package]]
 name = "netune-egress"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 
 [[package]]
 name = "netune-http1"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 dependencies = [
  "bytes",
  "http",
@@ -1568,8 +1568,8 @@ dependencies = [
 
 [[package]]
 name = "netune-http2"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 dependencies = [
  "bytes",
  "http",
@@ -1578,8 +1578,8 @@ dependencies = [
 
 [[package]]
 name = "netune-io"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 dependencies = [
  "netune-trace",
  "tokio",
@@ -1587,16 +1587,16 @@ dependencies = [
 
 [[package]]
 name = "netune-trace"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "netune-ws"
-version = "0.0.7"
-source = "git+https://github.com/ming2k/netune.git?tag=v0.0.7#4e89be5def14323a5871a618d638ca23e45d7b6b"
+version = "0.0.9"
+source = "git+https://github.com/ming2k/netune.git?tag=v0.0.9#b48c37c2d7f2cc88a4311858e10d14c43a25f80f"
 dependencies = [
  "base64",
  "bytes",
