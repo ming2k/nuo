@@ -1,8 +1,11 @@
-//! Agent-owned declarative instruction composition and registry (ADR-0056).
+//! Agent-owned declarative instruction composition and registry (ADR-0052).
 //!
-//! A system prompt has a lifecycle unlike conversational turn messages:
-//! multiple declarative policy sections compose into a structured, cache-tiered
-//! [`InstructionBundle`] that is rebuilt before every provider request.
+//! Instructions have a lifecycle unlike conversational turn messages: multiple
+//! declarative sections compose into a structured, cache-tiered
+//! [`InstructionBundle`] that is rebuilt before every provider request. The
+//! bundle is the source of the request's system prompt; each wire protocol
+//! decides where it lands (system blocks, top-level `instructions`, developer
+//! items, or a system-role message).
 //!
 //! Sections are categorized by [`InstructionTier`]:
 //! - Base (immutable persona, safety ethos, host environment)
@@ -23,7 +26,7 @@ use nuo_protocol::{InstructionBundle, InstructionSlice, InstructionTier};
 /// Automatically derives [`Hash`] so the entire turn context is content-addressed for memoization
 /// without risk of manual hasher drift.
 #[derive(Debug, Clone, Default, Hash, PartialEq, Eq)]
-pub struct SystemPromptContext {
+pub struct InstructionContext {
     /// The composed identity line — name/mission, a persona override, or a
     /// `/master` role directive. Empty when the embedding supplies no identity,
     /// which is the shipped coding CLI's default.
@@ -35,9 +38,9 @@ pub struct SystemPromptContext {
     /// true) is admitted this turn. Capability-derived, so a renamed or new
     /// dispatch tool needs no prompt-policy change.
     pub has_subagent_tool: bool,
-    /// Model-specific guidance from the resolved model.
-    /// Model-specific behavioral guidance resolved for the active route (ADR-0130).
-    pub model_guidance: String,
+    /// User-authored instructions matching this turn's role and route, already
+    /// filtered and ordered broad-to-narrow by the caller (ADR-0165).
+    pub user_instructions: Vec<nuo_protocol::ScopedInstruction>,
     /// Provider/protocol-specific prompt guidance from the active provider.
     pub provider_guidance: &'static str,
     /// Content-attested project instructions (e.g. AGENTS.md).
@@ -50,9 +53,12 @@ pub struct SystemPromptContext {
     pub workspace_topology: Option<String>,
     /// Whether the active provider channel supports parallel tool calling.
     pub supports_parallel_tool_calls: bool,
+    /// Repository-authored instructions that match this turn's role and route,
+    /// already filtered and ordered broad-to-narrow by the caller.
+    pub project_instructions: Vec<nuo_protocol::ScopedInstruction>,
 }
 
-impl SystemPromptContext {
+impl InstructionContext {
     /// An all-empty context for registry-mechanics tests and turns with no identity/tools.
     pub fn empty() -> Self {
         Self::default()
@@ -76,7 +82,7 @@ pub enum InstructionOrder {
 }
 
 /// A self-contained, declaratively registered instruction section.
-pub trait SystemPromptSection: Send + Sync {
+pub trait InstructionSection: Send + Sync {
     /// Stable unique identifier, used for overrides, disables, dependencies, and tracing.
     /// Convention: `system.<area>[.<name>]`, e.g. `"system.project_rules"`.
     fn id(&self) -> &'static str;
@@ -103,18 +109,18 @@ pub trait SystemPromptSection: Send + Sync {
     }
 
     /// Whether this section applies in the current context. Default `true`.
-    fn is_active(&self, _ctx: &SystemPromptContext) -> bool {
+    fn is_active(&self, _ctx: &InstructionContext) -> bool {
         true
     }
 
     /// Render the section body. `None` means "active but produces no text this
     /// turn"; the registry skips a `None` without leaving a blank gap.
-    fn render(&self, ctx: &SystemPromptContext) -> Option<String>;
+    fn render(&self, ctx: &InstructionContext) -> Option<String>;
 }
 
 /// A registered section entry plus runtime overrides.
 struct Entry {
-    section: Box<dyn SystemPromptSection + Send + Sync>,
+    section: Box<dyn InstructionSection + Send + Sync>,
     order_override: Option<InstructionOrder>,
     disabled: bool,
 }
@@ -137,37 +143,37 @@ impl Entry {
 
 /// System-prompt policy assembled before an agent starts running.
 ///
-/// Holds registered [`SystemPromptSection`]s, keyed by stable id.
+/// Holds registered [`InstructionSection`]s, keyed by stable id.
 /// Active fragments are topologically ordered and assembled into a structured
 /// [`InstructionBundle`] by [`build_bundle`](Self::build_bundle).
 #[derive(Default)]
-pub struct SystemPromptRegistry {
+pub struct InstructionRegistry {
     entries: Vec<Entry>,
     /// Content-addressed memo of the last render: (context_hash, InstructionBundle).
     render_memo: std::sync::Mutex<Option<(u64, InstructionBundle)>>,
 }
 
-/// Configuration error returned while composing a [`SystemPromptRegistry`].
+/// Configuration error returned while composing a [`InstructionRegistry`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SystemPromptRegistryError {
+pub enum InstructionRegistryError {
     /// A section with the same stable id is already registered.
     DuplicateId(&'static str),
     /// An override refers to an id that is not registered.
     UnknownId(String),
 }
 
-impl std::fmt::Display for SystemPromptRegistryError {
+impl std::fmt::Display for InstructionRegistryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::DuplicateId(id) => write!(f, "duplicate SystemPromptSection id: {id}"),
-            Self::UnknownId(id) => write!(f, "unknown SystemPromptSection id: {id}"),
+            Self::DuplicateId(id) => write!(f, "duplicate InstructionSection id: {id}"),
+            Self::UnknownId(id) => write!(f, "unknown InstructionSection id: {id}"),
         }
     }
 }
 
-impl std::error::Error for SystemPromptRegistryError {}
+impl std::error::Error for InstructionRegistryError {}
 
-impl SystemPromptRegistry {
+impl InstructionRegistry {
     /// An empty registry.
     pub fn new() -> Self {
         Self::default()
@@ -175,29 +181,41 @@ impl SystemPromptRegistry {
 
     /// Register a section. A duplicate id is a programming error in the compiled
     /// section table, so it is asserted rather than silently dropping a section.
-    pub fn register<S: SystemPromptSection + 'static>(&mut self, section: S) {
+    pub fn register<S: InstructionSection + 'static>(&mut self, section: S) {
         let id = section.id();
         assert!(
             self.try_register(section).is_ok(),
-            "duplicate system prompt section id: {id}"
+            "duplicate instruction section id: {id}"
         );
     }
 
     /// Register a section without panicking on an id collision.
-    pub fn try_register<S: SystemPromptSection + 'static>(
+    pub fn try_register<S: InstructionSection + 'static>(
         &mut self,
         section: S,
-    ) -> Result<(), SystemPromptRegistryError> {
+    ) -> Result<(), InstructionRegistryError> {
         let id = section.id();
         if self.entries.iter().any(|e| e.id() == id) {
-            return Err(SystemPromptRegistryError::DuplicateId(id));
+            return Err(InstructionRegistryError::DuplicateId(id));
         }
         self.entries.push(Entry {
             section: Box::new(section),
             order_override: None,
             disabled: false,
         });
+        self.invalidate_memo();
         Ok(())
+    }
+
+    /// Drop the content-addressed render memo after a registry mutation.
+    ///
+    /// The memo is keyed by the *context* hash, which says nothing about the
+    /// section table. Without this, a `disable`/`set_order`/`register` performed
+    /// after a render would keep serving the stale bundle for the same context.
+    fn invalidate_memo(&self) {
+        if let Ok(mut memo) = self.render_memo.lock() {
+            *memo = None;
+        }
     }
 
     /// Override a section's ordering relative to other sections.
@@ -205,34 +223,36 @@ impl SystemPromptRegistry {
         &mut self,
         id: &str,
         order: InstructionOrder,
-    ) -> Result<(), SystemPromptRegistryError> {
+    ) -> Result<(), InstructionRegistryError> {
         let entry = self
             .entries
             .iter_mut()
             .find(|entry| entry.id() == id)
-            .ok_or_else(|| SystemPromptRegistryError::UnknownId(id.to_owned()))?;
+            .ok_or_else(|| InstructionRegistryError::UnknownId(id.to_owned()))?;
         entry.order_override = Some(order);
+        self.invalidate_memo();
         Ok(())
     }
 
     /// Set explicit integer rank override (backward-compatible convenience).
-    pub fn set_rank(&mut self, id: &str, rank: u32) -> Result<(), SystemPromptRegistryError> {
+    pub fn set_rank(&mut self, id: &str, rank: u32) -> Result<(), InstructionRegistryError> {
         self.set_order(id, InstructionOrder::Index(rank))
     }
 
     /// Disable a section by id (it is skipped as if inactive).
-    pub fn disable(&mut self, id: &str) -> Result<(), SystemPromptRegistryError> {
+    pub fn disable(&mut self, id: &str) -> Result<(), InstructionRegistryError> {
         let entry = self
             .entries
             .iter_mut()
             .find(|entry| entry.id() == id)
-            .ok_or_else(|| SystemPromptRegistryError::UnknownId(id.to_owned()))?;
+            .ok_or_else(|| InstructionRegistryError::UnknownId(id.to_owned()))?;
         entry.disabled = true;
+        self.invalidate_memo();
         Ok(())
     }
 
     /// Build a structured, memoized [`InstructionBundle`] from the current context.
-    pub fn build_bundle(&self, ctx: &SystemPromptContext) -> InstructionBundle {
+    pub fn build_bundle(&self, ctx: &InstructionContext) -> InstructionBundle {
         let mut hasher = DefaultHasher::new();
         ctx.hash(&mut hasher);
         let hash = hasher.finish();
@@ -252,7 +272,7 @@ impl SystemPromptRegistry {
     }
 
     /// Topological assembly path: groups by tier and resolves relative order constraints.
-    fn render_bundle(&self, ctx: &SystemPromptContext) -> InstructionBundle {
+    fn render_bundle(&self, ctx: &InstructionContext) -> InstructionBundle {
         let active_entries: Vec<&Entry> = self
             .entries
             .iter()
@@ -388,7 +408,7 @@ mod tests {
         text: Option<&'static str>,
     }
 
-    impl SystemPromptSection for TestSection {
+    impl InstructionSection for TestSection {
         fn id(&self) -> &'static str {
             self.id
         }
@@ -398,10 +418,10 @@ mod tests {
         fn order(&self) -> InstructionOrder {
             self.order.clone()
         }
-        fn is_active(&self, _ctx: &SystemPromptContext) -> bool {
+        fn is_active(&self, _ctx: &InstructionContext) -> bool {
             self.active
         }
-        fn render(&self, _ctx: &SystemPromptContext) -> Option<String> {
+        fn render(&self, _ctx: &InstructionContext) -> Option<String> {
             self.text.map(String::from)
         }
     }
@@ -418,7 +438,7 @@ mod tests {
 
     #[test]
     fn relative_ordering_resolves_semantic_dependencies() {
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("tail_item", InstructionOrder::Tail, "Tail"));
         reg.register(sec("head_item", InstructionOrder::Head, "Head"));
         reg.register(sec(
@@ -432,7 +452,7 @@ mod tests {
             "BeforeTail",
         ));
 
-        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        let bundle = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(
             bundle.render_combined(),
             "Head\nAfterHead\nBeforeTail\nTail"
@@ -441,11 +461,11 @@ mod tests {
 
     #[test]
     fn equal_orders_preserve_registration_order() {
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("system.a", InstructionOrder::Head, "A"));
         reg.register(sec("system.b", InstructionOrder::Head, "B"));
 
-        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        let bundle = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(bundle.render_combined(), "A\nB");
     }
 
@@ -454,7 +474,7 @@ mod tests {
         // Sections carry a leading `\n` as their paragraph break from whatever
         // precedes them. When there is no identity line, the host section is
         // first and must not open the message with a blank line.
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("system.leading", InstructionOrder::Head, "\n## Host"));
         reg.register(sec(
             "system.trailing",
@@ -462,38 +482,51 @@ mod tests {
             "\n## Persistence",
         ));
 
-        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        let bundle = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(bundle.render_combined(), "## Host\n\n## Persistence");
     }
 
     #[test]
     fn disabled_section_is_skipped() {
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("system.a", InstructionOrder::Head, "A"));
         reg.register(sec("system.b", InstructionOrder::Tail, "B"));
         reg.disable("system.a").unwrap();
 
-        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        let bundle = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(bundle.render_combined(), "B");
     }
 
     #[test]
+    fn registry_mutation_invalidates_the_render_memo() {
+        let mut reg = InstructionRegistry::new();
+        reg.register(sec("system.a", InstructionOrder::Head, "A"));
+        let ctx = InstructionContext::empty();
+        assert_eq!(reg.build_bundle(&ctx).render_combined(), "A");
+
+        // Same context, mutated registry: the context-addressed memo must not
+        // serve the pre-mutation bundle.
+        reg.disable("system.a").unwrap();
+        assert!(reg.build_bundle(&ctx).is_empty());
+    }
+
+    #[test]
     fn order_override_changes_position() {
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("system.a", InstructionOrder::Head, "A"));
         reg.register(sec("system.b", InstructionOrder::Tail, "B"));
         reg.set_order("system.b", InstructionOrder::Before("system.a"))
             .unwrap();
 
-        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        let bundle = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(bundle.render_combined(), "B\nA");
     }
 
     #[test]
     fn instruction_bundle_assembly_is_pure_and_deterministic() {
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        let bundle = reg.build_bundle(&SystemPromptContext::empty());
+        let bundle = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(bundle.len(), 1);
         assert_eq!(bundle.slices[0].id, "system.a");
         assert_eq!(bundle.slices[0].tier, InstructionTier::Base);
@@ -502,10 +535,10 @@ mod tests {
 
     #[test]
     fn memoization_returns_identical_bundle() {
-        let mut reg = SystemPromptRegistry::new();
+        let mut reg = InstructionRegistry::new();
         reg.register(sec("system.a", InstructionOrder::Head, "A"));
-        let b1 = reg.build_bundle(&SystemPromptContext::empty());
-        let b2 = reg.build_bundle(&SystemPromptContext::empty());
+        let b1 = reg.build_bundle(&InstructionContext::empty());
+        let b2 = reg.build_bundle(&InstructionContext::empty());
         assert_eq!(b1, b2);
     }
 }

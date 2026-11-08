@@ -670,7 +670,7 @@ pub fn render_page(label: &str, message: &str, ok: bool) -> String {
         {hero_icon_svg}
       </div>
     </div>
-    <div class="brand-badge">NUO · {label}</div>
+    <div class="brand-badge">NUO | {label}</div>
     <h1>{headline}</h1>
     <p>{message}</p>
     <div class="hint-bar">

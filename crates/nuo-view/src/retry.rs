@@ -75,7 +75,7 @@ use std::time::Instant;
 /// # What is *not* rendered
 ///
 /// `max_attempts` is policy, not news: it is the configured ceiling
-/// (`provider_retry_max_attempts`), and with the stepped backoff it is reached
+/// (`[resilience] retry_max_attempts`), and with the stepped backoff it is reached
 /// after minutes. Painting it on the bar (the retired `retry 2/30` form)
 /// competed for the eye with the two facts the user actually needs — *which*
 /// failure this is, and how long until the next attempt — and the outstanding

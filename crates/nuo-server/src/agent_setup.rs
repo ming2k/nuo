@@ -82,17 +82,16 @@ pub fn reseed_tool_variants(agent: &Agent, config: &Config) {
     agent.set_variant_selection(config.tool_variants.for_model(&model).clone());
 }
 
-/// Re-seed the model-specific behavioral guidance so the system prompt always
-/// tracks the active route, glob patterns, and model family (ADR-0130). Called at
-/// startup and after every provider/model switch.
-pub fn reseed_model_guidance(agent: &Agent, config: &Config) {
-    let model = agent.provider.model();
+/// Re-seed the user instruction source and the provider-type fact for the
+/// active route (ADR-0165). Called at startup and after every provider/model
+/// switch; prompt composition itself never reads the connections store.
+pub fn reseed_instructions(agent: &Agent, config: &Config) {
+    agent.set_user_instructions(config.instructions.scoped());
     let provider_id = agent.provider.provider_id();
-    let family = agent.provider.model_capabilities().family;
-    let store = nuo_persistence::route_settings::RouteSettingsStore::load();
-    let route = store.settings_for(&provider_id, &model);
-    let guidance = config.resolve_model_guidance(route, Some(&provider_id), &model, &family);
-    agent.set_model_guidance(guidance);
+    let provider_kind = nuo_persistence::connections::Connections::load()
+        .get(&provider_id)
+        .map(|connection| connection.provider.clone());
+    agent.set_instruction_provider_kind(provider_kind);
 }
 
 #[cfg(test)]
@@ -101,21 +100,26 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn reseed_model_guidance_populates_agent_from_config() {
+    fn reseed_instructions_populates_agent_from_config() {
         let provider = Arc::new(nuo_harness::NoProvider);
         let agent = Agent::new(provider, Vec::new(), nuo_protocol::AgentIdentity::default());
 
         let mut config = Config::default();
-        config.model_guidance.insert(
-            "*none*".to_string(),
-            "Prompt engineering: Speak plain Chinese.".to_string(),
-        );
+        config
+            .instructions
+            .user
+            .push(nuo_persistence::config::UserInstructionConfig {
+                text: "Speak plain Chinese.".to_string(),
+                ..Default::default()
+            });
 
-        assert_eq!(agent.model_guidance(), "");
-        reseed_model_guidance(&agent, &config);
-        assert_eq!(
-            agent.model_guidance(),
-            "Prompt engineering: Speak plain Chinese."
+        reseed_instructions(&agent, &config);
+        let mut messages = Vec::new();
+        agent.prepare_request_messages_debug(&mut messages);
+        assert!(
+            messages[0].content.contains("Speak plain Chinese."),
+            "{}",
+            messages[0].content
         );
     }
 }

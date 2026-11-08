@@ -139,7 +139,7 @@ pub enum InjectionKind {
     ImplicitFile,
     /// System-prompt assembly: the harness rebuilt the head system message
     /// from live identity, model/provider, and tool state through the
-    /// agent's request-scoped `SystemPromptRegistry` assembly.
+    /// agent's request-scoped `InstructionRegistry` assembly.
     SystemPrompt,
     /// Built-in anti-anchoring nudge fired by the deterministic read-loop guard
     /// when the model repeats the same read (a single page or a two-page thrash)

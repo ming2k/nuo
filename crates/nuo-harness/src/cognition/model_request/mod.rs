@@ -4,34 +4,34 @@
 //! owns when assembly occurs and supplies a plain state snapshot; this module
 //! owns the pure projection from a live conversation window to one immutable
 //! [`nuo_protocol::ModelRequest`].
+pub(crate) mod instruction;
 pub mod policies;
-pub(crate) mod system_prompt;
 
-pub use policies::default_system_prompt_registry;
+pub use policies::default_instruction_registry;
 
 use std::sync::Arc;
 
-use crate::{Message, Role, SystemPromptContext, SystemPromptRegistry, Tool};
+use crate::{InstructionContext, InstructionRegistry, Message, Role, Tool};
 
 /// Pure request projector configured with the system-prompt policy for one
 /// agent. It owns no live agent state and performs no persistence.
 pub(crate) struct ModelRequestAssembler {
-    system_prompt_registry: SystemPromptRegistry,
+    instruction_registry: InstructionRegistry,
 }
 
 impl ModelRequestAssembler {
-    pub(crate) fn new(system_prompt_registry: SystemPromptRegistry) -> Self {
+    pub(crate) fn new(instruction_registry: InstructionRegistry) -> Self {
         Self {
-            system_prompt_registry,
+            instruction_registry,
         }
     }
 
-    pub(crate) fn registry_mut(&mut self) -> &mut SystemPromptRegistry {
-        &mut self.system_prompt_registry
+    pub(crate) fn registry_mut(&mut self) -> &mut InstructionRegistry {
+        &mut self.instruction_registry
     }
 
-    pub(crate) fn replace_registry(&mut self, registry: SystemPromptRegistry) {
-        self.system_prompt_registry = registry;
+    pub(crate) fn replace_registry(&mut self, registry: InstructionRegistry) {
+        self.instruction_registry = registry;
     }
 
     /// Project a conversation window without mutating historical nodes.
@@ -40,7 +40,7 @@ impl ModelRequestAssembler {
     pub(crate) fn assemble(
         &self,
         window: &[Message],
-        context: &SystemPromptContext,
+        context: &InstructionContext,
         tools: &[Arc<dyn Tool>],
     ) -> nuo_protocol::ModelRequest {
         let mut messages = window.to_vec();
@@ -60,10 +60,10 @@ impl ModelRequestAssembler {
         &self,
         messages: Vec<Message>,
         temporary_context: Vec<Message>,
-        context: &SystemPromptContext,
+        context: &InstructionContext,
         tools: &[Arc<dyn Tool>],
     ) -> nuo_protocol::ModelRequest {
-        let instructions = self.system_prompt_registry.build_bundle(context);
+        let instructions = self.instruction_registry.build_bundle(context);
         let tool_specs = tools
             .iter()
             .map(|t| {
@@ -133,12 +133,12 @@ mod tests {
     #[test]
     fn assemble_projects_window_deterministically() {
         let tool: Arc<dyn Tool> = Arc::new(TestTool);
-        let assembler = ModelRequestAssembler::new(SystemPromptRegistry::new());
+        let assembler = ModelRequestAssembler::new(InstructionRegistry::new());
         let window = vec![
             Message::new(Role::User, "hello"),
             Message::new(Role::Assistant, "hi"),
         ];
-        let context = SystemPromptContext::empty();
+        let context = InstructionContext::empty();
         let request = assembler.assemble(&window, &context, &[Arc::clone(&tool)]);
         // Transcript turns are pure conversation messages.
         assert_eq!(request.messages[0].role, Role::User);
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn compile_from_ir_executes_compiler_passes() {
         let tool: Arc<dyn Tool> = Arc::new(TestTool);
-        let assembler = ModelRequestAssembler::new(SystemPromptRegistry::new());
+        let assembler = ModelRequestAssembler::new(InstructionRegistry::new());
         let policy = nuo_protocol::SessionPolicy::default();
         let mut ir = nuo_protocol::SessionIR::new("test-session", policy, 1000);
         ir.append_message("node-1", 1001, Message::new(Role::User, "compile this"));

@@ -1106,13 +1106,13 @@ pub(crate) fn draw_web_search_content(
             ctx.paint(Line::from(spans));
         }
 
-        // Line 2: 🌐 domain · url
+        // Line 2: 🌐 domain | url
         if !hit.url.is_empty() {
             let globe = "  🌐 ";
             let domain_pill = if hit.domain.is_empty() {
                 String::new()
             } else {
-                format!("{} · ", hit.domain)
+                format!("{} | ", hit.domain)
             };
             let mut spans = vec![
                 Span::styled(" ".repeat(indent), pad),
@@ -1247,7 +1247,7 @@ pub(crate) fn draw_web_article_content(
     {
         let shield = "🛡️  ";
         let provenance = format!(
-            "Untrusted External Content · Reader: {} · ~{} tokens",
+            "Untrusted External Content | Reader: {} | ~{} tokens",
             reader, tokens
         );
         let mut spans = vec![
@@ -2254,7 +2254,7 @@ impl<'t> CommandBodyCtx<'t> {
 /// The footer line for a command step whose log was cut *somewhere*.
 ///
 /// ADR-0115: state which copy is short, not just that something is. The old
-/// single "output truncated · partial kept" claimed the screen held a partial
+/// single "output truncated | partial kept" claimed the screen held a partial
 /// log even when the screen held every byte — the fold was hiding it, and the
 /// fold can be revealed. A statement the user can check is the whole point.
 fn coverage_footer(coverage: OutputCoverage) -> Option<&'static str> {
@@ -2264,7 +2264,7 @@ fn coverage_footer(coverage: OutputCoverage) -> Option<&'static str> {
         // watermark, so the fold may hide rows it never saw either.
         OutputCoverage::ModelTruncated => Some("output truncated for model context"),
         // The payload arrived already cut: the middle is gone for everyone.
-        OutputCoverage::CutBeforeUi => Some("output truncated · partial kept"),
+        OutputCoverage::CutBeforeUi => Some("output truncated | partial kept"),
     }
 }
 
@@ -3795,7 +3795,7 @@ mod tests {
         );
         assert_eq!(
             coverage_footer(OutputCoverage::CutBeforeUi),
-            Some("output truncated · partial kept"),
+            Some("output truncated | partial kept"),
             "a payload cut before the UI keeps the older, graver wording",
         );
     }

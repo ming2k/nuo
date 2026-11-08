@@ -5,7 +5,7 @@ expression: "render_grid(&m, 80, 20)"
 ---
 - Read https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html (0ms)
   🔗  https://blog.rust-lang.org/2025/02/20/Rust-1.85.0.html
-  🛡️   Untrusted External Content · Reader: Jina · ~1840 tokens
+  🛡️   Untrusted External Content | Reader: Jina | ~1840 tokens
 
   # Announcing Rust 1.85.0 and Rust 2024
 

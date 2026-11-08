@@ -317,9 +317,6 @@ pub struct RouteSettings {
     /// mode and retention must be advertised by the resolved route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<nuo_protocol::PromptCachePreference>,
-    /// Optional route-specific model guidance override (instance + model, ADR-0130).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_guidance: Option<String>,
 }
 
 impl RouteSettings {
@@ -332,7 +329,6 @@ impl RouteSettings {
                 .as_ref()
                 .is_none_or(nuo_protocol::CapabilityOverrides::is_empty)
             && self.prompt_cache.is_none()
-            && self.model_guidance.is_none()
     }
 }
 
@@ -832,6 +828,14 @@ pub struct Config {
     /// counts as the first attempt, so this is the *total* attempts, not extra
     /// retries. Clamped to `[1, 60]` at the call site.
     pub connection_retry_max_attempts: usize,
+    /// Maximum number of **stream restarts** after a model turn has already
+    /// produced visible output (assistant text, reasoning, or a tool-call
+    /// announcement). A mid-stream failure is not the same fault as a request
+    /// that never produced output: the attempt's visible state must be
+    /// discarded and the provider is usually going to fail the same way again,
+    /// so this budget is deliberately small. `0` allows no restart at all.
+    /// Clamped to `[0, 10]` at the call site.
+    pub connection_stream_restart_max_attempts: usize,
     /// Base delay (ms) for the bounded stepped backoff between retries:
     /// `1s -> 2s -> 5s -> 10s -> 10s ...` (scaled by `base_ms`), capped by `connection_retry_max_ms`.
     pub connection_retry_base_ms: u64,
@@ -893,11 +897,10 @@ pub struct Config {
     /// [`ToolVariantsConfig`].
     #[serde(default)]
     pub tool_variants: ToolVariantsConfig,
-    /// Per-model or model-pattern prompt engineering guidance rules (`[model_guidance]`
-    /// table, ADR-0130). Maps exact model ids, glob patterns, or family names to
-    /// custom system prompt guidance text.
+    /// User-authored scoped instructions (`[[instructions.user]]`, ADR-0165).
+    /// The user source of the unified instruction pipeline.
     #[serde(default)]
-    pub model_guidance: ModelGuidanceConfig,
+    pub instructions: UserInstructionsConfig,
     /// Server lifecycle knobs: the `[server]` (or legacy `[server]`) table of
     /// `config.toml`. Controls how the session server exits — its shutdown
     /// grace budget and its idle-empty auto-exit.
@@ -985,302 +988,83 @@ impl ToolVariantsConfig {
     }
 }
 
-/// User-configured model guidance mappings: exact model id, pattern, or family -> prompt string (ADR-0130).
+/// One user-authored scoped instruction (`[[instructions.user]]`, ADR-0165).
 ///
-/// Deserialized from the `[model_guidance]` table in `config.toml` / `agent.toml`.
-/// Supports provider-scoped subtables (`[model_guidance.<provider>]`),
-/// provider-prefixed keys (`"provider/model"` or `"provider:model"`),
-/// as well as exact model and glob patterns (ADR-0130).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ModelGuidanceConfig {
-    /// Provider-scoped guidance maps: provider_id -> (pattern/model -> prompt)
-    pub providers: BTreeMap<String, BTreeMap<String, String>>,
-    /// Flat entries: exact model, provider-qualified key ("provider/model"), or global pattern/family
-    pub entries: BTreeMap<String, String>,
+/// Selectors mirror project-instruction frontmatter; `model` is always a glob.
+/// The text is Markdown prose and is validated together with the selector.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserInstructionConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<String>,
+    /// Glob matched against the wire model id; exact ids are patterns too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub text: String,
 }
 
-impl Serialize for ModelGuidanceConfig {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(self.entries.len() + self.providers.len()))?;
-        for (k, v) in &self.entries {
-            map.serialize_entry(k, v)?;
+impl UserInstructionConfig {
+    pub fn selector(&self) -> nuo_protocol::InstructionSelector {
+        nuo_protocol::InstructionSelector {
+            role: self.role.clone(),
+            provider: self.provider.clone(),
+            connection: self.connection.clone(),
+            model: self.model.clone(),
         }
-        for (k, v) in &self.providers {
-            map.serialize_entry(k, v)?;
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        self.selector().validate()?;
+        if self.text.trim().is_empty() {
+            return Err("instruction text is empty".to_string());
         }
-        map.end()
+        Ok(())
+    }
+
+    fn into_scoped(self, ordinal: usize) -> nuo_protocol::ScopedInstruction {
+        let selector = self.selector();
+        nuo_protocol::ScopedInstruction {
+            id: format!("user:{ordinal}"),
+            source: nuo_protocol::InstructionSource::User,
+            ordinal,
+            selector,
+            text: self.text.trim().to_string(),
+        }
     }
 }
 
-impl<'de> Deserialize<'de> for ModelGuidanceConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum RawGuidanceEntry {
-            Prompt(String),
-            ProviderTable(BTreeMap<String, String>),
-        }
-
-        let raw = BTreeMap::<String, RawGuidanceEntry>::deserialize(deserializer)?;
-        let mut config = ModelGuidanceConfig::default();
-        for (k, v) in raw {
-            match v {
-                RawGuidanceEntry::Prompt(p) => {
-                    config.entries.insert(k, p);
-                }
-                RawGuidanceEntry::ProviderTable(pt) => {
-                    config.providers.insert(k, pt);
-                }
-            }
-        }
-        Ok(config)
-    }
+/// The user source: `[[instructions.user]]` entries in `agent.toml`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UserInstructionsConfig {
+    pub user: Vec<UserInstructionConfig>,
 }
 
-impl ModelGuidanceConfig {
-    /// Whether any guidance entries or provider tables are configured.
+impl UserInstructionsConfig {
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty() && self.providers.is_empty()
+        self.user.is_empty()
     }
 
-    /// Insert a flat guidance entry (e.g. `"model"`, `"provider/model"`, or `"*pattern*"`).
-    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.entries.insert(key.into(), value.into());
+    pub fn validate(&self) -> Result<(), String> {
+        for (index, entry) in self.user.iter().enumerate() {
+            entry
+                .validate()
+                .map_err(|error| format!("[[instructions.user]] #{index}: {error}"))?;
+        }
+        Ok(())
     }
 
-    /// Insert a provider-scoped guidance entry into `providers[provider]`.
-    pub fn insert_provider(
-        &mut self,
-        provider: impl Into<String>,
-        key: impl Into<String>,
-        value: impl Into<String>,
-    ) {
-        self.providers
-            .entry(provider.into())
-            .or_default()
-            .insert(key.into(), value.into());
-    }
-
-    /// Resolve prompt guidance for a concrete model invocation.
-    ///
-    /// Resolution order:
-    /// 1. Provider-scoped table: `[model_guidance.<provider>]`
-    ///    a. Exact model id match
-    ///    b. Glob pattern match on model id
-    ///    c. Exact family match
-    ///    d. Glob pattern match on family
-    ///    e. Catch-all `"*"`
-    /// 2. Provider-prefixed flat entries (`"{provider}/{...}"` or `"{provider}:{...}"`)
-    ///    a. Exact match on `"{provider}/{model_id}"` or `"{provider}:{model_id}"`
-    ///    b. Glob pattern match on `"{provider}/{model_id}"` or `"{provider}:{model_id}"`
-    ///    c. Exact match on `"{provider}/{family}"` or `"{provider}:{family}"`
-    ///    d. Glob pattern match on `"{provider}/{family}"` or `"{provider}:{family}"`
-    ///    e. Catch-all `"{provider}/*"` or `"{provider}:*"`
-    /// 3. General model match across providers (only if configured):
-    ///    a. Exact model id match in flat entries (excluding provider-prefixed keys)
-    ///    b. Glob pattern match on model id (excluding provider-prefixed keys)
-    ///    c. Exact family match in flat entries (excluding provider-prefixed keys)
-    ///    d. Glob pattern match on family (excluding provider-prefixed keys)
-    pub fn resolve(&self, provider_id: Option<&str>, model_id: &str, family: &str) -> Option<&str> {
-        let model_lower = model_id.to_ascii_lowercase();
-        let family_lower = family.to_ascii_lowercase();
-
-        // 1. Check provider-scoped table: [model_guidance.<provider>]
-        if let Some(pid) = provider_id {
-            let pid_lower = pid.to_ascii_lowercase();
-            if let Some((_, ptable)) = self
-                .providers
-                .iter()
-                .find(|(k, _)| k.to_ascii_lowercase() == pid_lower)
-            {
-                // 1a. Exact model id in provider table
-                if let Some(text) = ptable.get(model_id) {
-                    return Some(text.as_str());
-                }
-                // 1b. Glob pattern on model id in provider table
-                for (pattern, text) in ptable {
-                    if pattern != "*"
-                        && (pattern.contains('*') || pattern.contains('?'))
-                        && let Ok(glob) = glob::Pattern::new(pattern)
-                        && glob.matches_with(
-                            &model_lower,
-                            glob::MatchOptions {
-                                case_sensitive: false,
-                                require_literal_separator: false,
-                                require_literal_leading_dot: false,
-                            },
-                        )
-                    {
-                        return Some(text.as_str());
-                    }
-                }
-                // 1c. Exact family match in provider table
-                if !family.is_empty() {
-                    if let Some(text) = ptable.get(family) {
-                        return Some(text.as_str());
-                    }
-                    // 1d. Glob pattern on family in provider table
-                    for (pattern, text) in ptable {
-                        if pattern != "*"
-                            && (pattern.contains('*') || pattern.contains('?'))
-                            && let Ok(glob) = glob::Pattern::new(pattern)
-                            && glob.matches_with(
-                                &family_lower,
-                                glob::MatchOptions {
-                                    case_sensitive: false,
-                                    require_literal_separator: false,
-                                    require_literal_leading_dot: false,
-                                },
-                            )
-                        {
-                            return Some(text.as_str());
-                        }
-                    }
-                }
-                // 1e. Catch-all "*" in provider table
-                if let Some(text) = ptable.get("*") {
-                    return Some(text.as_str());
-                }
-            }
-
-            // 2. Check provider-prefixed flat entries ("{provider}/{...}" or "{provider}:{...}")
-            let p_slash = format!("{pid_lower}/");
-            let p_colon = format!("{pid_lower}:");
-            let target_slash = format!("{pid_lower}/{model_lower}");
-            let target_colon = format!("{pid_lower}:{model_lower}");
-
-            // 2a. Exact match on "{provider}/{model_id}" or "{provider}:{model_id}"
-            for (key, text) in &self.entries {
-                let key_lower = key.to_ascii_lowercase();
-                if key_lower == target_slash || key_lower == target_colon {
-                    return Some(text.as_str());
-                }
-            }
-            // 2b. Glob pattern match with provider prefix
-            for (pattern, text) in &self.entries {
-                let pat_lower = pattern.to_ascii_lowercase();
-                if (pat_lower.starts_with(&p_slash) || pat_lower.starts_with(&p_colon))
-                    && (pat_lower.contains('*') || pat_lower.contains('?'))
-                    && let Ok(glob) = glob::Pattern::new(&pat_lower)
-                    && (glob.matches_with(
-                        &target_slash,
-                        glob::MatchOptions {
-                            case_sensitive: false,
-                            require_literal_separator: false,
-                            require_literal_leading_dot: false,
-                        },
-                    ) || glob.matches_with(
-                        &target_colon,
-                        glob::MatchOptions {
-                            case_sensitive: false,
-                            require_literal_separator: false,
-                            require_literal_leading_dot: false,
-                        },
-                    ))
-                {
-                    return Some(text.as_str());
-                }
-            }
-            // 2c/2d. Family match with provider prefix
-            if !family.is_empty() {
-                let fam_slash = format!("{pid_lower}/{family_lower}");
-                let fam_colon = format!("{pid_lower}:{family_lower}");
-                for (key, text) in &self.entries {
-                    let key_lower = key.to_ascii_lowercase();
-                    if key_lower == fam_slash || key_lower == fam_colon {
-                        return Some(text.as_str());
-                    }
-                    if (key_lower.starts_with(&p_slash) || key_lower.starts_with(&p_colon))
-                        && (key_lower.contains('*') || key_lower.contains('?'))
-                        && let Ok(glob) = glob::Pattern::new(&key_lower)
-                        && (glob.matches_with(
-                            &fam_slash,
-                            glob::MatchOptions {
-                                case_sensitive: false,
-                                require_literal_separator: false,
-                                require_literal_leading_dot: false,
-                            },
-                        ) || glob.matches_with(
-                            &fam_colon,
-                            glob::MatchOptions {
-                                case_sensitive: false,
-                                require_literal_separator: false,
-                                require_literal_leading_dot: false,
-                            },
-                        ))
-                    {
-                        return Some(text.as_str());
-                    }
-                }
-            }
-        }
-
-        // 3. Fallback: general model / pattern matches across providers
-        // 3a. Exact match on model_id
-        if let Some(text) = self.entries.get(model_id) {
-            return Some(text.as_str());
-        }
-
-        // 3b. Glob pattern matches on model_id
-        for (pattern, text) in &self.entries {
-            // Skip patterns with a specific colon-separated provider prefix (e.g. "openai:*")
-            if let Some((p_prefix, _)) = pattern.split_once(':')
-                && provider_id.is_some_and(|pid| !p_prefix.eq_ignore_ascii_case(pid))
-            {
-                continue;
-            }
-            if (pattern.contains('*') || pattern.contains('?'))
-                && let Ok(glob) = glob::Pattern::new(pattern)
-                && glob.matches_with(
-                    &model_lower,
-                    glob::MatchOptions {
-                        case_sensitive: false,
-                        require_literal_separator: false,
-                        require_literal_leading_dot: false,
-                    },
-                )
-            {
-                return Some(text.as_str());
-            }
-        }
-
-        // 3c. Family exact match
-        if !family.is_empty() {
-            if let Some(text) = self.entries.get(family) {
-                return Some(text.as_str());
-            }
-
-            // 3d. Glob pattern match on family
-            for (pattern, text) in &self.entries {
-                if let Some((p_prefix, _)) = pattern.split_once(':')
-                    && provider_id.is_some_and(|pid| !p_prefix.eq_ignore_ascii_case(pid))
-                {
-                    continue;
-                }
-                if (pattern.contains('*') || pattern.contains('?'))
-                    && let Ok(glob) = glob::Pattern::new(pattern)
-                    && glob.matches_with(
-                        &family_lower,
-                        glob::MatchOptions {
-                            case_sensitive: false,
-                            require_literal_separator: false,
-                            require_literal_leading_dot: false,
-                        },
-                    )
-                {
-                    return Some(text.as_str());
-                }
-            }
-        }
-
-        None
+    pub fn scoped(&self) -> Vec<nuo_protocol::ScopedInstruction> {
+        self.user
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(ordinal, entry)| entry.into_scoped(ordinal))
+            .collect()
     }
 }
 
@@ -1337,6 +1121,8 @@ struct RawConfig {
     #[serde(default)]
     connection_retry_max_attempts: Option<usize>,
     #[serde(default)]
+    connection_stream_restart_max_attempts: Option<usize>,
+    #[serde(default)]
     connection_retry_base_ms: Option<u64>,
     #[serde(default)]
     connection_retry_max_ms: Option<u64>,
@@ -1361,7 +1147,10 @@ struct RawConfig {
     #[serde(default)]
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(default)]
-    model_guidance: Option<ModelGuidanceConfig>,
+    instructions: Option<UserInstructionsConfig>,
+    /// Retired key: recognized only to fail with a precise migration message.
+    #[serde(default)]
+    model_guidance: Option<toml::Value>,
     #[serde(default)]
     server: Option<ServerConfig>,
 }
@@ -1399,6 +1188,9 @@ impl<'de> Deserialize<'de> for Config {
         if let Some(a) = raw.connection_retry_max_attempts {
             cfg.connection_retry_max_attempts = a;
         }
+        if let Some(a) = raw.connection_stream_restart_max_attempts {
+            cfg.connection_stream_restart_max_attempts = a;
+        }
         if let Some(b) = raw.connection_retry_base_ms {
             cfg.connection_retry_base_ms = b;
         }
@@ -1435,8 +1227,15 @@ impl<'de> Deserialize<'de> for Config {
         if let Some(tv) = raw.tool_variants {
             cfg.tool_variants = tv;
         }
-        if let Some(mg) = raw.model_guidance {
-            cfg.model_guidance = mg;
+        if raw.model_guidance.is_some() {
+            return Err(serde::de::Error::custom(
+                "`[model_guidance]` is retired; move its entries to `[[instructions.user]]` \
+                 (provider/connection/model selectors, model is a glob)",
+            ));
+        }
+        if let Some(instructions) = raw.instructions {
+            instructions.validate().map_err(serde::de::Error::custom)?;
+            cfg.instructions = instructions;
         }
         if let Some(d) = raw.server {
             cfg.server = d;
@@ -1452,6 +1251,7 @@ impl Default for Config {
             mcp: HashMap::new(),
             context: nuo_protocol::context_lifecycle::ContextPolicy::default(),
             connection_retry_max_attempts: 30,
+            connection_stream_restart_max_attempts: 3,
             connection_retry_base_ms: 1_000,
             connection_retry_max_ms: 10_000,
             default_model: None,
@@ -1465,7 +1265,7 @@ impl Default for Config {
             agent: AgentConfig::default(),
             hooks: Vec::new(),
             tool_variants: ToolVariantsConfig::default(),
-            model_guidance: ModelGuidanceConfig::default(),
+            instructions: UserInstructionsConfig::default(),
             server: ServerConfig::default(),
         }
     }
@@ -1524,6 +1324,8 @@ struct DomainClientResilience {
     #[serde(skip_serializing_if = "Option::is_none")]
     retry_max_attempts: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    stream_restart_max_attempts: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     retry_base_delay_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     retry_max_delay_ms: Option<u64>,
@@ -1562,7 +1364,10 @@ struct DomainAgentFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_variants: Option<ToolVariantsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    model_guidance: Option<ModelGuidanceConfig>,
+    instructions: Option<UserInstructionsConfig>,
+    /// Retired key: recognized only to fail with a precise migration message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_guidance: Option<toml::Value>,
 }
 
 /// Fail-fast boundary for the configuration matrix (`[INV-CONF-04]`).
@@ -1699,6 +1504,9 @@ impl Config {
                 if let Some(a) = res.retry_max_attempts {
                     cfg.connection_retry_max_attempts = a;
                 }
+                if let Some(a) = res.stream_restart_max_attempts {
+                    cfg.connection_stream_restart_max_attempts = a;
+                }
                 if let Some(b) = res.retry_base_delay_ms {
                     cfg.connection_retry_base_ms = b;
                 }
@@ -1750,8 +1558,17 @@ impl Config {
             if let Some(tv) = agent_doc.tool_variants {
                 cfg.tool_variants = tv;
             }
-            if let Some(mg) = agent_doc.model_guidance {
-                cfg.model_guidance = mg;
+            if agent_doc.model_guidance.is_some() {
+                fatal_config(format_args!(
+                    "agent.toml `[model_guidance]` is retired; move its entries to \
+                     `[[instructions.user]]` (provider/connection/model selectors, model is a glob)"
+                ));
+            }
+            if let Some(instructions) = agent_doc.instructions {
+                if let Err(error) = instructions.validate() {
+                    fatal_config(format_args!("invalid agent.toml instructions: {error}"));
+                }
+                cfg.instructions = instructions;
             }
             if let Some(ws) = agent_doc.workspace {
                 cfg.workspace = ws;
@@ -1786,6 +1603,7 @@ impl Config {
             }),
             resilience: Some(DomainClientResilience {
                 retry_max_attempts: Some(self.connection_retry_max_attempts),
+                stream_restart_max_attempts: Some(self.connection_stream_restart_max_attempts),
                 retry_base_delay_ms: Some(self.connection_retry_base_ms),
                 retry_max_delay_ms: Some(self.connection_retry_max_ms),
             }),
@@ -1810,11 +1628,12 @@ impl Config {
             mcp: Some(self.mcp.clone()),
             hooks: Some(self.hooks.clone()),
             tool_variants: Some(self.tool_variants.clone()),
-            model_guidance: if self.model_guidance.is_empty() {
+            instructions: if self.instructions.is_empty() {
                 None
             } else {
-                Some(self.model_guidance.clone())
+                Some(self.instructions.clone())
             },
+            model_guidance: None,
         };
         fsutil::atomic_write_bytes(
             &Self::agent_config_file_path(),
@@ -2071,31 +1890,6 @@ impl Config {
                 Vec::new()
             }
         }
-    }
-
-    /// Resolve the effective model guidance for a concrete route (ADR-0130).
-    ///
-    /// Resolution order:
-    /// 1. Route-specific override in [`RouteSettings::model_guidance`]
-    /// 2. Provider-scoped table or provider-prefixed match in [`ModelGuidanceConfig`]
-    /// 3. General model or family match in [`ModelGuidanceConfig`]
-    /// 4. Empty string (no prompt injection across providers)
-    pub fn resolve_model_guidance(
-        &self,
-        route_settings: Option<&RouteSettings>,
-        provider_id: Option<&str>,
-        model_id: &str,
-        family: &str,
-    ) -> String {
-        if let Some(route) = route_settings
-            && let Some(override_text) = &route.model_guidance
-        {
-            return override_text.clone();
-        }
-        self.model_guidance
-            .resolve(provider_id, model_id, family)
-            .map(|s| s.to_string())
-            .unwrap_or_default()
     }
 
     /// Append project-local `[workspace].additional_roots` to this config's additional roots.
@@ -2387,6 +2181,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn restart_budget_parses_canonically() {
+        let canonical: Config = toml::from_str(
+            "connection_retry_max_attempts = 12\n\
+             connection_stream_restart_max_attempts = 1\n",
+        )
+        .unwrap();
+        assert_eq!(canonical.connection_retry_max_attempts, 12);
+        assert_eq!(canonical.connection_stream_restart_max_attempts, 1);
+
+        let serialized = toml::to_string(&canonical).unwrap();
+        assert!(
+            serialized.contains("connection_stream_restart_max_attempts = 1"),
+            "got: {serialized}"
+        );
+    }
+
+    #[test]
     fn tool_variants_table_parses_and_resolves_per_model() {
         // The table name mirrors the Config field name (`tool_variants`), as
         // serde maps struct fields to TOML keys verbatim. The model id is
@@ -2441,112 +2252,62 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn model_guidance_table_parses_and_resolves_hierarchically() {
+    fn user_instructions_parse_and_validate() {
         let toml_src = r#"
-            [model_guidance]
-            "*deepseek*" = "General deepseek rule: Speak naturally."
-            "deepseek-flash" = "Specific flash rule: Be ultra concise."
-            "glm" = "Family rule: Output plain text."
-            "commandcode/*" = "CommandCode wildcard: Direct answers only."
-            "commandcode/deepseek/deepseek-v4-flash-fast" = "CommandCode exact fast: Fast mode."
+            [[instructions.user]]
+            model = "*deepseek*"
+            text = "Speak naturally."
 
-            [model_guidance.custom_provider]
-            "deepseek-flash" = "Custom provider specific flash."
-            "*" = "Custom provider all."
+            [[instructions.user]]
+            provider = "commandcode-goat"
+            connection = "cc-fox"
+            role = "reviewer"
+            model = "deepseek/deepseek-v4-flash-fast"
+            text = "Review tightly."
         "#;
         let cfg: Config = toml::from_str(toml_src).unwrap();
+        assert_eq!(cfg.instructions.user.len(), 2);
+        let scoped = cfg.instructions.scoped();
+        assert_eq!(scoped.len(), 2);
+        assert_eq!(scoped[0].source, nuo_protocol::InstructionSource::User);
+        assert_eq!(scoped[0].ordinal, 0);
+        assert_eq!(scoped[0].selector.model.as_deref(), Some("*deepseek*"));
+        assert_eq!(scoped[1].ordinal, 1);
+        assert_eq!(scoped[1].selector.role.as_deref(), Some("reviewer"));
+        assert_eq!(scoped[1].selector.connection.as_deref(), Some("cc-fox"));
 
-        // 1. Provider-scoped subtable exact model match
-        let custom_flash =
-            cfg.resolve_model_guidance(None, Some("custom_provider"), "deepseek-flash", "deepseek");
-        assert_eq!(custom_flash, "Custom provider specific flash.");
-
-        // 2. Provider-scoped subtable wildcard match
-        let custom_other =
-            cfg.resolve_model_guidance(None, Some("custom_provider"), "some-other-model", "other");
-        assert_eq!(custom_other, "Custom provider all.");
-
-        // 3. Provider-prefixed exact match wins over provider wildcard and generic rule
-        let cc_fast = cfg.resolve_model_guidance(
-            None,
-            Some("commandcode"),
-            "deepseek/deepseek-v4-flash-fast",
-            "deepseek",
-        );
-        assert_eq!(cc_fast, "CommandCode exact fast: Fast mode.");
-
-        // 4. Provider-prefixed wildcard match
-        let cc_other = cfg.resolve_model_guidance(
-            None,
-            Some("commandcode"),
-            "deepseek/deepseek-v4-pro",
-            "deepseek",
-        );
-        assert_eq!(cc_other, "CommandCode wildcard: Direct answers only.");
-
-        // 5. Exact model id match wins over glob pattern when no provider rule matches
-        let flash =
-            cfg.resolve_model_guidance(None, Some("official"), "deepseek-flash", "deepseek");
-        assert_eq!(flash, "Specific flash rule: Be ultra concise.");
-
-        // 6. Glob pattern matches model ids with relay prefixes
-        let relay =
-            cfg.resolve_model_guidance(None, None, "openrouter/deepseek-chat:free", "deepseek");
-        assert_eq!(relay, "General deepseek rule: Speak naturally.");
-
-        let local = cfg.resolve_model_guidance(None, None, "deepseek-r1:14b", "deepseek");
-        assert_eq!(local, "General deepseek rule: Speak naturally.");
-
-        // 7. Family match when model id doesn't match
-        let glm = cfg.resolve_model_guidance(None, None, "custom-chat-v1", "glm");
-        assert_eq!(glm, "Family rule: Output plain text.");
-
-        // 8. RouteSettings override takes absolute precedence
-        let route = RouteSettings {
-            model_guidance: Some("Route override: Custom system rule.".into()),
-            ..Default::default()
-        };
-        let overridden = cfg.resolve_model_guidance(
-            Some(&route),
-            Some("commandcode"),
-            "deepseek/deepseek-v4-flash-fast",
-            "deepseek",
-        );
-        assert_eq!(overridden, "Route override: Custom system rule.");
-
-        // 9. Unmatched model returns empty string (no prompt injection across providers!)
-        let unknown = cfg.resolve_model_guidance(None, Some("openai"), "gpt-4o", "openai");
-        assert_eq!(unknown, "");
-
-        // 10. Unconfigured DeepSeek returns empty string (clean fallback, no hardcoded baseline prompt)
-        let empty_cfg = Config::default();
-        let default_ds =
-            empty_cfg.resolve_model_guidance(None, Some("deepseek"), "deepseek-flash", "deepseek");
-        assert_eq!(default_ds, "");
+        let serialized = toml::to_string(&cfg).unwrap();
+        assert!(serialized.contains("[[instructions.user]]"), "{serialized}");
+        let reparsed: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(reparsed.instructions, cfg.instructions);
     }
 
     #[test]
-    fn model_guidance_round_trips_through_serialize() {
-        let mut cfg = Config::default();
-        cfg.model_guidance.insert(
-            "*deepseek*".to_string(),
-            "Speak natural Chinese.".to_string(),
+    fn user_instruction_validation_rejects_empty_text_and_bad_patterns() {
+        let missing_text =
+            toml::from_str::<Config>("[[instructions.user]]\nmodel = '*x*'\n").unwrap_err();
+        assert!(missing_text.to_string().contains("text"), "{missing_text}");
+
+        let bad_pattern =
+            toml::from_str::<Config>("[[instructions.user]]\nmodel = '['\ntext = 'x'\n")
+                .unwrap_err();
+        assert!(
+            bad_pattern.to_string().contains("invalid `model` pattern"),
+            "{bad_pattern}"
         );
-        cfg.model_guidance
-            .insert_provider("commandcode", "fast", "Be fast.");
-        let serialised = toml::to_string(&cfg).unwrap();
-        let parsed: Config = toml::from_str(&serialised).unwrap();
-        assert_eq!(
-            parsed
-                .model_guidance
-                .resolve(None, "deepseek-v4", "deepseek"),
-            Some("Speak natural Chinese.")
-        );
-        assert_eq!(
-            parsed
-                .model_guidance
-                .resolve(Some("commandcode"), "fast", "generic"),
-            Some("Be fast.")
+
+        let empty_text =
+            toml::from_str::<Config>("[[instructions.user]]\ntext = '   '\n").unwrap_err();
+        assert!(empty_text.to_string().contains("empty"), "{empty_text}");
+    }
+
+    #[test]
+    fn retired_model_guidance_is_rejected_with_migration() {
+        let error = toml::from_str::<Config>("[model_guidance]\n\"*x*\" = \"y\"\n").unwrap_err();
+        assert!(error.to_string().contains("retired"), "{error}");
+        assert!(
+            error.to_string().contains("[[instructions.user]]"),
+            "{error}"
         );
     }
 

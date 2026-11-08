@@ -21,7 +21,7 @@ use nuo_protocol::{
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
-use crate::agent_setup::{reseed_context_policy, reseed_model_guidance, reseed_tool_variants};
+use crate::agent_setup::{reseed_context_policy, reseed_instructions, reseed_tool_variants};
 use crate::session_view::provider_key_status;
 
 /// `AgentRequest::SwitchConnection` — persist the chosen key/url/model/default,
@@ -1629,7 +1629,7 @@ async fn activate(
     // window from the live provider on every projection, so the thresholds already
     // follow this switch.
     reseed_tool_variants(agent, config);
-    reseed_model_guidance(agent, config);
+    reseed_instructions(agent, config);
 
     let _ = resp_tx.send(AgentResponse::ProviderKeys(provider_key_status(config)));
     provider_usage.record(&provider_type);

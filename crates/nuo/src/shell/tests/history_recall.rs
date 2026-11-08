@@ -1644,7 +1644,7 @@ async fn test_history_search_keeps_composer_active_and_shows_hints() {
 
     // Composer top row must show history search badge
     assert!(
-        screen.contains("[history search · draft saved]"),
+        screen.contains("[history search | draft saved]"),
         "top row must display history search badge: {screen}"
     );
 

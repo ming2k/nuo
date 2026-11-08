@@ -21,7 +21,7 @@
 //!
 //! # Strategies
 //! - [`turn_band::TurnBand`] — each tool-bearing ReAct turn is grouped
-//!   under a labelled header (`◆ turn N · model`) and uses semantic boundary spacing. The
+//!   under a labelled header (`◆ turn N | model`) and uses semantic boundary spacing. The
 //!   default.
 //!
 //! New strategies are added by implementing the trait and wiring a match arm
@@ -571,7 +571,7 @@ pub struct Stream<'a, 'f> {
 }
 
 impl<'a, 'f> Stream<'a, 'f> {
-    /// No-op. The per-turn model attribution badge (`provider · model`) was
+    /// No-op. The per-turn model attribution badge (`provider | model`) was
     /// removed — the turn-band header already labels the producing model and
     /// the compact layout needs no per-turn heading. Layouts still call this
     /// unconditionally at the top of each message; keeping the call site means

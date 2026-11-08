@@ -53,12 +53,21 @@ Open the full-screen fleet dashboard (`/dashboard` or `d` via Help `[F1 / Alt-h]
 
 ## 3. List and Terminate Threads
 
-List hosted threads and their state, then terminate one by id:
+List hosted threads and their state, then terminate one by id — or every thread at once:
 
 ```bash
 nuo thread ls
 nuo thread rm <thread_id>
+nuo thread rm --all          # prompts before removing anything
+nuo thread rm --all --force  # scripted teardown, no prompt
 ```
+
+`--all` takes a point-in-time snapshot of the server's thread table, quotes the
+count, and removes every row via the ordinary kill path (ADR-0161). It includes
+running threads, not just finished history, and defaults to "no" at the prompt.
+`--force` is only valid together with `--all`; passing a thread id alongside
+`--all` is an error rather than a silent preference. A thread that ends
+concurrently during the loop is reported in the batch summary.
 
 ---
 

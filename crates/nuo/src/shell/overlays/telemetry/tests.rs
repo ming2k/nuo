@@ -256,7 +256,7 @@ fn test_build_attempt_inspector_waterfall_nodes() {
          Server started {ready_at}"
     );
     // `TCP_INFO` sampled this record, so the retransmit count is a measurement.
-    assert!(full_text.contains("socket: RTT 42ms · retransmits 0"));
+    assert!(full_text.contains("socket: RTT 42ms | retransmits 0"));
     // No decorative glyphs or connector lines may return.
     for line in &lines {
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();

@@ -149,7 +149,7 @@ pub struct ComposerHints {
     /// derivation stays testable without a `Theme`.
     pub history_recall: Option<(usize, usize, bool)>,
     /// Whether the stashed recall draft (`App::draft_capsule`) is non-empty
-    /// — the `· draft saved` reassurance clause on the badge. Kept separate
+    /// — the `| draft saved` reassurance clause on the badge. Kept separate
     /// from `history_recall` so a future badge variant can consume either
     /// fact independently.
     pub recall_draft_saved: bool,

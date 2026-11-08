@@ -85,7 +85,7 @@ use tokio_util::sync::CancellationToken;
 /// (a legitimate stream may pause between deltas), so without this guard a
 /// reasoning model whose SSE connection hangs mid-generation (server stops
 /// sending but keeps the TCP connection alive) blocks the turn loop
-/// indefinitely — the UI spins "running · responding" forever and only a user
+/// indefinitely — the UI spins "running | responding" forever and only a user
 /// interrupt can break it. The bound is generous: reasoning models stream
 /// deltas frequently and SSE keepalives arrive every 15–30 s, so two full
 /// minutes of total silence is a genuine stall. On timeout the harness
@@ -100,7 +100,7 @@ const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// `usage` chunk) in the same instant the user sends the next message or hits
 /// Esc Esc — the UI has already rendered a complete answer, but the cancel arm
 /// of the stream `select!` used to win the very next poll, unwinding the round
-/// as `Interrupted` and later projecting a false "▲ interrupted · new message"
+/// as `Interrupted` and later projecting a false "▲ interrupted | new message"
 /// marker over a round that finished. Within this window the stream is drained
 /// normally (chunks keep flowing, so a still-generating answer completes or
 /// the window expires); if the stream stays silent past it, the interrupt
@@ -129,10 +129,10 @@ pub use cognition::interop::agent_slot::AgentSlot;
 pub use cognition::interop::human_broker::*;
 pub use cognition::interop::subagent_tool::{SubagentRegistry, SubagentTool};
 pub use cognition::interop::{agent_slot, human_broker, subagent_tool};
-pub use cognition::model_request::default_system_prompt_registry;
-pub use cognition::model_request::system_prompt::{
-    InstructionOrder, SystemPromptContext, SystemPromptRegistry, SystemPromptRegistryError,
-    SystemPromptSection,
+pub use cognition::model_request::default_instruction_registry;
+pub use cognition::model_request::instruction::{
+    InstructionContext, InstructionOrder, InstructionRegistry, InstructionRegistryError,
+    InstructionSection,
 };
 pub use cognition::skills::{
     DiscoveryResult, ListSkillsTool, ShadowedSkill, Skill, SkillDependency, SkillHost, SkillPolicy,

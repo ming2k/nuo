@@ -996,7 +996,7 @@ pub enum RoundInterruptReason {
 
 impl RoundInterruptReason {
     /// The single user-facing word/phrase for this reason. Kept short so it
-    /// fits the transcript's meta strip (`Interrupted · <label> · HH:MM`).
+    /// fits the transcript's meta strip (`Interrupted | <label> | HH:MM`).
     pub fn label(self) -> &'static str {
         match self {
             Self::User => "Esc Esc",
@@ -1030,7 +1030,7 @@ pub struct RetryPoint {
     pub round: u64,
     /// How many complete ReAct turns the stopped round committed. The resume
     /// continues numbering turns from here (`round.turn_index` starts at this
-    /// value) so the transcript's `round N · turn M` sequence stays unbroken.
+    /// value) so the transcript's `round N | turn M` sequence stays unbroken.
     pub turns_committed: usize,
     /// `model_window` length at the stopped round's last durable checkpoint.
     /// The resume seeds its working history from the window and re-checkpoints
@@ -1455,7 +1455,7 @@ pub enum RoundEvent {
     /// A new ReAct turn started within the current user round. `turn` is the
     /// 0-indexed model-request index within the round (0 = the first request).
     /// Surfaced as structured data so the activity bar can render
-    /// `round N · turn M · <status>` without parsing the turn back out of the
+    /// `round N | turn M | <status>` without parsing the turn back out of the
     /// `Activity` status string. Emitted just before the matching
     /// `Activity("waiting for model")`.
     TurnStarted {

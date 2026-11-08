@@ -94,24 +94,95 @@ pub async fn run(
             }
             Ok(())
         }
-        ThreadAction::Delete(id) => {
+        ThreadAction::Delete { id, all, force } => {
             let info = client::discover(&project_root).await.ok_or_else(|| {
                 "no server is running. Start or discover one before managing threads.".to_string()
             })?;
             if !client::versions_compatible(&info) {
                 return Err(client::incompatibility_error(&info).into());
             }
+            if all {
+                let ids = snapshot_thread_ids(&info).await?;
+                let count = ids.len();
+                if count == 0 {
+                    eprintln!("nuo: no threads to remove.");
+                    return Ok(());
+                }
+                if !force && !confirm_purge(count)? {
+                    eprintln!("nuo: aborting purge; nothing was removed.");
+                    return Ok(());
+                }
+                let mut failed = 0usize;
+                for tid in ids {
+                    match client::control(
+                        &info,
+                        ControlRequest::KillThread {
+                            thread_id: tid.clone(),
+                        },
+                    )
+                    .await
+                    {
+                        Ok(()) => {}
+                        Err(e) => {
+                            eprintln!("nuo: failed to terminate thread '{tid}': {e}");
+                            failed += 1;
+                        }
+                    }
+                }
+                if failed == 0 {
+                    println!("Removed all {count} threads.");
+                } else {
+                    println!(
+                        "Purged {} of {count} threads; {failed} failed (a thread may have ended concurrently).",
+                        count - failed
+                    );
+                }
+                if failed > 0 {
+                    return Err("some threads could not be purged".into());
+                }
+                return Ok(());
+            }
+            let tid = id.ok_or_else(|| "thread rm needs a thread id or --all".to_string())?;
             client::control(
                 &info,
                 ControlRequest::KillThread {
-                    thread_id: id.clone(),
+                    thread_id: tid.clone(),
                 },
             )
             .await?;
-            println!("Thread '{id}' has been terminated.");
+            println!("Thread '{tid}' has been terminated.");
             Ok(())
         }
     }
+}
+
+/// Points at a single snapshot of all hosted thread ids.
+async fn snapshot_thread_ids(
+    info: &client::ServerInfo,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let action = MonitorAction {
+        watch: false,
+        include_idle: true,
+    };
+    let mut rx = client::monitor_stream(info, action).await?;
+    match rx.recv().await {
+        Some(MonitorEvent::Snapshot(snapshot)) => {
+            Ok(snapshot.threads.into_iter().map(|t| t.id).collect())
+        }
+        Some(_) => Err("monitor stream opened without a snapshot".into()),
+        None => Err("server closed the monitor stream".into()),
+    }
+}
+
+/// Affirmative confirmation for a destructive purge (ADR-0048 / ADR-0161).
+/// Defaults to "no"; only an exact "yes"/"y" proceeds.
+fn confirm_purge(count: usize) -> Result<bool, Box<dyn std::error::Error>> {
+    use std::io::BufRead;
+    eprint!("Remove all {count} thread(s)? This cannot be undone [y/N] ");
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    let reply = line.trim().to_ascii_lowercase();
+    Ok(reply == "y" || reply == "yes")
 }
 
 fn render_threads(sessions: &[MonitoredThread], watch: bool, json: bool) {

@@ -1365,6 +1365,33 @@ impl SessionDriver {
                             String::new()
                         };
                         agent.set_project_rules(rules);
+                        let instructions = if snapshot.instructions.is_trusted() {
+                            match crate::project::load_project_instructions(root) {
+                                Ok(instructions) => instructions,
+                                Err(error) => {
+                                    tracing::error!(
+                                        %error,
+                                        "project instructions could not be loaded; continuing without them"
+                                    );
+                                    let _ = resp_tx.send(round_response(
+                                        &session.id().await,
+                                        nuo_protocol::RoundEvent::Notice(
+                                            nuo_protocol::AgentNotice::new(
+                                                nuo_protocol::NoticeKind::Configuration,
+                                                nuo_protocol::NoticeSeverity::Error,
+                                                "Project instructions could not be loaded",
+                                                nuo_protocol::NoticeSource::Harness,
+                                            )
+                                            .with_body(error),
+                                        ),
+                                    ));
+                                    Vec::new()
+                                }
+                            }
+                        } else {
+                            Vec::new()
+                        };
+                        agent.set_project_instructions(instructions);
                         agent
                             .set_hooks(crate::hooks::build_hook_registry(&effective.hooks, &agent));
                         effective

@@ -77,7 +77,10 @@ pub use transcript::{
 };
 
 pub mod instructions;
-pub use instructions::{InstructionBundle, InstructionSlice, InstructionTier};
+pub use instructions::{
+    InstructionBundle, InstructionRoute, InstructionSelector, InstructionSlice, InstructionSource,
+    InstructionTier, ScopedInstruction,
+};
 
 pub mod command;
 pub use command::*;

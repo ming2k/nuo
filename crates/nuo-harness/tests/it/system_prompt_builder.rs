@@ -6,8 +6,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 use nuo_harness::{
-    Agent, AgentIdentity, Message, Provider, Role, SystemPromptContext, SystemPromptRegistryError,
-    SystemPromptSection,
+    Agent, AgentIdentity, InstructionContext, InstructionRegistryError, InstructionSection,
+    Message, Provider, Role,
 };
 
 struct IdleProvider;
@@ -43,7 +43,7 @@ struct ProductPolicy {
     text: &'static str,
 }
 
-impl SystemPromptSection for ProductPolicy {
+impl InstructionSection for ProductPolicy {
     fn id(&self) -> &'static str {
         self.id
     }
@@ -56,7 +56,7 @@ impl SystemPromptSection for ProductPolicy {
         self.rank
     }
 
-    fn render(&self, _ctx: &SystemPromptContext) -> Option<String> {
+    fn render(&self, _ctx: &InstructionContext) -> Option<String> {
         Some(self.text.to_owned())
     }
 }
@@ -68,14 +68,14 @@ fn builder() -> nuo_harness::AgentBuilder {
 #[test]
 fn embedding_can_extend_and_disable_prompt_policy_before_build() {
     let agent = builder()
-        .register_system_prompt_section(ProductPolicy {
+        .register_instruction_section(ProductPolicy {
             id: "system.embedding.test.policy",
             tier: None,
             rank: 15,
             text: "PRODUCT-POLICY",
         })
         .unwrap()
-        .disable_system_prompt_section("system.project_rules")
+        .disable_instruction_section("system.project_rules")
         .unwrap()
         .build();
 
@@ -88,7 +88,7 @@ fn embedding_can_extend_and_disable_prompt_policy_before_build() {
 
 #[test]
 fn embedding_configuration_errors_are_structured() {
-    let result = builder().register_system_prompt_section(ProductPolicy {
+    let result = builder().register_instruction_section(ProductPolicy {
         id: "system.identity_preamble",
         tier: None,
         rank: 1,
@@ -96,15 +96,15 @@ fn embedding_configuration_errors_are_structured() {
     });
     assert!(matches!(
         result,
-        Err(SystemPromptRegistryError::DuplicateId(
+        Err(InstructionRegistryError::DuplicateId(
             "system.identity_preamble"
         ))
     ));
 
-    let result = builder().disable_system_prompt_section("system.missing");
+    let result = builder().disable_instruction_section("system.missing");
     assert!(matches!(
         result,
-        Err(SystemPromptRegistryError::UnknownId(id)) if id == "system.missing"
+        Err(InstructionRegistryError::UnknownId(id)) if id == "system.missing"
     ));
 }
 
@@ -139,21 +139,21 @@ fn default_prompt_is_free_of_nanny_prompting() {
 #[test]
 fn embedding_can_order_sections_semantically() {
     let agent = builder()
-        .register_system_prompt_section(ProductPolicy {
+        .register_instruction_section(ProductPolicy {
             id: "system.embedding.first",
             tier: Some(nuo_harness::InstructionTier::Base),
             rank: 0,
             text: "FIRST-GUIDANCE",
         })
         .unwrap()
-        .register_system_prompt_section(ProductPolicy {
+        .register_instruction_section(ProductPolicy {
             id: "system.embedding.second",
             tier: Some(nuo_harness::InstructionTier::Base),
             rank: 1,
             text: "SECOND-GUIDANCE",
         })
         .unwrap()
-        .order_system_prompt_section(
+        .order_instruction_section(
             "system.embedding.first",
             nuo_harness::InstructionOrder::Before("system.embedding.second"),
         )
@@ -173,9 +173,18 @@ fn embedding_can_order_sections_semantically() {
 }
 
 #[test]
-fn model_guidance_is_rendered_dynamically_in_base_tier() {
+fn user_instructions_are_rendered_dynamically_in_base_tier() {
+    let instruction = |text: &str| nuo_protocol::ScopedInstruction {
+        id: "user:0".to_string(),
+        source: nuo_protocol::InstructionSource::User,
+        ordinal: 0,
+        selector: Default::default(),
+        text: text.to_string(),
+    };
     let agent = builder()
-        .with_model_guidance("Speak natural plain Chinese, avoiding bureaucratic cliches.")
+        .with_user_instructions(vec![instruction(
+            "Speak natural plain Chinese, avoiding bureaucratic cliches.",
+        )])
         .build();
 
     let mut messages = vec![Message::new(Role::User, "test")];
@@ -184,50 +193,124 @@ fn model_guidance_is_rendered_dynamically_in_base_tier() {
     let content = &messages[0].content;
     assert!(
         content.contains("Speak natural plain Chinese, avoiding bureaucratic cliches."),
-        "system prompt must render model guidance: {content}"
+        "system prompt must render user instructions: {content}"
     );
 
     // Dynamic runtime update (e.g. on model switch)
-    agent.set_model_guidance("Updated model prompt: Ultra-concise mode.");
+    agent.set_user_instructions(vec![instruction(
+        "Updated user instruction: ultra-concise mode.",
+    )]);
     let mut messages2 = vec![Message::new(Role::User, "test2")];
     agent.prepare_request_messages_debug(&mut messages2);
 
     let content2 = &messages2[0].content;
     assert!(
-        content2.contains("Updated model prompt: Ultra-concise mode."),
+        content2.contains("Updated user instruction: ultra-concise mode."),
         "system prompt must reflect dynamic update: {content2}"
     );
     assert!(!content2.contains("avoiding bureaucratic cliches."));
 }
 
 #[test]
-fn subagent_inherits_parent_model_guidance() {
-    let parent = builder()
-        .with_model_guidance("Inherited guidance from parent.")
-        .build();
+fn subagent_inherits_parent_user_instructions() {
+    let instruction = nuo_protocol::ScopedInstruction {
+        id: "user:0".to_string(),
+        source: nuo_protocol::InstructionSource::User,
+        ordinal: 0,
+        selector: Default::default(),
+        text: "Inherited user instruction from parent.".to_string(),
+    };
+    let parent = builder().with_user_instructions(vec![instruction]).build();
 
     let tool = nuo_harness::SubagentTool::new(
         Arc::new(IdleProvider),
         nuo_protocol::ToolSet::from_tools(Vec::new()),
         &nuo_protocol::SubAgentProfile::EXPLORE,
     );
-    tool.bind_model_guidance(parent.model_guidance_handle());
+    tool.bind_user_instructions(parent.user_instructions_handle());
 
-    // When the subagent runs, it receives the parent's guidance handle
-    let handle = parent.model_guidance_handle();
-    let subagent = builder().build();
-    let mut sub = subagent;
-    sub.bind_model_guidance(handle);
+    let mut subagent = builder().build();
+    subagent.bind_user_instructions(parent.user_instructions_handle());
+    subagent.set_active_role(Some("explore".to_string()));
 
-    assert_eq!(sub.model_guidance(), "Inherited guidance from parent.");
+    let mut messages = vec![Message::new(Role::User, "delegate")];
+    subagent.prepare_request_messages_debug(&mut messages);
+    assert!(
+        messages[0]
+            .content
+            .contains("Inherited user instruction from parent."),
+        "{}",
+        messages[0].content
+    );
+}
+
+#[test]
+fn subagent_inherits_parent_project_instructions_and_provider_kind() {
+    let parent = builder().build();
+    parent.set_project_instructions(vec![
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/global.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 0,
+            selector: Default::default(),
+            text: "Global project rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/explore.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 1,
+            selector: nuo_protocol::InstructionSelector {
+                role: Some("explore".to_string()),
+                ..Default::default()
+            },
+            text: "Explore role rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/provider.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 2,
+            selector: nuo_protocol::InstructionSelector {
+                provider: Some("commandcode-goat".to_string()),
+                ..Default::default()
+            },
+            text: "Provider rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/reviewer.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 3,
+            selector: nuo_protocol::InstructionSelector {
+                role: Some("reviewer".to_string()),
+                ..Default::default()
+            },
+            text: "Reviewer rule.".to_string(),
+        },
+    ]);
+    parent.set_instruction_provider_kind(Some("commandcode-goat".to_string()));
+
+    let mut subagent = builder().build();
+    subagent.bind_project_instructions(parent.project_instructions_handle());
+    subagent.bind_instruction_provider_kind(parent.instruction_provider_kind_handle());
+    subagent.set_active_role(Some("explore".to_string()));
+
+    let mut messages = vec![Message::new(Role::User, "delegate")];
+    subagent.prepare_request_messages_debug(&mut messages);
+    let prompt = &messages[0].content;
+    assert!(prompt.contains("Global project rule."), "{prompt}");
+    assert!(prompt.contains("Explore role rule."), "{prompt}");
+    assert!(prompt.contains("Provider rule."), "{prompt}");
+    assert!(
+        !prompt.contains("Reviewer rule."),
+        "a sibling role must not leak into the child: {prompt}"
+    );
 }
 
 #[test]
 fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
-    let reg = nuo_harness::default_system_prompt_registry();
+    let reg = nuo_harness::default_instruction_registry();
 
     // 1. Channel without parallel tool calls (e.g. DeepSeek) and without code_query:
-    let ctx_no_parallel = SystemPromptContext {
+    let ctx_no_parallel = InstructionContext {
         workspace_topology: Some("- crates/*\n- tools/*".to_string()),
         supports_parallel_tool_calls: false,
         tool_names: vec!["execute_command".to_string(), "read_text".to_string()],
@@ -240,7 +323,7 @@ fn workspace_topology_guidance_adapts_to_parallel_support_and_tool_names() {
     assert!(!rendered1.contains("code_query"));
 
     // 2. Channel with parallel tool calls and with code_query admitted:
-    let ctx_full = SystemPromptContext {
+    let ctx_full = InstructionContext {
         workspace_topology: Some("- crates/*\n- tools/*".to_string()),
         supports_parallel_tool_calls: true,
         tool_names: vec!["code_query".to_string(), "execute_command".to_string()],

@@ -6,7 +6,13 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use nuo::monitor::MonitorTracker;
+use nuo::registry::{HostedThread, ThreadRegistry};
+use nuo_persistence::session::SessionStore;
+use tokio::sync::{Mutex, broadcast, mpsc};
 
 struct ServerCleanup {
     cli: PathBuf,
@@ -140,4 +146,174 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
         String::from_utf8_lossy(&stop_output.stderr)
     );
     assert!(!own_record.exists(), "drained server must remove discovery");
+}
+
+async fn host_idle_thread(registry: &ThreadRegistry, project: &Path) -> String {
+    let session = Arc::new(SessionStore::for_path(
+        project.join("sessions").join("session.json"),
+    ));
+    let id = session.id().await;
+    let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(64);
+    let (events, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
+    let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
+        nuo_protocol::MonitoredThread::empty(id.clone()),
+        nuo_protocol::ThreadStatus::Idle,
+    )));
+    registry
+        .host(HostedThread {
+            workspace_root: Some(project.to_path_buf()),
+            human_channel: Arc::new(nuo_protocol::human_request::HumanChannelAccountant::new()),
+            security: Arc::new(nuo_persistence::workspace_security::WorkspaceSecurityStore::load()),
+            session,
+            shared_confinement: nuo_protocol::SharedConfinement::default(),
+            req_tx,
+            events,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            tracker,
+            sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
+            command_catalog: nuo_protocol::CommandCatalog::default(),
+            initial_provider: "test-provider".into(),
+            initial_model: "test-model".into(),
+            created_at: Instant::now(),
+            last_activity: Mutex::new(Instant::now()),
+            last_seen_tick: std::sync::atomic::AtomicU64::new(0),
+            activity_tick: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            agent_for_session_end: None,
+        })
+        .await;
+    id
+}
+
+async fn run_cli(
+    cli: &Path,
+    self_exe: &Path,
+    home: &Path,
+    cwd: &Path,
+    args: &[&str],
+    stdin: Stdio,
+) -> Output {
+    // `NUO_BIN` names the image the client expects the server to be running.
+    // Here the "server" is this test process, so the expectation must be the
+    // test binary itself — otherwise the ADR-0136 image check refuses the pair.
+    tokio::process::Command::new(cli)
+        .args(args)
+        .env("NUO_HOME", home)
+        .env("NUO_BIN", self_exe)
+        .current_dir(cwd)
+        .stdin(stdin)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .expect("run the nuo CLI")
+}
+
+/// ADR-0161: `thread rm --all` is a client-side orchestration over the existing
+/// kill contract. Driven through the real binary, it must enumerate a live
+/// server's snapshot, refuse without affirmative consent, then kill every row.
+#[tokio::test]
+async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let registry = Arc::new(ThreadRegistry::prehost_only());
+    for index in 0..3 {
+        host_idle_thread(&registry, &project.join(format!("p{index}"))).await;
+    }
+    assert_eq!(registry.session_count().await, 3);
+
+    let mut handle =
+        nuo::serve::start_server(nuo::serve::ServeOptions::default(), registry.clone());
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+    let _ = handle;
+
+    // Publish the record the client discovers. The pid is this test process:
+    // it is the process actually serving `port` from the in-process server.
+    let instance_dir = home.join("nuo").join("instance");
+    std::fs::create_dir_all(&instance_dir).unwrap();
+    let record = nuo::serve_discovery::Discovery {
+        pid: std::process::id(),
+        port,
+        token: None,
+        project_root: project.display().to_string(),
+        started_at: 0,
+        version: Some(nuo::serve::server_version().to_string()),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+        ..Default::default()
+    };
+    std::fs::write(
+        instance_dir.join("server.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+
+    let cli = PathBuf::from(env!("CARGO_BIN_EXE_nuo"));
+    let self_exe = std::env::current_exe().unwrap();
+
+    // Destructive bulk action defaults to "no": an unattended stdin removes nothing.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "rm", "--all"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(output.status.success(), "abort must exit cleanly");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("aborting purge"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(registry.session_count().await, 3);
+
+    // `--force` is the explicit affirmative: every snapshot row is killed.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "rm", "--all", "--force"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "purge failed: {} (stderr: {})",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("Removed all 3 threads."),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(registry.session_count().await, 0);
+    let snapshot = registry
+        .monitor_snapshot(nuo_protocol::MonitorAction {
+            watch: false,
+            include_idle: true,
+        })
+        .await;
+    assert!(snapshot.threads.is_empty(), "thread table must be emptied");
+
+    // Purging an already-empty server is a clean no-op, not an error.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "rm", "--all", "--force"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("no threads to remove"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

@@ -10,7 +10,7 @@
 //!
 //! Each row is a single line (multi-line prompts collapse to the first line
 //! with a `↵` marker); the row numbers + prompt text are enough to navigate,
-//! so there is no origin status strip — the `~/project · #session… · time`
+//! so there is no origin status strip — the `~/project | #session… | time`
 //! line was redundant noise and was removed. `Enter` inserts the focused entry
 //! into the composer.
 

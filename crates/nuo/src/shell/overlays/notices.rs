@@ -62,7 +62,7 @@ pub fn draw_notices_modal(
         let card_idx = (dialog.index + 1).min(lines.len());
         if faults > 0 {
             format!(
-                "Notices & Disclosures · Card {} of {} ({} fault{})",
+                "Notices & Disclosures | Card {} of {} ({} fault{})",
                 card_idx,
                 lines.len(),
                 faults,
@@ -70,7 +70,7 @@ pub fn draw_notices_modal(
             )
         } else {
             format!(
-                "Notices & Disclosures · Card {} of {}",
+                "Notices & Disclosures | Card {} of {}",
                 card_idx,
                 lines.len()
             )

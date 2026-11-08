@@ -311,7 +311,7 @@ mod tests {
     async fn begin_clears_reason_parked_while_idle() {
         // Stop sites park unconditionally — even with no live round. Without
         // the clear in `begin`, that reason leaks into the next round's tail
-        // and mislabels a successful round as "interrupted · Esc Esc".
+        // and mislabels a successful round as "interrupted | Esc Esc".
         let lifecycle = RoundLifecycle::new();
         lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
         assert_eq!(

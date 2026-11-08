@@ -27,7 +27,7 @@ const HOOK_PATHS: &[&str] = &[".nuo/hooks"];
 /// Derived from the one canonical list rather than written out again: the loader
 /// and this digest used to keep separate lists and had drifted, so
 /// `.cursorrules`/`.windsurfrules` reached the system prompt unattested.
-const INSTRUCTION_PATHS: &[&str] = nuo_host::PROJECT_RULE_FILES;
+const INSTRUCTION_PATHS: &[&str] = nuo_host::PROJECT_INSTRUCTION_PATHS;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct WorkspaceRecord {
@@ -668,15 +668,35 @@ mod tests {
 
     #[test]
     fn the_attested_rule_list_is_the_loaded_rule_list() {
-        // One constant, two consumers. If a future rule file is added, it is
-        // added here and both the loader and the digest pick it up — the failure
-        // mode this replaces was two lists that silently diverged.
-        assert_eq!(
-            INSTRUCTION_PATHS,
-            nuo_host::PROJECT_RULE_FILES,
-            "the Instructions digest and the rules loader must cover the same files"
+        // One constant, two consumers. The digest covers every rule file the
+        // loader reads *and* the scoped instruction directory; a new path is
+        // added once and both consumers pick it up.
+        for rule_file in nuo_host::PROJECT_RULE_FILES {
+            assert!(
+                INSTRUCTION_PATHS.contains(rule_file),
+                "{rule_file} is loaded but not attested"
+            );
+        }
+        assert!(INSTRUCTION_PATHS.contains(&nuo_host::PROJECT_INSTRUCTIONS_DIR));
+    }
+
+    #[test]
+    fn scoped_project_instructions_are_attested() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let store = WorkspaceSecurityStore::load_from(root.join("state/workspace_security.json"));
+        std::fs::create_dir_all(root.join(".nuo/instructions")).unwrap();
+        std::fs::write(root.join(".nuo/instructions/reviewer.md"), "review v1").unwrap();
+        assert!(
+            store.trust_domain(root, TrustDomain::Instructions).unwrap(),
+            "the scoped instruction directory must be attested"
         );
-        assert!(INSTRUCTION_PATHS.contains(&"AGENTS.md"));
+        std::fs::write(root.join(".nuo/instructions/reviewer.md"), "review v2").unwrap();
+        assert_eq!(
+            store.snapshot(root).instructions,
+            WorkspaceTrustState::Changed,
+            "editing a scoped instruction must revoke trust"
+        );
     }
 
     #[cfg(unix)]

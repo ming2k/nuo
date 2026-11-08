@@ -172,9 +172,9 @@ pub(crate) fn render_pricing_detail_rows(
         };
         let base_desc = match model_prefix {
             Some(prefix) => {
-                format!("{prefix}: {in_str} in · {out_str} out (per 1M tokens{tiered_suffix})")
+                format!("{prefix}: {in_str} in | {out_str} out (per 1M tokens{tiered_suffix})")
             }
-            None => format!("{in_str} in · {out_str} out (per 1M tokens{tiered_suffix})"),
+            None => format!("{in_str} in | {out_str} out (per 1M tokens{tiered_suffix})"),
         };
         rows.push(detail_kv_row(
             "Standard Rates",
@@ -215,7 +215,7 @@ pub(crate) fn render_pricing_detail_rows(
                 nuo_protocol::pricing::NanoUsd(op_tier.output_standard_nano_per_m).format_rate();
             rows.push(detail_kv_row(
                 "Off-Peak Rates",
-                &format!("50% off ({op_in} in · {op_out} out)"),
+                &format!("50% off ({op_in} in | {op_out} out)"),
                 Style::default().fg(theme.ok()).add_modifier(Modifier::BOLD),
                 theme,
             ));

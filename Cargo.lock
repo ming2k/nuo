@@ -1909,6 +1909,7 @@ dependencies = [
  "base64",
  "bytes",
  "futures",
+ "glob",
  "http",
  "httpdate",
  "inventory",
@@ -2255,6 +2256,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
+ "yaml_serde",
 ]
 
 [[package]]

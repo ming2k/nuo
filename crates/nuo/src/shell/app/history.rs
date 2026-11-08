@@ -5,7 +5,7 @@ impl App {
     pub(crate) const HISTORY_ATTACHMENTS_CAP: usize = 32;
 
     /// The composer's inline-recall **pointer badge**, derived for the
-    /// composer's top chrome row (`[history 3/17 · draft saved]`).
+    /// composer's top chrome row (`[history 3/17 | draft saved]`).
     ///
     /// `None` while [`Self::history_index`] is `None` — the badge must not
     /// exist in draft mode: /0174's zero-mode-indication-tax stance
@@ -21,7 +21,7 @@ impl App {
     ///
     /// `edited` is true when the composer's live text no longer matches the
     /// loaded row: the pointer still addresses row `p`, but the buffer is a
-    /// user-modified fork of it. The badge says `· edited` so the indicator
+    /// user-modified fork of it. The badge says `| edited` so the indicator
     /// never lies about what the buffer holds — the pointer model (see
     /// `App::history_index`) treats history-row edits as temporary, but a
     /// user who edits the recalled text deserves to see that fact before

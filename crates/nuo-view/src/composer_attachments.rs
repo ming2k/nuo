@@ -136,14 +136,14 @@ pub fn paste_line_count(text: &str) -> usize {
 /// Returns `(kind, number, line_count_opt)` on a syntactic match. Both the
 /// bare legacy forms (`[Image #1]`, `[Pasted text #1 +5 lines]`) and the
 /// current size-badged forms (`[Image #1 (24.1 KB)]`,
-/// `[Pasted text #1 +5 lines (24.1 KB)]`) and the former ` · size` forms are
+/// `[Pasted text #1 +5 lines (24.1 KB)]`) and the former ` | size` forms are
 /// recognized; the size badge itself is not parsed here —
 /// [`reconcile`] recomputes sizes from the staged payloads, so a stale badge
 /// is corrected rather than trusted.
 fn parse_chip_body(body: &str) -> Option<(ChipKind, usize, Option<usize>)> {
     if let Some(rest) = body.strip_prefix("Image #") {
         // The number ends before either the current `(size)` suffix or the
-        // legacy `· size` suffix. Rejecting neither keeps resumed drafts
+        // legacy separator-prefixed size suffix. Rejecting neither keeps resumed drafts
         // editable while every newly reconciled chip uses the current form.
         let num_part = rest.split_once(' ').map_or(rest, |(number, _)| number);
         let n = num_part.parse::<usize>().ok()?;
@@ -153,7 +153,7 @@ fn parse_chip_body(body: &str) -> Option<(ChipKind, usize, Option<usize>)> {
         return Some((ChipKind::Image, n, None));
     }
     if let Some(rest) = body.strip_prefix("Pasted text #") {
-        // Optional ` +M lines[ (size)]` or legacy ` +M lines[ · size]`
+        // Optional ` +M lines[ (size)]` or legacy ` +M lines[ | size]`
         // suffix. The number itself is
         // everything up to the first space or end-of-string.
         let (num_part, tail) = match rest.find(' ') {
@@ -588,7 +588,7 @@ mod tests {
             Some((ChipKind::Image, 3, None))
         );
         assert_eq!(
-            parse_chip_body("Image #3 · 24.1 KB"),
+            parse_chip_body("Image #3 | 24.1 KB"),
             Some((ChipKind::Image, 3, None))
         );
         assert_eq!(
@@ -596,11 +596,11 @@ mod tests {
             Some((ChipKind::Paste, 2, Some(12)))
         );
         assert_eq!(
-            parse_chip_body("Pasted text #2 +12 lines · 5.0 KB"),
+            parse_chip_body("Pasted text #2 +12 lines | 5.0 KB"),
             Some((ChipKind::Paste, 2, Some(12)))
         );
         // Zero and non-numeric numbers are rejected.
-        assert_eq!(parse_chip_body("Image #0 · 1 KB"), None);
+        assert_eq!(parse_chip_body("Image #0 | 1 KB"), None);
         assert_eq!(parse_chip_body("Pasted text #x"), None);
     }
 

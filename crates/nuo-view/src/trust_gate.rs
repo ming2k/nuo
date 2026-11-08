@@ -77,7 +77,7 @@ pub fn gate_request(snapshot: &WorkspaceSecuritySnapshot) -> Option<UserQuestion
             let label = if badge.is_empty() {
                 domain_label(*d).to_string()
             } else {
-                format!("{}  ·  [{badge}]", domain_label(*d))
+                format!("{}  |  [{badge}]", domain_label(*d))
             };
             UserQuestionOption {
                 label,
@@ -160,7 +160,7 @@ pub fn answer_to_domains(answers: &[Vec<String>]) -> Vec<TrustDomain> {
     let selected_labels = answers.first().cloned().unwrap_or_default();
     let mut domains = Vec::new();
     for label in selected_labels {
-        let path = label.split("  ·  ").next().unwrap_or(&label).trim();
+        let path = label.split("  |  ").next().unwrap_or(&label).trim();
         match path {
             "~/.config/nuo/config.toml" | "~/.nuo/config.toml" => {
                 domains.push(TrustDomain::UserAssets)
@@ -169,7 +169,7 @@ pub fn answer_to_domains(answers: &[Vec<String>]) -> Vec<TrustDomain> {
             ".nuo/mcp.json" => domains.push(TrustDomain::Mcp),
             ".nuo/skills/" => domains.push(TrustDomain::Skills),
             ".nuo/hooks/" => domains.push(TrustDomain::Hooks),
-            "AGENTS.md" => domains.push(TrustDomain::Instructions),
+            "Project instructions" => domains.push(TrustDomain::Instructions),
             _ => {}
         }
     }
@@ -287,7 +287,7 @@ mod tests {
                 .iter()
                 .map(|o| {
                     o.label
-                        .split("  ·  ")
+                        .split("  |  ")
                         .next()
                         .unwrap_or(&o.label)
                         .to_string()
@@ -339,7 +339,7 @@ mod tests {
         .expect("changed instructions must gate");
         let question = &changed.questions[0].question;
         assert!(
-            question.contains("changed on disk") && question.contains("AGENTS.md"),
+            question.contains("changed on disk") && question.contains("Project instructions"),
             "a re-review must name what changed: {question}"
         );
         assert!(
@@ -377,9 +377,9 @@ mod tests {
         assert_eq!(
             labels,
             vec![
-                ".nuo/mcp.json  ·  [New]",
-                ".nuo/skills/  ·  [New]",
-                "AGENTS.md  ·  [New]"
+                ".nuo/mcp.json  |  [New]",
+                ".nuo/skills/  |  [New]",
+                "Project instructions  |  [New]"
             ]
         );
     }
@@ -387,8 +387,8 @@ mod tests {
     #[test]
     fn answers_map_to_domains() {
         let domains = answer_to_domains(&[vec![
-            ".nuo/mcp.json  ·  [New]".to_string(),
-            "AGENTS.md  ·  [Changed]".to_string(),
+            ".nuo/mcp.json  |  [New]".to_string(),
+            "Project instructions  |  [Changed]".to_string(),
         ]]);
         assert_eq!(domains, vec![TrustDomain::Mcp, TrustDomain::Instructions]);
 
@@ -403,6 +403,6 @@ mod tests {
         let req = gate_request(&snap)
             .expect("untrusted user assets must trigger gate even without workspace");
         let q = req.questions.first().unwrap();
-        assert_eq!(q.options[0].label, "~/.config/nuo/config.toml  ·  [New]");
+        assert_eq!(q.options[0].label, "~/.config/nuo/config.toml  |  [New]");
     }
 }

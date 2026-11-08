@@ -56,7 +56,7 @@ pub const MESSAGE_GAP_ROWS: usize = 1;
 /// preserves the hierarchy without giving every child its own top margin.
 pub const TURN_HEADER_BODY_GAP_ROWS: usize = 1;
 
-/// Blank surface gap rows between a user message header (`› round N · HH:MM`)
+/// Blank surface gap rows between a user message header (`› round N | HH:MM`)
 /// and its message body panel.
 pub const USER_MESSAGE_HEADER_BODY_GAP_ROWS: usize = 1;
 
@@ -100,8 +100,8 @@ pub const QUESTION_ANSWER_GLYPH: &str = "↳";
 pub const QUESTION_ANSWER_GAP_COLS: usize = 1;
 
 /// Separator between a question's short `header` chip, its text, and its
-/// option-count meta on one rendered line (`Scope · … (2 options)`).
-pub const QUESTION_META_SEPARATOR: &str = " · ";
+/// option-count meta on one rendered line (`Scope | … (2 options)`).
+pub const QUESTION_META_SEPARATOR: &str = " | ";
 
 /// Vertical chrome rows around a sent user message panel: one top transition
 /// row and one bottom transition row.
@@ -252,7 +252,7 @@ pub const FOOTER_H_INSET: u16 = TRANSCRIPT_H_INSET;
 
 /// Composer chrome is the panel's own breathing room: one blank padding row
 /// above the text, one blank gap row below it, and one meta row carrying the
-/// hint sentence (`Enter send prompt · 12 chars`) at the bottom — four rows
+/// hint sentence (`Enter send prompt | 12 chars`) at the bottom — four rows
 /// total for a one-line draft. The box reads as a tinted surface, not a
 /// lined frame.
 pub const COMPOSER_VERTICAL_CHROME_ROWS: u16 = 3;

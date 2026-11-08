@@ -1070,7 +1070,7 @@ mod tests {
         // via the block's raw `content`.
         assert_eq!(rendered_content(&line), "use foo now");
 
-        // Three content spans: "use " · "foo" · " now".
+        // Three content spans: "use " | "foo" | " now".
         let content: Vec<_> = line.spans.iter().skip(1).collect();
         assert_eq!(content.len(), 3);
         assert_eq!(content[0].content, "use ");
@@ -1154,7 +1154,7 @@ mod tests {
         // inner content carries BOLD and the literal inter-word space remains.
         assert_eq!(rendered_content(&line), "foo bar");
 
-        // Two content spans: "foo" · " bar".
+        // Two content spans: "foo" | " bar".
         let content: Vec<_> = line.spans.iter().skip(1).collect();
         assert_eq!(content.len(), 2);
         assert_eq!(content[0].content, "foo"); // bold content

@@ -611,7 +611,9 @@ pub async fn assemble_with_store(
     // inherit the parent's tool-variant selection. The profile still owns the
     // orthogonal scope axis.
     subagent_tool_handle.bind_variant_selection(agent.variant_selection_handle());
-    subagent_tool_handle.bind_model_guidance(agent.model_guidance_handle());
+    subagent_tool_handle.bind_user_instructions(agent.user_instructions_handle());
+    subagent_tool_handle.bind_project_instructions(agent.project_instructions_handle());
+    subagent_tool_handle.bind_instruction_provider_kind(agent.instruction_provider_kind_handle());
     subagent_tool_handle.bind_workspace_security(agent.workspace_security_handle());
     subagent_tool_handle.bind_execution_policy(agent.execution_policy());
     // Every subagent opens its own session beneath this one, so its transcript is
@@ -696,6 +698,27 @@ pub async fn assemble_with_store(
             match crate::project::load_project_rules(root) {
                 Ok(rules) => agent.set_project_rules(rules),
                 Err(error) => tracing::warn!(%error, "trusted project rules could not be loaded"),
+            }
+            match crate::project::load_project_instructions(root) {
+                Ok(instructions) => agent.set_project_instructions(instructions),
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        "trusted project instructions could not be loaded; continuing without them"
+                    );
+                    let _ = resp_tx.send(round_response(
+                        &session.id().await,
+                        RoundEvent::Notice(
+                            AgentNotice::new(
+                                NoticeKind::Configuration,
+                                NoticeSeverity::Error,
+                                "Project instructions could not be loaded",
+                                NoticeSource::Harness,
+                            )
+                            .with_body(error),
+                        ),
+                    ));
+                }
             }
         }
     }
@@ -850,7 +873,7 @@ pub async fn assemble_with_store(
     // capability is realized by its chosen variant in the schemas sent to the
     // provider; re-seeded on provider/model switch.
     crate::agent_setup::reseed_tool_variants(&agent, &config);
-    crate::agent_setup::reseed_model_guidance(&agent, &config);
+    crate::agent_setup::reseed_instructions(&agent, &config);
 
     // Bind the caller-supplied agent preset (ADR-0053). Identity was
     // supplied to the constructor above (immutable past build); this applies

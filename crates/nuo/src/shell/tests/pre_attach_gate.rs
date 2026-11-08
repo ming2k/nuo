@@ -275,5 +275,5 @@ fn changed_content_after_a_refusal_is_asked_again() {
         1,
         "only the domain that changed is offered, not the one already refused"
     );
-    assert_eq!(options[0].label, "AGENTS.md  ·  [Changed]");
+    assert_eq!(options[0].label, "Project instructions  |  [Changed]");
 }

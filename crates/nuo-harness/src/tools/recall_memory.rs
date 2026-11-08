@@ -128,7 +128,7 @@ impl Tool for RecallMemoryTool {
 
         for (idx, mem) in memories.iter().enumerate() {
             output.push_str(&format!(
-                "#### Memory Entry #{} ({} old · Recalled {})\n",
+                "#### Memory Entry #{} ({} old | Recalled {})\n",
                 idx + 1,
                 humanize_age(mem.age_s),
                 mem.score

@@ -58,7 +58,12 @@ pub enum ThreadAction {
     /// `nuo thread ls` — list hosted threads.
     List { watch: bool, json: bool, all: bool },
     /// `nuo thread rm <id>` — terminate a hosted thread by id.
-    Delete(String),
+    /// `nuo thread rm --all` — terminate every hosted thread (confirm unless `--force`).
+    Delete {
+        id: Option<String>,
+        all: bool,
+        force: bool,
+    },
 }
 
 /// `nuo server` actions (start, stop, reload, restart, status, token)
@@ -155,7 +160,7 @@ const THREAD_SUBS: &[Spec] = &[
     Spec {
         name: "rm",
         names: &["rm", "delete"],
-        about: "terminate a hosted thread by id",
+        about: "terminate a hosted thread (rm <id>, or rm --all [--force] to purge every thread)",
     },
 ];
 
@@ -695,12 +700,46 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                 }
                 "rm" => {
                     let args: &[String] = sub_extra;
-                    match args {
-                        [id] if !id.starts_with('-') => {
-                            Mode::Thread(ThreadAction::Delete(id.clone()))
+                    let mut all = false;
+                    let mut force = false;
+                    let mut id: Option<String> = None;
+                    for arg in args {
+                        match arg.as_str() {
+                            "--all" | "-a" => all = true,
+                            "--force" | "-f" => force = true,
+                            s if s.starts_with('-') => return unexpected(s),
+                            s => {
+                                if let Some(existing) = &id {
+                                    return Err(format!(
+                                        "thread rm accepts a single thread id, got both '{existing}' and '{s}'"
+                                    ));
+                                }
+                                id = Some(s.to_string());
+                            }
                         }
-                        [] => return Err("thread rm requires a thread id".into()),
-                        [bad, ..] => return unexpected(bad),
+                    }
+                    if id.is_some() && all {
+                        return Err(
+                            "thread rm: --all and a thread id are mutually exclusive".into()
+                        );
+                    }
+                    if force && !all {
+                        return Err("thread rm: --force is only valid with --all".into());
+                    }
+                    match id {
+                        Some(id) => Mode::Thread(ThreadAction::Delete {
+                            id: Some(id),
+                            all: false,
+                            force: false,
+                        }),
+                        None if all => Mode::Thread(ThreadAction::Delete {
+                            id: None,
+                            all: true,
+                            force,
+                        }),
+                        None => {
+                            return Err("thread rm requires a thread id or --all".into());
+                        }
                     }
                 }
                 _ => unreachable!("thread subcommands are closed"),
@@ -1151,8 +1190,38 @@ mod surface_tests {
     fn thread_verbs_parse_and_legacy_session_is_retired() {
         assert!(matches!(
             parse(&["thread", "rm", "thr-0123"]).unwrap().mode,
-            Mode::Thread(ThreadAction::Delete(ref id)) if id == "thr-0123"
+            Mode::Thread(ThreadAction::Delete {
+                id: Some(ref id),
+                all: false,
+                force: false
+            }) if id == "thr-0123"
         ));
+        assert!(matches!(
+            parse(&["thread", "rm", "--all"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Delete {
+                id: None,
+                all: true,
+                force: false
+            })
+        ));
+        assert!(matches!(
+            parse(&["thread", "rm", "--force", "--all"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Delete {
+                id: None,
+                all: true,
+                force: true
+            })
+        ));
+        assert!(
+            parse(&["thread", "rm", "--all", "thr-0123"])
+                .unwrap_err()
+                .contains("mutually exclusive")
+        );
+        assert!(
+            parse(&["thread", "rm", "--force"])
+                .unwrap_err()
+                .contains("only valid with --all")
+        );
         assert!(matches!(
             parse(&["thread", "ls"]).unwrap().mode,
             Mode::Thread(ThreadAction::List {

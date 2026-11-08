@@ -41,7 +41,7 @@ impl ToolPresenter for McpPresenter {
         let mut line = SemanticLine::new();
         line = line.push_fixed("⚡ ");
         if !server.is_empty() {
-            line = line.push_fixed(server).push_fixed(" · ").push_fixed(tool);
+            line = line.push_fixed(server).push_fixed(" | ").push_fixed(tool);
         } else {
             line = line.push_fixed(tool);
         }
@@ -110,6 +110,6 @@ mod tests {
             profile: None,
             workspace_root: None,
         };
-        assert_eq!(McpPresenter.summary(&view), "⚡ search · web \"hello\"");
+        assert_eq!(McpPresenter.summary(&view), "⚡ search | web \"hello\"");
     }
 }

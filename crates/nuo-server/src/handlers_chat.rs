@@ -78,6 +78,7 @@ pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
         active_context_window(agent),
     );
     let retry_max_attempts = config.connection_retry_max_attempts;
+    let stream_restart_max_attempts = config.connection_stream_restart_max_attempts;
     let retry_base_ms = config.connection_retry_base_ms;
     let retry_max_ms = config.connection_retry_max_ms;
 
@@ -90,6 +91,7 @@ pub(crate) async fn start_turn(env: ChatEnv<'_>, mut input: RoundInput) {
             session_id,
             projection,
             retry_max_attempts,
+            stream_restart_max_attempts,
             retry_base_ms,
             retry_max_ms,
         },

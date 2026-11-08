@@ -560,11 +560,11 @@ pub(crate) fn connection_detail_body(
         let mut segments = vec![RowSegment::styled(active.clone(), value)];
         if let Some(effort) = &detail.active_model_effort {
             segments.push(RowSegment::styled(
-                format!("  ·  reasoning: {effort}"),
+                format!("  |  reasoning: {effort}"),
                 muted,
             ));
         } else if detail.active_model_thinking == Some(true) {
-            segments.push(RowSegment::styled("  ·  thinking: enabled", muted));
+            segments.push(RowSegment::styled("  |  thinking: enabled", muted));
         }
         layout = layout.kv_segments("Default Active", segments);
     }
@@ -604,7 +604,7 @@ pub(crate) fn connection_detail_body(
             .kv(
                 "Catalog",
                 format!(
-                    "{} discovered  ·  default: {}",
+                    "{} discovered  |  default: {}",
                     detail.models.len(),
                     active_desc
                 ),
@@ -867,7 +867,7 @@ pub(crate) fn normalize_quota_bucket_label(
             let lower_grp = grp_trim.to_ascii_lowercase();
             if lower_clean.starts_with(&lower_grp) {
                 let remainder = &clean[lower_grp.len()..];
-                let trimmed = remainder.trim_start_matches([' ', '-', ':', '·']);
+                let trimmed = remainder.trim_start_matches([' ', '-', ':', '|']);
                 if !trimmed.is_empty() {
                     clean = trimmed.to_string();
                 }
@@ -917,7 +917,7 @@ pub(crate) fn normalize_quota_bucket_label(
 
     if !contains_window {
         if let Some(w) = window {
-            clean.push_str(&format!(" · {}", w.label()));
+            clean.push_str(&format!(" | {}", w.label()));
         }
     }
 
@@ -979,7 +979,7 @@ pub(crate) fn render_periodic_quota_buckets<'a>(
         let title_row = if let Some(reset) = reset_str {
             SelectableRow::from_segments(vec![
                 RowSegment::styled(bucket_label, value),
-                RowSegment::styled(format!("  ·  {reset}"), muted),
+                RowSegment::styled(format!("  |  {reset}"), muted),
             ])
         } else {
             SelectableRow::styled(bucket_label, value)

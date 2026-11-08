@@ -29,7 +29,7 @@ Nuo introduced `InstructionBundle` and `InstructionTier` to move beyond legacy m
 
 2. **Split Compilation Authorities**:
    Two disjoint modules assembled `InstructionBundle` independently with differing taxonomy:
-   - Dynamic agent turns assembled slices via `nuo-harness::SystemPromptRegistry` using registered `SystemPromptSection` entities.
+   - Dynamic agent turns assembled slices via `nuo-harness::InstructionRegistry` using registered `InstructionSection` entities.
    - Offline / replay analysis in `nuo-wire::session_ir::compiler::pass3_cache_boundary_analysis` manually pushed bespoke `InstructionSlice` items from `ir.policy.rules`, creating divergent naming conventions (`base_persona` vs `system.identity_preamble`).
 
 3. **Downstream Cache Degradation (The False-Promise Abstraction)**:

@@ -1048,7 +1048,7 @@ fn dock_columns(body_width: u16) -> usize {
 const DOCK_COLUMN_W: usize = 36;
 
 /// One session card as a single line of spans:
-/// `#3  nuo  2h14m  running` — sequence · workspace · uptime · status.
+/// `#3  nuo  2h14m  running` — sequence | workspace | uptime | status.
 /// The workspace name is the flexible field, truncated to fit; everything
 /// else has a fixed reservation.
 fn dock_card_line(
@@ -1072,8 +1072,8 @@ fn dock_card_line(
         base_style
     };
 
-    // Fixed reservations: marker+space (2) · seq (5) · uptime (7) ·
-    // status (15) · three 2-cell gutters (6). The name takes the rest.
+    // Fixed reservations: marker+space (2) | seq (5) | uptime (7) |
+    // status (15) | three 2-cell gutters (6). The name takes the rest.
     const FIXED: usize = 2 + 5 + 7 + 15 + 6;
     let name_w = cell_width.saturating_sub(FIXED).max(4);
     // Lineage badge (fork surfacing, ADR-0120). A grid cannot nest, so a branch
@@ -1462,7 +1462,7 @@ fn render_footer(
                 Style::default().bg(bg).fg(theme.fg()),
             ),
             Span::styled(
-                " (Enter apply · Esc clear)".to_string(),
+                " (Enter apply | Esc clear)".to_string(),
                 Style::default().bg(bg).fg(theme.dim()),
             ),
         ]);

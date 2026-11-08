@@ -36,8 +36,9 @@ pub use environment::{detect_device_fingerprint, detect_runtime_environment, gen
 pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
 pub use secret::SecretString;
 pub use security::{
-    AssetLocator, AssetSpec, AttestationStatus, PROJECT_RULE_FILES, TrustDomain,
-    WorkspaceSecuritySnapshot, WorkspaceTrustState,
+    AssetLocator, AssetSpec, AttestationStatus, PROJECT_INSTRUCTION_PATHS,
+    PROJECT_INSTRUCTIONS_DIR, PROJECT_RULE_FILES, TrustDomain, WorkspaceSecuritySnapshot,
+    WorkspaceTrustState,
 };
 pub use shared_roots::SharedAdditionalRoots;
 pub use supervised::{

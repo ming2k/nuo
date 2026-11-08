@@ -1189,7 +1189,7 @@ fn completion_menu_renders_compact_entry_list_without_inline_descriptions() {
         !first.contains("Schedule a prompt on a cron"),
         "inline description should not appear in candidate list: {first:?}"
     );
-    assert!(!first.contains('·'), "row was {first:?}");
+    assert!(!first.contains('|'), "row was {first:?}");
 }
 
 #[test]

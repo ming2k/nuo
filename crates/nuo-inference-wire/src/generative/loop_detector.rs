@@ -298,14 +298,18 @@ impl StreamLoopDetector {
             });
         }
 
-        // Path 2 — longest >= 2-copy run at tail for small units
+        // Path 2 — longest >= 2-copy run at tail for small units. A period
+        // with **no** mismatching offset is the strongest possible signal: the
+        // whole window is that period, not a "no run". Skipping it here made a
+        // perfectly periodic stream undetectable whenever the tail stopped on
+        // a partial period (the KMP path only sees whole-window periodicity),
+        // which is the common case once the window is full.
         let mut best: Option<(usize, usize)> = None;
         for p in 1..=MAX_TAIL_SCAN_UNIT.min(n / 2) {
-            let last_mismatch = (0..n - p).rev().find(|&i| chars[i] != chars[i + p]);
-            let run_start = match last_mismatch {
-                Some(i) => i + 1,
-                None => continue,
-            };
+            let run_start = (0..n - p)
+                .rev()
+                .find(|&i| chars[i] != chars[i + p])
+                .map_or(0, |i| i + 1);
             let run = n - run_start;
             if run >= 2 * p
                 && best
@@ -485,6 +489,30 @@ mod tests {
             }
         }
         assert!(matches!(detected, Some(DegeneratePattern::Periodic { .. })));
+    }
+
+    #[test]
+    fn whole_window_period_survives_a_full_buffer() {
+        // Regression: with the default dwell (3000) and window (1024), an
+        // exactly periodic stream whose period does not divide the window used
+        // to reset the dwell on every push once the buffer filled, because the
+        // KMP path only accepts whole-window periodicity and the tail path
+        // skipped a zero-mismatch run. A degenerate stream must still escalate.
+        let mut detector = StreamLoopDetector::new(1024);
+        let mut detected = None;
+        for _ in 0..800 {
+            if let Some(pat) = detector.push_and_check("abcabc") {
+                detected = Some(pat);
+                break;
+            }
+        }
+        assert!(
+            matches!(
+                detected,
+                Some(DegeneratePattern::Periodic { period: 3, .. })
+            ),
+            "got: {detected:?}"
+        );
     }
 
     #[test]

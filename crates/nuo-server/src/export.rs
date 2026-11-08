@@ -378,7 +378,7 @@ fn format_tool_activity(
 fn parse_shell_output(output: &str) -> (String, Vec<String>) {
     let trimmed = output.trim_matches('\n');
     if trimmed.is_empty() {
-        return ("status: Completed · exit 0".to_string(), Vec::new());
+        return ("status: Completed | exit 0".to_string(), Vec::new());
     }
 
     // New format (ADR-0063): authentic chronological lines with tail exit/interruption status.
@@ -400,9 +400,9 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
             if let Ok(code) = code_str.trim().parse::<i32>() {
                 raw_lines.pop();
                 let status = if code == 0 {
-                    "status: Completed · exit 0".to_string()
+                    "status: Completed | exit 0".to_string()
                 } else {
-                    format!("status: Failed · exit {code}")
+                    format!("status: Failed | exit {code}")
                 };
                 let lines = raw_lines
                     .into_iter()
@@ -420,7 +420,7 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
             .filter(|l| !l.is_empty())
             .map(|l| l.to_string())
             .collect();
-        return ("status: Failed · terminated by harness".to_string(), lines);
+        return ("status: Failed | terminated by harness".to_string(), lines);
     }
 
     // Legacy format fallback: `Exit {}\nSTDOUT:\n...\nSTDERR:\n...`
@@ -428,7 +428,7 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
         && let Some((exit_code_str, streams)) = rest.split_once('\n')
     {
         let code = exit_code_str.trim();
-        let status = format!("status: Failed · exit {code}");
+        let status = format!("status: Failed | exit {code}");
         let mut lines = Vec::new();
         if let Some((stdout_part, stderr_part)) = streams.split_once("\nSTDERR:\n") {
             let stdout_clean = stdout_part.strip_prefix("STDOUT:\n").unwrap_or(stdout_part);
@@ -452,7 +452,7 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
 
     if let Some(stderr) = trimmed.strip_prefix("(success, stderr):\n") {
         let lines = stderr.lines().map(|l| l.to_string()).collect();
-        return ("status: Completed · exit 0".to_string(), lines);
+        return ("status: Completed | exit 0".to_string(), lines);
     }
 
     if trimmed.starts_with("Error:") || trimmed.starts_with("Failed:") {
@@ -461,7 +461,7 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
     }
 
     let lines = trimmed.lines().map(|l| l.to_string()).collect();
-    ("status: Completed · exit 0".to_string(), lines)
+    ("status: Completed | exit 0".to_string(), lines)
 }
 
 /// Fallback output parser for non-shell tools.
@@ -607,7 +607,7 @@ mod tests {
             &[],
         );
         assert!(out.contains(
-            "## Activity\n\n    $ ls\n    status: Completed · exit 0\n      file1\n      file2\n"
+            "## Activity\n\n    $ ls\n    status: Completed | exit 0\n      file1\n      file2\n"
         ));
         // Assistant header should not be emitted when its content was empty
         assert!(!out.contains("## Assistant"));
@@ -650,7 +650,7 @@ mod tests {
             &messages,
             &[],
         );
-        assert!(out.contains("## Activity\n\n    $ cargo test\n    status: Failed · exit 101\n      test failed\n      assertion failed\n"));
+        assert!(out.contains("## Activity\n\n    $ cargo test\n    status: Failed | exit 101\n      test failed\n      assertion failed\n"));
     }
 
     #[test]
@@ -676,7 +676,7 @@ mod tests {
             &messages,
             &[],
         );
-        assert!(out.contains("## Activity\n\n    $ cargo run\n    status: Failed · terminated by harness\n      running stream...\n"));
+        assert!(out.contains("## Activity\n\n    $ cargo run\n    status: Failed | terminated by harness\n      running stream...\n"));
     }
 
     #[test]

@@ -1665,9 +1665,9 @@ fn sent_user_header_has_clean_metadata_separator() {
         .expect("sent user header must render");
 
     assert_eq!(
-        header.matches('·').count(),
+        header.matches('|').count(),
         0,
-        "round and timestamp should not have middle dot separator:\n{grid}"
+        "round and timestamp should not have a separator glyph:\n{grid}"
     );
     assert!(
         header.contains("round 5  "),
@@ -2858,7 +2858,7 @@ mod pre_attach_surface {
             "a re-review must say so on screen:\n{grid}"
         );
         assert!(
-            grid.contains("AGENTS.md"),
+            grid.contains("Project instructions"),
             "the changed domain must be named:\n{grid}"
         );
         assert!(

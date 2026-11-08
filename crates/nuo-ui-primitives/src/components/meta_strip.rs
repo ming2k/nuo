@@ -145,7 +145,7 @@ impl<'a> MetaStrip<'a> {
 
     /// Add muted trailing metadata. The separator is inserted only when a
     /// previous visible chip already exists, so detail-only strips degrade
-    /// cleanly (`Sent`, not ` · Sent`).
+    /// cleanly (`Sent`, not ` | Sent`).
     pub fn detail(mut self, text: impl Into<Cow<'a, str>>) -> Self {
         let text = text.into();
         if !text.as_ref().is_empty() {

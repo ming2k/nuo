@@ -126,7 +126,7 @@ pub const fn chord_token(code: KeyCode) -> &'static str {
             '9' => "9",
             '?' => "?",
             '/' => "/",
-            _ => "·",
+            _ => "?",
         },
         KeyCode::Enter => "enter",
         KeyCode::Tab => "tab",
@@ -147,7 +147,7 @@ pub const fn chord_token(code: KeyCode) -> &'static str {
         KeyCode::F(3) => "f3",
         KeyCode::F(4) => "f4",
         KeyCode::F(5) => "f5",
-        _ => "·",
+        _ => "?",
     }
 }
 
@@ -222,7 +222,7 @@ pub const fn display_token(code: KeyCode) -> &'static str {
             '[' => "[",
             ']' => "]",
             ' ' => "Space",
-            _ => "·",
+            _ => "?",
         },
         KeyCode::Enter => "Enter",
         KeyCode::Tab => "Tab",
@@ -243,7 +243,7 @@ pub const fn display_token(code: KeyCode) -> &'static str {
         KeyCode::F(3) => "F3",
         KeyCode::F(4) => "F4",
         KeyCode::F(5) => "F5",
-        _ => "·",
+        _ => "?",
     }
 }
 
@@ -434,7 +434,7 @@ impl Key {
         if ctrl && shift {
             match self.code {
                 KeyCode::Char('c') | KeyCode::Char('C') => "ctrl-shift-c",
-                _ => "·",
+                _ => "?",
             }
         } else if ctrl {
             match self.code {
@@ -465,13 +465,13 @@ impl Key {
                     'x' => "ctrl-x",
                     'y' => "ctrl-y",
                     'z' => "ctrl-z",
-                    _ => "·",
+                    _ => "?",
                 },
                 KeyCode::Up => "ctrl-↑",
                 KeyCode::Down => "ctrl-↓",
                 KeyCode::Left => "ctrl-←",
                 KeyCode::Right => "ctrl-→",
-                _ => "·",
+                _ => "?",
             }
         } else if alt {
             match self.code {
@@ -504,21 +504,21 @@ impl Key {
                     'z' => "alt-z",
                     // Punctuation chords are bindings too (`scene_back` /
                     // `scene_forward` / Settings). A hole here renders the
-                    // chord as `·` on every surface that asks the key what it
+                    // chord as `?` on every surface that asks the key what it
                     // is called — the config token and the display string must
                     // agree with what the input layer actually compares.
                     '[' => "alt-[",
                     ']' => "alt-]",
                     ',' => "alt-,",
                     '.' => "alt-.",
-                    _ => "·",
+                    _ => "?",
                 },
                 KeyCode::Enter => "alt-enter",
                 KeyCode::Up => "alt-↑",
                 KeyCode::Down => "alt-↓",
                 KeyCode::Left => "alt-←",
                 KeyCode::Right => "alt-→",
-                _ => "·",
+                _ => "?",
             }
         } else if shift {
             match self.code {
@@ -529,7 +529,7 @@ impl Key {
         } else if cmd {
             match self.code {
                 KeyCode::Char('c') | KeyCode::Char('C') => "cmd-c",
-                _ => "·",
+                _ => "?",
             }
         } else {
             chord_token(self.code)
@@ -548,7 +548,7 @@ impl Key {
                 KeyCode::Char('p') | KeyCode::Char('P') => "Ctrl-Shift-p",
                 KeyCode::Char('r') | KeyCode::Char('R') => "Ctrl-Shift-r",
                 KeyCode::Char('q') | KeyCode::Char('Q') => "Ctrl-Shift-q",
-                _ => "·",
+                _ => "?",
             }
         } else if ctrl {
             match self.code {
@@ -579,13 +579,13 @@ impl Key {
                     'x' => "Ctrl-x",
                     'y' => "Ctrl-y",
                     'z' => "Ctrl-z",
-                    _ => "·",
+                    _ => "?",
                 },
                 KeyCode::Up => "Ctrl-↑",
                 KeyCode::Down => "Ctrl-↓",
                 KeyCode::Left => "Ctrl-←",
                 KeyCode::Right => "Ctrl-→",
-                _ => "·",
+                _ => "?",
             }
         } else if alt {
             match self.code {
@@ -617,7 +617,7 @@ impl Key {
                     'y' => "Alt-y",
                     'z' => "Alt-z",
                     // See the config-token arm above: a chord that is not
-                    // named here renders as `·`, silently breaking every
+                    // named here renders as `?`, silently breaking every
                     // surface that displays the key it advertises.
                     '[' => "Alt-[",
                     ']' => "Alt-]",
@@ -633,14 +633,14 @@ impl Key {
                     '7' => "Alt-7",
                     '8' => "Alt-8",
                     '9' => "Alt-9",
-                    _ => "·",
+                    _ => "?",
                 },
                 KeyCode::Enter => "Alt-Enter",
                 KeyCode::Up => "Alt-↑",
                 KeyCode::Down => "Alt-↓",
                 KeyCode::Left => "Alt-←",
                 KeyCode::Right => "Alt-→",
-                _ => "·",
+                _ => "?",
             }
         } else if shift {
             match self.code {
@@ -680,7 +680,7 @@ impl Key {
         } else if cmd {
             match self.code {
                 KeyCode::Char('c') | KeyCode::Char('C') => "Cmd-c",
-                _ => "·",
+                _ => "?",
             }
         } else {
             display_token(self.code)

@@ -2,7 +2,7 @@
 source: nuo-tui/src/snapshot_tests.rs
 expression: "render_grid(&m, 80, 14)"
 ---
-- Ask 2 questions · Scope · Layout (0ms)
+- Ask 2 questions | Scope | Layout (0ms)
   Scope
   How large should the refactor be? (2 options)
   ↳ Rework the whole telemetry modal

@@ -100,6 +100,8 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 1,
+            stream_restart_max_attempts: 0,
+
             retry_base_ms: 1,
             retry_max_ms: 1,
             emit_round_completed: false,

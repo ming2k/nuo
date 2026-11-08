@@ -4,7 +4,7 @@ title: "Model Guidance: Dynamic Prompt Engineering, Pattern-Based Behavioral Dem
 status: accepted
 date: 2026-10-30
 scope: persistence/nuo-persistence, harness/nuo-harness, server/nuo-server, protocol/nuo-protocol
-superseded_by: null
+superseded_by: ADR-0165
 negative_knowledge: true
 ---
 
@@ -14,6 +14,7 @@ negative_knowledge: true
 - Date: 2026-10-30
 - Deciders: Core Engineering, Architecture Working Group
 - Amends: [ADR-0052](0052-unified-instruction-pipeline-pure-role-topology-and-end-to-end-cache-fidelity.md) §1 (Canonical Slice Taxonomy: `system.model_guidance`), [ADR-0126](0126-provider-owned-model-tunables-closed-shape-vocabulary-over-open-knob-namespace.md) (Carrier of per-route settings)
+- Superseded in part by: [ADR-0165](0165-user-instructions-absorb-model-guidance-as-the-user-source.md) — `[model_guidance]`, `resolve_model_guidance`, and `RouteSettings::model_guidance` are removed; user tuning is now `[[instructions.user]]` in the unified instruction pipeline.
 
 ---
 
@@ -104,7 +105,7 @@ When preparing a request turn for model `M` with family `F` over route `R`:
 
 ### 3. Runtime Integration
 
-- `nuo-harness`: `SystemPromptContext.model_guidance` becomes an owned `String`. `Agent` stores an `Arc<RwLock<String>>` guidance handle.
+- `nuo-harness`: `InstructionContext.model_guidance` becomes an owned `String`. `Agent` stores an `Arc<RwLock<String>>` guidance handle.
 - `nuo-server`: `agent_setup::reseed_model_guidance` evaluates the cascade at startup and on every connection/model switch, updating the agent's guidance in-place.
 - `nuo-harness::subagent_tool`: Propagates `parent_model_guidance` handle to spawned subagents.
 

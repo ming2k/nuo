@@ -213,7 +213,7 @@ fn kv_line(key: &str, value: &str, value_style: Style, theme: &Theme) -> Line<'s
 
 /// Horizontal bar chart of the newest `CHART_DAYS` days (newest at the
 /// right). Each day renders as a `█`-repeat scaled to the window's max; days
-/// with no usage render a dim `·` placeholder so gaps stay legible.
+/// with no usage render a dim `-` placeholder so gaps stay legible.
 fn daily_chart(report: &UsageStatsReport, body_width: usize, theme: &Theme) -> Line<'static> {
     let newest: Vec<&nuo_protocol::usage_stats::UsageDayTotals> =
         report.days.iter().rev().take(CHART_DAYS).collect();
@@ -237,7 +237,7 @@ fn daily_chart(report: &UsageStatsReport, body_width: usize, theme: &Theme) -> L
             ((total as f64 / max as f64) * cell_width as f64).round() as usize
         };
         let (text, style) = if total <= 0 {
-            ("·".repeat(cell_width), Style::default().fg(theme.muted()))
+            ("-".repeat(cell_width), Style::default().fg(theme.muted()))
         } else {
             (
                 "█".repeat(filled.max(1)) + &" ".repeat(cell_width.saturating_sub(filled.max(1))),

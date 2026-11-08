@@ -193,7 +193,6 @@ impl Agent {
             variant_selection: Arc::new(std::sync::Mutex::new(
                 nuo_protocol::VariantSelection::new(),
             )),
-            model_guidance: Arc::new(std::sync::RwLock::new(String::new())),
             tools: std::sync::Mutex::new(tools),
             token_ledger: std::sync::Mutex::new(None),
             token_weights: std::sync::Arc::new(nuo_protocol::MessageTokenWeights::new()),
@@ -202,6 +201,9 @@ impl Agent {
                 crate::runtime::extension::CodeIntelligenceExtension,
             )])),
             active_role: std::sync::RwLock::new(Some("developer".to_string())),
+            project_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
+            user_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
+            instruction_provider_kind: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
@@ -255,30 +257,81 @@ impl Agent {
             .unwrap_or_else(|e| e.into_inner()) = selection;
     }
 
-    /// Replace the active model-specific prompt guidance (ADR-0130).
-    pub fn set_model_guidance(&self, guidance: impl Into<String>) {
+    /// Replace the user-authored scoped instruction set (ADR-0165).
+    pub fn set_user_instructions(&self, instructions: Vec<nuo_protocol::ScopedInstruction>) {
         *self
-            .model_guidance
+            .user_instructions
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = guidance.into();
+            .unwrap_or_else(|error| error.into_inner()) = instructions;
     }
 
-    /// Read the active model-specific prompt guidance.
-    pub fn model_guidance(&self) -> String {
-        self.model_guidance
+    /// Handle for the shared user-instruction set, inherited by subagents.
+    pub fn user_instructions_handle(
+        &self,
+    ) -> Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>> {
+        Arc::clone(&self.user_instructions)
+    }
+
+    /// Bind this agent to share an existing user-instruction handle.
+    pub fn bind_user_instructions(
+        &mut self,
+        handle: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
+    ) {
+        self.user_instructions = handle;
+    }
+
+    /// Replace the repository-authored scoped instruction set.
+    pub fn set_project_instructions(&self, instructions: Vec<nuo_protocol::ScopedInstruction>) {
+        *self
+            .project_instructions
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = instructions;
+    }
+
+    /// Handle for the shared project-instruction set, allowing subagents to
+    /// resolve against the parent's declaration set without re-reading files.
+    pub fn project_instructions_handle(
+        &self,
+    ) -> Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>> {
+        Arc::clone(&self.project_instructions)
+    }
+
+    /// Bind this agent to share an existing project-instruction handle.
+    pub fn bind_project_instructions(
+        &mut self,
+        handle: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
+    ) {
+        self.project_instructions = handle;
+    }
+
+    /// Set the provider type behind the active connection (ADR-0164). Resolved
+    /// by the server from `connections.toml` at setup and on provider switch.
+    pub fn set_instruction_provider_kind(&self, kind: Option<String>) {
+        *self
+            .instruction_provider_kind
+            .write()
+            .unwrap_or_else(|error| error.into_inner()) = kind;
+    }
+
+    /// The provider type behind the active connection, when known.
+    pub fn instruction_provider_kind(&self) -> Option<String> {
+        self.instruction_provider_kind
             .read()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
     }
 
-    /// Handle for the shared model guidance state, allowing subagents to share live updates.
-    pub fn model_guidance_handle(&self) -> Arc<std::sync::RwLock<String>> {
-        Arc::clone(&self.model_guidance)
+    /// Handle for the shared provider-type fact, inherited by subagents.
+    pub fn instruction_provider_kind_handle(&self) -> Arc<std::sync::RwLock<Option<String>>> {
+        Arc::clone(&self.instruction_provider_kind)
     }
 
-    /// Bind this agent to share an existing model guidance handle (used by subagents).
-    pub fn bind_model_guidance(&mut self, handle: Arc<std::sync::RwLock<String>>) {
-        self.model_guidance = handle;
+    /// Bind this agent to share an existing provider-type handle.
+    pub fn bind_instruction_provider_kind(
+        &mut self,
+        handle: Arc<std::sync::RwLock<Option<String>>>,
+    ) {
+        self.instruction_provider_kind = handle;
     }
 
     /// Replace this agent's identity-side selection (capability scope + variant
@@ -351,14 +404,42 @@ impl Agent {
     }
 
     /// Snapshot the live state available to declarative system-prompt policy.
-    fn system_prompt_context(&self, tools: &[Arc<dyn Tool>]) -> crate::SystemPromptContext {
+    fn instruction_context(&self, tools: &[Arc<dyn Tool>]) -> crate::InstructionContext {
         let mut tool_names: Vec<String> =
             tools.iter().map(|tool| tool.name().to_string()).collect();
         tool_names.sort();
-        let model_guidance = self.model_guidance();
         let provider_guidance = self.provider.prompt_hints().system_guidance;
+        let role = self.active_role();
+        let connection = self.provider.provider_id();
+        let model = self.provider.model();
+        let provider_kind = self.instruction_provider_kind();
+        let route = nuo_protocol::InstructionRoute {
+            role: role.as_deref(),
+            provider: provider_kind.as_deref(),
+            connection: (!connection.is_empty()).then_some(connection.as_str()),
+            model: (!model.is_empty()).then_some(model.as_str()),
+        };
+        let matched = |instructions: &std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>| {
+            let mut matched = instructions
+                .read()
+                .unwrap_or_else(|error| error.into_inner())
+                .iter()
+                .filter(|instruction| instruction.selector.matches(&route))
+                .cloned()
+                .collect::<Vec<_>>();
+            matched.sort_by(|left, right| {
+                left.selector
+                    .order_key()
+                    .cmp(&right.selector.order_key())
+                    .then_with(|| left.ordinal.cmp(&right.ordinal))
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+            matched
+        };
+        let user_instructions = matched(&self.user_instructions);
+        let project_instructions = matched(&self.project_instructions);
 
-        crate::SystemPromptContext {
+        crate::InstructionContext {
             identity_preamble: self
                 .identity
                 .read()
@@ -366,7 +447,7 @@ impl Agent {
                 .unwrap_or_default(),
             tool_names,
             has_subagent_tool: tools.iter().any(|tool| tool.spawns_subagent()),
-            model_guidance,
+            user_instructions,
             provider_guidance,
             project_rules: self
                 .project_rules
@@ -383,6 +464,7 @@ impl Agent {
                 .and_then(|p| detect_workspace_topology(&p)),
             workspace_root: self.workspace_root().map(|p| p.display().to_string()),
             supports_parallel_tool_calls: self.provider.supports_parallel_tool_calls(),
+            project_instructions,
         }
     }
 }
@@ -527,7 +609,7 @@ impl Agent {
         }
 
         let tools = self.visible_tools();
-        let context = self.system_prompt_context(&tools);
+        let context = self.instruction_context(&tools);
         self.model_request_assembler
             .assemble_prepared(enriched, temporary_context, &context, &tools)
             .with_route_state(&self.provider.route_fingerprint(), continuation)

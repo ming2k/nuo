@@ -1,7 +1,7 @@
 //! Workspace trust vocabulary for project-supplied assets and configurations.
 //!
 //! Controls whether project-authored contributions (skills, MCP servers, hooks,
-//! AGENTS.md instructions, and workspace config) are loaded into the runtime.
+//! project instructions, and workspace config) are loaded into the runtime.
 //!
 //! Distinct and decoupled from AI runtime tool permissions, which are governed
 //! purely by the Tool Hazard model (`HazardLevel` and `PermissionStore`).
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceTrustState {
-    /// The workspace declares no project-level contributions (skills, MCP, hooks, AGENTS.md).
+    /// The workspace declares no project-level contributions (skills, MCP, hooks, instructions).
     #[default]
     Absent,
     /// Contributions exist in the workspace, but have not been explicitly trusted by the user.
@@ -89,7 +89,7 @@ pub enum TrustDomain {
     Skills,
     /// Trust project-level lifecycle hook definitions and hook assets.
     Hooks,
-    /// Trust project-authored instructions and rules (`AGENTS.md`, rules).
+    /// Trust project-authored instructions and rules (`AGENTS.md`, rules, `.nuo/instructions/`).
     Instructions,
     /// Trust project-level external workspace roots (`[workspace].additional_roots`).
     #[serde(rename = "ex_workspace", alias = "ex-workspace")]
@@ -135,7 +135,7 @@ impl TrustDomain {
             Self::Mcp => ".nuo/mcp.json",
             Self::Skills => ".nuo/skills/",
             Self::Hooks => ".nuo/hooks/",
-            Self::Instructions => "AGENTS.md",
+            Self::Instructions => "Project instructions",
         }
     }
 }
@@ -153,6 +153,22 @@ impl TrustDomain {
 /// to prevent. Sharing the constant makes the two impossible to separate.
 pub const PROJECT_RULE_FILES: &[&str] = &["AGENTS.md", ".cursorrules", ".windsurfrules"];
 
+/// Repository-owned scoped instruction directory.
+pub const PROJECT_INSTRUCTIONS_DIR: &str = ".nuo/instructions";
+
+/// Every workspace path whose contents are injected as project instructions.
+///
+/// This is the attestation surface: the flat rule files plus the scoped
+/// instruction directory. The loader reads the rule files directly and walks
+/// the directory; the digest must cover exactly the same set, or a trusted
+/// workspace could inject un-attested prompt content.
+pub const PROJECT_INSTRUCTION_PATHS: &[&str] = &[
+    "AGENTS.md",
+    ".cursorrules",
+    ".windsurfrules",
+    PROJECT_INSTRUCTIONS_DIR,
+];
+
 /// First-class security state attached to every harness snapshot.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceSecuritySnapshot {
@@ -167,7 +183,7 @@ pub struct WorkspaceSecuritySnapshot {
     /// Trust status for lifecycle hooks.
     #[serde(default)]
     pub hooks: WorkspaceTrustState,
-    /// Trust status for project instructions (AGENTS.md).
+    /// Trust status for project instructions (rules and `.nuo/instructions/`).
     #[serde(default)]
     pub instructions: WorkspaceTrustState,
     /// Trust status for project-declared external workspace roots.
@@ -356,7 +372,7 @@ pub enum AssetLocator {
         workspace_root: String,
         event: String,
     },
-    /// Project instructions and rules (AGENTS.md).
+    /// Project instructions and rules (`AGENTS.md`, `.nuo/instructions/`).
     WorkspaceInstructions { workspace_root: String },
     /// Project-declared external workspace roots.
     WorkspaceExRoots { workspace_root: String },
@@ -412,7 +428,7 @@ impl AssetLocator {
             Self::WorkspaceMcp { name, .. } => format!("Project MCP: {name}"),
             Self::WorkspaceSkill { name, .. } => format!("Project Skill: {name}"),
             Self::WorkspaceHook { event, .. } => format!("Project Hook: {event}"),
-            Self::WorkspaceInstructions { .. } => "Project Instructions (AGENTS.md)".to_string(),
+            Self::WorkspaceInstructions { .. } => "Project Instructions".to_string(),
             Self::WorkspaceExRoots { .. } => "External Workspace Roots".to_string(),
             Self::ExternalPath { path } => format!("External Executable: {path}"),
         }

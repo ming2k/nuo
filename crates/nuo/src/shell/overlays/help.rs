@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(keys.settings, "Alt-,");
         assert_eq!(keys.command_palette, "Ctrl-Shift-p");
         // The scene verbs are `Alt-[` / `Alt-]`; before the chord vocabulary
-        // covered punctuation these rendered as `·`, which is why the chord
+        // covered punctuation these rendered as `?`, which is why the chord
         // text used to be hardcoded into the SceneBar instead.
         assert_eq!(keys.scene_back, "Alt-[");
         assert_eq!(keys.scene_forward, "Alt-]");
@@ -421,9 +421,9 @@ mod tests {
         let keys = Chords::resolve(&GlobalOverrides::default(), &SurfaceOverrides::default());
         // Every advertised command has a canonical chord today; the `unbound`
         // fallback is the contract for one that does not, and `Key::display`
-        // returning `·` for an unnamed chord is what it exists to catch.
+        // returning `?` for an unnamed chord is what it exists to catch.
         for chord in [&keys.help, &keys.new_tab, &keys.close_tab, &keys.notices] {
-            assert_ne!(chord, "·", "an advertised chord must be displayable");
+            assert_ne!(chord, "?", "an advertised chord must be displayable");
         }
     }
 

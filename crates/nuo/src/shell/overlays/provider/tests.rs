@@ -436,10 +436,10 @@ fn preset_chooser_shows_only_titles_when_unfocused() {
         });
         assert!(!count_meta, "no seeded model-count meta: {line:?}");
         assert!(
-            !line.contains("· openai")
-                && !line.contains("· google")
-                && !line.contains("· anthropic"),
-            "no `·`-joined protocol meta: {line:?}"
+            !line.contains("| openai")
+                && !line.contains("| google")
+                && !line.contains("| anthropic"),
+            "no `|`-joined protocol meta: {line:?}"
         );
     }
     // No `›` cursor marker in the body (the header breadcrumb's `›` is
@@ -489,7 +489,7 @@ fn preset_chooser_carries_the_auth_scheme_in_the_description_sentence() {
             "no auth glyphs: {line:?}"
         );
         assert!(
-            !line.contains("oauth ·") && !line.contains("token ·"),
+            !line.contains("oauth |") && !line.contains("token |"),
             "no badge meta: {line:?}"
         );
     }
@@ -2162,9 +2162,9 @@ fn connections_modal_detail_view_renders_periodic_quota_with_progress_bar() {
     let text = buffer_text(&terminal);
     assert!(text.contains("Provider Usage & Quota"));
     assert!(text.contains("Google One AI Premium"));
-    assert!(text.contains("Gemini 3.7 Flash · Daily"));
+    assert!(text.contains("Gemini 3.7 Flash | Daily"));
     assert!(text.contains("15% used"));
-    assert!(text.contains("Gemini 3.1 Pro · 5h Window"));
+    assert!(text.contains("Gemini 3.1 Pro | 5h Window"));
     assert!(text.contains("40% used"));
 }
 
@@ -2557,7 +2557,7 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
     let text = buffer_text(&terminal);
     assert!(text.contains("Connections › Google Antigravity"));
     assert!(text.contains("Default Active"));
-    assert!(text.contains("gemini-3.7-flash  ·  reasoning: high"));
+    assert!(text.contains("gemini-3.7-flash  |  reasoning: high"));
     assert!(text.contains("Served Models (3)"));
     assert!(text.contains("3 discovered"));
     assert!(text.contains("Browse & filter in /models"));
@@ -2611,12 +2611,12 @@ fn connections_modal_detail_view_renders_grouped_periodic_quota_and_effort() {
         "5-Hour limit must be displayed before Weekly limit"
     );
     // Clean label merged with reset countdown on the same line, no redundant tautology
-    assert!(scrolled_text.contains("5-Hour Limit  ·  resets in 3h 16m"));
+    assert!(scrolled_text.contains("5-Hour Limit  |  resets in 3h 16m"));
     assert!(scrolled_text.contains("46% used"));
-    assert!(scrolled_text.contains("Weekly Limit  ·  resets in 80h 6m"));
+    assert!(scrolled_text.contains("Weekly Limit  |  resets in 80h 6m"));
     assert!(scrolled_text.contains("99% used"));
-    assert!(!scrolled_text.contains("Five Hour Limit Remaining · 5h Window"));
-    assert!(!scrolled_text.contains("Weekly Limit Remaining · Weekly"));
+    assert!(!scrolled_text.contains("Five Hour Limit Remaining | 5h Window"));
+    assert!(!scrolled_text.contains("Weekly Limit Remaining | Weekly"));
     assert!(scrolled_text.contains("Chat Models (Gemini)"));
     assert!(scrolled_text.contains("0% used"));
     assert!(scrolled_text.contains("Within each group, models share a weekly limit"));
@@ -3021,7 +3021,7 @@ fn connections_modal_detail_served_models_collapsed_by_default_and_expands() {
 
     let text = buffer_text(&terminal);
     assert!(text.contains("Served Models (17)"));
-    assert!(text.contains("17 discovered  ·  default: model-05"));
+    assert!(text.contains("17 discovered  |  default: model-05"));
     assert!(text.contains("Browse & filter in /models"));
     assert!(text.contains("browse models"));
     // Configuration has Provider and no redundant Provider ID
@@ -3109,7 +3109,7 @@ fn connections_modal_quota_bucket_used_percentage_and_separate_reset_line() {
     let text = buffer_text(&terminal);
     assert!(text.contains("72% used"));
     assert!(!text.contains("remaining"));
-    assert!(text.contains(" ·  resets in 3h 25m"));
+    assert!(text.contains(" |  resets in 3h 25m"));
 }
 
 #[test]
@@ -3230,7 +3230,7 @@ fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
 
     assert!(rendered.contains("Pricing"), "must render Pricing header");
     assert!(
-        rendered.contains("Standard Rates") && rendered.contains("$0.30 in · $1.20 out"),
+        rendered.contains("Standard Rates") && rendered.contains("$0.30 in | $1.20 out"),
         "must render standard flash rates: {rendered}"
     );
     assert!(
@@ -3238,7 +3238,7 @@ fn model_detail_renders_pricing_and_off_peak_schedule_for_deepseek() {
         "must render cache hit rates: {rendered}"
     );
     assert!(
-        rendered.contains("Off-Peak Rates") && rendered.contains("50% off ($0.15 in · $0.60 out)"),
+        rendered.contains("Off-Peak Rates") && rendered.contains("50% off ($0.15 in | $0.60 out)"),
         "must render off-peak rates: {rendered}"
     );
     assert!(
@@ -3325,7 +3325,7 @@ fn connection_detail_renders_active_model_pricing_and_rates() {
         "must render Model Pricing header: {rendered}"
     );
     assert!(
-        rendered.contains("deepseek-v4.1-flash: $0.30 in · $1.20 out"),
+        rendered.contains("deepseek-v4.1-flash: $0.30 in | $1.20 out"),
         "must render active model rates: {rendered}"
     );
     assert!(
@@ -3448,10 +3448,10 @@ fn periodic_quota_label_normalization_and_deduplication() {
         "Weekly Limit"
     );
 
-    // Non-redundant window label is preserved: "Gemini Pro Agent" with window Daily -> "Gemini Pro Agent · Daily"
+    // Non-redundant window label is preserved: "Gemini Pro Agent" with window Daily -> "Gemini Pro Agent | Daily"
     assert_eq!(
         normalize_quota_bucket_label("Gemini Pro Agent", None, Some(QuotaWindowKind::Daily)),
-        "Gemini Pro Agent · Daily"
+        "Gemini Pro Agent | Daily"
     );
 
     // Window already named in label: "5h Window" with window Rolling5Hour does not duplicate
@@ -3591,10 +3591,10 @@ fn periodic_quota_buckets_redesign_layout_order_and_styling() {
 
     // 2. 5h limit is displayed before Weekly limit within each group
     let gemini_5h = text
-        .find("5-Hour Limit  ·  resets in 4h 54m")
+        .find("5-Hour Limit  |  resets in 4h 54m")
         .expect("Gemini 5h line");
     let gemini_weekly = text
-        .find("Weekly Limit  ·  resets in 142h 4m")
+        .find("Weekly Limit  |  resets in 142h 4m")
         .expect("Gemini weekly line");
     assert!(
         gemini_5h < gemini_weekly,
@@ -3602,24 +3602,24 @@ fn periodic_quota_buckets_redesign_layout_order_and_styling() {
     );
 
     let claude_5h = text
-        .find("5-Hour Limit  ·  resets in 4h 59m")
+        .find("5-Hour Limit  |  resets in 4h 59m")
         .expect("Claude 5h line");
     let claude_weekly = text
-        .find("Weekly Limit  ·  resets in 90h 2m")
+        .find("Weekly Limit  |  resets in 90h 2m")
         .expect("Claude weekly line");
     assert!(
         claude_5h < claude_weekly,
         "5-Hour limit must appear before Weekly limit in Claude models"
     );
 
-    // 3. Tautology is removed: no "Five Hour Limit Remaining · 5h Window", no "Weekly Limit Remaining · Weekly"
+    // 3. Tautology is removed: no "Five Hour Limit Remaining | 5h Window", no "Weekly Limit Remaining | Weekly"
     assert!(!text.contains("Five Hour Limit Remaining"));
     assert!(!text.contains("5h Window"));
     assert!(!text.contains("Weekly Limit Remaining"));
-    assert!(!text.contains("Gemini 4 Argon Weekly Limit · Weekly"));
+    assert!(!text.contains("Gemini 4 Argon Weekly Limit | Weekly"));
 
     // 4. Gemini 4 Argon bucket label has group prefix stripped
-    assert!(text.contains("Gemini 4 Argon\nWeekly Limit  ·  resets in 36h 45m"));
+    assert!(text.contains("Gemini 4 Argon\nWeekly Limit  |  resets in 36h 45m"));
 
     // 5. Title and reset countdown merged to one line without redundant clock in parentheses
     let p_quota = rendered_lines

@@ -34,7 +34,7 @@ pub fn draw_copy_toast(frame: &mut Frame, message: &str, failed: bool, theme: &T
 ///
 /// The accent color follows the notice severity, reusing the same
 /// severity→color map as the inline notice renderer so the two stay visually
-/// consistent. `hint` is the pointer row ("Ctrl-o · all notices"): a bubble
+/// consistent. `hint` is the pointer row ("Ctrl-o | all notices"): a bubble
 /// that only says "something failed" and then disappears leaves the user with
 /// nothing to act on, which is the defect this whole tier exists to remove.
 pub fn draw_notice_toast(

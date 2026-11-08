@@ -324,10 +324,10 @@ fn render(info: &client::ServerInfo, snapshot: &MonitorSnapshot, opts: StatusOpt
     };
 
     println!(
-        "● Nuo [Healthy] · Server PID {} (uptime {})",
+        "● Nuo [Healthy] | Server PID {} (uptime {})",
         info.pid, uptime
     );
-    println!("  Transport: {transport} · Project: {root}");
+    println!("  Transport: {transport} | Project: {root}");
 
     let db_path = nuo_host::paths::get().db_file();
     let db_status = if let Some(health) = &snapshot.persistence_health {
@@ -497,7 +497,7 @@ fn detail(row: &MonitoredThread) -> String {
     if parts.is_empty() {
         parts.push(truncate(&row.overview, 60));
     }
-    parts.join(" · ")
+    parts.join(" | ")
 }
 
 fn truncate_chars(s: &str, n: usize) -> String {

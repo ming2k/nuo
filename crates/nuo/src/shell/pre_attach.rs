@@ -627,7 +627,10 @@ mod tests {
             1,
             "only the changed domain is listed"
         );
-        assert_eq!(question.options[0].label, "AGENTS.md  ·  [Changed]");
+        assert_eq!(
+            question.options[0].label,
+            "Project instructions  |  [Changed]"
+        );
         assert!(
             question.question.contains("changed on disk"),
             "the prompt must say why it is asking: {}",
@@ -663,7 +666,7 @@ mod tests {
         assert!(labels.iter().any(|l| l.starts_with(".nuo/mcp.json")));
         assert!(labels.iter().any(|l| l.starts_with(".nuo/skills/")));
         assert!(labels.iter().any(|l| l.starts_with(".nuo/hooks/")));
-        assert!(labels.iter().any(|l| l.starts_with("AGENTS.md")));
+        assert!(labels.iter().any(|l| l.starts_with("Project instructions")));
         assert!(labels.iter().any(|l| l.starts_with(".nuo/config.toml")));
         assert!(
             labels

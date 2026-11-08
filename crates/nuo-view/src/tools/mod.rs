@@ -770,11 +770,11 @@ mod tests {
     fn unknown_tool_leads_with_cleaned_name_then_key() {
         assert_eq!(
             summary("mcp__foo__bar", serde_json::json!({"query": "hello"})),
-            "⚡ foo · bar \"hello\""
+            "⚡ foo | bar \"hello\""
         );
         assert_eq!(
             summary("mcp__foo__bar", serde_json::json!({"unknown": 1})),
-            "⚡ foo · bar unknown: 1"
+            "⚡ foo | bar unknown: 1"
         );
         assert_eq!(
             summary("custom__foo__bar", serde_json::json!({"query": "hello"})),

@@ -89,7 +89,7 @@ pub struct ToastBubble<'a> {
     pub message: &'a str,
     pub kind: ToastKind,
     /// An optional trailing row that names the affordance this bubble is a
-    /// pointer to ("Ctrl-o · all notices").
+    /// pointer to ("Ctrl-o | all notices").
     ///
     /// A bubble is an interruption, and an interruption that leads nowhere is
     /// just a lost message. The hint is what turns "you had to be watching"
@@ -416,7 +416,7 @@ mod tests {
                 &theme,
                 long_msg,
                 ToastKind::Error,
-                Some("Ctrl-o · all notices"),
+                Some("Ctrl-o | all notices"),
                 80,
             );
         });
@@ -427,7 +427,7 @@ mod tests {
             .map(|c| c.symbol.as_str())
             .collect();
         assert!(
-            text.contains("Ctrl-o · all notices"),
+            text.contains("Ctrl-o | all notices"),
             "the pointer to the record must never be the thing that is cut: {text}"
         );
     }

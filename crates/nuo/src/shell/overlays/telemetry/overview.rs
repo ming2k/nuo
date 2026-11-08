@@ -178,7 +178,7 @@ pub(crate) fn build_overview_body(
 
     layout = layout.kv_muted(
         "Activity Count",
-        format!("{} rounds · {} tool turns", rounds.len(), total_turns),
+        format!("{} rounds | {} tool turns", rounds.len(), total_turns),
     );
 
     layout.build()

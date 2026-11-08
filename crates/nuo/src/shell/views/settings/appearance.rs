@@ -401,7 +401,7 @@ fn draw_live_specimen_gallery(
                 .fg(candidate.running())
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled("· running (1.4s)", Style::default().fg(candidate.running())),
+        Span::styled("| running (1.4s)", Style::default().fg(candidate.running())),
     ]));
 
     // Toast

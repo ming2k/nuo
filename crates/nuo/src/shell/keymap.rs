@@ -574,7 +574,7 @@ pub static COMMAND_REGISTRY: &[CommandSpec] = &[
         id: CommandId::OpenNotices,
         label: "Notices",
         // The chord exists because the *bubble* advertises it: a fault bubble
-        // says "Alt-o · all notices", so the chord must be one the user can
+        // says "Alt-o | all notices", so the chord must be one the user can
         // press without having memorised anything.
         hint: "Alt-o",
         category: CommandCategory::Session,

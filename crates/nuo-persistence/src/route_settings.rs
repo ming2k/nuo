@@ -113,6 +113,40 @@ fn read_legacy_cache_route_settings() -> BTreeMap<String, BTreeMap<String, Route
     out
 }
 
+/// Remove the retired `model_guidance` field from every persisted route entry.
+///
+/// `RouteSettings` denies unknown fields, so a stored entry from before
+/// ADR-0165 would otherwise reject the entire `RouteSettingsFile` and silently
+/// reset every route. This is a one-shot migration: the retired key is
+/// discarded; the user's tunings and overrides are preserved.
+fn strip_retired_route_fields(value: &mut serde_json::Value) -> bool {
+    let key = if value.get("connections").is_some() {
+        "connections"
+    } else if value.get("providers").is_some() {
+        "providers"
+    } else {
+        return false;
+    };
+    let Some(connections) = value
+        .get_mut(key)
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return false;
+    };
+    let mut stripped = false;
+    for models in connections.values_mut() {
+        let Some(models) = models.as_object_mut() else {
+            continue;
+        };
+        for settings in models.values_mut() {
+            if let Some(settings) = settings.as_object_mut() {
+                stripped |= settings.remove("model_guidance").is_some();
+            }
+        }
+    }
+    stripped
+}
+
 /// The persisted shape: the user's route settings plus the migration marker.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -147,17 +181,40 @@ impl RouteSettingsStore {
     fn read_file() -> Self {
         let handle = crate::db::get_persistence_handle();
         if let Ok(reader) = handle.reader() {
-            if let Ok(Some(file)) = reader.get_json::<RouteSettingsFile>("state:route_settings") {
-                return Self { file };
+            if let Ok(Some(mut value)) =
+                reader.get_json::<serde_json::Value>("state:route_settings")
+            {
+                let stripped = strip_retired_route_fields(&mut value);
+                match serde_json::from_value::<RouteSettingsFile>(value) {
+                    Ok(file) => {
+                        if stripped {
+                            let _ = handle.set_json_blocking("state:route_settings", &file);
+                        }
+                        return Self { file };
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            "state:route_settings is unparseable; using an empty store"
+                        );
+                        return Self::default();
+                    }
+                }
             }
             let legacy_path = paths::get().state_dir.join("route_settings.json");
             if legacy_path.exists() {
                 if let Ok(content) = fs::read_to_string(&legacy_path)
-                    && let Ok(file) = serde_json::from_str::<RouteSettingsFile>(&content)
+                    && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&content)
                 {
-                    let _ = handle.set_json_blocking("state:route_settings", &file);
-                    let _ = fs::remove_file(&legacy_path);
-                    return Self { file };
+                    // ADR-0165 retired `model_guidance`; strip it so the rest of
+                    // the user's route settings (tunings, overrides) survives
+                    // instead of the whole entry failing to deserialize.
+                    let _ = strip_retired_route_fields(&mut value);
+                    if let Ok(file) = serde_json::from_value::<RouteSettingsFile>(value) {
+                        let _ = handle.set_json_blocking("state:route_settings", &file);
+                        let _ = fs::remove_file(&legacy_path);
+                        return Self { file };
+                    }
                 }
                 let _ = fs::remove_file(&legacy_path);
             }
@@ -402,7 +459,6 @@ mod tests {
                 },
                 capability_overrides: None,
                 prompt_cache: None,
-                model_guidance: None,
             },
             "the user's reasoning override must be rescued from the retired file"
         );
@@ -424,6 +480,33 @@ mod tests {
                 .effort()
                 .map(|e| e.as_str()),
             Some("medium")
+        );
+    }
+
+    #[test]
+    fn retired_route_model_guidance_is_stripped_without_losing_tunings() {
+        let mut value = serde_json::json!({
+            "connections": {
+                "cc-fox": {
+                    "deepseek/deepseek-v4-flash-fast": {
+                        "model_guidance": "legacy override",
+                        "tunings": { "effort": "high" }
+                    }
+                }
+            }
+        });
+        assert!(strip_retired_route_fields(&mut value));
+        let file: RouteSettingsFile = serde_json::from_value(value).unwrap();
+        let settings = &file.connections["cc-fox"]["deepseek/deepseek-v4-flash-fast"];
+        assert_eq!(
+            settings.tunings.effort().map(|effort| effort.as_str()),
+            Some("high"),
+            "unrelated tunings must survive the retired field"
+        );
+        assert!(
+            !serde_json::to_string(&file)
+                .unwrap()
+                .contains("model_guidance")
         );
     }
 }

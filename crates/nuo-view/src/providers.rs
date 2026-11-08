@@ -525,7 +525,7 @@ pub struct RankedModel {
     /// stock OpenAI-compatible and Gemini catalogues publish nothing — renders
     /// the bare id exactly as before.
     pub name: Option<String>,
-    /// The provider's display name, rendered as the dim `· <provider>` suffix
+    /// The provider's display name, rendered as the dim `| <provider>` suffix
     /// so identical model ids served by different instances stay
     /// distinguishable in the flat list.
     pub provider_label: String,
@@ -1859,7 +1859,7 @@ mod tests {
         let pair_count: usize = snapshot.rows.iter().map(|r| r.models.len()).sum();
         assert_eq!(rows.len(), pair_count);
         // Pairs from different providers coexist, each carrying its provider
-        // id AND the provider display name for the `· <provider>` row suffix.
+        // id AND the provider display name for the `| <provider>` row suffix.
         let openai = rows
             .iter()
             .find(|r| r.provider_id == "openai" && r.model == "gpt-4o-mini")

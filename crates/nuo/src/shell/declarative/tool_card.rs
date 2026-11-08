@@ -10,7 +10,7 @@
 //! - `[INV-TUI-RUNNING-02]` (Action Permissibility Tri-Partition): Read inspection
 //!   (toggle expand, scroll body, examine output) remains 100% operational during Running.
 //! - `[INV-TUI-RUNNING-03]` (Progress Grammar & Frozen Fact Transition): Structured
-//!   `(running · Xs)` header grammar transitions to frozen duration on completion.
+//!   `(running | Xs)` header grammar transitions to frozen duration on completion.
 
 use std::path::Path;
 
@@ -463,7 +463,7 @@ impl ToolCard {
             ToolStatus::Running { elapsed_secs, .. } => {
                 header_spans.push(Span::raw(" "));
                 let label = match elapsed_secs {
-                    Some(s) => format!("(running · {s}s)"),
+                    Some(s) => format!("(running | {s}s)"),
                     None => "(running)".to_string(),
                 };
                 header_spans.push(Span::styled(label, Style::default().fg(theme.running())));

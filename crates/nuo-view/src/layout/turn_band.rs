@@ -29,7 +29,7 @@
 //! rest (model info, send time), using foreground color only — no background
 //! band. Model and reasoning depth form a single identity component
 //! (`glm-5.3 xhigh`), and components on the header row are separated entirely
-//! by spatial distance (two columns of whitespace, R2 enumeration) without `·`.
+//! by spatial distance (two columns of whitespace, R2 enumeration) without a separator glyph.
 //! The effort detail appears only when the turn actually ran with one
 //! (thinking-gated per protocol), so non-reasoning channels keep the shorter
 //! form. The header is composed from the shared `MetaStrip` component
@@ -104,7 +104,7 @@ impl TranscriptLayout for TurnBand {
 
 /// Paint the turn header row: `› turn N  model (effort)  HH:MM`,
 /// info-tone bold anchor with muted metadata, no background band. Components
-/// are separated by spatial distance (R2 enumeration whitespace, no `·`), and
+/// are separated by spatial distance (R2 enumeration whitespace, no separator glyph), and
 /// model + effort form a single identity component. The caller inserts the
 /// standard header-to-body gap before the group's first component.
 fn draw_turn_header(stream: &mut Stream<'_, '_>, turn: u64, msg: &TranscriptMessage) {
@@ -124,7 +124,7 @@ fn draw_turn_header(stream: &mut Stream<'_, '_>, turn: u64, msg: &TranscriptMess
     // Two-tone label, no background band: `› turn N` is the info-tone
     // anchor, the rest (model + effort component, send time) reads as muted metadata on
     // the same line. Components are separated by plain whitespace (R2 enumeration,
-    // `JOIN_ENUMERATE_COLS`), never `·`.
+    // `JOIN_ENUMERATE_COLS`), never a separator glyph.
     let lead = format!("{AI_OUTPUT_LEAD_GLYPH} ");
     let mut strip = MetaStrip::new()
         .separator(" ".repeat(JOIN_ENUMERATE_COLS))

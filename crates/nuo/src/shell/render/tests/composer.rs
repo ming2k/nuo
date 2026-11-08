@@ -2163,7 +2163,7 @@ fn composer_top_row_renders_history_mode_badges() {
     let mut terminal = draw_frame_composer("query", true, search_hints);
     let row0 = frame_row_text(&mut terminal, 0);
     assert!(
-        row0.contains("[history search · draft saved]"),
+        row0.contains("[history search | draft saved]"),
         "top row has history search badge: {row0:?}"
     );
 }
@@ -2186,7 +2186,7 @@ fn composer_top_row_declares_the_history_recall_pointer() {
     let mut terminal = draw_frame_composer("recalled prompt", true, hints);
     let row0 = frame_row_text(&mut terminal, 0);
     assert!(
-        row0.contains("[history 1/17 · draft saved]"),
+        row0.contains("[history 1/17 | draft saved]"),
         "full-width badge names position, total, and the draft reassurance: {row0:?}"
     );
 
@@ -2195,7 +2195,7 @@ fn composer_top_row_declares_the_history_recall_pointer() {
     let mut terminal = draw_frame_composer("recalled prompt EDITED", true, hints);
     let row0 = frame_row_text(&mut terminal, 0);
     assert!(
-        row0.contains("[history 3/17 · edited]"),
+        row0.contains("[history 3/17 | edited]"),
         "an edited buffer is declared on the badge: {row0:?}"
     );
 

@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn normalizes_json_error_into_header_and_pretty_detail() {
         let raw = r#"OpenAI HTTP 429 Too Many Requests: {"error":{"code":"1305","message":"该模型当前访问量过大，请您稍后再试"}}
-Gave up after 6 attempt(s); the upstream service appears overloaded. Resend the message to try again, or raise `provider_retry_max_attempts` for more attempts."#;
+Gave up after 6 attempt(s); the upstream service appears overloaded. Resend the message to try again, or raise `[resilience] retry_max_attempts` for more attempts."#;
         let parsed = normalize(raw);
         assert_eq!(
             parsed.title,

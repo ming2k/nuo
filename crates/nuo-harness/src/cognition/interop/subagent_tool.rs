@@ -209,8 +209,18 @@ pub struct SubagentTool {
     /// overrides. `None` (the default, e.g. in tests) means default variants.
     parent_variants:
         std::sync::Mutex<Option<Arc<std::sync::Mutex<nuo_protocol::VariantSelection>>>>,
-    /// Model guidance handle inherited from the parent (ADR-0130).
-    parent_model_guidance: std::sync::Mutex<Option<Arc<std::sync::RwLock<String>>>>,
+    /// User-authored scoped instruction set inherited from the parent
+    /// (ADR-0165). Shared by handle so the child resolves the same user source.
+    parent_user_instructions:
+        std::sync::Mutex<Option<Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>>>,
+    /// Repository-authored scoped instruction set inherited from the parent
+    /// (ADR-0164). Shared by handle so the child resolves against the same
+    /// declarations without re-reading the workspace.
+    parent_project_instructions:
+        std::sync::Mutex<Option<Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>>>,
+    /// Provider type behind the parent's active connection (ADR-0164).
+    parent_instruction_provider_kind:
+        std::sync::Mutex<Option<Arc<std::sync::RwLock<Option<String>>>>>,
     /// Live workspace authority inherited from the parent. Delegation may
     /// narrow this through the subagent's operation scope, never widen it.
     parent_workspace_security:
@@ -336,7 +346,9 @@ impl SubagentTool {
             tool_name,
             tool_description,
             parent_variants: std::sync::Mutex::new(None),
-            parent_model_guidance: std::sync::Mutex::new(None),
+            parent_user_instructions: std::sync::Mutex::new(None),
+            parent_project_instructions: std::sync::Mutex::new(None),
+            parent_instruction_provider_kind: std::sync::Mutex::new(None),
             parent_workspace_security: std::sync::Mutex::new(None),
             parent_human_channel: std::sync::Mutex::new(None),
             registry: Arc::new(SubagentRegistry::default()),
@@ -369,7 +381,9 @@ impl SubagentTool {
             tool_name,
             tool_description,
             parent_variants: std::sync::Mutex::new(None),
-            parent_model_guidance: std::sync::Mutex::new(None),
+            parent_user_instructions: std::sync::Mutex::new(None),
+            parent_project_instructions: std::sync::Mutex::new(None),
+            parent_instruction_provider_kind: std::sync::Mutex::new(None),
             parent_workspace_security: std::sync::Mutex::new(None),
             parent_human_channel: std::sync::Mutex::new(None),
             registry,
@@ -473,12 +487,37 @@ impl SubagentTool {
             .unwrap_or_else(|e| e.into_inner()) = Some(relief);
     }
 
-    /// Bind the parent agent's model guidance handle so subagents inherit prompt guidance.
-    pub fn bind_model_guidance(&self, handle: Arc<std::sync::RwLock<String>>) {
+    /// Bind the parent agent's user-instruction handle so subagents resolve the
+    /// same user source as their parent.
+    pub fn bind_user_instructions(
+        &self,
+        handle: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
+    ) {
         *self
-            .parent_model_guidance
+            .parent_user_instructions
             .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(handle);
+            .unwrap_or_else(|error| error.into_inner()) = Some(handle);
+    }
+
+    /// Bind the parent agent's project-instruction handle so subagents resolve
+    /// the same scoped declarations as their parent.
+    pub fn bind_project_instructions(
+        &self,
+        handle: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
+    ) {
+        *self
+            .parent_project_instructions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(handle);
+    }
+
+    /// Bind the parent's provider-type fact so subagents resolve provider
+    /// selectors the same way.
+    pub fn bind_instruction_provider_kind(&self, handle: Arc<std::sync::RwLock<Option<String>>>) {
+        *self
+            .parent_instruction_provider_kind
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(handle);
     }
 
     /// Bind the session's channel accountant; spawned subagents
@@ -806,14 +845,34 @@ impl SubagentTool {
         let identity = crate::AgentIdentity::from_directive(profile.system_prompt);
         let mut subagent = Agent::new(self.provider.clone(), sub_tools, identity);
         subagent.set_kind(nuo_protocol::AgentKind::Subagent);
+        // Role-scoped project instructions select on the staffing role. The
+        // child's identity is its profile task prompt, so the profile name is
+        // the role it must resolve against.
+        subagent.set_active_role(Some(profile.name.to_string()));
 
         if let Some(handle) = self
-            .parent_model_guidance
+            .parent_user_instructions
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(|error| error.into_inner())
             .as_ref()
         {
-            subagent.bind_model_guidance(Arc::clone(handle));
+            subagent.bind_user_instructions(Arc::clone(handle));
+        }
+        if let Some(handle) = self
+            .parent_project_instructions
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            subagent.bind_project_instructions(Arc::clone(handle));
+        }
+        if let Some(handle) = self
+            .parent_instruction_provider_kind
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            subagent.bind_instruction_provider_kind(Arc::clone(handle));
         }
 
         // Bind instance-scoped extensions according to the child's mission.
@@ -1031,7 +1090,7 @@ impl SubagentTool {
         let mut position: (u64, usize) = (1, 0);
         // Transient-provider-retry loop. The top-level interactive round
         // retries `HarnessError::Retryable` in `orchestration::execute_round`
-        // (config: `provider_retry_max_attempts`), but a subagent runs through
+        // (config: `[resilience] retry_max_attempts`), but a subagent runs through
         // `run_streaming_with_events` directly and had *no* retry at all —
         // one flaky long SSE generation (the GLM `xhigh`-effort stream that
         // gets cut mid-body) killed the whole sub-task after minutes of
@@ -1047,7 +1106,7 @@ impl SubagentTool {
                 &clean[..clean.len().min(6)]
             })
             .unwrap_or("subagent");
-        let origin_label = format!("subagent #{} · {}", short_id, profile.name);
+        let origin_label = format!("subagent #{} | {}", short_id, profile.name);
 
         // Give the child its own relief valve.
         //

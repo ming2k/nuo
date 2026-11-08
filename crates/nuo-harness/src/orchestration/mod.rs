@@ -702,6 +702,12 @@ pub struct RoundContext {
     pub session_id: String,
     pub projection: ContextProjectionSettings,
     pub retry_max_attempts: usize,
+    /// Budget for attempts that failed *after* visible output (text, reasoning,
+    /// or a tool-call announcement). Separate from `retry_max_attempts` because
+    /// each such retry must discard visible state; a provider that dies
+    /// mid-stream will usually do it again, so this budget is deliberately
+    /// small. Counts restarts, not initial attempts.
+    pub stream_restart_max_attempts: usize,
     pub retry_base_ms: u64,
     pub retry_max_ms: u64,
     /// Emit the frontend's natural-completion signal. Repeat drivers
@@ -785,6 +791,9 @@ pub struct InteractiveRoundContext {
     pub session_id: String,
     pub projection: ContextProjectionSettings,
     pub retry_max_attempts: usize,
+    /// Budget for attempts that failed after visible output. See
+    /// [`RoundContext::stream_restart_max_attempts`].
+    pub stream_restart_max_attempts: usize,
     pub retry_base_ms: u64,
     pub retry_max_ms: u64,
 }
@@ -869,6 +878,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
                     session_id: context.session_id.clone(),
                     projection: context.projection,
                     retry_max_attempts: context.retry_max_attempts,
+                    stream_restart_max_attempts: context.stream_restart_max_attempts,
                     retry_base_ms: context.retry_base_ms,
                     retry_max_ms: context.retry_max_ms,
                     emit_round_completed: true,
@@ -909,7 +919,7 @@ pub async fn start_interactive_round(context: InteractiveRoundContext, input: Ro
         // checkpoint. Only an actually-stopped round keeps its record —
         // a natural completion (`Ok(Completed)`) and a hook-denied prompt
         // (`Ok(NotStarted)`) are successes, not interrupts, and must not be
-        // projected back as `▲ interrupted · <reason>` on resume.
+        // projected back as `▲ interrupted | <reason>` on resume.
         let stopped = match &result {
             Ok(RoundCompletion::Completed) | Ok(RoundCompletion::NotStarted) => false,
             Err(_) => true,
@@ -1044,6 +1054,7 @@ pub async fn execute_round(
         session_id,
         projection,
         retry_max_attempts,
+        stream_restart_max_attempts,
         retry_base_ms,
         retry_max_ms,
         emit_round_completed,
@@ -1330,8 +1341,15 @@ pub async fn execute_round(
 
     let tool_activity = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let streamed_text = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let mut attempt: usize = 0;
     let retry_limit = retry_max_attempts.clamp(1, 60);
+    // Mid-stream failures get their own, much smaller budget: every one of
+    // them burns visible output that the retry must discard, and an upstream
+    // that dies mid-response usually repeats the failure. `visible_failures`
+    // counts attempts that emitted visible output; `stream_restart_limit` is
+    // the number of restarts allowed after the first such attempt.
+    let stream_restart_limit = stream_restart_max_attempts.min(10);
+    let mut silent_failures: usize = 0;
+    let mut visible_failures: usize = 0;
     let mut compacted_after_overflow = false;
     // An in-flight **image-cause probe**: `true` means the attempt now
     // running had its attachments withheld speculatively, because a request
@@ -1349,7 +1367,7 @@ pub async fn execute_round(
     // A `/retry` resume re-seeds the state from the durable point
     // instead of starting at turn 0: the stopped round's committed turns stay
     // committed, so the resumed execution numbers its next turn M+1 and the
-    // transcript's `round N · turn M` sequence is never broken. `attempt`
+    // transcript's `round N | turn M` sequence is never broken. `attempt`
     // still restarts at 0 for the resume itself — the provider retry budget
     // is per user-visible attempt to complete the round, and the user asking
     // to retry is exactly a new budget.
@@ -1358,9 +1376,10 @@ pub async fn execute_round(
         None => agent.begin_streaming_round(),
     };
     let result = loop {
-        attempt += 1;
+        let attempt_visible = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let activity_for_run = tool_activity.clone();
         let streamed_for_run = streamed_text.clone();
+        let visible_for_run = attempt_visible.clone();
         let accounting_ledger = agent.token_ledger();
         let accounting_session = Arc::clone(&session);
         let accounting_session_id = session_id.clone();
@@ -1372,6 +1391,18 @@ pub async fn execute_round(
                 |event| {
                     if matches!(event, AgentEvent::ToolCall { .. }) {
                         activity_for_run.store(true, Ordering::SeqCst);
+                    }
+                    // "Visible" is wider than text: an announced tool call is
+                    // already a transcript row, so a retry that follows it must
+                    // be classified as a stream restart (discard visible state,
+                    // small budget), not as a silent request retry.
+                    if matches!(
+                        event,
+                        AgentEvent::AssistantDelta { .. }
+                            | AgentEvent::ReasoningDelta { .. }
+                            | AgentEvent::ToolCallStarted { .. }
+                    ) {
+                        visible_for_run.store(true, Ordering::SeqCst);
                     }
                     if matches!(event, AgentEvent::ModelRequestStarted { .. })
                         && let Some(ledger) = accounting_ledger.clone()
@@ -1450,7 +1481,8 @@ pub async fn execute_round(
                         )),
                     ));
                 }
-                attempt = attempt.saturating_sub(1);
+                // A recovery is not a fault: it must not consume either
+                // attempt budget.
                 continue;
             }
         }
@@ -1516,9 +1548,8 @@ pub async fn execute_round(
                     "request refused while carrying attachments; probing without them"
                 );
                 // A recovery, not a fault: a learned limitation must not consume
-                // the transient-fault budget, exactly like the overflow
+                // either attempt budget, exactly like the overflow
                 // compaction above.
-                attempt = attempt.saturating_sub(1);
                 continue;
             } else if std::mem::take(&mut image_probe) {
                 // The probe failed, so images were *not* the cause. Surface the
@@ -1541,14 +1572,43 @@ pub async fn execute_round(
             },
             _ => break Err(error),
         };
-        if attempt >= retry_limit {
-            break Err(HarnessError::Other(message));
-        }
+        // Failure classes are budgets, not labels. A failure that emitted
+        // visible output is a **stream restart**: the attempt's partial state
+        // has to be discarded (the round already retracted its announcements;
+        // `StreamDiscard` drops the streamed text), and an upstream that died
+        // mid-response gets only a few chances to do better. A failure that
+        // emitted nothing is a **silent attempt**: cheap to repeat, so the
+        // larger `retry_max_attempts` budget applies.
+        let visible = attempt_visible.load(Ordering::SeqCst);
+        // Drop the attempt's streamed text **before** deciding whether to
+        // retry: the final failed attempt is just as partial as the ones that
+        // get a restart, and leaving its row in the transcript would show an
+        // answer that was never committed.
         if streamed_text.swap(false, Ordering::SeqCst) {
             let _ = tx.send(round_response(&session_id, RoundEvent::StreamDiscard));
         }
+        let (next_attempt, max_attempts) = if visible {
+            visible_failures += 1;
+            if visible_failures > stream_restart_limit {
+                break Err(HarnessError::Other(format!(
+                    "Provider stream failed after partial output {visible_failures} time(s); \
+                     gave up after {stream_restart_limit} restart(s). The failed attempts' partial \
+                     output was discarded. The upstream is not converging — resend the message, \
+                     switch models, or raise `[resilience] stream_restart_max_attempts`."
+                )));
+            }
+            (visible_failures + 1, stream_restart_limit + 1)
+        } else {
+            silent_failures += 1;
+            if silent_failures >= retry_limit {
+                break Err(HarnessError::Other(message));
+            }
+            (silent_failures + 1, retry_limit)
+        };
         let base_ms = crate::runtime::retry::retry_delay_ms(
-            attempt,
+            silent_failures
+                .saturating_add(visible_failures)
+                .saturating_sub(1),
             retry_after_ms,
             retry_base_ms,
             retry_max_ms,
@@ -1562,8 +1622,11 @@ pub async fn execute_round(
         let delay_ms =
             crate::runtime::retry::apply_jitter_ms(base_ms, |_| fastrand::u64(0..base_ms));
         tracing::warn!(
-            attempt = attempt + 1,
-            max_attempts = retry_limit,
+            attempt = next_attempt,
+            max_attempts,
+            visible = visible,
+            visible_failures,
+            silent_failures,
             delay_ms,
             base_ms,
             resumed_after_tools = tool_activity.load(Ordering::SeqCst),
@@ -1583,8 +1646,8 @@ pub async fn execute_round(
         let _ = tx.send(round_response(
             &session_id,
             RoundEvent::RetryScheduled {
-                attempt: attempt + 1,
-                max_attempts: retry_limit,
+                attempt: next_attempt,
+                max_attempts,
                 delay_ms,
                 message,
             },
@@ -1880,7 +1943,7 @@ pub fn relay_agent_event(
                 )),
             ));
             // Structured turn signal first, so the Activity modal can show
-            // `round N · turn M · waiting for model` with the turn as a
+            // `round N | turn M | waiting for model` with the turn as a
             // first-class field rather than text-mining it out of the status
             // string. The bare status follows as the `Activity` below.
             let _ = tx.send(round_response(

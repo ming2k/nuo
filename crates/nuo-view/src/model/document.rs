@@ -190,6 +190,8 @@ pub enum SystemNoticeTopic {
     /// Image attachments were withheld from a request because the route cannot
     /// take them.
     Images,
+    /// A user-authored configuration surface was rejected.
+    Configuration,
     Custom(String),
 }
 
@@ -523,6 +525,7 @@ pub fn notice_topic_label(kind: nuo_protocol::NoticeKind) -> &'static str {
         nuo_protocol::NoticeKind::TrustFailure => "trust error",
         nuo_protocol::NoticeKind::CommandAck => "command",
         nuo_protocol::NoticeKind::ImageInputWithheld => "images",
+        nuo_protocol::NoticeKind::Configuration => "config",
     }
 }
 
@@ -2474,7 +2477,7 @@ impl TranscriptMessage {
             None => "running".to_string(),
         };
         // The activity and its elapsed time are same-rank metadata — plain
-        // whitespace (R2 on the join ladder), never a `·` glyph.
+        // whitespace (R2 on the join ladder), never a separator glyph.
         Some(match elapsed {
             Some(elapsed) => format!("{activity}  {elapsed}"),
             None => activity,
@@ -2786,6 +2789,9 @@ impl TranscriptMessage {
             }),
             nuo_protocol::NoticeKind::ImageInputWithheld => Some(NoticeOrigin::System {
                 topic: SystemNoticeTopic::Images,
+            }),
+            nuo_protocol::NoticeKind::Configuration => Some(NoticeOrigin::System {
+                topic: SystemNoticeTopic::Configuration,
             }),
         };
         let parts = NoticeParts {

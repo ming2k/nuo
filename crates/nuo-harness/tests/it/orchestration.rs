@@ -459,6 +459,58 @@ impl Provider for AlwaysRetryableProvider {
     }
 }
 
+/// Emits visible output on every attempt, then fails retryably. Used to pin
+/// the split between the silent-attempt budget and the stream-restart budget.
+struct VisibleFailProvider(Arc<AtomicUsize>);
+
+#[async_trait]
+impl Provider for VisibleFailProvider {
+    async fn chat(
+        &self,
+        _request: &nuo_protocol::ModelRequest,
+    ) -> Result<nuo_protocol::ProviderCompletion, nuo_protocol::ProviderError> {
+        Err(nuo_protocol::ProviderError::new(
+            "mock",
+            nuo_protocol::ProviderErrorKind::Other,
+            "non-streaming path should not be used",
+        ))
+    }
+
+    async fn stream_chat(
+        &self,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
+    ) -> Result<
+        futures::stream::BoxStream<'static, Result<String, nuo_protocol::ProviderError>>,
+        nuo_protocol::ProviderError,
+    > {
+        Ok(Box::pin(stream::empty()))
+    }
+
+    async fn stream_chat_events(
+        &self,
+        _request: &nuo_protocol::ModelRequest,
+        _telemetry: nuo_protocol::TransportTelemetry,
+    ) -> Result<
+        futures::stream::BoxStream<
+            'static,
+            Result<ProviderStreamEvent, nuo_protocol::ProviderError>,
+        >,
+        nuo_protocol::ProviderError,
+    > {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::pin(stream::iter(vec![
+            Ok(ProviderStreamEvent::TextDelta("partial answer".to_string())),
+            Err(nuo_protocol::ProviderError::new(
+                "mock",
+                nuo_protocol::ProviderErrorKind::RateLimited,
+                "mid-stream rate limit",
+            )
+            .retryable(None)),
+        ])))
+    }
+}
+
 #[async_trait]
 impl nuo_protocol::Tool for RetryReadTool {
     fn name(&self) -> &str {
@@ -624,6 +676,8 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 3,
+            stream_restart_max_attempts: 2,
+
             retry_base_ms: 1,
             retry_max_ms: 10,
             emit_round_completed: false,
@@ -710,6 +764,8 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 3,
+            stream_restart_max_attempts: 2,
+
             retry_base_ms: 1,
             retry_max_ms: 10,
             emit_round_completed: false,
@@ -813,6 +869,8 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 3,
+            stream_restart_max_attempts: 2,
+
             retry_base_ms: 1,
             retry_max_ms: 10,
             emit_round_completed: false,
@@ -886,6 +944,8 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 3,
+            stream_restart_max_attempts: 2,
+
             retry_base_ms: 1,
             retry_max_ms: 10,
             emit_round_completed: false,
@@ -960,6 +1020,8 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 4,
+            stream_restart_max_attempts: 3,
+
             retry_base_ms: 1,
             retry_max_ms: 10,
             emit_round_completed: false,
@@ -1030,6 +1092,8 @@ async fn turn_exhaustion_message_explains_retry_budget() {
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 3,
+            stream_restart_max_attempts: 2,
+
             retry_base_ms: 1,
             retry_max_ms: 10,
             emit_round_completed: false,
@@ -1067,6 +1131,103 @@ async fn turn_exhaustion_message_explains_retry_budget() {
     assert_eq!(
         scheduled, 2,
         "should schedule retries for every attempt before giving up"
+    );
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+/// A failure after visible output is a **stream restart**, not a silent
+/// attempt: it consumes the small restart budget, never the 30-attempt
+/// connection budget, and every failed attempt's streamed text is discarded.
+#[tokio::test]
+async fn mid_stream_failures_consume_only_the_restart_budget() {
+    let directory =
+        std::env::temp_dir().join(format!("nuo-restart-exhaust-{}", uuid::Uuid::new_v4()));
+    let _ = std::fs::create_dir_all(&directory);
+    let session = Arc::new(SessionStore::for_path(directory.join("session.json")));
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let agent = Arc::new(Agent::new(
+        Arc::new(VisibleFailProvider(attempts.clone())),
+        Vec::new(),
+        nuo_harness::AgentIdentity::default(),
+    ));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    let error = execute_round(
+        RoundContext {
+            agent,
+            tx,
+            token: CancellationToken::new(),
+            session_id: session.id().await,
+            session,
+            projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
+                budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
+                preserve_rounds: 6,
+                summarize: false,
+                prune: false,
+                prune_protect_tokens: 0,
+            },
+            retry_max_attempts: 30,
+            stream_restart_max_attempts: 2,
+            retry_base_ms: 1,
+            retry_max_ms: 10,
+            emit_round_completed: false,
+        },
+        RoundInput {
+            prompt: "work".to_string(),
+            hidden: false,
+            display_prompt: None,
+            sent_at_ms: None,
+            images: Vec::new(),
+            driver: nuo_harness::orchestration::RoundDriver::Fresh,
+        },
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(
+        attempts.load(Ordering::SeqCst),
+        3,
+        "the 30-attempt connection budget must not apply to visible failures"
+    );
+    let error_string = error.to_string();
+    assert!(
+        error_string.contains("gave up after 2 restart(s)"),
+        "the exhaustion message must name the restart budget: {error_string}"
+    );
+
+    let responses = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
+    let scheduled = responses
+        .iter()
+        .filter_map(|response| match response {
+            AgentResponse::Round {
+                event:
+                    RoundEvent::RetryScheduled {
+                        attempt,
+                        max_attempts,
+                        ..
+                    },
+                ..
+            } => Some((*attempt, *max_attempts)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(scheduled, vec![(2, 3), (3, 3)]);
+    let discards = responses
+        .iter()
+        .filter(|response| {
+            matches!(
+                response,
+                AgentResponse::Round {
+                    event: RoundEvent::StreamDiscard,
+                    ..
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        discards, 3,
+        "every failed attempt's partial text is discarded, including the last"
     );
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -1219,6 +1380,8 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
             prune_protect_tokens: 0,
         },
         retry_max_attempts: 3,
+        stream_restart_max_attempts: 2,
+
         retry_base_ms: 1,
         retry_max_ms: 10,
         emit_round_completed: false,
@@ -1314,7 +1477,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
 //
 // 1. Stop sites park their reason unconditionally — even while idle — so a
 //    reason parked with no live round must not leak into the next round and
-//    label a naturally completed round as "interrupted · <reason>".
+//    label a naturally completed round as "interrupted | <reason>".
 // 2. An Esc Esc landing after the round passed its last cancellation
 //    checkpoint (the model already converged, the history already committed)
 //    parks a reason without changing the outcome. The completed round must
@@ -1533,6 +1696,8 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
                 prune_protect_tokens: 0,
             },
             retry_max_attempts: 1,
+            stream_restart_max_attempts: 0,
+
             retry_base_ms: 1,
             retry_max_ms: 1,
         },
@@ -1760,7 +1925,7 @@ async fn superseded_live_round_still_records() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
-// The end-of-answer supersede race (the false "▲ interrupted · new message"
+// The end-of-answer supersede race (the false "▲ interrupted | new message"
 // over a round that finished): the model's final delta has arrived and only
 // the stream terminator is in flight when the next message lands.
 
@@ -2210,6 +2375,8 @@ fn image_round_context(
             prune_protect_tokens: 0,
         },
         retry_max_attempts: 3,
+        stream_restart_max_attempts: 2,
+
         retry_base_ms: 1,
         retry_max_ms: 10,
         emit_round_completed: false,

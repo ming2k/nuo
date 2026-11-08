@@ -182,7 +182,7 @@ impl App {
         if !self.notice_toast_severity.is_fault() {
             return None;
         }
-        Some(format!("{} · all notices", Key::ALT_O.display()))
+        Some(format!("{} | all notices", Key::ALT_O.display()))
     }
 
     /// Whether the notice viewer is open.

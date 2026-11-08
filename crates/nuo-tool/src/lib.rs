@@ -28,7 +28,6 @@ pub mod mcp;
 pub mod mention;
 pub mod message;
 pub mod output;
-pub mod policy;
 pub mod preview;
 pub mod registry;
 pub mod residency;
@@ -66,7 +65,6 @@ pub use message::{
     ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall, ToolResult,
 };
 pub use output::ToolOutput;
-pub use policy::ToolPolicy;
 pub use preview::PreviewResult;
 pub use registry::ToolRegistry;
 pub use residency::{CaptureEligibility, classify as classify_capture_eligibility};

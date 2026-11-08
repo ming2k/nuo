@@ -564,6 +564,93 @@ fn default_agent_has_clean_uncluttered_baseline_prompt() {
 }
 
 #[test]
+fn project_instructions_render_matching_role_entries_in_scope_order() {
+    let agent = agent();
+    agent.set_active_role(Some("reviewer".to_string()));
+    agent.set_instruction_provider_kind(Some("commandcode-goat".to_string()));
+    agent.set_project_instructions(vec![
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/role.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 0,
+            selector: nuo_protocol::InstructionSelector {
+                role: Some("reviewer".to_string()),
+                ..Default::default()
+            },
+            text: "Reviewer rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/global.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 1,
+            selector: Default::default(),
+            text: "Global rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/provider.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 2,
+            selector: nuo_protocol::InstructionSelector {
+                provider: Some("commandcode-goat".to_string()),
+                ..Default::default()
+            },
+            text: "Provider rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/other-provider.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 3,
+            selector: nuo_protocol::InstructionSelector {
+                provider: Some("openai".to_string()),
+                ..Default::default()
+            },
+            text: "Other provider rule.".to_string(),
+        },
+        nuo_protocol::ScopedInstruction {
+            id: ".nuo/instructions/ops.md".to_string(),
+            source: nuo_protocol::InstructionSource::Project,
+            ordinal: 4,
+            selector: nuo_protocol::InstructionSelector {
+                role: Some("ops".to_string()),
+                ..Default::default()
+            },
+            text: "Ops rule.".to_string(),
+        },
+    ]);
+
+    let mut messages: Vec<Message> = Vec::new();
+    agent.prepare_request_messages_debug(&mut messages);
+    let prompt = &messages[0].content;
+    assert!(
+        prompt.contains("## .nuo/instructions/global.md\nGlobal rule."),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("## .nuo/instructions/role.md\nReviewer rule."),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains("## .nuo/instructions/provider.md\nProvider rule."),
+        "{prompt}"
+    );
+    assert!(
+        !prompt.contains("Ops rule."),
+        "a non-matching role must not be rendered: {prompt}"
+    );
+    assert!(
+        !prompt.contains("Other provider rule."),
+        "a non-matching provider must not be rendered: {prompt}"
+    );
+    let global = prompt.find("global.md").unwrap();
+    let role = prompt.find("role.md").unwrap();
+    let provider = prompt.find("provider.md").unwrap();
+    assert!(
+        global < role && role < provider,
+        "scope order must be global -> role -> provider: {prompt}"
+    );
+}
+
+#[test]
 fn apply_preset_switches_identity_into_the_system_prompt() {
     // Switching the agent role live re-rolls the system-prompt identity line,
     // so the next request speaks with the new role directive.
@@ -961,7 +1048,7 @@ async fn turn_persist_fires_at_each_react_turn_boundary() {
 
 /// A provider whose SSE stream never yields and never ends simulates a stalled
 /// connection (server stops sending but keeps the socket open). Without an idle
-/// timeout the turn loop blocks on `stream.next()` forever — the UI spins/// "running · responding" and only a user interrupt can break it. The
+/// timeout the turn loop blocks on `stream.next()` forever — the UI spins/// "running | responding" and only a user interrupt can break it. The
 /// `STREAM_IDLE_TIMEOUT` guard surfaces this as a retryable error instead.
 /// `start_paused` makes tokio auto-advance the clock past the 120 s bound so
 /// the test is instantaneous.
@@ -4017,6 +4104,52 @@ async fn stream_loop_verdict_after_natural_end_still_recovers() {
         event,
         AgentEvent::AssistantEnd(content) if content.contains("never reached extra text")
     )));
+}
+
+#[tokio::test]
+async fn tool_argument_loop_is_cut_and_recovered() {
+    // A single call whose argument stream keeps repeating a 3-char period.
+    // Once the dwell bar is crossed the Sentinel confirms and cuts it.
+    let mut degenerate = vec![ProviderStreamEvent::ToolCallDelta {
+        index: 0,
+        id: Some("c1".to_string()),
+        name: Some("alpha".to_string()),
+        arguments: String::new(),
+    }];
+    for _ in 0..800 {
+        degenerate.push(ProviderStreamEvent::ToolCallDelta {
+            index: 0,
+            id: None,
+            name: None,
+            arguments: "abcabc".to_string(),
+        });
+    }
+    let agent = Arc::new(Agent::new(
+        Arc::new(
+            ScriptedProvider::new(vec![degenerate, text_turn("Recovered summary.")])
+                .with_cognitive_replies(&["yes"]),
+        ),
+        vec![Arc::new(RecordingTool::read("alpha", "A-out"))],
+        crate::AgentIdentity::default(),
+    ));
+
+    let (events, outcome) = run_golden_round(&agent, "go", PermissionDecision::Reject).await;
+
+    assert_eq!(
+        outcome.expect("recovery completes").message.content,
+        "Recovered summary."
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AgentEvent::Notice(notice)
+            if notice.title == "Repetitive output stopped; recovery requested"
+    )));
+    assert!(
+        events
+            .iter()
+            .all(|event| !matches!(event, AgentEvent::ToolCall { .. })),
+        "a cut argument stream must never dispatch its call"
+    );
 }
 
 #[tokio::test]

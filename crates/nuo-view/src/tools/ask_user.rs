@@ -107,7 +107,7 @@ mod tests {
                 { "header": "Layout", "question": "Which pieces?", "options": [{"label":"x"},{"label":"y"}], "multi_select": true }
             ]
         });
-        assert_eq!(summary(&args), "Ask 2 questions · Scope · Layout");
+        assert_eq!(summary(&args), "Ask 2 questions | Scope | Layout");
     }
 
     #[test]

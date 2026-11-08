@@ -25,7 +25,7 @@
 //! ## 3. Separate columns by whitespace, anchored to structure
 //!
 //! Content is grouped into [`RowGroup`]s. Groups are separated by
-//! background-filled space, **never** by a `·`, `—`, `|`, or `/` glyph — a
+//! background-filled space, **never** by a `|`, `—`, or `/` glyph — a
 //! glyph spends a column to say what the whitespace already says. How a group
 //! is placed:
 //!
@@ -53,7 +53,7 @@
 //!   (a label + multi-line description, e.g. the question modal). That path
 //!   centralizes color but keeps its own wrap layout.
 //! - Inline status prose, footer hints, and the turn-header meta strip keep
-//!   their own `·`-joined style — that is a *different* design language
+//!   their own `|`-joined style — that is a *different* design language
 //!   (compact, non-selectable) and is deliberately out of scope here.
 //!
 //! ## Example (a two-column Models row)
@@ -748,7 +748,7 @@ mod tests {
     }
 
     /// The concatenated text of a rendered line — used to assert no glyph
-    /// separator (`·`, `—`, `|`) leaked into a column boundary.
+    /// separator (`|`, `—`) leaked into a column boundary.
     fn line_text(line: &nuotc::Line) -> String {
         line.spans
             .iter()
@@ -769,7 +769,7 @@ mod tests {
         let line = row.finish();
         assert_eq!(line_width(&line), body_width, "row must fill body_width");
         assert!(
-            !line_text(&line).contains('·'),
+            !line_text(&line).contains('|'),
             "no glyph separator between groups"
         );
     }
@@ -864,7 +864,7 @@ mod tests {
         let text = line_text(&line);
         assert!(text.contains("gpt-4o"), "identity group present");
         assert!(text.contains("2 models"), "trailing group present");
-        assert!(!text.contains('·'), "no glyph separator");
+        assert!(!text.contains('|'), "no glyph separator");
     }
 
     #[test]

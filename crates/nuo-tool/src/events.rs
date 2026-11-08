@@ -61,6 +61,11 @@ pub enum NoticeKind {
     /// gate had to intercept every `TrustChanged` notice and hope none of them
     /// was merely an escalation.
     TrustFailure,
+    /// A user-authored configuration surface is invalid and was **not
+    /// applied** (e.g. malformed project-instruction frontmatter). The session
+    /// keeps running with that surface disabled; the notice carries the exact
+    /// diagnostic so the author can fix the file.
+    Configuration,
     /// A harness-level acknowledgment of a slash command / configuration change
     /// (e.g. `/delegate on`, `--delegate`, `/permissions clear`). These are
     /// status confirmations, not model output: they carry no conversational
@@ -235,7 +240,7 @@ pub struct PermissionRequest {
     #[serde(default)]
     pub one_off: bool,
     /// Origin label identifying which subagent produced this request.
-    /// `None` for top-level principal calls; e.g. `Some("subagent #a1b2 · explore")`.
+    /// `None` for top-level principal calls; e.g. `Some("subagent #a1b2 | explore")`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<String>,
     /// Threat / hazard level classification of this tool invocation.

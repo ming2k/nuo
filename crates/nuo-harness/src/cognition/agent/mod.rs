@@ -349,10 +349,6 @@ pub struct Agent {
     /// [`Agent::variant_selection_handle`]); the agent decides scope, the
     /// model decides variant.
     variant_selection: Arc<std::sync::Mutex<nuo_protocol::VariantSelection>>,
-    /// Resolved model-specific prompt guidance (ADR-0130). Held behind an Arc
-    /// and RwLock so spawned subagents inherit the live handle, and runtime
-    /// model switches update the active guidance string in place.
-    model_guidance: Arc<std::sync::RwLock<String>>,
     /// This agent's **identity-side selection** of the pool (the agent half of
     /// the two-selector model): the capability scope it admits plus any variant
     /// pins it forces. The master agent is
@@ -385,6 +381,16 @@ pub struct Agent {
     pub(crate) extensions: Arc<std::sync::RwLock<Vec<Arc<dyn nuo_protocol::Extension>>>>,
     /// Active staffing role for this agent (e.g. "developer", "philosophist").
     pub(crate) active_role: std::sync::RwLock<Option<String>>,
+    /// Repository-authored scoped instructions (ADR-0164). Shared by handle
+    /// with subagents so a child resolves against the same declaration set.
+    project_instructions: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
+    /// User-authored scoped instructions (ADR-0165). Shared by handle with
+    /// subagents; the user source is cross-project route tuning.
+    user_instructions: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
+    /// Provider type behind the active connection, resolved by the server at
+    /// setup and on every provider switch. Kept off the per-request path:
+    /// prompt composition must not read the connections store.
+    instruction_provider_kind: Arc<std::sync::RwLock<Option<String>>>,
 }
 
 /// Capability handle for steering a running agent from the outside — the
@@ -1116,7 +1122,7 @@ pub struct AgentBuilder {
     identity: AgentIdentity,
     model_request_assembler: crate::cognition::model_request::ModelRequestAssembler,
     extensions: Vec<Arc<dyn nuo_protocol::Extension>>,
-    model_guidance: Option<String>,
+    user_instructions: Vec<nuo_protocol::ScopedInstruction>,
 }
 
 impl AgentBuilder {
@@ -1132,10 +1138,10 @@ impl AgentBuilder {
             skills_registry: skills::SkillRegistry::empty(),
             identity,
             model_request_assembler: crate::cognition::model_request::ModelRequestAssembler::new(
-                crate::cognition::model_request::default_system_prompt_registry(),
+                crate::cognition::model_request::default_instruction_registry(),
             ),
             extensions: Vec::new(),
-            model_guidance: None,
+            user_instructions: Vec::new(),
         }
     }
 
@@ -1187,10 +1193,10 @@ impl AgentBuilder {
     }
 
     /// Add an embedding-owned section to the default system-prompt policy.
-    pub fn register_system_prompt_section<S: crate::SystemPromptSection + 'static>(
+    pub fn register_instruction_section<S: crate::InstructionSection + 'static>(
         mut self,
         section: S,
-    ) -> Result<Self, crate::SystemPromptRegistryError> {
+    ) -> Result<Self, crate::InstructionRegistryError> {
         self.model_request_assembler
             .registry_mut()
             .try_register(section)?;
@@ -1198,20 +1204,20 @@ impl AgentBuilder {
     }
 
     /// Disable a registered default or custom section by its stable id.
-    pub fn disable_system_prompt_section(
+    pub fn disable_instruction_section(
         mut self,
         id: &str,
-    ) -> Result<Self, crate::SystemPromptRegistryError> {
+    ) -> Result<Self, crate::InstructionRegistryError> {
         self.model_request_assembler.registry_mut().disable(id)?;
         Ok(self)
     }
 
     /// Override a registered section's semantic ordering in the final composition.
-    pub fn order_system_prompt_section(
+    pub fn order_instruction_section(
         mut self,
         id: &str,
         order: crate::InstructionOrder,
-    ) -> Result<Self, crate::SystemPromptRegistryError> {
+    ) -> Result<Self, crate::InstructionRegistryError> {
         self.model_request_assembler
             .registry_mut()
             .set_order(id, order)?;
@@ -1219,11 +1225,11 @@ impl AgentBuilder {
     }
 
     /// Override a registered section's rank in the final composition.
-    pub fn rank_system_prompt_section(
+    pub fn rank_instruction_section(
         mut self,
         id: &str,
         rank: u32,
-    ) -> Result<Self, crate::SystemPromptRegistryError> {
+    ) -> Result<Self, crate::InstructionRegistryError> {
         self.model_request_assembler
             .registry_mut()
             .set_rank(id, rank)?;
@@ -1231,14 +1237,17 @@ impl AgentBuilder {
     }
 
     /// Replace the default composition wholesale.
-    pub fn with_system_prompt_registry(mut self, registry: crate::SystemPromptRegistry) -> Self {
+    pub fn with_instruction_registry(mut self, registry: crate::InstructionRegistry) -> Self {
         self.model_request_assembler.replace_registry(registry);
         self
     }
 
-    /// Set initial model-specific behavioral guidance (ADR-0130).
-    pub fn with_model_guidance(mut self, guidance: impl Into<String>) -> Self {
-        self.model_guidance = Some(guidance.into());
+    /// Set initial user-authored scoped instructions (ADR-0165).
+    pub fn with_user_instructions(
+        mut self,
+        instructions: Vec<nuo_protocol::ScopedInstruction>,
+    ) -> Self {
+        self.user_instructions = instructions;
         self
     }
 
@@ -1255,8 +1264,8 @@ impl AgentBuilder {
         if !self.extensions.is_empty() {
             *agent.extensions.write().unwrap_or_else(|e| e.into_inner()) = self.extensions;
         }
-        if let Some(guidance) = self.model_guidance {
-            agent.set_model_guidance(guidance);
+        if !self.user_instructions.is_empty() {
+            agent.set_user_instructions(self.user_instructions);
         }
         agent
     }

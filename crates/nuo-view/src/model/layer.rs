@@ -150,6 +150,7 @@ fn preferred_layer(notice: &AgentNotice) -> ContentLayer {
         // nothing to keep on screen once the user has seen it. It is a fault, so
         // the log entry still raises a bubble that names the log.
         NoticeKind::TrustFailure
+        | NoticeKind::Configuration
         | NoticeKind::CheckpointReplay
         | NoticeKind::NudgeInjected
         | NoticeKind::ReviewAlert
@@ -220,12 +221,13 @@ mod tests {
     use super::*;
     use nuo_protocol::NoticeSeverity;
 
-    const KINDS: [NoticeKind; 7] = [
+    const KINDS: [NoticeKind; 8] = [
         NoticeKind::CheckpointReplay,
         NoticeKind::NudgeInjected,
         NoticeKind::ReviewAlert,
         NoticeKind::TrustChanged,
         NoticeKind::TrustFailure,
+        NoticeKind::Configuration,
         NoticeKind::CommandAck,
         NoticeKind::ImageInputWithheld,
     ];

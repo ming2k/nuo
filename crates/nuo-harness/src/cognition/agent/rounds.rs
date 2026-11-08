@@ -43,6 +43,26 @@ fn retract_announcements<F: FnMut(AgentEvent)>(
 const MAX_STREAM_LOOP_RECOVERIES: u8 = 1;
 const STREAM_LOOP_TURN_FIELD_CHARS: usize = 24_000;
 const STREAM_LOOP_PRECEDING_CONTEXT_CHARS: usize = 12_000;
+/// Bound on the tool-call argument tail carried as loop-review evidence.
+const TOOL_INPUT_EVIDENCE_CHARS: usize = 24_000;
+
+/// Append `fragment` to `buf`, keeping only the last `cap` bytes. Loop-review
+/// evidence is a tail, not an archive; a multi-megabyte `write_file` payload
+/// must not be duplicated in memory just to be reviewed.
+fn push_bounded_tail(buf: &mut String, fragment: &str, cap: usize) {
+    if fragment.is_empty() {
+        return;
+    }
+    buf.push_str(fragment);
+    let excess = buf.len().saturating_sub(cap);
+    if excess > 0 {
+        let mut cut = excess;
+        while cut < buf.len() && !buf.is_char_boundary(cut) {
+            cut += 1;
+        }
+        buf.drain(..cut);
+    }
+}
 
 #[derive(Debug, Clone)]
 struct StreamLoopIncident {
@@ -155,6 +175,7 @@ impl Agent {
         messages: &[Message],
         assistant_text: &str,
         reasoning_text: &str,
+        tool_input: &str,
         channel: nuo_protocol::StreamLoopChannel,
         pattern: crate::stream_loop_detector::DegeneratePattern,
         cleared_candidates: &std::collections::HashSet<String>,
@@ -176,6 +197,7 @@ impl Agent {
             messages,
             assistant_text,
             reasoning_text,
+            tool_input,
             channel,
             pattern,
         ));
@@ -193,6 +215,7 @@ impl Agent {
         messages: &[Message],
         assistant_text: &str,
         reasoning_text: &str,
+        tool_input: &str,
         channel: nuo_protocol::StreamLoopChannel,
         pattern: crate::stream_loop_detector::DegeneratePattern,
     ) -> PendingStreamLoopReview {
@@ -202,6 +225,7 @@ impl Agent {
             preceding_context: stream_loop_preceding_context(messages),
             assistant_text: project_stream_loop_field(assistant_text, STREAM_LOOP_TURN_FIELD_CHARS),
             reasoning_text: project_stream_loop_field(reasoning_text, STREAM_LOOP_TURN_FIELD_CHARS),
+            tool_input: project_stream_loop_field(tool_input, STREAM_LOOP_TURN_FIELD_CHARS),
         };
         let (verdict_tx, verdict_rx) = tokio::sync::oneshot::channel();
         let cognitive = self.cognitive();
@@ -270,7 +294,7 @@ impl Agent {
     /// execution
     ///
     /// - keeps numbering turns from `turns_committed` (the transcript's
-    ///   `round N · turn M` sequence stays unbroken — turn M+1 follows the
+    ///   `round N | turn M` sequence stays unbroken — turn M+1 follows the
     ///   committed M, never a duplicate),
     /// - re-arms the pause accumulator from `paused_ms` so a later
     ///   tokens/sec stays honest across the stop, and
@@ -577,7 +601,11 @@ impl Agent {
             let mut text_loop_detector = crate::stream_loop_detector::StreamLoopDetector::new(1024);
             let mut reasoning_loop_detector =
                 crate::stream_loop_detector::StreamLoopDetector::new(1024);
+            let mut tool_loop_detector = crate::stream_loop_detector::StreamLoopDetector::new(1024);
             let mut stream_loop_incident: Option<StreamLoopIncident> = None;
+            // Bounded evidence tail for the Stream Sentinel when the tool-call
+            // argument channel is the one looping.
+            let mut tool_argument_text = String::new();
             let mut cognitive_cleared_candidates = std::collections::HashSet::new();
             // Cognitive loop reviews run detached from this loop: the stream
             // keeps rendering while the cognitive pipeline deliberates, and the verdict is
@@ -593,7 +621,7 @@ impl Agent {
             // next message (or hit Esc Esc) then commits that answer as a
             // completed round instead of unwinding as `Interrupted` after
             // every delta was already rendered — the false
-            // "▲ interrupted · new message" marker over a round the user
+            // "▲ interrupted | new message" marker over a round the user
             // watched finish. A stream that is still silent when the
             // deadline expires was not settling: the interrupt stands, so
             // an interrupt is delayed by at most FINISH_DRAIN_GRACE and a
@@ -673,6 +701,12 @@ impl Agent {
                                         "Cognitive pipeline confirmed in-flight reasoning stream loop; aborting stream early"
                                     );
                                 }
+                                nuo_protocol::StreamLoopChannel::ToolCall => {
+                                    tracing::warn!(
+                                        pattern = %review.pattern.description(),
+                                        "Cognitive pipeline confirmed in-flight tool-argument stream loop; aborting stream early"
+                                    );
+                                }
                             }
                             stream_loop_incident = Some(StreamLoopIncident {
                                 pattern: review.pattern,
@@ -687,6 +721,9 @@ impl Agent {
                             }
                             nuo_protocol::StreamLoopChannel::Reasoning => {
                                 reasoning_loop_detector.reset();
+                            }
+                            nuo_protocol::StreamLoopChannel::ToolCall => {
+                                tool_loop_detector.reset();
                             }
                         }
                     }
@@ -716,6 +753,7 @@ impl Agent {
                                 // neither ended nor producing a chunk: the
                                 // answer was not finishing after all. Honour
                                 // the interrupt.
+                                retract_announcements(&mut announcements, &mut on_event);
                                 return Err(HarnessError::Interrupted);
                             }
                             Err(_elapsed) => {
@@ -797,6 +835,7 @@ impl Agent {
                                         messages,
                                         &content,
                                         &reasoning_content,
+                                        &tool_argument_text,
                                         nuo_protocol::StreamLoopChannel::AssistantText,
                                         pat,
                                         &cognitive_cleared_candidates,
@@ -819,6 +858,7 @@ impl Agent {
                                         messages,
                                         &content,
                                         &reasoning_content,
+                                        &tool_argument_text,
                                         nuo_protocol::StreamLoopChannel::Reasoning,
                                         pat,
                                         &cognitive_cleared_candidates,
@@ -847,6 +887,26 @@ impl Agent {
                                     call.name.push_str(&name);
                                 }
                                 call.arguments.push_str(&arguments);
+                                push_bounded_tail(
+                                    &mut tool_argument_text,
+                                    &arguments,
+                                    TOOL_INPUT_EVIDENCE_CHARS,
+                                );
+                                if !arguments.is_empty()
+                                    && let Some(pat) = tool_loop_detector.push_and_check(&arguments)
+                                {
+                                    self.dispatch_stream_loop_candidate(
+                                        &mut tool_loop_detector,
+                                        messages,
+                                        &content,
+                                        &reasoning_content,
+                                        &tool_argument_text,
+                                        nuo_protocol::StreamLoopChannel::ToolCall,
+                                        pat,
+                                        &cognitive_cleared_candidates,
+                                        &mut pending_stream_loop_review,
+                                    );
+                                }
                                 // ADR-0026: the moment this slot first has a
                                 // name, announce the call so the frontend can
                                 // show a running step and the tool phase while
@@ -905,58 +965,17 @@ impl Agent {
             }
             request_accounting.mark_stream_end();
 
-            // Strict stream finalization (the same discipline praxion's
-            // accumulator enforces at `finish()`): the stream must not end
-            // mid-tool-call. A slot that accumulated id/argument bytes but
-            // never received a name is the residue of a truncated stream —
-            // dropping it silently would mistake a connection failure for
-            // the model's intent. Surface it as retryable so the idempotent
-            // request retry re-runs the turn instead of committing a partial
-            // response. Slots that stayed completely empty (a provider delta
-            // that carried only an index) are still dropped below.
-            for call in &calls {
-                if call.name.is_empty() && (!call.id.is_empty() || !call.arguments.is_empty()) {
-                    let err_msg =
-                        "Provider stream ended mid-tool-call; the response was likely truncated."
-                            .to_string();
-                    request_accounting.record_error(&err_msg);
-                    retract_announcements(&mut announcements, &mut on_event);
-                    return Err(HarnessError::Provider(
-                        nuo_protocol::ProviderError::new(
-                            "harness",
-                            nuo_protocol::ProviderErrorKind::Transport,
-                            err_msg,
-                        )
-                        .retryable(None),
-                    ));
-                }
-                if !call.arguments.is_empty()
-                    && serde_json::from_str::<serde_json::Value>(&call.arguments).is_err()
-                {
-                    let err_msg = format!(
-                        "Provider stream ended with truncated arguments for tool \
-                         call `{}`; the response was likely cut off.",
-                        call.name
-                    );
-                    request_accounting.record_error(&err_msg);
-                    retract_announcements(&mut announcements, &mut on_event);
-                    return Err(HarnessError::Provider(
-                        nuo_protocol::ProviderError::new(
-                            "harness",
-                            nuo_protocol::ProviderErrorKind::Transport,
-                            err_msg,
-                        )
-                        .retryable(None),
-                    ));
-                }
-            }
-
             // A Stream Sentinel consult still in flight when the stream ended
             // naturally still owes a verdict: settling it here (bounded by the
             // consult's own 2s timeout) preserves the blocking consult's
             // guarantee — a confirmed loop is trimmed, disclosed, and
             // recovered instead of silently committing the degenerate tail.
-            // A verdict after an incident cut has nothing left to decide.
+            // It must settle **before** the strict tool-call finalization
+            // below: a confirmed tool-argument loop explains exactly why the
+            // captured arguments are truncated, and judging them as a
+            // transport failure first would turn the intervention into a
+            // retry storm. When the verdict is `no`, the validation still
+            // reports truncation.
             if stream_loop_incident.is_none()
                 && let Some(review) = pending_stream_loop_review.take()
             {
@@ -985,6 +1004,58 @@ impl Agent {
                 }
             }
 
+            // Strict stream finalization (the same discipline praxion's
+            // accumulator enforces at `finish()`): the stream must not end
+            // mid-tool-call. A slot that accumulated id/argument bytes but
+            // never received a name is the residue of a truncated stream —
+            // dropping it silently would mistake a connection failure for
+            // the model's intent. Surface it as retryable so the idempotent
+            // request retry re-runs the turn instead of committing a partial
+            // response. Slots that stayed completely empty (a provider delta
+            // that carried only an index) are still dropped below.
+            // A confirmed loop or an oversized batch explains its own
+            // truncation: those fragments are already known not to be
+            // executable intent, and the intervention below discards them. Do
+            // not misclassify them as a transport truncation.
+            if stream_loop_incident.is_none() {
+                for call in &calls {
+                    if call.name.is_empty() && (!call.id.is_empty() || !call.arguments.is_empty()) {
+                        let err_msg =
+                            "Provider stream ended mid-tool-call; the response was likely truncated."
+                                .to_string();
+                        request_accounting.record_error(&err_msg);
+                        retract_announcements(&mut announcements, &mut on_event);
+                        return Err(HarnessError::Provider(
+                            nuo_protocol::ProviderError::new(
+                                "harness",
+                                nuo_protocol::ProviderErrorKind::Transport,
+                                err_msg,
+                            )
+                            .retryable(None),
+                        ));
+                    }
+                    if !call.arguments.is_empty()
+                        && serde_json::from_str::<serde_json::Value>(&call.arguments).is_err()
+                    {
+                        let err_msg = format!(
+                            "Provider stream ended with truncated arguments for tool \
+                             call `{}`; the response was likely cut off.",
+                            call.name
+                        );
+                        request_accounting.record_error(&err_msg);
+                        retract_announcements(&mut announcements, &mut on_event);
+                        return Err(HarnessError::Provider(
+                            nuo_protocol::ProviderError::new(
+                                "harness",
+                                nuo_protocol::ProviderErrorKind::Transport,
+                                err_msg,
+                            )
+                            .retryable(None),
+                        ));
+                    }
+                }
+            }
+
             if completion_meta.is_none() && stream_loop_incident.is_none() {
                 let err_msg = "Provider stream ended without a terminal completion event; response state was not committed."
                     .to_string();
@@ -1009,7 +1080,7 @@ impl Agent {
             // cut stream are never executable intent.
             let mut stream_loop_recovery_prompt = None;
             let mut stream_loop_hard_stopped = false;
-            let stream_loop_notice = stream_loop_incident.as_ref().map(|incident| {
+            let mut stream_loop_notice = stream_loop_incident.as_ref().map(|incident| {
                 match incident.channel {
                     nuo_protocol::StreamLoopChannel::AssistantText => {
                         content = crate::stream_loop_detector::StreamLoopDetector::trim_suffix(
@@ -1024,15 +1095,30 @@ impl Agent {
                                 &incident.pattern,
                             );
                     }
+                    nuo_protocol::StreamLoopChannel::ToolCall => {
+                        // Tool-call arguments are never rendered as text; the
+                        // partial calls are dropped below, which is the whole
+                        // trimming this channel needs.
+                    }
                 }
                 calls.clear();
 
                 if round.stream_loop_recoveries < MAX_STREAM_LOOP_RECOVERIES {
                     round.stream_loop_recoveries += 1;
+                    let directive = match incident.channel {
+                        nuo_protocol::StreamLoopChannel::AssistantText
+                        | nuo_protocol::StreamLoopChannel::Reasoning => {
+                            "Synthesize the conclusions already reached, then take the next \
+                             distinct action or complete the task. Do not repeat the prior text."
+                        }
+                        nuo_protocol::StreamLoopChannel::ToolCall => {
+                            "Do not re-emit the same tool-call arguments; change the approach, \
+                             reduce the payload, or complete the task with a different call."
+                        }
+                    };
                     stream_loop_recovery_prompt = Some(format!(
                         "[System Directive: Your previous output was stopped because it entered a {}. \
-                         Synthesize the conclusions already reached, then take the next distinct action \
-                         or complete the task. Do not repeat the prior text.]",
+                         {directive}]",
                         incident.pattern.description()
                     ));
                     AgentNotice::new(
@@ -1059,6 +1145,42 @@ impl Agent {
                     ))
                 }
             });
+
+            // A loop cut can leave no assistant text at all — a pure
+            // tool-call response. There is then no valid assistant message to
+            // commit, so the aborted attempt never existed: the directive
+            // becomes the next turn's input.
+            let cut_without_content = stream_loop_incident.is_some() && content.trim().is_empty();
+            if cut_without_content {
+                if stream_loop_hard_stopped {
+                    return Err(HarnessError::Other(
+                        "Generation was stopped after a repeated intervention; no assistant \
+                         message was committed."
+                            .to_string(),
+                    ));
+                }
+                if let Some(notice) = stream_loop_notice.take() {
+                    on_event(AgentEvent::Notice(notice));
+                }
+                retract_announcements(&mut announcements, &mut on_event);
+                if let Some(prompt) = stream_loop_recovery_prompt.take() {
+                    messages.push(crate::runtime::message::hidden_user(
+                        InjectionKind::LoopReviewNudge,
+                        prompt,
+                    ));
+                }
+                round.pending_request = None;
+                round.turn_index += 1;
+                self.set_current_turn(round.turn_index as u64);
+                if self.check_hard_stop(round.turn_index).is_break() {
+                    return Err(self.hard_stop_error());
+                }
+                self.fire_turn_persist(messages).await?;
+                self.run_turn_hooks(messages, &round.state, round.turn_index)
+                    .await;
+                self.restore_scoped_turn_end();
+                continue;
+            }
 
             // A cut stream's tool-call fragments are never executable intent,
             // so anything it announced is retracted here — before the recovery

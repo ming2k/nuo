@@ -200,7 +200,7 @@ pub fn draw_question_modal(
             "Question".to_string()
         };
         if queue_depth > 0 {
-            title.push_str(&format!(" · +{queue_depth} queued"));
+            title.push_str(&format!(" | +{queue_depth} queued"));
         }
         let mut spans = Vec::new();
         if let Some(origin) = &request.origin {

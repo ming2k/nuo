@@ -254,6 +254,7 @@ mod tests {
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
+                tool_input: String::new(),
             })
             .await;
         assert_eq!(verdict, StreamLoopVerdict::Yes);
@@ -268,6 +269,7 @@ mod tests {
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
+                tool_input: String::new(),
             })
             .await;
         assert_eq!(verdict, StreamLoopVerdict::No);
@@ -282,6 +284,7 @@ mod tests {
                 preceding_context: String::new(),
                 assistant_text: "abababab".to_string(),
                 reasoning_text: String::new(),
+                tool_input: String::new(),
             })
             .await;
         assert_eq!(verdict, StreamLoopVerdict::No);
