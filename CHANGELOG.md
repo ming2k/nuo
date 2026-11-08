@@ -8,6 +8,18 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.80] - 2026-11-08
+
+### Added
+
+- **Instructions come from three sources through one pipeline.** System sections, cross-project `[[instructions.user]]` entries in `agent.toml`, and trusted project files under `.nuo/instructions/**` share one registry, one selector matcher, one ordering rule, and one protocol projection. `[model_guidance]`, its resolver, and `RouteSettings::model_guidance` are removed; existing tuning moves to the user source. The model-request module is renamed `instruction.rs` with no aliases ([ADR-0164](docs/adr/0164-instructions-are-one-pipeline-over-system-and-project-sources.md), [ADR-0165](docs/adr/0165-user-instructions-absorb-model-guidance-as-the-user-source.md)).
+- **`nuo thread rm --all [--force]` purges every live thread.** The CLI reads the snapshot it already exposes and issues one existing `KillThread` per id over the trusted control channel, so purge adds no wire instruction, no new persistence path, and no bypass of the single-writer invariant ([ADR-0161](docs/adr/0161-thread-purge-is-a-client-side-orchestration-over-the-existing-kill-contract.md)).
+
+### Fixed
+
+- **A stream restart no longer replays a visible attempt.** Attempts are classified by whether they emitted visible output (an assistant text delta, a reasoning delta, or a tool-call announcement). Silent retries spend `[resilience] retry_max_attempts` (default 30); restarts after visible output spend `[resilience] stream_restart_max_attempts` (default 3, `0` ends the round), and the failed visible attempt is discarded rather than replayed over its own partial transcript ([ADR-0162](docs/adr/0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md)).
+- **Tool-call argument streams are loop-guarded.** `StreamLoopChannel::ToolCall` and a bounded `tool_input` tail feed the same `StreamLoopDetector` and Stream Sentinel as prose, so a degenerating argument stream is caught without capping legitimate multi-file batches; batch size stays the model's decision and the unused `nuo_tool::ToolPolicy` is deleted ([ADR-0163](docs/adr/0163-tool-call-argument-streams-are-loop-guarded-and-batch-size-is-the-models-decision.md)).
+
 ## [0.0.79] - 2026-11-08
 
 ### Fixed
