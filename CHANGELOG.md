@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.79] - 2026-11-08
+
 ### Fixed
 
 - **A cyclic causal graph could consume all available memory and kill the server.** A whole-transcript mirror repair advanced `causal_seq` by one drain batch instead of to the rebuilt end, so the next batch re-mirrored rows that already existed; the mirror's upsert then rewrote their `parent_id` to the newest node, pointing the chain's head into its own tail. `linear_path` followed the cycle without a visited set — the live server reached 22.9 GB RSS and was OOM-killed mid-turn, which is what made `saving request` sit and the client die. Lineage is now write-once (a conflict fills only a `NULL` parent), a rebuild moves the cursor to the rebuilt end, and every walk terminates on a revisit ([ADR-0159](docs/adr/0159-causal-lineage-is-write-once-and-derived-views-repair-on-read.md)).
