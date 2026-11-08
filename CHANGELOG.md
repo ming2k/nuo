@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.81] - 2026-11-08
+
 ### Fixed
 
 - **A tool call has one identity, so a retry or a reconnect can no longer leave a wall of `receiving input` rows.** The pipeline previously modelled one call under three identities — the provider id, a dispatch-time `call_{uuid}`, and a process-local `announcement: u64` — and the frontend inferred the pre-dispatch state from an *empty call id*. The announce → collapse → result handshake was then a chain of lookups with different tie-breaks (`rfind` for a pending announcement, forward-scan for a result), so a duplicate announcement inserted a second row that never terminalized, and a retraction that was lost with a dropped link could not be recovered by the reconnect. `ToolCall.id` is now the single identity: the harness mints it at the first named fragment (or adopts the provider's), and every later event — progress, dispatch, stream, preview, result, retraction — carries it. The transcript reducer is idempotent and monotone in that id (`ToolStepUpsert` replaces `ToolStart`/`ToolAnnounce`/`ToolCallCollapse`), retraction removes only a still-`Ingesting` row, and a round boundary with the harness idle sweeps every provisional row — no translator-local state, so it survives a relink. Every abort path retracts, including the loop hard stop. This is a clean wire break: `PROTOCOL_VERSION`/`MIN_PROTOCOL_VERSION` move to 24 and `ToolAnnouncementsRetracted { announcements }` becomes `ToolCallsRetracted { ids }` ([ADR-0166](docs/adr/0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md)).
