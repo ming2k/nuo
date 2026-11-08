@@ -64,7 +64,7 @@ pub async fn compact_round_history(
     settings: &nuo_harness::orchestration::ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
-) -> Result<Option<nuo_protocol::ContextProjectionCheckpoint>, String> {
+) -> Result<Option<nuo_harness::orchestration::CompactionReport>, String> {
     nuo_harness::orchestration::compact_round_history(
         history,
         session,

@@ -51,35 +51,64 @@ fn plan_nodes(
     // so a chain restarted at `None` here would leave every commit as its own
     // orphaned segment — a graph `linear_path` can only walk two nodes into. The
     // segment's first node links to whatever fact is already newest.
-    let mut previous_id: Option<String> = initial_parent;
+    //
+    // This tracks the newest **dialogue** fact, never a compaction anchor: a
+    // checkpoint is appended at the transcript's end (its seq is the largest)
+    // but belongs *before* the kept tail. Chaining facts through it would make
+    // the horizon an ancestor of the tail and hide the tail from the walk.
+    let mut previous_dialogue: Option<String> = initial_parent;
 
     for entry in entries {
-        let Some(message) = entry.to_message() else {
-            // `state` entries are projections, not dialogue: the causal graph
-            // has no node kind for them.
-            continue;
-        };
-        // A checkpoint is a projection of the IR's own `compaction` node, which
-        // `append_compaction` already created and which carries the summary plus
-        // the fold's file manifest. Mirroring the rendered message as well would
-        // put two checkpoints in one graph — one the horizon, one a plain message
-        // that `linear_path` would happily walk straight through.
-        if message
-            .origin
-            .as_ref()
-            .is_some_and(|o| o.kind == nuo_protocol::InjectionKind::CompactionCheckpoint)
-        {
-            continue;
+        match &entry.payload {
+            // `state` entries are projections, not dialogue.
+            nuo_protocol::EntryPayload::State(_) => continue,
+            nuo_protocol::EntryPayload::Compaction(meta) => {
+                // The entry *is* the fold. Parent the horizon to the last
+                // folded node (a sibling anchor, per `INV-CHK-01`) and leave
+                // `previous_dialogue` untouched so later facts attach to the
+                // kept tail. This single rule is what makes the graph
+                // reconstructible from the transcript alone.
+                rows.push(PlannedNode {
+                    id: entry.id.clone(),
+                    parent_id: meta
+                        .split_parent_node_id
+                        .clone()
+                        .or_else(|| previous_dialogue.clone()),
+                    seq: entry.seq,
+                    kind: "compaction",
+                    payload: serde_json::to_string(&nuo_protocol::NodePayload::Compaction {
+                        summary: entry.content.clone().unwrap_or_default(),
+                        first_kept_node_id: meta.first_kept_node_id.clone(),
+                        tokens_before: meta.tokens_before,
+                        read_files: meta.read_files.clone(),
+                        modified_files: meta.modified_files.clone(),
+                        belief_state: None,
+                    })
+                    .unwrap_or_default(),
+                });
+            }
+            nuo_protocol::EntryPayload::Message(_) => {
+                // A checkpoint written before the typed payload existed has no
+                // structure to derive a horizon from. It is not a dialogue
+                // fact either; do not smuggle it into the chain. (No production
+                // database contains one; the format is a clean break.)
+                if entry.origin == Some(nuo_protocol::EntryOrigin::Checkpoint) {
+                    continue;
+                }
+                let Some(message) = entry.to_message() else {
+                    continue;
+                };
+                rows.push(PlannedNode {
+                    id: entry.id.clone(),
+                    parent_id: previous_dialogue.clone(),
+                    seq: entry.seq,
+                    kind: "dialogue",
+                    payload: serde_json::to_string(&nuo_protocol::NodePayload::Message { message })
+                        .unwrap_or_default(),
+                });
+                previous_dialogue = Some(entry.id.clone());
+            }
         }
-        rows.push(PlannedNode {
-            id: entry.id.clone(),
-            parent_id: previous_id.clone(),
-            seq: entry.seq,
-            kind: "dialogue",
-            payload: serde_json::to_string(&nuo_protocol::NodePayload::Message { message })
-                .unwrap_or_default(),
-        });
-        previous_id = Some(entry.id.clone());
     }
 
     rows
@@ -129,6 +158,15 @@ pub fn mirror_transcript(
             "DELETE FROM causal_nodes WHERE session_id = ?1",
             params![session_id],
         )?;
+        // The column is a *lineage position*, not the session's last message:
+        // after a rebuild it names a node that no longer exists. Leaving it set
+        // makes `load_session_ir` prefer a dangling leaf over the rebuilt
+        // graph's real tail, which resolves to an empty active branch. Clearing
+        // it restores the documented fallback (`newest_position`).
+        conn.execute(
+            "UPDATE threads SET active_leaf = NULL WHERE id = ?1",
+            params![session_id],
+        )?;
     }
 
     let initial_parent = if replace {
@@ -147,11 +185,15 @@ pub fn mirror_transcript(
             id, session_id, parent_id, seq, kind, payload_json, timestamp_ms
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
         ON CONFLICT(session_id, id) DO UPDATE SET
-            -- Repair the causal edge only. A legacy backfill (migration 17) wrote
-            -- every node with `parent_id = NULL`, which makes the graph a flat bag
-            -- that `linear_path` cannot walk. Payload and seq stay untouched: a
-            -- fact's content is immutable, its lineage was never recorded.
-            parent_id = excluded.parent_id;
+            -- Lineage is write-once. A legacy backfill (migration 17) wrote
+            -- every node with `parent_id = NULL`, so filling a *missing* edge
+            -- is a repair. Rewriting an edge that already exists is not: a
+            -- delta that re-mirrors an already-present entry would point that
+            -- entry at the newest node, and the chain's head then points into
+            -- its own tail — a cycle `linear_path` walks forever (the
+            -- 22 GB server OOM). Facts are immutable; so is their lineage.
+            parent_id = excluded.parent_id
+        WHERE causal_nodes.parent_id IS NULL;
         "#,
     )?;
 
@@ -248,6 +290,65 @@ pub(crate) fn newest_position(
         |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .optional()
+}
+
+/// True when the stored lineage cannot be walked in append order.
+///
+/// A well-formed graph is append-ordered: a node's parent was written before
+/// it, so `parent.seq < child.seq` (compaction anchors included — they are
+/// appended at `max_seq + 1` and point at the folded node). Any edge at or
+/// past its own child is therefore the signature of a rewritten parent; a
+/// self-edge is the degenerate case. A cycle necessarily contains at least one
+/// such non-decreasing edge, so this indexed probe finds the corruption that
+/// turns `linear_path` into a loop without paying for full cycle detection on
+/// every drain.
+pub(crate) fn has_corrupt_lineage(conn: &Connection, session_id: &str) -> Result<bool> {
+    conn.query_row(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM causal_nodes c
+            LEFT JOIN causal_nodes p
+              ON p.session_id = c.session_id AND p.id = c.parent_id
+            WHERE c.session_id = ?1
+              AND (
+                    c.parent_id = c.id
+                 OR (c.parent_id IS NOT NULL AND p.id IS NULL)
+                 OR p.seq >= c.seq
+              )
+            LIMIT 1
+        )
+        "#,
+        params![session_id],
+        |row| row.get(0),
+    )
+}
+
+/// True when the graph no longer covers the transcript's last mirrorable fact.
+///
+/// This is the lost-graph probe. A cursor can honestly say "built through seq N"
+/// while the rows themselves are gone (a derived-table rebuild, a bad manual
+/// delete, a partially applied repair). Comparing the graph's highest seq
+/// against the last mirrorable entry detects that even when no new fact is
+/// pending; without it `session_ir()` would happily hydrate an empty horizon.
+pub(crate) fn has_missing_coverage(conn: &Connection, session_id: &str) -> Result<bool> {
+    let graph_max: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(seq), -1) FROM causal_nodes WHERE session_id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    )?;
+    let entry_max: i64 = conn.query_row(
+        r#"
+        SELECT COALESCE(MAX(m.seq), -1)
+          FROM entry_memberships m
+          JOIN entries e ON e.id = m.entry_id
+         WHERE m.session_id = ?1
+           AND e.kind = 'message'
+           AND e.role IS NOT NULL
+        "#,
+        params![session_id],
+        |row| row.get(0),
+    )?;
+    Ok(graph_max < entry_max)
 }
 
 /// True when a dialogue entry exists in `(after_seq, before_seq)` that the

@@ -25,6 +25,33 @@ fn test_inv_wire_census_matches_protocol_version() {
     }
 }
 
+#[test]
+fn test_inv_compaction_is_transcript_owned() {
+    // [INV-CMP-04] A compaction is one transcript fact; the causal node is a
+    // derive. The compaction path must not grow a second durable write through
+    // the IR delta API — that is exactly the two-step commit this invariant
+    // removed.
+    let root = nuo::dev::find_workspace_root();
+    let path = root.join("crates/nuo-harness/src/orchestration/mod.rs");
+    let source = std::fs::read_to_string(&path).expect("read orchestration source");
+    let start = source
+        .find("pub async fn compact_round_history_with_mode")
+        .expect("compaction entry point is present");
+    let end = source[start..]
+        .find("\n}\n")
+        .map(|offset| start + offset)
+        .unwrap_or(source.len());
+    let body = &source[start..end];
+    assert!(
+        !body.contains("commit_session_ir") && !body.contains("commit_session_delta"),
+        "compaction wrote an IR delta; the checkpoint entry must be the only durable fact"
+    );
+    assert!(
+        body.contains("commit_compaction"),
+        "compaction no longer records the transcript checkpoint"
+    );
+}
+
 /// Rewrites `crates/nuo/src/dev/wire-census.txt` from the tree.
 ///
 /// Ignored by default because it mutates the repository: run it deliberately, in the same

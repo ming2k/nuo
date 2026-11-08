@@ -81,8 +81,17 @@ pub fn estimate_causal_node_tokens(node: &CausalNode) -> usize {
     }
 }
 
-/// Find a turn-aware cut point on CausalNodes that preserves approximately `keep_recent_tokens` of newest context.
-/// Never cuts on a Tool Result — always keeps tool calls and their results together.
+/// Find a turn-aware cut point on CausalNodes that keeps **at most**
+/// `keep_recent_tokens` of newest context.
+///
+/// The old rule kept *at least* the budget (it walked until the accumulated
+/// total crossed the target). That makes the post-fold window unbounded: the
+/// tail is always at or above the target before the checkpoint is added, so a
+/// verbose summary or a single huge node can leave the session above the
+/// compaction gate on the very next send. Keeping at most the budget is what
+/// makes the post-condition meaningful; the one exception is tool atomicity
+/// (a tool call and its result are folded together, which can overshoot by one
+/// exchange — the caller reports that).
 pub fn find_cut_point_nodes(
     nodes: &[&CausalNode],
     keep_recent_tokens: usize,
@@ -91,29 +100,31 @@ pub fn find_cut_point_nodes(
         return None;
     }
 
-    let mut total_tokens = 0;
     let token_counts: Vec<usize> = nodes
         .iter()
         .map(|n| estimate_causal_node_tokens(n))
         .collect();
-    for &tokens in &token_counts {
-        total_tokens += tokens;
-    }
+    let total_tokens: usize = token_counts.iter().sum();
 
     if total_tokens <= keep_recent_tokens {
         return None; // No compaction needed yet
     }
 
-    let mut accumulated_tokens = 0;
-    let mut cut_index = 0;
-
-    // Scan backwards from newest entry
+    // Largest suffix whose token sum fits the budget.
+    let mut accumulated_tokens = 0usize;
+    let mut cut_index = nodes.len();
     for i in (0..nodes.len()).rev() {
-        accumulated_tokens += token_counts[i];
-        if accumulated_tokens >= keep_recent_tokens {
-            cut_index = i;
+        let next = accumulated_tokens.saturating_add(token_counts[i]);
+        if next > keep_recent_tokens {
             break;
         }
+        accumulated_tokens = next;
+        cut_index = i;
+    }
+    // Even the newest node exceeds the budget: keep that node and fold the
+    // rest. The post-condition reports that the fold cannot satisfy the gate.
+    if cut_index == nodes.len() {
+        cut_index = nodes.len() - 1;
     }
 
     // Adjust cut_index so we never cut in the middle of a ToolResult
@@ -448,5 +459,31 @@ mod tests {
         let cut = find_tail_preserving_cut_point(&two_rounds, 1).unwrap();
         assert_eq!(cut.first_kept_index, 2);
         assert_eq!(cut.first_kept_entry_id, "3");
+    }
+
+    /// The tail must be bounded by the budget, not merely *at least* it.
+    ///
+    /// The old walk stopped as soon as the accumulated tail crossed the target,
+    /// which made the post-fold window unbounded. Keeping the largest suffix that
+    /// fits is what lets the caller promise the gate.
+    #[test]
+    fn find_cut_point_nodes_keeps_at_most_the_budget() {
+        let nodes: Vec<CausalNode> = (0..10u64)
+            .map(|i| CausalNode {
+                id: i.to_string(),
+                parent_id: (i > 0).then(|| (i - 1).to_string()),
+                seq: i,
+                timestamp_ms: 100 + i,
+                kind: nuo_protocol::NodeKind::Dialogue,
+                payload: NodePayload::Message {
+                    // ~100 tokens each (plus framing).
+                    message: Message::new(Role::User, "word ".repeat(100)),
+                },
+            })
+            .collect();
+        let refs: Vec<&CausalNode> = nodes.iter().collect();
+        let cut = find_cut_point_nodes(&refs, 250).expect("a tenth-node budget must cut");
+        let kept = refs.len() - cut.first_kept_index;
+        assert!(kept <= 2, "the kept tail exceeded the budget: {kept} nodes");
     }
 }

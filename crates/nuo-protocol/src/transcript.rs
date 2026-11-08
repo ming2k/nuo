@@ -5,13 +5,31 @@
 //! over the two. Entries are immutable and position-free facts; position lives
 //! in the per-session membership (seq). Projections never rewrite entries —
 //! they append a directive and, for compaction, one checkpoint entry.
-use crate::message::{ImagePart, InjectionOrigin, Message, Role, ToolCall};
+use crate::message::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall};
 use crate::todos::unix_now;
 use serde::{Deserialize, Serialize};
 
 /// Unix-epoch milliseconds now.
 fn unix_now_ms() -> u64 {
     unix_now().saturating_mul(1000)
+}
+
+/// Rendered prefix of a compaction checkpoint.
+///
+/// Owned by the protocol because three surfaces must agree on it: the
+/// transcript projection, the IR's active-window rendering, and the legacy
+/// selector that strips a prior summary. The structure lives in
+/// [`CompactionMeta`]; this is only the model-facing envelope.
+pub const CHECKPOINT_HEADER: &str = "[Conversation checkpoint]\n\
+     Earlier complete rounds were compacted. Treat this as durable context, not a new user request.\n\n";
+
+/// Build the model-facing checkpoint message for `summary`.
+pub fn checkpoint_message(summary: &str) -> Message {
+    Message::injected(
+        Role::User,
+        format!("{CHECKPOINT_HEADER}{summary}"),
+        InjectionOrigin::new(InjectionKind::CompactionCheckpoint),
+    )
 }
 
 /// What an entry is. Open enum: new kinds extend the payload contract; readers
@@ -123,6 +141,37 @@ pub enum EntryPayload {
     /// A working-state snapshot (e.g. the TodoList mirror).
     #[serde(rename = "state")]
     State(StatePayload),
+    /// A durable compaction fact.
+    ///
+    /// The rendered checkpoint text lives in the entry's `content`; this
+    /// payload carries the structure the causal graph must be able to rebuild
+    /// without any other store: which tail was kept, which node the horizon
+    /// hangs from, and where the archived range ends. The entry *is* the fold —
+    /// `causal_nodes` is a derive of it (ADR-0160).
+    #[serde(rename = "compaction")]
+    Compaction(Box<CompactionMeta>),
+}
+
+/// Structural facts of one compaction, stored inside its checkpoint entry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CompactionMeta {
+    /// ID of the first causal node preserved after the fold. The horizon walk
+    /// anchors here when it injects the checkpoint.
+    pub first_kept_node_id: String,
+    /// ID of the last folded node: the horizon node's parent. It is a sibling
+    /// anchor, not an ancestor of the kept tail (`INV-CHK-01`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub split_parent_node_id: Option<String>,
+    /// Membership seq of the last folded entry. The `compact` directive hides
+    /// entries through here (snapped down to an existing entry).
+    pub folded_through_seq: u64,
+    /// Token weight of the folded prefix, for the checkpoint card.
+    pub tokens_before: usize,
+    /// Files the folded range read / modified, carried into the next summary.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_files: Vec<String>,
 }
 
 /// Working-state snapshot carried by a `state` entry. Fields are additive;
@@ -225,36 +274,42 @@ impl TranscriptEntry {
     /// Subagent children are not carried: under this model a subagent run is a
     /// session of its own reached through `payload.subagent`.
     pub fn to_message(&self) -> Option<Message> {
-        let EntryPayload::Message(payload) = &self.payload else {
-            return None;
-        };
         let role = self.role?;
-        Some(Message {
-            role,
-            content: self.content.clone().unwrap_or_default(),
-            content_blob: payload.content_blob.clone(),
-            display_content: payload.display_content.clone(),
-            reasoning_content: payload.reasoning_content.clone(),
-            provider_meta: payload.provider_meta.clone(),
-            tool_calls: payload.tool_calls.clone(),
-            tool_call_id: payload.tool_call_id.clone(),
-            images: payload.images.clone(),
-            provider: payload.provider.clone(),
-            model: payload.model.clone(),
-            effort: payload.effort.clone(),
-            hidden: self.hidden,
-            children: None,
-            subagent_meta: None,
-            origin: payload.injection.clone(),
-            timestamp: Some(self.created_at_ms / 1000),
-            sent_at_ms: payload.sent_at_ms,
-        })
+        match &self.payload {
+            EntryPayload::Message(payload) => Some(Message {
+                role,
+                content: self.content.clone().unwrap_or_default(),
+                content_blob: payload.content_blob.clone(),
+                display_content: payload.display_content.clone(),
+                reasoning_content: payload.reasoning_content.clone(),
+                provider_meta: payload.provider_meta.clone(),
+                tool_calls: payload.tool_calls.clone(),
+                tool_call_id: payload.tool_call_id.clone(),
+                images: payload.images.clone(),
+                provider: payload.provider.clone(),
+                model: payload.model.clone(),
+                effort: payload.effort.clone(),
+                hidden: self.hidden,
+                children: None,
+                subagent_meta: None,
+                origin: payload.injection.clone(),
+                timestamp: Some(self.created_at_ms / 1000),
+                sent_at_ms: payload.sent_at_ms,
+            }),
+            EntryPayload::Compaction(_) => {
+                let mut message = checkpoint_message(self.content.as_deref().unwrap_or_default());
+                message.hidden = self.hidden;
+                message.timestamp = Some(self.created_at_ms / 1000);
+                Some(message)
+            }
+            EntryPayload::State(_) => None,
+        }
     }
 
     pub fn as_message(&self) -> Option<&MessagePayload> {
         match &self.payload {
             EntryPayload::Message(payload) => Some(payload),
-            EntryPayload::State(_) => None,
+            EntryPayload::Compaction(_) | EntryPayload::State(_) => None,
         }
     }
 

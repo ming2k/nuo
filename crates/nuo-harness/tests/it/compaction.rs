@@ -15,6 +15,7 @@
 
 use std::sync::Arc;
 
+use nuo_harness::cognition::compaction::{CausalCompactor, CompactionCutMode};
 use nuo_harness::orchestration::{ContextProjectionSettings, compact_round_history};
 use nuo_harness::{Agent, AgentIdentity};
 use nuo_persistence::session::CommitBasis;
@@ -104,10 +105,11 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
     // compacting to half the current size is what the production trigger does.
     settings.budget.target_tokens = (tokens_before / 2).max(64);
 
-    let checkpoint = compact_round_history(&mut history, &session, &settings, None, Vec::new())
+    let report = compact_round_history(&mut history, &session, &settings, None, Vec::new())
         .await
         .expect("compaction must not error")
         .expect("compaction must engage on a populated IR");
+    let checkpoint = report.checkpoint;
 
     // 1. The prompt being admitted is still there. Seeding the window from
     //    storage and assigning it back wholesale would answer the *previous*
@@ -134,6 +136,101 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
         checkpoint.window_tokens_after < checkpoint.window_tokens_before,
         "a compaction that does not shrink the window relieved nothing: {checkpoint:?}"
     );
+    // 4. The fold is durable in the transcript projection, so the *next* send
+    //    stays under the compaction gate instead of re-reading the full history
+    //    and re-summarizing the same prefix. The gate itself lives in
+    //    `execute_round`; this asserts the number it compares against.
+    settings.budget.compaction_threshold_tokens = tokens_before.saturating_sub(1);
+    let projected = session.model_window().await;
+    let projected_tokens = nuo_protocol::pressure::estimate_tokens(&projected);
+    assert!(
+        projected_tokens < tokens_before,
+        "the recorded projection did not shrink the window"
+    );
+    assert!(
+        projected_tokens < settings.budget.compaction_threshold_tokens,
+        "the next send would cross the compaction gate again: {projected_tokens} >= {}",
+        settings.budget.compaction_threshold_tokens
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A fold that cannot reach the gate says so.
+///
+/// The post-condition is not advisory: callers must be able to distinguish a
+/// successful shrink from a fold that kept the window above the trigger, or the
+/// next send silently re-compacts and the user sees no explanation.
+#[tokio::test]
+async fn an_impossible_target_reports_insufficiency() {
+    let (dir, path) = sandbox("compact-insufficient");
+    let session = SessionStore::for_path(path);
+    commit_rounds(&session, 8).await;
+
+    let mut history = session.model_window().await;
+    let mut settings =
+        ContextProjectionSettings::from_policy(&nuo_protocol::CompactionPolicy::default(), 200_000);
+    // A gate far below a single message: the tool-call-safe cut must keep the
+    // newest node, which alone exceeds it.
+    settings.budget.compaction_threshold_tokens = 10;
+    settings.budget.target_tokens = 5;
+    settings.request_overhead_tokens = 0;
+
+    let report = compact_round_history(&mut history, &session, &settings, None, Vec::new())
+        .await
+        .unwrap()
+        .expect("the fold still runs on an impossible target");
+    assert!(
+        !report.satisfied,
+        "insufficiency was silently reported as success: {:?}",
+        report.checkpoint
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A fold must stop at its horizon.
+///
+/// The kept tail's head deliberately keeps its parent pointing into the folded
+/// chain. A compactor that walks `linear_path` therefore re-reads every archived
+/// node on the next pass and re-summarizes it. `resolve_active_branch` injects
+/// the horizon and stops; this test pins that behavior: a target that fits the
+/// *active* path but not the full history must produce no second fold.
+#[tokio::test]
+async fn a_fold_stops_at_the_horizon() {
+    let (dir, path) = sandbox("compact-horizon-walk");
+    let session = SessionStore::for_path(path);
+    commit_rounds(&session, 8).await;
+
+    let mut history = session.model_window().await;
+    let full_tokens = nuo_protocol::pressure::estimate_tokens(&history);
+    let mut settings =
+        ContextProjectionSettings::from_policy(&nuo_protocol::CompactionPolicy::default(), 200_000);
+    settings.budget.target_tokens = (full_tokens / 2).max(64);
+    compact_round_history(&mut history, &session, &settings, None, Vec::new())
+        .await
+        .unwrap()
+        .expect("the first fold must engage");
+
+    // The reopened IR is derived from the checkpoint entry, and its active
+    // branch is [horizon, kept tail…], never the archived prefix.
+    let mut ir = session.session_ir().await;
+    let active_tokens = nuo_protocol::pressure::estimate_tokens(&ir.resolve_active_messages());
+    assert!(active_tokens < full_tokens);
+    let between = active_tokens + (full_tokens - active_tokens) / 2;
+    let outcome = CausalCompactor::compact_session_ir(
+        &mut ir,
+        None,
+        CompactionCutMode::TargetTokens(between),
+        Vec::new(),
+        0,
+    )
+    .await
+    .unwrap();
+    assert!(
+        outcome.is_none(),
+        "the compactor re-read the folded prefix instead of stopping at the horizon"
+    );
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -146,10 +243,12 @@ async fn compaction_engages_on_a_session_built_from_plain_rounds() {
 #[tokio::test]
 async fn a_fold_survives_reopening_the_session() {
     let (dir, path) = sandbox("compact-horizon");
-    let tokens_before = {
+    let (tokens_before, committed_tokens) = {
         let session = SessionStore::for_path(path.clone());
         commit_rounds(&session, 8).await;
-        let mut history = session.model_window().await;
+        let committed = session.model_window().await;
+        let committed_tokens = nuo_protocol::pressure::estimate_tokens(&committed);
+        let mut history = committed;
         history.push(Message::new(Role::User, "THE-NEWEST-PROMPT"));
         let tokens_before = nuo_protocol::pressure::estimate_tokens(&history);
         let mut settings = ContextProjectionSettings::from_policy(
@@ -161,11 +260,32 @@ async fn a_fold_survives_reopening_the_session() {
             .await
             .unwrap()
             .expect("compaction must engage");
-        tokens_before
+
+        // The fold must reach the window the next round seeds from, not only
+        // the IR. Without a durable `Compact` projection every send reloaded
+        // the full transcript and paid for the same summarization again.
+        let projected = session.model_window().await;
+        assert!(
+            nuo_protocol::pressure::estimate_tokens(&projected) < committed_tokens,
+            "the recorded projection did not shrink the transcript window"
+        );
+        assert!(
+            projected
+                .iter()
+                .any(|message| message.content.contains("Conversation checkpoint")),
+            "the checkpoint is not in the projected window: {projected:#?}"
+        );
+        (tokens_before, committed_tokens)
     };
 
     // Reopen: a brand-new store over the same file.
     let reopened = SessionStore::for_path(path);
+    let window = reopened.model_window().await;
+    let window_tokens = nuo_protocol::pressure::estimate_tokens(&window);
+    assert!(
+        window_tokens < committed_tokens,
+        "a reopen reloaded the unfolded transcript ({window_tokens} vs {committed_tokens})"
+    );
     let ir = reopened.session_ir().await;
     assert!(
         ir.state.compaction_horizon.is_some(),
@@ -294,6 +414,7 @@ async fn the_mid_turn_gate_prunes_a_pressurised_window() {
     let window = session.model_window().await;
     let tokens_before = nuo_protocol::pressure::estimate_tokens(&window);
     let settings = ContextProjectionSettings {
+        request_overhead_tokens: 0,
         budget: nuo_protocol::CompactionPolicy::default().resolve(20_000),
         preserve_rounds: 6,
         summarize: false,

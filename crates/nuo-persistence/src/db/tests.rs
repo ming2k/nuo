@@ -421,6 +421,280 @@ fn a_save_enqueues_derived_work_and_a_flush_produces_it() {
     assert_eq!(count_causal_nodes(&engine.conn), 2);
 }
 
+fn dialogue_chain_len(conn: &Connection, session_id: &str) -> usize {
+    let mut current = crate::db::ir_mirror::newest_position(conn, session_id)
+        .unwrap()
+        .map(|(id, _)| id);
+    let mut seen = std::collections::HashSet::new();
+    let mut count = 0;
+    while let Some(id) = current {
+        assert!(seen.insert(id.clone()), "lineage is cyclic at {id}");
+        count += 1;
+        current = conn
+            .query_row(
+                "SELECT parent_id FROM causal_nodes WHERE session_id = ?1 AND id = ?2",
+                rusqlite::params![session_id, id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .unwrap();
+    }
+    count
+}
+
+fn causal_cursor(conn: &Connection, session_id: &str) -> i64 {
+    conn.query_row(
+        "SELECT causal_seq FROM derived_cursors WHERE session_id = ?1",
+        rusqlite::params![session_id],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+/// A compaction checkpoint is a transcript fact; the graph is a derive.
+///
+/// The entry alone must reproduce the horizon after any amount of derived-state
+/// loss: one compaction node, parented to the split parent, injected by the
+/// horizon walk, with the same window as the transcript projection.
+#[test]
+fn a_compaction_entry_derives_the_horizon_and_survives_a_graph_loss() {
+    use nuo_protocol::{
+        CompactionMeta, DirectiveKind, DirectivePayload, EntryPayload, Message,
+        ProjectionDirective, Role, TranscriptEntry,
+    };
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    for i in 0..10u64 {
+        data.transcript.push(TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::User, format!("turn {i}")),
+        ));
+    }
+    let split_parent = data.transcript.entries[5].id.clone();
+    let first_kept = data.transcript.entries[6].id.clone();
+    let folded_through = data.transcript.entries[5].seq;
+
+    let mut checkpoint =
+        TranscriptEntry::from_message(0, &nuo_protocol::checkpoint_message("SUMMARY"));
+    checkpoint.id = "cp-horizon".into();
+    checkpoint.content = Some("SUMMARY".into());
+    checkpoint.payload = EntryPayload::Compaction(Box::new(CompactionMeta {
+        first_kept_node_id: first_kept.clone(),
+        split_parent_node_id: Some(split_parent.clone()),
+        folded_through_seq: folded_through,
+        tokens_before: 123,
+        read_files: vec!["src/a.rs".into()],
+        modified_files: vec!["src/b.rs".into()],
+    }));
+    data.transcript.push(checkpoint);
+    let checkpoint_seq = data.transcript.entries.last().unwrap().seq;
+    data.transcript.push_directive(ProjectionDirective {
+        seq: 0,
+        kind: DirectiveKind::Compact,
+        up_to_seq: folded_through,
+        payload: DirectivePayload::Compact { checkpoint_seq },
+    });
+    // A fact appended after the fold must attach to the kept tail, not to the
+    // checkpoint (which is last in sequence order).
+    data.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::Assistant, "after fold"),
+    ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+    assert_eq!(
+        count_causal_nodes(&engine.conn),
+        0,
+        "a save derives nothing"
+    );
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+
+    let (kind, parent, seq): (String, Option<String>, i64) = engine
+        .conn
+        .query_row(
+            "SELECT kind, parent_id, seq FROM causal_nodes WHERE session_id = ?1 AND id = 'cp-horizon'",
+            rusqlite::params![data.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(kind, "compaction");
+    assert_eq!(parent.as_deref(), Some(split_parent.as_str()));
+    assert_eq!(seq as u64, checkpoint_seq);
+
+    let active = |conn: &Connection| {
+        let ir = crate::db::session_ir::load_session_ir(conn, &data.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(ir.state.compaction_horizon.as_deref(), Some("cp-horizon"));
+        ir.resolve_active_messages()
+    };
+    let window = active(&engine.conn);
+    assert!(window.iter().any(|m| m.content.contains("SUMMARY")));
+    assert!(window.iter().any(|m| m.content.contains("turn 6")));
+    assert!(window.iter().any(|m| m.content.contains("after fold")));
+    assert!(
+        !window.iter().any(|m| m.content.contains("turn 0")),
+        "the folded head entered the active window: {window:#?}"
+    );
+    let projected = data.transcript.project_messages();
+    assert_eq!(projected.len(), window.len());
+
+    // Lose the derived graph but keep the cursor: the coverage probe must
+    // rebuild the horizon from the transcript alone.
+    engine.conn.execute("DELETE FROM causal_nodes", []).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+    assert_eq!(
+        count_causal_nodes(&engine.conn),
+        12,
+        "11 dialogue facts + one derived horizon"
+    );
+    let window = active(&engine.conn);
+    assert!(window.iter().any(|m| m.content.contains("turn 6")));
+    assert!(!window.iter().any(|m| m.content.contains("turn 0")));
+}
+
+/// The online scrub repairs a damaged session without any reader touching it.
+///
+/// This is residual C: a corrupt graph is inert in the read path but still a
+/// lie in the index. The writer probes a bounded slice while idle, using the
+/// exact repair a reader would run.
+#[test]
+fn the_idle_scrub_repairs_a_corrupt_session() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    for i in 0..5u64 {
+        data.transcript.push(TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::User, format!("message {i}")),
+        ));
+    }
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+
+    let head: String = engine
+        .conn
+        .query_row(
+            "SELECT id FROM causal_nodes WHERE session_id = ?1 AND seq = 4",
+            rusqlite::params![data.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    engine
+        .conn
+        .execute(
+            "UPDATE causal_nodes SET parent_id = ?2 WHERE session_id = ?1 AND seq = 0",
+            rusqlite::params![data.id, head],
+        )
+        .unwrap();
+    assert!(crate::db::ir_mirror::has_corrupt_lineage(&engine.conn, &data.id).unwrap());
+
+    let scanned =
+        crate::db::derived::scrub_batch(&engine.conn, crate::db::derived::SCRUB_BATCH).unwrap();
+    assert!(scanned >= 1);
+    assert!(
+        !crate::db::ir_mirror::has_corrupt_lineage(&engine.conn, &data.id).unwrap(),
+        "the scrub left the graph damaged"
+    );
+    assert_eq!(dialogue_chain_len(&engine.conn, &data.id), 5);
+}
+
+/// A lost cursor over an existing graph triggers a whole-transcript rebuild.
+///
+/// The rebuild covers the **entire** transcript, so the cursor must jump to its
+/// end. Advancing it by one drain budget instead leaves the next batch thinking
+/// the tail is unmigrated; re-mirroring those rows then rewrote their parent
+/// edges (the graph's head began pointing at its own tail) and `linear_path`
+/// walked the cycle until the process ran out of memory.
+#[test]
+fn a_rebuild_covers_the_whole_transcript_in_one_cursor_step() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    for i in 0..300u64 {
+        data.transcript.push(TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::User, format!("message {i}")),
+        ));
+    }
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+    assert_eq!(dialogue_chain_len(&engine.conn, &data.id), 300);
+
+    // A session whose cursor row is missing reports -1; the graph is intact.
+    engine
+        .conn
+        .execute(
+            "DELETE FROM derived_cursors WHERE session_id = ?1",
+            rusqlite::params![data.id],
+        )
+        .unwrap();
+    crate::db::derived::enqueue(&engine.conn, &data.id, 299, unix_ms()).unwrap();
+
+    while crate::db::derived::advance_batch(&engine.conn, crate::db::derived::IDLE_BATCH).unwrap()
+        > 0
+    {}
+
+    assert_eq!(causal_cursor(&engine.conn, &data.id), 299);
+    assert_eq!(
+        dialogue_chain_len(&engine.conn, &data.id),
+        300,
+        "the rebuilt chain is linear, not a loop"
+    );
+    assert!(
+        !crate::db::ir_mirror::has_corrupt_lineage(&engine.conn, &data.id).unwrap(),
+        "the rebuild leaves no forward parent edges"
+    );
+}
+
+/// A graph damaged by an older binary must heal on the next read even though
+/// its cursors claim full coverage. Cursor equality says how far the mirror
+/// reached, not that the edges it wrote are walkable.
+#[test]
+fn a_corrupt_lineage_self_heals_on_flush() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData::default();
+    for i in 0..5u64 {
+        data.transcript.push(TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::User, format!("message {i}")),
+        ));
+    }
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+
+    // The exact corruption shape found in the live database: the first node's
+    // parent is the newest node, so walking from the leaf revisits the head.
+    let head: String = engine
+        .conn
+        .query_row(
+            "SELECT id FROM causal_nodes WHERE session_id = ?1 AND seq = 4",
+            rusqlite::params![data.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    engine
+        .conn
+        .execute(
+            "UPDATE causal_nodes SET parent_id = ?2 WHERE session_id = ?1 AND seq = 0",
+            rusqlite::params![data.id, head],
+        )
+        .unwrap();
+    assert!(
+        crate::db::ir_mirror::has_corrupt_lineage(&engine.conn, &data.id).unwrap(),
+        "the forward edge is detected"
+    );
+
+    // Cursors are already at the end, so only the integrity probe can trigger.
+    crate::db::derived::flush_session(&engine.conn, &data.id).unwrap();
+
+    assert!(
+        !crate::db::ir_mirror::has_corrupt_lineage(&engine.conn, &data.id).unwrap(),
+        "the flush repaired the lineage"
+    );
+    assert_eq!(dialogue_chain_len(&engine.conn, &data.id), 5);
+    assert_eq!(causal_cursor(&engine.conn, &data.id), 4);
+}
+
 /// A transcript whose graph is missing (a session saved before the live mirror
 /// existed, or restored from migration) must be backfilled, not linked onto a
 /// missing parent.

@@ -670,6 +670,10 @@ const WAL_BACKOFF_MAX: Duration = Duration::from_secs(300);
 const MAINTENANCE_TICK: Duration = Duration::from_millis(500);
 /// Storage metrics cadence. Debug-level: cheap, but not free.
 const METRICS_INTERVAL: Duration = Duration::from_secs(5);
+/// Cadence of the online derived-index scrub. The scan itself is bounded
+/// (`derived::SCRUB_BATCH`), so this is a duty cycle, not a promise to finish
+/// the catalogue in one pass.
+const SCRUB_INTERVAL: Duration = Duration::from_secs(5);
 /// Busy timeout for the maintenance connection. Small on purpose: a
 /// checkpoint that cannot make progress returns immediately and the thread
 /// goes back to sleep. It must never park a lock the writer needs.
@@ -971,6 +975,7 @@ async fn spawn_writer(
             // still live.
             let mut engine = Some(engine);
             let mut foreground = 0u32;
+            let mut last_scrub = Instant::now();
             // WAL pressure is managed by a thread with its own connection, so
             // no checkpoint can ever block the next command. Dropping the
             // guard stops and joins it before this generation exits.
@@ -1010,6 +1015,23 @@ async fn spawn_writer(
                         }
                         Err(error) => warn!(%error, "derived index drain failed"),
                         _ => {}
+                    }
+                }
+                // Online integrity scrub. A bounded slice of sessions is
+                // probed at a fixed cadence, and only while no command waits;
+                // a hit is repaired through the same read-path routine, so a
+                // graph damaged by an older binary heals without a startup
+                // scan or a one-off corruption migration.
+                if rx.is_empty()
+                    && last_scrub.elapsed() >= SCRUB_INTERVAL
+                    && let Some(engine) = engine.as_ref()
+                {
+                    last_scrub = Instant::now();
+                    if let Err(error) = crate::db::derived::scrub_batch(
+                        &engine.conn,
+                        crate::db::derived::SCRUB_BATCH,
+                    ) {
+                        warn!(%error, "derived integrity scrub failed");
                     }
                 }
                 let Some(command) = rx.blocking_recv() else {

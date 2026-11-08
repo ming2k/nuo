@@ -2,6 +2,16 @@
 //! bookkeeping, fork/lineage queries, and the session tree.
 use super::*;
 
+/// Identity of a durable compaction, returned to the caller that already holds
+/// the in-memory horizon node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommittedCompaction {
+    /// The checkpoint entry's id, which is also the derived causal node's id.
+    pub entry_id: String,
+    /// The checkpoint entry's membership sequence.
+    pub entry_seq: u64,
+}
+
 /// What the caller guarantees about the durable projection.
 ///
 /// `commit_turn` used to *infer* append-vs-rebuild by deep-comparing the
@@ -604,6 +614,87 @@ impl SessionStore {
         };
         self.persist_off_runtime(path, data, self.blob_store.clone())
             .await
+    }
+
+    /// Commit one compaction as a **single** durable fact.
+    ///
+    /// The checkpoint entry (typed [`nuo_protocol::EntryPayload::Compaction`])
+    /// and the `compact` directive that hides the archived range land in one
+    /// transcript transaction. The causal `Compaction` node is derived from the
+    /// entry by the normal drain — this method writes no graph row, so there is
+    /// no two-step commit and no window in which the two representations can
+    /// disagree (ADR-0160).
+    ///
+    /// `entry_id` is the identity the in-memory IR already uses for the horizon
+    /// node; adopting it here keeps the durable node id and
+    /// `state.compaction_horizon` identical across a reload.
+    ///
+    /// Returns `Ok(None)` when no transcript entry lies at or before the folded
+    /// boundary (nothing durable to hide). The caller must then keep its
+    /// unfurled window rather than persist a fold it cannot represent.
+    pub async fn commit_compaction(
+        &self,
+        entry_id: String,
+        summary: &str,
+        meta: nuo_protocol::CompactionMeta,
+        checkpoint: ContextProjectionCheckpoint,
+    ) -> Result<Option<CommittedCompaction>, String> {
+        let (path, data, committed) = {
+            let mut state = self.state.lock().await;
+            let Some(up_to_seq) = state
+                .data
+                .transcript
+                .entries
+                .iter()
+                .filter(|entry| entry.seq <= meta.folded_through_seq)
+                .map(|entry| entry.seq)
+                .max()
+            else {
+                return Ok(None);
+            };
+            let mut entry =
+                nuo_protocol::TranscriptEntry::from_message(0, &checkpoint_message(summary));
+            entry.id = entry_id;
+            // The summary is the payload content; `to_message` owns the
+            // model-facing header.
+            entry.content = Some(summary.to_string());
+            entry.payload = nuo_protocol::EntryPayload::Compaction(Box::new(meta));
+            state.data.transcript.push(entry);
+            let checkpoint_seq = state
+                .data
+                .transcript
+                .entries
+                .last()
+                .map(|entry| entry.seq)
+                .ok_or_else(|| "compaction checkpoint entry was not appended".to_string())?;
+            state
+                .data
+                .transcript
+                .push_directive(nuo_protocol::ProjectionDirective {
+                    seq: 0,
+                    kind: nuo_protocol::DirectiveKind::Compact,
+                    up_to_seq,
+                    payload: nuo_protocol::DirectivePayload::Compact { checkpoint_seq },
+                });
+            state.data.last_projection = Some(checkpoint);
+            state.invalidate_projection_cache();
+            state.data.updated_at = unix_timestamp();
+            state.defer_persist = false;
+            let committed = CommittedCompaction {
+                entry_id: state
+                    .data
+                    .transcript
+                    .entries
+                    .last()
+                    .map(|entry| entry.id.clone())
+                    .unwrap_or_default(),
+                entry_seq: checkpoint_seq,
+            };
+            (state.path.clone(), state.data.clone(), committed)
+        };
+        self.persist_off_runtime(path, data, self.blob_store.clone())
+            .await?;
+        Ok(Some(committed))
     }
 
     /// Fork the current session at a specific temporal boundary (ADR-0058)

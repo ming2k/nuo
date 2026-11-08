@@ -5,14 +5,14 @@
 use super::*;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 28;
+pub const CURRENT_DB_VERSION: u32 = 29;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "8989710022bdfad5d1f61be38b5843c9e767f63ae9fda1e01328abcefc4ebdd6";
+    "55bc3be8395bc7f93387eaa6b29f7b7540662be72b8d16e604d588c53555a3c2";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
@@ -581,6 +581,20 @@ pub const MIGRATIONS: &[Migration] = &[
         // cursor resumes from the graph's newest fact (a legacy gap is
         // repaired on the first drain).
         version: 28,
+        sql: "",
+    },
+    Migration {
+        // Online derived-index scrub and main-line leaf reset.
+        //
+        // `causal_nodes` is a derive of the transcript. A graph a previous
+        // binary left malformed, or one whose rows were lost, must heal without
+        // a blocking startup scan and without a one-off corruption migration:
+        // `derived_meta` carries a scrub cursor, and the writer probes a bounded
+        // slice of sessions while idle, repairing any hit through the same
+        // read-path routine (`flush_session`) that any reader would run. The
+        // `active_leaf` reset drops a persisted branch position that the
+        // transcript mirror never maintained for main-line sessions.
+        version: 29,
         sql: "",
     },
 ];
@@ -1645,6 +1659,9 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 }
                 if migration.version == 28 {
                     apply_derived_index_schema(&tx)?;
+                }
+                if migration.version == 29 {
+                    apply_derived_scrub_schema(&tx)?;
                 }
             }
         }
@@ -2743,25 +2760,29 @@ pub fn apply_workspace_effect_journal_schema(tx: &rusqlite::Transaction) -> Resu
     Ok(())
 }
 
-/// Backfill `causal_nodes` from the transcript (migration 27).
+/// Schema for the online derived-index scrub (migration 29).
 ///
-/// `entry_memberships` already holds the conversation's identity, order and
-/// parent-free sequence; the live mirror writes `dialogue` nodes keyed by the same
-/// entry id at the same `seq`. `INSERT OR IGNORE` therefore completes a
-/// partially-mirrored database and leaves a complete one untouched.
-///
-/// Parent edges are left NULL on purpose. The true causal parent of an entry is
-/// the previous entry *within one lineage*, and a database holding forked branches
-/// cannot answer that without risking a cross-lineage edge — a wrong edge is worse
-/// than none, because `linear_path` would follow it. The live mirror repairs the
-/// edge for every session that commits again (it writes `parent_id` on conflict: a
-/// fact's payload is immutable, its lineage was simply never recorded). Until then
-/// `newest_leaf` and `read_horizon` order by `seq`, so such a graph is usable
-/// rather than silently empty.
-///
-/// `state` entries are projections with no node kind, so they are excluded —
-/// exactly as the live mirror excludes them. A `checkpoint` entry becomes a
-/// `compaction` node, matching the serializer.
+/// The table is deliberately tiny: a resumable scan cursor over session ids.
+/// It is **not** a second index and carries no facts — deleting it only restarts
+/// the scrub. The `active_leaf` reset is part of the same migration because a
+/// main-line session's lineage position is the transcript's newest dialogue
+/// fact, not a value the old IR-commit path persisted.
+pub fn apply_derived_scrub_schema(tx: &rusqlite::Transaction) -> Result<()> {
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS derived_meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO derived_meta (key, value) VALUES ('scrub_cursor', '');
+        "#,
+    )?;
+    if table_exists(tx, "threads")? {
+        tx.execute_batch("UPDATE threads SET active_leaf = NULL WHERE fork_kind = 'trunk';")?;
+    }
+    Ok(())
+}
+
 /// Migration 28: move both derived indexes off the commit path.
 ///
 /// Dropping the membership triggers is the load-bearing part: from here on the
@@ -2816,6 +2837,25 @@ pub fn apply_derived_index_schema(tx: &rusqlite::Transaction) -> Result<()> {
     Ok(())
 }
 
+/// Backfill `causal_nodes` from the transcript (migration 27).
+///
+/// `entry_memberships` already holds the conversation's identity, order and
+/// parent-free sequence; the live mirror writes `dialogue` nodes keyed by the same
+/// entry id at the same `seq`. `INSERT OR IGNORE` therefore completes a
+/// partially-mirrored database and leaves a complete one untouched.
+///
+/// Parent edges are left NULL on purpose. The true causal parent of an entry is
+/// the previous entry *within one lineage*, and a database holding forked branches
+/// cannot answer that without risking a cross-lineage edge — a wrong edge is worse
+/// than none, because `linear_path` would follow it. The live mirror repairs the
+/// edge for every session that commits again (it writes `parent_id` on conflict: a
+/// fact's payload is immutable, its lineage was simply never recorded). Until then
+/// `newest_leaf` and `read_horizon` order by `seq`, so such a graph is usable
+/// rather than silently empty.
+///
+/// `state` entries are projections with no node kind, so they are excluded —
+/// exactly as the live mirror excludes them. A `checkpoint` entry becomes a
+/// `compaction` node, matching the serializer.
 pub fn apply_causal_fact_backfill_schema(tx: &rusqlite::Transaction) -> Result<()> {
     if !table_exists(tx, "entry_memberships")? || !table_exists(tx, "entries")? {
         return Ok(());

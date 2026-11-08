@@ -31,14 +31,23 @@ pub struct CausalCompactionOutcome {
     pub compaction_node_id: String,
     /// ID of the first node preserved in the active tail.
     pub first_kept_node_id: String,
+    /// ID of the last folded node: the horizon's parent.
+    pub split_parent_node_id: Option<String>,
     /// Number of causal nodes folded into the compaction checkpoint.
     pub nodes_folded: usize,
-    /// Estimated tokens before compaction.
+    /// Transcript sequence of the last folded node. The durable `compact`
+    /// directive hides entries through here (snapped to an existing entry).
+    pub folded_through_seq: u64,
+    /// Token weight of the folded prefix.
     pub tokens_before: usize,
     /// Generated structured summary.
     pub summary: String,
     /// Artifact file paths touched across the compacted lineage.
     pub tracked_files: Vec<String>,
+    /// Files the folded range read, carried into the durable compaction fact.
+    pub read_files: Vec<String>,
+    /// Files the folded range modified, carried into the durable fact.
+    pub modified_files: Vec<String>,
 }
 
 /// Native engine executing causal graph compaction on Session IR.
@@ -51,16 +60,37 @@ impl CausalCompactor {
         provider: Option<Arc<dyn Provider>>,
         cut_mode: CompactionCutMode,
         extra_context: Vec<String>,
+        summary_budget: usize,
     ) -> Result<Option<CausalCompactionOutcome>, String> {
-        let Some(leaf_id) = ir.state.active_leaf.clone() else {
+        if ir.state.active_leaf.is_none() {
             return Ok(None);
-        };
+        }
 
-        let (cut_point, summary, split_parent, nodes_folded, read_files, modified_files) = {
-            let active_nodes = ir.history.linear_path(&leaf_id);
+        let (
+            cut_point,
+            summary,
+            split_parent,
+            nodes_folded,
+            folded_through_seq,
+            read_files,
+            modified_files,
+        ) = {
+            // The active view, not the raw parent chain. After a fold the kept
+            // tail's head still points at the folded chain (`INV-CHK-01`), so
+            // `linear_path` walks straight through the horizon and re-reads
+            // history this session already summarized. `resolve_active_branch`
+            // injects the horizon and stops there — the same walk every other
+            // consumer uses, so the compactor can no longer disagree with the
+            // window it is compacting.
+            let active_nodes = ir.resolve_active_branch();
             if active_nodes.is_empty() {
                 return Ok(None);
             }
+            let horizon_node = ir
+                .state
+                .compaction_horizon
+                .as_deref()
+                .and_then(|id| ir.history.nodes.get(id));
 
             // 1. Find atomic cut point according to chosen mode
             let cut_point = match cut_mode {
@@ -85,18 +115,41 @@ impl CausalCompactor {
 
             let nodes_to_fold = &active_nodes[..cut_point.first_kept_index];
             let nodes_folded = nodes_to_fold.len();
+            let folded_through_seq = nodes_to_fold.last().map(|node| node.seq).unwrap_or(0);
 
-            // 2. Extract prior summary if present in folded nodes
-            let previous_summary = nodes_to_fold.iter().rev().find_map(|n| {
-                if let NodePayload::Compaction { summary, .. } = &n.payload {
-                    Some(summary.as_str())
-                } else {
-                    None
-                }
-            });
+            // 2. Extract the prior summary. The current horizon is the
+            //    authoritative carry-forward: with the horizon-aware walk it is
+            //    the *first* node, not one of the folded nodes, so scanning
+            //    `nodes_to_fold` alone silently dropped it and every fold
+            //    restarted the summary from raw transcripts.
+            let previous_summary = horizon_node
+                .and_then(|node| match &node.payload {
+                    NodePayload::Compaction { summary, .. } => Some(summary.as_str()),
+                    _ => None,
+                })
+                .or_else(|| {
+                    nodes_to_fold.iter().rev().find_map(|n| {
+                        if let NodePayload::Compaction { summary, .. } = &n.payload {
+                            Some(summary.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                });
 
-            // 3. Track file operations across folded nodes programmatically
+            // 3. Track file operations across the folded nodes, starting from
+            //    the horizon's manifest so a fold that only folds the tail
+            //    still carries the files the earlier summaries touched.
             let mut file_tracker = FileOperations::new();
+            if let Some(NodePayload::Compaction {
+                read_files,
+                modified_files,
+                ..
+            }) = horizon_node.map(|node| &node.payload)
+            {
+                file_tracker.read.extend(read_files.iter().cloned());
+                file_tracker.modified.extend(modified_files.iter().cloned());
+            }
             for node in nodes_to_fold {
                 file_tracker.extract_from_node(node);
             }
@@ -139,6 +192,20 @@ impl CausalCompactor {
                 ),
             };
 
+            // The summary is part of the post-compaction window. Clamping it
+            // here — after either summarizer — turns "the model happened to be
+            // verbose" into a bounded fact instead of a window that re-crosses
+            // the gate on the next send. The legacy selector already clamped;
+            // the IR path did not.
+            let summary = if summary_budget == 0 {
+                summary
+            } else {
+                nuo_protocol::tokenizer::truncate_to_tokens(&summary, summary_budget)
+                    .0
+                    .trim_end()
+                    .to_string()
+            };
+
             let split_parent = if cut_point.first_kept_index > 0 {
                 nodes_to_fold.last().map(|n| n.id.clone())
             } else {
@@ -153,6 +220,7 @@ impl CausalCompactor {
                 summary,
                 split_parent,
                 nodes_folded,
+                folded_through_seq,
                 read_files,
                 modified_files,
             )
@@ -178,13 +246,13 @@ impl CausalCompactor {
 
         ir.append_compaction(
             &compaction_node_id,
-            split_parent,
+            split_parent.clone(),
             now_ms,
             summary.clone(),
             cut_point.first_kept_entry_id.clone(),
             cut_point.tokens_before,
-            read_files,
-            modified_files,
+            read_files.clone(),
+            modified_files.clone(),
         );
 
         // Facts are immutable and parent edges never mutate.
@@ -194,10 +262,14 @@ impl CausalCompactor {
         Ok(Some(CausalCompactionOutcome {
             compaction_node_id,
             first_kept_node_id: cut_point.first_kept_entry_id,
+            split_parent_node_id: split_parent,
             nodes_folded,
+            folded_through_seq,
             tokens_before: cut_point.tokens_before,
             summary,
             tracked_files,
+            read_files,
+            modified_files,
         }))
     }
 }
@@ -276,6 +348,7 @@ mod tests {
             None,
             CompactionCutMode::TargetTokens(10),
             Vec::new(),
+            0,
         )
         .await
         .unwrap();
@@ -323,6 +396,7 @@ mod tests {
             None,
             CompactionCutMode::PreserveTailRounds(1),
             vec!["User note".to_string()],
+            0,
         )
         .await
         .unwrap()
@@ -331,5 +405,47 @@ mod tests {
         assert_eq!(outcome.first_kept_node_id, "u3");
         assert_eq!(outcome.nodes_folded, 4); // u1, a1, u2, a2
         assert!(!outcome.summary.is_empty());
+    }
+
+    /// The summary is part of the post-fold window, so it must be bounded.
+    /// The IR path used to hand the provider's free-form output (plus the file
+    /// manifest) straight into the checkpoint, which could undo the fold's
+    /// budget on its own.
+    #[tokio::test]
+    async fn a_summary_is_bounded_by_its_budget() {
+        let mut ir = SessionIR::new("bounded-summary", SessionPolicy::default(), 1000);
+        for i in 1..=8 {
+            ir.append_message(
+                format!("u{i}"),
+                1000 + i * 10,
+                Message::new(
+                    Role::User,
+                    format!("User message {i} {}", "filler ".repeat(40)),
+                ),
+            );
+            ir.append_message(
+                format!("a{i}"),
+                1000 + i * 10 + 5,
+                Message::new(
+                    Role::Assistant,
+                    format!("Assistant response {i} {}", "filler ".repeat(40)),
+                ),
+            );
+        }
+        let outcome = CausalCompactor::compact_session_ir(
+            &mut ir,
+            None,
+            CompactionCutMode::TargetTokens(50),
+            Vec::new(),
+            30,
+        )
+        .await
+        .unwrap()
+        .expect("the fold must engage");
+        assert!(
+            nuo_protocol::tokenizer::count_tokens(&outcome.summary) <= 30,
+            "summary exceeded its budget: {} tokens",
+            nuo_protocol::tokenizer::count_tokens(&outcome.summary)
+        );
     }
 }

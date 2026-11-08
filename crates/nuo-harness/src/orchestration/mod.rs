@@ -57,6 +57,21 @@ pub fn round_response(session_id: &str, event: RoundEvent) -> AgentResponse {
     }
 }
 
+/// The explicit "the fold did not reach the gate" signal.
+fn compaction_insufficient_notice(tokens_after: usize, gate: usize) -> nuo_protocol::AgentNotice {
+    nuo_protocol::AgentNotice::new(
+        NoticeKind::ReviewAlert,
+        NoticeSeverity::Warning,
+        "Compaction could not bring the window under the limit",
+        NoticeSource::Harness,
+    )
+    .with_body(format!(
+        "The compacted window is {tokens_after} tokens; this model's compaction gate is {gate}. \
+         The fold was kept (it is still smaller than before), but the next request may cross the \
+         gate again. Run /compact for a round-shaped fold or switch to a larger window."
+    ))
+}
+
 /// The user-facing explanation for withholding image attachments.
 ///
 /// One wording, because there is one kind of evidence: the probe's outcome. The
@@ -472,6 +487,11 @@ pub struct ContextProjectionSettings {
     /// `× CHARS_PER_TOKEN` conversion existed only to feed a char-space
     /// pruner).
     pub prune_protect_tokens: usize,
+    /// Tokens the surrounding request (instructions, tool schemas, temporary
+    /// context) adds on top of the window. The compaction gate is compared
+    /// against the **request** estimate, so a fold must reserve these tokens or
+    /// it can hand back a window that is still over the gate.
+    pub request_overhead_tokens: usize,
 }
 
 impl ContextProjectionSettings {
@@ -493,6 +513,7 @@ impl ContextProjectionSettings {
             summarize: policy.checkpoint_enabled,
             prune: policy.lightweight_degradation_enabled,
             prune_protect_tokens: policy.recent_observation_protect_tokens as usize,
+            request_overhead_tokens: 0,
         }
     }
 
@@ -504,6 +525,7 @@ impl ContextProjectionSettings {
             summarize: policy.summarize,
             prune: policy.prune,
             prune_protect_tokens: policy.prune_protect_tokens,
+            request_overhead_tokens: 0,
         }
     }
 
@@ -522,8 +544,41 @@ impl ContextProjectionSettings {
             .target_tokens
             .saturating_sub(request.overhead_tokens)
             .max(floor);
+        resolved.request_overhead_tokens = request.overhead_tokens;
         resolved
     }
+}
+
+/// Outcome of one compaction pass.
+///
+/// A compaction that cannot bring the window under the gate is still better
+/// than no compaction, but it must not be reported as a successful shrink.
+/// `satisfied == false` is the explicit "insufficient" signal; the caller
+/// surfaces it instead of silently re-triggering on the next send.
+#[derive(Debug, Clone)]
+pub struct CompactionReport {
+    pub checkpoint: ContextProjectionCheckpoint,
+    /// `window_after + request_overhead <= compaction_threshold`.
+    pub satisfied: bool,
+}
+
+/// Tail and summary budgets that make the compaction post-condition reachable.
+///
+/// The summary is part of the window, and the surrounding request
+/// (`instructions`, tool schemas, temporary context) is part of the estimate the
+/// gate compares. Reserving both is what keeps a fold from landing *at* the
+/// target but *above* the gate.
+fn compaction_budgets(settings: &ContextProjectionSettings) -> (usize, usize) {
+    let gate = settings.budget.compaction_threshold_tokens;
+    let summary_budget = settings.budget.target_tokens.clamp(2_000, 24_000);
+    let tail_budget = gate
+        .saturating_sub(settings.request_overhead_tokens)
+        .saturating_sub(summary_budget)
+        .max(1_000);
+    (
+        settings.budget.target_tokens.min(tail_budget).max(1),
+        summary_budget,
+    )
 }
 
 #[cfg(test)]
@@ -533,6 +588,7 @@ mod projection_settings_tests {
     #[test]
     fn compaction_target_accounts_for_projected_request_overhead() {
         let settings = ContextProjectionSettings {
+            request_overhead_tokens: 0,
             budget: nuo_protocol::CompactionPolicy::default().resolve(200_000),
             preserve_rounds: 6,
             summarize: true,
@@ -1245,7 +1301,7 @@ pub async fn execute_round(
         ));
         let extra = agent.fire_pre_compact().await;
         let compaction_settings = projection.for_request(request_estimate);
-        if let Some(checkpoint) = compact_round_history(
+        if let Some(report) = compact_round_history(
             &mut round_history,
             &session,
             &compaction_settings,
@@ -1254,7 +1310,16 @@ pub async fn execute_round(
         )
         .await?
         {
-            send_compaction(&tx, &session_id, &checkpoint);
+            send_compaction(&tx, &session_id, &report.checkpoint);
+            if !report.satisfied {
+                let _ = tx.send(round_response(
+                    &session_id,
+                    RoundEvent::Notice(compaction_insufficient_notice(
+                        report.checkpoint.window_tokens_after,
+                        compaction_settings.budget.compaction_threshold_tokens,
+                    )),
+                ));
+            }
         }
         agent.fire_post_compact().await;
         let _ = tx.send(round_response(
@@ -1357,11 +1422,12 @@ pub async fn execute_round(
         if is_context_overflow && !compacted_after_overflow && !tool_activity.load(Ordering::SeqCst)
         {
             let overflow_settings = ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 preserve_rounds: projection.preserve_rounds.max(1),
                 ..projection.clone()
             }
             .for_request(agent.estimate_next_request_tokens(&round_history));
-            if compact_round_history(
+            if let Some(report) = compact_round_history(
                 &mut round_history,
                 &session,
                 &overflow_settings,
@@ -1369,14 +1435,20 @@ pub async fn execute_round(
                 Vec::new(),
             )
             .await?
-            .is_some()
             {
                 compacted_after_overflow = true;
                 if streamed_text.swap(false, Ordering::SeqCst) {
                     let _ = tx.send(round_response(&session_id, RoundEvent::StreamDiscard));
                 }
-                if let Some(checkpoint) = session.last_projection().await {
-                    send_compaction(&tx, &session_id, &checkpoint);
+                send_compaction(&tx, &session_id, &report.checkpoint);
+                if !report.satisfied {
+                    let _ = tx.send(round_response(
+                        &session_id,
+                        RoundEvent::Notice(compaction_insufficient_notice(
+                            report.checkpoint.window_tokens_after,
+                            overflow_settings.budget.compaction_threshold_tokens,
+                        )),
+                    ));
                 }
                 attempt = attempt.saturating_sub(1);
                 continue;
@@ -1986,7 +2058,7 @@ pub async fn compact_round_history(
     settings: &ContextProjectionSettings,
     provider: Option<Arc<dyn Provider>>,
     extra_context: Vec<String>,
-) -> Result<Option<ContextProjectionCheckpoint>, String> {
+) -> Result<Option<CompactionReport>, String> {
     // Automatic compaction is budget-driven: it must shrink the window *to* the
     // post-compaction target. `PreserveTailRounds` cannot do that — it keeps a
     // fixed number of rounds verbatim regardless of their size, so on a session
@@ -1995,7 +2067,7 @@ pub async fn compact_round_history(
     // called to relieve. `TargetTokens` is the mode that bounds the tail by the
     // budget, which is what `CompactionCutMode`'s own documentation reserves for
     // this backstop role; `/compact` keeps the round-shaped variant.
-    let target_tokens = settings.budget.target_tokens.max(1);
+    let (target_tokens, _) = compaction_budgets(settings);
     compact_round_history_with_mode(
         history,
         session,
@@ -2014,8 +2086,9 @@ pub async fn compact_round_history_with_mode(
     provider: Option<Arc<dyn Provider>>,
     mode: crate::cognition::compaction::CompactionCutMode,
     extra_context: Vec<String>,
-) -> Result<Option<ContextProjectionCheckpoint>, String> {
+) -> Result<Option<CompactionReport>, String> {
     let provider = if settings.summarize { provider } else { None };
+    let (_, summary_budget) = compaction_budgets(settings);
 
     // Canonical path: Session IR Native Causal Compaction
     //
@@ -2043,10 +2116,10 @@ pub async fn compact_round_history_with_mode(
         provider,
         mode,
         extra_context,
+        summary_budget,
     )
     .await?
     {
-        session.commit_session_ir(&ir).await?;
         let mut active_msgs = ir.resolve_active_messages();
         active_msgs.extend(uncommitted);
         let tokens_after = nuo_protocol::pressure::estimate_tokens(&active_msgs);
@@ -2056,11 +2129,58 @@ pub async fn compact_round_history_with_mode(
             active_messages: active_msgs.len(),
             window_tokens_before,
             window_tokens_after: tokens_after,
-            summary: Some(outcome.summary),
+            summary: Some(outcome.summary.clone()),
             tracked_files: outcome.tracked_files,
         };
+        let meta = nuo_protocol::CompactionMeta {
+            first_kept_node_id: outcome.first_kept_node_id.clone(),
+            split_parent_node_id: outcome.split_parent_node_id.clone(),
+            folded_through_seq: outcome.folded_through_seq,
+            tokens_before: outcome.tokens_before,
+            read_files: outcome.read_files.clone(),
+            modified_files: outcome.modified_files.clone(),
+        };
+        // One write. The checkpoint entry is the fact; the causal node is
+        // derived from it by the next drain. The in-memory IR already carries
+        // the node under the same id (the compactor appended it), so the
+        // durable and in-memory horizons agree by construction.
+        let committed = session
+            .commit_compaction(
+                outcome.compaction_node_id.clone(),
+                &outcome.summary,
+                meta,
+                checkpoint.clone(),
+            )
+            .await?;
+        if committed.is_none() {
+            // The fold has no transcript entry to hide (an IR-only boundary).
+            // Handing the caller a folded window that cannot be persisted would
+            // silently revert on the next round; keep the window it had.
+            let session_id = session.id().await;
+            tracing::warn!(
+                session = %session_id,
+                folded_through_seq = outcome.folded_through_seq,
+                "compaction found no durable transcript boundary; keeping the unfolded window"
+            );
+            return Ok(None);
+        }
+        let gate = settings.budget.compaction_threshold_tokens;
+        let satisfied =
+            gate == 0 || tokens_after.saturating_add(settings.request_overhead_tokens) <= gate;
+        if !satisfied {
+            tracing::warn!(
+                tokens_after,
+                gate,
+                overhead = settings.request_overhead_tokens,
+                folded = outcome.nodes_folded,
+                "compaction could not bring the window under the gate"
+            );
+        }
         *history = active_msgs;
-        Ok(Some(checkpoint))
+        Ok(Some(CompactionReport {
+            checkpoint,
+            satisfied,
+        }))
     } else {
         Ok(None)
     }

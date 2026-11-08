@@ -616,6 +616,7 @@ async fn each_attempt_carries_its_own_transport_telemetry_across_a_retry() {
             session_id: session_id.clone(),
             session: session.clone(),
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -701,6 +702,7 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
             session_id: session_id.clone(),
             session: session.clone(),
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -803,6 +805,7 @@ async fn execute_round_archives_a_request_projection_outside_the_window() {
             session_id: session.id().await,
             session: session.clone(),
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -875,6 +878,7 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
             session_id: session.id().await,
             session: session.clone(),
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -948,6 +952,7 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
             session_id: session.id().await,
             session: session.clone(),
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -1017,6 +1022,7 @@ async fn turn_exhaustion_message_explains_retry_budget() {
             session_id: session.id().await,
             session,
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -1205,6 +1211,7 @@ async fn retry_resumes_stopped_round_without_breaking_turn_sequence() {
         session_id: session_id.clone(),
         session: Arc::clone(&session),
         projection: ContextProjectionSettings {
+            request_overhead_tokens: 0,
             budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
             preserve_rounds: 6,
             summarize: false,
@@ -1518,6 +1525,7 @@ async fn interactive_round_fixture(provider: Arc<dyn Provider>) -> InteractiveRo
             session: Arc::clone(&session),
             session_id,
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,
@@ -2194,6 +2202,7 @@ fn image_round_context(
         session_id: session_id.to_string(),
         session: Arc::clone(session),
         projection: ContextProjectionSettings {
+            request_overhead_tokens: 0,
             budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
             preserve_rounds: 6,
             summarize: false,

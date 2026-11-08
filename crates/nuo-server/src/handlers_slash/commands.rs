@@ -978,9 +978,29 @@ pub(crate) async fn compact(env: SlashEnv<'_>, name: &str, args: &str, _parts: &
     )
     .await
     {
-        Ok(Some(checkpoint)) => {
+        Ok(Some(report)) => {
             record_invocation(session, name, args).await;
-            send_compaction(resp_tx, &session.id().await, &checkpoint);
+            let session_id = session.id().await;
+            send_compaction(resp_tx, &session_id, &report.checkpoint);
+            if !report.satisfied {
+                let _ = resp_tx.send(round_response(
+                    &session_id,
+                    nuo_protocol::RoundEvent::Notice(
+                        nuo_protocol::AgentNotice::new(
+                            nuo_protocol::NoticeKind::ReviewAlert,
+                            nuo_protocol::NoticeSeverity::Warning,
+                            "Compaction could not bring the window under the limit",
+                            nuo_protocol::NoticeSource::Harness,
+                        )
+                        .with_body(format!(
+                            "The compacted window is {} tokens; this model's compaction gate is {}. \
+                             Run /compact again or switch to a larger window.",
+                            report.checkpoint.window_tokens_after,
+                            settings.budget.compaction_threshold_tokens
+                        )),
+                    ),
+                ));
+            }
         }
         Ok(None) => {
             record_command(

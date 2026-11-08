@@ -71,9 +71,9 @@ pub use message::{
 
 pub mod transcript;
 pub use transcript::{
-    DirectiveKind, DirectivePayload, EntryKind, EntryOrigin, EntryPayload, MessagePayload,
-    ProjectionDirective, PrunedMediaOutput, PrunedToolOutput, StatePayload, SubagentRef,
-    Transcript, TranscriptEntry,
+    CHECKPOINT_HEADER, CompactionMeta, DirectiveKind, DirectivePayload, EntryKind, EntryOrigin,
+    EntryPayload, MessagePayload, ProjectionDirective, PrunedMediaOutput, PrunedToolOutput,
+    StatePayload, SubagentRef, Transcript, TranscriptEntry, checkpoint_message,
 };
 
 pub mod instructions;

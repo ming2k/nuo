@@ -92,6 +92,7 @@ async fn execute_round_persists_a_session_that_resume_reopens() {
             session: session.clone(),
             session_id: session.id().await,
             projection: ContextProjectionSettings {
+                request_overhead_tokens: 0,
                 budget: nuo_protocol::CompactionPolicy::default().resolve(100_000),
                 preserve_rounds: 6,
                 summarize: false,

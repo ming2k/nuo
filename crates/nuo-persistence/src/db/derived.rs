@@ -31,6 +31,11 @@ pub(crate) const IDLE_BATCH: usize = 128;
 /// Entries indexed per explicit flush batch. A read that needs the derived
 /// state loops this until the session is caught up.
 const FLUSH_BATCH: usize = 512;
+/// Sessions probed per idle scrub pass. Bounded so the writer answers the next
+/// command promptly; the cursor makes the scan resumable across passes.
+pub(crate) const SCRUB_BATCH: usize = 32;
+/// Resumable cursor for the online integrity scrub (`derived_meta`).
+const SCRUB_CURSOR_KEY: &str = "scrub_cursor";
 
 /// Record that `session_id` has durable transcript rows through `through_seq`
 /// that the derived indexes have not consumed.
@@ -142,13 +147,91 @@ pub(crate) fn flush_session(conn: &Connection, session_id: &str) -> Result<usize
     if through < 0 {
         return Ok(0);
     }
+    // Read-your-writes must also mean *read a walkable graph*. A session whose
+    // cursors are fully caught up would otherwise never be re-examined, so a
+    // corrupted lineage could survive indefinitely and trap the very caller
+    // that is about to hydrate it. Coverage is only judged when the cursor
+    // claims to be caught up: mid-drain, a partial graph is normal.
+    let (causal, _fts) = cursors(conn, session_id)?;
+    let needs_repair = ir_mirror::has_corrupt_lineage(conn, session_id)?
+        || (causal >= through && ir_mirror::has_missing_coverage(conn, session_id)?);
+    let mut total = 0usize;
+    if needs_repair {
+        tracing::warn!(
+            %session_id,
+            "derived lineage repaired from the durable transcript"
+        );
+        total += in_transaction(conn, |conn| {
+            let rebuilt = rebuild_causal(conn, session_id)?;
+            ensure_cursor_row(conn, session_id)?;
+            set_cursor(conn, session_id, "causal_seq", through)?;
+            Ok(rebuilt)
+        })?;
+    }
     // A legacy session may have no pending row even though its graph is
     // behind; enqueue it so the normal drain covers the gap.
     let (causal, fts) = cursors(conn, session_id)?;
     if (causal < through || fts < through) && pending_for(conn, session_id)?.is_none() {
         enqueue(conn, session_id, through as u64, unix_ms())?;
     }
-    drain_session(conn, session_id)
+    total += drain_session(conn, session_id)?;
+    Ok(total)
+}
+
+/// Probe and repair a bounded slice of sessions.
+///
+/// Runs on the writer while it is idle. The cursor lives in `derived_meta`, so
+/// the scan resumes across passes and a crash only repeats one slice. Every hit
+/// goes through [`flush_session`] — the same probe/repair a reader would run —
+/// which keeps one repair implementation instead of freezing a one-off
+/// migration for this incident.
+pub(crate) fn scrub_batch(conn: &Connection, budget: usize) -> Result<usize> {
+    let cursor = meta_get(conn, SCRUB_CURSOR_KEY)?.unwrap_or_default();
+    let budget = budget.max(1) as i64;
+    let ids: Vec<String> = {
+        let mut stmt =
+            conn.prepare_cached("SELECT id FROM threads WHERE id > ?1 ORDER BY id ASC LIMIT ?2")?;
+        let rows = stmt.query_map(params![cursor, budget], |row| row.get(0))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    if ids.is_empty() {
+        // End of the catalogue: restart at the beginning on the next pass.
+        if !cursor.is_empty() {
+            meta_set(conn, SCRUB_CURSOR_KEY, "")?;
+        }
+        return Ok(0);
+    }
+    let mut scanned = 0usize;
+    for session_id in &ids {
+        if let Err(error) = flush_session(conn, session_id) {
+            // One unreadable session must not stop the scan.
+            tracing::warn!(%error, session = %session_id, "derived scrub could not inspect a session");
+            continue;
+        }
+        scanned += 1;
+    }
+    if let Some(last) = ids.last() {
+        meta_set(conn, SCRUB_CURSOR_KEY, last)?;
+    }
+    Ok(scanned)
+}
+
+fn meta_get(conn: &Connection, key: &str) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT value FROM derived_meta WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO derived_meta (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
 }
 
 /// Drain every pending session. Used by transcript search, which spans
@@ -185,7 +268,66 @@ fn drain_session(conn: &Connection, session_id: &str) -> Result<usize> {
     Ok(total)
 }
 
+/// Run `work` in a write transaction unless the caller already opened one.
+///
+/// A derived batch updates up to four tables (graph rows, thread cursor, FTS
+/// rows, pending row) that describe **one** position. Committing them one
+/// statement at a time has two costs: an fsync per row on a
+/// `synchronous=FULL` connection (a 926-node rebuild became ~900 commits), and
+/// a crash between the rows leaves a graph whose cursor disagrees with what is
+/// actually mirrored. One transaction makes the batch both cheap and atomic;
+/// the nested case runs inline so `flush_session` can own the boundary.
+fn in_transaction<T>(conn: &Connection, work: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    if !conn.is_autocommit() {
+        return work(conn);
+    }
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    // Disarm on the explicit paths; if `work` unwinds, dropping the guard
+    // releases the write lock instead of leaving the writer's only connection
+    // inside an aborted transaction.
+    let mut guard = RollbackOnUnwind { conn, armed: true };
+    let result = work(conn);
+    guard.armed = false;
+    match result {
+        Ok(value) => {
+            if let Err(error) = conn.execute_batch("COMMIT") {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(error);
+            }
+            Ok(value)
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+struct RollbackOnUnwind<'a> {
+    conn: &'a Connection,
+    armed: bool,
+}
+
+impl Drop for RollbackOnUnwind<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.conn.execute_batch("ROLLBACK");
+        }
+    }
+}
+
 fn advance_session(
+    conn: &Connection,
+    session_id: &str,
+    through: i64,
+    budget: usize,
+) -> Result<usize> {
+    in_transaction(conn, |conn| {
+        advance_session_inner(conn, session_id, through, budget)
+    })
+}
+
+fn advance_session_inner(
     conn: &Connection,
     session_id: &str,
     through: i64,
@@ -197,11 +339,29 @@ fn advance_session(
     let mut progressed = 0usize;
 
     let mut causal_now = causal;
+    // Corruption is checked even when the cursor claims full coverage: the
+    // cursor records *how far* the graph was built, not whether its edges are
+    // walkable. A graph damaged by a previous binary must heal on the next read
+    // rather than keep a `linear_path` caller trapped in a cycle.
+    if ir_mirror::has_corrupt_lineage(conn, session_id)? {
+        progressed += rebuild_causal(conn, session_id)?;
+        set_cursor(conn, session_id, "causal_seq", through)?;
+        causal_now = through;
+    }
     if causal_now < through {
         let end = through.min(causal_now + budget);
-        progressed += advance_causal(conn, session_id, causal_now, end)?;
-        set_cursor(conn, session_id, "causal_seq", end)?;
-        causal_now = end;
+        let advance = advance_causal(conn, session_id, causal_now, end)?;
+        // A repair does not mirror one budget's worth of entries: it rebuilds
+        // the **whole** transcript and links every node from the root. The
+        // cursor must therefore jump to the rebuilt end. Advancing it by the
+        // batch budget instead leaves the drain thinking the tail is still
+        // unmigrated; the next batch then re-mirrors rows that already exist,
+        // and before lineage became write-once that re-link is exactly how the
+        // chain's head was pointed into its own tail.
+        let next = if advance.rebuilt { through } else { end };
+        progressed += advance.covered;
+        set_cursor(conn, session_id, "causal_seq", next)?;
+        causal_now = next;
     }
     let mut fts_now = fts;
     if fts_now < through {
@@ -220,9 +380,22 @@ fn advance_session(
 }
 
 /// Mirror the dialogue entries in `(cursor, end]`. A graph that does not cover
-/// the range (empty, lost, or never mirrored) is rebuilt from the durable
-/// transcript instead of being linked to a missing parent.
-fn advance_causal(conn: &Connection, session_id: &str, cursor: i64, end: i64) -> Result<usize> {
+/// the range (empty, lost, never mirrored, or visibly corrupted) is rebuilt
+/// from the durable transcript instead of being linked to a missing parent.
+struct CausalAdvance {
+    /// Entries the call accounted for.
+    covered: usize,
+    /// The whole transcript was re-mirrored; the caller must move the cursor to
+    /// the rebuilt end rather than to this batch's `end`.
+    rebuilt: bool,
+}
+
+fn advance_causal(
+    conn: &Connection,
+    session_id: &str,
+    cursor: i64,
+    end: i64,
+) -> Result<CausalAdvance> {
     let entries = load_dialogue_range(conn, session_id, cursor, end)?;
     let newest = ir_mirror::newest_position(conn, session_id)?;
     let repair = match entries.first().map(|entry| entry.seq) {
@@ -242,14 +415,7 @@ fn advance_causal(conn: &Connection, session_id: &str, cursor: i64, end: i64) ->
     };
 
     if repair {
-        let all = load_dialogue_range(conn, session_id, -1, i64::MAX)?;
-        ir_mirror::mirror_transcript(
-            conn,
-            session_id,
-            session_updated_at(conn, session_id)?,
-            &all,
-            true,
-        )?;
+        rebuild_causal(conn, session_id)?;
     } else if !entries.is_empty() {
         ir_mirror::mirror_transcript(
             conn,
@@ -259,7 +425,26 @@ fn advance_causal(conn: &Connection, session_id: &str, cursor: i64, end: i64) ->
             false,
         )?;
     }
-    Ok((end - cursor) as usize)
+    Ok(CausalAdvance {
+        covered: (end - cursor).max(0) as usize,
+        rebuilt: repair,
+    })
+}
+
+/// Rebuild the session's dialogue graph from the durable transcript.
+///
+/// A whole-transcript rebuild: the caller must move the causal cursor to the
+/// rebuilt end in the same operation, never just one batch further.
+fn rebuild_causal(conn: &Connection, session_id: &str) -> Result<usize> {
+    let all = load_dialogue_range(conn, session_id, -1, i64::MAX)?;
+    ir_mirror::mirror_transcript(
+        conn,
+        session_id,
+        session_updated_at(conn, session_id)?,
+        &all,
+        true,
+    )?;
+    Ok(all.len())
 }
 
 fn advance_fts(conn: &Connection, session_id: &str, cursor: i64, end: i64) -> Result<usize> {

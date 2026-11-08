@@ -19,8 +19,7 @@
 use crate::blobs::BlobStore;
 use crate::paths;
 use nuo_protocol::{
-    EntryPayload, InjectionKind, InjectionOrigin, Message, Provider, Role, ThreadDetail,
-    estimate_tokens,
+    EntryPayload, InjectionKind, Message, Provider, Role, ThreadDetail, estimate_tokens,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -731,12 +730,6 @@ pub struct ContextProjectionResult {
     pub checkpoint: ContextProjectionCheckpoint,
 }
 
-/// Header prepended to every compaction checkpoint message. Doubles as the
-/// classifier that excludes checkpoints from the user-round count and lets a
-/// later compaction extract the previous summary for incremental updates.
-const CHECKPOINT_HEADER: &str = "[Conversation checkpoint]\n\
-     Earlier complete rounds were compacted. Treat this as durable context, not a new user request.\n\n";
-
 /// Per-message excerpt cap used by the deterministic excerpt fallback.
 const EXCERPT_CAP_TOKENS: usize = 375;
 
@@ -794,7 +787,7 @@ pub fn select_compaction(
         {
             message
                 .content
-                .strip_prefix(CHECKPOINT_HEADER)
+                .strip_prefix(nuo_protocol::transcript::CHECKPOINT_HEADER)
                 .map(|body| body.trim().to_string())
                 .filter(|body| !body.is_empty())
         } else {
@@ -873,11 +866,7 @@ fn label_for(role: Role) -> Option<&'static str> {
 
 /// Build a checkpoint message wrapping `summary` with the durable header.
 pub fn checkpoint_message(summary: &str) -> Message {
-    Message::injected(
-        Role::User,
-        format!("{CHECKPOINT_HEADER}{summary}"),
-        InjectionOrigin::new(InjectionKind::CompactionCheckpoint),
-    )
+    nuo_protocol::transcript::checkpoint_message(summary)
 }
 
 /// Assemble the final [`ContextProjectionResult`] from a selection and a summary.

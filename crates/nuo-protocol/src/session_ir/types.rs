@@ -474,6 +474,13 @@ impl CausalGraph {
     ) -> Vec<&CausalNode> {
         let mut path = Vec::new();
         let mut current_id = Some(leaf_id);
+        // Lineage is an append-only DAG, but a *read* must never trust that a
+        // stored graph actually is one: a malformed parent edge (a cycle) used
+        // to make this walk append forever, turning a bad fact into unbounded
+        // memory. Stop at the first revisit — the path before the cycle is
+        // still a valid (partial) lineage, and a caller that needs the whole
+        // history can inspect `nodes` directly.
+        let mut visited: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
         let horizon_node = horizon.and_then(|h| self.nodes.get(h));
         let first_kept_id = horizon_node.and_then(|h| match &h.payload {
@@ -484,6 +491,9 @@ impl CausalGraph {
         });
 
         while let Some(id) = current_id {
+            if !visited.insert(id) {
+                break;
+            }
             if let Some(node) = self.nodes.get(id) {
                 let is_compaction =
                     matches!(node.kind, NodeKind::Compaction) || horizon == Some(id);
@@ -1138,5 +1148,33 @@ mod tests {
         assert_eq!(path.len(), 2);
         assert_eq!(path[0].id, "compaction-checkpoint");
         assert_eq!(path[1].id, "n3");
+    }
+
+    /// A stored graph is input, not an invariant: a cycle in `parent_id` must
+    /// terminate the walk instead of growing the path without bound. This was
+    /// the shape that took a live server to 22 GB before the OOM killer.
+    #[test]
+    fn linear_path_terminates_on_a_cyclic_lineage() {
+        let mut graph = CausalGraph::default();
+        let node = |id: &str, parent: Option<&str>, seq: u64| CausalNode {
+            id: id.into(),
+            parent_id: parent.map(str::to_string),
+            seq,
+            timestamp_ms: seq * 100,
+            kind: NodeKind::Dialogue,
+            payload: NodePayload::Message {
+                message: Message::new(Role::User, format!("turn {seq}")),
+            },
+        };
+        // 0 -> 2 -> 1 -> 0: the exit edge points forward, exactly the corruption
+        // the derived mirror could write before the write-once parent rule.
+        graph.insert_node(node("n0", Some("n2"), 0));
+        graph.insert_node(node("n1", Some("n0"), 1));
+        graph.insert_node(node("n2", Some("n1"), 2));
+
+        let path = graph.linear_path("n2");
+        assert_eq!(path.len(), 3, "each node is visited exactly once");
+        let ids: Vec<&str> = path.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, ["n0", "n1", "n2"]);
     }
 }

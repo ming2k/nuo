@@ -114,12 +114,13 @@ impl ContextProjectionGate for PruningProjectionGate {
             )
             .await
             {
-                Ok(Some(checkpoint)) => {
+                Ok(Some(report)) => {
                     tracing::debug!(
                         before_messages = before,
                         after_messages = messages.len(),
-                        tokens_before = checkpoint.window_tokens_before,
-                        tokens_after = checkpoint.window_tokens_after,
+                        tokens_before = report.checkpoint.window_tokens_before,
+                        tokens_after = report.checkpoint.window_tokens_after,
+                        satisfied = report.satisfied,
                         "mid-turn compaction folded the window"
                     );
                 }
