@@ -91,33 +91,25 @@ pub(crate) enum TranscriptEdit {
         content: String,
         duration_ms: Option<u64>,
     },
-    /// A tool step started (`message` is fully built and stamped).
-    ToolStart { message: TranscriptMessage },
-    /// ADR-0026: announce a tool call whose name is known but whose arguments
-    /// are still streaming. Creates a `Running` step keyed by the opaque
-    /// announcement id the message carries; the later whole-argument `ToolCall`
-    /// collapses it onto the dispatch-assigned call id via
-    /// [`TranscriptEdit::ToolCallCollapse`].
-    ToolAnnounce {
-        /// The tool name (for the disclosure default; the step carries it too).
-        name: String,
-        /// The step to insert (call id empty until dispatch).
-        message: TranscriptMessage,
-    },
-    /// ADR-0026: collapse a provider-streamed announcement onto the
-    /// dispatch-assigned call id. `fallback` is inserted unchanged when no
-    /// pending announcement matches — the announcement may have been retracted
-    /// with a dead attempt, and the dispatched call must never disappear.
-    ToolCallCollapse {
-        announcement: u64,
-        call_id: String,
-        arguments: String,
-        fallback: TranscriptMessage,
-    },
-    /// ADR-0026: retract provisional steps whose attempt ended before dispatch.
-    /// A retracted step is removed, never terminalized: no call ever existed,
-    /// so a `cancelled` row would assert something false.
-    ToolAnnouncementsRetracted { announcements: Vec<u64> },
+    /// ADR-0166: **the one way a tool step enters or advances.**
+    ///
+    /// `message` carries the call id and the status that fact belongs to
+    /// (`Ingesting` for an announcement, `Executing` for a dispatch). The
+    /// applier resolves by call id and merges monotonically: an id that is
+    /// already present advances in place, an unknown id is inserted. Applying
+    /// the same fact twice is therefore a no-op, and a duplicate or reordered
+    /// frame cannot create a second row.
+    ToolStepUpsert { message: TranscriptMessage },
+    /// ADR-0166: retract calls whose attempt ended before dispatch. A retracted
+    /// step is removed, never terminalized: no call ever existed, so a
+    /// `cancelled` row would assert something false. Only a step that is still
+    /// `Ingesting` is removable — a call that dispatched is real.
+    ToolCallsRetracted { ids: Vec<String> },
+    /// ADR-0166: a round boundary with the harness idle leaves no `Ingesting`
+    /// step behind (`[INV-TOOL-ID-05]`). This is the boundary sweep: it needs
+    /// no ids, so it stays correct after a relink, where the translator has no
+    /// local announcement state.
+    RetractPendingToolSteps,
     /// ADR-0125: attach a pure preview to the in-flight step it describes, so the
     /// turn's whole footprint is visible before anything runs. The preview lands in
     /// the step's `structured` field (the same one a completed diff renders from),
@@ -130,9 +122,9 @@ pub(crate) enum TranscriptEdit {
         id: String,
         preview: nuo_protocol::PreviewResult,
     },
-    /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call.
+    /// ADR-0026 / ADR-0046: argument progress tick and partial argument payload for a still-streaming call, addressed by call id (ADR-0166).
     ToolInputProgress {
-        announcement: u64,
+        id: String,
         bytes: usize,
         arguments: Option<String>,
     },

@@ -54,6 +54,7 @@ pub mod question_model;
 pub mod render;
 pub mod runner;
 pub mod session;
+pub(crate) mod session_gate;
 pub mod sheet;
 pub mod step_interaction;
 pub mod surfaces;
@@ -514,14 +515,6 @@ pub(crate) async fn run_tui_with_input(
             // first component is thinking, or a tool announcement, carries the
             // same time as one that starts with prose.
             let mut turn_sent_at_by_session = HashMap::<String, u64>::new();
-            // ADR-0026: per-session live announcement ids (announced, not yet
-            // collapsed or retracted). This is *not* how a `ToolCall` finds its
-            // step — the event carries its announcement id — but a round that
-            // ends while an announcement is still live is a bug or an abrupt
-            // interrupt, and this set lets the boundary retract exactly those
-            // rows instead of sweeping the whole shared buffer.
-            let mut live_announcements_by_session =
-                HashMap::<String, std::collections::HashSet<u64>>::new();
             // A session switch replaces the transcript before its authoritative
             // idle HarnessState arrives. Rebase the reconstructed tail exactly
             // once when that snapshot supplies the persisted round counter.
@@ -560,6 +553,13 @@ pub(crate) async fn run_tui_with_input(
             // `/new` / `/session open` / `/resume` / `/fork` and scopes
             // session-addressed replies (the tree snapshot) against it.
             let mut live_session = live_session_for_translator.clone();
+            // ADR-0166 `[INV-TOOL-ID-06]`: sessions this client has switched
+            // away from. A superseded round can still emit terminal frames after
+            // the switch (`cancel_current` signals a token; it does not join the
+            // task), and those frames must not write into the replacement
+            // buffer. See [`session_gate`] for why this is a superseded set and
+            // not an equality check against the live id.
+            let mut session_gate = session_gate::SessionGate::new();
 
             // Attribution + effort derivation from translator-owned mirrors
             // (formerly `event_loop::attribution` / `picker_effort` over
@@ -631,6 +631,18 @@ pub(crate) async fn run_tui_with_input(
                         thread_id: session_id,
                         event,
                     } => {
+                        // ADR-0166: **the buffer holds exactly one session.**
+                        // `ConversationCleared` / `ConversationReplaced` replace
+                        // it, and a superseded round keeps unwinding afterwards —
+                        // `cancel_current` signals a token, it does not join the
+                        // task — so its terminal frames can land *after* the
+                        // switch. Applying them would append stale rows to the
+                        // new transcript (a result with no matching row becomes a
+                        // fallback insert). Drop every frame addressed to a
+                        // session this buffer has switched away from.
+                        if !session_gate.accepts(&session_id) {
+                            continue;
+                        }
                         macro_rules! transcript {
                             ($edit:expr) => {
                                 mutations.send(M::Transcript { edit: $edit }).await;
@@ -808,6 +820,12 @@ pub(crate) async fn run_tui_with_input(
                             RoundEvent::RoundCompleted(_summary) => {
                                 // The retry episode is over; retire any transient state.
                                 retry_progress = None;
+                                // ADR-0166 `[INV-TOOL-ID-05]`: the round is over,
+                                // so no step it announced can still be ingesting
+                                // arguments. A round outcome is the boundary
+                                // signal; a `HarnessState` snapshot is a *state*
+                                // sample and must not be used as an edge.
+                                transcript!(E::RetractPendingToolSteps);
                             }
                             RoundEvent::RoundInterrupted(record) => {
                                 // C11: the durable twin of the live stop.
@@ -839,6 +857,9 @@ pub(crate) async fn run_tui_with_input(
                                 mutations.send(M::SetPhase(None)).await;
                                 mutations.send(M::SetResponding(false)).await;
 
+                                // ADR-0166: a stopped round is a boundary for the
+                                // same reason a completed one is.
+                                transcript!(E::RetractPendingToolSteps);
                                 transcript!(E::Interrupted { record });
                             }
                             RoundEvent::Notice(notice) => {
@@ -1203,26 +1224,15 @@ pub(crate) async fn run_tui_with_input(
                                     duration_ms,
                                 });
                             }
-                            RoundEvent::ToolCallStarted {
-                                announcement,
-                                index: _,
-                                id,
-                                name,
-                            } => {
-                                // ADR-0026: the call is named but its arguments
-                                // are still streaming. Show a running step and
-                                // move the phase to the tool verb now, instead
-                                // of leaving the bar on the misleading
-                                // `answering` phase for the whole argument
-                                // stream. The step's call id stays empty until
-                                // dispatch; the `ToolCall` carrying this
-                                // announcement id collapses onto it.
-                                let _ = id;
-                                live_announcements_by_session
-                                    .entry(session_id.clone())
-                                    .or_default()
-                                    .insert(announcement);
-
+                            RoundEvent::ToolCallStarted { id, name } => {
+                                // ADR-0026 / ADR-0166: the call is named but its
+                                // arguments are still streaming. Show a running
+                                // step and move the phase to the tool verb now,
+                                // instead of leaving the bar on the misleading
+                                // `answering` phase for the whole argument stream.
+                                // The step carries the call id the later
+                                // `ToolCall` will carry, so the applier merges
+                                // instead of inserting a second row.
                                 mutations
                                     .send(M::SetPhase(Some(Phase::Tool(
                                         event_loop::tool_verb_for(&name),
@@ -1236,58 +1246,41 @@ pub(crate) async fn run_tui_with_input(
                                 let (provider, model) = attribution!();
                                 let effort = picker_effort!();
                                 let position = positions_by_session.get(&session_id).copied();
-                                let mut message = TranscriptMessage::tool_step(
-                                    String::new(),
-                                    name.clone(),
-                                    String::new(),
-                                )
-                                .with_attribution(provider, model)
-                                .with_effort(effort)
-                                // A tool-only turn has no text or thinking to own
-                                // the band header: this announced step does. It
-                                // carries the turn's send time so the live band
-                                // shows `HH:MM` exactly as the resumed one does.
-                                .with_sent_at_ms(turn_sent_at!(session_id))
-                                .with_announcement(announcement);
+                                let mut message = TranscriptMessage::tool_step_announced(id, name)
+                                    .with_attribution(provider, model)
+                                    .with_effort(effort)
+                                    // A tool-only turn has no text or thinking to own
+                                    // the band header: this announced step does. It
+                                    // carries the turn's send time so the live band
+                                    // shows `HH:MM` exactly as the resumed one does.
+                                    .with_sent_at_ms(turn_sent_at!(session_id));
                                 if let Some((round, turn)) = position {
                                     message = message.with_round(round).with_turn(turn);
                                 }
-                                transcript!(E::ToolAnnounce { name, message });
+                                transcript!(E::ToolStepUpsert { message });
                             }
                             RoundEvent::ToolInputProgress {
-                                announcement,
-                                index: _,
                                 id,
                                 bytes,
                                 arguments,
                             } => {
                                 // ADR-0026 / ADR-0046: progress tick and streaming arguments.
-                                let _ = id;
-
                                 mutations.send(M::SetResponding(true)).await;
 
                                 transcript!(E::ToolInputProgress {
-                                    announcement,
+                                    id,
                                     bytes,
                                     arguments,
                                 });
                             }
-                            RoundEvent::ToolAnnouncementsRetracted { announcements } => {
-                                // The attempt that made these announcements died
+                            RoundEvent::ToolCallsRetracted { ids } => {
+                                // The attempt that announced these calls died
                                 // before dispatch. Drop the provisional rows;
                                 // they never described a call, so a terminal
                                 // "cancelled" row would be a lie.
-                                if let Some(live) =
-                                    live_announcements_by_session.get_mut(&session_id)
-                                {
-                                    for announcement in &announcements {
-                                        live.remove(announcement);
-                                    }
-                                }
-                                transcript!(E::ToolAnnouncementsRetracted { announcements });
+                                transcript!(E::ToolCallsRetracted { ids });
                             }
                             RoundEvent::ToolCall {
-                                announcement,
                                 id,
                                 name,
                                 arguments,
@@ -1304,41 +1297,21 @@ pub(crate) async fn run_tui_with_input(
                                 let position = positions_by_session.get(&session_id).copied();
                                 // The turn's time, not this call's: it is the same
                                 // value the announced step (and every sibling
-                                // component) carries, so collapsing an announcement
-                                // onto the dispatch id cannot change the band header.
+                                // component) carries, so advancing an announcement
+                                // into a dispatch cannot change the band header.
                                 let sent_at_ms = turn_sent_at!(session_id);
-                                // Build the dispatch step once. The applier either
-                                // collapses the provisional row named by
-                                // `announcement` onto it, or inserts this message
-                                // when that announcement no longer exists (the
-                                // attempt was retracted, or the provider never
-                                // announced).
-                                let mut message = TranscriptMessage::tool_step(
-                                    id.clone(),
-                                    name,
-                                    arguments.clone(),
-                                )
-                                .with_attribution(provider, model)
-                                .with_effort(effort)
-                                .with_sent_at_ms(sent_at_ms);
+                                // ADR-0166: the dispatch fact carries the same id
+                                // the announcement did. The applier merges it into
+                                // that row (or inserts it when the provider never
+                                // announced, or the attempt was retracted).
+                                let mut message = TranscriptMessage::tool_step(id, name, arguments)
+                                    .with_attribution(provider, model)
+                                    .with_effort(effort)
+                                    .with_sent_at_ms(sent_at_ms);
                                 if let Some((round, turn)) = position {
                                     message = message.with_round(round).with_turn(turn);
                                 }
-                                if let Some(announcement) = announcement {
-                                    if let Some(live) =
-                                        live_announcements_by_session.get_mut(&session_id)
-                                    {
-                                        live.remove(&announcement);
-                                    }
-                                    transcript!(E::ToolCallCollapse {
-                                        announcement,
-                                        call_id: id,
-                                        arguments,
-                                        fallback: message,
-                                    });
-                                } else {
-                                    transcript!(E::ToolStart { message });
-                                }
+                                transcript!(E::ToolStepUpsert { message });
 
                                 mutations.send(M::SetResponding(true)).await;
                             }
@@ -1586,22 +1559,14 @@ pub(crate) async fn run_tui_with_input(
                                     .map(|started| started.elapsed().as_millis() as u64);
                                 if !running {
                                     retry_progress = None;
-                                    // ADR-0026: every announcement belongs to a
-                                    // turn of this session. If any are still
-                                    // live at the boundary, their attempt ended
-                                    // without a retraction (an abrupt interrupt,
-                                    // or a producer bug); retract them rather
-                                    // than leaving a row that can never finish.
-                                    // Keyed by id, so no other session's
-                                    // provisional rows can be touched.
-                                    let live = live_announcements_by_session
-                                        .remove(&session_id)
-                                        .unwrap_or_default();
-                                    if !live.is_empty() {
-                                        transcript!(E::ToolAnnouncementsRetracted {
-                                            announcements: live.into_iter().collect(),
-                                        });
-                                    }
+                                    // ADR-0166: a `HarnessState` sample is not a
+                                    // round boundary. The provisional-row sweep
+                                    // lives on the round-outcome events
+                                    // (`RoundCompleted` / `RoundInterrupted` /
+                                    // `Error`), which *mean* "the round ended".
+                                    // Making an idle sample harmless requires the
+                                    // server to publish idle only when it is idle;
+                                    // that is enforced at every publisher.
                                 }
                                 transcript!(E::FinalizeOrphanedReasoning { duration_ms });
                             }
@@ -1620,6 +1585,13 @@ pub(crate) async fn run_tui_with_input(
                                 delay_ms,
                                 message,
                             } => {
+                                // ADR-0166: a scheduled retry is an attempt
+                                // boundary — the failed attempt is over and its
+                                // provisional rows cannot become calls. The
+                                // harness retracted them by id; this sweep makes
+                                // the invariant hold even if that frame was lost
+                                // or arrived after the retry.
+                                transcript!(E::RetractPendingToolSteps);
                                 let delay = std::time::Duration::from_millis(delay_ms);
                                 let retry_at = std::time::Instant::now() + delay;
                                 // Advance the one typed state machine. Every
@@ -1724,6 +1696,15 @@ pub(crate) async fn run_tui_with_input(
                                 // A round-level failure is a turn outcome: it
                                 // holds a position in time (the round ended
                                 // here) but says nothing to the model.
+                                //
+                                // ADR-0166: a terminal error ends the round just
+                                // as a completion does (`RoundInterrupted` is not
+                                // emitted for `reason == Error`), so it is the
+                                // boundary the provisional-row sweep must read.
+                                // `RoundEvent::Error` is only ever a terminal
+                                // round error or a pre-round admission refusal —
+                                // never an error while a round continues.
+                                transcript!(E::RetractPendingToolSteps);
                                 let notice =
                                     TranscriptMessage::notice(NoticeSeverity::Error, message)
                                         .with_sent_at_ms(now_ms!());
@@ -1893,6 +1874,17 @@ pub(crate) async fn run_tui_with_input(
                         previous_id,
                         thread_id: session_id,
                     } => {
+                        // ADR-0166: the buffer is being replaced, so the session
+                        // it just left can no longer write into it; the session
+                        // it is entering is current again.
+                        session_gate.supersede(&previous_id, &session_id);
+                        // The left session's terminal frames are now dropped by
+                        // the gate, so its per-round translator state must not
+                        // leak into the new session's first turn.
+                        retry_progress = None;
+                        reasoning_start = None;
+                        positions_by_session.remove(&previous_id);
+                        turn_sent_at_by_session.remove(&previous_id);
                         mutations
                             .send(M::Transcript {
                                 edit: event_loop::mutations::TranscriptEdit::Clear,
@@ -1926,6 +1918,14 @@ pub(crate) async fn run_tui_with_input(
                         commands,
                         round_interrupts,
                     } => {
+                        // ADR-0166: see `ConversationCleared` — the replaced
+                        // buffer must never receive the superseded session's
+                        // trailing frames, nor inherit its per-round state.
+                        session_gate.supersede(&previous_id, &session_id);
+                        retry_progress = None;
+                        reasoning_start = None;
+                        positions_by_session.remove(&previous_id);
+                        turn_sent_at_by_session.remove(&previous_id);
                         mutations.send(M::ClearSwitchingSession).await;
                         let mut rebuilt =
                             transcript_messages_from_core(messages, &tui_config_clone);
@@ -2185,6 +2185,11 @@ pub(crate) async fn run_tui_with_input(
                     }
                     AgentResponse::ThreadSnapshot(snapshot) => {
                         let sid = snapshot.thread_id.clone();
+                        // ADR-0166: a hydration frame names the session the
+                        // buffer now holds. It cannot be a superseded one, and it
+                        // repoints the live id that gates thread-scoped replies.
+                        session_gate.hydrate(&sid);
+                        live_session = sid.clone();
                         // `[INV-ATTACH-04]` (ADR-0133): this frame is the
                         // authoritative hydration payload. Rebuild the whole
                         // visible transcript from it (and the command ledger),

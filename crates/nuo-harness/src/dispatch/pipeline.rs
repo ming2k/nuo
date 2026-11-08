@@ -6,7 +6,7 @@
 //!
 //! | stage | owns |
 //! |---|---|
-//! | **preflight** ([`Agent::dispatch_preflight`], per turn) | turn classification (`consecutive_readonly_turns`), checkpoint-replay scan + `CheckpointReplay` receipt, doom-guard `check_doom_ahead` (signature masking + `NudgeInjected` notice + nudge capture), dispatch-id generation, the up-front `AgentEvent::ToolCall` events (all of them, before any `ToolResult`), and the short-circuits: checkpoint-replay and guard-blocked calls get their terminal `ToolResult(duration_ms = 0)` here and their result slot is filled without execution. |
+//! | **preflight** ([`Agent::dispatch_preflight`], per turn) | turn classification (`consecutive_readonly_turns`), checkpoint-replay scan + `CheckpointReplay` receipt, doom-guard `check_doom_ahead` (signature masking + `NudgeInjected` notice + nudge capture), dispatch-id adoption (`ToolCall.id` is the call's identity, minted at announcement — ADR-0166), the up-front `AgentEvent::ToolCall` events (all of them, before any `ToolResult`), and the short-circuits: checkpoint-replay and guard-blocked calls get their terminal `ToolResult(duration_ms = 0)` here and their result slot is filled without execution. |
 //! | **prepare** (per call, in-task) | the gate sequence inside [`Agent::execute_tool`]: tool resolution (builtin → user → mcp), the full [`PermissionChain`](crate::permission_policy::PermissionChain) evaluation (folding in hook/disabled/schema/scope/bash/broker), interaction-only handling, and the bash stdin policy. It deliberately runs *inside* each scheduled task, not as a separate serialised phase: PreToolUse hooks and permission parks keep their historical concurrency. |
 //! | **schedule** ([`Agent::schedule_tool_calls`], the batch) | the concurrent fan-out through [`ToolScheduler`]: per-call declared [`ToolAccesses`](nuo_protocol::ToolAccesses) arbitrate which calls run concurrently (a write serializes against any other access to the same path; non-conflicting reads parallelize). A shared `mpsc` channel forwards `Subagent`/`ToolStream`/`PermissionRequest` events in real time; each task emits its terminal `ToolResult` the instant it finishes; a turn interrupt runs the two-tier cancel (cooperative drain with `SUBAGENT_DRAIN_GRACE`, then forced abort) and pairs every unproduced call with a terminal `AgentEvent::ToolCancelled`. |
 //! | **finalize** ([`Agent::dispatch_finalize`], per call, input order) | recovered results folded back into the input-ordered slots, `remember_completed_tool`, [`Agent::record_tool_result`] (token accounting, `TodosUpdated`, `Message::tool_result` with subagent children/meta, image peel-out), post-tool hooks unless replay, turn-level doom-nudge injection, `Ok(!denied)`. On interruption it records only the drained results and returns `Err(HarnessError::Interrupted)` — no hooks, no nudge, no `remember`. |
@@ -29,9 +29,6 @@ use crate::{
 /// The product of [`Agent::dispatch_preflight`]: everything `schedule` and
 /// `finalize` need to finish the batch.
 pub(crate) struct PreparedDispatch {
-    /// Dispatch-generated ids, one per call in input order. The matching
-    /// `ToolCall` events have all been emitted already.
-    pub(crate) call_ids: Vec<String>,
     /// Per-call checkpoint-replay flags (finalize skips post-tool hooks and
     /// the nested-usage token accounting for these; the call never entered
     /// the exec set).
@@ -97,7 +94,6 @@ impl Agent {
         tool_calls: &[ToolCall],
         messages: &[Message],
         state: &mut RoundState,
-        announcements: &std::collections::HashMap<usize, u64>,
         on_event: &mut F,
     ) -> PreparedDispatch
     where
@@ -216,17 +212,20 @@ impl Agent {
             _ => None,
         };
 
-        // Emit all ToolCall events up front — before any ToolResult.
-        let call_ids: Vec<String> = tool_calls
-            .iter()
-            .map(|_| format!("call_{}", uuid::Uuid::new_v4()))
-            .collect();
+        // ADR-0166: the dispatch id **is** the call id. The stream loop mints it
+        // at the announcement (or adopts the provider's), so the row the
+        // frontend already holds is addressed by every event below. Nothing is
+        // minted here, there is no second namespace to mistranslate, and no
+        // parallel id array is carried through the batch.
+        debug_assert!(
+            tool_calls.iter().all(|call| !call.id.is_empty()),
+            "every tool call carries its identity by dispatch time"
+        );
         tracing::info!(count = tool_calls.len(), "dispatching native tool calls");
-        for (index, (call, id)) in tool_calls.iter().zip(&call_ids).enumerate() {
+        for call in tool_calls {
             tracing::debug!(tool = %call.name, "tool call");
             on_event(AgentEvent::ToolCall {
-                announcement: announcements.get(&index).copied(),
-                id: id.clone(),
+                id: call.id.clone(),
                 name: call.name.clone(),
                 arguments: call.arguments.clone(),
             });
@@ -246,7 +245,7 @@ impl Agent {
         // checkpoint replay): those calls' cards then still show what they *would*
         // have done, which is more informative than an empty card, and none of those
         // effects happen.
-        for (call, id) in tool_calls.iter().zip(&call_ids) {
+        for call in tool_calls {
             let Some(tool) = self.tool_manager().find(&call.name) else {
                 continue;
             };
@@ -258,7 +257,7 @@ impl Agent {
             // prompt still states the absence in prose where a decision is at stake.
             if let Some(preview) = tool.tool.preview(&arguments) {
                 on_event(AgentEvent::ToolPreview {
-                    id: id.clone(),
+                    id: call.id.clone(),
                     name: call.name.clone(),
                     preview,
                 });
@@ -300,9 +299,8 @@ impl Agent {
                         "provider retry repeated a completed tool call"
                     );
                     let output = checkpoint_output(&c.name);
-                    let id = &call_ids[*idx];
                     on_event(AgentEvent::ToolResult {
-                        id: id.clone(),
+                        id: c.id.clone(),
                         name: c.name.clone(),
                         output: output.to_text(),
                         structured: output.clone(),
@@ -317,7 +315,6 @@ impl Agent {
                         "tool call blocked by turn-loop guard signature mask"
                     );
                     let output = blocked_output(&c.name);
-                    let id = &call_ids[*idx];
                     // Emit the ToolResult the executed path would have, so
                     // the UI pairs this call's ToolCall with a terminal
                     // result instead of leaving it "running".
@@ -336,7 +333,7 @@ impl Agent {
                         )),
                     ));
                     on_event(AgentEvent::ToolResult {
-                        id: id.clone(),
+                        id: c.id.clone(),
                         name: c.name.clone(),
                         output: output.to_text(),
                         structured: output.clone(),
@@ -351,7 +348,6 @@ impl Agent {
             .map(|(idx, _)| idx)
             .collect();
         PreparedDispatch {
-            call_ids,
             checkpoint_replays,
             exec_indices,
             results,
@@ -376,7 +372,6 @@ impl Agent {
     pub(crate) async fn schedule_tool_calls<F>(
         self: &Arc<Self>,
         calls: &[ToolCall],
-        call_ids: &[String],
         cancel: &CancellationToken,
         on_event: &mut F,
     ) -> Result<ConcurrentOutcome, HarnessError>
@@ -394,19 +389,20 @@ impl Agent {
         // "not found" error inside `execute_tool`; there's no point
         // serializing an error.
         let mut receivers = Vec::with_capacity(calls.len());
-        for (call, call_id) in calls.iter().zip(call_ids) {
+        for call in calls {
             let accesses = self.accesses_for_call(call);
             let agent = Arc::clone(self);
             let call = call.clone();
-            let call_id = call_id.clone();
             let tx = tx.clone();
             let task = ToolCallTask::new(accesses, move |token| async move {
                 let started = std::time::Instant::now();
+                // ADR-0166: the call id is `call.id`; nothing is threaded beside it.
+                let call_id = call.id.clone();
                 // One execution future, pinned: the cancel arm keeps driving
                 // the SAME future to its drained terminal result instead of
                 // dropping and re-entering the tool (dropping mid-permission park
                 // or mid-subagent and re-running would duplicate side effects).
-                let fut = agent.execute_tool(&call, &call_id, &tx);
+                let fut = agent.execute_tool(&call, &tx);
                 tokio::pin!(fut);
                 let output = tokio::select! {
                     biased;
@@ -453,10 +449,10 @@ impl Agent {
         // drained before the grace deadline, so finalize can record real
         // work even though the round ends.
         let mut slots: Vec<Option<(ToolOutput, u64)>> = vec![None; calls.len()];
-        let slot_index: std::collections::HashMap<String, usize> = call_ids
+        let slot_index: std::collections::HashMap<String, usize> = calls
             .iter()
             .enumerate()
-            .map(|(i, id)| (id.clone(), i))
+            .map(|(i, call)| (call.id.clone(), i))
             .collect();
         let receivers = futures::future::join_all(receivers);
         tokio::pin!(receivers);
@@ -515,7 +511,7 @@ impl Agent {
             for (i, slot) in slots.iter().enumerate() {
                 if slot.is_none() {
                     on_event(AgentEvent::ToolCancelled {
-                        id: call_ids[i].clone(),
+                        id: calls[i].id.clone(),
                         name: calls[i].name.clone(),
                     });
                 }
@@ -581,7 +577,6 @@ impl Agent {
                         self.record_tool_result(
                             crate::cognition::agent::ToolResultRecord {
                                 call: &tool_calls[idx],
-                                call_id: &prepared.call_ids[idx],
                                 result: &result,
                                 duration_ms,
                                 checkpoint_replay: false,
@@ -609,16 +604,10 @@ impl Agent {
         let denied = results
             .iter()
             .any(|(result, _)| matches!(result, ToolOutput::PermissionDenied { .. }));
-        for (idx, ((call, id), (result, duration_ms))) in tool_calls
-            .iter()
-            .zip(&prepared.call_ids)
-            .zip(results)
-            .enumerate()
-        {
+        for (idx, (call, (result, duration_ms))) in tool_calls.iter().zip(results).enumerate() {
             self.record_tool_result(
                 crate::cognition::agent::ToolResultRecord {
                     call,
-                    call_id: id,
                     result: &result,
                     duration_ms,
                     checkpoint_replay: prepared.checkpoint_replays[idx],

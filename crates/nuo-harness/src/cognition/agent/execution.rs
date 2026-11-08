@@ -218,7 +218,6 @@ impl Agent {
     async fn execute_ask_user(
         &self,
         call: &ToolCall,
-        _call_id: &str,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
     ) -> ToolOutput {
         let args: serde_json::Value = match serde_json::from_str(&call.arguments) {
@@ -446,9 +445,11 @@ impl Agent {
     pub(crate) async fn execute_tool(
         &self,
         call: &ToolCall,
-        call_id: &str,
         event_tx: &mpsc::UnboundedSender<AgentEvent>,
     ) -> ToolOutput {
+        // ADR-0166: the call id is the call's identity — there is no second,
+        // dispatch-local id to thread alongside it.
+        let call_id = call.id.as_str();
         let tool: Arc<dyn Tool> = match self.tool_manager.find(&call.name) {
             Some(sourced) => sourced.tool,
             None => {
@@ -597,7 +598,7 @@ impl Agent {
                         .to_string(),
                 );
             }
-            return self.execute_ask_user(call, call_id, event_tx).await;
+            return self.execute_ask_user(call, event_tx).await;
         }
 
         // Input contract decision (before spawn), for command tools:
@@ -614,11 +615,8 @@ impl Agent {
             nuo_protocol::InputContract::default()
         };
 
-        // The Subagent / ToolStream events must carry the same id as the
-        // up-front ToolCall event (the dispatch-generated `call_id`), not the
-        // model's `call.id` — the UI keys its step off the ToolCall event id,
-        // so using `call.id` here would orphan every subagent child stream and
-        // every live tool stream, leaving the subagent view empty.
+        // The Subagent / ToolStream events carry the same id as the up-front
+        // `ToolCall` event because ADR-0166 made them one value: `ToolCall.id`.
         // Workspace effect journal (ADR-0125): capture before the mutation.
         //
         // This bracket is deliberately *inside* the permission chain's success
@@ -740,15 +738,15 @@ impl Agent {
     pub(crate) async fn execute_tool_evented<F>(
         &self,
         call: &ToolCall,
-        call_id: &str,
         cancel: &CancellationToken,
         on_event: &mut F,
     ) -> Result<SingleToolOutcome, HarnessError>
     where
         F: FnMut(AgentEvent) + Send,
     {
+        let call_id = call.id.as_str();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let fut = self.execute_tool(call, call_id, &tx);
+        let fut = self.execute_tool(call, &tx);
         tokio::pin!(fut);
         loop {
             tokio::select! {

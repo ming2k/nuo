@@ -264,6 +264,15 @@ Concretely:
 
 ## 2026-11-07 Amendment: Announcement Identity and Retraction
 
+> **Superseded in part by [ADR-0166](0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md).**
+> The process-unique `announcement: u64` introduced here is gone: the call's id
+> (`ToolCall.id`) is the announcement identity, minted once at first sight and
+> carried through progress, dispatch, stream, result, and retraction. The
+> reducer is now idempotent and monotone by id, the boundary sweep is a
+> lifecycle invariant rather than a per-id set, and both `ToolAnnouncementsRetracted`
+> and the empty-id state sentinel are deleted. `[INV-ANN-01]`–`[INV-ANN-03]`
+> remain true in substance; ADR-0166 restates them as `[INV-TOOL-ID-01]`–`[INV-TOOL-ID-05]`.
+
 The original decision made an announcement a provisional *step* and relied on a
 round-boundary "orphan sweep" to terminalize one that never dispatched as
 `Cancelled`. A live incident exposed the consequence: a fast model lane that

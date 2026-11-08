@@ -107,12 +107,12 @@ The in-flight state is bifurcated across the model and presentation layers:
 ```
 
 1. **Ingesting Phase**:
-   - `announcement.is_some()` indicates active model streaming (renamed from
-     `input_slot` by the ADR-0026 amendment; the key is now an opaque
-     announcement id, not a provider slot).
+   - `status == Ingesting` indicates active model streaming. (ADR-0166: the
+     state is the lifecycle itself; the `announcement` flag this ADR originally
+     named was deleted, and the key is the call id.)
    - Summary displays projected semantic target + input progress: `Edit src/auth.rs · receiving input (2.4 KB)`.
 2. **Executing Phase**:
-   - `announcement` cleared upon `collapse_tool_call`; `execution_started_at` captured.
+   - `status` advances to `Executing` on dispatch (`execution_started_at` captured; `input_bytes` cleared).
    - Summary shifts from byte progress to active execution duration:
      - `edit_text` / `write_file`: `Edit src/auth.rs +12 -3 · applying (0.3s)`
      - `execute_command`: `Run cargo test · running (4.8s)`

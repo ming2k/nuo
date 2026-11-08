@@ -1405,15 +1405,25 @@ impl SessionDriver {
                         nuo_persistence::config::Config::load()
                     };
 
-                    // Immediately broadcast Trusted HarnessState so the client unblocks instantly
-                    send_harness_state_for_session(
-                        &resp_tx,
-                        &session.id().await,
-                        &agent,
-                        &session,
-                        LoopStatus::Idle,
-                    )
-                    .await;
+                    // Immediately broadcast Trusted HarnessState so the client
+                    // unblocks instantly — **only when no round is live**. The
+                    // snapshot is a state sample, and every frontend treats it as
+                    // a boundary (it collapses the activity bar, retires pending
+                    // commands, and sweeps provisional tool rows). Publishing
+                    // `Idle` while a round is running would therefore tear down a
+                    // live round's UI. When a round *is* running its own events
+                    // own the display; the next boundary publishes the trust
+                    // snapshot.
+                    if !lifecycle.is_running().await {
+                        send_harness_state_for_session(
+                            &resp_tx,
+                            &session.id().await,
+                            &agent,
+                            &session,
+                            LoopStatus::Idle,
+                        )
+                        .await;
+                    }
 
                     // Asynchronously background heavy reconfigure/reload (MCP connections & skills scanner)
                     let mcp_clone = mcp_runtime.clone();

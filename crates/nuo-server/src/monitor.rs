@@ -359,7 +359,6 @@ mod tests {
         t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 1 }));
         assert_eq!(t.row().turn, Some(1), "a second turn keeps the round open");
         t.observe(&round_event(RoundEvent::ToolCall {
-            announcement: None,
             id: "c1".into(),
             name: "execute_command".into(),
             arguments: "{}".into(),

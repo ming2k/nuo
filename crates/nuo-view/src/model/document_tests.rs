@@ -1379,16 +1379,15 @@ fn push_stream_stays_bounded_on_long_streams() {
 /// The wrap cache must be transparent: cached geometry is bit-for-bit what a
 
 #[test]
-fn announced_tool_step_collapses_and_tracks_input_bytes() {
-    // ADR-0026: a call announced before its arguments finish.
-    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_announcement(7)
+fn announced_tool_step_advances_to_dispatch_and_tracks_input_bytes() {
+    // ADR-0166: a call announced before its arguments finish. The id exists from
+    // the first fact, so there is no sentinel and no re-key.
+    let mut step = TranscriptMessage::tool_step_announced("call_9", "edit_text")
         .with_round(1)
         .with_turn(2);
-    assert!(step.is_announced_pending_tool_step());
-    assert!(step.is_announced_pending_tool_step_for(7));
-    assert!(!step.is_announced_pending_tool_step_for(8));
-    assert_eq!(step.announcement_id(), Some(7));
+    assert!(step.is_pending_tool_step());
+    assert!(step.is_pending_tool_step());
+    assert_eq!(step.tool_step_call_id(), Some("call_9"));
 
     // Count-only progress records the bytes and renders a static clause.
     assert!(step.set_tool_input_bytes(4096));
@@ -1396,47 +1395,104 @@ fn announced_tool_step_collapses_and_tracks_input_bytes() {
     assert!(summary.contains("receiving input"), "got: {summary}");
     assert!(summary.contains("KB"), "got: {summary}");
 
-    // Dispatch collapses: re-key onto the call id and clear pre-dispatch state.
-    assert!(step.collapse_tool_call("call_9", "{}"));
+    // Dispatch is the same id carrying the completed arguments; the reducer
+    // advances the row instead of inserting a second one.
+    let dispatch = TranscriptMessage::tool_step("call_9", "edit_text", "{}");
+    assert!(step.merge_tool_step(&dispatch));
     assert_eq!(step.tool_step_call_id(), Some("call_9"));
-    assert!(!step.is_announced_pending_tool_step());
-    assert_eq!(step.announcement_id(), None);
+    assert!(!step.is_pending_tool_step());
     let summary = step.tool_step_summary().expect("summary");
     assert!(!summary.contains("receiving input"), "got: {summary}");
 
-    // Output streaming then resolves by the collapsed id.
+    // Output streaming then resolves by the same id.
     assert!(step.push_tool_stream("call_9", &nuo_protocol::ToolStream::Stdout("x\n".into())));
 }
 
 #[test]
-fn only_announced_steps_expose_a_retraction_key() {
-    // An announced step is retractable by its opaque id...
-    let announced = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_announcement(42);
-    assert!(announced.is_announced_pending_tool_step());
-    assert_eq!(announced.announcement_id(), Some(42));
+fn only_an_ingesting_step_is_retractable() {
+    // ADR-0166: the provisional state is the lifecycle, not a sentinel.
+    let announced = TranscriptMessage::tool_step_announced("call_1", "edit_text");
+    assert!(announced.is_pending_tool_step());
+    assert!(announced.is_pending_tool_step());
 
-    // ...while a dispatched call has no announcement left to retract. There is
-    // deliberately no "cancel an announcement" transition: a never-dispatched
-    // step is removed by the frontend, not terminalized as if a call existed.
+    // A dispatched call is real: a retraction that crossed it in flight must
+    // never remove it.
     let dispatched = TranscriptMessage::tool_step("call_1", "read_text", "{}");
-    assert!(!dispatched.is_announced_pending_tool_step());
-    assert_eq!(dispatched.announcement_id(), None);
+    assert!(!dispatched.is_pending_tool_step());
+    assert!(!dispatched.is_pending_tool_step());
 }
 
 #[test]
-fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
-    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_announcement(1);
+fn duplicate_announcement_is_idempotent() {
+    // [INV-TOOL-ID-02]: applying the same fact twice equals applying it once.
+    let mut step = TranscriptMessage::tool_step_announced("call_1", "edit_text");
+    let again = TranscriptMessage::tool_step_announced("call_1", "edit_text");
+    assert!(
+        !step.merge_tool_step(&again),
+        "a duplicate announcement must be a no-op"
+    );
+    assert_eq!(step.tool_step_call_id(), Some("call_1"));
+    assert!(step.is_pending_tool_step());
+}
+
+#[test]
+fn a_duplicate_announcement_after_dispatch_cannot_regress_the_step() {
+    // [INV-TOOL-ID-03]: the lifecycle is monotone. A delayed duplicate of the
+    // announcement must not pull a dispatched row back to Ingesting.
+    let mut step = TranscriptMessage::tool_step("call_1", "edit_text", r#"{"path":"a.rs"}"#);
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
+    let late = TranscriptMessage::tool_step_announced("call_1", "edit_text");
+    assert!(!step.merge_tool_step(&late));
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
+    assert!(
+        step.tool_step_summary()
+            .expect("summary")
+            .contains("applying")
+    );
+}
+
+#[test]
+fn a_replayed_partial_announcement_cannot_shorten_the_dispatched_name() {
+    // The announcement fires at the first *named* fragment, which may be a
+    // prefix. A replay of it must not overwrite the full name dispatch supplied.
+    let mut step = TranscriptMessage::tool_step("c1", "read_file", r#"{"path":"a"}"#);
+    let partial = TranscriptMessage::tool_step_announced("c1", "read_");
+    assert!(!step.merge_tool_step(&partial));
+    assert_eq!(step.tool_step_name(), Some("read_file"));
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
+    assert!(!step.is_pending_tool_step());
+}
+
+#[test]
+fn progress_after_dispatch_cannot_rewrite_the_arguments() {
+    // [INV-STREAM-TOOL-01] / ADR-0166: a partial argument stream is never the
+    // call's arguments, and a dispatched row's arguments are complete. A late
+    // or replayed progress tick must be a no-op.
+    let mut step = TranscriptMessage::tool_step("c1", "edit_text", r#"{"path":"src/a.rs"}"#);
+    assert!(!step.set_tool_streaming_arguments(r#"{"path":"src"#.to_string()));
+    assert!(!step.set_tool_input_bytes(12));
+    assert_eq!(step.tool_step_status(), Some(ToolStepStatus::Executing));
+    let (line, suffix) = step
+        .tool_step_semantic_summary(None)
+        .expect("semantic summary");
+    assert_eq!(line.to_plain_text(), "Edit src/a.rs");
+    assert_eq!(suffix.as_deref(), Some(" (applying)"));
+}
+
+#[test]
+fn announced_tool_step_advances_with_arguments_and_updates_summary() {
+    let mut step = TranscriptMessage::tool_step_announced("call_1", "edit_text");
     assert_eq!(
         step.tool_step_summary().expect("summary"),
         "Edit text (receiving input)"
     );
 
-    assert!(step.collapse_tool_call(
+    let dispatch = TranscriptMessage::tool_step(
         "call_1",
+        "edit_text",
         r#"{"path":"src/lib.rs","old_string":"foo","new_string":"bar"}"#,
-    ));
+    );
+    assert!(step.merge_tool_step(&dispatch));
     assert_eq!(step.tool_step_call_id(), Some("call_1"));
     assert_eq!(
         step.tool_step_summary().expect("summary"),
@@ -1464,27 +1520,35 @@ fn announced_tool_step_collapses_with_arguments_and_updates_summary() {
 }
 
 #[test]
-fn announced_command_and_find_steps_collapse_with_arguments() {
-    let mut cmd_step =
-        TranscriptMessage::tool_step(String::new(), "execute_command", String::new())
-            .with_announcement(1);
-    assert!(cmd_step.collapse_tool_call("c1", r#"{"command":"git status"}"#));
+fn announced_command_and_find_steps_advance_with_arguments() {
+    let mut cmd_step = TranscriptMessage::tool_step_announced("c1", "execute_command");
+    assert!(cmd_step.merge_tool_step(&TranscriptMessage::tool_step(
+        "c1",
+        "execute_command",
+        r#"{"command":"git status"}"#
+    )));
     assert_eq!(
         cmd_step.tool_step_summary().expect("summary"),
         "Run git (running)"
     );
 
-    let mut find_step = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
-        .with_announcement(2);
-    assert!(find_step.collapse_tool_call("c2", r#"{"patterns":["*.rs"],"path":"."}"#));
+    let mut find_step = TranscriptMessage::tool_step_announced("c2", "find_files");
+    assert!(find_step.merge_tool_step(&TranscriptMessage::tool_step(
+        "c2",
+        "find_files",
+        r#"{"patterns":["*.rs"],"path":"."}"#
+    )));
     assert_eq!(
         find_step.tool_step_summary().expect("summary"),
         "Find *.rs in . (executing)"
     );
 
-    let mut find_in_path = TranscriptMessage::tool_step(String::new(), "find_files", String::new())
-        .with_announcement(3);
-    assert!(find_in_path.collapse_tool_call("c3", r#"{"patterns":["*.rs"],"path":"src"}"#));
+    let mut find_in_path = TranscriptMessage::tool_step_announced("c3", "find_files");
+    assert!(find_in_path.merge_tool_step(&TranscriptMessage::tool_step(
+        "c3",
+        "find_files",
+        r#"{"patterns":["*.rs"],"path":"src"}"#
+    )));
     assert_eq!(
         find_in_path.tool_step_summary().expect("summary"),
         "Find *.rs in src (executing)"
@@ -1496,8 +1560,7 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     use crate::model::document::ToolExecutionPhase;
 
     // 1. Announce the step (Ingesting phase)
-    let mut step = TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-        .with_announcement(1);
+    let mut step = TranscriptMessage::tool_step_announced("call_edit_1", "edit_text");
     assert_eq!(
         step.tool_execution_phase(),
         Some(ToolExecutionPhase::Ingesting { bytes: None })
@@ -1512,15 +1575,8 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
 
     // 2. Stream partial arguments: path arrives first while still unclosed JSON!
     let partial_args = r#"{"path":"src/model/auth.rs","old_string":"let x = 1;""#;
-    if let crate::model::document::MessageKind::ToolStep {
-        arguments,
-        input_bytes,
-        ..
-    } = &mut step.kind
-    {
-        *arguments = partial_args.to_string();
-        *input_bytes = Some(partial_args.len());
-    }
+    assert!(step.set_tool_streaming_arguments(partial_args.to_string()));
+    assert!(step.set_tool_input_bytes(partial_args.len()));
 
     // Semantic summary immediately projects the file path!
     let (line, suffix) = step
@@ -1533,10 +1589,14 @@ fn adr0046_streaming_projection_and_bifurcated_lifecycle() {
     let hunks = crate::tools::diff_hunks_for("edit_text", partial_args);
     assert_eq!(hunks.len(), 1);
 
-    // 3. Arguments complete and tool is dispatched (collapse_tool_call -> Executing phase)
+    // 3. Arguments complete and tool is dispatched (Ingesting -> Executing)
     let complete_args =
         r#"{"path":"src/model/auth.rs","old_string":"let x = 1;","new_string":"let x = 2;"}"#;
-    assert!(step.collapse_tool_call("call_edit_1", complete_args));
+    assert!(step.merge_tool_step(&TranscriptMessage::tool_step(
+        "call_edit_1",
+        "edit_text",
+        complete_args
+    )));
     match step.tool_execution_phase() {
         Some(ToolExecutionPhase::Executing { .. }) => {}
         other => panic!("expected Executing phase, got: {other:?}"),

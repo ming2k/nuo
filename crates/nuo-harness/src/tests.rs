@@ -902,37 +902,136 @@ async fn streamed_tool_input_is_announced_then_progressed_before_completion() {
     assert!(started < completed, "announcement must precede completion");
     assert!(progress < completed, "progress must precede completion");
     // Exactly one announcement per provider slot, however fragmented the stream.
-    let announcements = events
+    let started_count = events
         .iter()
         .filter(|event| matches!(event, AgentEvent::ToolCallStarted { .. }))
         .count();
-    assert_eq!(announcements, 1);
+    assert_eq!(started_count, 1);
 
-    // The dispatch discharges *that exact* announcement, so a frontend can
-    // collapse by identity instead of guessing from slot order.
+    // ADR-0166: the dispatch carries the *same* call id the announcement did,
+    // so a frontend advances the row instead of guessing from slot order.
     let announced_id = events
         .iter()
         .find_map(|event| match event {
-            AgentEvent::ToolCallStarted {
-                announcement, name, ..
-            } if name == "big_tool" => Some(*announcement),
+            AgentEvent::ToolCallStarted { id, name } if name == "big_tool" => Some(id.clone()),
             _ => None,
         })
-        .expect("announcement id");
+        .expect("announced call id");
     let discharged_id = events
         .iter()
         .find_map(|event| match event {
-            AgentEvent::ToolCall {
-                announcement, name, ..
-            } if name == "big_tool" => Some(*announcement),
+            AgentEvent::ToolCall { id, name, .. } if name == "big_tool" => Some(id.clone()),
             _ => None,
         })
         .expect("tool call");
-    assert_eq!(discharged_id, Some(announced_id));
+    assert_eq!(discharged_id, announced_id);
+    assert!(!announced_id.is_empty(), "the call id is never empty");
 }
 
 #[tokio::test]
-async fn an_aborted_stream_retracts_its_announcements_rather_than_cancelling_them() {
+async fn a_provider_that_reuses_a_call_id_is_refused_not_merged() {
+    // `[INV-TOOL-ID-01]`: an id identifies exactly one call. Merging two calls
+    // under one row would silently give one of them the other's result, so the
+    // attempt is refused as a protocol violation instead.
+    let duplicate_ids = vec![
+        ProviderStreamEvent::ToolCallDelta {
+            index: 0,
+            id: Some("call_same".to_string()),
+            name: Some("alpha".to_string()),
+            arguments: r#"{"k":1}"#.to_string(),
+        },
+        ProviderStreamEvent::ToolCallDelta {
+            index: 1,
+            id: Some("call_same".to_string()),
+            name: Some("beta".to_string()),
+            arguments: r#"{"k":2}"#.to_string(),
+        },
+    ];
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![duplicate_ids])),
+        vec![
+            Arc::new(RecordingTool::read("alpha", "A-out")),
+            Arc::new(RecordingTool::read("beta", "B-out")),
+        ],
+        crate::AgentIdentity::default(),
+    ));
+
+    let (events, outcome) = run_golden_round(&agent, "go", PermissionDecision::Once).await;
+    let error = outcome.expect_err("a duplicate call id is a protocol violation");
+    assert!(
+        format!("{error}").contains("same id"),
+        "the error must name the violation, got: {error}"
+    );
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            AgentEvent::ToolCallsRetracted { ids } if ids.iter().any(|id| id == "call_same")
+        )),
+        "both announced rows for the colliding id are retracted"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::ToolCall { .. })),
+        "neither call is dispatched from an ambiguous response"
+    );
+}
+
+#[tokio::test]
+async fn a_late_provider_id_cannot_re_key_an_announced_call() {
+    // The first fragment names the call without an id, so the harness mints one
+    // and announces it. A later id fragment must not replace it: the frontend
+    // already holds the row under the announced id. The anomaly is logged, not
+    // silently merged.
+    let late_id_turn = vec![
+        ProviderStreamEvent::ToolCallDelta {
+            index: 0,
+            id: None,
+            name: Some("big_tool".to_string()),
+            arguments: r#"{"va"#.to_string(),
+        },
+        ProviderStreamEvent::ToolCallDelta {
+            index: 0,
+            id: Some("late_id".to_string()),
+            name: None,
+            arguments: r#"lue":1}"#.to_string(),
+        },
+    ];
+    let agent = Arc::new(Agent::new(
+        Arc::new(ScriptedProvider::new(vec![late_id_turn, text_turn("done")])),
+        vec![Arc::new(RecordingTool::read("big_tool", "ok"))],
+        crate::AgentIdentity::default(),
+    ));
+
+    let (events, outcome) = run_golden_round(&agent, "go", PermissionDecision::Once).await;
+    assert_eq!(outcome.expect("the call executes").message.content, "done");
+
+    let announced = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCallStarted { id, name } if name == "big_tool" => Some(id.clone()),
+            _ => None,
+        })
+        .expect("announced");
+    let dispatched = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCall { id, name, .. } if name == "big_tool" => Some(id.clone()),
+            _ => None,
+        })
+        .expect("dispatched");
+    assert_eq!(
+        dispatched, announced,
+        "the announced id is the call's identity for its whole life"
+    );
+    assert_ne!(
+        announced, "late_id",
+        "a late provider id must not re-key a row the frontend already holds"
+    );
+}
+
+#[tokio::test]
+async fn an_aborted_stream_retracts_its_announced_calls_rather_than_cancelling_them() {
     // ADR-0026 lifecycle: a call announced by an attempt that dies before
     // dispatch (here: truncated arguments, which is exactly the fast-model
     // failure shape) must be **retracted**. It must not surface as a
@@ -966,23 +1065,21 @@ async fn an_aborted_stream_retracts_its_announcements_rather_than_cancelling_the
     let announced = events
         .iter()
         .find_map(|event| match event {
-            AgentEvent::ToolCallStarted {
-                announcement, name, ..
-            } if name == "big_tool" => Some(*announcement),
+            AgentEvent::ToolCallStarted { id, name } if name == "big_tool" => Some(id.clone()),
             _ => None,
         })
         .expect("the call must have been announced before the stream died");
-    let retracted: Vec<u64> = events
+    let retracted: Vec<String> = events
         .iter()
         .flat_map(|event| match event {
-            AgentEvent::ToolAnnouncementsRetracted { announcements } => announcements.clone(),
+            AgentEvent::ToolCallsRetracted { ids } => ids.clone(),
             _ => Vec::new(),
         })
         .collect();
     assert_eq!(
         retracted,
         vec![announced],
-        "exactly the dead attempt's announcement is retracted"
+        "exactly the dead attempt's call is retracted, by its own id"
     );
     assert!(
         !events.iter().any(|event| matches!(
@@ -1796,14 +1893,9 @@ async fn write_tool_waits_for_permission_and_always_is_cached() {
     let task_call = call.clone();
     let task = tokio::spawn(async move {
         task_agent
-            .execute_tool_evented(
-                &task_call,
-                "call",
-                &CancellationToken::new(),
-                &mut |event| {
-                    let _ = event_tx.send(event);
-                },
-            )
+            .execute_tool_evented(&task_call, &CancellationToken::new(), &mut |event| {
+                let _ = event_tx.send(event);
+            })
             .await
     });
 
@@ -1835,7 +1927,7 @@ async fn write_tool_waits_for_permission_and_always_is_cached() {
 
     let mut prompted_again = false;
     let output = agent
-        .execute_tool_evented(&call, "call", &CancellationToken::new(), &mut |event| {
+        .execute_tool_evented(&call, &CancellationToken::new(), &mut |event| {
             if matches!(event, AgentEvent::PermissionRequest(_)) {
                 prompted_again = true;
             }
@@ -1864,7 +1956,7 @@ async fn rejected_permission_does_not_execute_tool() {
     let task_agent = agent.clone();
     let task = tokio::spawn(async move {
         task_agent
-            .execute_tool_evented(&call, "call", &CancellationToken::new(), &mut |event| {
+            .execute_tool_evented(&call, &CancellationToken::new(), &mut |event| {
                 let _ = event_tx.send(event);
             })
             .await
@@ -1992,7 +2084,7 @@ async fn execute_tool_evented_drains_interrupted_subagent() {
     let cancel_for_run = cancel.clone();
     let task = tokio::spawn(async move {
         agent_for_run
-            .execute_tool_evented(&call, "call_subagent", &cancel_for_run, &mut |_event| {})
+            .execute_tool_evented(&call, &cancel_for_run, &mut |_event| {})
             .await
     });
 
@@ -2117,7 +2209,6 @@ async fn schema_violating_call_never_reaches_the_tool() {
                     name: "strict_read".to_string(),
                     arguments: arguments.to_string(),
                 },
-                "call",
                 &CancellationToken::new(),
                 &mut |_| {},
             )
@@ -2413,15 +2504,14 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
             AgentEvent::ToolCall {
                 name, arguments, ..
             } => Some(format!("tool-call {name} {arguments}")),
-            // The ids are process-unique by design, so the assertion stream
-            // carries the retraction's shape (how many provisional rows died),
-            // never the opaque values themselves.
-            AgentEvent::ToolAnnouncementsRetracted { announcements } => Some(format!(
-                "tool-announcements-retracted {}",
-                announcements.len()
-            )),
-            AgentEvent::ToolCallStarted { index, name, .. } => {
-                Some(format!("tool-call-started {index} {name}"))
+            // ADR-0166: the retraction names call ids; the assertion stream
+            // carries its shape (how many provisional rows died) rather than the
+            // ids themselves, which are provider-supplied or minted.
+            AgentEvent::ToolCallsRetracted { ids } => {
+                Some(format!("tool-calls-retracted {}", ids.len()))
+            }
+            AgentEvent::ToolCallStarted { id, name } => {
+                Some(format!("tool-call-started {id} {name}"))
             }
             // ADR-0125: previews are deterministic function of the workspace, so
             // they belong in the transcript-normalized assertion stream — a
@@ -2433,8 +2523,8 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
                 preview.line_counts().0,
                 preview.line_counts().1
             )),
-            AgentEvent::ToolInputProgress { index, bytes, .. } => {
-                Some(format!("tool-input-progress {index} {bytes}"))
+            AgentEvent::ToolInputProgress { id, bytes, .. } => {
+                Some(format!("tool-input-progress {id} {bytes}"))
             }
             AgentEvent::ToolResult { name, output, .. } => {
                 Some(format!("tool-result {name} {output:?}"))
@@ -2516,8 +2606,8 @@ async fn golden_native_tool_turn_then_final_text() {
         vec![
             "model-request turn=0",
             "context-tokens",
-            "tool-call-started 0 alpha",
-            "tool-call-started 1 beta",
+            "tool-call-started c1 alpha",
+            "tool-call-started c2 beta",
             "tool-call alpha {\"k\":1}",
             "tool-call beta {\"k\":2}",
             "tool-result alpha \"A-out\"",
@@ -3278,7 +3368,7 @@ async fn always_permission_persists_across_agents_for_same_project() {
     let task_agent = agent.clone();
     let task = tokio::spawn(async move {
         task_agent
-            .execute_tool_evented(&call, "call", &CancellationToken::new(), &mut |event| {
+            .execute_tool_evented(&call, &CancellationToken::new(), &mut |event| {
                 let _ = event_tx.send(event);
             })
             .await
@@ -4236,6 +4326,71 @@ async fn repeated_stream_loop_hard_stop_is_visible() {
             if notice.severity == NoticeSeverity::Error
                 && notice.title == "Repetitive output stopped again; round ended"
     )));
+}
+
+#[tokio::test]
+async fn a_tool_argument_loop_cut_retracts_the_call_it_announced() {
+    // ADR-0166: a cut stream drops its call fragments, but the retraction must
+    // run *first* — the ids it names live on those fragments. Clearing before
+    // retracting emitted an empty retraction and left the frontend holding a
+    // `receiving input` row forever.
+    let looping_tool_args = {
+        let mut events = vec![ProviderStreamEvent::ToolCallDelta {
+            index: 0,
+            id: Some("call_loop".to_string()),
+            name: Some("big_tool".to_string()),
+            arguments: String::new(),
+        }];
+        for _ in 0..160 {
+            events.push(ProviderStreamEvent::ToolCallDelta {
+                index: 0,
+                id: None,
+                name: None,
+                arguments: "repeating argument fragment\n".to_string(),
+            });
+        }
+        events
+    };
+    let agent = Arc::new(Agent::new(
+        Arc::new(
+            ScriptedProvider::new(vec![looping_tool_args, text_turn("recovered")])
+                .with_cognitive_replies(&["yes"]),
+        ),
+        Vec::new(),
+        crate::AgentIdentity::default(),
+    ));
+
+    let (events, outcome) = run_golden_round(&agent, "go", PermissionDecision::Once).await;
+    assert_eq!(
+        outcome.expect("the cut recovers").message.content,
+        "recovered"
+    );
+
+    let announced = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolCallStarted { id, name } if name == "big_tool" => Some(id.clone()),
+            _ => None,
+        })
+        .expect("the call was announced before the argument loop was cut");
+    let retracted: Vec<String> = events
+        .iter()
+        .flat_map(|event| match event {
+            AgentEvent::ToolCallsRetracted { ids } => ids.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    assert_eq!(
+        retracted,
+        vec![announced.clone()],
+        "the cut attempt's announced call is retracted by its own id"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEvent::ToolCall { id, .. } if *id == announced)),
+        "a loop-cut call fragment is never dispatched"
+    );
 }
 
 #[tokio::test]

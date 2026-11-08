@@ -1,40 +1,28 @@
 use super::*;
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
-/// Process-unique identity for a tool-call announcement (ADR-0026).
+/// Retract every call this attempt announced that no `ToolCall` discharged.
 ///
-/// The frontend treats this id as opaque. It survives a retry, so a stale
-/// announcement is retracted by exactly its own id, and two sessions that
-/// happen to share a `(round, turn, slot)` can never collapse or retract each
-/// other's provisional rows.
-static NEXT_ANNOUNCEMENT_ID: AtomicU64 = AtomicU64::new(1);
-
-fn next_announcement_id() -> u64 {
-    NEXT_ANNOUNCEMENT_ID.fetch_add(1, Ordering::Relaxed)
-}
-
-/// What one provider attempt already put on the wire: whether assistant text
-/// was streamed, and which tool calls were announced (provider slot → opaque
-/// announcement id). Both facts are per-attempt, not per-round, so they travel
-/// together and never leak into the round's durable state.
-struct StreamedAttempt<'a> {
-    text: bool,
-    announcements: &'a std::collections::HashMap<usize, u64>,
-}
-
-/// Retract every announcement this attempt produced that no `ToolCall`
-/// discharged. An empty set emits nothing, so the normal path carries no
-/// no-op wire event.
-fn retract_announcements<F: FnMut(AgentEvent)>(
-    announcements: &mut std::collections::HashMap<usize, u64>,
+/// ADR-0166: the retraction names the **call ids**, because that is the only
+/// identity a frontend rows by. An empty set emits nothing, so the normal path
+/// carries no no-op wire event.
+fn retract_announced_calls<F: FnMut(AgentEvent)>(
+    announced_slots: &mut std::collections::BTreeSet<usize>,
+    calls: &[ToolCall],
     on_event: &mut F,
 ) {
-    if announcements.is_empty() {
+    if announced_slots.is_empty() {
         return;
     }
-    let announcements = announcements.drain().map(|(_, id)| id).collect();
-    on_event(AgentEvent::ToolAnnouncementsRetracted { announcements });
+    let slots = std::mem::take(announced_slots);
+    let ids: Vec<String> = slots
+        .into_iter()
+        .filter_map(|slot| calls.get(slot).map(|call| call.id.clone()))
+        .filter(|id| !id.is_empty())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    on_event(AgentEvent::ToolCallsRetracted { ids });
 }
 
 /// A stream-loop cutoff is recoverable once per user round. A second cutoff
@@ -147,7 +135,6 @@ fn stream_loop_preceding_context(messages: &[Message]) -> String {
 
 pub(crate) struct ToolResultRecord<'a> {
     pub call: &'a ToolCall,
-    pub call_id: &'a str,
     pub result: &'a ToolOutput,
     pub duration_ms: u64,
     pub checkpoint_replay: bool,
@@ -637,12 +624,14 @@ impl Agent {
             // dispatch still waits for the whole object after the stream ends
             // ([INV-STREAM-TOOL-01]).
             const TOOL_INPUT_PROGRESS_STEP: usize = 4096;
-            // Provider slot -> the opaque announcement identity the frontend
-            // keys the provisional row by. A slot is announced at most once per
-            // attempt; a retry mints fresh ids, so the previous attempt's rows
+            // ADR-0166: provider slots whose call was announced to the frontend
+            // and not yet discharged by dispatch. The identity the frontend keys
+            // the row by is `calls[slot].id`; this set only answers "did this
+            // attempt announce a row that dispatch never reached?" A retry
+            // announces fresh calls (fresh ids), so the previous attempt's rows
             // are retracted rather than re-used.
-            let mut announcements: std::collections::HashMap<usize, u64> =
-                std::collections::HashMap::new();
+            let mut announced_slots: std::collections::BTreeSet<usize> =
+                std::collections::BTreeSet::new();
             let mut reported_tool_input_bytes: std::collections::HashMap<usize, usize> =
                 std::collections::HashMap::new();
 
@@ -753,7 +742,7 @@ impl Agent {
                                 // neither ended nor producing a chunk: the
                                 // answer was not finishing after all. Honour
                                 // the interrupt.
-                                retract_announcements(&mut announcements, &mut on_event);
+                                retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                                 return Err(HarnessError::Interrupted);
                             }
                             Err(_elapsed) => {
@@ -767,7 +756,7 @@ impl Agent {
                                     STREAM_IDLE_TIMEOUT.as_secs()
                                 );
                                 request_accounting.record_error(&err_msg);
-                                retract_announcements(&mut announcements, &mut on_event);
+                                retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                                 return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Timeout, err_msg).retryable(None)));
                             }
                         };
@@ -775,7 +764,7 @@ impl Agent {
                             Ok(event) => event,
                             Err(error) => {
                                 request_accounting.record_error(error.to_string());
-                                retract_announcements(&mut announcements, &mut on_event);
+                                retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                                 return Err(HarnessError::from(error));
                             }
                         };
@@ -791,7 +780,7 @@ impl Agent {
                             let err_msg = "Provider emitted data after the terminal completion event."
                                 .to_string();
                             request_accounting.record_error(&err_msg);
-                            retract_announcements(&mut announcements, &mut on_event);
+                            retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                             return Err(HarnessError::Provider(nuo_protocol::ProviderError::new("harness", nuo_protocol::ProviderErrorKind::Protocol, err_msg).retryable(None)));
                         }
                         request_accounting.observe_stream_event(
@@ -880,8 +869,35 @@ impl Agent {
                                     });
                                 }
                                 let call = &mut calls[index];
-                                if let Some(id) = id {
-                                    call.id.push_str(&id);
+                                // ADR-0166: the provider's id is a scalar, not a
+                                // fragment stream — every lane that supplies one
+                                // supplies it whole, alongside the name. Freeze
+                                // the first non-empty value so a provider that
+                                // repeats it cannot grow a garbled identity that
+                                // no longer matches the announcement already on
+                                // the wire.
+                                if call.id.is_empty() {
+                                    if let Some(id) = id.filter(|id| !id.is_empty()) {
+                                        call.id = id;
+                                    }
+                                } else if let Some(late) = id
+                                    && !late.is_empty()
+                                    && late != call.id
+                                {
+                                    // This lane's wire shape is outside what the
+                                    // workspace models: the announcement (and the
+                                    // persisted `tool_call_id`) already carry the
+                                    // frozen id. Re-keying a row the frontend
+                                    // holds is strictly worse, so keep the frozen
+                                    // identity and make the anomaly visible
+                                    // instead of dropping it silently.
+                                    tracing::warn!(
+                                        tool = %call.name,
+                                        frozen_id = %call.id,
+                                        late_id = %late,
+                                        "provider supplied a tool-call id after the call was \
+                                         announced; keeping the announced id"
+                                    );
                                 }
                                 if let Some(name) = name {
                                     call.name.push_str(&name);
@@ -907,23 +923,25 @@ impl Agent {
                                         &mut pending_stream_loop_review,
                                     );
                                 }
-                                // ADR-0026: the moment this slot first has a
-                                // name, announce the call so the frontend can
-                                // show a running step and the tool phase while
-                                // the arguments keep streaming. The execution
-                                // gate is untouched — dispatch still waits for
-                                // the whole object after the stream ends.
-                                if !announcements.contains_key(&index) && !call.name.is_empty() {
-                                    let announcement = next_announcement_id();
-                                    announcements.insert(index, announcement);
-                                    let announced_id =
-                                        (!call.id.is_empty()).then(|| call.id.clone());
-                                    let announced_name = call.name.clone();
+                                // ADR-0026 / ADR-0166: the moment this slot
+                                // first has a name, announce the call so the
+                                // frontend can show a running step and the tool
+                                // phase while the arguments keep streaming. The
+                                // announcement carries the call's single
+                                // identity, minted here if the provider supplied
+                                // none, so every later event (progress, dispatch,
+                                // stream, result, retraction) addresses the same
+                                // row. The execution gate is untouched — dispatch
+                                // still waits for the whole object after the
+                                // stream ends.
+                                if !announced_slots.contains(&index) && !call.name.is_empty() {
+                                    if call.id.is_empty() {
+                                        call.id = format!("call_{}", uuid::Uuid::new_v4());
+                                    }
+                                    announced_slots.insert(index);
                                     on_event(AgentEvent::ToolCallStarted {
-                                        announcement,
-                                        index,
-                                        id: announced_id,
-                                        name: announced_name,
+                                        id: call.id.clone(),
+                                        name: call.name.clone(),
                                     });
                                 }
                                 // Count-only progress, throttled to a bounded
@@ -934,13 +952,9 @@ impl Agent {
                                     reported_tool_input_bytes.get(&index).copied().unwrap_or(0);
                                 if total.saturating_sub(reported) >= TOOL_INPUT_PROGRESS_STEP {
                                     reported_tool_input_bytes.insert(index, total);
-                                    let progress_id =
-                                        (!call.id.is_empty()).then(|| call.id.clone());
-                                    if let Some(&announcement) = announcements.get(&index) {
+                                    if announced_slots.contains(&index) {
                                         on_event(AgentEvent::ToolInputProgress {
-                                            announcement,
-                                            index,
-                                            id: progress_id,
+                                            id: call.id.clone(),
                                             bytes: total,
                                             arguments: Some(call.arguments.clone()),
                                         });
@@ -1024,7 +1038,7 @@ impl Agent {
                             "Provider stream ended mid-tool-call; the response was likely truncated."
                                 .to_string();
                         request_accounting.record_error(&err_msg);
-                        retract_announcements(&mut announcements, &mut on_event);
+                        retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                         return Err(HarnessError::Provider(
                             nuo_protocol::ProviderError::new(
                                 "harness",
@@ -1043,7 +1057,7 @@ impl Agent {
                             call.name
                         );
                         request_accounting.record_error(&err_msg);
-                        retract_announcements(&mut announcements, &mut on_event);
+                        retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                         return Err(HarnessError::Provider(
                             nuo_protocol::ProviderError::new(
                                 "harness",
@@ -1060,7 +1074,7 @@ impl Agent {
                 let err_msg = "Provider stream ended without a terminal completion event; response state was not committed."
                     .to_string();
                 request_accounting.record_error(&err_msg);
-                retract_announcements(&mut announcements, &mut on_event);
+                retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                 return Err(HarnessError::Provider(
                     nuo_protocol::ProviderError::new(
                         "harness",
@@ -1069,6 +1083,34 @@ impl Agent {
                     )
                     .retryable(None),
                 ));
+            }
+
+            // ADR-0166 `[INV-TOOL-ID-01]`: one id identifies one call. A
+            // provider that reuses an id within a single response makes two
+            // calls indistinguishable to *every* consumer — the transcript row,
+            // the dispatch slot, the persisted `tool_call_id` — so one of them
+            // would silently wear the other's result. That is a protocol
+            // violation, not something to merge away: refuse the attempt.
+            {
+                let mut seen = std::collections::HashSet::with_capacity(calls.len());
+                if let Some(duplicate) = calls
+                    .iter()
+                    .filter(|call| !call.id.is_empty())
+                    .find(|call| !seen.insert(call.id.as_str()))
+                {
+                    let err_msg = format!(
+                        "Provider returned two tool calls with the same id `{}`; a tool-call \
+                         id must identify exactly one call.",
+                        duplicate.id
+                    );
+                    request_accounting.record_error(&err_msg);
+                    retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
+                    return Err(HarnessError::Provider(nuo_protocol::ProviderError::new(
+                        "harness",
+                        nuo_protocol::ProviderErrorKind::Protocol,
+                        err_msg,
+                    )));
+                }
             }
 
             // A detected loop cuts this provider stream, but it does not
@@ -1097,11 +1139,10 @@ impl Agent {
                     }
                     nuo_protocol::StreamLoopChannel::ToolCall => {
                         // Tool-call arguments are never rendered as text; the
-                        // partial calls are dropped below, which is the whole
-                        // trimming this channel needs.
+                        // partial calls are dropped after their retraction below,
+                        // which is the whole trimming this channel needs.
                     }
                 }
-                calls.clear();
 
                 if round.stream_loop_recoveries < MAX_STREAM_LOOP_RECOVERIES {
                     round.stream_loop_recoveries += 1;
@@ -1152,6 +1193,11 @@ impl Agent {
             // becomes the next turn's input.
             let cut_without_content = stream_loop_incident.is_some() && content.trim().is_empty();
             if cut_without_content {
+                // ADR-0166: this attempt is over, so anything it announced and
+                // never dispatched must go — including on the hard-stop path,
+                // which used to return before the retraction below and leave the
+                // frontend holding rows that could never finish.
+                retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                 if stream_loop_hard_stopped {
                     return Err(HarnessError::Other(
                         "Generation was stopped after a repeated intervention; no assistant \
@@ -1162,7 +1208,6 @@ impl Agent {
                 if let Some(notice) = stream_loop_notice.take() {
                     on_event(AgentEvent::Notice(notice));
                 }
-                retract_announcements(&mut announcements, &mut on_event);
                 if let Some(prompt) = stream_loop_recovery_prompt.take() {
                     messages.push(crate::runtime::message::hidden_user(
                         InjectionKind::LoopReviewNudge,
@@ -1182,11 +1227,13 @@ impl Agent {
                 continue;
             }
 
-            // A cut stream's tool-call fragments are never executable intent,
-            // so anything it announced is retracted here — before the recovery
-            // request announces its own calls.
+            // A cut stream's tool-call fragments are never executable intent, so
+            // anything it announced is retracted here — before the recovery
+            // request announces its own calls. The retraction runs **before**
+            // the fragments are dropped: the ids it names live on those calls.
             if stream_loop_incident.is_some() {
-                retract_announcements(&mut announcements, &mut on_event);
+                retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
+                calls.clear();
             }
 
             if emitted_text {
@@ -1219,7 +1266,7 @@ impl Agent {
                         call.name
                     );
                     request_accounting.record_error(&err_msg);
-                    retract_announcements(&mut announcements, &mut on_event);
+                    retract_announced_calls(&mut announced_slots, &calls, &mut on_event);
                     return Err(HarnessError::Provider(
                         nuo_protocol::ProviderError::new(
                             "harness",
@@ -1308,7 +1355,12 @@ impl Agent {
                 sent_at_ms: Some(request_accounting.started_at_epoch_ms()),
             };
             if !valid_assistant_response(&response) {
-                retract_announcements(&mut announcements, &mut on_event);
+                // `calls` has moved into the response; the ids are the same.
+                retract_announced_calls(
+                    &mut announced_slots,
+                    response.tool_calls.as_deref().unwrap_or(&[]),
+                    &mut on_event,
+                );
                 return Err(empty_response_error(&response));
             }
             // The request checkpoint is consumed only after a complete,
@@ -1357,10 +1409,7 @@ impl Agent {
                     &response,
                     messages,
                     &mut round.state,
-                    StreamedAttempt {
-                        text: emitted_text,
-                        announcements: &announcements,
-                    },
+                    emitted_text,
                     cancel,
                     &mut on_event,
                 )
@@ -1369,7 +1418,7 @@ impl Agent {
             // announcement is discharged here regardless of the dispatch
             // outcome. Clearing prevents a later abort from retracting rows the
             // frontend already collapsed onto live calls.
-            announcements.clear();
+            announced_slots.clear();
             if dispatched? {
                 round.turn_index += 1;
                 self.set_current_turn(round.turn_index as u64);
@@ -1460,7 +1509,7 @@ impl Agent {
     /// up-front `ToolCall` events, concurrent execution with FIFO-ordered
     /// results, and pursuit/mode updates — lives in exactly one place.
     ///
-    /// `attempt.text` is true when the response text was already streamed to
+    /// `text_streamed` is true when the response text was already streamed to
     /// the UI, so a recognised text-fallback tool call retracts it with an
     /// `AssistantDiscard`. Returns `true` when a tool-carrying ReAct turn ran
     /// (the caller should loop again), `false` when the round is complete.
@@ -1477,7 +1526,7 @@ impl Agent {
         response: &Message,
         messages: &mut Vec<Message>,
         state: &mut RoundState,
-        attempt: StreamedAttempt<'_>,
+        text_streamed: bool,
         cancel: &CancellationToken,
         on_event: &mut F,
     ) -> Result<bool, HarnessError>
@@ -1499,7 +1548,7 @@ impl Agent {
             //   3. schedule — concurrent execution through the ToolScheduler;
             //   4. finalize — input-ordered recording, post-tool hooks, nudge.
             let prepared = self
-                .dispatch_preflight(tool_calls, messages, state, attempt.announcements, on_event)
+                .dispatch_preflight(tool_calls, messages, state, on_event)
                 .await;
             let outcome = if prepared.exec_indices.is_empty() {
                 None
@@ -1509,13 +1558,8 @@ impl Agent {
                     .iter()
                     .map(|&i| tool_calls[i].clone())
                     .collect();
-                let exec_ids: Vec<String> = prepared
-                    .exec_indices
-                    .iter()
-                    .map(|&i| prepared.call_ids[i].clone())
-                    .collect();
                 Some(
-                    self.schedule_tool_calls(&exec_calls, &exec_ids, cancel, on_event)
+                    self.schedule_tool_calls(&exec_calls, cancel, on_event)
                         .await?,
                 )
             };
@@ -1526,7 +1570,7 @@ impl Agent {
 
         // Text-based fallback: any provider may emit a JSON tool call as text.
         if let Some(call) = crate::tool_call::parse_text_tool_call(&response.content) {
-            if attempt.text {
+            if text_streamed {
                 on_event(AgentEvent::AssistantDiscard);
             }
             tracing::debug!(tool = %call.name, "tool call (text fallback)");
@@ -1578,10 +1622,10 @@ impl Agent {
                 }
                 _ => None,
             };
-            let call_id = format!("call_{}", uuid::Uuid::new_v4());
+            // ADR-0166: the fallback call carries its own minted id; every
+            // event and the persisted result read that one value.
             on_event(AgentEvent::ToolCall {
-                announcement: None,
-                id: call_id.clone(),
+                id: call.id.clone(),
                 name: call.name.clone(),
                 arguments: call.arguments.clone(),
             });
@@ -1603,7 +1647,7 @@ impl Agent {
                     call.name,
                 ));
                 on_event(AgentEvent::ToolResult {
-                    id: call_id.clone(),
+                    id: call.id.clone(),
                     name: call.name.clone(),
                     output: output.to_text(),
                     structured: output.clone(),
@@ -1639,7 +1683,7 @@ impl Agent {
                     call.name,
                 ));
                 on_event(AgentEvent::ToolResult {
-                    id: call_id.clone(),
+                    id: call.id.clone(),
                     name: call.name.clone(),
                     output: output.to_text(),
                     structured: output.clone(),
@@ -1647,9 +1691,7 @@ impl Agent {
                 });
                 output
             } else {
-                let outcome = self
-                    .execute_tool_evented(&call, &call_id, cancel, on_event)
-                    .await?;
+                let outcome = self.execute_tool_evented(&call, cancel, on_event).await?;
                 if outcome.interrupted {
                     // Record a drained result (an interrupted subagent's partial
                     // transcript) before ending the round as interrupted.
@@ -1658,7 +1700,6 @@ impl Agent {
                         self.record_tool_result(
                             ToolResultRecord {
                                 call: &call,
-                                call_id: &call_id,
                                 result: &result,
                                 duration_ms,
                                 checkpoint_replay,
@@ -1692,7 +1733,6 @@ impl Agent {
             self.record_tool_result(
                 ToolResultRecord {
                     call: &call,
-                    call_id: &call_id,
                     result: &result,
                     duration_ms,
                     checkpoint_replay,
@@ -1730,12 +1770,14 @@ impl Agent {
     {
         let ToolResultRecord {
             call,
-            call_id,
             result,
             duration_ms,
             checkpoint_replay,
             emit_event,
         } = record;
+        // ADR-0166: the call id is the call's identity — events, the journal,
+        // and the persisted `tool_call_id` all read the same value.
+        let call_id = call.id.as_str();
         let text = result.to_text();
         // Cost attribution: a subagent's true token consumption can be 100x
         // the byte-estimate of its final summary, so accumulate the real
@@ -1816,7 +1858,7 @@ impl Agent {
                 .with_children(sub_messages.to_vec())
                 .with_subagent_meta(meta)
             }
-            None => format_tool_result_message(call, call_id, result, &text),
+            None => format_tool_result_message(call, result, &text),
         };
         messages.push(tool_message);
 
@@ -1839,7 +1881,6 @@ impl Agent {
 
 pub(crate) fn format_tool_result_message(
     call: &ToolCall,
-    _call_id: &str,
     result: &ToolOutput,
     text: &str,
 ) -> Message {
@@ -1973,7 +2014,7 @@ mod tests {
             detached_job_id: None,
         };
 
-        let msg = format_tool_result_message(&call, &call.id, &result, &result.to_text());
+        let msg = format_tool_result_message(&call, &result, &result.to_text());
         let content = &msg.content;
         // ADR-0093 [INV-SPOOL-01]: Ephemeral session spool path
         assert!(content.contains("- Spool File: \""));
@@ -2015,7 +2056,7 @@ mod tests {
         let large_text = "a".repeat(12000);
         let result = ToolOutput::Text(large_text.clone());
 
-        let msg = format_tool_result_message(&call, &call.id, &result, &large_text);
+        let msg = format_tool_result_message(&call, &result, &large_text);
         let content = &msg.content;
         // VFS Immunity invariant [INV-VFS-02]: must NOT be truncated, spilled, or stubbed
         assert!(content.starts_with("[read_text result]:\n"));

@@ -296,12 +296,20 @@ fn transcript_from_core_inner(
     // non-driving command echoes do not open rounds.
     let mut restored_round: u64 = 0;
     let mut restored_turn: u64 = 0;
-    // Index of every still-unfinished tool step, queued per tool name. A tool
-    // result pairs with the *earliest* unfinished step of the same name (live
-    // order), so a per-name FIFO reproduces the old forward-scan semantics in
-    // O(1) per result instead of rescanning the whole `restored` vec — turning
-    // the restore of a tool-heavy session from O(n²) into O(n).
-    let mut pending_steps: HashMap<String, VecDeque<usize>> = HashMap::new();
+    // ADR-0166 `[INV-TOOL-ID-01]`: a restored step carries the call's real id.
+    // A typed transcript carries it on both halves — the assistant
+    // `tool_calls[].id` and the tool message's `tool_call_id` — so pairing is
+    // by identity, O(1).
+    let mut pending_by_id: HashMap<String, usize> = HashMap::new();
+    // The per-name FIFO remains **only** for a result whose persisted
+    // `tool_call_id` is absent or empty: that shape has no identity to pair on.
+    // It is a fallback over *unfinished* steps, so an id-paired step is skipped
+    // rather than removed (which would make same-name restore quadratic).
+    let mut pending_by_name: HashMap<String, VecDeque<usize>> = HashMap::new();
+    // A call whose persisted id is empty gets a synthetic unique id rather than
+    // borrowing the tool name: an id identifies one call, and two same-named
+    // calls must never share one.
+    let mut restored_seq: usize = 0;
     for mut message in messages {
         if message.hidden || message.role == Role::System {
             continue;
@@ -388,14 +396,19 @@ fn transcript_from_core_inner(
             }
             if let Some(calls) = message.tool_calls.take() {
                 for call in calls {
-                    // Historical results match by tool name, so use it as the id.
-                    // Disclosure is applied when the matching result finishes
-                    // the step below (lifecycle-aware default), mirroring live.
-                    let mut step = TranscriptMessage::tool_step(
-                        call.name.clone(),
-                        call.name.clone(),
-                        call.arguments,
-                    );
+                    // ADR-0166: the step's id is the call's id, never the tool
+                    // name. An id-less legacy entry gets a synthetic unique id so
+                    // two same-named calls still cannot collide.
+                    let real_id = (!call.id.is_empty()).then(|| call.id.clone());
+                    let step_id = match &real_id {
+                        Some(id) => id.clone(),
+                        None => {
+                            restored_seq += 1;
+                            format!("restored_call_{restored_seq}")
+                        }
+                    };
+                    let mut step =
+                        TranscriptMessage::tool_step(step_id, call.name.clone(), call.arguments);
                     step.provider = provider.clone();
                     step.model = model.clone();
                     step.effort = effort.clone();
@@ -404,7 +417,10 @@ fn transcript_from_core_inner(
                         step.turn = Some(restored_turn);
                     }
                     step.sent_at_ms = message_sent_at_ms;
-                    pending_steps
+                    if let Some(id) = real_id {
+                        pending_by_id.insert(id, restored.len());
+                    }
+                    pending_by_name
                         .entry(call.name)
                         .or_default()
                         .push_back(restored.len());
@@ -418,11 +434,30 @@ fn transcript_from_core_inner(
         if message.role == Role::Tool
             && let Some((name, output)) = parse_tool_result(&message.content)
         {
-            // Pair with the earliest unfinished step of this name (O(1) via the
-            // per-name queue). Fall back to nothing if no step is pending — an
+            // Identity first: a tool message carries the `tool_call_id` of the
+            // call it answers. Fall back to the per-name FIFO only when that id
+            // is absent or empty, and to nothing when no step is pending — an
             // orphan result is then rendered as a plain message below.
-            if let Some(idx) = pending_steps.get_mut(name).and_then(|q| q.pop_front()) {
+            let paired = message
+                .tool_call_id
+                .as_deref()
+                .filter(|id| !id.is_empty())
+                .and_then(|id| pending_by_id.remove(id))
+                .or_else(|| {
+                    let queue = pending_by_name.get_mut(name)?;
+                    while let Some(idx) = queue.pop_front() {
+                        if restored[idx]
+                            .tool_step_status()
+                            .is_some_and(|status| status.is_running())
+                        {
+                            return Some(idx);
+                        }
+                    }
+                    None
+                });
+            if let Some(idx) = paired {
                 let item = &mut restored[idx];
+                let step_id = item.tool_step_call_id().unwrap_or(name).to_string();
                 let meta = message.subagent_meta.take();
                 let children = message.children.take();
                 // Rebuild a structured output that preserves the subagent's true
@@ -444,7 +479,7 @@ fn transcript_from_core_inner(
                     ),
                     None => (nuo_protocol::ToolOutput::text(output), 0),
                 };
-                if item.finish_tool_step(name, output, structured, duration_ms) {
+                if item.finish_tool_step(&step_id, output, structured, duration_ms) {
                     // Restore the subagent's nested transcript so its partial /
                     // completed work is drillable after resume.
                     if let Some(child_messages) = children {

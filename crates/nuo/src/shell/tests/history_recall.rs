@@ -365,6 +365,74 @@ fn restored_tool_results_merge_into_steps_in_fifo_order() {
 }
 
 #[test]
+fn restored_tool_steps_carry_the_call_id_and_pair_by_identity() {
+    // ADR-0166 `[INV-TOOL-ID-01]`: a restored step's id is the call id, never
+    // the tool name, so two same-named calls stay distinct. Pairing is by the
+    // tool message's `tool_call_id`, so it survives a reordered result stream.
+    let messages = vec![
+        Message {
+            role: Role::Assistant,
+            content: String::new(),
+            content_blob: None,
+            display_content: None,
+            reasoning_content: None,
+            provider_meta: None,
+            tool_calls: Some(vec![
+                ToolCall {
+                    id: "call_a".to_string(),
+                    name: "read_text".to_string(),
+                    arguments: r#"{"path":"a"}"#.to_string(),
+                },
+                ToolCall {
+                    id: "call_b".to_string(),
+                    name: "read_text".to_string(),
+                    arguments: r#"{"path":"b"}"#.to_string(),
+                },
+            ]),
+            tool_call_id: None,
+            images: None,
+            provider: None,
+            model: None,
+            effort: None,
+            hidden: false,
+            children: None,
+            subagent_meta: None,
+            origin: None,
+            timestamp: None,
+            sent_at_ms: None,
+        },
+        // Results deliberately arrive out of call order.
+        Message::tool_result(
+            &ToolCall {
+                id: "call_b".to_string(),
+                name: "read_text".to_string(),
+                arguments: String::new(),
+            },
+            "[read_text result]:\nsecond",
+        ),
+        Message::tool_result(
+            &ToolCall {
+                id: "call_a".to_string(),
+                name: "read_text".to_string(),
+                arguments: String::new(),
+            },
+            "[read_text result]:\nfirst",
+        ),
+    ];
+
+    let mut restored = transcript_messages_from_core(messages, &config::TuiConfig::default());
+    assert_eq!(restored.len(), 2);
+    assert_eq!(restored[0].tool_step_call_id(), Some("call_a"));
+    assert_eq!(restored[1].tool_step_call_id(), Some("call_b"));
+    for message in &mut restored {
+        message.set_tool_step_expanded(true);
+    }
+    assert!(restored[0].raw.contains("first"));
+    assert!(!restored[0].raw.contains("second"));
+    assert!(restored[1].raw.contains("second"));
+}
+
+#[test]
 fn history_rows_lists_newest_first_then_ranks_search() {
     // The App-level view of the Ctrl+R panel. With no query the whole
     // cross-session history is listed newest-first (by created_at_ms),

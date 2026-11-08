@@ -30,9 +30,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
     let tool_input_progress = AgentResponse::Round {
         thread_id: "thread".to_string(),
         event: RoundEvent::ToolInputProgress {
-            announcement: 1,
-            index: 0,
-            id: None,
+            id: "call_1".to_string(),
             bytes: 4096,
             arguments: None,
         },
@@ -40,9 +38,7 @@ fn only_high_frequency_stream_updates_are_coalesced() {
     let tool_call_started = AgentResponse::Round {
         thread_id: "thread".to_string(),
         event: RoundEvent::ToolCallStarted {
-            announcement: 1,
-            index: 0,
-            id: None,
+            id: "call_1".to_string(),
             name: "edit_text".to_string(),
         },
     };
@@ -792,18 +788,17 @@ fn busy_enter_steer_is_staged_out_of_thread() {
     assert_eq!(item.text, "use rg instead");
 }
 
-/// ADR-0026 lifecycle: the honest end for a never-dispatched announcement is
+/// ADR-0166 `[INV-TOOL-ID-04]`: the honest end for a never-dispatched call is
 /// removal. A `Cancelled` row would assert that a call existed and was stopped.
 #[test]
-fn retracting_an_announcement_removes_the_provisional_row() {
+fn retracting_a_pending_call_removes_the_provisional_row() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
     use nuo_view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
     app.messages.push(
-        TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-            .with_announcement(11)
+        TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1),
     );
@@ -814,8 +809,8 @@ fn retracting_an_announcement_removes_the_provisional_row() {
 
     let applied = apply_transcript(
         &mut app,
-        TranscriptEdit::ToolAnnouncementsRetracted {
-            announcements: vec![11],
+        TranscriptEdit::ToolCallsRetracted {
+            ids: vec!["call_1".to_string()],
         },
     );
 
@@ -826,18 +821,17 @@ fn retracting_an_announcement_removes_the_provisional_row() {
     );
 }
 
-/// The retraction is surgical: it names opaque announcement ids, so it can only
-/// touch the rows it owns — never a sibling attempt's.
+/// The retraction is surgical: it names call ids, so it can only touch the rows
+/// it owns — never a sibling call's.
 #[test]
-fn retraction_is_scoped_to_the_named_announcement() {
+fn retraction_is_scoped_to_the_named_call() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
 
     let mut app = new_app_for_relay_tests();
-    for announcement in [11, 12] {
+    for call_id in ["call_1", "call_2"] {
         app.messages.push(
-            TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-                .with_announcement(announcement)
+            TranscriptMessage::tool_step_announced(call_id, "edit_text")
                 .with_round(1)
                 .with_turn(1),
         );
@@ -845,81 +839,136 @@ fn retraction_is_scoped_to_the_named_announcement() {
 
     apply_transcript(
         &mut app,
-        TranscriptEdit::ToolAnnouncementsRetracted {
-            announcements: vec![11],
+        TranscriptEdit::ToolCallsRetracted {
+            ids: vec!["call_1".to_string()],
         },
     );
 
     assert_eq!(app.messages.len(), 1);
-    assert_eq!(app.messages[0].announcement_id(), Some(12));
+    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_2"));
 }
 
-/// A dispatch whose announcement is gone (the attempt was retracted, or the
-/// provider never announced) must still insert its step: the call is real even
-/// when the provisional row is not.
+/// A dispatch for a call the buffer does not know (a retracted attempt, or a
+/// provider that never announced) must still insert its step: the call is real
+/// even when the provisional row is not.
 #[test]
-fn a_dispatch_whose_announcement_was_retracted_is_still_inserted() {
+fn a_dispatch_for_an_unknown_call_is_inserted() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
 
     let mut app = new_app_for_relay_tests();
-    let fallback = TranscriptMessage::tool_step("call_1", "edit_text", "{}")
+    let dispatch = TranscriptMessage::tool_step("call_1", "edit_text", "{}")
         .with_round(1)
         .with_turn(1)
         .with_sent_at_ms(1_700_000_000_000);
 
     apply_transcript(
         &mut app,
-        TranscriptEdit::ToolCallCollapse {
-            announcement: 99,
-            call_id: "call_1".to_string(),
-            arguments: "{}".to_string(),
-            fallback,
+        TranscriptEdit::ToolStepUpsert { message: dispatch },
+    );
+
+    assert_eq!(app.messages.len(), 1);
+    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_1"));
+}
+
+/// ADR-0166 `[INV-TOOL-ID-02]`: the reducer is idempotent. Replaying the same
+/// announcement must not insert a second step — the fault that produced the
+/// `receiving input` wall.
+#[test]
+fn a_duplicate_announcement_does_not_insert_a_second_step() {
+    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::mutations::TranscriptEdit;
+
+    let mut app = new_app_for_relay_tests();
+    for _ in 0..5 {
+        let announce = TranscriptMessage::tool_step_announced("call_1", "edit_text")
+            .with_round(1)
+            .with_turn(1);
+        apply_transcript(
+            &mut app,
+            TranscriptEdit::ToolStepUpsert { message: announce },
+        );
+    }
+
+    assert_eq!(
+        app.messages.len(),
+        1,
+        "one call is one row, however many times it is announced"
+    );
+}
+
+/// Once dispatched, the row is a real call, not a provisional one: a late
+/// retraction for the same call id must leave it alone.
+#[test]
+fn retraction_after_dispatch_leaves_the_dispatched_step() {
+    use crate::shell::event_loop::apply::apply_transcript;
+    use crate::shell::event_loop::mutations::TranscriptEdit;
+    use nuo_view::model::document::ToolStepStatus;
+
+    let mut app = new_app_for_relay_tests();
+    let announce = TranscriptMessage::tool_step_announced("call_1", "edit_text")
+        .with_round(1)
+        .with_turn(1);
+    apply_transcript(
+        &mut app,
+        TranscriptEdit::ToolStepUpsert { message: announce },
+    );
+    let dispatch = TranscriptMessage::tool_step("call_1", "edit_text", "{}")
+        .with_round(1)
+        .with_turn(1)
+        .with_sent_at_ms(1_700_000_000_000);
+    apply_transcript(
+        &mut app,
+        TranscriptEdit::ToolStepUpsert { message: dispatch },
+    );
+    apply_transcript(
+        &mut app,
+        TranscriptEdit::ToolCallsRetracted {
+            ids: vec!["call_1".to_string()],
         },
     );
 
     assert_eq!(app.messages.len(), 1);
     assert_eq!(app.messages[0].tool_step_call_id(), Some("call_1"));
-    assert_eq!(app.messages[0].announcement_id(), None);
+    assert_eq!(
+        app.messages[0].tool_step_status(),
+        Some(ToolStepStatus::Executing)
+    );
 }
 
-/// Once collapsed, the row is a dispatched call, not a provisional one: a late
-/// retraction for the same announcement id must leave it alone.
+/// ADR-0166 `[INV-TOOL-ID-05]`: a round that is not running cannot be ingesting
+/// a call, so the boundary sweep removes every provisional row — and nothing
+/// else. This is the safety net that survives a relink, where the translator
+/// has no local announcement state.
 #[test]
-fn retraction_after_collapse_leaves_the_dispatched_step() {
+fn a_settled_round_retracts_every_ingesting_step() {
     use crate::shell::event_loop::apply::apply_transcript;
     use crate::shell::event_loop::mutations::TranscriptEdit;
     use nuo_view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
     app.messages.push(
-        TranscriptMessage::tool_step(String::new(), "edit_text", String::new())
-            .with_announcement(11)
+        TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1),
     );
-    let fallback = TranscriptMessage::tool_step("call_1", "edit_text", "{}")
+    app.messages.push(
+        TranscriptMessage::tool_step_announced("call_2", "execute_command")
+            .with_round(1)
+            .with_turn(1),
+    );
+    let dispatched = TranscriptMessage::tool_step("call_3", "read_text", "{}")
         .with_round(1)
-        .with_turn(1)
-        .with_sent_at_ms(1_700_000_000_000);
-    apply_transcript(
-        &mut app,
-        TranscriptEdit::ToolCallCollapse {
-            announcement: 11,
-            call_id: "call_1".to_string(),
-            arguments: "{}".to_string(),
-            fallback,
-        },
-    );
-    apply_transcript(
-        &mut app,
-        TranscriptEdit::ToolAnnouncementsRetracted {
-            announcements: vec![11],
-        },
-    );
+        .with_turn(1);
+    app.messages.push(dispatched);
 
-    assert_eq!(app.messages.len(), 1);
-    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_1"));
+    assert!(apply_transcript(
+        &mut app,
+        TranscriptEdit::RetractPendingToolSteps
+    ));
+
+    assert_eq!(app.messages.len(), 1, "only the dispatched call survives");
+    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_3"));
     assert_eq!(
         app.messages[0].tool_step_status(),
         Some(ToolStepStatus::Executing)

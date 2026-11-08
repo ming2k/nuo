@@ -22,17 +22,18 @@ enum PostEdit {
     ClearCache,
 }
 
-/// ADR-0026: resolve a *still-pending* announced tool step by the opaque
-/// announcement id minted by the harness. Pending steps carry an empty call id
-/// and that id, so the match is exact and cannot collide with another session's
-/// step even when both share a round and turn.
-fn find_pending_announced_tool_step_mut(
-    messages: &mut [nuo_view::model::document::TranscriptMessage],
-    announcement: u64,
-) -> Option<&mut nuo_view::model::document::TranscriptMessage> {
+/// ADR-0166: the **only** tool-step resolver. A call is addressed by its call
+/// id; an id identifies one row, so there is no tie-break to get wrong.
+///
+/// `rfind` is the conservative spelling of that fact: if a duplicate ever
+/// reached the buffer by another route, the live row is the most recent one.
+fn find_tool_step_mut<'a>(
+    messages: &'a mut [TranscriptMessage],
+    call_id: &str,
+) -> Option<&'a mut TranscriptMessage> {
     messages
         .iter_mut()
-        .rfind(|message| message.is_announced_pending_tool_step_for(announcement))
+        .rfind(|message| message.tool_step_call_id() == Some(call_id))
 }
 
 /// Apply one mutation. Returns whether anything changed that a frame must
@@ -959,20 +960,14 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     post = PostEdit::Invalidate(id);
                 }
             }
-            TranscriptEdit::ToolStart { message } => {
+            TranscriptEdit::ToolStepUpsert { message } => {
+                // ADR-0166: one id, one row. Resolve first, merge if present,
+                // insert if not. Applying the same fact twice is a no-op, which
+                // is what makes a duplicated or replayed frame harmless.
                 let mut message = message;
                 let (round, turn) = (message.round, message.turn);
                 message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
-                messages.push(message);
-            }
-            TranscriptEdit::ToolAnnounce { name, message } => {
-                // Insert the announced (pending) step, applying the same
-                // lifecycle-aware disclosure default a finished step gets; the
-                // following `ToolCallCollapse` re-keys it onto the dispatch id.
-                // A just-pushed message has no cached height to evict.
-                let mut message = message;
-                let (round, turn) = (message.round, message.turn);
-                message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
+                let name = message.tool_step_name().unwrap_or_default().to_string();
                 if let Some(status) = message.tool_step_status() {
                     let default = crate::shell::step_interaction::default_tool_expanded(
                         status,
@@ -981,41 +976,43 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     );
                     message.set_tool_step_expanded(default);
                 }
-                messages.push(message);
-            }
-            TranscriptEdit::ToolCallCollapse {
-                announcement,
-                call_id,
-                arguments,
-                fallback,
-            } => {
-                if let Some(step) = find_pending_announced_tool_step_mut(messages, announcement) {
-                    // Re-key onto the dispatch id, store completed arguments,
-                    // and clear the pre-dispatch announcement/byte state in one
-                    // transition.
-                    step.collapse_tool_call(call_id, arguments);
-                    post = PostEdit::Invalidate(step.id);
-                } else {
-                    // The attempt that announced this call was already retracted
-                    // (or never announced at all). The dispatched call is real
-                    // and must appear, so fall back to a normal insert.
-                    let mut message = fallback;
-                    let (round, turn) = (message.round, message.turn);
-                    message.adopt_sent_at_ms(turn_time_adoption(messages, round, turn));
-                    messages.push(message);
+                let call_id = message.tool_step_call_id().unwrap_or_default().to_string();
+                match find_tool_step_mut(messages, &call_id) {
+                    Some(existing) => {
+                        if existing.merge_tool_step(&message) {
+                            // The lifecycle may have advanced, and the
+                            // lifecycle-aware disclosure default follows it.
+                            if let Some(status) = existing.tool_step_status() {
+                                let default = crate::shell::step_interaction::default_tool_expanded(
+                                    status,
+                                    &name,
+                                    &tui_config,
+                                );
+                                existing.set_tool_step_expanded(default);
+                            }
+                            post = PostEdit::Invalidate(existing.id);
+                        } else {
+                            changed = false;
+                        }
+                    }
+                    // A just-pushed message has no cached height to evict.
+                    None => messages.push(message),
                 }
             }
-            TranscriptEdit::ToolAnnouncementsRetracted { announcements } => {
-                if announcements.is_empty() {
+            TranscriptEdit::ToolCallsRetracted { ids } => {
+                if ids.is_empty() {
                     changed = false;
                 } else {
-                    let ids: std::collections::HashSet<u64> = announcements.into_iter().collect();
+                    let ids: std::collections::HashSet<String> = ids.into_iter().collect();
                     let before = messages.len();
+                    // Only a provisional row is retractable. A call that
+                    // dispatched is real, even if the retraction crossed it in
+                    // flight (`[INV-TOOL-ID-04]`).
                     messages.retain(|message| {
-                        !(message.is_announced_pending_tool_step()
-                            && message
-                                .announcement_id()
-                                .is_some_and(|id| ids.contains(&id)))
+                        !message
+                            .tool_step_call_id()
+                            .is_some_and(|id| ids.contains(id))
+                            || !message.is_pending_tool_step()
                     });
                     if messages.len() == before {
                         changed = false;
@@ -1024,33 +1021,51 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     }
                 }
             }
+            TranscriptEdit::RetractPendingToolSteps => {
+                // `[INV-TOOL-ID-05]`: a round that is not running cannot be
+                // ingesting a call. Ids are not needed, so this sweep is correct
+                // even in a listener that was spawned by a relink.
+                let before = messages.len();
+                messages.retain(|message| !message.is_pending_tool_step());
+                if messages.len() == before {
+                    changed = false;
+                } else {
+                    post = PostEdit::ClearCache;
+                }
+            }
             TranscriptEdit::ToolPreview { id, preview } => {
-                // Match by dispatch call id: the up-front `ToolCall` events have
-                // already created (or collapsed) the step this describes.
-                for message in messages.iter_mut() {
-                    if message.set_tool_preview(&id, preview.clone()) {
+                // Match by call id: the announcement (or the up-front `ToolCall`
+                // for a whole-argument provider) already created the step.
+                if let Some(message) = find_tool_step_mut(messages, &id) {
+                    if message.set_tool_preview(&id, preview) {
                         post = PostEdit::Invalidate(message.id);
-                        break;
+                    } else {
+                        changed = false;
                     }
+                } else {
+                    changed = false;
                 }
             }
             TranscriptEdit::ToolInputProgress {
-                announcement,
+                id,
                 bytes,
                 arguments,
-            } => {
-                if let Some(step) = find_pending_announced_tool_step_mut(messages, announcement) {
-                    let mut changed = step.set_tool_input_bytes(bytes);
-                    if let Some(args) = arguments {
-                        if step.set_tool_streaming_arguments(args) {
-                            changed = true;
-                        }
+            } => match find_tool_step_mut(messages, &id) {
+                Some(step) => {
+                    let mut moved = step.set_tool_input_bytes(bytes);
+                    if let Some(args) = arguments
+                        && step.set_tool_streaming_arguments(args)
+                    {
+                        moved = true;
                     }
-                    if changed {
+                    if moved {
                         post = PostEdit::Invalidate(step.id);
+                    } else {
+                        changed = false;
                     }
                 }
-            }
+                None => changed = false,
+            },
             TranscriptEdit::ToolResult {
                 id,
                 name,
@@ -1059,8 +1074,10 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 duration_ms,
                 fallback,
             } => {
+                // Newest-first: an id identifies one row, and `rfind` is the
+                // same "live row wins" convention every other tool arm uses.
                 let mut finished: Option<u64> = None;
-                for existing in messages.iter_mut() {
+                for existing in messages.iter_mut().rev() {
                     if existing.finish_tool_step(
                         &id,
                         output.clone(),
@@ -1092,13 +1109,15 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                                 message.set_tool_step_expanded(default);
                             }
                             messages.push(message);
+                        } else {
+                            changed = false;
                         }
                     }
                 }
             }
             TranscriptEdit::ToolCancel { id, fallback } => {
                 let mut cancelled_id: Option<u64> = None;
-                for message in messages.iter_mut() {
+                for message in messages.iter_mut().rev() {
                     if message.cancel_tool_step(&id) {
                         message.set_tool_step_expanded(false);
                         cancelled_id = Some(message.id);
@@ -1110,23 +1129,33 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                     None => {
                         if let Some(message) = fallback {
                             messages.push(message);
+                        } else {
+                            changed = false;
                         }
                     }
                 }
             }
             TranscriptEdit::ToolStream { id, stream } => {
-                let _ = messages
+                if !messages
                     .iter_mut()
-                    .any(|message| message.push_tool_stream(&id, &stream));
+                    .rev()
+                    .any(|message| message.push_tool_stream(&id, &stream))
+                {
+                    changed = false;
+                }
             }
             TranscriptEdit::SubagentEvent {
                 parent_call_id,
                 event,
             } => {
-                let _ = messages
+                if !messages
                     .iter_mut()
+                    .rev()
                     .find(|message| message.tool_step_call_id() == Some(parent_call_id.as_str()))
-                    .is_some_and(|message| message.push_subagent_event(&event, &tui_config));
+                    .is_some_and(|message| message.push_subagent_event(&event, &tui_config))
+                {
+                    changed = false;
+                }
             }
             TranscriptEdit::InsertAdmittedSeam { message } => {
                 // ADR-0137 [INV-STEER-02]: an admitted steer lands at the turn

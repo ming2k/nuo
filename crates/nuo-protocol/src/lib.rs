@@ -319,14 +319,23 @@ pub use policy_schema::*;
 /// would disagree about which replies are durable rows, which is the exact
 /// asymmetry the field removes — hence a hard floor rather than a tolerant field.
 ///
-/// 21: Tool announcement retraction (`RoundEvent::ToolAnnouncementsRetracted`).
+/// 23: Tool announcement retraction (`RoundEvent::ToolAnnouncementsRetracted`).
 /// When a streamed attempt ends before its announced calls are dispatched, the
 /// server names the provisional announcements the frontend must retract. A peer
 /// that does not model the frame leaves phantom tool steps in the transcript,
 /// so the field is a hard floor: every client at 21 must move with it.
-pub const PROTOCOL_VERSION: u32 = 23;
+///
+/// 24: One call identity (ADR-0166). `ToolCallStarted` / `ToolInputProgress`
+/// stop carrying a separate announcement token and provider slot; they carry
+/// the call id that every later event about the call already used.
+/// `ToolAnnouncementsRetracted { announcements: [u64] }` becomes
+/// `ToolCallsRetracted { ids: [String] }`, and `ToolCall` loses its
+/// `announcement` field. A v23 peer cannot deserialize the new shapes, so the
+/// floor moves with the ceiling: this is a clean break, not a compatibility
+/// layer.
+pub const PROTOCOL_VERSION: u32 = 24;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 23;
+pub const MIN_PROTOCOL_VERSION: u32 = 24;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

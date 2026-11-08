@@ -67,7 +67,7 @@ async fn a_component_joining_a_stamped_turn_adopts_its_time() {
     apply_edit(
         &mut app,
         &runtime,
-        TranscriptEdit::ToolStart {
+        TranscriptEdit::ToolStepUpsert {
             message: unstamped_step(1, 1),
         },
     );
@@ -109,7 +109,7 @@ async fn adoption_is_scoped_to_the_component_own_turn() {
     apply_edit(
         &mut app,
         &runtime,
-        TranscriptEdit::ToolStart {
+        TranscriptEdit::ToolStepUpsert {
             message: unstamped_step(1, 2),
         },
     );
@@ -152,7 +152,7 @@ async fn an_explicit_stamp_is_never_overwritten() {
     apply_edit(
         &mut app,
         &runtime,
-        TranscriptEdit::ToolStart { message: step },
+        TranscriptEdit::ToolStepUpsert { message: step },
     );
 
     let step = app
@@ -187,7 +187,7 @@ async fn an_admitted_turn_band_paints_the_turn_time() {
     apply_edit(
         &mut app,
         &runtime,
-        TranscriptEdit::ToolStart {
+        TranscriptEdit::ToolStepUpsert {
             message: unstamped_step(1, 1),
         },
     );

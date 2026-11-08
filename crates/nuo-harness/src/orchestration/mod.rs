@@ -1574,7 +1574,7 @@ pub async fn execute_round(
         };
         // Failure classes are budgets, not labels. A failure that emitted
         // visible output is a **stream restart**: the attempt's partial state
-        // has to be discarded (the round already retracted its announcements;
+        // has to be discarded (the round already retracted its announced calls;
         // `StreamDiscard` drops the streamed text), and an upstream that died
         // mid-response gets only a few chances to do better. A failure that
         // emitted nothing is a **silent attempt**: cheap to repeat, so the
@@ -1987,23 +1987,20 @@ pub fn relay_agent_event(
             round_response(session_id, RoundEvent::StreamReasoningEnd(content))
         }
         AgentEvent::ToolCall {
-            announcement,
             id,
             name,
             arguments,
         } => round_response(
             session_id,
             RoundEvent::ToolCall {
-                announcement,
                 id,
                 name,
                 arguments,
             },
         ),
-        AgentEvent::ToolAnnouncementsRetracted { announcements } => round_response(
-            session_id,
-            RoundEvent::ToolAnnouncementsRetracted { announcements },
-        ),
+        AgentEvent::ToolCallsRetracted { ids } => {
+            round_response(session_id, RoundEvent::ToolCallsRetracted { ids })
+        }
         // The preview rides the same relay as the call it describes (ADR-0125).
         // It is classified `Ephemera` on the far side, so no frontend can persist
         // it into the transcript: a diff nothing applied must not survive a resume.
@@ -2032,31 +2029,16 @@ pub fn relay_agent_event(
         AgentEvent::ToolStream { id, stream } => {
             round_response(session_id, RoundEvent::ToolStream { id, stream })
         }
-        AgentEvent::ToolCallStarted {
-            announcement,
-            index,
-            id,
-            name,
-        } => round_response(
-            session_id,
-            RoundEvent::ToolCallStarted {
-                announcement,
-                index,
-                id,
-                name,
-            },
-        ),
+        AgentEvent::ToolCallStarted { id, name } => {
+            round_response(session_id, RoundEvent::ToolCallStarted { id, name })
+        }
         AgentEvent::ToolInputProgress {
-            announcement,
-            index,
             id,
             bytes,
             arguments,
         } => round_response(
             session_id,
             RoundEvent::ToolInputProgress {
-                announcement,
-                index,
                 id,
                 bytes,
                 arguments,
