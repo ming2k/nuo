@@ -591,10 +591,13 @@ mod retired_aside_redirect_tests {
                     child_id, prompt, ..
                 } => forked = Some((child_id, prompt)),
                 AgentResponse::Round {
-                    event:
-                        RoundEvent::CommandResult {
-                            result: CommandResult::Text(text),
-                            ..
+                    scope:
+                        nuo_protocol::RoundScope::Session {
+                            event:
+                                RoundEvent::CommandResult {
+                                    result: CommandResult::Text(text),
+                                    ..
+                                },
                         },
                     ..
                 } => texts.push(text),
@@ -719,10 +722,10 @@ mod command_effect_tests {
         while let Ok(resp) = rx.try_recv() {
             // A round envelope carries other events too; only command results
             // matter here, and only `CommandResult` frames are collected.
-            if let AgentResponse::Round { event, .. } = resp
-                && matches!(event, RoundEvent::CommandResult { .. })
+            if let AgentResponse::Round { scope, .. } = resp
+                && matches!(scope.event(), RoundEvent::CommandResult { .. })
             {
-                out.push(event);
+                out.push(scope.into_event());
             }
         }
         out
@@ -1125,8 +1128,8 @@ mod command_effect_tests {
         // The only frames are the round envelope carrying a CommandResult.
         let mut saw_notice = false;
         while let Ok(resp) = rx.try_recv() {
-            if let AgentResponse::Round { event, .. } = resp
-                && matches!(event, RoundEvent::Notice(_))
+            if let AgentResponse::Round { scope, .. } = resp
+                && matches!(scope.event(), RoundEvent::Notice(_))
             {
                 saw_notice = true;
             }

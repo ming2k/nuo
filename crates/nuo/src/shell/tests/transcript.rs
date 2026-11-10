@@ -6,42 +6,34 @@
 
 use super::*;
 
+fn turn_event(event: RoundEvent) -> AgentResponse {
+    AgentResponse::Round {
+        thread_id: "thread".to_string(),
+        scope: nuo_protocol::RoundScope::Turn {
+            context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+            event,
+        },
+    }
+}
+
 #[test]
 fn only_high_frequency_stream_updates_are_coalesced() {
-    let stream_delta = AgentResponse::Round {
-        thread_id: "thread".to_string(),
-        event: RoundEvent::StreamDelta("hello".to_string()),
-    };
-    let tool_stream = AgentResponse::Round {
-        thread_id: "thread".to_string(),
-        event: RoundEvent::ToolStream {
-            id: "call".to_string(),
-            stream: nuo_protocol::ToolStream::Stdout("line\n".to_string()),
-        },
-    };
-    let stream_start = AgentResponse::Round {
-        thread_id: "thread".to_string(),
-        event: RoundEvent::StreamStart,
-    };
-    let stream_end = AgentResponse::Round {
-        thread_id: "thread".to_string(),
-        event: RoundEvent::StreamEnd("done".to_string()),
-    };
-    let tool_input_progress = AgentResponse::Round {
-        thread_id: "thread".to_string(),
-        event: RoundEvent::ToolInputProgress {
-            id: "call_1".to_string(),
-            bytes: 4096,
-            arguments: None,
-        },
-    };
-    let tool_call_started = AgentResponse::Round {
-        thread_id: "thread".to_string(),
-        event: RoundEvent::ToolCallStarted {
-            id: "call_1".to_string(),
-            name: "edit_text".to_string(),
-        },
-    };
+    let stream_delta = turn_event(RoundEvent::StreamDelta("hello".to_string()));
+    let tool_stream = turn_event(RoundEvent::ToolStream {
+        id: "call".to_string(),
+        stream: nuo_protocol::ToolStream::Stdout("line\n".to_string()),
+    });
+    let stream_start = turn_event(RoundEvent::StreamStart);
+    let stream_end = turn_event(RoundEvent::StreamEnd("done".to_string()));
+    let tool_input_progress = turn_event(RoundEvent::ToolInputProgress {
+        id: "call_1".to_string(),
+        bytes: 4096,
+        arguments: None,
+    });
+    let tool_call_started = turn_event(RoundEvent::ToolCallStarted {
+        id: "call_1".to_string(),
+        name: "edit_text".to_string(),
+    });
 
     assert!(is_coalescible_stream_update(&stream_delta));
     assert!(is_coalescible_stream_update(&tool_stream));

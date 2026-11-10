@@ -69,18 +69,15 @@ impl AttachSyncBuffer {
             AgentResponse::ProviderPicker(_) => {
                 self.provider_picker = Some(response.clone());
             }
-            AgentResponse::Round {
-                event: nuo_protocol::RoundEvent::ContextTokens(_),
-                ..
-            } => {
-                self.context_tokens = Some(response.clone());
-            }
-            AgentResponse::Round {
-                event: nuo_protocol::RoundEvent::HarnessState(_),
-                ..
-            } => {
-                self.harness_state = Some(response.clone());
-            }
+            AgentResponse::Round { scope, .. } => match scope.event() {
+                nuo_protocol::RoundEvent::ContextTokens(_) => {
+                    self.context_tokens = Some(response.clone());
+                }
+                nuo_protocol::RoundEvent::HarnessState(_) => {
+                    self.harness_state = Some(response.clone());
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -161,17 +158,17 @@ impl AttachSyncBuffer {
             _ => None,
         };
         let context_tokens = match &self.context_tokens {
-            Some(AgentResponse::Round {
-                event: nuo_protocol::RoundEvent::ContextTokens(ct),
-                ..
-            }) => Some(*ct),
+            Some(AgentResponse::Round { scope, .. }) => match scope.event() {
+                nuo_protocol::RoundEvent::ContextTokens(ct) => Some(*ct),
+                _ => None,
+            },
             _ => None,
         };
         let harness_state = match &self.harness_state {
-            Some(AgentResponse::Round {
-                event: nuo_protocol::RoundEvent::HarnessState(hs),
-                ..
-            }) => Some(hs.clone()),
+            Some(AgentResponse::Round { scope, .. }) => match scope.event() {
+                nuo_protocol::RoundEvent::HarnessState(hs) => Some(hs.clone()),
+                _ => None,
+            },
             _ => None,
         };
 
@@ -267,7 +264,7 @@ fn workspace_trust_notice(
 ) -> AgentResponse {
     let round = |event: nuo_protocol::RoundEvent| AgentResponse::Round {
         thread_id: session_id.to_string(),
-        event,
+        scope: nuo_protocol::RoundScope::Session { event },
     };
     let awaiting = snapshot.domains_needing_review();
     let changed_desc = if awaiting.is_empty() {
@@ -301,8 +298,8 @@ pub(crate) fn is_attach_sync_event(response: &AgentResponse) -> bool {
         AgentResponse::ProviderSwitched { .. }
         | AgentResponse::ProviderKeys(_)
         | AgentResponse::ProviderPicker(_) => true,
-        AgentResponse::Round { event, .. } => matches!(
-            event,
+        AgentResponse::Round { scope, .. } => matches!(
+            scope.event(),
             nuo_protocol::RoundEvent::ContextTokens(_) | nuo_protocol::RoundEvent::HarnessState(_)
         ),
         _ => false,
@@ -1378,6 +1375,7 @@ enum DeltaKind {
 #[derive(Debug)]
 struct PendingDelta {
     thread_id: String,
+    context: nuo_protocol::TurnContext,
     kind: DeltaKind,
     text: String,
 }
@@ -1390,7 +1388,10 @@ impl PendingDelta {
         };
         AgentResponse::Round {
             thread_id: self.thread_id,
-            event,
+            scope: nuo_protocol::RoundScope::Turn {
+                context: self.context,
+                event,
+            },
         }
     }
 }
@@ -1400,15 +1401,32 @@ impl PendingDelta {
 /// `Err` means "not a delta" — the caller flushes the pending run first so
 /// ordering is never reordered against a non-delta event.
 #[allow(clippy::result_large_err)] // handing the untouched response back is the point
-fn take_delta(response: AgentResponse) -> Result<(String, DeltaKind, String), AgentResponse> {
+fn take_delta(
+    response: AgentResponse,
+) -> Result<(String, nuo_protocol::TurnContext, DeltaKind, String), AgentResponse> {
     match response {
-        AgentResponse::Round { thread_id, event } => match event {
-            nuo_protocol::RoundEvent::StreamDelta(text) => Ok((thread_id, DeltaKind::Text, text)),
-            nuo_protocol::RoundEvent::StreamReasoningDelta(text) => {
-                Ok((thread_id, DeltaKind::Reasoning, text))
+        AgentResponse::Round {
+            thread_id,
+            scope: nuo_protocol::RoundScope::Turn { context, event },
+        } => match event {
+            nuo_protocol::RoundEvent::StreamDelta(text) => {
+                Ok((thread_id, context, DeltaKind::Text, text))
             }
-            event => Err(AgentResponse::Round { thread_id, event }),
+            nuo_protocol::RoundEvent::StreamReasoningDelta(text) => {
+                Ok((thread_id, context, DeltaKind::Reasoning, text))
+            }
+            event => Err(AgentResponse::Round {
+                thread_id,
+                scope: nuo_protocol::RoundScope::Turn { context, event },
+            }),
         },
+        AgentResponse::Round {
+            thread_id,
+            scope: nuo_protocol::RoundScope::Session { event },
+        } => Err(AgentResponse::Round {
+            thread_id,
+            scope: nuo_protocol::RoundScope::Session { event },
+        }),
         other => Err(other),
     }
 }
@@ -1418,18 +1436,21 @@ fn take_delta(response: AgentResponse) -> Result<(String, DeltaKind, String), Ag
 fn queue_delta(
     pending: &mut Option<PendingDelta>,
     thread_id: String,
+    context: nuo_protocol::TurnContext,
     kind: DeltaKind,
     text: String,
 ) -> Option<PendingDelta> {
     if let Some(current) = pending.as_mut()
         && current.kind == kind
         && current.thread_id == thread_id
+        && current.context == context
     {
         current.text.push_str(&text);
         return None;
     }
     pending.replace(PendingDelta {
         thread_id,
+        context,
         kind,
         text,
     })
@@ -1659,10 +1680,14 @@ async fn handle_wire_stream(
                         last_snapshot = Some((**snapshot).clone());
                     }
                     match take_delta(response) {
-                        Ok((thread_id, kind, text)) => {
-                            if let Some(displaced) =
-                                queue_delta(&mut pending_delta, thread_id, kind, text)
-                            {
+                        Ok((thread_id, context, kind, text)) => {
+                            if let Some(displaced) = queue_delta(
+                                &mut pending_delta,
+                                thread_id,
+                                context,
+                                kind,
+                                text,
+                            ) {
                                 send_delta(&mut wire_sink, displaced).await?;
                             }
                             if flush_deadline.is_none() {
@@ -2216,18 +2241,39 @@ mod tests {
     #[test]
     fn stream_deltas_coalesce_until_the_channel_changes() {
         let mut pending = None;
+        let context = nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000);
         assert!(
-            queue_delta(&mut pending, "t".into(), DeltaKind::Text, "he".into()).is_none(),
+            queue_delta(
+                &mut pending,
+                "t".into(),
+                context,
+                DeltaKind::Text,
+                "he".into()
+            )
+            .is_none(),
             "the first delta opens a run"
         );
         assert!(
-            queue_delta(&mut pending, "t".into(), DeltaKind::Text, "llo".into()).is_none(),
+            queue_delta(
+                &mut pending,
+                "t".into(),
+                context,
+                DeltaKind::Text,
+                "llo".into()
+            )
+            .is_none(),
             "a contiguous text delta joins the run"
         );
         assert_eq!(pending.as_ref().expect("run open").text, "hello");
 
-        let displaced = queue_delta(&mut pending, "t".into(), DeltaKind::Reasoning, "why".into())
-            .expect("a channel change displaces the text run");
+        let displaced = queue_delta(
+            &mut pending,
+            "t".into(),
+            context,
+            DeltaKind::Reasoning,
+            "why".into(),
+        )
+        .expect("a channel change displaces the text run");
         assert_eq!(displaced.kind, DeltaKind::Text);
         assert_eq!(displaced.text, "hello");
         assert_eq!(
@@ -2235,10 +2281,27 @@ mod tests {
             DeltaKind::Reasoning
         );
 
-        let displaced = queue_delta(&mut pending, "u".into(), DeltaKind::Reasoning, "x".into())
-            .expect("a thread change displaces the run");
+        let displaced = queue_delta(
+            &mut pending,
+            "u".into(),
+            context,
+            DeltaKind::Reasoning,
+            "x".into(),
+        )
+        .expect("a thread change displaces the run");
         assert_eq!(displaced.thread_id, "t");
         assert_eq!(displaced.text, "why");
+
+        let next_turn = nuo_protocol::TurnContext::new(1, 1, 1_700_000_000_001);
+        let displaced = queue_delta(
+            &mut pending,
+            "u".into(),
+            next_turn,
+            DeltaKind::Reasoning,
+            "y".into(),
+        )
+        .expect("a turn change displaces the run: positions are not coalescible");
+        assert_eq!(displaced.context, context);
     }
 
     /// Only the two streamed delta variants are coalescible; everything else
@@ -2255,23 +2318,39 @@ mod tests {
                 DeltaKind::Reasoning,
             ),
         ] {
-            let (thread_id, kind, text) = take_delta(AgentResponse::Round {
+            let context = nuo_protocol::TurnContext::new(1, 0, 0);
+            let (thread_id, seen, kind, text) = take_delta(AgentResponse::Round {
                 thread_id: "s".into(),
-                event,
+                scope: nuo_protocol::RoundScope::Turn { context, event },
             })
             .expect("a stream delta");
             assert_eq!(thread_id, "s");
+            assert_eq!(seen, context);
             assert_eq!(kind, expected_kind);
             assert!(!text.is_empty());
         }
 
         let non_delta = AgentResponse::Round {
             thread_id: "s".into(),
-            event: nuo_protocol::RoundEvent::StreamEnd("done".into()),
+            scope: nuo_protocol::RoundScope::Turn {
+                context: nuo_protocol::TurnContext::new(1, 0, 0),
+                event: nuo_protocol::RoundEvent::StreamEnd("done".into()),
+            },
         };
         assert!(
             take_delta(non_delta).is_err(),
             "a stream end is an ordering barrier, not a delta"
+        );
+
+        let session_delta = AgentResponse::Round {
+            thread_id: "s".into(),
+            scope: nuo_protocol::RoundScope::Session {
+                event: nuo_protocol::RoundEvent::StreamDelta("x".into()),
+            },
+        };
+        assert!(
+            take_delta(session_delta).is_err(),
+            "a stream delta without a turn context is a producer bug, not a coalescible run"
         );
     }
 
@@ -2497,12 +2576,14 @@ mod tests {
         for i in 1..=10 {
             let tokens = AgentResponse::Round {
                 thread_id: "s1".to_string(),
-                event: nuo_protocol::RoundEvent::ContextTokens(
-                    nuo_protocol::ContextTokenSnapshot::new(
-                        i * 100,
-                        nuo_protocol::ContextTokenSource::Projection,
+                scope: nuo_protocol::RoundScope::Session {
+                    event: nuo_protocol::RoundEvent::ContextTokens(
+                        nuo_protocol::ContextTokenSnapshot::new(
+                            i * 100,
+                            nuo_protocol::ContextTokenSource::Projection,
+                        ),
                     ),
-                ),
+                },
             };
             buf.observe(&tokens);
         }

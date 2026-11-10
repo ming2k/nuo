@@ -523,7 +523,7 @@ async fn queued_user_input_is_admitted_as_visible_user_steer() {
 
     assert!(events.iter().any(|event| matches!(
         event,
-        AgentEvent::SteerAdmitted(input) if input.id == "insert-1"
+        AgentEvent::SteerAdmitted { input, .. } if input.id == "insert-1"
     )));
     assert!(messages.iter().any(|message| {
         message.role == Role::User
@@ -2491,14 +2491,14 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
                 Some(format!("model-request turn={turn}"))
             }
             AgentEvent::ContextTokens(_) => Some("context-tokens".to_string()),
-            AgentEvent::SteerAdmitted(input) => Some(format!("steer-admitted {:?}", input.text)),
+            AgentEvent::SteerAdmitted { input, .. } => {
+                Some(format!("steer-admitted {:?}", input.text))
+            }
             AgentEvent::AssistantDelta { delta, start } => {
                 Some(format!("assistant-delta start={start} {delta:?}"))
             }
             AgentEvent::AssistantEnd(content) => Some(format!("assistant-end {content:?}")),
-            AgentEvent::AssistantDiscard { round, turn } => {
-                Some(format!("assistant-discard round={round} turn={turn}"))
-            }
+            AgentEvent::AssistantDiscard => Some("assistant-discard".to_string()),
             AgentEvent::ReasoningDelta { delta, start } => {
                 Some(format!("reasoning-delta start={start} {delta:?}"))
             }
@@ -2645,7 +2645,7 @@ async fn golden_text_fallback_tool_call_is_discarded_then_dispatched() {
             "context-tokens",
             "assistant-delta start=true \"{\\\"tool\\\":\\\"alpha\\\",\\\"arguments\\\":{\\\"k\\\":1}}\"",
             "assistant-end \"{\\\"tool\\\":\\\"alpha\\\",\\\"arguments\\\":{\\\"k\\\":1}}\"",
-            "assistant-discard round=0 turn=0",
+            "assistant-discard",
             "tool-call alpha {\"k\":1}",
             "tool-result alpha \"A-out\"",
             "model-request turn=1",

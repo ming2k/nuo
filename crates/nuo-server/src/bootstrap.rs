@@ -1300,7 +1300,10 @@ mod tests {
 
         // Should NOT receive any TrustChanged warning
         if let Ok(Some(AgentResponse::Round {
-            event: RoundEvent::Notice(n),
+            scope:
+                nuo_protocol::RoundScope::Session {
+                    event: RoundEvent::Notice(n),
+                },
             ..
         })) = notice
         {
@@ -1360,7 +1363,10 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(3000), resp_rx.recv()).await
         {
             if let AgentResponse::Round {
-                event: RoundEvent::Notice(n),
+                scope:
+                    nuo_protocol::RoundScope::Session {
+                        event: RoundEvent::Notice(n),
+                    },
                 ..
             } = resp
                 && n.kind == nuo_protocol::NoticeKind::TrustChanged
@@ -1419,7 +1425,10 @@ mod tests {
         // Verify that no spurious TrustChanged notice is emitted
         let notice = tokio::time::timeout(Duration::from_millis(300), resp_rx.recv()).await;
         if let Ok(Some(AgentResponse::Round {
-            event: RoundEvent::Notice(n),
+            scope:
+                nuo_protocol::RoundScope::Session {
+                    event: RoundEvent::Notice(n),
+                },
             ..
         })) = notice
             && n.kind == nuo_protocol::NoticeKind::TrustChanged

@@ -2510,13 +2510,12 @@ mod followup_queue_tests {
         assert!(
             std::iter::from_fn(|| rx.try_recv().ok()).any(|response| matches!(
                 response,
-                AgentResponse::Round {
-                    event: nuo_protocol::RoundEvent::RoundInterrupted(_),
-                    ..
-                } | AgentResponse::Round {
-                    event: nuo_protocol::RoundEvent::Error(_),
-                    ..
-                }
+                AgentResponse::Round { scope, .. }
+                    if matches!(
+                        scope.event(),
+                        nuo_protocol::RoundEvent::RoundInterrupted(_)
+                            | nuo_protocol::RoundEvent::Error(_)
+                    )
             )),
             "a refused start is disclosed, never silent"
         );

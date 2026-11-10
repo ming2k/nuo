@@ -339,9 +339,17 @@ pub use policy_schema::*;
 /// `{ round: u64, turn: u64 }`. A v24 peer cannot decode the struct variant,
 /// and a peer that somehow ignored the fields would sweep by a side channel
 /// that re-attachment does not populate. The floor moves with the ceiling.
-pub const PROTOCOL_VERSION: u32 = 25;
+///
+/// 26: Turn-scoped events carry their own context (ADR-0168). `Round` gains a
+/// `RoundScope::Turn { context, event }` envelope carrying round, 0-indexed
+/// turn and the turn's send time; session/round events use
+/// `RoundScope::Session`. `TurnStarted` and `StreamDiscard` become unit
+/// markers, and the client keeps no per-session position or timestamp map.
+/// A v25 peer cannot decode the envelope shape; there is no compatibility
+/// lane.
+pub const PROTOCOL_VERSION: u32 = 26;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 25;
+pub const MIN_PROTOCOL_VERSION: u32 = 26;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

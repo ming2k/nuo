@@ -230,18 +230,19 @@ fn pre_attach_initial() -> Option<PreAttachState> {
 fn is_coalescible_stream_update(response: &AgentResponse) -> bool {
     matches!(
         response,
-        AgentResponse::Round {
-            event: RoundEvent::StreamDelta(_)
-                | RoundEvent::StreamReasoningDelta(_)
-                | RoundEvent::ToolStream { .. }
-                | RoundEvent::ToolInputProgress { .. }
-                | RoundEvent::SubagentStep {
-                    event: nuo_protocol::SubagentEvent::StreamDelta(_)
-                        | nuo_protocol::SubagentEvent::StreamReasoningDelta(_),
-                    ..
-                },
-            ..
-        }
+        AgentResponse::Round { scope, .. }
+            if matches!(
+                scope.event(),
+                RoundEvent::StreamDelta(_)
+                    | RoundEvent::StreamReasoningDelta(_)
+                    | RoundEvent::ToolStream { .. }
+                    | RoundEvent::ToolInputProgress { .. }
+                    | RoundEvent::SubagentStep {
+                        event: nuo_protocol::SubagentEvent::StreamDelta(_)
+                            | nuo_protocol::SubagentEvent::StreamReasoningDelta(_),
+                        ..
+                    }
+            )
     )
 }
 
@@ -522,21 +523,10 @@ pub(crate) async fn run_tui_with_input(
         // response stream ends, so the disclosure names the real cause.
         let link_lost_for_reader = link_lost.clone();
         tokio::spawn(async move {
-            // Per-session `(round, turn)` position.
-            let mut positions_by_session = HashMap::<String, (u64, u64)>::new();
-            // Per-session wall-clock send time of the *current* turn, in
-            // Unix-epoch milliseconds.
-            //
-            // One turn emits many components (thinking, assistant text, and a
-            // tool batch), but its band header shows exactly one `HH:MM`. The
-            // stamp is therefore a property of the **turn**, not of whichever
-            // component happened to be created first: every component reads this
-            // one value. A resumed session derives the same thing from the single
-            // persisted assistant message (`Message::sent_at_ms` / `timestamp`),
-            // so live and restored bands can never disagree — and a turn whose
-            // first component is thinking, or a tool announcement, carries the
-            // same time as one that starts with prose.
-            let mut turn_sent_at_by_session = HashMap::<String, u64>::new();
+            // Turn position and send time ride each turn-scoped event
+            // (`RoundScope::Turn`); the translator keeps no per-session
+            // position or timestamp map (ADR-0168). A mid-stream attach is
+            // therefore as correct as a client that observed `TurnStarted`.
             // A session switch replaces the transcript before its authoritative
             // idle HarnessState arrives. Rebase the reconstructed tail exactly
             // once when that snapshot supplies the persisted round counter.
@@ -613,19 +603,6 @@ pub(crate) async fn run_tui_with_input(
                 };
             }
 
-            // The current turn's send time for `$session`, minting it on first
-            // use. `TurnStarted` normally seeds it; the lazy arm keeps a
-            // provider that streams without announcing a turn readable (the
-            // band still gets a time) and never overwrites a seeded value, so
-            // every component of one turn reads the same instant.
-            macro_rules! turn_sent_at {
-                ($session:expr) => {
-                    *turn_sent_at_by_session
-                        .entry($session.clone())
-                        .or_insert_with(|| now_ms!())
-                };
-            }
-
             while let Some(resp) = rx.recv().await {
                 // Any handled response can change state the loop renders from,
                 // so signal a redraw. High-frequency stream deltas deliberately
@@ -651,7 +628,7 @@ pub(crate) async fn run_tui_with_input(
                     // regardless of which view is focused.
                     AgentResponse::Round {
                         thread_id: session_id,
-                        event,
+                        scope,
                     } => {
                         // ADR-0166: **the buffer holds exactly one session.**
                         // `ConversationCleared` / `ConversationReplaced` replace
@@ -664,6 +641,26 @@ pub(crate) async fn run_tui_with_input(
                         // session this buffer has switched away from.
                         if !session_gate.accepts(&session_id) {
                             continue;
+                        }
+                        let (event, turn_context) = match scope {
+                            nuo_protocol::RoundScope::Turn { context, event } => {
+                                (event, Some(context))
+                            }
+                            nuo_protocol::RoundScope::Session { event } => (event, None),
+                        };
+                        // A turn-scoped event always carries its context; a
+                        // session-scoped event cannot claim one. There is no
+                        // per-session position map left to consult (ADR-0168).
+                        let turn_position = turn_context
+                            .map(|context| (context.round, transcript_turn(context.turn)));
+                        let turn_sent_at = turn_context.map(|context| context.sent_at_ms);
+                        macro_rules! require_turn {
+                            () => {
+                                match turn_context {
+                                    Some(context) => context,
+                                    None => continue,
+                                }
+                            };
                         }
                         macro_rules! transcript {
                             ($edit:expr) => {
@@ -720,23 +717,16 @@ pub(crate) async fn run_tui_with_input(
                                 // round-N steer above round 1.
                                 //
                                 // Position: the steer is *consumed* by the turn
-                                // that is about to start, so it carries that
-                                // turn's number — the same coordinate the
-                                // restored transcript derives, keeping live and
-                                // resume identical. `positions_by_session` still
-                                // holds the turn that just finished, so the
-                                // coordinate is that turn plus one; the round is
+                                // that is about to start, and the event carries
+                                // that turn's context directly. The round is
                                 // unchanged (a steer never opens a round).
                                 let mut admitted = TranscriptMessage::new(Role::User, visible);
                                 admitted.insert_id = Some(input_id.clone());
                                 admitted.sent_at_ms = input.sent_at_ms;
                                 admitted.origin = UserMessageOrigin::Steer;
-                                if let Some((round, turn)) =
-                                    positions_by_session.get(&session_id).copied()
-                                {
-                                    admitted.round = Some(round);
-                                    admitted.turn = Some(turn.saturating_add(1));
-                                }
+                                let context = require_turn!();
+                                admitted.round = Some(context.round);
+                                admitted.turn = Some(transcript_turn(context.turn));
                                 // In-round provenance: the renderer draws it as
                                 // a one-body-row interjection (ADR-0137).
                                 admitted = admitted.with_origin_tags(vec![
@@ -941,10 +931,8 @@ pub(crate) async fn run_tui_with_input(
                                 let mut message = TranscriptMessage::new(Role::Assistant, t)
                                     .with_attribution(provider, model)
                                     .with_effort(effort)
-                                    .with_sent_at_ms(now_ms!());
-                                if let Some((round, turn)) =
-                                    positions_by_session.get(&session_id).copied()
-                                {
+                                    .with_sent_at_ms(turn_sent_at.unwrap_or_else(|| now_ms!()));
+                                if let Some((round, turn)) = turn_position {
                                     message.round = Some(round);
                                     message.turn = Some(turn);
                                 }
@@ -1022,18 +1010,12 @@ pub(crate) async fn run_tui_with_input(
                                         ))
                                         .await;
                                 } else {
-                                    let mut fallback = TranscriptMessage::command_result(
+                                    let fallback = TranscriptMessage::command_result(
                                         name.clone(),
                                         args.clone(),
                                         Some(result.clone()),
                                     )
                                     .with_sent_at_ms(now_ms!());
-                                    if let Some((round, turn)) =
-                                        positions_by_session.get(&session_id).copied()
-                                    {
-                                        fallback.round = Some(round);
-                                        fallback.turn = Some(turn);
-                                    }
                                     transcript!(E::SettleCommandResult {
                                         invocation,
                                         result,
@@ -1060,18 +1042,17 @@ pub(crate) async fn run_tui_with_input(
                                     mutations.send(M::SetResponding(true)).await;
                                 }
                             }
-                            RoundEvent::TurnStarted { round, turn } => {
-                                let turn = transcript_turn(turn as u64);
-                                positions_by_session.insert(session_id.clone(), (round, turn));
-                                // A new turn mints a new send time: its band header
-                                // is a fresh moment, and every component of this
-                                // turn will read this one value.
-                                turn_sent_at_by_session.insert(session_id.clone(), now_ms!());
+                            RoundEvent::TurnStarted => {
+                                let Some(context) = turn_context else {
+                                    continue;
+                                };
+                                let round = context.round;
+                                // 1-indexed for display: turn 0 is the first
+                                // model request, shown as `turn 1`.
+                                let turn = transcript_turn(context.turn);
                                 transcript!(E::StampTurnPrompt { round });
 
                                 mutations.send(M::SetRoundCount(round)).await;
-                                // 1-indexed for display: turn 0 is the first
-                                // model request, shown as `turn 1`.
                                 mutations.send(M::SetCurrentTurn(turn)).await;
 
                                 chrome!(event_loop::mutations::ChromeEdit::TurnStarted {
@@ -1103,7 +1084,9 @@ pub(crate) async fn run_tui_with_input(
                                 chrome!(event_loop::mutations::ChromeEdit::PhaseOnly(Some(
                                     Phase::Answering,
                                 )));
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
+                                let sent_at_ms = context.sent_at_ms;
                                 let round = position.map(|(round, _)| round);
                                 let turn = position.map(|(_, turn)| turn);
                                 let (provider, model) = attribution!();
@@ -1116,7 +1099,7 @@ pub(crate) async fn run_tui_with_input(
                                         // stamp. It is the *turn's* send time, so
                                         // thinking / text / tools of one turn can
                                         // never disagree, live or resumed.
-                                        .with_sent_at_ms(turn_sent_at!(session_id));
+                                        .with_sent_at_ms(sent_at_ms);
                                 if let Some((r, t)) = position {
                                     created.round = Some(r);
                                     created.turn = Some(t);
@@ -1134,7 +1117,9 @@ pub(crate) async fn run_tui_with_input(
                                 mutations.send(M::SetPhase(Some(Phase::Finalizing))).await;
 
                                 retry_progress = None;
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
+                                let sent_at_ms = context.sent_at_ms;
                                 let round = position.map(|(round, _)| round);
                                 let turn = position.map(|(_, turn)| turn);
                                 // Identity-addressed: the applier
@@ -1153,7 +1138,7 @@ pub(crate) async fn run_tui_with_input(
                                     // Same rule as the delta arm: this
                                     // only-visible-bytes path must carry the
                                     // turn's send time into the band header.
-                                    .with_sent_at_ms(turn_sent_at!(session_id));
+                                    .with_sent_at_ms(sent_at_ms);
                                     if let Some((r, t)) = position {
                                         message.round = Some(r);
                                         message.turn = Some(t);
@@ -1169,15 +1154,16 @@ pub(crate) async fn run_tui_with_input(
                                     created,
                                 });
                             }
-                            RoundEvent::StreamDiscard { round, turn } => {
+                            RoundEvent::StreamDiscard => {
                                 retry_progress = None;
-                                // The position rides the event (ADR-0167), so
-                                // this no longer depends on having observed
-                                // `TurnStarted` — which re-attachment does not
-                                // replay. The wire ordinal is 0-based; the
-                                // transcript row is 1-based, same as every other
-                                // translated position.
-                                transcript!(stream_discard_edit(round, turn));
+                                // The turn context rides the envelope
+                                // (ADR-0168); no `TurnStarted` observation is
+                                // required. The wire ordinal is 0-based; the
+                                // transcript row is 1-based.
+                                let Some(context) = turn_context else {
+                                    continue;
+                                };
+                                transcript!(stream_discard_edit(context.round, context.turn));
                             }
                             RoundEvent::UnsentInput { .. } => {
                                 // Retraction is removed: entries only grow and
@@ -1208,7 +1194,9 @@ pub(crate) async fn run_tui_with_input(
                                 if hidden_chain {
                                     continue;
                                 }
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
+                                let sent_at_ms = context.sent_at_ms;
                                 let round = position.map(|(round, _)| round);
                                 let turn = position.map(|(_, turn)| turn);
                                 let (provider, model) = attribution!();
@@ -1221,7 +1209,7 @@ pub(crate) async fn run_tui_with_input(
                                     // is the *first* thing a turn emits (the common
                                     // case for a reasoning channel), this entry
                                     // owns the band header and its `HH:MM`.
-                                    .with_sent_at_ms(turn_sent_at!(session_id));
+                                    .with_sent_at_ms(sent_at_ms);
                                 if let Some((r, t)) = position {
                                     created.round = Some(r);
                                     created.turn = Some(t);
@@ -1240,7 +1228,8 @@ pub(crate) async fn run_tui_with_input(
                                 let duration_ms = reasoning_start
                                     .take()
                                     .map(|started| started.elapsed().as_millis() as u64);
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
                                 transcript!(E::ReasoningFinalize {
                                     round: position.map(|(round, _)| round),
                                     turn: position.map(|(_, turn)| turn),
@@ -1269,7 +1258,9 @@ pub(crate) async fn run_tui_with_input(
                                 )));
                                 let (provider, model) = attribution!();
                                 let effort = picker_effort!();
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
+                                let sent_at_ms = context.sent_at_ms;
                                 let mut message = TranscriptMessage::tool_step_announced(id, name)
                                     .with_attribution(provider, model)
                                     .with_effort(effort)
@@ -1277,7 +1268,7 @@ pub(crate) async fn run_tui_with_input(
                                     // the band header: this announced step does. It
                                     // carries the turn's send time so the live band
                                     // shows `HH:MM` exactly as the resumed one does.
-                                    .with_sent_at_ms(turn_sent_at!(session_id));
+                                    .with_sent_at_ms(sent_at_ms);
                                 if let Some((round, turn)) = position {
                                     message = message.with_round(round).with_turn(turn);
                                 }
@@ -1318,12 +1309,13 @@ pub(crate) async fn run_tui_with_input(
                                 let (provider, model) = attribution!();
                                 let effort = picker_effort!();
                                 retry_progress = None;
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
+                                let sent_at_ms = context.sent_at_ms;
                                 // The turn's time, not this call's: it is the same
                                 // value the announced step (and every sibling
                                 // component) carries, so advancing an announcement
                                 // into a dispatch cannot change the band header.
-                                let sent_at_ms = turn_sent_at!(session_id);
                                 // ADR-0166: the dispatch fact carries the same id
                                 // the announcement did. The applier merges it into
                                 // that row (or inserts it when the provider never
@@ -1360,7 +1352,8 @@ pub(crate) async fn run_tui_with_input(
                                     Phase::Preparing,
                                 )));
                                 let (provider, model) = attribution!();
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
                                 // The fallback (no matching in-flight call, e.g. a
                                 // turn restored from history) is fully finished by
                                 // the translator; the applier applies the
@@ -1390,7 +1383,8 @@ pub(crate) async fn run_tui_with_input(
                             RoundEvent::ToolCancelled { id, .. } => {
                                 // An in-flight call was aborted: flip it (and any
                                 // nested subagent children) to Cancelled.
-                                let position = positions_by_session.get(&session_id).copied();
+                                let context = require_turn!();
+                                let position = Some((context.round, transcript_turn(context.turn)));
                                 let mut fallback =
                                     TranscriptMessage::tool_step(id.clone(), "tool", "{}");
                                 if let Some((round, turn)) = position {
@@ -1907,8 +1901,6 @@ pub(crate) async fn run_tui_with_input(
                         // leak into the new session's first turn.
                         retry_progress = None;
                         reasoning_start = None;
-                        positions_by_session.remove(&previous_id);
-                        turn_sent_at_by_session.remove(&previous_id);
                         mutations
                             .send(M::Transcript {
                                 edit: event_loop::mutations::TranscriptEdit::Clear,
@@ -1948,8 +1940,6 @@ pub(crate) async fn run_tui_with_input(
                         session_gate.supersede(&previous_id, &session_id);
                         retry_progress = None;
                         reasoning_start = None;
-                        positions_by_session.remove(&previous_id);
-                        turn_sent_at_by_session.remove(&previous_id);
                         mutations.send(M::ClearSwitchingSession).await;
                         let mut rebuilt =
                             transcript_messages_from_core(messages, &tui_config_clone);

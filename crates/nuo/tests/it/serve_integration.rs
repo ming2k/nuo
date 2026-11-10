@@ -394,7 +394,10 @@ async fn test_select_then_attach_round_trip() {
 
     let _ = bc_tx.send(AgentResponse::Round {
         thread_id: session_id.clone(),
-        event: RoundEvent::Text("back".into()),
+        scope: nuo_protocol::RoundScope::Turn {
+            context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+            event: RoundEvent::Text("back".into()),
+        },
     });
     // Skip the readiness transition that follows the hydration snapshot.
     loop {
@@ -409,8 +412,8 @@ async fn test_select_then_attach_round_trip() {
                 response: AgentResponse::ThreadPhase(_),
             } => continue,
             Wire::Response {
-                response: AgentResponse::Round { event, .. },
-            } => match event {
+                response: AgentResponse::Round { scope, .. },
+            } => match scope.into_event() {
                 RoundEvent::Text(t) => {
                     assert_eq!(t, "back");
                     break;
@@ -931,7 +934,10 @@ async fn monitor_handshake_yields_snapshot_then_diffs() {
     // TurnStarted flips the row to Running, which the watch stream reports.
     let _ = bc_tx.send(AgentResponse::Round {
         thread_id: session_id.clone(),
-        event: RoundEvent::TurnStarted { round: 1, turn: 0 },
+        scope: nuo_protocol::RoundScope::Turn {
+            context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+            event: RoundEvent::TurnStarted,
+        },
     });
     let diff = tokio::time::timeout(Duration::from_secs(2), ws.next())
         .await
@@ -2155,7 +2161,10 @@ async fn unconfigured_workspace_pushes_security_snapshot_on_attach() {
                 }
             }
             AgentResponse::Round {
-                event: RoundEvent::Notice(n),
+                scope:
+                    nuo_protocol::RoundScope::Session {
+                        event: RoundEvent::Notice(n),
+                    },
                 ..
             } if n
                 .body
@@ -2234,7 +2243,10 @@ async fn changed_workspace_gates_on_attach_instead_of_bannering() {
                 }
             }
             AgentResponse::Round {
-                event: RoundEvent::Notice(n),
+                scope:
+                    nuo_protocol::RoundScope::Session {
+                        event: RoundEvent::Notice(n),
+                    },
                 ..
             } if n.kind == nuo_protocol::NoticeKind::TrustChanged => {
                 saw_banner = true;
@@ -2287,10 +2299,10 @@ async fn autonomous_attach_falls_back_to_the_banner() {
         let Wire::Response { response } = frame else {
             continue;
         };
-        let AgentResponse::Round { event, .. } = response else {
+        let AgentResponse::Round { scope, .. } = response else {
             continue;
         };
-        if let RoundEvent::Notice(n) = event
+        if let RoundEvent::Notice(n) = scope.into_event()
             && n.kind == nuo_protocol::NoticeKind::TrustChanged
         {
             saw_banner = true;

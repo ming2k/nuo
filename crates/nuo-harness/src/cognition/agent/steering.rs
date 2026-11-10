@@ -692,6 +692,8 @@ impl Agent {
     pub(super) fn drain_steering<F>(
         &self,
         generation: Option<u64>,
+        round: u64,
+        turn: usize,
         messages: &mut Vec<Message>,
         on_event: &mut F,
     ) -> usize
@@ -723,7 +725,16 @@ impl Agent {
                 message = message.with_images(input.images.clone());
             }
             messages.push(message);
-            on_event(AgentEvent::SteerAdmitted(input));
+            let sent_at_ms = input.sent_at_ms.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis() as u64)
+                    .unwrap_or(0)
+            });
+            on_event(AgentEvent::SteerAdmitted {
+                input,
+                context: nuo_protocol::TurnContext::new(round, turn as u64, sent_at_ms),
+            });
         }
         admitted
     }
@@ -732,6 +743,8 @@ impl Agent {
     pub(super) fn drain_follow_up<F>(
         &self,
         generation: Option<u64>,
+        round: u64,
+        turn: usize,
         messages: &mut Vec<Message>,
         close_if_empty: bool,
         on_event: &mut F,
@@ -770,7 +783,16 @@ impl Agent {
                 message = message.with_images(input.images.clone());
             }
             messages.push(message);
-            on_event(AgentEvent::SteerAdmitted(input));
+            let sent_at_ms = input.sent_at_ms.unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_millis() as u64)
+                    .unwrap_or(0)
+            });
+            on_event(AgentEvent::SteerAdmitted {
+                input,
+                context: nuo_protocol::TurnContext::new(round, turn as u64, sent_at_ms),
+            });
         }
         admitted
     }

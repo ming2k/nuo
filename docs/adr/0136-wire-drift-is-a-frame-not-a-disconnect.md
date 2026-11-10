@@ -155,7 +155,7 @@ An in-window protocol number can always be outrun by an in-window wire change, s
 
 Renewing is `cargo test -p nuo --test architecture_firewall -- --ignored bless_wire_census`; checking is the enforced test `test_inv_wire_census_matches_protocol_version`.
 
-The census records each enum twice: its variant names for a reviewable diff, and a SHA-256 shape digest over the normalized declaration (comments and layout ignored, container serde attributes included). The name list alone could not see a variant change from `StreamDiscard` to `StreamDiscard { round, turn }`; the shape digest closes that blind spot. See the 2026-11-10 amendment.
+The census records each wire type twice: its member names for a reviewable diff, and a SHA-256 shape digest over the normalized declaration (comments and layout ignored, container serde attributes included). The name list alone could not see a variant change from `StreamDiscard` to `StreamDiscard { round, turn }`; the shape digest closes that blind spot. Nested envelope types (`RoundScope`, `TurnContext`) are listed explicitly because a digest over `AgentResponse` only names the referenced type. See the 2026-11-10 amendment.
 
 The census is a **file in the tree**, not a regenerated artifact, so "the wire changed" is reviewable in the diff of the commit that changes it. A self-check test reproduces the ADR-0134 shape in miniature and asserts the checker names the removed variant.
 
@@ -189,20 +189,24 @@ so the census reported no wire change and the protocol number did not move. That
 is the same class of drift this ADR exists to stop, now reachable through the
 shape of a variant rather than its name.
 
-The census now records two facts per enum:
+The census now records two facts per wire type:
 
-- `Enum: A B C` — the variant names, kept for a human-readable diff;
-- `Enum@shape: <sha256>` — a digest over the enum declaration with comments and
+- `Type: A B C` — the variant/field names, kept for a human-readable diff;
+- `Type@shape: <sha256>` — a digest over the declaration with comments and
   layout normalized away. The declaration's container `#[serde(...)]` and
   serde-bearing `#[cfg_attr(...)]` attributes are included because the wire tag
   is part of the surface. Derive/allow/doc attributes are excluded because they
   do not change the bytes.
 
+Wire structs are listed with shape-only lines (`TurnContext@shape:`), and
+nested envelope types (`RoundScope`, `TurnContext`) are explicit entries: a
+digest over `AgentResponse` only names a referenced type, not its fields.
+
 The verdict table is unchanged, with "surface" now meaning names **and** shape.
-A same-number shape change fails with the enum name and both digests; a bumped
+A same-number shape change fails with the type name and both digests; a bumped
 number with a shape change is accepted; a bumped number with no change is still
-rejected. The checker's own tests cover a shape-only change, a bumped shape
-change, and an empty bump.
+rejected. The checker's own tests cover a shape-only change, a nested struct
+change, a bumped shape change, and an empty bump.
 
 Renewing remains a deliberate tree change in the same commit as the protocol
 bump. `crates/nuo/src/dev/wire-census.txt` is the record; the ignored

@@ -99,7 +99,10 @@ async fn retry_point_survives_process_death_and_projects_accurate_harness_state(
     let received = rx.recv().await.expect("received harness state");
     match received {
         AgentResponse::Round {
-            event: RoundEvent::HarnessState(snapshot),
+            scope:
+                nuo_protocol::RoundScope::Session {
+                    event: RoundEvent::HarnessState(snapshot),
+                },
             ..
         } => {
             assert!(

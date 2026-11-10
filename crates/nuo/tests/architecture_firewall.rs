@@ -25,6 +25,23 @@ fn test_inv_wire_census_matches_protocol_version() {
     }
 }
 
+/// `[INV-EVENT-01]` (ADR-0168): a turn-scoped event carries its own context.
+/// The shell must not reintroduce a per-session position or timestamp map; a
+/// missing `TurnStarted` would silently make every later row unaddressable.
+#[test]
+fn test_inv_event_01_turn_context_is_the_only_position_source() {
+    let root = nuo::dev::find_workspace_root();
+    let path = root.join("crates/nuo/src/shell/mod.rs");
+    let source = std::fs::read_to_string(&path).expect("read the shell translator");
+
+    for forbidden in ["positions_by_session", "turn_sent_at_by_session"] {
+        assert!(
+            !source.contains(forbidden),
+            "ADR-0168 forbids the per-session `{forbidden}` side channel;              turn position and send time must ride `RoundScope::Turn`"
+        );
+    }
+}
+
 #[test]
 fn test_inv_compaction_is_transcript_owned() {
     // [INV-CMP-04] A compaction is one transcript fact; the causal node is a

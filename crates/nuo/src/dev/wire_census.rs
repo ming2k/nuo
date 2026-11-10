@@ -2,7 +2,7 @@
 //!
 //! Rule source: ADR-0136 / `[INV-WIRE-03]`.
 //!
-//! The census records two facts per wire enum: its variant names (for a
+//! The census records two facts per wire type: its member names (for a
 //! reviewable diff) and a SHA-256 shape digest over the normalized declaration
 //! (for the changes a name list cannot see — fields, types, and wire-relevant
 //! attributes). A variant-name list alone let ADR-0167 change `StreamDiscard`
@@ -15,33 +15,66 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-/// The enums whose variant sets constitute the wire surface.
-const CENSUS_ENUMS: &[(&str, &str)] = &[
-    ("Wire", "crates/nuo-protocol/src/lib.rs"),
-    ("AgentRequest", "crates/nuo-protocol/src/events.rs"),
-    ("AgentResponse", "crates/nuo-protocol/src/events.rs"),
-    ("RoundEvent", "crates/nuo-protocol/src/events.rs"),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SurfaceKind {
+    Enum,
+    Struct,
+}
+
+/// The declarations whose shape constitutes the wire surface.
+///
+/// The nested `RoundScope` and `TurnContext` are listed explicitly: a digest
+/// over `AgentResponse` only names the referenced type, so a field change in
+/// the nested struct would otherwise be invisible.
+const CENSUS_TYPES: &[(&str, &str, SurfaceKind)] = &[
+    ("Wire", "crates/nuo-protocol/src/lib.rs", SurfaceKind::Enum),
+    (
+        "AgentRequest",
+        "crates/nuo-protocol/src/events.rs",
+        SurfaceKind::Enum,
+    ),
+    (
+        "AgentResponse",
+        "crates/nuo-protocol/src/events.rs",
+        SurfaceKind::Enum,
+    ),
+    (
+        "RoundEvent",
+        "crates/nuo-protocol/src/events.rs",
+        SurfaceKind::Enum,
+    ),
+    (
+        "RoundScope",
+        "crates/nuo-protocol/src/events.rs",
+        SurfaceKind::Enum,
+    ),
+    (
+        "TurnContext",
+        "crates/nuo-protocol/src/events.rs",
+        SurfaceKind::Struct,
+    ),
 ];
 
 /// Where the recorded census lives, relative to the workspace root.
 pub const CENSUS_FILE: &str = "crates/nuo/src/dev/wire-census.txt";
 
-/// One enum's recorded surface: its variant names plus the structural digest.
+/// One type's recorded surface: its member names plus the structural digest.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EnumCensus {
-    /// Variant names, in source order. The human-readable half of the census.
-    pub variants: Vec<String>,
-    /// SHA-256 over the normalized enum declaration and its container
+pub struct TypeCensus {
+    /// Variant or field names, in source order. Empty for a struct whose
+    /// fields are not listed separately; the shape digest covers them.
+    pub members: Vec<String>,
+    /// SHA-256 over the normalized declaration and its container
     /// `#[serde(...)]` / serde-bearing `#[cfg_attr(...)]` attributes.
     pub shape: String,
 }
 
-/// A protocol number plus every wire enum's recorded surface.
+/// A protocol number plus every wire type's recorded surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Census {
     pub protocol: u32,
-    /// Enum name → recorded surface.
-    pub enums: BTreeMap<String, EnumCensus>,
+    /// Type name → recorded surface.
+    pub types: BTreeMap<String, TypeCensus>,
 }
 
 impl Census {
@@ -54,7 +87,7 @@ impl Census {
         );
         let _ = writeln!(
             out,
-            "# `Enum:` lists variant names; `Enum@shape:` is SHA-256 over the"
+            "# `Type:` lists variant names; `Type@shape:` is SHA-256 over the"
         );
         let _ = writeln!(
             out,
@@ -70,8 +103,10 @@ impl Census {
             "# Any wire change requires a PROTOCOL_VERSION bump and a renewed census."
         );
         let _ = writeln!(out, "protocol {}", self.protocol);
-        for (name, census) in &self.enums {
-            let _ = writeln!(out, "{name}: {}", census.variants.join(" "));
+        for (name, census) in &self.types {
+            if !census.members.is_empty() {
+                let _ = writeln!(out, "{name}: {}", census.members.join(" "));
+            }
             let _ = writeln!(out, "{name}@shape: {}", census.shape);
         }
         out
@@ -80,7 +115,7 @@ impl Census {
     /// Parse the file format. Returns `None` when the text is not a census.
     pub fn parse(text: &str) -> Option<Self> {
         let mut protocol = None;
-        let mut variants: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut members: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut shapes: BTreeMap<String, String> = BTreeMap::new();
         for line in text.lines() {
             let line = line.trim();
@@ -96,7 +131,7 @@ impl Census {
                 continue;
             }
             let (name, rest) = line.split_once(':')?;
-            variants.insert(
+            members.insert(
                 name.trim().to_string(),
                 rest.split_whitespace()
                     .map(str::to_string)
@@ -104,20 +139,31 @@ impl Census {
             );
         }
 
-        let mut enums = BTreeMap::new();
-        for (name, variants) in variants {
+        let mut types = BTreeMap::new();
+        for (name, members) in members {
             let shape = shapes.remove(&name)?;
-            if shape.is_empty() || variants.is_empty() {
+            if shape.is_empty() {
                 return None;
             }
-            enums.insert(name, EnumCensus { variants, shape });
+            types.insert(name, TypeCensus { members, shape });
         }
-        if !shapes.is_empty() {
-            return None;
+        // A struct line may be shape-only; consume any remaining shape-only
+        // entries as empty-member types.
+        for (name, shape) in shapes {
+            if shape.is_empty() {
+                return None;
+            }
+            types.insert(
+                name,
+                TypeCensus {
+                    members: Vec::new(),
+                    shape,
+                },
+            );
         }
         Some(Self {
             protocol: protocol?,
-            enums,
+            types,
         })
     }
 }
@@ -186,8 +232,12 @@ fn variant_name(trimmed: &str) -> Option<String> {
 /// string/char literals. It therefore ignores rustfmt churn while preserving
 /// every token that can change the wire: variant names, field names, types,
 /// field/variant attributes, and the container's serde tag/rename policy.
-fn shape_of(source: &str, enum_name: &str) -> Option<String> {
-    let needle = format!("pub enum {enum_name} ");
+fn shape_of(source: &str, type_name: &str, kind: SurfaceKind) -> Option<String> {
+    let keyword = match kind {
+        SurfaceKind::Enum => "enum",
+        SurfaceKind::Struct => "struct",
+    };
+    let needle = format!("pub {keyword} {type_name} ");
     let start = source.find(&needle)?;
     let open = start + source[start..].find('{')?;
     let close = matching_brace(source, open)?;
@@ -483,9 +533,9 @@ fn sha256_hex(text: &str) -> String {
 
 /// Recompute the census from the tree as it stands.
 pub fn compute_census(root: &Path) -> Result<Census, String> {
-    let mut enums = BTreeMap::new();
+    let mut types = BTreeMap::new();
     let mut cache: BTreeMap<&str, String> = BTreeMap::new();
-    for (enum_name, rel_path) in CENSUS_ENUMS {
+    for (type_name, rel_path, kind) in CENSUS_TYPES {
         let source = match cache.get(rel_path) {
             Some(source) => source.clone(),
             None => {
@@ -496,21 +546,27 @@ pub fn compute_census(root: &Path) -> Result<Census, String> {
                 source
             }
         };
-        let variants = variants_of(&source, enum_name)
-            .ok_or_else(|| format!("enum `{enum_name}` not found in {rel_path}"))?;
-        if variants.is_empty() {
-            return Err(format!(
-                "enum `{enum_name}` in {rel_path} parsed to zero variants; the census \
-                 parser no longer matches how the enum is written"
-            ));
-        }
-        let shape = shape_of(&source, enum_name)
-            .ok_or_else(|| format!("enum `{enum_name}` in {rel_path} has no shape"))?;
-        enums.insert(enum_name.to_string(), EnumCensus { variants, shape });
+        let members = match kind {
+            SurfaceKind::Enum => {
+                let variants = variants_of(&source, type_name)
+                    .ok_or_else(|| format!("enum `{type_name}` not found in {rel_path}"))?;
+                if variants.is_empty() {
+                    return Err(format!(
+                        "enum `{type_name}` in {rel_path} parsed to zero variants; the census \
+                         parser no longer matches how the enum is written"
+                    ));
+                }
+                variants
+            }
+            SurfaceKind::Struct => Vec::new(),
+        };
+        let shape = shape_of(&source, type_name, *kind)
+            .ok_or_else(|| format!("type `{type_name}` in {rel_path} has no shape"))?;
+        types.insert(type_name.to_string(), TypeCensus { members, shape });
     }
     Ok(Census {
         protocol: nuo_protocol::PROTOCOL_VERSION,
-        enums,
+        types,
     })
 }
 
@@ -537,7 +593,7 @@ pub fn check_wire_census(root: &Path) -> Result<(), String> {
     };
 
     if recorded.protocol == current.protocol {
-        if recorded.enums == current.enums {
+        if recorded.types == current.types {
             return Ok(());
         }
         return Err(format!(
@@ -550,7 +606,7 @@ pub fn check_wire_census(root: &Path) -> Result<(), String> {
         ));
     }
 
-    if recorded.enums == current.enums {
+    if recorded.types == current.types {
         return Err(format!(
             "PROTOCOL_VERSION advanced {} -> {} but the wire surface is byte-for-byte\n\
              unchanged. Either the bump was accidental, or a change was recorded under\n\
@@ -564,20 +620,20 @@ pub fn check_wire_census(root: &Path) -> Result<(), String> {
 
 fn describe_changes(recorded: &Census, current: &Census) -> String {
     let mut report = String::new();
-    for (name, current_enum) in &current.enums {
-        let Some(recorded_enum) = recorded.enums.get(name) else {
-            let _ = writeln!(report, "  {name}: enum added");
+    for (name, current_type) in &current.types {
+        let Some(recorded_type) = recorded.types.get(name) else {
+            let _ = writeln!(report, "  {name}: type added");
             continue;
         };
-        let added: Vec<&String> = current_enum
-            .variants
+        let added: Vec<&String> = current_type
+            .members
             .iter()
-            .filter(|variant| !recorded_enum.variants.contains(variant))
+            .filter(|member| !recorded_type.members.contains(member))
             .collect();
-        let removed: Vec<&String> = recorded_enum
-            .variants
+        let removed: Vec<&String> = recorded_type
+            .members
             .iter()
-            .filter(|variant| !current_enum.variants.contains(variant))
+            .filter(|member| !current_type.members.contains(member))
             .collect();
         if !added.is_empty() {
             let _ = writeln!(
@@ -601,17 +657,17 @@ fn describe_changes(recorded: &Census, current: &Census) -> String {
                     .join(" ")
             );
         }
-        if recorded_enum.shape != current_enum.shape {
+        if recorded_type.shape != current_type.shape {
             let _ = writeln!(
                 report,
                 "  {name}: shape changed\n    recorded: {}\n    current:  {}",
-                recorded_enum.shape, current_enum.shape
+                recorded_type.shape, current_type.shape
             );
         }
     }
-    for name in recorded.enums.keys() {
-        if !current.enums.contains_key(name) {
-            let _ = writeln!(report, "  {name}: enum removed");
+    for name in recorded.types.keys() {
+        if !current.types.contains_key(name) {
+            let _ = writeln!(report, "  {name}: type removed");
         }
     }
     report
@@ -659,22 +715,22 @@ pub enum Wire {
 "#;
         let second = r#"#[serde(tag="type")] pub enum Wire { Select { action: u8, project: Option<u8> }, Exit }"#;
         assert_eq!(
-            shape_of(first, "Wire"),
-            shape_of(second, "Wire"),
+            shape_of(first, "Wire", SurfaceKind::Enum),
+            shape_of(second, "Wire", SurfaceKind::Enum),
             "comments, derives and layout must not enter the shape digest"
         );
 
         let third = first.replace("action: u8", "action: u16");
         assert_ne!(
-            shape_of(first, "Wire"),
-            shape_of(&third, "Wire"),
+            shape_of(first, "Wire", SurfaceKind::Enum),
+            shape_of(&third, "Wire", SurfaceKind::Enum),
             "a field type is a wire change"
         );
 
         let fourth = first.replace("tag = \"type\"", "tag = \"kind\"");
         assert_ne!(
-            shape_of(first, "Wire"),
-            shape_of(&fourth, "Wire"),
+            shape_of(first, "Wire", SurfaceKind::Enum),
+            shape_of(&fourth, "Wire", SurfaceKind::Enum),
             "the container serde tag is a wire change"
         );
     }
@@ -743,6 +799,28 @@ pub enum Wire {
         assert!(
             err.contains("RoundEvent: shape changed"),
             "must name the enum whose shape moved: {err}"
+        );
+    }
+
+    #[test]
+    fn a_nested_struct_shape_change_without_a_bump_is_rejected() {
+        let root = temp_root("nested_shape_without_bump");
+        write_enum(&root, "Wire", "pub enum Wire {\n    Select { a: u8 },\n}\n");
+        write_events(
+            &root,
+            "pub enum AgentRequest {\n    Prompt,\n}\n\
+             pub enum AgentResponse {\n    Round,\n}\n\
+             pub enum RoundEvent {\n    Text,\n}\n",
+        );
+        bless_census(&root).unwrap();
+
+        let path = root.join("crates/nuo-protocol/src/events.rs");
+        let source = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, source.replace("pub turn: u64", "pub turn: u32")).unwrap();
+        let err = check_wire_census(&root).unwrap_err();
+        assert!(
+            err.contains("TurnContext: shape changed"),
+            "must see a change inside the nested context struct: {err}"
         );
     }
 
@@ -816,6 +894,17 @@ pub enum Wire {
     }
 
     fn write_events(root: &Path, body: &str) {
-        std::fs::write(root.join("crates/nuo-protocol/src/events.rs"), body).unwrap();
+        let mut source = body.to_string();
+        if !source.contains("pub struct TurnContext") {
+            source.push_str(
+                "\npub struct TurnContext {\n    pub round: u64,\n    pub turn: u64,\n    pub sent_at_ms: u64,\n}\n",
+            );
+        }
+        if !source.contains("pub enum RoundScope") {
+            source.push_str(
+                "\npub enum RoundScope {\n    Turn { context: TurnContext, event: RoundEvent },\n    Session { event: RoundEvent },\n}\n",
+            );
+        }
+        std::fs::write(root.join("crates/nuo-protocol/src/events.rs"), source).unwrap();
     }
 }

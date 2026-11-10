@@ -792,14 +792,20 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
     let activities = responses
         .iter()
         .filter_map(|response| match response {
-            AgentResponse::Round {
-                event: RoundEvent::Activity(status),
-                ..
-            } => Some(status.as_str()),
+            AgentResponse::Round { scope, .. } => match scope.event() {
+                RoundEvent::Activity(status) => Some(status.clone()),
+                _ => None,
+            },
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert!(activities.starts_with(&["saving request", "preparing context"]));
+    assert!(
+        activities
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .starts_with(&["saving request", "preparing context"])
+    );
     assert_eq!(
         activities
             .iter()
@@ -807,24 +813,26 @@ async fn turn_retries_transient_provider_failure_before_tool_activity() {
             .count(),
         2
     );
-    assert_eq!(activities.last(), Some(&"saving response"));
+    assert_eq!(
+        activities.last().map(String::as_str),
+        Some("saving response")
+    );
     assert!(responses.iter().any(|response| matches!(
         response,
-        AgentResponse::Round {
-            event: RoundEvent::RetryScheduled {
-                attempt: 2,
-                max_attempts: 3,
-                ..
-            },
-            ..
-        }
+        AgentResponse::Round { scope, .. }
+            if matches!(
+                scope.event(),
+                RoundEvent::RetryScheduled {
+                    attempt: 2,
+                    max_attempts: 3,
+                    ..
+                }
+            )
     )));
     assert!(responses.iter().any(|response| matches!(
         response,
-        AgentResponse::Round {
-            event: RoundEvent::StreamDiscard { .. },
-            ..
-        }
+        AgentResponse::Round { scope, .. }
+            if matches!(scope.event(), RoundEvent::StreamDiscard)
     )));
     let attempts = ledger.records_for_session(&session_id);
     assert_eq!(attempts.len(), 2);
@@ -972,17 +980,13 @@ async fn partial_tool_stream_is_not_executed_before_provider_retry() {
     let responses = std::iter::from_fn(|| rx.try_recv().ok()).collect::<Vec<_>>();
     assert!(responses.iter().any(|response| matches!(
         response,
-        AgentResponse::Round {
-            event: RoundEvent::RetryScheduled { attempt: 2, .. },
-            ..
-        }
+        AgentResponse::Round { scope, .. }
+            if matches!(scope.event(), RoundEvent::RetryScheduled { attempt: 2, .. })
     )));
     assert!(!responses.iter().any(|response| matches!(
         response,
-        AgentResponse::Round {
-            event: RoundEvent::ToolCall { .. },
-            ..
-        }
+        AgentResponse::Round { scope, .. }
+            if matches!(scope.event(), RoundEvent::ToolCall { .. })
     )));
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -1054,10 +1058,8 @@ async fn turn_resumes_provider_request_after_completed_tool_activity() {
     assert!(
         std::iter::from_fn(|| rx.try_recv().ok()).any(|response| matches!(
             response,
-            AgentResponse::Round {
-                event: RoundEvent::RetryScheduled { attempt: 2, .. },
-                ..
-            }
+            AgentResponse::Round { scope, .. }
+                if matches!(scope.event(), RoundEvent::RetryScheduled { attempt: 2, .. })
         ))
     );
     let _ = std::fs::remove_dir_all(directory);
@@ -1121,10 +1123,8 @@ async fn turn_exhaustion_message_explains_retry_budget() {
         .filter(|response| {
             matches!(
                 response,
-                AgentResponse::Round {
-                    event: RoundEvent::RetryScheduled { .. },
-                    ..
-                }
+                AgentResponse::Round { scope, .. }
+                    if matches!(scope.event(), RoundEvent::RetryScheduled { .. })
             )
         })
         .count();
@@ -1200,15 +1200,14 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
     let scheduled = responses
         .iter()
         .filter_map(|response| match response {
-            AgentResponse::Round {
-                event:
-                    RoundEvent::RetryScheduled {
-                        attempt,
-                        max_attempts,
-                        ..
-                    },
-                ..
-            } => Some((*attempt, *max_attempts)),
+            AgentResponse::Round { scope, .. } => match scope.event() {
+                RoundEvent::RetryScheduled {
+                    attempt,
+                    max_attempts,
+                    ..
+                } => Some((*attempt, *max_attempts)),
+                _ => None,
+            },
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -1218,10 +1217,8 @@ async fn mid_stream_failures_consume_only_the_restart_budget() {
         .filter(|response| {
             matches!(
                 response,
-                AgentResponse::Round {
-                    event: RoundEvent::StreamDiscard { .. },
-                    ..
-                }
+                AgentResponse::Round { scope, .. }
+                    if matches!(scope.event(), RoundEvent::StreamDiscard)
             )
         })
         .count();
@@ -1729,8 +1726,8 @@ async fn next_event_where(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while std::time::Instant::now() < deadline {
         match tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv()).await {
-            Ok(Some(AgentResponse::Round { event, .. })) if predicate(&event) => {
-                return Some(event);
+            Ok(Some(AgentResponse::Round { scope, .. })) if predicate(scope.event()) => {
+                return Some(scope.into_event());
             }
             Ok(Some(_)) => continue,
             Ok(None) => return None,
@@ -1772,10 +1769,8 @@ async fn idle_parked_interrupt_reason_does_not_label_the_next_round() {
     let leaked = std::iter::from_fn(|| rx.try_recv().ok()).any(|response| {
         matches!(
             response,
-            AgentResponse::Round {
-                event: RoundEvent::RoundInterrupted(_),
-                ..
-            }
+            AgentResponse::Round { scope, .. }
+                if matches!(scope.event(), RoundEvent::RoundInterrupted(_))
         )
     });
     assert!(
@@ -1854,10 +1849,7 @@ async fn real_interrupt_of_a_live_round_still_records() {
 
     // Wait until the round is actually streaming (it admitted the prompt),
     // then cancel exactly like the interrupt handler.
-    let started = next_event_where(&mut rx, |event| {
-        matches!(event, RoundEvent::TurnStarted { .. })
-    })
-    .await;
+    let started = next_event_where(&mut rx, |event| matches!(event, RoundEvent::TurnStarted)).await;
     assert!(started.is_some(), "round must start");
     lifecycle.record_interrupt(nuo_protocol::RoundInterruptReason::User);
     lifecycle.cancel_current().await;
@@ -1897,10 +1889,7 @@ async fn superseded_live_round_still_records() {
         ..
     } = interactive_round_fixture(Arc::new(HangingProvider)).await;
 
-    let started = next_event_where(&mut rx, |event| {
-        matches!(event, RoundEvent::TurnStarted { .. })
-    })
-    .await;
+    let started = next_event_where(&mut rx, |event| matches!(event, RoundEvent::TurnStarted)).await;
     assert!(started.is_some(), "round must start");
 
     // Mirror the replacement path: park, bump the generation, cancel.
@@ -2188,10 +2177,10 @@ async fn image_refusal_is_learned_and_the_round_continues_without_images() {
     // The user is told what happened, and how to override it.
     let notices = std::iter::from_fn(|| rx.try_recv().ok())
         .filter_map(|response| match response {
-            AgentResponse::Round {
-                event: RoundEvent::Notice(notice),
-                ..
-            } => Some(notice),
+            AgentResponse::Round { scope, .. } => match scope.into_event() {
+                RoundEvent::Notice(notice) => Some(notice),
+                _ => None,
+            },
             _ => None,
         })
         .filter(|notice| notice.kind == nuo_protocol::NoticeKind::ImageInputWithheld)
@@ -2274,10 +2263,10 @@ async fn an_unrecognized_refusal_is_probed_and_confirmed_by_outcome() {
     // provider said: the harness never read the provider's wording.
     let notices = std::iter::from_fn(|| rx.try_recv().ok())
         .filter_map(|response| match response {
-            AgentResponse::Round {
-                event: RoundEvent::Notice(notice),
-                ..
-            } => Some(notice),
+            AgentResponse::Round { scope, .. } => match scope.into_event() {
+                RoundEvent::Notice(notice) => Some(notice),
+                _ => None,
+            },
             _ => None,
         })
         .filter(|notice| notice.kind == nuo_protocol::NoticeKind::ImageInputWithheld)
@@ -2546,27 +2535,38 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
         "the truncation should cost exactly one restart"
     );
 
-    // Collect the round events in arrival order.
-    let events: Vec<RoundEvent> = std::iter::from_fn(|| rx.try_recv().ok())
-        .filter_map(|response| match response {
-            AgentResponse::Round { event, .. } => Some(event),
-            _ => None,
-        })
-        .collect();
+    // Collect the turn context and event in arrival order. The context is the
+    // authoritative position; no `TurnStarted` replay is involved.
+    let events: Vec<(Option<nuo_protocol::TurnContext>, RoundEvent)> =
+        std::iter::from_fn(|| rx.try_recv().ok())
+            .filter_map(|response| match response {
+                AgentResponse::Round { scope, .. } => match scope {
+                    nuo_protocol::RoundScope::Turn { context, event } => {
+                        Some((Some(context), event))
+                    }
+                    nuo_protocol::RoundScope::Session { event } => Some((None, event)),
+                },
+                _ => None,
+            })
+            .collect();
 
     let discard_at = events
         .iter()
-        .position(|e| matches!(e, RoundEvent::StreamDiscard { .. }))
+        .position(|(_, event)| matches!(event, RoundEvent::StreamDiscard))
         .expect("a truncated attempt must discard its visible output");
-    let discard_position = events.iter().find_map(|event| match event {
-        RoundEvent::StreamDiscard { round, turn } => Some((*round, *turn)),
-        _ => None,
+    let discard_position = events.iter().find_map(|(context, event)| {
+        matches!(event, RoundEvent::StreamDiscard)
+            .then_some(*context)
+            .flatten()
+            .map(|context| (context.round, context.turn))
     });
     let turn_positions: Vec<(u64, u64)> = events
         .iter()
-        .filter_map(|event| match event {
-            RoundEvent::TurnStarted { round, turn } => Some((*round, *turn as u64)),
-            _ => None,
+        .filter_map(|(context, event)| {
+            matches!(event, RoundEvent::TurnStarted)
+                .then_some(*context)
+                .flatten()
+                .map(|context| (context.round, context.turn))
         })
         .collect();
     assert_eq!(
@@ -2588,7 +2588,7 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
 
     let retry_at = events
         .iter()
-        .position(|e| matches!(e, RoundEvent::RetryScheduled { .. }))
+        .position(|(_, event)| matches!(event, RoundEvent::RetryScheduled { .. }))
         .expect("a truncated attempt must schedule a retry");
 
     assert!(
@@ -2605,13 +2605,13 @@ async fn truncated_stream_discards_before_retrying_and_never_closes_reasoning() 
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, RoundEvent::StreamReasoningDelta(_))),
+            .any(|(_, event)| matches!(event, RoundEvent::StreamReasoningDelta(_))),
         "the attempt's thinking must actually have streamed: {events:?}"
     );
     assert!(
         !events
             .iter()
-            .any(|e| matches!(e, RoundEvent::StreamReasoningEnd { .. })),
+            .any(|(_, event)| matches!(event, RoundEvent::StreamReasoningEnd { .. })),
         "the failure path must not emit a reasoning end: {events:?}"
     );
 

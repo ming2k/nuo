@@ -139,10 +139,7 @@ pub async fn run_headless(
             _ => {}
         }
         match resp {
-            AgentResponse::Round {
-                thread_id: _,
-                event,
-            } => match event {
+            AgentResponse::Round { scope, .. } => match scope.into_event() {
                 RoundEvent::Text(delta) => {
                     if json {
                         accumulated_text.push_str(&delta);

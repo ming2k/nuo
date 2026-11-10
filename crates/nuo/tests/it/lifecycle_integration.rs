@@ -518,7 +518,10 @@ async fn client_detach_spares_active_autonomous_work() {
             .await
             .observe(&nuo_protocol::AgentResponse::Round {
                 thread_id: session_id.clone(),
-                event: nuo_protocol::RoundEvent::TurnStarted { round: 1, turn: 1 },
+                scope: nuo_protocol::RoundScope::Turn {
+                    context: nuo_protocol::TurnContext::new(1, 1, 1_700_000_000_000),
+                    event: nuo_protocol::RoundEvent::TurnStarted,
+                },
             });
     }
     assert!(registry.has_active_work().await);

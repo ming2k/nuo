@@ -41,7 +41,7 @@ use nuo_persistence::{
 use nuo_protocol::{
     AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, ImagePart, InjectionKind, LoopStatus,
     Message, ModelRequest, NoticeKind, NoticeSeverity, NoticeSource, Provider, ProviderStreamEvent,
-    Role, RoundEvent,
+    Role, RoundEvent, RoundScope, TurnContext,
 };
 
 /// Wrap a session-scoped [`RoundEvent`] in the [`AgentResponse::Round`]
@@ -53,8 +53,26 @@ pub mod context_gate;
 pub fn round_response(session_id: &str, event: RoundEvent) -> AgentResponse {
     AgentResponse::Round {
         thread_id: session_id.to_string(),
-        event,
+        scope: RoundScope::Session { event },
     }
+}
+
+/// Wrap a turn-scoped event with the turn it mutated.
+///
+/// The context is mandatory: a turn event without a context is not a state the
+/// protocol can express (ADR-0168).
+pub fn turn_response(session_id: &str, context: TurnContext, event: RoundEvent) -> AgentResponse {
+    AgentResponse::Round {
+        thread_id: session_id.to_string(),
+        scope: RoundScope::Turn { context, event },
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// The explicit "the fold did not reach the gate" signal.
@@ -1375,6 +1393,15 @@ pub async fn execute_round(
         Some(point) => agent.resume_streaming_round(point),
         None => agent.begin_streaming_round(),
     };
+    // Relay-side producer state: the agent knows which turn it is running, and
+    // every turn-scoped wire event carries this context. The client never
+    // reconstructs it (ADR-0168); the value is refreshed at each
+    // `ModelRequestStarted`, the only point a turn can begin.
+    let mut relay_turn = TurnContext::new(
+        agent.round_count(),
+        streaming_round.committed_turns() as u64,
+        now_ms(),
+    );
     let result = loop {
         let attempt_visible = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let activity_for_run = tool_activity.clone();
@@ -1423,7 +1450,7 @@ pub async fn execute_round(
                             }
                         });
                     }
-                    relay_agent_event(&tx, &session_id, event, &streamed_for_run);
+                    relay_agent_event(&tx, &session_id, event, &streamed_for_run, &mut relay_turn);
                 },
             )
             .await;
@@ -1469,12 +1496,10 @@ pub async fn execute_round(
             {
                 compacted_after_overflow = true;
                 if streamed_text.swap(false, Ordering::SeqCst) {
-                    let _ = tx.send(round_response(
+                    let _ = tx.send(turn_response(
                         &session_id,
-                        RoundEvent::StreamDiscard {
-                            round: agent.round_count(),
-                            turn: streaming_round.committed_turns() as u64,
-                        },
+                        relay_turn,
+                        RoundEvent::StreamDiscard,
                     ));
                 }
                 send_compaction(&tx, &session_id, &report.checkpoint);
@@ -1546,12 +1571,10 @@ pub async fn execute_round(
                 // recovery — and no wording can withhold a capability by itself.
                 image_probe = true;
                 if streamed_text.swap(false, Ordering::SeqCst) {
-                    let _ = tx.send(round_response(
+                    let _ = tx.send(turn_response(
                         &session_id,
-                        RoundEvent::StreamDiscard {
-                            round: agent.round_count(),
-                            turn: streaming_round.committed_turns() as u64,
-                        },
+                        relay_turn,
+                        RoundEvent::StreamDiscard,
                     ));
                 }
                 tracing::warn!(
@@ -1597,12 +1620,10 @@ pub async fn execute_round(
         // get a restart, and leaving its row in the transcript would show an
         // answer that was never committed.
         if streamed_text.swap(false, Ordering::SeqCst) {
-            let _ = tx.send(round_response(
+            let _ = tx.send(turn_response(
                 &session_id,
-                RoundEvent::StreamDiscard {
-                    round: agent.round_count(),
-                    turn: streaming_round.committed_turns() as u64,
-                },
+                relay_turn,
+                RoundEvent::StreamDiscard,
             ));
         }
         let (next_attempt, max_attempts) = if visible {
@@ -1747,8 +1768,9 @@ pub async fn execute_round(
             if matches!(error, HarnessError::Interrupted)
                 && (streamed_text.load(Ordering::SeqCst) || tool_activity.load(Ordering::SeqCst))
             {
-                let _ = tx.send(round_response(
+                let _ = tx.send(turn_response(
                     &session_id,
+                    relay_turn,
                     RoundEvent::Text("... [Interrupted]".to_string()),
                 ));
             }
@@ -1758,8 +1780,9 @@ pub async fn execute_round(
 
     let visible = outcome.message.content.trim().to_string();
     if !visible.is_empty() && !streamed_text.load(Ordering::SeqCst) {
-        let _ = tx.send(round_response(
+        let _ = tx.send(turn_response(
             &session_id,
+            relay_turn,
             RoundEvent::Text(visible.clone()),
         ));
     }
@@ -1943,6 +1966,7 @@ pub fn relay_agent_event(
     session_id: &str,
     event: AgentEvent,
     streamed_text: &std::sync::atomic::AtomicBool,
+    current_turn: &mut TurnContext,
 ) {
     let response = match event {
         AgentEvent::Notice(notice) => round_response(session_id, RoundEvent::Notice(notice)),
@@ -1960,13 +1984,15 @@ pub fn relay_agent_event(
                     nuo_protocol::ContextTokenSource::Projection,
                 )),
             ));
+            *current_turn = TurnContext::new(round, turn as u64, now_ms());
             // Structured turn signal first, so the Activity modal can show
             // `round N | turn M | waiting for model` with the turn as a
             // first-class field rather than text-mining it out of the status
             // string. The bare status follows as the `Activity` below.
-            let _ = tx.send(round_response(
+            let _ = tx.send(turn_response(
                 session_id,
-                RoundEvent::TurnStarted { round, turn },
+                *current_turn,
+                RoundEvent::TurnStarted,
             ));
             round_response(
                 session_id,
@@ -1979,62 +2005,76 @@ pub fn relay_agent_event(
         AgentEvent::ContextTokens(snapshot) => {
             round_response(session_id, RoundEvent::ContextTokens(snapshot))
         }
-        AgentEvent::SteerAdmitted(input) => {
-            round_response(session_id, RoundEvent::SteerAdmitted(input))
+        AgentEvent::SteerAdmitted { input, context } => {
+            // The admitted message belongs to the turn that will consume it,
+            // not to the turn that just finished. The agent supplies the
+            // coordinate; the frontend never infers `turn + 1`.
+            turn_response(session_id, context, RoundEvent::SteerAdmitted(input))
         }
         AgentEvent::AssistantDelta { delta, start } => {
+            let context = *current_turn;
             if start {
-                let _ = tx.send(round_response(session_id, RoundEvent::StreamStart));
+                let _ = tx.send(turn_response(session_id, context, RoundEvent::StreamStart));
             }
             streamed_text.store(true, Ordering::SeqCst);
-            round_response(session_id, RoundEvent::StreamDelta(delta))
+            turn_response(session_id, context, RoundEvent::StreamDelta(delta))
         }
-        AgentEvent::AssistantEnd(content) => round_response(
+        AgentEvent::AssistantEnd(content) => turn_response(
             session_id,
+            *current_turn,
             RoundEvent::StreamEnd(content.trim().to_string()),
         ),
-        AgentEvent::AssistantDiscard { round, turn } => {
-            round_response(session_id, RoundEvent::StreamDiscard { round, turn })
+        AgentEvent::AssistantDiscard => {
+            turn_response(session_id, *current_turn, RoundEvent::StreamDiscard)
         }
         AgentEvent::ReasoningDelta { delta, start } => {
+            let context = *current_turn;
             if start {
-                let _ = tx.send(round_response(session_id, RoundEvent::StreamStart));
+                let _ = tx.send(turn_response(session_id, context, RoundEvent::StreamStart));
             }
             streamed_text.store(true, Ordering::SeqCst);
-            round_response(session_id, RoundEvent::StreamReasoningDelta(delta))
+            turn_response(session_id, context, RoundEvent::StreamReasoningDelta(delta))
         }
-        AgentEvent::ReasoningEnd(content) => {
-            round_response(session_id, RoundEvent::StreamReasoningEnd(content))
-        }
+        AgentEvent::ReasoningEnd(content) => turn_response(
+            session_id,
+            *current_turn,
+            RoundEvent::StreamReasoningEnd(content),
+        ),
         AgentEvent::ToolCall {
             id,
             name,
             arguments,
-        } => round_response(
+        } => turn_response(
             session_id,
+            *current_turn,
             RoundEvent::ToolCall {
                 id,
                 name,
                 arguments,
             },
         ),
-        AgentEvent::ToolCallsRetracted { ids } => {
-            round_response(session_id, RoundEvent::ToolCallsRetracted { ids })
-        }
+        AgentEvent::ToolCallsRetracted { ids } => turn_response(
+            session_id,
+            *current_turn,
+            RoundEvent::ToolCallsRetracted { ids },
+        ),
         // The preview rides the same relay as the call it describes (ADR-0125).
         // It is classified `Ephemera` on the far side, so no frontend can persist
         // it into the transcript: a diff nothing applied must not survive a resume.
-        AgentEvent::ToolPreview { id, name, preview } => {
-            round_response(session_id, RoundEvent::ToolPreview { id, name, preview })
-        }
+        AgentEvent::ToolPreview { id, name, preview } => turn_response(
+            session_id,
+            *current_turn,
+            RoundEvent::ToolPreview { id, name, preview },
+        ),
         AgentEvent::ToolResult {
             id,
             name,
             output,
             structured,
             duration_ms,
-        } => round_response(
+        } => turn_response(
             session_id,
+            *current_turn,
             RoundEvent::ToolResult {
                 id,
                 name,
@@ -2043,21 +2083,28 @@ pub fn relay_agent_event(
                 duration_ms,
             },
         ),
-        AgentEvent::ToolCancelled { id, name } => {
-            round_response(session_id, RoundEvent::ToolCancelled { id, name })
-        }
-        AgentEvent::ToolStream { id, stream } => {
-            round_response(session_id, RoundEvent::ToolStream { id, stream })
-        }
-        AgentEvent::ToolCallStarted { id, name } => {
-            round_response(session_id, RoundEvent::ToolCallStarted { id, name })
-        }
+        AgentEvent::ToolCancelled { id, name } => turn_response(
+            session_id,
+            *current_turn,
+            RoundEvent::ToolCancelled { id, name },
+        ),
+        AgentEvent::ToolStream { id, stream } => turn_response(
+            session_id,
+            *current_turn,
+            RoundEvent::ToolStream { id, stream },
+        ),
+        AgentEvent::ToolCallStarted { id, name } => turn_response(
+            session_id,
+            *current_turn,
+            RoundEvent::ToolCallStarted { id, name },
+        ),
         AgentEvent::ToolInputProgress {
             id,
             bytes,
             arguments,
-        } => round_response(
+        } => turn_response(
             session_id,
+            *current_turn,
             RoundEvent::ToolInputProgress {
                 id,
                 bytes,

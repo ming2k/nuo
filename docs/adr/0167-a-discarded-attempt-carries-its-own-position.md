@@ -4,6 +4,7 @@
 - **Date:** 2026-11-08
 - **Related:** [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md), [ADR-0166](0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0133](0133-transcript-attachment-and-hydration-invariants.md)
 - **Amends:** ADR-0162 §"2026-11-08 Amendment: The Discard Sweeps Every Provisional Row"
+- **Amended by:** [ADR-0168](0168-turn-scoped-events-carry-their-own-context.md) (the discard keeps its position; the position now rides the turn envelope)
 
 ## Context
 
@@ -147,26 +148,40 @@ the variant where `None` is unsafe rather than merely untidy.
   census records the shape digest as well as the variant names (ADR-0136
   amendment), so this class of change cannot pass unnoticed again.
 
+## 2026-11-10 Amendment: The Position Moves to the Turn Envelope
+
+ADR-0168 generalizes this decision to every turn-scoped event: the wire now
+carries `RoundScope::Turn { context, event }`, and `StreamDiscard`/`TurnStarted`
+are unit markers inside that context. The invariant of this ADR is unchanged —
+a discard always names the attempt it destroys, and no consumer reconstructs
+the position from `TurnStarted`. Only the encoding moved, from per-variant
+fields to one typed envelope, and the protocol moved to 26 in a clean break.
+The remaining `positions_by_session` deferred in the Consequences above is
+deleted by ADR-0168.
+
 ## Validation
 
 `crates/nuo-harness/tests/it/orchestration.rs`:
 
 - `truncated_stream_discards_before_retrying_and_never_closes_reasoning` — a mock
   provider streams reasoning + text and then fails the transport. Asserts the
-  emitted `StreamDiscard` carries exactly the `(round, turn)` of the attempt's
+  emitted `StreamDiscard` carries exactly the `TurnContext` of the attempt's
   `TurnStarted`, that both attempts open at that same position, that the discard
   precedes `RetryScheduled`, that the reasoning delta actually reached the
   client, and that the failure path emits no `ReasoningEnd`.
 
 `crates/nuo-protocol/src/events.rs`:
 
-- `stream_discard_position_is_part_of_the_wire_shape` — pins the externally
-  tagged JSON shape (including both fields) and a decode round-trip.
+- `turn_context_is_part_of_the_wire_shape` — pins the externally tagged
+  `RoundScope::Turn` JSON shape (including the context fields) and a decode
+  round-trip.
 
 `crates/nuo/src/dev/wire_census.rs`:
 
 - `a_shape_change_without_a_bump_is_rejected` — the same variant names with a
   changed field list fail the protocol gate.
+- `a_nested_struct_shape_change_without_a_bump_is_rejected` — a field change in
+  `TurnContext` fails even though the outer envelope only names the type.
 - `a_bump_with_a_shape_change_is_accepted` — a moved protocol plus a changed
   shape is a valid wire move.
 - `shape_ignores_layout_and_comments_but_not_fields` — rustfmt/comment churn is

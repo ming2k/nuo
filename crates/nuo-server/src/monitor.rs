@@ -101,11 +101,18 @@ impl MonitorTracker {
             }
             return;
         }
-        let AgentResponse::Round { event, .. } = response else {
+        let AgentResponse::Round { scope, .. } = response else {
             return;
         };
-        match event {
-            RoundEvent::TurnStarted { round, turn } => {
+        let turn_context = match scope {
+            nuo_protocol::RoundScope::Turn { context, .. } => Some(*context),
+            nuo_protocol::RoundScope::Session { .. } => None,
+        };
+        match scope.event() {
+            RoundEvent::TurnStarted => {
+                let Some(context) = turn_context else {
+                    return;
+                };
                 if self.round_started.is_none() {
                     // A fresh round begins with its first turn; subsequent
                     // turns of the same round arrive while a start time is
@@ -114,8 +121,8 @@ impl MonitorTracker {
                     self.output_tokens = 0;
                     self.current_tool = None;
                 }
-                self.round = *round;
-                self.turn = Some(*turn);
+                self.round = context.round;
+                self.turn = Some(context.turn as usize);
                 self.note = None;
                 self.status = ThreadStatus::Running;
             }
@@ -247,7 +254,27 @@ mod tests {
     fn round_event(event: RoundEvent) -> AgentResponse {
         AgentResponse::Round {
             thread_id: "s".into(),
-            event,
+            scope: nuo_protocol::RoundScope::Session { event },
+        }
+    }
+
+    fn turn_event(event: RoundEvent) -> AgentResponse {
+        AgentResponse::Round {
+            thread_id: "s".into(),
+            scope: nuo_protocol::RoundScope::Turn {
+                context: nuo_protocol::TurnContext::new(1, 0, 1_700_000_000_000),
+                event,
+            },
+        }
+    }
+
+    fn turn_started(round: u64, turn: u64) -> AgentResponse {
+        AgentResponse::Round {
+            thread_id: "s".into(),
+            scope: nuo_protocol::RoundScope::Turn {
+                context: nuo_protocol::TurnContext::new(round, turn, 1_700_000_000_000),
+                event: RoundEvent::TurnStarted,
+            },
         }
     }
 
@@ -351,14 +378,14 @@ mod tests {
     #[test]
     fn fresh_round_flows_running_to_idle_with_summary() {
         let mut t = tracker();
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
+        t.observe(&turn_started(1, 0));
         let row = t.row();
         assert_eq!(row.status, ThreadStatus::Running);
         assert_eq!(row.round, 1);
         assert_eq!(row.turn, Some(0));
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 1 }));
+        t.observe(&turn_started(1, 1));
         assert_eq!(t.row().turn, Some(1), "a second turn keeps the round open");
-        t.observe(&round_event(RoundEvent::ToolCall {
+        t.observe(&turn_event(RoundEvent::ToolCall {
             id: "c1".into(),
             name: "execute_command".into(),
             arguments: "{}".into(),
@@ -383,7 +410,7 @@ mod tests {
     #[test]
     fn permission_overlay_clears_on_stream_resume() {
         let mut t = tracker();
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
+        t.observe(&turn_started(1, 0));
         t.observe(&round_event(RoundEvent::PermissionRequest(
             PermissionRequest {
                 id: "r".into(),
@@ -400,7 +427,7 @@ mod tests {
         )));
         assert_eq!(t.row().status, ThreadStatus::NeedsApproval);
         assert!(t.row().note.unwrap().contains("write_file"));
-        t.observe(&round_event(RoundEvent::StreamDelta("…".into())));
+        t.observe(&turn_event(RoundEvent::StreamDelta("…".into())));
         assert_eq!(t.row().status, ThreadStatus::Running);
         assert!(t.row().note.is_none());
     }
@@ -408,7 +435,7 @@ mod tests {
     #[test]
     fn error_round_reports_failed_and_keeps_note() {
         let mut t = tracker();
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
+        t.observe(&turn_started(1, 0));
         t.observe(&round_event(RoundEvent::Error("provider blew up".into())));
         let row = t.row();
         assert_eq!(row.status, ThreadStatus::Failed);
@@ -418,7 +445,7 @@ mod tests {
     #[test]
     fn interrupted_round_reports_interrupted() {
         let mut t = tracker();
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
+        t.observe(&turn_started(1, 0));
         t.observe(&round_event(RoundEvent::UnsentInput {
             prompt: "redo".into(),
             images: Vec::new(),
@@ -432,7 +459,7 @@ mod tests {
         // supersede and phase-2/3, which previously left the row stuck on
         // Running) and folds the reason into the note.
         let mut t = tracker();
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
+        t.observe(&turn_started(1, 0));
         t.observe(&round_event(RoundEvent::RoundInterrupted(
             nuo_protocol::RoundInterrupt {
                 reason: nuo_protocol::RoundInterruptReason::User,
@@ -449,8 +476,8 @@ mod tests {
     #[test]
     fn repeated_turn_starts_keep_one_open_round() {
         let mut t = tracker();
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 0 }));
-        t.observe(&round_event(RoundEvent::TurnStarted { round: 1, turn: 1 }));
+        t.observe(&turn_started(1, 0));
+        t.observe(&turn_started(1, 1));
         let row = t.row();
         assert_eq!(row.round, 1, "turns of one round must not double-count");
         assert_eq!(row.turn, Some(1));

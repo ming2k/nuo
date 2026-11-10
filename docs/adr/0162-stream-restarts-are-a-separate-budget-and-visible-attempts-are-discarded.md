@@ -216,6 +216,7 @@ the real `apply_transcript`:
 - `discard_never_truncates_beneath_a_dispatched_tool_step` — the mirror: a
   dispatched step is committed and stops the sweep.
 
-ADR-0167 carries the position on `RoundEvent::StreamDiscard` itself and moves
-the protocol floor to 25, so a client that re-attaches mid-stream does not need
-`TurnStarted` to have been observed before the discard.
+ADR-0167 carries the discard's position on the wire and ADR-0168 moves it to
+the turn envelope (`RoundScope::Turn`), with the protocol floor at 26. A client
+that re-attaches mid-stream does not need `TurnStarted` to have been observed
+before the discard, or before any other turn-scoped event.

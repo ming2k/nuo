@@ -16,7 +16,7 @@ the project adheres to the federated SemVer model described in
 
 ### Fixed
 
-- **A discarded stream attempt carries its own position, so re-attachment cannot lose the sweep.** `RoundEvent::StreamDiscard` becomes `{ round, turn }` (and the harness's internal `AgentEvent::AssistantDiscard` carries the same position); the shell uses it directly instead of reconstructing it from a `TurnStarted` side channel that re-attachment never populates. A retried attempt now always sweeps the failed attempt's trailing provisional rows — text, reasoning, and still-`Ingesting` tool steps — and stops at committed dialogue. This is a clean wire break: `PROTOCOL_VERSION`/`MIN_PROTOCOL_VERSION` move to 25, with no compatibility lane ([ADR-0167](docs/adr/0167-a-discarded-attempt-carries-its-own-position.md)).
+- **Turn-scoped events carry their own context, so re-attachment cannot lose the sweep.** `AgentResponse::Round` now carries `RoundScope::Turn { context, event }`; `RoundEvent::TurnStarted` and `StreamDiscard` are unit markers and the context names the attempt, its 0-indexed turn, and the turn's single send time. The shell deletes `positions_by_session` and `turn_sent_at_by_session`; a mid-stream attach no longer depends on having observed `TurnStarted`, and a retried attempt always sweeps the failed attempt's trailing provisional rows — text, reasoning, and still-`Ingesting` tool steps — before committed dialogue. This is a clean wire break: `PROTOCOL_VERSION`/`MIN_PROTOCOL_VERSION` move to 26, with no compatibility lane ([ADR-0168](docs/adr/0168-turn-scoped-events-carry-their-own-context.md), [ADR-0167](docs/adr/0167-a-discarded-attempt-carries-its-own-position.md)).
 
 ## [0.0.81] - 2026-11-08
 

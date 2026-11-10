@@ -681,18 +681,81 @@ pub struct ThreadPhaseUpdate {
     pub phase: ThreadPhase,
 }
 
+/// The position and send time of one ReAct turn.
+///
+/// `round` is the 1-indexed enclosing user round. `turn` is the **0-indexed**
+/// model-request position within that round, matching
+/// [`RoundEvent::TurnStarted`]. `sent_at_ms` is the server's wall-clock stamp
+/// for the turn; every component of the turn reads this one value, so a
+/// thinking block, answer text and tool step cannot disagree about the band
+/// header even when they arrive at different times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnContext {
+    pub round: u64,
+    pub turn: u64,
+    pub sent_at_ms: u64,
+}
+
+impl TurnContext {
+    pub fn new(round: u64, turn: u64, sent_at_ms: u64) -> Self {
+        Self {
+            round,
+            turn,
+            sent_at_ms,
+        }
+    }
+}
+
+/// Whether a round event belongs to one ReAct turn.
+///
+/// A turn-scoped event carries its own [`TurnContext`] on the wire. A consumer
+/// never reconstructs the position from a `TurnStarted` it may or may not have
+/// observed; re-attachment, replay and late joiners all read the same value.
+/// Events that belong to the session or the round as a whole use
+/// [`RoundScope::Session`] and cannot accidentally claim a turn.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RoundScope {
+    /// The event mutated a specific turn's transcript state.
+    Turn {
+        context: TurnContext,
+        event: RoundEvent,
+    },
+    /// The event belongs to the session/round, not to one turn. It creates no
+    /// positioned transcript row.
+    Session { event: RoundEvent },
+}
+
+impl RoundScope {
+    /// The event, regardless of scope. For consumers that do not need turn
+    /// identity (monitors, headless text extraction).
+    pub fn event(&self) -> &RoundEvent {
+        match self {
+            Self::Turn { event, .. } | Self::Session { event } => event,
+        }
+    }
+
+    /// Consume the scope and return the event.
+    pub fn into_event(self) -> RoundEvent {
+        match self {
+            Self::Turn { event, .. } | Self::Session { event } => event,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AgentResponse {
-    /// A per-round event tagged with the thread it belongs to. The
-    /// TUI keys its transcript buffers by `thread_id` and routes `event` to
-    /// the matching one without clobbering each other's transcript.
+    /// A per-round event tagged with the thread it belongs to and, when the
+    /// event mutated a turn's transcript state, with that turn's context.
+    ///
+    /// The TUI keys its transcript buffers by `thread_id` and routes the event
+    /// to the matching one without clobbering each other's transcript.
     ///
     /// Global (non-thread-scoped) responses — command replies, modal
     /// snapshots, provider switches — stay as dedicated top-level variants so
     /// they are handled once, regardless of which view is focused.
     Round {
         thread_id: String,
-        event: RoundEvent,
+        scope: RoundScope,
     },
     /// Backend-owned completion result for [`AgentRequest::CompleteComposer`].
     /// The echoed text/cursor make stale-response rejection explicit even for
@@ -1174,7 +1237,7 @@ impl RoundEvent {
             | Self::StreamStart
             | Self::StreamDelta(_)
             | Self::StreamEnd(_)
-            | Self::StreamDiscard { .. }
+            | Self::StreamDiscard
             | Self::StreamReasoningDelta(_)
             | Self::StreamReasoningEnd(_)
             | Self::ToolCall { .. }
@@ -1203,7 +1266,7 @@ impl RoundEvent {
 
             // ── telemetry ─────────────────────────────────────────────────
             Self::ContextTokens(_)
-            | Self::TurnStarted { .. }
+            | Self::TurnStarted
             | Self::TurnPerformance(_)
             | Self::HarnessState(_)
             | Self::TodosUpdated(_)
@@ -1448,18 +1511,12 @@ pub enum RoundEvent {
         message: String,
     },
     Activity(String),
-    /// A new ReAct turn started within the current user round. `turn` is the
-    /// 0-indexed model-request index within the round (0 = the first request).
-    /// Surfaced as structured data so the activity bar can render
-    /// `round N | turn M | <status>` without parsing the turn back out of the
-    /// `Activity` status string. Emitted just before the matching
-    /// `Activity("waiting for model")`.
-    TurnStarted {
-        /// 1-indexed enclosing user round.
-        round: u64,
-        /// 0-indexed model-request position within `round`.
-        turn: usize,
-    },
+    /// A new ReAct turn started within the current user round.
+    ///
+    /// The position and send time ride the enclosing [`RoundScope::Turn`]
+    /// context; the event itself is just the lifecycle marker. Emitted just
+    /// before the matching `Activity("waiting for model")`.
+    TurnStarted,
     /// One concrete provider attempt completed with client-observed
     /// performance telemetry. This is pushed at the ReAct-turn boundary so
     /// hint bars update immediately; detailed history remains queryable from
@@ -1470,14 +1527,12 @@ pub enum RoundEvent {
     StreamReasoningDelta(String),
     StreamReasoningEnd(String),
     StreamEnd(String),
-    /// A streamed attempt was abandoned. Carries the position of the attempt it
-    /// discards, so the client can sweep that attempt's provisional rows without
-    /// consulting a side channel (ADR-0167). `turn` is the **0-indexed**
-    /// model-request position, matching [`Self::TurnStarted`].
-    StreamDiscard {
-        round: u64,
-        turn: u64,
-    },
+    /// A streamed attempt was abandoned. The enclosing [`RoundScope::Turn`]
+    /// context names the attempt it discards, so the client can sweep that
+    /// attempt's provisional rows without consulting a side channel (ADR-0167,
+    /// ADR-0168). `turn` is the **0-indexed** model-request position, matching
+    /// [`Self::TurnStarted`].
+    StreamDiscard,
     /// The user interrupted the round before any model output reached the
     /// client (Phase 1: request in-flight, no content delta yet). The round's
     /// user message has been removed from the conversation context and
@@ -2055,21 +2110,22 @@ pub enum AgentEvent {
     /// pre-request projection for that session until its context mutates again.
     ContextTokens(ContextTokenSnapshot),
     /// A steering message was atomically admitted at a safe turn boundary.
-    SteerAdmitted(QueuedMessage),
+    /// The context is the turn that will consume it (the next model request),
+    /// not the turn that just finished; the frontend must not infer `turn + 1`.
+    SteerAdmitted {
+        input: QueuedMessage,
+        context: TurnContext,
+    },
     AssistantDelta {
         delta: String,
         start: bool,
     },
     AssistantEnd(String),
-    /// The assistant text streamed for the turn at `(round, turn)` is
-    /// retracted: a text-fallback tool call consumed it, or the attempt was
-    /// abandoned. Carries its own position so a consumer never has to look it up
-    /// (ADR-0167). `turn` is the **0-indexed** model-request position, matching
-    /// [`RoundEvent::TurnStarted`].
-    AssistantDiscard {
-        round: u64,
-        turn: u64,
-    },
+    /// The assistant text streamed for the current turn is retracted: a
+    /// text-fallback tool call consumed it, or the attempt was abandoned. The
+    /// turn identity comes from the relay's [`TurnContext`]; the internal event
+    /// carries no duplicate position.
+    AssistantDiscard,
     ReasoningDelta {
         delta: String,
         start: bool,
@@ -2316,20 +2372,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stream_discard_position_is_part_of_the_wire_shape() {
-        // ADR-0167: the position is not an optional side channel. Pin the
-        // externally tagged shape so a future field rename or unit-variant
+    fn turn_context_is_part_of_the_wire_shape() {
+        // ADR-0168: the turn identity is not an optional side channel. Pin the
+        // externally tagged shape so a future field rename or a scope
         // regression is a deliberate protocol move, not an accident.
-        let encoded =
-            serde_json::to_value(RoundEvent::StreamDiscard { round: 3, turn: 7 }).unwrap();
+        let encoded = serde_json::to_value(AgentResponse::Round {
+            thread_id: "s".into(),
+            scope: RoundScope::Turn {
+                context: TurnContext::new(3, 7, 1_700_000_000_000),
+                event: RoundEvent::StreamDiscard,
+            },
+        })
+        .unwrap();
         assert_eq!(
             encoded,
-            serde_json::json!({"StreamDiscard": {"round": 3, "turn": 7}})
+            serde_json::json!({
+                "Round": {
+                    "thread_id": "s",
+                    "scope": {
+                        "Turn": {
+                            "context": {
+                                "round": 3,
+                                "turn": 7,
+                                "sent_at_ms": 1_700_000_000_000u64
+                            },
+                            "event": "StreamDiscard"
+                        }
+                    }
+                }
+            })
         );
-        let decoded: RoundEvent = serde_json::from_value(encoded).unwrap();
+        let decoded: AgentResponse = serde_json::from_value(encoded).unwrap();
         assert!(matches!(
             decoded,
-            RoundEvent::StreamDiscard { round: 3, turn: 7 }
+            AgentResponse::Round {
+                scope: RoundScope::Turn {
+                    context: TurnContext {
+                        round: 3,
+                        turn: 7,
+                        ..
+                    },
+                    event: RoundEvent::StreamDiscard,
+                },
+                ..
+            }
         ));
     }
 

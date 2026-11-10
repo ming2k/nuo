@@ -80,8 +80,8 @@ impl Harness {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
         while tokio::time::Instant::now() < deadline {
             match tokio::time::timeout_at(deadline, self.resp_rx.recv()).await {
-                Ok(Some(AgentResponse::Round { event, .. })) => {
-                    if let RoundEvent::QueueUpdated { items, paused } = event {
+                Ok(Some(AgentResponse::Round { scope, .. })) => {
+                    if let RoundEvent::QueueUpdated { items, paused } = scope.into_event() {
                         return (items, paused);
                     }
                 }
