@@ -159,12 +159,16 @@ struct McpTransport {
 /// Streamable-HTTP endpoint. Both speak the same JSON-RPC message grammar, so
 /// [`McpClient::request`] normalizes over this enum.
 enum McpConnection {
-    Stdio(McpTransport),
+    /// Boxed because the process handles dominate the enum's size and the
+    /// connection is held for the server's lifetime, not copied per message.
+    Stdio(Box<McpTransport>),
     Http {
         /// Absolute URL of the Streamable-HTTP endpoint.
         url: String,
-        /// The owned transport.
-        client: netune::Client<netune::TlsConnector<netune::TcpConnector>>,
+        /// The owned transport. Boxed because the connection state (pool,
+        /// config, and TLS router) is much larger than the stdio variant; the
+        /// enum is held for the life of an MCP server, not per message.
+        client: Box<netune::Client<netune::TlsConnector<netune::TcpConnector>>>,
         /// Session id issued by the server (`Mcp-Session-Id` on initialize),
         /// echoed on every subsequent request. `None` until (and unless) the
         /// server assigns one.
@@ -218,11 +222,11 @@ impl McpClient {
                 .map_err(|error| format!("failed to build MCP HTTP client: {error}"))?;
             McpConnection::Http {
                 url: url.to_string(),
-                client: netune::Client::new(
+                client: Box::new(netune::Client::new(
                     connector,
                     netune::Pool::default(),
                     netune::ClientConfig::default(),
-                ),
+                )),
                 session_id: None,
             }
         } else {
@@ -267,12 +271,12 @@ impl McpClient {
                 .stdout
                 .take()
                 .ok_or_else(|| "MCP server stdout is unavailable".to_string())?;
-            McpConnection::Stdio(McpTransport {
+            McpConnection::Stdio(Box::new(McpTransport {
                 process_tree,
                 _child: child,
                 stdin,
                 stdout: BufReader::new(stdout),
-            })
+            }))
         };
         let client = Arc::new(Self {
             transport: Mutex::new(connection),

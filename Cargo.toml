@@ -55,16 +55,23 @@ pulldown-cmark = "0.13"
 # netune is distributed by git tag only: the crates.io `0.1.x` line is yanked
 # and unmaintained, and the registry `0.0.1` is a stale stub. Pin the release
 # tag here; `Cargo.lock` records the exact commit for reproducible builds.
-# v0.0.9 fixes the HTTP/2 `Host`/`:authority` pair that Google's frontend
-# answered with RST_STREAM(PROTOCOL_ERROR), streams HTTP/2 response bodies
-# (SSE arrives as it is generated instead of after the stream ends), reuses
-# negotiated HTTP/2 connections from the pool, enforces the read bounds the
-# client advertises, and replays a draining connection's GOAWAY/REFUSED_STREAM
-# on a fresh connection. It keeps the per-request TLS/HTTP2 identity path
-# (`Target::with_tls_profile`, `TlsRouterConnector`, `Preset::AntigravityCli`)
-# and runtime-affine pooling.
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.9" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.9" }
+# v0.0.10 replaces the shared `Arc<Mutex<Recorder>>` with tiered observation: a
+# per-attempt `Observation` selects `NoTap`/`Counters`/`Ring`, `TraceCollector`
+# is the only cold-path handle, and a response body reports the fidelity its tap
+# actually produced. It also adds typed connection identities and profile
+# registries, controlled dynamic QPACK, and HTTP/3 ingress. Nuo keeps the
+# L1 `Traced` policy for model attempts because its latency telemetry is derived
+# from the protocol timeline; control-plane calls keep a small traced ring only
+# to name the phase a timeout interrupted.
+# v0.0.25 bounds every egress connection-establishment phase it reaches: TLS,
+# the HTTP/2 preface + SETTINGS exchange, proxy tunnels, WebSocket upgrades and
+# SOCKS5 UDP associate. Expiry is a retryable connect failure naming the phase,
+# so a peer that accepts TCP and stops is no longer reported by a streaming
+# watchdog as a generation failure. It also bounds HTTP/2 header-block
+# reassembly and refuses `https://` proxy URLs instead of downgrading them to
+# plaintext. Nuo states the advisory pre-warm budget explicitly on top.
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.25" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.25" }
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 windows-sys = "0.61"

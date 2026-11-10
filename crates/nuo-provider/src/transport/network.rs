@@ -26,6 +26,11 @@ pub fn shared_client() -> &'static Arc<Client<TlsRouterConnector<TcpConnector>>>
     CLIENT.get_or_init(|| {
         let config = ClientConfig {
             enable_http2: true,
+            // The provider transport and control-plane handle both opt into
+            // `send_traced` per attempt. A future caller that goes straight to
+            // `Client::request` gets clock-free L0 counters, not an event ring
+            // nobody reads.
+            observation: netune::Observation::Counters,
             ..ClientConfig::default()
         };
         match direct_client(config) {
@@ -47,6 +52,10 @@ mod tests {
         let a = shared_client();
         let b = shared_client();
         assert!(Arc::ptr_eq(a, b), "two calls must return the same client");
-        assert_eq!(a.pool().idle_count("__no_such_authority__"), 0);
+        let unused = netune::PoolKey::new(
+            "__no_such_authority__",
+            netune::ConnectionIdentity::default(),
+        );
+        assert_eq!(a.pool().idle_count(&unused), 0);
     }
 }

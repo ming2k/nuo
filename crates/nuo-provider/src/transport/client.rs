@@ -14,6 +14,16 @@ use super::request::{RequestBuilder, RequestParts};
 /// Overall bound for a single non-streaming request.
 const CHAT_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Bound on the advisory pre-warm.
+///
+/// A pre-warm races credential resolution and is joined before dispatch, so a
+/// peer that accepts TCP/TLS and then stalls before HTTP/2 SETTINGS must not
+/// hold the real request behind it. Netune bounds each establishment phase at
+/// 10 s; this tighter caller-side budget also caps the advisory wait itself,
+/// because a pre-warm that cannot finish is worth less than the request it
+/// would have accelerated.
+const PREWARM_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// A response: status, headers, and an unconsumed byte stream.
 pub struct HttpResponse {
     pub status: StatusCode,
@@ -75,15 +85,15 @@ fn timeout_error(label: &'static str) -> TransportError {
 }
 
 mod owned {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use bytes::Bytes;
     use futures::StreamExt;
     use futures::stream::BoxStream;
     use netune::{Connector, TcpConnector, TlsRouterConnector};
     use netune_trace::{
-        AttemptRef, ConnectionInfo, EndpointRef, EventKind, Fidelity, Recorder, RequestTrace,
-        TraceId, derive,
+        AttemptRef, ConnectionIdentity, ConnectionInfo, EndpointRef, EventKind, Fidelity,
+        RequestTrace, TRACE_SCHEMA_VERSION, TraceCollector, TraceId, derive,
     };
 
     use super::super::error::TransportError;
@@ -93,9 +103,32 @@ mod owned {
 
     const TRACE_CAPACITY: usize = 16_384;
 
+    /// Per-attempt cold-path handle shared by the timing writer and the body
+    /// stream.
+    ///
+    /// The writer only derives latency phases, so it never publishes this
+    /// envelope; the sink path uses the response body's own `trace()`, which
+    /// carries the connection identity and the fidelity its tap produced.
+    fn envelope(collector: &TraceCollector, endpoint: EndpointRef) -> RequestTrace {
+        RequestTrace {
+            id: TraceId::new("transport"),
+            attempt: AttemptRef {
+                round: 0,
+                turn: 0,
+                attempt: 0,
+            },
+            endpoint,
+            connection: ConnectionInfo::default(),
+            identity: ConnectionIdentity::default(),
+            schema_version: TRACE_SCHEMA_VERSION,
+            fidelity: Fidelity::none(),
+            log: collector.log(),
+        }
+    }
+
     struct TimingsWriter {
         telemetry: TransportTelemetry,
-        recorder: Arc<Mutex<Recorder>>,
+        collector: TraceCollector,
         dispatch_at: std::time::Instant,
         endpoint: EndpointRef,
         sealed: bool,
@@ -107,24 +140,7 @@ mod owned {
                 return;
             }
             self.sealed = true;
-            let log = self
-                .recorder
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .log()
-                .clone();
-            let trace = RequestTrace {
-                id: TraceId::new("transport"),
-                attempt: AttemptRef {
-                    round: 0,
-                    turn: 0,
-                    attempt: 0,
-                },
-                endpoint: self.endpoint.clone(),
-                connection: ConnectionInfo::default(),
-                fidelity: Fidelity::l1(),
-                log,
-            };
+            let trace = envelope(&self.collector, self.endpoint.clone());
             let derived = derive(&trace);
 
             let measured = |reading: netune_trace::Reading<u64>| reading.value();
@@ -245,7 +261,11 @@ mod owned {
                 .timeout
                 .map(|timeout| tokio::time::Instant::now() + timeout);
             let dispatch_at = std::time::Instant::now();
-            let recorder = Arc::new(Mutex::new(Recorder::start(TRACE_CAPACITY)));
+            // Model attempts always need the protocol timeline: `dns_us`,
+            // `tcp_us`, `tls_us` and stream readiness are pure derivations of
+            // the collector's events. The byte-path tap stays owned by netune
+            // (`Observation::Traced`), never by this crate.
+            let collector = TraceCollector::start(TRACE_CAPACITY);
             let endpoint = EndpointRef {
                 provider: parts.label.to_string(),
                 model: String::new(),
@@ -253,14 +273,14 @@ mod owned {
             };
             let writer = TimingsWriter {
                 telemetry: parts.telemetry.clone(),
-                recorder: Arc::clone(&recorder),
+                collector: collector.clone(),
                 dispatch_at,
                 endpoint: endpoint.clone(),
                 sealed: false,
             };
-            let send = self
-                .client
-                .send(&target, Arc::clone(&recorder), head, parts.body.clone());
+            let send =
+                self.client
+                    .send_traced(&target, collector.clone(), head, parts.body.clone());
             let response = match deadline {
                 Some(deadline) => tokio::time::timeout_at(deadline, send)
                     .await
@@ -276,7 +296,7 @@ mod owned {
             let body: BoxStream<'static, Result<Bytes, TransportError>> = futures::stream::unfold(
                 (
                     response.body,
-                    recorder,
+                    collector,
                     sink,
                     endpoint,
                     deadline,
@@ -286,7 +306,7 @@ mod owned {
                 ),
                 |(
                     mut body,
-                    recorder,
+                    collector,
                     sink,
                     endpoint,
                     deadline,
@@ -312,34 +332,25 @@ mod owned {
                     match chunk {
                         Ok(Some(chunk)) => Some((
                             Ok(chunk),
-                            (body, recorder, sink, endpoint, deadline, label, writer, false),
+                            (body, collector, sink, endpoint, deadline, label, writer, false),
                         )),
                         Ok(None) => {
-                            if let Some(sink) = sink {
-                                let log = recorder
-                                    .lock()
-                                    .unwrap_or_else(|error| error.into_inner())
-                                    .log()
-                                    .clone();
-                                sink(RequestTrace {
-                                    id: TraceId::new("egress"),
-                                    attempt: AttemptRef {
-                                        round: 0,
-                                        turn: 0,
-                                        attempt: 0,
-                                    },
-                                    endpoint,
-                                    connection: ConnectionInfo::default(),
-                                    fidelity: Fidelity::l1(),
-                                    log,
-                                });
+                            if let Some(sink) = sink
+                                && let Some(mut trace) = body.trace()
+                            {
+                                // The body owns the honest envelope: the
+                                // negotiated connection identity, the schema
+                                // version, and the fidelity its tap actually
+                                // produced (L1 for HTTP/1.1, L0 for HTTP/2).
+                                trace.endpoint = endpoint;
+                                sink(trace);
                             }
                             writer.seal();
                             None
                         }
                         Err(error) => Some((
                             Err(net_error(label, error)),
-                            (body, recorder, sink, endpoint, deadline, label, writer, true),
+                            (body, collector, sink, endpoint, deadline, label, writer, true),
                         )),
                     }
                 },
@@ -424,8 +435,19 @@ impl Client {
     }
 
     /// Prime a connection to `url`'s origin into the idle pool.
+    ///
+    /// The caller treats the outcome as advisory, so the wait is bounded: a
+    /// pre-warm that cannot finish within the transport's pre-warm budget is
+    /// abandoned instead of delaying the request that would have used it.
     pub async fn prewarm(&self, url: &str, _label: &'static str) -> Result<bool, TransportError> {
-        self.transport.prewarm(url).await
+        self.prewarm_within(url, PREWARM_TIMEOUT).await
+    }
+
+    async fn prewarm_within(&self, url: &str, timeout: Duration) -> Result<bool, TransportError> {
+        match tokio::time::timeout(timeout, self.transport.prewarm(url)).await {
+            Ok(result) => result,
+            Err(_) => Err(TransportError::Timeout { label: "prewarm" }),
+        }
     }
 
     /// Send a fully-built request and enforce HTTP 2xx success.
@@ -474,6 +496,7 @@ impl Default for Client {
 
 #[cfg(test)]
 mod tests {
+    use super::super::telemetry::{TransportObservation, TransportTelemetry};
     use super::*;
     use std::net::{TcpListener, TcpStream};
     use std::sync::{Arc, Mutex};
@@ -517,6 +540,97 @@ mod tests {
 
     fn post_json(_client: &Client, url: &str) -> RequestBuilder {
         RequestBuilder::new(http::Method::POST, url).json(&serde_json::json!({}))
+    }
+
+    #[tokio::test]
+    async fn the_trace_sink_gets_the_honest_envelope_and_timings_are_published() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        });
+
+        let seen: Arc<Mutex<Option<netune_trace::RequestTrace>>> = Arc::new(Mutex::new(None));
+        let slot = Arc::clone(&seen);
+        let transport = NetTransport::plain().with_trace_sink(Arc::new(move |trace| {
+            *slot.lock().unwrap_or_else(|error| error.into_inner()) = Some(trace);
+        }));
+
+        let telemetry = TransportTelemetry::new();
+        let parts = RequestBuilder::new(http::Method::GET, format!("http://{addr}/v1"))
+            .with_telemetry(telemetry.clone())
+            .build("Test")
+            .unwrap();
+        let response = transport.send(parts).await.unwrap();
+        assert_eq!(response.status, http::StatusCode::OK);
+        assert_eq!(&response.into_bytes().await.unwrap()[..], b"ok");
+
+        let trace = seen
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .expect("the sink must receive the completed attempt");
+        assert_eq!(trace.endpoint.provider, "Test");
+        assert_eq!(trace.schema_version, netune_trace::TRACE_SCHEMA_VERSION);
+        assert!(
+            trace.fidelity.syscall,
+            "an HTTP/1.1 attempt owns a syscall tap: {:?}",
+            trace.fidelity
+        );
+        assert!(
+            trace
+                .log
+                .first_of(netune_trace::EventKind::TcpStart)
+                .is_some()
+        );
+
+        let timings = telemetry.snapshot().expect("timings published");
+        assert_eq!(timings.observation, TransportObservation::ColdConnection);
+        assert!(timings.tcp_us.is_some(), "the connect phase is recorded");
+    }
+
+    struct StallingTransport;
+
+    #[async_trait::async_trait]
+    impl Transport for StallingTransport {
+        async fn send(&self, _parts: RequestParts) -> Result<HttpResponse, TransportError> {
+            std::future::pending::<Result<HttpResponse, TransportError>>().await
+        }
+
+        async fn prewarm(&self, _url: &str) -> Result<bool, TransportError> {
+            std::future::pending::<Result<bool, TransportError>>().await
+        }
+    }
+
+    #[tokio::test]
+    async fn advisory_prewarm_is_bounded() {
+        let client = Client {
+            transport: Arc::new(StallingTransport),
+            request_timeout: Duration::from_secs(1),
+        };
+        let started = std::time::Instant::now();
+        let error = client
+            .prewarm_within("http://stall.invalid", Duration::from_millis(50))
+            .await
+            .expect_err("a stalled pre-warm must not wait forever");
+        assert!(matches!(
+            error,
+            TransportError::Timeout { label: "prewarm" }
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "the bound must be the configured one, not the transport's: {:?}",
+            started.elapsed()
+        );
     }
 
     #[tokio::test]

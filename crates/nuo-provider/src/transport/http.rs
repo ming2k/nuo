@@ -2,7 +2,7 @@
 //!
 //! OAuth, usage, and catalog queries use this bounded client.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use http::{HeaderMap, Method, StatusCode};
@@ -144,11 +144,14 @@ impl Http {
             Some(Body::Raw(body)) => Some(body.clone().into()),
         };
 
-        let recorder = Arc::new(Mutex::new(netune_trace::Recorder::start(256)));
+        // Control-plane calls do not publish timings; the collector exists so a
+        // timed-out exchange can name the phase it was waiting in. The byte tap
+        // is owned by netune and merges into this handle when the body ends.
+        let collector = netune_trace::TraceCollector::start(256);
         let exchange = async {
             let mut response = self
                 .client
-                .send(&target, Arc::clone(&recorder), head, body)
+                .send_traced(&target, collector.clone(), head, body)
                 .await?;
             let status = response.head.status;
             let headers = response.head.headers.clone();
@@ -158,12 +161,12 @@ impl Http {
         let (status, headers, bytes) = tokio::time::timeout(self.timeout, exchange)
             .await
             .map_err(|_| {
-                let recorder = recorder.lock().unwrap_or_else(|error| error.into_inner());
+                let log = collector.log();
                 format!(
                     "request to {} timed out after {:.1}s during {}",
                     request.url.split(['?', '#']).next().unwrap_or(&request.url),
                     self.timeout.as_secs_f64(),
-                    timeout_phase(recorder.log())
+                    timeout_phase(&log)
                 )
             })?
             .map_err(|error| error.to_string())?;
