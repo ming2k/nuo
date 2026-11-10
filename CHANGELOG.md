@@ -8,11 +8,13 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.82] - 2026-11-10
+
 ### Changed
 
 - **netune v0.0.25 bounds every outbound establishment phase nuo reaches.** The dependency moves from v0.0.9 to v0.0.25, so all provider, control-plane, web, MCP, and remote-skill egress inherits one 10 s handshake budget across TLS, the HTTP/2 preface + SETTINGS exchange, proxy tunnels, WebSocket upgrades and SOCKS5 UDP associate. Expiry is a retryable `connect` failure naming the phase, so a peer that accepts TCP and stalls is no longer reported by a streaming watchdog as a generation failure; the HTTP/2 response header-block limit (raw block and decoded list) and target-authority validation before a request line or `Host` header are inherited too. `https://` proxy URLs are refused by the substrate rather than silently downgraded to plaintext; nuo does not configure a proxy, so this is a closed escape hatch rather than a behaviour change.
 - **Tiered observation replaces the shared recorder.** The transport no longer holds an `Arc<Mutex<Recorder>>` or manufactures `RequestTrace` envelopes. Provider attempts own a `TraceCollector` and delegate byte observation to netune's `Observation::Traced` tap, because `dns_us`/`tcp_us`/`tls_us` and stream readiness are derived from the same protocol timeline; control-plane calls keep a small collector only to name the phase a timeout interrupted. Calls that never consume a trace (MCP, remote skills, web fetch) inherit netune's `Observation::Counters` default, so they read no clock and allocate no ring; the shared client states that policy explicitly. The whole-attempt sink now receives the response body's own envelope, so a trace carries the negotiated `ConnectionIdentity`, the schema version, and the fidelity its tap actually produced (L1 for HTTP/1.1, L0 for HTTP/2) instead of a hard-coded `l1`. Pool assertions use the typed `PoolKey`.
-- **The wire census records shape, not only variant names.** `wire-census.txt` now stores a SHA-256 digest of each wire enum's normalized declaration in addition to its variant list, so a field/type/serde-attribute change cannot hide behind an unchanged name list. The ignored `bless_wire_census` test remains the only writer ([ADR-0136](docs/adr/0136-wire-drift-is-a-frame-not-a-disconnect.md) 2026-11-10 amendment).
+- **The wire census records shape, not only member names.** `wire-census.txt` now stores a SHA-256 digest of each wire type's normalized declaration in addition to its member list, including the nested `RoundScope` and `TurnContext` declarations, so a field/type/serde-attribute change cannot hide behind an unchanged outer type name. The ignored `bless_wire_census` test remains the only writer ([ADR-0136](docs/adr/0136-wire-drift-is-a-frame-not-a-disconnect.md) 2026-11-10 amendment).
 
 ### Fixed
 
