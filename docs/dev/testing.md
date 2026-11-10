@@ -67,7 +67,7 @@ Nuo enforces foundational repository contracts, structural boundaries, and epist
   - `[INV-ARCH-TIER-01]` Flat 3-tier layout (`crates/*`, `providers/*`, `tools/*`) with zero crates at the repository root.
   - Headless server container purity: `nuo-server` must never depend on terminal presentation libraries (`nuotc`, `crossterm`, `nuo-ui-primitives`, `nuo-view`).
   - Source residency: every `.rs` file under a tier root must be reachable from an entry point ([ADR-0124](../adr/0124-source-residency-every-rust-file-reachable-from-a-crate-root.md)).
-  - Wire surface census: protocol version bump must coincide with checked-in wire census update ([ADR-0136](../adr/0136-wire-drift-is-a-frame-not-a-disconnect.md)).
+  - Wire surface census: a variant **or shape** change must coincide with a protocol version bump and a checked-in wire census update. The shape digest catches field/type/attribute changes that keep every variant name ([ADR-0136](../adr/0136-wire-drift-is-a-frame-not-a-disconnect.md)).
   - `[INV-TUI-COLOR-01]` Color purity firewall: presentation code must use semantic theme tokens instead of raw color literals ([ADR-0147](../adr/0147-semantic-color-governance-firewall-and-first-class-palette-specimen-topology.md)).
 
 ### 4.2 Content Purity & Invariants

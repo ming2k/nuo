@@ -338,6 +338,28 @@ pub async fn run_tui_with_terminal(
 /// events that arrive while the next session handshakes are still delivered
 /// instead of being dropped with the previous loop — see
 /// [`event_loop::input_reader::InputSource`].
+/// Translate a wire turn ordinal into a transcript turn ordinal.
+///
+/// `RoundEvent::TurnStarted` and `RoundEvent::StreamDiscard` carry the
+/// **0-indexed** model-request position. Transcript rows and UI labels are
+/// **1-indexed** (`turn 0` is shown as `turn 1`). One helper owns that
+/// conversion so a new position-carrying event cannot invent a different
+/// convention.
+pub(crate) fn transcript_turn(wire_turn: u64) -> u64 {
+    wire_turn.saturating_add(1)
+}
+
+/// The one translation from a wire discard to the shell's transcript edit.
+pub(crate) fn stream_discard_edit(
+    round: u64,
+    wire_turn: u64,
+) -> event_loop::mutations::TranscriptEdit {
+    event_loop::mutations::TranscriptEdit::StreamDiscard {
+        round,
+        turn: transcript_turn(wire_turn),
+    }
+}
+
 pub(crate) async fn run_tui_with_input(
     terminal: &mut Terminal<io::Stdout>,
     tx: mpsc::UnboundedSender<AgentRequest>,
@@ -1039,7 +1061,7 @@ pub(crate) async fn run_tui_with_input(
                                 }
                             }
                             RoundEvent::TurnStarted { round, turn } => {
-                                let turn = turn as u64 + 1;
+                                let turn = transcript_turn(turn as u64);
                                 positions_by_session.insert(session_id.clone(), (round, turn));
                                 // A new turn mints a new send time: its band header
                                 // is a fresh moment, and every component of this
@@ -1147,13 +1169,15 @@ pub(crate) async fn run_tui_with_input(
                                     created,
                                 });
                             }
-                            RoundEvent::StreamDiscard => {
+                            RoundEvent::StreamDiscard { round, turn } => {
                                 retry_progress = None;
-                                let position = positions_by_session.get(&session_id).copied();
-                                transcript!(E::StreamDiscard {
-                                    round: position.map(|(round, _)| round),
-                                    turn: position.map(|(_, turn)| turn),
-                                });
+                                // The position rides the event (ADR-0167), so
+                                // this no longer depends on having observed
+                                // `TurnStarted` — which re-attachment does not
+                                // replay. The wire ordinal is 0-based; the
+                                // transcript row is 1-based, same as every other
+                                // translated position.
+                                transcript!(stream_discard_edit(round, turn));
                             }
                             RoundEvent::UnsentInput { .. } => {
                                 // Retraction is removed: entries only grow and

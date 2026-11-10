@@ -333,9 +333,15 @@ pub use policy_schema::*;
 /// `announcement` field. A v23 peer cannot deserialize the new shapes, so the
 /// floor moves with the ceiling: this is a clean break, not a compatibility
 /// layer.
-pub const PROTOCOL_VERSION: u32 = 24;
+///
+/// 25: A discarded attempt carries its own position (ADR-0167).
+/// `RoundEvent::StreamDiscard` changes from a unit variant to
+/// `{ round: u64, turn: u64 }`. A v24 peer cannot decode the struct variant,
+/// and a peer that somehow ignored the fields would sweep by a side channel
+/// that re-attachment does not populate. The floor moves with the ceiling.
+pub const PROTOCOL_VERSION: u32 = 25;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 24;
+pub const MIN_PROTOCOL_VERSION: u32 = 25;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

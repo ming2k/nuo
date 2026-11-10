@@ -902,15 +902,51 @@ pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
                 }
             }
             TranscriptEdit::StreamDiscard { round, turn } => {
-                let pops = messages.last().is_some_and(|message| {
-                    message.role == Role::Assistant
-                        && message.round == round
-                        && message.turn == turn
-                });
-                if pops {
-                    messages.pop();
-                } else {
+                // A discarded attempt can leave **more than one** provisional
+                // row behind: a thinking trace, the finalized copy of that
+                // trace, and the answer text that was still streaming when the
+                // transport died. A retry reuses the same `(round, turn)`, so
+                // every row this attempt streamed has to go — otherwise the
+                // next attempt's deltas append into the failed attempt's row
+                // (`append_reasoning_delta` matches on position alone) and two
+                // attempts fuse into one block, e.g.
+                // "attempt one reasoningattempt two reasoning".
+                //
+                // Only a *trailing* run of this attempt's provisional rows is
+                // swept. Once the attempt has committed dialogue — a dispatched
+                // tool step, a notice, a command result — it is no longer
+                // discardable, and truncating beneath that row would reorder
+                // history.
+                //
+                // A tool step whose arguments are still ingesting counts as
+                // provisional, not committed: it cannot become a call, the
+                // harness has already retracted it by id (`[INV-TOOL-ID-05]`),
+                // and the `RetryScheduled` sweep deletes it a moment later
+                // anyway. It must not shield the answer text beneath it — the
+                // discard is emitted *before* that retry.
+                //
+                // The position is carried by the edit (ADR-0167), so there is no
+                // "unaddressed discard" case to guard against: the state is not
+                // representable.
+                let mut cut = messages.len();
+                while cut > 0 {
+                    let message = &messages[cut - 1];
+                    let owned = message.round == Some(round) && message.turn == Some(turn);
+                    let provisional = message.role == Role::Assistant
+                        || message.is_reasoning()
+                        || message.is_pending_tool_step();
+                    if owned && provisional {
+                        cut -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                if cut == messages.len() {
                     changed = false;
+                } else {
+                    messages.truncate(cut);
+                    // Rows moved, so every cached height below the cut is stale.
+                    post = PostEdit::ClearCache;
                 }
             }
             TranscriptEdit::ReasoningDelta {

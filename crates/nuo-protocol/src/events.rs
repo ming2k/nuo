@@ -1174,7 +1174,7 @@ impl RoundEvent {
             | Self::StreamStart
             | Self::StreamDelta(_)
             | Self::StreamEnd(_)
-            | Self::StreamDiscard
+            | Self::StreamDiscard { .. }
             | Self::StreamReasoningDelta(_)
             | Self::StreamReasoningEnd(_)
             | Self::ToolCall { .. }
@@ -1470,7 +1470,14 @@ pub enum RoundEvent {
     StreamReasoningDelta(String),
     StreamReasoningEnd(String),
     StreamEnd(String),
-    StreamDiscard,
+    /// A streamed attempt was abandoned. Carries the position of the attempt it
+    /// discards, so the client can sweep that attempt's provisional rows without
+    /// consulting a side channel (ADR-0167). `turn` is the **0-indexed**
+    /// model-request position, matching [`Self::TurnStarted`].
+    StreamDiscard {
+        round: u64,
+        turn: u64,
+    },
     /// The user interrupted the round before any model output reached the
     /// client (Phase 1: request in-flight, no content delta yet). The round's
     /// user message has been removed from the conversation context and
@@ -2054,7 +2061,15 @@ pub enum AgentEvent {
         start: bool,
     },
     AssistantEnd(String),
-    AssistantDiscard,
+    /// The assistant text streamed for the turn at `(round, turn)` is
+    /// retracted: a text-fallback tool call consumed it, or the attempt was
+    /// abandoned. Carries its own position so a consumer never has to look it up
+    /// (ADR-0167). `turn` is the **0-indexed** model-request position, matching
+    /// [`RoundEvent::TurnStarted`].
+    AssistantDiscard {
+        round: u64,
+        turn: u64,
+    },
     ReasoningDelta {
         delta: String,
         start: bool,
@@ -2299,6 +2314,24 @@ pub struct McpServerInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_discard_position_is_part_of_the_wire_shape() {
+        // ADR-0167: the position is not an optional side channel. Pin the
+        // externally tagged shape so a future field rename or unit-variant
+        // regression is a deliberate protocol move, not an accident.
+        let encoded =
+            serde_json::to_value(RoundEvent::StreamDiscard { round: 3, turn: 7 }).unwrap();
+        assert_eq!(
+            encoded,
+            serde_json::json!({"StreamDiscard": {"round": 3, "turn": 7}})
+        );
+        let decoded: RoundEvent = serde_json::from_value(encoded).unwrap();
+        assert!(matches!(
+            decoded,
+            RoundEvent::StreamDiscard { round: 3, turn: 7 }
+        ));
+    }
 
     #[test]
     fn round_summary_tps_excludes_human_pause() {

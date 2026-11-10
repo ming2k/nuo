@@ -151,7 +151,7 @@ When releasing a new milestone of the Nuo product and workspace:
 2. **Bump Workspace Version**:
    - Update `version = "X.Y.Z"` under `[workspace.package]` in root `Cargo.toml`.
    - Update all in-house entries in `[workspace.dependencies]` to `"X.Y.Z"`.
-   - Re-bless wire census if protocol numbers moved: `nuo dev census --bless`.
+   - Re-bless wire census if protocol numbers moved: `cargo test -p nuo --test architecture_firewall -- --ignored bless_wire_census`.
    - Update `CHANGELOG.md` with release highlights and migration notes.
 3. **Commit & Tag**:
    ```bash

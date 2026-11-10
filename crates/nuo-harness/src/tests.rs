@@ -2496,7 +2496,9 @@ fn transcript(events: &[AgentEvent]) -> Vec<String> {
                 Some(format!("assistant-delta start={start} {delta:?}"))
             }
             AgentEvent::AssistantEnd(content) => Some(format!("assistant-end {content:?}")),
-            AgentEvent::AssistantDiscard => Some("assistant-discard".to_string()),
+            AgentEvent::AssistantDiscard { round, turn } => {
+                Some(format!("assistant-discard round={round} turn={turn}"))
+            }
             AgentEvent::ReasoningDelta { delta, start } => {
                 Some(format!("reasoning-delta start={start} {delta:?}"))
             }
@@ -2643,7 +2645,7 @@ async fn golden_text_fallback_tool_call_is_discarded_then_dispatched() {
             "context-tokens",
             "assistant-delta start=true \"{\\\"tool\\\":\\\"alpha\\\",\\\"arguments\\\":{\\\"k\\\":1}}\"",
             "assistant-end \"{\\\"tool\\\":\\\"alpha\\\",\\\"arguments\\\":{\\\"k\\\":1}}\"",
-            "assistant-discard",
+            "assistant-discard round=0 turn=0",
             "tool-call alpha {\"k\":1}",
             "tool-result alpha \"A-out\"",
             "model-request turn=1",

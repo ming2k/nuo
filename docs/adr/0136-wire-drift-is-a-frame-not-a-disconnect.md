@@ -145,15 +145,17 @@ An in-window protocol number can always be outrun by an in-window wire change, s
 
 ### 5. The census gates the protocol number (`[INV-WIRE-03]`)
 
-`crates/nuo/src/dev/wire_census.rs` recomputes the variant census of `Wire`, `AgentRequest`, `AgentResponse`, and `RoundEvent` from source and compares it against the checked-in `wire-census.txt`, which records the protocol number it was taken at:
+`crates/nuo/src/dev/wire_census.rs` recomputes the surface of `Wire`, `AgentRequest`, `AgentResponse`, and `RoundEvent` from source and compares it against the checked-in `wire-census.txt`, which records the protocol number it was taken at:
 
 | Observed | Verdict |
 | :--- | :--- |
-| Same number, different variants | **Failure** — names every added/removed variant |
+| Same number, different variants or shape | **Failure** — names every added/removed variant and every changed shape |
 | Number advanced, surface unchanged | **Failure** — a bump that says nothing |
 | Number advanced, surface changed, census renewed | Clean |
 
-Renewing is `nuo dev census --bless`; checking is `nuo dev check wire` and the enforced test `test_inv_wire_census_matches_protocol_version`.
+Renewing is `cargo test -p nuo --test architecture_firewall -- --ignored bless_wire_census`; checking is the enforced test `test_inv_wire_census_matches_protocol_version`.
+
+The census records each enum twice: its variant names for a reviewable diff, and a SHA-256 shape digest over the normalized declaration (comments and layout ignored, container serde attributes included). The name list alone could not see a variant change from `StreamDiscard` to `StreamDiscard { round, turn }`; the shape digest closes that blind spot. See the 2026-11-10 amendment.
 
 The census is a **file in the tree**, not a regenerated artifact, so "the wire changed" is reviewable in the diff of the commit that changes it. A self-check test reproduces the ADR-0134 shape in miniature and asserts the checker names the removed variant.
 
@@ -178,6 +180,33 @@ The census is a **file in the tree**, not a regenerated artifact, so "the wire c
 ### Neutral
 
 - Protocol version unchanged at 19 by this ADR: `WireFrame` is a client-internal type and the wire bytes are identical. The census was baselined at the current number in the same commit.
+
+## 2026-11-10 Amendment: The Census Covers Shape, Not Only Names
+
+ADR-0167 changed `RoundEvent::StreamDiscard` from a unit variant to
+`StreamDiscard { round: u64, turn: u64 }`. Every variant name stayed the same,
+so the census reported no wire change and the protocol number did not move. That
+is the same class of drift this ADR exists to stop, now reachable through the
+shape of a variant rather than its name.
+
+The census now records two facts per enum:
+
+- `Enum: A B C` — the variant names, kept for a human-readable diff;
+- `Enum@shape: <sha256>` — a digest over the enum declaration with comments and
+  layout normalized away. The declaration's container `#[serde(...)]` and
+  serde-bearing `#[cfg_attr(...)]` attributes are included because the wire tag
+  is part of the surface. Derive/allow/doc attributes are excluded because they
+  do not change the bytes.
+
+The verdict table is unchanged, with "surface" now meaning names **and** shape.
+A same-number shape change fails with the enum name and both digests; a bumped
+number with a shape change is accepted; a bumped number with no change is still
+rejected. The checker's own tests cover a shape-only change, a bumped shape
+change, and an empty bump.
+
+Renewing remains a deliberate tree change in the same commit as the protocol
+bump. `crates/nuo/src/dev/wire-census.txt` is the record; the ignored
+`bless_wire_census` test is the only writer.
 
 ## References
 

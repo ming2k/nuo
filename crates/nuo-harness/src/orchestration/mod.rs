@@ -1469,7 +1469,13 @@ pub async fn execute_round(
             {
                 compacted_after_overflow = true;
                 if streamed_text.swap(false, Ordering::SeqCst) {
-                    let _ = tx.send(round_response(&session_id, RoundEvent::StreamDiscard));
+                    let _ = tx.send(round_response(
+                        &session_id,
+                        RoundEvent::StreamDiscard {
+                            round: agent.round_count(),
+                            turn: streaming_round.committed_turns() as u64,
+                        },
+                    ));
                 }
                 send_compaction(&tx, &session_id, &report.checkpoint);
                 if !report.satisfied {
@@ -1540,7 +1546,13 @@ pub async fn execute_round(
                 // recovery — and no wording can withhold a capability by itself.
                 image_probe = true;
                 if streamed_text.swap(false, Ordering::SeqCst) {
-                    let _ = tx.send(round_response(&session_id, RoundEvent::StreamDiscard));
+                    let _ = tx.send(round_response(
+                        &session_id,
+                        RoundEvent::StreamDiscard {
+                            round: agent.round_count(),
+                            turn: streaming_round.committed_turns() as u64,
+                        },
+                    ));
                 }
                 tracing::warn!(
                     model = %agent.provider.model(),
@@ -1585,7 +1597,13 @@ pub async fn execute_round(
         // get a restart, and leaving its row in the transcript would show an
         // answer that was never committed.
         if streamed_text.swap(false, Ordering::SeqCst) {
-            let _ = tx.send(round_response(&session_id, RoundEvent::StreamDiscard));
+            let _ = tx.send(round_response(
+                &session_id,
+                RoundEvent::StreamDiscard {
+                    round: agent.round_count(),
+                    turn: streaming_round.committed_turns() as u64,
+                },
+            ));
         }
         let (next_attempt, max_attempts) = if visible {
             visible_failures += 1;
@@ -1975,7 +1993,9 @@ pub fn relay_agent_event(
             session_id,
             RoundEvent::StreamEnd(content.trim().to_string()),
         ),
-        AgentEvent::AssistantDiscard => round_response(session_id, RoundEvent::StreamDiscard),
+        AgentEvent::AssistantDiscard { round, turn } => {
+            round_response(session_id, RoundEvent::StreamDiscard { round, turn })
+        }
         AgentEvent::ReasoningDelta { delta, start } => {
             if start {
                 let _ = tx.send(round_response(session_id, RoundEvent::StreamStart));

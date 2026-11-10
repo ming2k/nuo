@@ -69,12 +69,13 @@ pub(crate) enum TranscriptEdit {
         content: String,
         created: Option<TranscriptMessage>,
     },
-    /// An aborted stream: drop the trailing assistant entry of this position
-    /// if it is the live tail (never pops an older round's entry).
-    StreamDiscard {
-        round: Option<u64>,
-        turn: Option<u64>,
-    },
+    /// An aborted stream: drop every provisional row of this attempt.
+    ///
+    /// The position is carried by the event, not looked up: a discard always
+    /// names the attempt it destroys (ADR-0167). Rows above the attempt's own
+    /// output — a dispatched tool step, a notice, a command result — are
+    /// committed dialogue and bound the sweep.
+    StreamDiscard { round: u64, turn: u64 },
     /// A disclosed reasoning delta; `created` is the lazy first-trace
     /// message (disclosure default already applied).
     ReasoningDelta {

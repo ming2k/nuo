@@ -468,6 +468,7 @@ mod pre_attach_gate;
 mod provider_routes;
 mod runtime_views;
 mod steering_admission;
+mod stream_discard;
 mod transcript;
 mod transport_setback;
 mod turn_header_time;

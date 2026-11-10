@@ -1410,6 +1410,7 @@ impl Agent {
                     messages,
                     &mut round.state,
                     emitted_text,
+                    round.turn_index as u64,
                     cancel,
                     &mut on_event,
                 )
@@ -1521,12 +1522,16 @@ impl Agent {
     /// into the persisted transcript. Every other already-announced
     /// [`AgentEvent::ToolCall`] is paired with a terminal
     /// [`AgentEvent::ToolCancelled`] before this returns.
+    // The turn index is part of the discard contract (ADR-0167); bundling it
+    // with `text_streamed` would hide that both describe the same attempt.
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch_tool_calls<F>(
         self: &Arc<Self>,
         response: &Message,
         messages: &mut Vec<Message>,
         state: &mut RoundState,
         text_streamed: bool,
+        turn: u64,
         cancel: &CancellationToken,
         on_event: &mut F,
     ) -> Result<bool, HarnessError>
@@ -1571,7 +1576,10 @@ impl Agent {
         // Text-based fallback: any provider may emit a JSON tool call as text.
         if let Some(call) = crate::tool_call::parse_text_tool_call(&response.content) {
             if text_streamed {
-                on_event(AgentEvent::AssistantDiscard);
+                on_event(AgentEvent::AssistantDiscard {
+                    round: self.round_count(),
+                    turn,
+                });
             }
             tracing::debug!(tool = %call.name, "tool call (text fallback)");
             crate::tool_call::attach_fallback_tool_call(messages, &call);
