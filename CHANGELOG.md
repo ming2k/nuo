@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.83] - 2026-11-12
+
 ### Changed
 
 - **netune v0.0.27: failure evidence crosses the transport boundary.** Nuo now consumes netune 0.0.26's diagnostic spine instead of reducing every attempt failure to a message. `TransportError` carries a bounded `TransportDiagnostic` — the stable `DiagnosticCode`, phase, retry verdict, bounded message, real trace id, and drop counts — and `ProviderError` preserves it across the harness, rendering the code beside the message. `send_traced` failures and body-stream failures publish their `TraceSnapshot` to the attempt sink before returning, so a failed attempt is observable through the same channel as a successful one; a caller-side deadline records `NET-E-TIMEOUT` with the last observed phase rather than discarding the collector. The hand-built placeholder `TraceId::new("transport")` is gone: schema-v2 envelopes come from the collector's `TraceMeta`. Control-plane, MCP, web, and remote-skill call sites append the code and trace id when they flatten an attempt error to a string ([ADR-0169](docs/adr/0169-netune-failure-evidence-crosses-the-transport-boundary.md)).
