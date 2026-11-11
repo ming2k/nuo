@@ -86,14 +86,28 @@ impl Fetcher {
             netune::Target::from_url(url).map_err(|e| format!("invalid url '{url}': {e}"))?;
         let head = netune::RequestHead::new(netune::Method::GET, path);
         let fetch = async {
-            let mut response = self.client.request(&target, head, None).await?;
+            let mut response = self
+                .client
+                .request(&target, head, None)
+                .await
+                .map_err(|error| {
+                    // The attempt boundary now returns its evidence. Keep the
+                    // stable code and trace id when collapsing to this string API.
+                    format!(
+                        "{} [{} trace {}]",
+                        error,
+                        error.diagnostic().code,
+                        error.trace().meta.id
+                    )
+                })?;
             if !response.head.status.is_success() {
-                return Err(netune::NetError::Connect(format!(
-                    "HTTP {}",
-                    response.head.status
-                )));
+                return Err(format!("HTTP {}", response.head.status));
             }
-            response.body.read_to_end().await
+            response
+                .body
+                .read_to_end()
+                .await
+                .map_err(|error| format!("{} [{}]", error, error.diagnostic().code))
         };
         let bytes = tokio::time::timeout(Duration::from_secs(30), fetch)
             .await

@@ -63,15 +63,15 @@ pulldown-cmark = "0.13"
 # L1 `Traced` policy for model attempts because its latency telemetry is derived
 # from the protocol timeline; control-plane calls keep a small traced ring only
 # to name the phase a timeout interrupted.
-# v0.0.25 bounds every egress connection-establishment phase it reaches: TLS,
-# the HTTP/2 preface + SETTINGS exchange, proxy tunnels, WebSocket upgrades and
-# SOCKS5 UDP associate. Expiry is a retryable connect failure naming the phase,
-# so a peer that accepts TCP and stops is no longer reported by a streaming
-# watchdog as a generation failure. It also bounds HTTP/2 header-block
-# reassembly and refuses `https://` proxy URLs instead of downgrading them to
-# plaintext. Nuo states the advisory pre-warm budget explicitly on top.
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.25" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.25" }
+# v0.0.27 is netune's diagnostic-spine release. A failed attempt
+# returns `AttemptError` with a real trace id, a bounded diagnostic table and a
+# `TraceSnapshot`, even when observation is off; `RequestTrace` schema v2 and
+# `TraceSink` v2 carry that envelope through both directions. Nuo adopts the
+# evidence at its own transport boundary so a provider failure can name the
+# netune phase instead of reconstructing it from a display string. 0.0.27 is the
+# documentation-only correction to 0.0.26 and keeps the same API.
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.27" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.27" }
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 windows-sys = "0.61"

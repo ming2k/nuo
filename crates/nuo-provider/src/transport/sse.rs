@@ -78,6 +78,7 @@ where
                     buffer.len()
                 ),
                 retryable: true,
+                diagnostic: None,
             })]
         }
     });
@@ -123,6 +124,7 @@ mod tests {
                     label: "Test",
                     message: error.to_string(),
                     retryable: true,
+                    diagnostic: None,
                 }
             })
             .collect::<Vec<_>>(),

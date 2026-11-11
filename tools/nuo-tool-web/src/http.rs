@@ -75,7 +75,17 @@ impl WebHttp {
             self.0
                 .request(&target, head, request.body)
                 .await
-                .map_err(|error| error.to_string())
+                .map_err(|error| {
+                    // Keep netune's stable classification and the trace id the
+                    // error belongs to; the enclosing timeout only knows that
+                    // the wall clock expired.
+                    format!(
+                        "{} [{} trace {}]",
+                        error,
+                        error.diagnostic().code,
+                        error.trace().meta.id
+                    )
+                })
         };
         tokio::time::timeout(timeout, send)
             .await
@@ -113,12 +123,9 @@ impl WebHttp {
         let status = response.head.status;
         let headers = response.head.headers.clone();
         let mut body = Vec::new();
-        while let Some(chunk) = response
-            .body
-            .next_chunk()
-            .await
-            .map_err(|error| format!("Failed to read body: {error}"))?
-        {
+        while let Some(chunk) = response.body.next_chunk().await.map_err(|error| {
+            format!("Failed to read body: {error} [{}]", error.diagnostic().code)
+        })? {
             body.extend_from_slice(&chunk);
         }
         Ok(Reply {

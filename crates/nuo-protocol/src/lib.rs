@@ -62,6 +62,7 @@ pub use usage::TokenUsage;
 pub mod error;
 pub use error::{
     HarnessError, ProviderError, ProviderErrorKind, RetryDisposition, ToolError, ToolErrorKind,
+    TransportDiagnostic,
 };
 
 pub mod message;

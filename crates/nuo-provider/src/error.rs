@@ -38,6 +38,11 @@ pub struct ProviderError {
     status: Option<u16>,
     retry: RetryDisposition,
     message: String,
+    /// The netune failure evidence, when this error crossed the transport
+    /// boundary. Optional so old persisted errors decode unchanged; boxed so
+    /// the common error path stays small.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<Box<crate::transport::TransportDiagnostic>>,
 }
 
 impl ProviderError {
@@ -52,6 +57,7 @@ impl ProviderError {
             status: None,
             retry: RetryDisposition::Never,
             message: message.into(),
+            diagnostic: None,
         }
     }
 
@@ -115,6 +121,21 @@ impl ProviderError {
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// Attach the netune diagnosis that produced this failure.
+    pub fn with_diagnostic(mut self, diagnostic: crate::transport::TransportDiagnostic) -> Self {
+        self.diagnostic = Some(Box::new(diagnostic));
+        self
+    }
+
+    /// The netune diagnosis carried by this failure, when one was recorded.
+    ///
+    /// `kind()` stays Nuo's provider-level classification; the diagnostic's
+    /// `code()` is netune's stable transport-level contract. A caller that
+    /// needs to explain *where* the request stopped reads the latter.
+    pub fn diagnostic(&self) -> Option<&crate::transport::TransportDiagnostic> {
+        self.diagnostic.as_deref()
     }
 
     pub const fn is_context_overflow(&self) -> bool {
@@ -190,7 +211,14 @@ impl ProviderError {
 
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        f.write_str(&self.message)?;
+        // The code is the stable, greppable part of the failure; the message is
+        // review context. Surface it so a transcript or log names the netune
+        // phase without requiring the reader to parse the prose.
+        if let Some(diagnostic) = &self.diagnostic {
+            write!(f, " [{}]", diagnostic.code())?;
+        }
+        Ok(())
     }
 }
 
@@ -338,16 +366,29 @@ impl From<crate::transport::TransportError> for ProviderError {
                 label,
                 message,
                 retryable,
+                diagnostic,
             } => {
-                let pe = ProviderError::new(label, ProviderErrorKind::Transport, message);
-                if retryable { pe.retryable(None) } else { pe }
+                let mut pe = ProviderError::new(label, ProviderErrorKind::Transport, message);
+                if retryable {
+                    pe = pe.retryable(None);
+                }
+                match diagnostic {
+                    Some(diagnostic) => pe.with_diagnostic(*diagnostic),
+                    None => pe,
+                }
             }
-            crate::transport::TransportError::Timeout { label } => ProviderError::new(
-                label,
-                ProviderErrorKind::Timeout,
-                "transport error: request timed out",
-            )
-            .retryable(None),
+            crate::transport::TransportError::Timeout { label, diagnostic } => {
+                let pe = ProviderError::new(
+                    label,
+                    ProviderErrorKind::Timeout,
+                    "transport error: request timed out",
+                )
+                .retryable(None);
+                match diagnostic {
+                    Some(diagnostic) => pe.with_diagnostic(*diagnostic),
+                    None => pe,
+                }
+            }
             crate::transport::TransportError::InvalidRequest { label, message } => {
                 ProviderError::new(label, ProviderErrorKind::InvalidRequest, message)
             }
@@ -355,14 +396,92 @@ impl From<crate::transport::TransportError> for ProviderError {
                 label,
                 message,
                 retryable,
+                diagnostic,
             } => {
-                let pe = ProviderError::new(label, ProviderErrorKind::Transport, message);
-                if retryable { pe.retryable(None) } else { pe }
+                let mut pe = ProviderError::new(label, ProviderErrorKind::Transport, message);
+                if retryable {
+                    pe = pe.retryable(None);
+                }
+                match diagnostic {
+                    Some(diagnostic) => pe.with_diagnostic(*diagnostic),
+                    None => pe,
+                }
             }
             crate::transport::TransportError::Decode { label, message } => {
                 ProviderError::new(label, ProviderErrorKind::Decode, message)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+    use crate::transport::{TransportDiagnostic, TransportError};
+    use netune_trace::{DiagnosticCode, DiagnosticPhase, RetryVerdict, TraceId};
+
+    fn diagnostic() -> TransportDiagnostic {
+        TransportDiagnostic {
+            code: DiagnosticCode::EGRESS_TCP_FAILED,
+            phase: DiagnosticPhase::Tcp,
+            retry: RetryVerdict::Retryable,
+            message: "connect failed: refused".into(),
+            trace_id: TraceId::new("01924f4e-0000-7000-8000-000000000000"),
+            dropped_events: 0,
+            dropped_diagnostics: 0,
+        }
+    }
+
+    #[test]
+    fn the_transport_diagnosis_crosses_into_the_provider_error() {
+        let error: ProviderError = TransportError::Transport {
+            label: "Test",
+            message: "connect failed: refused".into(),
+            retryable: true,
+            diagnostic: Some(Box::new(diagnostic())),
+        }
+        .into();
+
+        assert_eq!(error.kind(), ProviderErrorKind::Transport);
+        let carried = error
+            .diagnostic()
+            .expect("the provider error must retain the diagnosis");
+        assert_eq!(carried.code(), DiagnosticCode::EGRESS_TCP_FAILED);
+        assert_eq!(carried.phase(), DiagnosticPhase::Tcp);
+        assert!(carried.is_retryable());
+        assert_eq!(
+            carried.trace_id().as_str(),
+            "01924f4e-0000-7000-8000-000000000000"
+        );
+        assert!(
+            error.to_string().contains("NET-E-TCP-FAILED"),
+            "the rendered error must name the stable code: {error}"
+        );
+    }
+
+    #[test]
+    fn a_diagnosis_round_trips_through_the_serialized_error() {
+        let error: ProviderError = TransportError::Timeout {
+            label: "Test",
+            diagnostic: Some(Box::new(TransportDiagnostic {
+                code: DiagnosticCode::EGRESS_TIMEOUT,
+                phase: DiagnosticPhase::Request,
+                retry: RetryVerdict::Retryable,
+                message: "request timed out during request write".into(),
+                trace_id: TraceId::new("01924f4e-0000-7000-8000-000000000001"),
+                dropped_events: 2,
+                dropped_diagnostics: 1,
+            })),
+        }
+        .into();
+
+        let json = serde_json::to_string(&error).expect("serialize");
+        let decoded: ProviderError = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(decoded, error);
+        assert_eq!(
+            decoded.diagnostic().map(TransportDiagnostic::code),
+            Some(DiagnosticCode::EGRESS_TIMEOUT)
+        );
     }
 }
 

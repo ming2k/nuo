@@ -145,31 +145,64 @@ impl Http {
         };
 
         // Control-plane calls do not publish timings; the collector exists so a
-        // timed-out exchange can name the phase it was waiting in. The byte tap
-        // is owned by netune and merges into this handle when the body ends.
+        // timed-out exchange can name the phase it was waiting in, and a failed
+        // attempt can carry its diagnostic code and trace id. The byte tap is
+        // owned by netune and merges into this handle when the body ends.
         let collector = netune_trace::TraceCollector::start(256);
-        let exchange = async {
+        let evidence = collector.clone();
+        let exchange = async move {
             let mut response = self
                 .client
-                .send_traced(&target, collector.clone(), head, body)
+                .send_traced(&target, evidence.clone(), head, body)
                 .await?;
             let status = response.head.status;
             let headers = response.head.headers.clone();
-            let bytes = response.body.read_to_end().await?;
-            Ok::<_, netune::NetError>((status, headers, bytes))
+            let bytes = match response.body.read_to_end().await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    if evidence.diagnostics().last_error().is_none() {
+                        evidence.record_error(error.diagnostic());
+                    }
+                    return Err(netune::AttemptError::new(
+                        error,
+                        evidence.snapshot(netune_trace::Fidelity::l1()),
+                    ));
+                }
+            };
+            Ok::<_, netune::AttemptError>((status, headers, bytes))
         };
         let (status, headers, bytes) = tokio::time::timeout(self.timeout, exchange)
             .await
             .map_err(|_| {
                 let log = collector.log();
-                format!(
+                let phase = super::diagnostic::last_phase(&collector);
+                let message = format!(
                     "request to {} timed out after {:.1}s during {}",
                     request.url.split(['?', '#']).next().unwrap_or(&request.url),
                     self.timeout.as_secs_f64(),
                     timeout_phase(&log)
+                );
+                collector.record_error(
+                    netune_trace::DiagnosticRecord::new(
+                        netune_trace::DiagnosticCode::EGRESS_TIMEOUT,
+                    )
+                    .with_phase(phase)
+                    .with_message(message.clone()),
+                );
+                format!(
+                    "{message} [{} trace {}]",
+                    netune_trace::DiagnosticCode::EGRESS_TIMEOUT,
+                    collector.meta().id
                 )
             })?
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| {
+                format!(
+                    "{} [{} trace {}]",
+                    error,
+                    error.diagnostic().code,
+                    error.trace().meta.id
+                )
+            })?;
         Ok(Reply {
             status,
             headers,

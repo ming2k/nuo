@@ -2,6 +2,8 @@
 
 use std::time::SystemTime;
 
+use super::diagnostic::TransportDiagnostic;
+
 /// Error arising from outbound network transport, HTTP execution, or streaming.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TransportError {
@@ -16,9 +18,15 @@ pub enum TransportError {
         label: &'static str,
         message: String,
         retryable: bool,
+        /// The netune diagnosis, when the failure crossed the attempt boundary.
+        diagnostic: Option<Box<TransportDiagnostic>>,
     },
     #[error("Request timed out ({label})")]
-    Timeout { label: &'static str },
+    Timeout {
+        label: &'static str,
+        /// The diagnosis derived from the cancelled attempt's trace.
+        diagnostic: Option<Box<TransportDiagnostic>>,
+    },
     #[error("Invalid request ({label}): {message}")]
     InvalidRequest {
         label: &'static str,
@@ -29,6 +37,8 @@ pub enum TransportError {
         label: &'static str,
         message: String,
         retryable: bool,
+        /// The diagnosis recorded before the body stream failed.
+        diagnostic: Option<Box<TransportDiagnostic>>,
     },
     #[error("Decode error ({label}): {message}")]
     Decode {
@@ -53,6 +63,21 @@ impl TransportError {
     pub fn retry_after_ms(&self) -> Option<u64> {
         match self {
             Self::Http { retry_after, .. } => *retry_after,
+            _ => None,
+        }
+    }
+
+    /// The netune diagnosis carried by this failure, when one was recorded.
+    ///
+    /// The code is a stable contract (`NET-E-TCP-FAILED`); the message is
+    /// bounded review context. Reading this never requires parsing [`Display`].
+    ///
+    /// [`Display`]: std::fmt::Display
+    pub fn diagnostic(&self) -> Option<&TransportDiagnostic> {
+        match self {
+            Self::Transport { diagnostic, .. }
+            | Self::Timeout { diagnostic, .. }
+            | Self::Stream { diagnostic, .. } => diagnostic.as_deref(),
             _ => None,
         }
     }

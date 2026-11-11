@@ -458,7 +458,11 @@ impl McpClient {
                     ))
                 })?
                 .map_err(|error| {
-                    McpError::Transport(format!("MCP {method} HTTP failed: {error}"))
+                    McpError::Transport(format!(
+                        "MCP {method} HTTP failed: {error} [{} trace {}]",
+                        error.diagnostic().code,
+                        error.trace().meta.id
+                    ))
                 })?;
                 let status = exchange.head.status;
                 if !status.is_success() {
@@ -496,7 +500,12 @@ impl McpClient {
                     .read_to_end()
                     .await
                     .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-                    .map_err(|error| McpError::Transport(format!("MCP {method} body: {error}")))?;
+                    .map_err(|error| {
+                        McpError::Transport(format!(
+                            "MCP {method} body: {error} [{}]",
+                            error.diagnostic().code
+                        ))
+                    })?;
                 parse_http_message(&body, &content_type, method)?
             }
         };
@@ -555,7 +564,11 @@ impl McpClient {
                     ))
                 })?
                 .map_err(|error| {
-                    McpError::Transport(format!("MCP {method} notify failed: {error}"))
+                    McpError::Transport(format!(
+                        "MCP {method} notify failed: {error} [{} trace {}]",
+                        error.diagnostic().code,
+                        error.trace().meta.id
+                    ))
                 })?;
                 let mut exchange = exchange;
                 let _ = exchange.body.read_to_end().await;

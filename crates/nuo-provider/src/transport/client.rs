@@ -71,17 +71,32 @@ pub trait Transport: Send + Sync {
     }
 }
 
+use super::diagnostic::TransportDiagnostic;
+
+fn diagnostic_from_snapshot(
+    snapshot: &netune_trace::TraceSnapshot,
+) -> Option<Box<TransportDiagnostic>> {
+    TransportDiagnostic::from_snapshot(snapshot).map(Box::new)
+}
+
+fn attempt_error(label: &'static str, error: &netune::AttemptError) -> TransportError {
+    let retryable = error.error().is_retryable();
+    TransportError::Transport {
+        label,
+        message: error.to_string(),
+        retryable,
+        diagnostic: diagnostic_from_snapshot(error.trace()),
+    }
+}
+
 fn net_error(label: &'static str, error: netune::NetError) -> TransportError {
     let retryable = error.is_retryable();
     TransportError::Transport {
         label,
         message: error.to_string(),
         retryable,
+        diagnostic: None,
     }
-}
-
-fn timeout_error(label: &'static str) -> TransportError {
-    TransportError::Timeout { label }
 }
 
 mod owned {
@@ -92,26 +107,32 @@ mod owned {
     use futures::stream::BoxStream;
     use netune::{Connector, TcpConnector, TlsRouterConnector};
     use netune_trace::{
-        AttemptRef, ConnectionIdentity, ConnectionInfo, EndpointRef, EventKind, Fidelity,
-        RequestTrace, TRACE_SCHEMA_VERSION, TraceCollector, TraceId, derive,
+        AttemptRef, ConnectionIdentity, ConnectionInfo, DiagnosticCode, DiagnosticRecord,
+        EndpointRef, EventKind, Fidelity, RequestTrace, TRACE_SCHEMA_VERSION, TraceCollector,
+        TraceSnapshot, derive,
     };
 
+    use super::super::diagnostic::{last_phase, phase_label};
     use super::super::error::TransportError;
     use super::super::request::RequestParts;
     use super::super::telemetry::{TransportObservation, TransportTelemetry, TransportTimings};
-    use super::{HttpResponse, Transport, net_error, timeout_error};
+    use super::{
+        HttpResponse, Transport, TransportDiagnostic, attempt_error, diagnostic_from_snapshot,
+        net_error,
+    };
 
     const TRACE_CAPACITY: usize = 16_384;
 
-    /// Per-attempt cold-path handle shared by the timing writer and the body
-    /// stream.
+    /// Rebuild an attempt envelope from the collector's v2 snapshot.
     ///
-    /// The writer only derives latency phases, so it never publishes this
-    /// envelope; the sink path uses the response body's own `trace()`, which
-    /// carries the connection identity and the fidelity its tap produced.
-    fn envelope(collector: &TraceCollector, endpoint: EndpointRef) -> RequestTrace {
+    /// The snapshot owns the real generated [`TraceMeta`](netune_trace::TraceMeta)
+    /// and the diagnostic side table, so a failed attempt no longer fabricates
+    /// a placeholder id or drops its evidence. Connection identity stays
+    /// unknown here because only a completed response body can name the socket
+    /// it actually rode.
+    fn trace_from_snapshot(snapshot: TraceSnapshot, endpoint: EndpointRef) -> RequestTrace {
         RequestTrace {
-            id: TraceId::new("transport"),
+            meta: snapshot.meta,
             attempt: AttemptRef {
                 round: 0,
                 turn: 0,
@@ -121,9 +142,68 @@ mod owned {
             connection: ConnectionInfo::default(),
             identity: ConnectionIdentity::default(),
             schema_version: TRACE_SCHEMA_VERSION,
-            fidelity: Fidelity::none(),
-            log: collector.log(),
+            fidelity: snapshot.fidelity,
+            log: snapshot.log,
+            diagnostics: snapshot.diagnostics,
         }
+    }
+
+    /// Publish a terminal attempt to the sink, including failures.
+    ///
+    /// A sink that only saw successful bodies could never explain a failed
+    /// attempt. The collector records diagnostics even under `Observation::Off`,
+    /// so this path is safe for every observation tier Nuo selects.
+    fn publish_terminal(
+        sink: &Option<TraceSink>,
+        collector: &TraceCollector,
+        endpoint: &EndpointRef,
+    ) -> Option<Box<TransportDiagnostic>> {
+        let snapshot = collector.snapshot(Fidelity::l1());
+        let diagnostic = diagnostic_from_snapshot(&snapshot);
+        if let Some(sink) = sink {
+            sink(trace_from_snapshot(snapshot, endpoint.clone()));
+        }
+        diagnostic
+    }
+
+    /// Turn a body/stream failure into a typed transport failure.
+    ///
+    /// netune's `send_traced` boundary owns the head; a failure while reading
+    /// the body surfaces as a bare `NetError`. The collector still knows the
+    /// phase it reached, so the diagnostic is added there and the whole
+    /// evidence record is published before the error is returned.
+    fn stream_error(
+        label: &'static str,
+        error: netune::NetError,
+        collector: &TraceCollector,
+        endpoint: &EndpointRef,
+        sink: &Option<TraceSink>,
+    ) -> TransportError {
+        if collector.diagnostics().last_error().is_none() {
+            collector.record_error(error.diagnostic());
+        }
+        let diagnostic = publish_terminal(sink, collector, endpoint);
+        TransportError::Stream {
+            label,
+            message: error.to_string(),
+            retryable: error.is_retryable(),
+            diagnostic,
+        }
+    }
+
+    fn timeout_error(
+        label: &'static str,
+        collector: &TraceCollector,
+        endpoint: &EndpointRef,
+        sink: &Option<TraceSink>,
+    ) -> TransportError {
+        let phase = last_phase(collector);
+        let record = DiagnosticRecord::new(DiagnosticCode::EGRESS_TIMEOUT)
+            .with_phase(phase)
+            .with_message(format!("request timed out during {}", phase_label(phase)));
+        collector.record_error(record);
+        let diagnostic = publish_terminal(sink, collector, endpoint);
+        TransportError::Timeout { label, diagnostic }
     }
 
     struct TimingsWriter {
@@ -140,7 +220,10 @@ mod owned {
                 return;
             }
             self.sealed = true;
-            let trace = envelope(&self.collector, self.endpoint.clone());
+            let trace = trace_from_snapshot(
+                self.collector.snapshot(Fidelity::l1()),
+                self.endpoint.clone(),
+            );
             let derived = derive(&trace);
 
             let measured = |reading: netune_trace::Reading<u64>| reading.value();
@@ -189,6 +272,12 @@ mod owned {
         }
     }
 
+    /// Attempt-level cold-path sink.
+    ///
+    /// It receives one trace per attempt, on success and on failure. A failed
+    /// trace carries the diagnostics recorded before the error was returned;
+    /// its `meta.id` matches the id on the `TransportDiagnostic`. The netune
+    /// event ring remains the record of truth; this sink is a view.
     pub type TraceSink = Arc<dyn Fn(RequestTrace) + Send + Sync>;
 
     /// The owned netune transport implementation.
@@ -281,12 +370,31 @@ mod owned {
             let send =
                 self.client
                     .send_traced(&target, collector.clone(), head, parts.body.clone());
-            let response = match deadline {
-                Some(deadline) => tokio::time::timeout_at(deadline, send)
-                    .await
-                    .map_err(|_| timeout_error(parts.label))?
-                    .map_err(|error| net_error(parts.label, error))?,
-                None => send.await.map_err(|error| net_error(parts.label, error))?,
+            let send_result = match deadline {
+                Some(deadline) => match tokio::time::timeout_at(deadline, send).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        return Err(timeout_error(
+                            parts.label,
+                            &collector,
+                            &endpoint,
+                            &self.sink,
+                        ));
+                    }
+                },
+                None => send.await,
+            };
+            let response = match send_result {
+                Ok(response) => response,
+                Err(error) => {
+                    // The failed attempt is evidence, not a discarded record:
+                    // publish its snapshot before converting the error.
+                    let snapshot = error.trace().clone();
+                    if let Some(sink) = &self.sink {
+                        sink(trace_from_snapshot(snapshot, endpoint.clone()));
+                    }
+                    return Err(attempt_error(parts.label, &error));
+                }
             };
             let status = response.head.status;
             let headers = response.head.headers.clone();
@@ -349,7 +457,9 @@ mod owned {
                             None
                         }
                         Err(error) => Some((
-                            Err(net_error(label, error)),
+                            Err(stream_error(
+                                label, error, &collector, &endpoint, &sink,
+                            )),
                             (body, collector, sink, endpoint, deadline, label, writer, true),
                         )),
                     }
@@ -446,7 +556,10 @@ impl Client {
     async fn prewarm_within(&self, url: &str, timeout: Duration) -> Result<bool, TransportError> {
         match tokio::time::timeout(timeout, self.transport.prewarm(url)).await {
             Ok(result) => result,
-            Err(_) => Err(TransportError::Timeout { label: "prewarm" }),
+            Err(_) => Err(TransportError::Timeout {
+                label: "prewarm",
+                diagnostic: None,
+            }),
         }
     }
 
@@ -624,7 +737,10 @@ mod tests {
             .expect_err("a stalled pre-warm must not wait forever");
         assert!(matches!(
             error,
-            TransportError::Timeout { label: "prewarm" }
+            TransportError::Timeout {
+                label: "prewarm",
+                ..
+            }
         ));
         assert!(
             started.elapsed() < Duration::from_secs(1),
@@ -651,6 +767,127 @@ mod tests {
         assert!(
             error.is_retryable(),
             "a timeout must classify as retryable: {error}"
+        );
+        let diagnostic = error
+            .diagnostic()
+            .expect("a cancelled attempt still carries a diagnostic");
+        assert_eq!(
+            diagnostic.code(),
+            netune_trace::DiagnosticCode::EGRESS_TIMEOUT
+        );
+        assert!(
+            diagnostic.is_retryable(),
+            "the producer's retry verdict must survive: {diagnostic:?}"
+        );
+        assert!(
+            !diagnostic.trace_id().as_str().is_empty(),
+            "the timeout must carry the trace id it belongs to"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_attempt_carries_its_diagnostic_and_publishes_its_trace() {
+        use netune_trace::{DiagnosticCode, EventKind, TRACE_SCHEMA_VERSION};
+
+        // Bind then release a port: connecting to it fails immediately with a
+        // refused TCP connection instead of waiting on a live blackhole.
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let seen: Arc<Mutex<Vec<netune_trace::RequestTrace>>> = Arc::new(Mutex::new(Vec::new()));
+        let slot = Arc::clone(&seen);
+        let transport = NetTransport::plain().with_trace_sink(Arc::new(move |trace| {
+            slot.lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(trace);
+        }));
+
+        let parts = RequestBuilder::new(http::Method::GET, format!("http://127.0.0.1:{port}/v1"))
+            .build("Test")
+            .unwrap();
+        let error = transport.send(parts).await.unwrap_err();
+
+        let diagnostic = error
+            .diagnostic()
+            .expect("a failed attempt must carry netune's diagnosis");
+        assert_eq!(diagnostic.code(), DiagnosticCode::EGRESS_TCP_FAILED);
+        assert!(
+            error.is_retryable(),
+            "a refused connect is retryable: {error}"
+        );
+        assert_eq!(
+            diagnostic.trace_id().as_str().len(),
+            36,
+            "the trace id must be a real generated id, not a placeholder"
+        );
+
+        let trace = seen
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop()
+            .expect("the sink must receive the failed attempt too");
+        assert_eq!(trace.schema_version, TRACE_SCHEMA_VERSION);
+        assert_eq!(&trace.meta.id, diagnostic.trace_id());
+        assert_eq!(trace.diagnostic_code(), Some(diagnostic.code()));
+        assert!(
+            trace.log.first_of(EventKind::TcpStart).is_some(),
+            "the failed attempt retains the phase it reached"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_body_failure_carries_the_phase_and_publishes_its_trace() {
+        use netune_trace::{DiagnosticCode, EventKind};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await.unwrap();
+            // Promise ten bytes, send one, then close: the body is provably
+            // incomplete rather than merely empty.
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nx")
+                .await
+                .unwrap();
+        });
+
+        let seen: Arc<Mutex<Vec<netune_trace::RequestTrace>>> = Arc::new(Mutex::new(Vec::new()));
+        let slot = Arc::clone(&seen);
+        let transport = NetTransport::plain().with_trace_sink(Arc::new(move |trace| {
+            slot.lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push(trace);
+        }));
+        let parts = RequestBuilder::new(http::Method::GET, format!("http://{addr}/v1"))
+            .build("Test")
+            .unwrap();
+        let response = transport.send(parts).await.unwrap();
+        let error = response
+            .into_bytes()
+            .await
+            .expect_err("a truncated body must fail");
+
+        let diagnostic = error
+            .diagnostic()
+            .expect("a body failure must carry netune's diagnosis");
+        assert_eq!(diagnostic.code(), DiagnosticCode::EGRESS_HTTP1_INCOMPLETE);
+        assert!(error.is_retryable());
+
+        let trace = seen
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop()
+            .expect("the sink must receive the failed body attempt");
+        assert_eq!(&trace.meta.id, diagnostic.trace_id());
+        assert_eq!(trace.diagnostic_code(), Some(diagnostic.code()));
+        assert!(
+            trace.log.first_of(EventKind::HeadComplete).is_some(),
+            "the body failure retains the head phase it reached"
         );
     }
 

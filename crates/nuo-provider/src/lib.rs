@@ -102,5 +102,6 @@ pub use nuo_inference_wire::WireProtocol;
 pub use nuo_tool::usage::TokenUsage;
 pub use transport::{
     Client, Http, HttpResponse, NetTransport, Reply, Request, RequestBuilder, RequestParts,
-    Transport, TransportError, TransportObservation, TransportTelemetry, TransportTimings,
+    Transport, TransportDiagnostic, TransportError, TransportObservation, TransportTelemetry,
+    TransportTimings,
 };

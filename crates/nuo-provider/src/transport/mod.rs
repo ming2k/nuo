@@ -3,6 +3,7 @@
 //! Substrate layer providing outbound network connectivity across all Nuo provider components.
 
 pub mod client;
+pub mod diagnostic;
 pub mod encoding;
 pub mod error;
 pub mod http;
@@ -12,6 +13,7 @@ pub mod sse;
 pub mod telemetry;
 
 pub use client::{Client, HttpResponse, NetTransport, TraceSink, Transport};
+pub use diagnostic::TransportDiagnostic;
 pub use encoding::{encode_component, form_encode, percent_encode, percent_encode_form_pairs};
 pub use error::{TransportError, retry_after_ms};
 pub use http::{Body, Http, Reply, Request};

@@ -27,9 +27,10 @@ pub fn shared_client() -> &'static Arc<Client<TlsRouterConnector<TcpConnector>>>
         let config = ClientConfig {
             enable_http2: true,
             // The provider transport and control-plane handle both opt into
-            // `send_traced` per attempt. A future caller that goes straight to
-            // `Client::request` gets clock-free L0 counters, not an event ring
-            // nobody reads.
+            // `send_traced` per attempt. Direct callers (MCP, remote skills,
+            // web fetch) use `Client::request`: clock-free L0 counters, no
+            // event ring, but still a generated trace id and the diagnostic
+            // table netune returns on failure.
             observation: netune::Observation::Counters,
             ..ClientConfig::default()
         };
