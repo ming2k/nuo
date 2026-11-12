@@ -1,0 +1,63 @@
+[package]
+name = "nuo-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+nuo-guardrails = { workspace = true }
+nuo-tool = { workspace = true }
+nuo-provider = { workspace = true }
+nuo-model-routing = { workspace = true }
+nuo-inference-wire = { workspace = true }
+nuo-protocol = { workspace = true }
+nuo-persistence = { workspace = true }
+nuo-host = { workspace = true }
+nuo-tool-fs = { workspace = true }
+nuo-tool-exec = { workspace = true }
+nuo-tool-web = { workspace = true }
+nuo-tool-ast = { workspace = true }
+serde_yaml = { workspace = true }
+dirs = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
+tokio-util = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+netune = { workspace = true }
+uuid = { workspace = true }
+regex = "1"
+fastrand = { workspace = true }
+walkdir = { workspace = true }
+inventory = { workspace = true }
+sha2 = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
+# The harness receives its concrete provider driver through the composition
+# root. Tests exercise the real registered spec table, so they dev-depend on the
+# composition root (`nuo-server`) rather than any `providers/` crate
+# (`[INV-PROV-04]` stays satisfied for the shipped build; this edge is test-only).
+nuo-server = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
+mockito = { workspace = true }
+tempfile = { workspace = true }
+# `test-path-override` exposes `paths::TestDirsGuard` so catalog discovery tests
+# can sandbox the XDG roots; without it a `DiscoveryCache::save()` in a test
+# writes `test-instance` rows into the developer's real
+# `$XDG_STATE_HOME/nuo/models_discovery.json`.
+nuo-host = { workspace = true, features = ["test-path-override"] }
+# AST parsing for the layering-enforcement test (`tests/layering.rs`): resolves
+# real `crate::<group>` paths instead of text-matching.
+syn = { workspace = true, features = ["visit"] }
+proc-macro2 = { workspace = true }
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["inventory"]

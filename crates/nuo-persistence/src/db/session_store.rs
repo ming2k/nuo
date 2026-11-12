@@ -57,62 +57,80 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
         params![
             session.id,
             session.workspace_root.as_deref().unwrap_or(""),
-            session.persona.as_deref().unwrap_or("general"),
+            session.persona.as_deref().unwrap_or("developer"),
             session.updated_at_s,
         ],
     )?;
     Ok(())
 }
 
-/// Retrieve a single thread by id.
-pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<ThreadRecord>> {
-    conn.query_row(
-        "SELECT id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, last_user_prompt, digest FROM thread_list_view WHERE id = ?1",
-        params![session_id],
-        map_session_row,
-    )
-    .optional()
+/// Every column a [`ThreadRecord`] maps positionally.
+pub(crate) const THREAD_RECORD_COLUMNS: &str = "id, parent_id, fork_kind, fork_round, \
+    fork_turn, title, created_at_s, updated_at_s, workspace_root, persona, msg_count, \
+    last_user_prompt, digest, status, round_counter";
+
+/// Build the WHERE fragment for a role-scoped thread query. `role_col` and
+/// `workspace_col` let callers target either the canonical view columns or a
+/// joined `thread_policies` row without duplicating the predicate matrix.
+fn thread_filter_sql(
+    filter: &nuo_protocol::ThreadFilter,
+    include_subagents: bool,
+    role_col: &str,
+    workspace_col: &str,
+) -> (String, Vec<rusqlite::types::Value>) {
+    use rusqlite::types::Value;
+    let mut clauses = Vec::new();
+    let mut values = Vec::new();
+    if !include_subagents {
+        clauses.push("fork_kind <> 'subagent'".to_string());
+    }
+    if let Some(role) = &filter.role {
+        clauses.push(format!("{role_col} = ?"));
+        values.push(Value::Text(role.clone()));
+    }
+    match &filter.workspace {
+        nuo_protocol::WorkspaceFilter::Any => {}
+        nuo_protocol::WorkspaceFilter::Path(path) => {
+            clauses.push(format!("{workspace_col} = ?"));
+            values.push(Value::Text(path.to_string_lossy().into_owned()));
+        }
+        nuo_protocol::WorkspaceFilter::Unbound => {
+            clauses.push(format!("({workspace_col} IS NULL OR {workspace_col} = '')"));
+        }
+    }
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
+    (where_sql, values)
 }
 
-/// List threads, optionally filtered by a derived grouping,
-/// sorted by `updated_at_s` descending.
+/// Retrieve a single thread by id.
+pub(crate) fn get_session(conn: &Connection, session_id: &str) -> Result<Option<ThreadRecord>> {
+    let sql = format!("SELECT {THREAD_RECORD_COLUMNS} FROM thread_list_view WHERE id = ?1");
+    conn.query_row(&sql, params![session_id], map_session_row)
+        .optional()
+}
+
+/// List threads matching a role-scoped filter, sorted by `updated_at_s`
+/// descending. Subagent threads are internal runs and are excluded unless a
+/// purge explicitly asks for them.
 pub(crate) fn list_sessions(
     conn: &Connection,
-    filter: Option<&nuo_protocol::WorkspaceFilter>,
+    filter: &nuo_protocol::ThreadFilter,
+    include_subagents: bool,
 ) -> Result<Vec<ThreadRecord>> {
-    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, \
-                        created_at_s, updated_at_s, workspace_root, persona, \
-                        msg_count, last_user_prompt, digest";
+    let (where_sql, values) =
+        thread_filter_sql(filter, include_subagents, "persona", "workspace_root");
+    let sql = format!(
+        "SELECT {THREAD_RECORD_COLUMNS} FROM thread_list_view{where_sql} ORDER BY updated_at_s DESC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), map_session_row)?;
     let mut sessions = Vec::new();
-    match filter {
-        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view WHERE workspace_root = ?1 ORDER BY updated_at_s DESC"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![path.to_string_lossy()], map_session_row)?;
-            for session in rows {
-                sessions.push(session?);
-            }
-        }
-        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view WHERE workspace_root IS NULL OR workspace_root = '' ORDER BY updated_at_s DESC"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], map_session_row)?;
-            for session in rows {
-                sessions.push(session?);
-            }
-        }
-        _ => {
-            let sql = format!("SELECT {COLS} FROM thread_list_view ORDER BY updated_at_s DESC");
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], map_session_row)?;
-            for session in rows {
-                sessions.push(session?);
-            }
-        }
+    for session in rows {
+        sessions.push(session?);
     }
     Ok(sessions)
 }
@@ -122,11 +140,8 @@ pub(crate) fn list_subagent_sessions(
     conn: &Connection,
     parent_id: &str,
 ) -> Result<Vec<ThreadRecord>> {
-    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, \
-                        created_at_s, updated_at_s, workspace_root, persona, \
-                        msg_count, last_user_prompt, digest";
     let sql = format!(
-        "SELECT {COLS} FROM thread_list_view WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC"
+        "SELECT {THREAD_RECORD_COLUMNS} FROM thread_list_view WHERE parent_id = ?1 AND fork_kind = 'subagent' ORDER BY created_at_s ASC"
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(params![parent_id], map_session_row)?;
@@ -328,7 +343,7 @@ pub(crate) fn save_session_inner(
             params![
                 data.id,
                 workspace_root.as_deref().unwrap_or(""),
-                persona.as_deref().unwrap_or("general"),
+                persona.as_deref().unwrap_or("developer"),
                 if data.unattended { 1 } else { 0 },
                 data.provider_selection
                     .as_ref()
@@ -1047,42 +1062,30 @@ pub(crate) fn read_session_transcript(
     }))
 }
 
-/// Resolve a session ID prefix (4+ hex chars) to matching full session IDs.
+/// Resolve a session ID prefix (4+ hex chars) to matching full session IDs
+/// inside a role-scoped filter.
 pub(crate) fn resolve_session_prefix(
     conn: &Connection,
     prefix: &str,
-    filter: Option<&nuo_protocol::WorkspaceFilter>,
+    filter: &nuo_protocol::ThreadFilter,
 ) -> Result<Vec<String>> {
     let pattern = format!("{prefix}%");
+    let (where_sql, mut values) =
+        thread_filter_sql(filter, true, "p.system_role", "p.workspace_root");
+    let separator = if where_sql.is_empty() {
+        " WHERE "
+    } else {
+        " AND "
+    };
+    let sql = format!(
+        "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id{where_sql}{separator}t.id LIKE ? ORDER BY t.updated_at_ms DESC"
+    );
+    values.push(rusqlite::types::Value::Text(pattern));
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), |row| row.get(0))?;
     let mut matches = Vec::new();
-    match filter {
-        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
-            let mut stmt = conn.prepare(
-                "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id WHERE t.id LIKE ?1 AND p.workspace_root = ?2 ORDER BY t.updated_at_ms DESC",
-            )?;
-            let rows =
-                stmt.query_map(params![pattern, path.to_string_lossy()], |row| row.get(0))?;
-            for id in rows {
-                matches.push(id?);
-            }
-        }
-        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
-            let mut stmt = conn.prepare(
-                "SELECT t.id FROM threads t LEFT JOIN thread_policies p ON p.thread_id = t.id WHERE t.id LIKE ?1 AND (p.workspace_root IS NULL OR p.workspace_root = '') ORDER BY t.updated_at_ms DESC",
-            )?;
-            let rows = stmt.query_map(params![pattern], |row| row.get(0))?;
-            for id in rows {
-                matches.push(id?);
-            }
-        }
-        _ => {
-            let mut stmt = conn
-                .prepare("SELECT id FROM threads WHERE id LIKE ?1 ORDER BY updated_at_ms DESC")?;
-            let rows = stmt.query_map(params![pattern], |row| row.get(0))?;
-            for id in rows {
-                matches.push(id?);
-            }
-        }
+    for id in rows {
+        matches.push(id?);
     }
     Ok(matches)
 }
@@ -1136,215 +1139,77 @@ pub(crate) fn lookup_session_manifest(
     Ok(serde_json::from_str(&raw_manifest).ok())
 }
 
-/// Retrieve switch candidate sessions for a given domain partition, strictly
-/// excluding the active session.
+/// Retrieve switch candidate sessions for a scope, strictly excluding the
+/// active session.
 pub(crate) fn list_switch_candidates(
     conn: &Connection,
-    partition: &nuo_protocol::SessionPartition,
+    filter: &nuo_protocol::ThreadFilter,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
                         updated_at_s, msg_count, last_user_prompt, digest";
+    let (where_sql, values) = thread_filter_sql(filter, false, "persona", "workspace_root");
+    let separator = if where_sql.is_empty() {
+        " WHERE "
+    } else {
+        " AND "
+    };
+    let sql = format!(
+        "SELECT {COLS} FROM thread_list_view{where_sql}{separator}id <> ? ORDER BY updated_at_s DESC;"
+    );
+    let mut params = values;
+    params.push(rusqlite::types::Value::Text(active_id.to_string()));
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(params), map_summary_row)?;
     let mut summaries = Vec::new();
-    match partition {
-        nuo_protocol::SessionPartition::Workspace(path) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view \
-                 WHERE workspace_root = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
-                 ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows =
-                stmt.query_map(params![path.to_string_lossy(), active_id], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
-        nuo_protocol::SessionPartition::Role(role_id) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view \
-                 WHERE (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 AND id <> ?2 AND fork_kind <> 'subagent' \
-                 ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![role_id, active_id], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
+    for item in rows {
+        push_summary(&mut summaries, item?, active_id);
     }
     summaries.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
     Ok(summaries)
 }
 
-/// List session summaries for a domain partition, with active session tagged.
-pub(crate) fn list_session_summaries_in_partition(
-    conn: &Connection,
-    partition: &nuo_protocol::SessionPartition,
-    active_id: &str,
-) -> Result<Vec<crate::session::SessionSummary>> {
-    const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
-                        updated_at_s, msg_count, last_user_prompt, digest";
-    let mut summaries = Vec::new();
-    match partition {
-        nuo_protocol::SessionPartition::Workspace(path) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view \
-                 WHERE workspace_root = ?1 AND fork_kind <> 'subagent' \
-                 ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![path.to_string_lossy()], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
-        nuo_protocol::SessionPartition::Role(role_id) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view \
-                 WHERE (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 AND fork_kind <> 'subagent' \
-                 ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![role_id], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
-    }
-    summaries.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
-    Ok(summaries)
-}
-
+/// List session summaries for a role-scoped filter, with the active session
+/// tagged. Subagent runs never enter the user-facing picker.
 pub(crate) fn list_session_summaries(
     conn: &Connection,
-    filter: Option<&nuo_protocol::WorkspaceFilter>,
+    filter: &nuo_protocol::ThreadFilter,
     active_id: &str,
 ) -> Result<Vec<crate::session::SessionSummary>> {
     const COLS: &str = "id, parent_id, fork_kind, fork_round, fork_turn, title, created_at_s, \
                         updated_at_s, msg_count, last_user_prompt, digest";
+    let (where_sql, values) = thread_filter_sql(filter, false, "persona", "workspace_root");
+    let sql = format!("SELECT {COLS} FROM thread_list_view{where_sql} ORDER BY updated_at_s DESC;");
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(values), map_summary_row)?;
     let mut summaries = Vec::new();
-    match filter {
-        Some(nuo_protocol::WorkspaceFilter::Path(path)) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view WHERE workspace_root = ?1 AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(params![path.to_string_lossy()], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
-        Some(nuo_protocol::WorkspaceFilter::Unbound) => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view WHERE (workspace_root IS NULL OR workspace_root = '') AND fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
-        _ => {
-            let sql = format!(
-                "SELECT {COLS} FROM thread_list_view WHERE fork_kind <> 'subagent' ORDER BY updated_at_s DESC;"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map([], map_summary_row)?;
-            for item in rows {
-                push_summary(&mut summaries, item?, active_id);
-            }
-        }
+    for item in rows {
+        push_summary(&mut summaries, item?, active_id);
     }
     summaries.sort_by_key(|item| std::cmp::Reverse(item.updated_at));
     Ok(summaries)
 }
 
-/// The most recent non-subagent session matching `filter`, optionally
-/// restricted to a staffing persona. Backs `--resume`.
+/// The most recent non-subagent session matching `filter`. Backs `--resume`.
 pub(crate) fn latest_session(
     conn: &Connection,
-    filter: &nuo_protocol::WorkspaceFilter,
-    persona: Option<&str>,
+    filter: &nuo_protocol::ThreadFilter,
 ) -> Result<Option<String>> {
-    use nuo_protocol::WorkspaceFilter;
-    let base = "SELECT id FROM thread_list_view WHERE fork_kind <> 'subagent'";
-    let (sql, bind_path) = match (filter, persona.is_some()) {
-        (WorkspaceFilter::Path(_), true) => (
-            format!(
-                "{base} AND workspace_root = ?1 AND persona = ?2 ORDER BY updated_at_s DESC LIMIT 1"
-            ),
-            true,
-        ),
-        (WorkspaceFilter::Path(_), false) => (
-            format!("{base} AND workspace_root = ?1 ORDER BY updated_at_s DESC LIMIT 1"),
-            true,
-        ),
-        (WorkspaceFilter::Unbound, true) => (
-            format!(
-                "{base} AND (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
-            ),
-            false,
-        ),
-        (WorkspaceFilter::Unbound, false) => (
-            format!(
-                "{base} AND (workspace_root IS NULL OR workspace_root = '') ORDER BY updated_at_s DESC LIMIT 1"
-            ),
-            false,
-        ),
-        (WorkspaceFilter::Any, true) => (
-            format!("{base} AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"),
-            false,
-        ),
-        (WorkspaceFilter::Any, false) => {
-            (format!("{base} ORDER BY updated_at_s DESC LIMIT 1"), false)
-        }
-    };
+    let (where_sql, values) = thread_filter_sql(filter, false, "persona", "workspace_root");
+    let sql =
+        format!("SELECT id FROM thread_list_view{where_sql} ORDER BY updated_at_s DESC LIMIT 1");
     let mut stmt = conn.prepare(&sql)?;
     let get = |row: &Row| row.get::<_, String>(0);
-    let found = if let (true, Some(persona_val)) = (bind_path, persona) {
-        let path = filter
-            .as_path()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        stmt.query_row(params![path, persona_val], get).optional()?
-    } else if bind_path {
-        let path = filter
-            .as_path()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        stmt.query_row(params![path], get).optional()?
-    } else if let Some(persona) = persona {
-        stmt.query_row(params![persona], get).optional()?
-    } else {
-        stmt.query_row([], get).optional()?
-    };
-    Ok(found)
+    stmt.query_row(rusqlite::params_from_iter(values), get)
+        .optional()
 }
 
-/// The most recent non-subagent session in a partition. Backs `--resume`.
-pub(crate) fn latest_session_in_partition(
+/// The most recent non-subagent session in an exact scope. Backs `--resume`.
+pub(crate) fn latest_session_in_scope(
     conn: &Connection,
-    partition: &nuo_protocol::SessionPartition,
+    scope: &nuo_protocol::ThreadScope,
 ) -> Result<Option<String>> {
-    let base = "SELECT id FROM thread_list_view WHERE fork_kind <> 'subagent'";
-    let get = |row: &Row| row.get::<_, String>(0);
-    let found = match partition {
-        nuo_protocol::SessionPartition::Workspace(path) => {
-            let sql = format!("{base} AND workspace_root = ?1 ORDER BY updated_at_s DESC LIMIT 1");
-            let mut stmt = conn.prepare(&sql)?;
-            stmt.query_row(params![path.to_string_lossy()], get)
-                .optional()?
-        }
-        nuo_protocol::SessionPartition::Role(role_id) => {
-            let sql = format!(
-                "{base} AND (workspace_root IS NULL OR workspace_root = '') AND persona = ?1 ORDER BY updated_at_s DESC LIMIT 1"
-            );
-            let mut stmt = conn.prepare(&sql)?;
-            stmt.query_row(params![role_id], get).optional()?
-        }
-    };
-    Ok(found)
+    latest_session(conn, &scope.filter())
 }
 
 /// Retrieve full session detail for on-demand inspection.

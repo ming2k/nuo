@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 use nuo_protocol::AgentRequest;
 
 use crate::shell::App;
+use crate::shell::event_loop::runtime::UiRuntime;
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
 
 use super::ActionFlow;
@@ -965,5 +966,58 @@ mod tests {
             crate::shell::CaretOwner::Composer,
             "the composer must own the caret again after the sheet closes"
         );
+    }
+}
+
+pub(crate) async fn apply_pre_attach_decision(
+    decision: Option<crate::shell::PreAttachDecision>,
+    app: &mut App,
+    runtime: &UiRuntime,
+) {
+    let Some(decision) = decision else {
+        return;
+    };
+    match decision {
+        crate::shell::PreAttachDecision::Trust { domains } => {
+            tracing::info!(
+                ?domains,
+                "nuo: PreAttach decision — granting workspace trust directly"
+            );
+            app.send_intent(AgentRequest::TrustWorkspace {
+                domains,
+                decision: nuo_protocol::TrustDecision::Grant,
+            });
+            // The per-frame sync clears `pre_attach` once the
+            // republished snapshot reports Trusted. The PreAttach surface
+            // shows a `Trusting workspace...` state while awaiting the snapshot.
+        }
+        crate::shell::PreAttachDecision::Decline { domains } => {
+            tracing::info!(
+                ?domains,
+                "nuo: PreAttach decision — refusing project assets, continuing untrusted"
+            );
+            // Latch immediately so the snapshot the refusal is *about* cannot
+            // re-mount the gate in the window before the server republishes.
+            // The refusal is the decision; re-asking while it is in flight is
+            // exactly the nagging loop this closes.
+            runtime
+                .trust_gate_dismissed
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            if domains.is_empty() {
+                // Nothing was offered (or the user selected everything and the
+                // grant is in flight), so there is nothing to refuse. Unmount:
+                // leaving the surface up would block a session with nothing left
+                // to decide.
+                app.pre_attach = None;
+                return;
+            }
+            // `decision: Deny` is what makes this a refusal. Sending the domains
+            // alone would mean "grant these" — the exact inversion this enum
+            // exists to make unrepresentable.
+            app.send_intent(AgentRequest::TrustWorkspace {
+                domains,
+                decision: nuo_protocol::TrustDecision::Deny,
+            });
+        }
     }
 }

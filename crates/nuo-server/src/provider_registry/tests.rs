@@ -249,6 +249,25 @@ fn commandcode_deepseek_siblings_have_baselines_and_effort_ladders() {
 }
 
 #[test]
+fn opendesign_catalog_routes_over_chat_completions() {
+    let (wire, endpoint, _) = route_for_model("opendesign", "deepseek-v4.1-flash").unwrap();
+    assert_eq!(
+        wire,
+        nuo_inference_wire::WireProtocol::OpenAiChatCompletions
+    );
+    assert_eq!(
+        endpoint,
+        "https://amr-link.open-design.ai/v1/chat/completions"
+    );
+    let spec = model_provider_spec("opendesign").unwrap();
+    assert_eq!(spec.display_policy, nuo_provider::DisplayPolicy::Structural);
+    assert!(
+        spec.quota.is_none(),
+        "the inference key exposes no quota API"
+    );
+}
+
+#[test]
 fn opencode_zen_baselines_route_by_inference_surface() {
     let (wire, endpoint, _) = route_for_model("opencode-zen", "claude-sonnet-4-6").unwrap();
     assert_eq!(wire, nuo_inference_wire::WireProtocol::AnthropicMessages);

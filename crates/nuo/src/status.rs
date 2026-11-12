@@ -466,6 +466,7 @@ pub(crate) fn table(snapshot: &MonitorSnapshot) -> String {
 fn hosting_cell(row: &MonitoredThread) -> String {
     match row.hosting {
         ThreadHosting::Hosted => "hosted".to_string(),
+        ThreadHosting::Dormant => "dormant".to_string(),
     }
 }
 
@@ -567,6 +568,7 @@ mod tests {
             context_tokens: Some(48_200),
             note: None,
             project_root: "/tmp/project".into(),
+            role: "developer".into(),
             parent_id: None,
             fork_kind: ThreadForkKind::default(),
             fork_point: None,

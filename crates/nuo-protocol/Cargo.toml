@@ -12,20 +12,20 @@ bytes = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio-util = { workspace = true, features = ["codec"] }
-nuo-host = { workspace = true }
-nuo-mcp = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-nuo-provider = { workspace = true }
 nuo-tool = { workspace = true }
 futures = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
-dirs = { workspace = true }
 inventory = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
 hex = { workspace = true }
 semver = { workspace = true }
+nuo-inference-wire = { workspace = true }
+url = "2"
+glob = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 toml = { workspace = true }

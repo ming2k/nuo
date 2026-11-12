@@ -1,7 +1,6 @@
-//! Discovery file: how clients find a live session server's endpoint.
+//! Discovery definitions: how clients find a live session server's endpoint.
 
-use nuo_host::paths;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// The discovery record, written once the bound port is known.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -25,7 +24,7 @@ pub struct Discovery {
     pub uds_path: Option<PathBuf>,
     /// Native local control endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_endpoint: Option<nuo_host::ipc::LocalEndpoint>,
+    pub local_endpoint: Option<crate::endpoint::LocalEndpoint>,
     /// The server build's version string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -36,102 +35,23 @@ pub struct Discovery {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<u32>,
     /// Bounded content digest (lowercase hex) of the server's own executable
-    /// image: its exact length folded with a sampled SHA-256, captured once at
-    /// boot (ADR-0021). Lets a client detect a stale *same-version* server by
-    /// executable **content** — portably across Linux, macOS, and Windows —
-    /// instead of the Linux-only inode probe. `None` on records predating the
-    /// field; clients then fall back to inode equality.
+    /// image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_digest: Option<String>,
-    /// Byte length of the server's executable image: a cheap pre-hash gate
-    /// paired with `image_digest` (ADR-0021).
+    /// Byte length of the server's executable image.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_len: Option<u64>,
 }
 
 impl Discovery {
-    pub fn effective_local_endpoint(&self) -> Option<nuo_host::ipc::LocalEndpoint> {
+    pub fn effective_local_endpoint(&self) -> Option<crate::endpoint::LocalEndpoint> {
         self.local_endpoint.clone().or_else(|| {
             self.uds_path
                 .clone()
-                .map(nuo_host::ipc::LocalEndpoint::UnixSocket)
+                .map(crate::endpoint::LocalEndpoint::UnixSocket)
         })
     }
 }
 
 /// Canonical alias for session server discovery information.
 pub type ServerInfo = Discovery;
-
-/// The global discovery path for the unified server.
-pub fn global_discovery_path() -> PathBuf {
-    paths::get().instance_dir().join("server.json")
-}
-
-/// The resolved server instance directory.
-pub fn instance_dir() -> PathBuf {
-    paths::get().instance_dir()
-}
-
-/// The default UDS path the server binds, inside the instance dir.
-#[cfg(unix)]
-pub fn default_uds_path() -> PathBuf {
-    paths::get().instance_dir().join("server.sock")
-}
-
-/// Native local endpoint for the unified per-user server.
-pub fn default_local_endpoint() -> Result<nuo_host::ipc::LocalEndpoint, String> {
-    let instance_dir = paths::get().instance_dir();
-    let instance_key = format!("server-{}", paths::project_bucket_name(&instance_dir));
-    nuo_host::ipc::endpoint_for_instance(instance_dir.join("server.sock"), &instance_key)
-        .map_err(|error| format!("could not resolve local server endpoint: {error}"))
-}
-
-/// The server's single-instance lock path.
-pub fn global_lock_path() -> PathBuf {
-    paths::get().instance_dir().join("server.lock")
-}
-
-/// The spawn mutex lock path for single-flight server initialization (ADR-0034).
-pub fn global_spawn_lock_path() -> PathBuf {
-    paths::get().instance_dir().join("server-spawning.lock")
-}
-
-/// Read the global discovery record.
-pub fn read() -> Option<Discovery> {
-    read_at(&global_discovery_path())
-}
-
-/// Read a discovery record from an explicit path.
-pub fn read_at(path: &Path) -> Option<Discovery> {
-    let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
-}
-
-/// Atomically write a discovery record.
-pub fn write_to(path: &Path, record: &Discovery) -> Result<(), String> {
-    nuo_host::fsutil::atomic_write_json(path, record)
-        .map_err(|e| format!("could not write discovery file {}: {e}", path.display()))
-}
-
-/// Remove a discovery record.
-pub fn remove(path: &Path) {
-    let _ = std::fs::remove_file(path);
-}
-
-/// Remove `path` only if the record matches both the expected PID and, when
-/// known, its process creation token. This remains safe across PID reuse.
-pub fn remove_if_matching_process(
-    path: &Path,
-    expected_pid: u32,
-    expected_birth_token: Option<u64>,
-) {
-    if let Ok(bytes) = std::fs::read(path)
-        && let Ok(record) = serde_json::from_slice::<Discovery>(&bytes)
-        && (record.pid != expected_pid
-            || expected_birth_token
-                .is_some_and(|expected| record.process_birth_token != Some(expected)))
-    {
-        return;
-    }
-    remove(path);
-}

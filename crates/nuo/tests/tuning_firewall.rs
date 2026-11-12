@@ -183,19 +183,34 @@ fn test_inv_tune_03_no_typed_knob_mirrors_beside_the_open_map() {
     // of `Channel::effective_effort` / `thinking_state`, which are in turn read
     // from this one map. A projection has one source and cannot disagree with
     // itself; a stored mirror is a second source and can.
-    let targets = [
-        "crates/nuo-persistence/src/config.rs",
-        // A *declaration* is the same hazard in the model registry: whether a
-        // route has a thinking switch is derivable from its reasoning encoding
-        // (`ReasoningSupport::has_thinking_switch`), so a parallel
-        // `thinking_switch: bool` field would be a second source that can drift
-        // (it did exist and was removed).
-        "crates/nuo-provider/src/model.rs",
-    ];
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    let config_dir = root.join("crates/nuo-persistence/src/config");
+    let entries = std::fs::read_dir(&config_dir).unwrap_or_else(|e| {
+        panic!(
+            "{}: guarded directory is missing: {e}",
+            config_dir.display()
+        )
+    });
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            files.push(path);
+        }
+    }
+    // A *declaration* is the same hazard in the model registry: whether a
+    // route has a thinking switch is derivable from its reasoning encoding
+    // (`ReasoningSupport::has_thinking_switch`), so a parallel
+    // `thinking_switch: bool` field would be a second source that can drift
+    // (it did exist and was removed).
+    files.push(root.join("crates/nuo-provider/src/model.rs"));
 
     let mut problems = Vec::new();
-    for file in targets {
-        let path = root.join(file);
+    for path in files {
+        let file = path
+            .strip_prefix(&root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
         let Ok(content) = std::fs::read_to_string(&path) else {
             problems.push(format!("{file}: guarded file is missing"));
             continue;

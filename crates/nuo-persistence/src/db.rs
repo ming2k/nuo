@@ -27,7 +27,7 @@ pub mod ir_mirror;
 pub mod kv_store;
 pub mod migration_policy;
 pub mod migration_tool;
-mod migrations;
+pub mod migrations;
 mod reader;
 pub mod session_ir;
 pub mod session_store;
@@ -129,6 +129,8 @@ fn map_session_row(row: &Row) -> Result<ThreadRecord> {
         msg_count: row.get(10)?,
         last_user_prompt: row.get(11)?,
         digest: row.get(12)?,
+        status: row.get(13)?,
+        round_counter: row.get::<_, i64>(14)?.max(0) as u64,
     })
 }
 
@@ -490,7 +492,7 @@ impl WriterHealth {
     }
 }
 
-fn unix_ms() -> u64 {
+pub(crate) fn unix_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -789,7 +791,7 @@ fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
     Ok(())
 }
 
-fn upsert_attempt(
+pub(crate) fn upsert_attempt(
     conn: &Connection,
     entry: &nuo_protocol::usage_stats::UsageStatRecord,
 ) -> Result<bool> {

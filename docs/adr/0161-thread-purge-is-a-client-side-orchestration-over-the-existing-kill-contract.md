@@ -1,8 +1,9 @@
 # ADR-0161: Thread Purge Is a Client-Side Orchestration over the Existing Kill Contract
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md)
 - **Date:** 2026-11-08
 - **Supersedes:** none
+- **Superseded by:** [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md)
 - **Related:** [ADR-0043](0043-thread-management-is-a-server-owned-session-store.md), [ADR-0048](0048-thread-administration-is-destructive-and-requires-confirmation.md), [ADR-0038](0038-thread-entity-server-ssot-fanout-and-orthogonal-action-lifecycle.md), [ADR-0011](0011-nuo-tui-presentation-and-nuo-server-container.md)
 
 ## Context

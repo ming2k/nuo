@@ -1247,7 +1247,7 @@ mod tests {
             vision,
             protocol: crate::WireProtocol::OpenAiChatCompletions,
             effort_levels: &[],
-            default_effort: Some(nuo_provider::Effort::High),
+            default_effort: Some(crate::Effort::High),
             wire_entities: None,
         }
     }

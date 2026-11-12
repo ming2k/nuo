@@ -30,27 +30,27 @@ const CENSUS_TYPES: &[(&str, &str, SurfaceKind)] = &[
     ("Wire", "crates/nuo-protocol/src/lib.rs", SurfaceKind::Enum),
     (
         "AgentRequest",
-        "crates/nuo-protocol/src/events.rs",
+        "crates/nuo-protocol/src/events/request.rs",
         SurfaceKind::Enum,
     ),
     (
         "AgentResponse",
-        "crates/nuo-protocol/src/events.rs",
+        "crates/nuo-protocol/src/events/response.rs",
         SurfaceKind::Enum,
     ),
     (
         "RoundEvent",
-        "crates/nuo-protocol/src/events.rs",
+        "crates/nuo-protocol/src/events/round.rs",
         SurfaceKind::Enum,
     ),
     (
         "RoundScope",
-        "crates/nuo-protocol/src/events.rs",
+        "crates/nuo-protocol/src/events/round.rs",
         SurfaceKind::Enum,
     ),
     (
         "TurnContext",
-        "crates/nuo-protocol/src/events.rs",
+        "crates/nuo-protocol/src/events/round.rs",
         SurfaceKind::Struct,
     ),
 ];
@@ -814,7 +814,7 @@ pub enum Wire {
         );
         bless_census(&root).unwrap();
 
-        let path = root.join("crates/nuo-protocol/src/events.rs");
+        let path = root.join("crates/nuo-protocol/src/events/round.rs");
         let source = std::fs::read_to_string(&path).unwrap();
         std::fs::write(&path, source.replace("pub turn: u64", "pub turn: u32")).unwrap();
         let err = check_wire_census(&root).unwrap_err();
@@ -905,6 +905,10 @@ pub enum Wire {
                 "\npub enum RoundScope {\n    Turn { context: TurnContext, event: RoundEvent },\n    Session { event: RoundEvent },\n}\n",
             );
         }
-        std::fs::write(root.join("crates/nuo-protocol/src/events.rs"), source).unwrap();
+        let events_dir = root.join("crates/nuo-protocol/src/events");
+        std::fs::create_dir_all(&events_dir).unwrap();
+        for file in ["request.rs", "response.rs", "round.rs"] {
+            std::fs::write(events_dir.join(file), &source).unwrap();
+        }
     }
 }

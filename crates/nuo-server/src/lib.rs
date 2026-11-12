@@ -64,6 +64,9 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+extern crate nuo_engine as nuo_harness;
+pub use nuo_engine;
+
 pub mod agent_setup;
 pub mod archivist;
 pub mod archivist_service;

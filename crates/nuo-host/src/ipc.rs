@@ -1,27 +1,14 @@
 //! Authenticated-user local IPC: Unix domain sockets on Unix and named pipes
 //! with an explicit current-user DACL on Windows.
 
-use serde::{Deserialize, Serialize};
-use std::fmt;
+use serde::Serialize;
 use std::io;
 use std::path::PathBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "address", rename_all = "snake_case")]
-pub enum LocalEndpoint {
-    UnixSocket(PathBuf),
-    WindowsNamedPipe(String),
-}
-
-impl fmt::Display for LocalEndpoint {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnixSocket(path) => write!(formatter, "unix://{}", path.display()),
-            Self::WindowsNamedPipe(name) => write!(formatter, "npipe://{name}"),
-        }
-    }
-}
+/// The endpoint identity is protocol data; this module owns only the OS I/O
+/// that binds, connects, and probes it.
+pub use nuo_protocol::endpoint::LocalEndpoint;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct LocalEndpointProbe {

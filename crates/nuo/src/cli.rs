@@ -50,19 +50,44 @@ pub enum DevAction {
     Export(PathBuf),
 }
 
-/// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061)
+/// `nuo thread …` / `nuo session …` (ADR-0043, ADR-0048, ADR-0061, ADR-0170)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThreadAction {
-    /// `nuo thread` or `nuo thread open [id]` — launch interactive TUI into the thread picker or specific thread.
-    Open(Option<String>),
-    /// `nuo thread ls` — list hosted threads.
-    List { watch: bool, json: bool, all: bool },
-    /// `nuo thread rm <id>` — terminate a hosted thread by id.
-    /// `nuo thread rm --all` — terminate every hosted thread (confirm unless `--force`).
+    /// `nuo thread` or `nuo thread open [id]` — launch interactive TUI into the
+    /// thread picker or a specific thread, under an optional role scope.
+    Open {
+        id: Option<String>,
+        role: Option<String>,
+    },
+    /// `nuo thread ls` — list the current role's thread history in the
+    /// resolved workspace (or the unbound role set).
+    List {
+        json: bool,
+        hosted: bool,
+        role: Option<String>,
+        all_workspaces: bool,
+        all_roles: bool,
+    },
+    /// `nuo thread stop <id>` / `nuo thread stop --all` — runtime-only
+    /// termination; durable history survives.
+    Stop {
+        id: Option<String>,
+        all: bool,
+        force: bool,
+        role: Option<String>,
+        all_workspaces: bool,
+        all_roles: bool,
+    },
+    /// `nuo thread rm <id>` / `nuo thread rm --all` — permanently delete
+    /// durable thread history in the selected scope.
     Delete {
         id: Option<String>,
         all: bool,
         force: bool,
+        dry_run: bool,
+        role: Option<String>,
+        all_workspaces: bool,
+        all_roles: bool,
     },
 }
 
@@ -155,14 +180,95 @@ const THREAD_SUBS: &[Spec] = &[
     Spec {
         name: "ls",
         names: &["ls", "list"],
-        about: "list hosted threads",
+        about: "list the selected role's thread history",
+    },
+    Spec {
+        name: "stop",
+        names: &["stop", "kill"],
+        about: "stop hosted threads without deleting their history",
     },
     Spec {
         name: "rm",
         names: &["rm", "delete"],
-        about: "terminate a hosted thread (rm <id>, or rm --all [--force] to purge every thread)",
+        about: "permanently delete thread history (rm <id>, or rm --all in the selected scope)",
     },
 ];
+
+#[derive(Debug, Default)]
+struct ThreadBulkArgs {
+    id: Option<String>,
+    all: bool,
+    force: bool,
+    dry_run: bool,
+    role: Option<String>,
+    all_workspaces: bool,
+    all_roles: bool,
+}
+
+/// Parse the shared `stop`/`rm` grammar. Both verbs are role-scoped; `--all`
+/// selects the whole current scope, while the two expansion flags opt into a
+/// wider role/workspace set explicitly.
+fn parse_thread_bulk_args(action: &str, args: &[String]) -> Result<ThreadBulkArgs, String> {
+    let mut parsed = ThreadBulkArgs::default();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        match arg.as_str() {
+            "--all" | "-a" => parsed.all = true,
+            "--force" | "-f" => parsed.force = true,
+            "--dry-run" => parsed.dry_run = true,
+            "--all-workspaces" => parsed.all_workspaces = true,
+            "--all-roles" => parsed.all_roles = true,
+            "--role" | "-r" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    return Err(format!("thread {action}: --role needs a role id"));
+                };
+                parsed.role = Some(value.clone());
+            }
+            s if s.starts_with("--role=") => {
+                parsed.role = Some(s["--role=".len()..].to_string());
+            }
+            s if s.starts_with('-') => return Err(format!("unexpected argument '{s}'")),
+            s => {
+                if let Some(existing) = &parsed.id {
+                    return Err(format!(
+                        "thread {action} accepts a single thread id, got both '{existing}' and '{s}'"
+                    ));
+                }
+                parsed.id = Some(s.to_string());
+            }
+        }
+        i += 1;
+    }
+    if parsed.id.is_some() && parsed.all {
+        return Err(format!(
+            "thread {action}: --all and a thread id are mutually exclusive"
+        ));
+    }
+    if parsed.all_roles && parsed.role.is_some() {
+        return Err(format!(
+            "thread {action}: --role and --all-roles are mutually exclusive"
+        ));
+    }
+    if parsed.force && !parsed.all {
+        return Err(format!("thread {action}: --force is only valid with --all"));
+    }
+    if parsed.dry_run && !parsed.all {
+        return Err(format!(
+            "thread {action}: --dry-run is only valid with --all"
+        ));
+    }
+    if (parsed.all_workspaces || parsed.all_roles) && !parsed.all {
+        return Err(format!(
+            "thread {action}: --all-workspaces and --all-roles are only valid with --all"
+        ));
+    }
+    if parsed.id.is_none() && !parsed.all {
+        return Err(format!("thread {action} requires a thread id or --all"));
+    }
+    Ok(parsed)
+}
 
 const SERVER_SUBS: &[Spec] = &[
     Spec {
@@ -201,7 +307,7 @@ const COMMANDS: &[Spec] = &[
     Spec {
         name: "thread",
         names: &["thread", "threads"],
-        about: "browse, resume, or manage threads (ls, rm)",
+        about: "browse, resume, stop, or delete role-scoped thread history",
     },
     Spec {
         name: "status",
@@ -657,7 +763,7 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
                     &Spec {
                         name: "ls",
                         names: &["ls", "list"],
-                        about: "list hosted threads",
+                        about: "list the selected role's thread history",
                     },
                     &extra[..],
                 )
@@ -673,74 +779,105 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
             };
             match sub.name {
                 "open" => {
-                    let id = match sub_extra {
-                        [] => None,
-                        [target] if !target.starts_with('-') => Some(target.clone()),
-                        [bad, ..] => return unexpected(bad),
-                    };
-                    Mode::Thread(ThreadAction::Open(id))
-                }
-                "ls" => {
-                    let mut watch = false;
-                    let mut json_flag = false;
-                    let mut all = false;
-                    for arg in sub_extra {
+                    let mut id = None;
+                    let mut role = None;
+                    let mut i = 0;
+                    while i < sub_extra.len() {
+                        let arg = &sub_extra[i];
                         match arg.as_str() {
-                            "-w" | "--watch" => watch = true,
-                            "-j" | "--json" => json_flag = true,
-                            "-a" | "--all" => all = true,
-                            bad => return unexpected(bad),
-                        }
-                    }
-                    Mode::Thread(ThreadAction::List {
-                        watch,
-                        json: json_flag || json,
-                        all,
-                    })
-                }
-                "rm" => {
-                    let args: &[String] = sub_extra;
-                    let mut all = false;
-                    let mut force = false;
-                    let mut id: Option<String> = None;
-                    for arg in args {
-                        match arg.as_str() {
-                            "--all" | "-a" => all = true,
-                            "--force" | "-f" => force = true,
+                            "--role" | "-r" => {
+                                i += 1;
+                                let Some(value) = sub_extra.get(i) else {
+                                    return Err("thread open: --role needs a role id".into());
+                                };
+                                role = Some(value.clone());
+                            }
+                            s if s.starts_with("--role=") => {
+                                role = Some(s["--role=".len()..].to_string());
+                            }
                             s if s.starts_with('-') => return unexpected(s),
                             s => {
                                 if let Some(existing) = &id {
                                     return Err(format!(
-                                        "thread rm accepts a single thread id, got both '{existing}' and '{s}'"
+                                        "thread open accepts a single thread id, got both '{existing}' and '{s}'"
                                     ));
                                 }
                                 id = Some(s.to_string());
                             }
                         }
+                        i += 1;
                     }
-                    if id.is_some() && all {
+                    Mode::Thread(ThreadAction::Open { id, role })
+                }
+                "ls" => {
+                    let mut json_flag = json;
+                    let mut hosted = false;
+                    let mut role = None;
+                    let mut all_workspaces = false;
+                    let mut all_roles = false;
+                    let mut i = 0;
+                    while i < sub_extra.len() {
+                        let arg = &sub_extra[i];
+                        match arg.as_str() {
+                            "-j" | "--json" => json_flag = true,
+                            "--hosted" => hosted = true,
+                            "--all-workspaces" => all_workspaces = true,
+                            "--all-roles" => all_roles = true,
+                            "--role" | "-r" => {
+                                i += 1;
+                                let Some(value) = sub_extra.get(i) else {
+                                    return Err("thread ls: --role needs a role id".into());
+                                };
+                                role = Some(value.clone());
+                            }
+                            bad => {
+                                if let Some(value) = bad.strip_prefix("--role=") {
+                                    role = Some(value.to_string());
+                                } else {
+                                    return unexpected(bad);
+                                }
+                            }
+                        }
+                        i += 1;
+                    }
+                    if all_roles && role.is_some() {
                         return Err(
-                            "thread rm: --all and a thread id are mutually exclusive".into()
+                            "thread ls: --role and --all-roles are mutually exclusive".into()
                         );
                     }
-                    if force && !all {
-                        return Err("thread rm: --force is only valid with --all".into());
+                    Mode::Thread(ThreadAction::List {
+                        json: json_flag,
+                        hosted,
+                        role,
+                        all_workspaces,
+                        all_roles,
+                    })
+                }
+                "stop" => {
+                    let jobs = parse_thread_bulk_args("stop", sub_extra)?;
+                    if jobs.dry_run {
+                        return Err("thread stop: --dry-run is not supported".into());
                     }
-                    match id {
-                        Some(id) => Mode::Thread(ThreadAction::Delete {
-                            id: Some(id),
-                            all: false,
-                            force: false,
-                        }),
-                        None if all => Mode::Thread(ThreadAction::Delete {
-                            id: None,
-                            all: true,
-                            force,
-                        }),
-                        None => {
-                            return Err("thread rm requires a thread id or --all".into());
-                        }
-                    }
+                    Mode::Thread(ThreadAction::Stop {
+                        id: jobs.id,
+                        all: jobs.all,
+                        force: jobs.force,
+                        role: jobs.role,
+                        all_workspaces: jobs.all_workspaces,
+                        all_roles: jobs.all_roles,
+                    })
+                }
+                "rm" => {
+                    let jobs = parse_thread_bulk_args("rm", sub_extra)?;
+                    Mode::Thread(ThreadAction::Delete {
+                        id: jobs.id,
+                        all: jobs.all,
+                        force: jobs.force,
+                        dry_run: jobs.dry_run,
+                        role: jobs.role,
+                        all_workspaces: jobs.all_workspaces,
+                        all_roles: jobs.all_roles,
+                    })
                 }
                 _ => unreachable!("thread subcommands are closed"),
             }
@@ -817,8 +954,18 @@ fn command_flags(cmd: &str) -> &'static [(&'static str, &'static str)] {
                 "open [id]",
                 "open interactive thread picker or attach by id",
             ),
-            ("ls", "list hosted threads"),
-            ("rm <id>", "terminate a hosted thread by id"),
+            ("--role <id>", "role scope (default: developer)"),
+            (
+                "--all-workspaces",
+                "ls/stop/rm: expand the selected role to every workspace",
+            ),
+            (
+                "--all-roles",
+                "ls/stop/rm: expand to every role in the workspace",
+            ),
+            ("--hosted", "ls: only threads with a resident driver"),
+            ("--dry-run", "rm: preview the scope and counts"),
+            ("--force", "stop/rm: skip the destructive confirmation"),
         ],
         _ => &[],
     }
@@ -1193,7 +1340,11 @@ mod surface_tests {
             Mode::Thread(ThreadAction::Delete {
                 id: Some(ref id),
                 all: false,
-                force: false
+                force: false,
+                dry_run: false,
+                role: None,
+                all_workspaces: false,
+                all_roles: false,
             }) if id == "thr-0123"
         ));
         assert!(matches!(
@@ -1201,15 +1352,38 @@ mod surface_tests {
             Mode::Thread(ThreadAction::Delete {
                 id: None,
                 all: true,
-                force: false
+                force: false,
+                dry_run: false,
+                role: None,
+                all_workspaces: false,
+                all_roles: false,
             })
         ));
         assert!(matches!(
-            parse(&["thread", "rm", "--force", "--all"]).unwrap().mode,
+            parse(&["thread", "rm", "--force", "--all", "--role", "philosophist"])
+                .unwrap()
+                .mode,
             Mode::Thread(ThreadAction::Delete {
                 id: None,
                 all: true,
-                force: true
+                force: true,
+                dry_run: false,
+                role: Some(ref role),
+                all_workspaces: false,
+                all_roles: false,
+            }) if role == "philosophist"
+        ));
+        assert!(matches!(
+            parse(&["thread", "stop", "--all", "--all-workspaces"])
+                .unwrap()
+                .mode,
+            Mode::Thread(ThreadAction::Stop {
+                id: None,
+                all: true,
+                force: false,
+                role: None,
+                all_workspaces: true,
+                all_roles: false,
             })
         ));
         assert!(
@@ -1222,36 +1396,65 @@ mod surface_tests {
                 .unwrap_err()
                 .contains("only valid with --all")
         );
+        assert!(
+            parse(&[
+                "thread",
+                "rm",
+                "--all",
+                "--all-roles",
+                "--role",
+                "developer"
+            ])
+            .unwrap_err()
+            .contains("mutually exclusive")
+        );
         assert!(matches!(
             parse(&["thread", "ls"]).unwrap().mode,
             Mode::Thread(ThreadAction::List {
-                watch: false,
+                hosted: false,
                 json: false,
-                all: false
+                role: None,
+                all_workspaces: false,
+                all_roles: false,
             })
         ));
         // Bare `nuo thread` defaults to interactive Thread Picker
         assert!(matches!(
             parse(&["thread"]).unwrap().mode,
-            Mode::Thread(ThreadAction::Open(None))
+            Mode::Thread(ThreadAction::Open {
+                id: None,
+                role: None
+            })
         ));
         assert!(matches!(
             parse(&["thread", "open"]).unwrap().mode,
-            Mode::Thread(ThreadAction::Open(None))
+            Mode::Thread(ThreadAction::Open {
+                id: None,
+                role: None
+            })
         ));
         assert!(matches!(
             parse(&["thread", "open", "thr-0123"]).unwrap().mode,
-            Mode::Thread(ThreadAction::Open(Some(ref id))) if id == "thr-0123"
+            Mode::Thread(ThreadAction::Open { id: Some(ref id), role: None }) if id == "thr-0123"
         ));
         assert!(matches!(
-            parse(&["thread", "list", "--json", "--watch"])
+            parse(&["thread", "open", "--role", "philosophist"]).unwrap().mode,
+            Mode::Thread(ThreadAction::Open {
+                id: None,
+                role: Some(ref role),
+            }) if role == "philosophist"
+        ));
+        assert!(matches!(
+            parse(&["thread", "list", "--json", "--role=philosophist"])
                 .unwrap()
                 .mode,
             Mode::Thread(ThreadAction::List {
-                watch: true,
+                hosted: false,
                 json: true,
-                all: false
-            })
+                role: Some(ref role),
+                all_workspaces: false,
+                all_roles: false,
+            }) if role == "philosophist"
         ));
         let session_err = parse(&["session", "rm", "thr-0123"]).unwrap_err();
         assert!(session_err.contains("'session' was removed in favor of 'nuo thread'"));

@@ -437,6 +437,7 @@ fn console_host_rows(app: &mut App) {
         context_tokens: None,
         note: None,
         project_root: "/tmp/proj".to_string(),
+        role: "developer".to_string(),
         parent_id: None,
         fork_kind: nuo_protocol::ThreadForkKind::Trunk,
         fork_point: None,

@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Interface, TUI Presentation, Runtime, Developer Experience
 - Informed: System Architects, Release Engineering
 - Amends: [ADR-0048](0048-cli-architecture-modernization-resource-symmetry-and-application-observability-topology.md)
+- Amended by: [ADR-0170](0170-role-scoped-thread-history-and-workspace-binding.md) — thread operations are role-scoped. [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md) — `thread stop` is runtime-only; `thread rm` is durable deletion.
 
 ---
 
@@ -78,7 +79,7 @@ Chosen option: **Option 3**.
 - `nuo -t <id>` / `nuo --thread <id>`: Launches TUI attached directly to the designated thread.
 - `nuo thread`: Without subcommands, defaults to interactive Thread Picker launch (identical to `nuo -t`).
 - `nuo thread ls`: Emits table of threads to stdout.
-- `nuo thread rm <id>`: Terminates and removes a hosted thread.
+- `nuo thread rm <id>`: Permanently deletes a thread and its durable history (amended by ADR-0171; runtime-only termination is `nuo thread stop <id>`).
 
 ### 3. Retirement of Top-Level Pseudo-CRUD
 - `nuo config`, `nuo mcp`, and `nuo skill` are removed from the active top-level command catalog.

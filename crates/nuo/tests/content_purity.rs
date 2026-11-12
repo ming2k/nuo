@@ -122,7 +122,7 @@ fn dialog_surfaces_hold_no_thread_capability() {
 #[test]
 fn round_event_classification_has_no_wildcard_arm() {
     let root = workspace_root();
-    let events = read(&root.join("crates/nuo-protocol/src/events.rs"));
+    let events = read(&root.join("crates/nuo-protocol/src/events/round.rs"));
     let start = events
         .find("pub fn class(&self) -> EventClass {")
         .expect("RoundEvent::class must exist");
@@ -232,7 +232,7 @@ fn command_effects_are_declared_not_inferred() {
     );
 
     // A reply that reached the client always carries the class.
-    let events = read(&root.join("crates/nuo-protocol/src/events.rs"));
+    let events = read(&root.join("crates/nuo-protocol/src/events/round.rs"));
     let variant = events
         .find("    CommandResult {")
         .expect("RoundEvent::CommandResult must exist");

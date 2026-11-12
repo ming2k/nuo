@@ -1,2 +1,2 @@
-pub use nuo_provider::catalog::*;
-pub use nuo_provider::dialects::*;
+//! Pure provider/channel catalog vocabulary.
+pub use crate::dialects::*;

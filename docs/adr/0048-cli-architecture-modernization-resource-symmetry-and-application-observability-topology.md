@@ -16,6 +16,7 @@ negative_knowledge: true
 - Consulted: Interface, Runtime, Protocol, and TUI Teams
 - Informed: System Architects, Developer Experience
 - Amends: [ADR-0005](0005-unified-binary-and-concentric-runtime-architecture.md), [ADR-0033](0033-canonical-server-entity-dual-hosting-postures-and-endpoint-orthogonality.md), [ADR-0038](0038-thread-entity-server-ssot-fanout-and-orthogonal-action-lifecycle.md), [ADR-0043](0043-thread-domain-nomenclature-unification-compact-tabbar-affordance-and-c-x-namespace-reorganization.md), [ADR-0045](0045-dynamic-port-sharing-palette-orthogonal-control-plane-and-server-lifecycle-handoff.md)
+- Amended by: [ADR-0170](0170-role-scoped-thread-history-and-workspace-binding.md) — §2.1 thread listing is role-scoped durable history; `ROLE`/`WORKSPACE` replace the hosted-only monitor view. [ADR-0171](0171-thread-removal-is-durable-and-server-owned.md) — `thread rm` is a durable delete and `thread stop` is the runtime-only verb.
 
 ---
 
@@ -118,14 +119,17 @@ The redundant parser in `nuo-tui/src/cli.rs` is eradicated. The entrypoint in `n
 The thread management surface is standardized under `nuo thread`:
 
 ```text
-nuo thread ls [--watch] [--json] [--all]
-nuo thread rm <id>
+nuo thread ls [--role <id>] [--json] [--hosted] [--all-workspaces] [--all-roles]
+nuo thread stop <id> | --all
+nuo thread rm <id> | --all
 ```
 
-- **`nuo thread ls`**: Lists hosted threads in a clean, responsive terminal table:
-  - Columns: `THREAD ID`, `ROLE`, `STATUS`, `ROUNDS`, `TOKENS`, `UPDATED`, `TITLE`.
-  - Default view filters out reaped/suspended records; `--all` includes dormant and persisted history.
-  - Supports `--json` for automation and `--watch` for streaming table updates.
+- **`nuo thread ls`**: Lists the selected role's thread history in a clean terminal table:
+  - Columns: `THREAD ID`, `ROLE`, `WORKSPACE`, `STATUS`, `ROUNDS`, `TOKENS`, `UPDATED`, `TITLE`.
+  - `--role` defaults to `developer`; its workspace policy binds it to the current project.
+  - Durable rows (including suspended/post-restart history) merge with resident drivers; `--hosted` narrows to resident drivers.
+  - `--all-workspaces` and `--all-roles` are explicit scope expansions (ADR-0170).
+  - Supports `--json` for automation.
 - **Canonical Noun**: All help text, completion scripts, and reference documentation advertise `thread`.
 - **Silent Backward Compatibility**: `session` remains supported at the parser level as an unadvertised, zero-cost alias for `thread` (`names: &["thread", "session"]`).
 

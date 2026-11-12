@@ -48,6 +48,7 @@ pub const MODEL_PROVIDER_SPECS: &[ModelProviderSpec] = &[
     nuo_provider_codebuddy_intl::INTL_MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_go::MODEL_PROVIDER_SPEC,
     nuo_provider_opencode_zen::MODEL_PROVIDER_SPEC,
+    nuo_provider_opendesign::MODEL_PROVIDER_SPEC,
     nuo_provider_google_antigravity::ANTIGRAVITY_MODEL_PROVIDER_SPEC,
 ];
 

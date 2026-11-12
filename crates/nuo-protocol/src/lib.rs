@@ -9,7 +9,7 @@
 //! envelopes exchanged across local IPC and network boundaries, and the domain
 //! values (`TokenUsage`, `TodoList`, the `Provider`/`Tool` capability traits,
 //! …) shared by independent layers. Pure logic owned only by the agent belongs
-//! in `nuo-harness` (ADR-0057 → ADR-0066).
+//! in `nuo-engine` (ADR-0057 → ADR-0066).
 //!
 //! Consolidated from the former `nuo-contracts` crate: ADR-0001 mandated that
 //! crate's dismantling (`[INV-ARCH-01]` bans catch-all `contracts`/`common`/
@@ -31,13 +31,10 @@ pub use async_trait::async_trait;
 
 // ── Domain & wire contract modules (consolidated from `nuo-contracts`) ──────
 
+pub mod endpoint;
+pub use endpoint::LocalEndpoint;
 pub mod discovery;
-#[cfg(unix)]
-pub use discovery::default_uds_path;
-pub use discovery::{
-    Discovery, ServerInfo, default_local_endpoint, global_discovery_path, global_lock_path,
-    global_spawn_lock_path, instance_dir,
-};
+pub use discovery::{Discovery, ServerInfo};
 pub mod version;
 pub use version::{
     ERR_PROTOCOL_MISMATCH, ERR_SESSION_GONE, ERR_SESSION_UNRESUMABLE, ERR_VERSION_MISMATCH,
@@ -61,8 +58,8 @@ pub use usage::TokenUsage;
 
 pub mod error;
 pub use error::{
-    HarnessError, ProviderError, ProviderErrorKind, RetryDisposition, ToolError, ToolErrorKind,
-    TransportDiagnostic,
+    HarnessError, ProviderError, ProviderErrorKind, RetryDisposition, RetryVerdict, ToolError,
+    ToolErrorKind, TransportDiagnostic,
 };
 
 pub mod message;
@@ -125,10 +122,12 @@ pub mod capability;
 pub mod catalog;
 pub mod connection_auth;
 pub mod connection_detail;
+pub mod dialects;
 pub mod model_providers;
 pub mod provider_state;
 pub mod wire_surface;
-pub use nuo_provider::NUO_USER_AGENT;
+/// Default user agent this project sends to providers.
+pub const NUO_USER_AGENT: &str = concat!("nuo/", env!("CARGO_PKG_VERSION"));
 pub mod effort;
 pub use effort::{COMMON_LADDER, Effort, EffortLevel};
 pub mod tuning;
@@ -202,7 +201,10 @@ pub use security::{
 };
 
 pub mod workspace;
-pub use workspace::{SessionPartition, WorkspaceBinding, WorkspaceFilter};
+pub use workspace::{
+    ThreadFilter, ThreadRemovalReport, ThreadRemovalSkip, ThreadScope, WorkspaceBinding,
+    WorkspaceFilter,
+};
 
 pub mod session_title;
 
@@ -253,6 +255,7 @@ pub use provider_state::{
 pub use subagent::{SubAgentProfile, ToolPolicy};
 pub use trajectory_guard_config::TrajectoryGuardConfig;
 pub mod monitor;
+pub use dialects::{DiscoveredModel, ModelListError};
 pub use hooks::{
     Hook, HookContext, HookEvent, HookEventKind, HookOutcome, RestorePoint, SessionSource,
 };
@@ -270,7 +273,6 @@ pub use model::{
     simple_glob_matches,
 };
 pub use monitor::*;
-pub use nuo_provider::{CatalogDiscovery, DiscoveredModel, ModelListError};
 pub use pressure::{
     CLEARED_TOOL_PREFIX, CRUISE_HIGH_WATERMARK, CRUISE_LOW_WATERMARK, CompactionPolicy,
     ContextBudget, FROZEN_TOOL_OUTPUT_HEAD_CHARS, FROZEN_TOOL_OUTPUT_HEAD_LINES,
@@ -304,6 +306,7 @@ pub use web_config::{
 };
 
 pub mod provider_surface;
+pub mod surface;
 pub use provider_surface::{ApiRoot, CatalogShape, RemoteCatalogSource};
 
 pub mod context_projection;
@@ -348,9 +351,14 @@ pub use policy_schema::*;
 /// markers, and the client keeps no per-session position or timestamp map.
 /// A v25 peer cannot decode the envelope shape; there is no compatibility
 /// lane.
-pub const PROTOCOL_VERSION: u32 = 26;
+///
+/// 27: Role-scoped thread control (ADR-0171). `ControlReply` gains an optional
+/// `payload` carrying the JSON-encoded result of data-bearing verbs
+/// (`ListThreads`, `StopThreads`, `PurgeThreads`, usage/endpoint reports).
+/// The envelope shape changes, so the floor moves with the ceiling.
+pub const PROTOCOL_VERSION: u32 = 27;
 /// Minimum supported client protocol version.
-pub const MIN_PROTOCOL_VERSION: u32 = 26;
+pub const MIN_PROTOCOL_VERSION: u32 = 27;
 
 /// Initial options and postures when creating a thread.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -530,6 +538,26 @@ pub enum ControlRequest {
     KillThread {
         thread_id: String,
     },
+    /// ADR-0171: the role-scoped durable history listing. Durable rows merge
+    /// with resident drivers; records with no live driver come back as
+    /// `ThreadHosting::Dormant`.
+    ListThreads {
+        filter: ThreadFilter,
+    },
+    /// ADR-0171: stop hosted threads (runtime only). The durable transcript
+    /// survives and the next attach lazy-resumes it.
+    StopThreads {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filter: Option<ThreadFilter>,
+        ids: Vec<String>,
+    },
+    /// ADR-0171: permanently delete durable thread history. The ids are the
+    /// exact snapshot the operator confirmed; `filter` guards the scope.
+    PurgeThreads {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filter: Option<ThreadFilter>,
+        ids: Vec<String>,
+    },
     SuspendThread {
         thread_id: String,
     },
@@ -629,6 +657,12 @@ pub enum Wire {
         thread_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
+        /// ADR-0171: the verb's JSON-encoded result. Data-bearing verbs
+        /// (`ListThreads`, `StopThreads`, `PurgeThreads`, usage/endpoint
+        /// reports, Archivist answers) carry their answer here; verbs without
+        /// a result leave it `None`. The `error` field is errors only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payload: Option<String>,
     },
 
     /// Full-duplex client agent request envelope.

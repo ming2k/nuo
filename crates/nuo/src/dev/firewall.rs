@@ -42,7 +42,9 @@ const UI_FORBIDDEN: &[&str] = &[
     "dirs",              // filesystem layout
     "nuo-host",          // daemon process supervision
     "nuo-server",        // headless runtime
-    "nuo-harness",       // execution engine
+    "nuo-harness",       // execution engine (legacy)
+    "nuo-engine",        // execution engine
+    "nuo-guardrails",    // guardrails & policy
     "nuo-provider",      // provider registry
     "nuo-mcp",           // MCP client
 ];

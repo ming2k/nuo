@@ -151,3 +151,33 @@ pub const DEEPSEEK_V4_PLAN: &[Effort] = &[
     Effort::Xhigh,
     Effort::Max,
 ];
+
+pub const ALL_EFFORTS: &[Effort] = &[
+    Effort::None,
+    Effort::Minimal,
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+    Effort::Max,
+    Effort::Ultra,
+];
+
+pub const ALL_EFFORTS_EXCEPT_ULTRA: &[Effort] = &[
+    Effort::None,
+    Effort::Minimal,
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+    Effort::Max,
+];
+
+pub const MINIMAL_TO_MAX: &[Effort] = &[
+    Effort::Minimal,
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+    Effort::Max,
+];

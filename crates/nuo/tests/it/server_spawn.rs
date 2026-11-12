@@ -149,14 +149,27 @@ async fn spawned_server_inherits_the_nuo_home_sandbox() {
 }
 
 async fn host_idle_thread(registry: &ThreadRegistry, project: &Path) -> String {
-    let session = Arc::new(SessionStore::for_path(
-        project.join("sessions").join("session.json"),
+    let session = Arc::new(SessionStore::for_workspace(
+        Some(nuo_protocol::WorkspaceBinding::new(project)),
+        Some("developer".to_string()),
     ));
+    host_thread(registry, session, project, "developer").await
+}
+
+async fn host_thread(
+    registry: &ThreadRegistry,
+    session: Arc<SessionStore>,
+    project: &Path,
+    role: &str,
+) -> String {
     let id = session.id().await;
     let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(64);
     let (events, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
+    let mut base = nuo_protocol::MonitoredThread::empty(id.clone());
+    base.project_root = project.display().to_string();
+    base.role = role.to_string();
     let tracker = Arc::new(Mutex::new(MonitorTracker::bootstrap(
-        nuo_protocol::MonitoredThread::empty(id.clone()),
+        base,
         nuo_protocol::ThreadStatus::Idle,
     )));
     registry
@@ -169,6 +182,7 @@ async fn host_idle_thread(registry: &ThreadRegistry, project: &Path) -> String {
             req_tx,
             events,
             cancel: tokio_util::sync::CancellationToken::new(),
+            driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(1)),
             tracker,
             sync_buffer: Arc::new(Mutex::new(nuo::serve::AttachSyncBuffer::new())),
             command_catalog: nuo_protocol::CommandCatalog::default(),
@@ -219,8 +233,8 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     std::fs::create_dir_all(&project).unwrap();
 
     let registry = Arc::new(ThreadRegistry::prehost_only());
-    for index in 0..3 {
-        host_idle_thread(&registry, &project.join(format!("p{index}"))).await;
+    for _ in 0..3 {
+        host_idle_thread(&registry, &project).await;
     }
     assert_eq!(registry.session_count().await, 3);
 
@@ -287,7 +301,7 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("Removed all 3 threads."),
+        String::from_utf8_lossy(&output.stdout).contains("Removed 3 thread(s)"),
         "stdout: {}",
         String::from_utf8_lossy(&output.stdout)
     );
@@ -312,8 +326,244 @@ async fn thread_rm_all_purges_every_hosted_thread_through_the_cli() {
     .await;
     assert!(output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("no threads to remove"),
+        String::from_utf8_lossy(&output.stderr).contains("no thread history to remove"),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// ADR-0170/0171: `ls` and `rm --all` are role-scoped and `rm` deletes
+/// durable history, not just the resident driver.
+#[tokio::test]
+async fn thread_ls_and_rm_are_role_scoped_and_durable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(project.join(".nuo")).unwrap();
+    std::fs::write(
+        project.join(".nuo").join("roles.toml"),
+        "[roles.coder]\nname = \"Coder\"\nworkspace = \"inherit\"\n",
+    )
+    .unwrap();
+
+    let dev_store = SessionStore::for_workspace(
+        Some(nuo_protocol::WorkspaceBinding::new(&project)),
+        Some("developer".to_string()),
+    );
+    let dev_id = dev_store.id().await;
+    dev_store
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "developer history",
+        )])
+        .await
+        .unwrap();
+
+    let coder_store = SessionStore::for_workspace(
+        Some(nuo_protocol::WorkspaceBinding::new(&project)),
+        Some("coder".to_string()),
+    );
+    let coder_id = coder_store.id().await;
+    coder_store
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "coder history",
+        )])
+        .await
+        .unwrap();
+
+    let registry = Arc::new(ThreadRegistry::prehost_only());
+    let mut handle = nuo::serve::start_server(nuo::serve::ServeOptions::default(), registry);
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+    let _ = handle;
+
+    let instance_dir = home.join("nuo").join("instance");
+    std::fs::create_dir_all(&instance_dir).unwrap();
+    let record = nuo::serve_discovery::Discovery {
+        pid: std::process::id(),
+        port,
+        token: None,
+        project_root: project.display().to_string(),
+        started_at: 0,
+        version: Some(nuo::serve::server_version().to_string()),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+        ..Default::default()
+    };
+    std::fs::write(
+        instance_dir.join("server.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+
+    let cli = PathBuf::from(env!("CARGO_BIN_EXE_nuo"));
+    let self_exe = std::env::current_exe().unwrap();
+
+    // Default role is developer: only the developer thread is listed.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "ls", "--json"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(output.status.success());
+    let rows: Vec<nuo_protocol::MonitoredThread> = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(rows.len(), 1, "rows: {rows:?}");
+    assert_eq!(rows[0].id, dev_id);
+    assert_eq!(rows[0].role, "developer");
+
+    // Explicit role expansion shows both role histories in the same workspace.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "ls", "--all-roles", "--json"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(output.status.success());
+    let all_roles: Vec<nuo_protocol::MonitoredThread> =
+        serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(all_roles.len(), 2, "rows: {all_roles:?}");
+
+    // Developer purge must not touch the coder thread in the same workspace.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "rm", "--all", "--force"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let handle = nuo_persistence::db::get_persistence_handle();
+    let reader = handle.reader().unwrap();
+    assert!(
+        reader.get_session(&dev_id).unwrap().is_none(),
+        "developer thread must be durably deleted"
+    );
+    assert!(
+        reader.get_session(&coder_id).unwrap().is_some(),
+        "coder thread must survive a developer-scoped purge"
+    );
+    drop(reader);
+
+    // An explicit `--role coder` selects the other scope.
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "rm", "--all", "--role", "coder", "--force"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(output.status.success());
+    let reader = handle.reader().unwrap();
+    assert!(
+        reader.get_session(&coder_id).unwrap().is_none(),
+        "coder thread must be deleted in its own scope"
+    );
+}
+
+/// ADR-0171: `stop` is runtime-only; `rm` is the durable delete. The same
+/// thread survives the first and disappears after the second.
+#[tokio::test]
+async fn thread_stop_keeps_history_but_rm_deletes_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let store = Arc::new(SessionStore::for_workspace(
+        Some(nuo_protocol::WorkspaceBinding::new(&project)),
+        Some("developer".to_string()),
+    ));
+    store
+        .replace_messages(vec![nuo_protocol::Message::new(
+            nuo_protocol::Role::User,
+            "keep me across stop",
+        )])
+        .await
+        .unwrap();
+
+    let registry = Arc::new(ThreadRegistry::prehost_only());
+    let id = host_thread(&registry, store, &project, "developer").await;
+    assert_eq!(registry.session_count().await, 1);
+
+    let mut handle =
+        nuo::serve::start_server(nuo::serve::ServeOptions::default(), registry.clone());
+    let port = handle.startup.port.take().unwrap().await.unwrap().unwrap();
+    let _ = handle;
+
+    let instance_dir = home.join("nuo").join("instance");
+    std::fs::create_dir_all(&instance_dir).unwrap();
+    let record = nuo::serve_discovery::Discovery {
+        pid: std::process::id(),
+        port,
+        token: None,
+        project_root: project.display().to_string(),
+        started_at: 0,
+        version: Some(nuo::serve::server_version().to_string()),
+        protocol: Some(nuo_protocol::PROTOCOL_VERSION),
+        ..Default::default()
+    };
+    std::fs::write(
+        instance_dir.join("server.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+
+    let cli = PathBuf::from(env!("CARGO_BIN_EXE_nuo"));
+    let self_exe = std::env::current_exe().unwrap();
+
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "stop", "--all", "--force"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(registry.session_count().await, 0, "driver must be stopped");
+    let reader = nuo_persistence::db::get_persistence_handle()
+        .reader()
+        .unwrap();
+    assert!(
+        reader.get_session(&id).unwrap().is_some(),
+        "stop must retain durable history"
+    );
+    drop(reader);
+
+    let output = run_cli(
+        &cli,
+        &self_exe,
+        &home,
+        &project,
+        &["thread", "rm", "--all", "--force"],
+        Stdio::null(),
+    )
+    .await;
+    assert!(output.status.success());
+    let reader = nuo_persistence::db::get_persistence_handle()
+        .reader()
+        .unwrap();
+    assert!(
+        reader.get_session(&id).unwrap().is_none(),
+        "rm must delete durable history"
     );
 }

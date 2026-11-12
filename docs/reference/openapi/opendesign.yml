@@ -1,0 +1,126 @@
+openapi: 3.1.0
+info:
+  title: OpenDesign Cloud API
+  version: "1.0"
+  description: |
+    The account-scoped inference gateway behind OpenDesign's Go, Plus, Pro, and
+    Max plans. This document records the surface Nuo's `opendesign` channel
+    consumes: the OpenAI-compatible Chat Completions route and the model catalog
+    that scopes membership and advertises per-model limits.
+
+    Authentication is a Bearer API key created in the OpenDesign web console
+    (`sk-amr-…`). An API key cannot read plan credits; quota is exposed only to
+    the console session / desktop `vela` command, which is why Nuo declares no
+    quota port for this provider.
+servers:
+  - url: https://amr-link.open-design.ai/v1
+paths:
+  /models:
+    get:
+      operationId: listModels
+      summary: List models the API key may run
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Account-scoped catalog.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  object:
+                    type: string
+                    const: list
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Model"
+  /chat/completions:
+    post:
+      operationId: createChatCompletion
+      summary: OpenAI-compatible chat completion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, messages]
+              properties:
+                model:
+                  type: string
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+                stream:
+                  type: boolean
+                max_tokens:
+                  type: integer
+                reasoning_effort:
+                  type: string
+                  enum: [none, minimal, low, medium, high, xhigh, max, ultra]
+                  description: |
+                    Named effort levels accepted per model. The gateway rejects
+                    values a model does not accept with HTTP 400; `none` is the
+                    thinking-off switch on the routes that support it.
+                tools:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: true
+      responses:
+        "200":
+          description: Chat completion or SSE stream.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+            text/event-stream:
+              schema:
+                type: string
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Model:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+        metadata:
+          type: object
+          description: |
+            Optional per-model limits. `context_limit` is the total window;
+            `output_budget` is the advertised answer ceiling (a broadcast value
+            on some passthrough routes, not always an enforced cap).
+          properties:
+            context_limit:
+              type: integer
+            context_budget:
+              type: integer
+              description: Prompt budget advertised for the model.
+            output_budget:
+              type: integer
+            architecture:
+              type: object
+              properties:
+                input_modalities:
+                  type: array
+                  items:
+                    type: string
+                output_modalities:
+                  type: array
+                  items:
+                    type: string

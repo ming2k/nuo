@@ -8,11 +8,15 @@
 //! console transcript (via `AppMutation::HostConsole`) rather than
 //! a toast — the cockpit log is the feedback surface.
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+
+use nuo_protocol::AgentRequest;
 
 use crate::shell::App;
+use crate::shell::input::InputAction;
 use crate::shell::overlays::{ConsoleCommand, ConsoleLine, ConsoleVerb};
 
-use super::UiRuntime;
+use super::{ActionFlow, UiRuntime};
 
 /// The `#N` sequence number → session id for the current dock selection.
 /// The selection indexes the creation-ordered entries (`#seq` = index + 1),
@@ -431,4 +435,137 @@ pub(crate) fn refresh_usage(app: &mut App, runtime: &UiRuntime) {
         mutations.send(mutation).await;
         wake(&dirty);
     });
+}
+
+pub(super) async fn handle_host_action(
+    app: &mut App,
+    runtime: &UiRuntime,
+    viewed_session_id: &str,
+    action: InputAction,
+) -> ActionFlow {
+    match action {
+        InputAction::HostPreviewSelected => {
+            let idx = app
+                .modal_index
+                .min(app.host_sessions.len().saturating_sub(1));
+            let order = crate::shell::overlays::creation_order(&app.host_sessions);
+            if let Some(row) = order.get(idx).map(|&i| &app.host_sessions[i]) {
+                app.host_preview = Some(row.id.clone());
+                app.host_preview_scroll = 0;
+            }
+        }
+        InputAction::HostSwitchSelected => {
+            let idx = app
+                .modal_index
+                .min(app.host_sessions.len().saturating_sub(1));
+            let order = crate::shell::overlays::creation_order(&app.host_sessions);
+            let target_info = order
+                .get(idx)
+                .and_then(|&i| app.host_sessions.get(i))
+                .map(|r| (r.id.clone(), r.title.clone()));
+            if let Some((target_id, target_title)) = target_info {
+                let switchable = target_id != viewed_session_id;
+                if switchable {
+                    let is_empty = app.is_current_thread_empty();
+                    let tab = crate::shell::surfaces::ClientTab::thread(
+                        &target_id,
+                        target_title.as_deref(),
+                    );
+                    if is_empty {
+                        app.send_intent(AgentRequest::DeleteThread {
+                            id: viewed_session_id.to_string(),
+                        });
+                        let active_idx = app.surfaces.active_tab_index();
+                        if let Some(existing_pos) =
+                            app.surfaces.tabs().iter().position(|t| match &t.kind {
+                                crate::shell::surfaces::TabKind::Thread(tid) => tid == &target_id,
+                                _ => false,
+                            })
+                        {
+                            app.close_tab(active_idx);
+                            let new_pos = if existing_pos > active_idx {
+                                existing_pos - 1
+                            } else {
+                                existing_pos
+                            };
+                            app.surfaces.select_tab(new_pos);
+                        } else {
+                            app.replace_tab(active_idx, tab);
+                        }
+                    } else {
+                        app.open_tab(tab);
+                    }
+                    app.switch_to_target = Some(target_id);
+                    app.should_quit.store(true, Ordering::SeqCst);
+                }
+                app.dismiss_active_dialog();
+                app.set_active_index(0);
+                app.host_prompting = false;
+            }
+        }
+        InputAction::HostToggleUsage => {
+            app.dashboard_view_usage = !app.dashboard_view_usage;
+            if app.dashboard_view_usage {
+                refresh_usage(app, runtime);
+            }
+        }
+        InputAction::HostFilterOpen => {
+            app.dashboard_filtering = !app.dashboard_filtering;
+            if !app.dashboard_filtering {
+                app.dashboard_filter.clear();
+            }
+        }
+        InputAction::HostFocusToggle => {
+            app.host_focus = match app.host_focus {
+                crate::shell::overlays::DashboardFocus::List => {
+                    crate::shell::overlays::DashboardFocus::Detail
+                }
+                crate::shell::overlays::DashboardFocus::Detail => {
+                    crate::shell::overlays::DashboardFocus::List
+                }
+            };
+        }
+        InputAction::HostInterruptSelected => {
+            dispatch_console_command(app, runtime, "/interrupt", false).await;
+        }
+        InputAction::HostKillSelected => {
+            kill_selected(app, runtime);
+        }
+        InputAction::HostSuspendSelected => {
+            suspend_selected(app, runtime);
+        }
+        InputAction::HostPromptOpen => {
+            app.host_prompting = true;
+            app.host_prompt_new = false;
+            app.input.clear();
+            app.set_cursor(0);
+        }
+        InputAction::HostNewSession => {
+            app.host_prompting = true;
+            app.host_prompt_new = true;
+            app.input.clear();
+            app.set_cursor(0);
+        }
+        InputAction::HostPromptSeed(c) => {
+            app.host_prompting = true;
+            app.host_prompt_new = false;
+            app.input.clear();
+            app.input.insert(0, c);
+            app.set_cursor(1);
+        }
+        InputAction::HostPromptSubmit => {
+            let text = app.input.trim().to_string();
+            let create_new = app.host_prompt_new;
+            app.host_prompting = false;
+            app.host_prompt_new = false;
+            app.input.clear();
+            app.set_cursor(0);
+            if text.is_empty() {
+                return ActionFlow::Handled;
+            }
+            dispatch_console_command(app, runtime, &text, create_new).await;
+        }
+        _ => {}
+    }
+    ActionFlow::Handled
 }

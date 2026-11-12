@@ -125,13 +125,12 @@ pub(crate) async fn switch_or_start_session_with_role(
     name: &str,
     args: &str,
 ) {
-    let partition =
-        nuo_protocol::SessionPartition::from_binding(target_workspace.as_ref(), Some(role_id));
+    let scope = nuo_protocol::ThreadScope::from_binding(Some(role_id), target_workspace.as_ref());
     let latest_existing_id = if !force_new {
         nuo_persistence::db::get_persistence_handle()
             .reader()
             .ok()
-            .and_then(|r| r.latest_session_in_partition(&partition).ok().flatten())
+            .and_then(|r| r.latest_session_in_scope(&scope).ok().flatten())
     } else {
         None
     };

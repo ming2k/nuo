@@ -1,1 +1,411 @@
-pub use nuo_provider::state::*;
+//! Conversation revisions and provider continuation state.
+//!
+//! These values make remote response chains explicit session data. Provider
+//! instances remain stateless transports and can therefore be shared safely by
+//! forks, subagents, retries, and concurrently active sessions.
+use nuo_tool::message::{Message, Role};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+pub const CONTINUATION_ARTIFACT_KEY: &str = "nuo.continuation";
+pub const OPENAI_RESPONSE_OUTPUT_ARTIFACT_KEY: &str = "openai.response.output";
+pub const OPENAI_RESPONSE_ID_ARTIFACT_KEY: &str = "openai.response.id";
+
+/// Conversation delivery strategy implemented by a provider route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContinuationMode {
+    FullReplay,
+    RemoteStored,
+    OpaqueReplay,
+}
+
+/// Version of the semantic conversation graph visible to a request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextRevision {
+    pub sequence: u64,
+    pub head: Option<String>,
+}
+
+impl ContextRevision {
+    pub const fn empty() -> Self {
+        Self {
+            sequence: 0,
+            head: None,
+        }
+    }
+}
+
+/// Version of request-scoped instructions, tool declarations, and controls.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvelopeRevision {
+    pub sequence: u64,
+    pub fingerprint: String,
+}
+
+impl EnvelopeRevision {
+    pub fn ephemeral() -> Self {
+        Self {
+            sequence: 0,
+            fingerprint: String::new(),
+        }
+    }
+}
+
+/// Relationship between the current context and the prior provider request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextRelation {
+    Initial,
+    AppendOnly,
+    Rewritten,
+    Truncated,
+    Projected,
+    Forked,
+}
+
+/// Opaque stable key for one endpoint/model/account/protocol/storage route.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RouteFingerprint(pub String);
+
+/// How this immutable request carries conversation state on the wire.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum RequestDelivery {
+    #[default]
+    FullReplay,
+    RemoteContinuation {
+        continuation_id: String,
+        /// Index in [`crate::ModelRequest::messages`] where new input begins.
+        input_start: usize,
+    },
+    /// Replay the complete local context, preferring provider-owned output
+    /// items attached to assistant nodes over lossy neutral reconstruction.
+    OpaqueReplay,
+}
+
+/// A server-side response anchor valid for one exact local graph node/route.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContinuationCursor {
+    pub route: RouteFingerprint,
+    pub local_head: String,
+    pub response_id: String,
+}
+
+/// Why a previously usable cursor can no longer be selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorInvalidationReason {
+    ContextRewritten,
+    ContextProjected,
+    ContextTruncated,
+    RouteChanged,
+    StorageDisabled,
+    RemoteExpired,
+    RemoteRejected,
+}
+
+/// Route-scoped continuation state persisted by the conversation owner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ProviderCursorState {
+    Unsupported,
+    Empty,
+    Ready {
+        cursor: ContinuationCursor,
+    },
+    Stale {
+        prior: ContinuationCursor,
+        reason: CursorInvalidationReason,
+    },
+}
+
+/// Provider-private replay material attached to the assistant graph node.
+pub type ProviderArtifacts = serde_json::Map<String, serde_json::Value>;
+
+/// The complete revision set one request assembly derives from its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestRevisions {
+    /// Semantic head of the provider-visible conversation.
+    pub semantic_head: String,
+    /// Envelope identity (instructions, system rows, tool declarations).
+    pub envelope_fingerprint: String,
+    /// Cacheable-prefix identity (instructions, tool declarations, messages).
+    pub prefix_fingerprint: String,
+}
+
+/// Derive every request revision in **one** traversal of the message list.
+///
+/// The three digests differ only in scope and order, not in the per-message
+/// bytes: each non-system message contributes the same serialized semantic
+/// payload to the head and to the prefix, and each system row contributes its
+/// content to the envelope. Computing them together removes the duplicate
+/// O(conversation bytes) serialization pass the assembly path used to pay per
+/// turn.
+#[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
+pub fn request_revisions<T: Serialize>(
+    instructions: &crate::instructions::InstructionBundle,
+    messages: &[Message],
+    tools: &[T],
+) -> RequestRevisions {
+    let mut semantic = Sha256::new();
+    let mut prefix = Sha256::new();
+    let mut envelope = Sha256::new();
+    for slice in &instructions.slices {
+        for digest in [&mut prefix, &mut envelope] {
+            digest.update(slice.id.as_bytes());
+            digest.update([slice.tier as u8]);
+            digest.update(slice.content.as_bytes());
+            digest.update([0xff]);
+        }
+    }
+    let tools_bytes = serde_json::to_vec(tools).expect("tool declarations serialize");
+    prefix.update(&tools_bytes);
+    prefix.update([0xfe]);
+    for message in messages {
+        if message.role == Role::System {
+            envelope.update(message.content.as_bytes());
+            envelope.update([0xff]);
+            continue;
+        }
+        let Some(payload) = semantic_message_payload(message) else {
+            continue;
+        };
+        semantic.update(&payload);
+        semantic.update([0xff]);
+        prefix.update(&payload);
+        prefix.update([0xff]);
+    }
+    envelope.update(&tools_bytes);
+    RequestRevisions {
+        semantic_head: format!("sha256:{:x}", semantic.finalize()),
+        envelope_fingerprint: format!("sha256:{:x}", envelope.finalize()),
+        prefix_fingerprint: format!("sha256:{:x}", prefix.finalize()),
+    }
+}
+
+/// Serialize one message's semantic (wire-meaningful) content.
+///
+/// The shape is the single source of truth for both the semantic head and the
+/// cacheable prefix. System rows have no semantic payload (they belong to the
+/// request envelope instead).
+#[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
+fn semantic_message_payload(message: &Message) -> Option<Vec<u8>> {
+    if message.role == Role::System {
+        return None;
+    }
+    let semantic = serde_json::json!({
+        "role": message.role,
+        "content": message.content,
+        "content_blob": message.content_blob,
+        "reasoning_content": message.reasoning_content,
+        "tool_calls": message.tool_calls,
+        "tool_call_id": message.tool_call_id,
+        "images": message.images,
+    });
+    Some(serde_json::to_vec(&semantic).expect("semantic message serializes"))
+}
+
+/// Stable semantic fingerprint of the provider-visible conversation. System
+/// instructions and provider-private metadata are intentionally excluded:
+/// instructions are a request envelope, while artifacts are credentials for
+/// replaying the semantic node rather than part of its meaning.
+#[allow(clippy::expect_used)] // `serde_json::Value` serialization is structurally infallible.
+pub fn semantic_context_head<'a>(messages: impl IntoIterator<Item = &'a Message>) -> String {
+    let mut digest = Sha256::new();
+    for message in messages {
+        if let Some(payload) = semantic_message_payload(message) {
+            digest.update(&payload);
+            digest.update([0xff]);
+        }
+    }
+    format!("sha256:{:x}", digest.finalize())
+}
+
+/// Stable identity of the cacheable request prefix `S | H | I`: the
+/// instruction slices, the deterministically ordered tool declarations, and the
+/// semantic conversation messages. Request-local temporary context (`E`) is
+/// deliberately absent because callers pass only `messages`, never
+/// `temporary_context`.
+#[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
+pub fn request_prefix_fingerprint<T: Serialize>(
+    instructions: &crate::instructions::InstructionBundle,
+    messages: &[Message],
+    tools: &[T],
+) -> String {
+    let mut digest = Sha256::new();
+    for slice in &instructions.slices {
+        digest.update(slice.id.as_bytes());
+        digest.update([slice.tier as u8]);
+        digest.update(slice.content.as_bytes());
+        digest.update([0xff]);
+    }
+    digest.update(serde_json::to_vec(tools).expect("tool declarations serialize"));
+    digest.update([0xfe]);
+    for message in messages {
+        if let Some(payload) = semantic_message_payload(message) {
+            digest.update(&payload);
+            digest.update([0xff]);
+        }
+    }
+    format!("sha256:{:x}", digest.finalize())
+}
+
+#[allow(clippy::expect_used)] // Tool declarations contain no fallible custom serializers.
+pub fn request_envelope_fingerprint<T: Serialize>(
+    instructions: &crate::instructions::InstructionBundle,
+    messages: &[Message],
+    tools: &[T],
+) -> String {
+    let mut digest = Sha256::new();
+    for slice in &instructions.slices {
+        digest.update(slice.id.as_bytes());
+        digest.update([slice.tier as u8]);
+        digest.update(slice.content.as_bytes());
+        digest.update([0xff]);
+    }
+    for message in messages
+        .iter()
+        .filter(|message| message.role == Role::System)
+    {
+        digest.update(message.content.as_bytes());
+        digest.update([0xff]);
+    }
+    digest.update(serde_json::to_vec(tools).expect("tool declarations serialize"));
+    format!("sha256:{:x}", digest.finalize())
+}
+
+/// Select a delivery plan without consulting mutable provider state. A remote
+/// cursor is usable only when it belongs to the same route and its semantic
+/// anchor still matches the exact local assistant prefix.
+pub fn select_request_delivery(
+    messages: &[Message],
+    route: &RouteFingerprint,
+    mode: ContinuationMode,
+) -> (RequestDelivery, ContextRelation) {
+    match mode {
+        ContinuationMode::FullReplay => (RequestDelivery::FullReplay, ContextRelation::Initial),
+        ContinuationMode::OpaqueReplay => {
+            (RequestDelivery::OpaqueReplay, ContextRelation::AppendOnly)
+        }
+        ContinuationMode::RemoteStored => {
+            let mut saw_cursor = false;
+            for (index, message) in messages.iter().enumerate().rev() {
+                let Some(cursor) = read_continuation_cursor(message) else {
+                    continue;
+                };
+                saw_cursor = true;
+                if &cursor.route != route {
+                    continue;
+                }
+                let actual_head = semantic_context_head(messages[..=index].iter());
+                if actual_head == cursor.local_head {
+                    return (
+                        RequestDelivery::RemoteContinuation {
+                            continuation_id: cursor.response_id,
+                            input_start: index + 1,
+                        },
+                        ContextRelation::AppendOnly,
+                    );
+                }
+            }
+            (
+                RequestDelivery::FullReplay,
+                if saw_cursor {
+                    ContextRelation::Rewritten
+                } else {
+                    ContextRelation::Initial
+                },
+            )
+        }
+    }
+}
+
+pub fn read_continuation_cursor(message: &Message) -> Option<ContinuationCursor> {
+    serde_json::from_value(
+        message
+            .provider_meta
+            .as_ref()?
+            .get(CONTINUATION_ARTIFACT_KEY)?
+            .clone(),
+    )
+    .ok()
+}
+
+#[allow(clippy::expect_used)] // The cursor contains only strings and has no fallible serializer.
+pub fn write_continuation_cursor(artifacts: &mut ProviderArtifacts, cursor: &ContinuationCursor) {
+    artifacts.insert(
+        CONTINUATION_ARTIFACT_KEY.to_string(),
+        serde_json::to_value(cursor).expect("continuation cursor serializes"),
+    );
+}
+
+/// Metadata that becomes valid only when a response completed normally.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderCompletionMeta {
+    pub usage: Option<nuo_tool::usage::TokenUsage>,
+    pub artifacts: Option<ProviderArtifacts>,
+    pub continuation: Option<ContinuationCursor>,
+}
+
+/// Non-streaming provider result. Nothing is retrieved through shared mutable
+/// "last response" state after this value is returned.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderCompletion {
+    pub message: Message,
+    pub meta: ProviderCompletionMeta,
+}
+
+impl ProviderCompletion {
+    pub fn message(message: Message) -> Self {
+        Self {
+            message,
+            meta: ProviderCompletionMeta::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_is_scoped_to_route_and_graph_head() {
+        let cursor = ContinuationCursor {
+            route: RouteFingerprint("openai:responses:gpt-5.6:stored".into()),
+            local_head: "node-7".into(),
+            response_id: "resp_7".into(),
+        };
+        let state = ProviderCursorState::Ready {
+            cursor: cursor.clone(),
+        };
+        assert_eq!(state, ProviderCursorState::Ready { cursor });
+    }
+
+    #[test]
+    fn one_pass_revisions_match_the_standalone_fingerprints() {
+        let instructions = crate::instructions::InstructionBundle::default();
+        let messages = vec![
+            Message::new(Role::System, "system zero"),
+            Message::new(Role::User, "hello"),
+            Message::new(Role::System, "system one"),
+            Message::new(Role::Assistant, "hi"),
+            Message::new(Role::System, "system two"),
+        ];
+        let tools: Vec<crate::ToolSpec> = Vec::new();
+        let revisions = request_revisions(&instructions, &messages, &tools);
+        assert_eq!(
+            revisions.semantic_head,
+            semantic_context_head(messages.iter())
+        );
+        assert_eq!(
+            revisions.prefix_fingerprint,
+            request_prefix_fingerprint(&instructions, &messages, &tools)
+        );
+        assert_eq!(
+            revisions.envelope_fingerprint,
+            request_envelope_fingerprint(&instructions, &messages, &tools)
+        );
+    }
+}

@@ -251,6 +251,17 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
             .await;
         }
         Some(role_id) => {
+            let role_id_owned = match nuo_persistence::roles::canonical_role_id(
+                role_id,
+                session.workspace_root().as_deref(),
+            ) {
+                Ok(role) => role,
+                Err(error) => {
+                    record_error(session, resp_tx, name, args, error).await;
+                    return;
+                }
+            };
+            let role_id = role_id_owned.as_str();
             let roles_config = nuo_persistence::roles::RolesConfig::load_for_workspace(
                 session.workspace_root().as_deref(),
             );

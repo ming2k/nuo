@@ -18,4 +18,4 @@ Technical descriptions of APIs, command surfaces, entity schemas, state machines
 
 ## Upstream Model Wire Schemas
 
-Raw OpenAPI 3.0 contracts and specifications for model provider wire protocols reside in the [`openapi/`](openapi/) catalog, covering Antigravity, CodeBuddy, DeepSeek, and OpenCode wire variants.
+Raw OpenAPI 3.0 contracts and specifications for model provider wire protocols reside in the [`openapi/`](openapi/) catalog, covering Antigravity, CodeBuddy, DeepSeek, OpenCode, and OpenDesign wire variants.

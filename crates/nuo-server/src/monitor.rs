@@ -190,6 +190,18 @@ impl MonitorTracker {
             RoundEvent::ContextTokens(snapshot) => {
                 self.context_tokens = Some(snapshot.tokens);
             }
+            RoundEvent::HarnessState(snapshot) => {
+                // `/role` can re-scope a live store without ending the driver.
+                // Keep the monitor row truthful so role-scoped listings and
+                // purges see the new `(role, workspace)` immediately.
+                if let Some(role) = &snapshot.role {
+                    self.base.role.clone_from(role);
+                }
+                self.base.project_root = snapshot
+                    .workspace
+                    .clone()
+                    .unwrap_or_else(|| "workspace-free".to_string());
+            }
             _ => {}
         }
     }
@@ -298,6 +310,7 @@ mod tests {
                 context_tokens: None,
                 note: None,
                 project_root: "/tmp/proj".into(),
+                role: "developer".into(),
                 parent_id: None,
                 fork_kind: nuo_protocol::ThreadForkKind::Trunk,
                 fork_point: None,

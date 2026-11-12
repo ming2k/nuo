@@ -222,11 +222,36 @@ fn server_image_is_current_by_inode(pid: u32) -> bool {
     if !expected.is_file() {
         return true;
     }
-    nuo_host::process::process_image_matches_path(pid, &expected)
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let exe_link = std::path::Path::new("/proc")
+            .join(pid.to_string())
+            .join("exe");
+        match (std::fs::metadata(&exe_link), std::fs::metadata(&expected)) {
+            (Ok(server), Ok(expected_meta)) => {
+                server.dev() == expected_meta.dev() && server.ino() == expected_meta.ino()
+            }
+            _ => true,
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 fn image_content_digest(path: &Path) -> Option<(u64, String)> {
-    nuo_host::process::image_digest_len(path)
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+    let n = file.read(&mut buffer).ok()?;
+    hasher.update(&buffer[..n]);
+    Some((len, format!("{:x}", hasher.finalize())))
 }
 
 fn server_program() -> PathBuf {

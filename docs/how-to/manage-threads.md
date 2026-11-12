@@ -1,6 +1,6 @@
 # How to Manage Threads and Sessions
 
-Browse, resume, and terminate hosted threads, and drive the session server lifecycle.
+Browse, resume, stop, and delete role-scoped thread history, and drive the session server lifecycle.
 
 ---
 
@@ -19,7 +19,7 @@ nuo -t
 nuo -t <thread_id>
 ```
 
-`nuo --resume` resumes the most recent matching thread. From inside the interface, the `/threads` command opens the same picker.
+`nuo --resume` resumes the most recent matching thread. From inside the interface, the `/threads` command opens the same picker. Both are role-scoped: the active thread's `(role, workspace)` decides which history is visible, and switching into a different role switches the history bucket.
 
 Both listings lead with the **most recently created** thread and read downward to
 the oldest one. A fork stays nested beneath the trunk it came from no matter how
@@ -51,23 +51,51 @@ Open the full-screen fleet dashboard (`/dashboard` or `d` via Help `[F1 / Alt-h]
 
 ---
 
-## 3. List and Terminate Threads
+## 3. List, Stop, and Delete Threads
 
-List hosted threads and their state, then terminate one by id — or every thread at once:
+Thread operations are role-scoped. `--role` defaults to `developer`, whose
+workspace policy binds it to the current project. A workspace-free role such as
+`philosophist` or `ops` resolves to its unbound history instead.
 
 ```bash
+# Developer history in this project (the default scope).
 nuo thread ls
+nuo thread ls --json
+
+# A different role, or a different workspace binding.
+nuo thread ls --role philosophist
+nuo thread ls --role coder --project /repo-a
+
+# Explicit expansion: one role across workspaces, or every role in this one.
+nuo thread ls --role developer --all-workspaces
+nuo thread ls --all-roles
+
+# Runtime-only stop: the driver ends, the transcript remains.
+nuo thread stop <thread_id>
+nuo thread stop --all --force
+
+# Permanent deletion: stops a hosted target, then removes its durable row,
+# transcript, derived indexes, snapshot, and log.
 nuo thread rm <thread_id>
-nuo thread rm --all          # prompts before removing anything
-nuo thread rm --all --force  # scripted teardown, no prompt
+nuo thread rm --all --dry-run     # preview scope and counts
+nuo thread rm --all               # prompts; default is "no"
+nuo thread rm --all --force       # scripted teardown
 ```
 
-`--all` takes a point-in-time snapshot of the server's thread table, quotes the
-count, and removes every row via the ordinary kill path (ADR-0161). It includes
-running threads, not just finished history, and defaults to "no" at the prompt.
-`--force` is only valid together with `--all`; passing a thread id alongside
-`--all` is an error rather than a silent preference. A thread that ends
-concurrently during the loop is reported in the batch summary.
+`rm --all` deletes only the selected role's history in the selected workspace.
+`--all-workspaces` expands the workspace dimension; `--all-roles` expands the
+role dimension. Both together are the explicit global admin operation. The
+command lists the exact id set first, quotes the role/workspace/count, and then
+sends that set to the server (ADR-0171). Threads created after the snapshot
+survive. Subagent runs belonging to selected parents are deleted with them and
+reported separately.
+
+`--force` is only valid with `--all`; `--dry-run` is only valid with `--all`.
+A single-id `rm` uses the thread's stored role and workspace; an explicit
+`--role` acts as a guard and a mismatch is refused.
+
+`rm` does not remove configuration, credentials, permissions, prompt history,
+usage records, or the workspace effect journal. It removes thread history.
 
 ---
 

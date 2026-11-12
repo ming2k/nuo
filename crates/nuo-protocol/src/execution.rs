@@ -280,6 +280,13 @@ pub trait ExecutionEnvironment: Send + Sync {
     }
 }
 
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+}
+
 /// Expands a leading `~` or `~/` to the user's home directory if available.
 ///
 /// If the path does not start with `~`, or if the home directory cannot be determined,
@@ -291,15 +298,15 @@ pub fn expand_tilde(path: &Path) -> PathBuf {
     };
 
     if path_str == "~" {
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"))
+        home_dir().unwrap_or_else(|| PathBuf::from("~"))
     } else if let Some(stripped) = path_str.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             home.join(stripped)
         } else {
             path.to_path_buf()
         }
     } else if let Some(stripped) = path_str.strip_prefix("~\\") {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             home.join(stripped)
         } else {
             path.to_path_buf()
@@ -360,13 +367,7 @@ pub fn global_skills_roots() -> Vec<PathBuf> {
     if let Ok(xdg_cache) = std::env::var("XDG_CACHE_HOME") {
         roots.push(PathBuf::from(xdg_cache).join("nuo").join("skills"));
     }
-    if let Some(data) = dirs::data_local_dir().or_else(dirs::data_dir) {
-        roots.push(data.join("nuo").join("skills"));
-    }
-    if let Some(cache) = dirs::cache_dir() {
-        roots.push(cache.join("nuo").join("skills"));
-    }
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = home_dir() {
         roots.push(home.join(".nuo").join("skills"));
         roots.push(home.join(".local").join("share").join("nuo").join("skills"));
         roots.push(home.join(".cache").join("nuo").join("skills"));
@@ -629,7 +630,7 @@ mod tests {
 
     #[test]
     fn test_expand_tilde() {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = home_dir() {
             assert_eq!(expand_tilde(Path::new("~")), home);
             assert_eq!(
                 expand_tilde(Path::new("~/.local/state/nuo/auth.toml")),

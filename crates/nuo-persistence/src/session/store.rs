@@ -251,10 +251,15 @@ impl SessionStore {
             .clone()
     }
 
-    /// The history filter for this store's sessions: its workspace path, or
-    /// unbound when there is no workspace.
-    pub fn workspace_filter(&self) -> nuo_protocol::WorkspaceFilter {
-        nuo_protocol::WorkspaceFilter::from_binding(
+    /// The role-scoped identity this store pins: role id plus resolved
+    /// workspace binding. All listing, resume, lookup, and deletion operations
+    /// on this store are constrained to it.
+    pub fn scope(&self) -> nuo_protocol::ThreadScope {
+        nuo_protocol::ThreadScope::from_binding(
+            self.role
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_deref(),
             self.workspace
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
@@ -262,18 +267,9 @@ impl SessionStore {
         )
     }
 
-    /// Canonical domain partition for this session.
-    pub fn partition(&self) -> nuo_protocol::SessionPartition {
-        nuo_protocol::SessionPartition::from_binding(
-            self.workspace
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref(),
-            self.role
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_deref(),
-        )
+    /// The exact query filter this store pins.
+    pub fn thread_filter(&self) -> nuo_protocol::ThreadFilter {
+        self.scope().filter()
     }
 
     /// The staffing role recorded on fresh sessions, if any.
@@ -556,11 +552,11 @@ impl SessionStore {
     pub async fn list(&self) -> Result<Vec<SessionSummary>, String> {
         let active_id = self.state.lock().await.data.id.clone();
         let writer = self.writer.clone();
-        let partition = self.partition();
+        let filter = self.thread_filter();
         tokio::task::spawn_blocking(move || {
             let reader = writer.reader().map_err(|e| e.to_string())?;
             reader
-                .list_session_summaries_in_partition(&partition, &active_id)
+                .list_session_summaries(&filter, &active_id)
                 .map_err(|e| e.to_string())
         })
         .await
@@ -691,23 +687,12 @@ impl SessionStore {
             matches.push((active.data.id.clone(), active.path.clone()));
         }
 
-        // Query the durable store through this store's reader.
+        // Query the durable store through this store's reader. Resolution is
+        // role-scoped: a prefix that names a thread in another role or
+        // workspace is not a candidate, even when it is a full UUID.
         if let Ok(reader) = self.writer.reader() {
-            let filter = self.workspace_filter();
-            if let Ok(found) = reader.resolve_session_prefix(input, Some(&filter)) {
-                for id in found {
-                    if !matches.iter().any(|(m_id, _)| m_id == &id) {
-                        let path = self.sessions_dir.join(format!("{id}.json"));
-                        matches.push((id, path));
-                    }
-                }
-            }
-            // If no match was found with the project_root filter and input is a full UUID,
-            // check globally across the database in case of symlink or canonicalization variance.
-            if matches.is_empty()
-                && input.len() >= 32
-                && let Ok(found) = reader.resolve_session_prefix(input, None)
-            {
+            let filter = self.thread_filter();
+            if let Ok(found) = reader.resolve_session_prefix(input, &filter) {
                 for id in found {
                     if !matches.iter().any(|(m_id, _)| m_id == &id) {
                         let path = self.sessions_dir.join(format!("{id}.json"));

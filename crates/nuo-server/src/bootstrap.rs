@@ -60,7 +60,7 @@ pub struct BootstrapParams {
     /// How the session begins (only the assembly-relevant
     /// shapes exist here; one-shot CLI modes never reach the harness).
     pub startup: SessionStart,
-    /// `--project` override: the workspace partition. `None` = workspace-free.
+    /// `--project` override: the workspace binding. `None` = workspace-free.
     pub project_root: Option<PathBuf>,
     /// The role staffing this session, if any. Recorded on
     /// the session as metadata; `None` for the default coding principal.

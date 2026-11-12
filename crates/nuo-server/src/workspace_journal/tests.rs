@@ -55,6 +55,8 @@ fn seed_thread(handle: &PersistenceHandle, thread_id: &str) {
         msg_count: 0,
         last_user_prompt: None,
         digest: None,
+        status: "idle".into(),
+        round_counter: 0,
     });
 }
 

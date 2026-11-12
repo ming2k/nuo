@@ -142,7 +142,7 @@ impl Tool for ArchivistInstructSessionTool {
             session_id.to_string()
         } else {
             reader
-                .resolve_session_prefix(session_id, None)
+                .resolve_session_prefix(session_id, &nuo_protocol::ThreadFilter::global())
                 .map_err(|e| format!("session resolve failed: {e}"))?
                 .into_iter()
                 .next()
@@ -296,11 +296,16 @@ impl Tool for ArchivistListSessionsTool {
         let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_else(|_| json!({}));
         let workspace = args["workspace"].as_str();
         let limit = args["limit"].as_u64().unwrap_or(50).clamp(1, 500) as usize;
-        let filter = workspace.map(|w| nuo_protocol::WorkspaceFilter::Path(w.into()));
+        let filter = match workspace {
+            Some(path) => nuo_protocol::ThreadFilter::workspace_only(
+                nuo_protocol::WorkspaceFilter::Path(path.into()),
+            ),
+            None => nuo_protocol::ThreadFilter::global(),
+        };
 
         let reader = read_store()?;
         let rows = reader
-            .list_sessions(filter.as_ref())
+            .list_sessions(&filter, true)
             .map_err(|e| format!("session listing failed: {e}"))?;
 
         let sessions: Vec<serde_json::Value> = rows
@@ -379,7 +384,7 @@ impl Tool for ArchivistReadSessionTool {
             session_id.to_string()
         } else {
             reader
-                .resolve_session_prefix(session_id, None)
+                .resolve_session_prefix(session_id, &nuo_protocol::ThreadFilter::global())
                 .map_err(|e| format!("session resolve failed: {e}"))?
                 .into_iter()
                 .next()

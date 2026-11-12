@@ -8,6 +8,7 @@ pub(crate) mod render;
 pub(crate) mod runtime;
 pub(crate) mod sync;
 pub(crate) mod transcript;
+pub(crate) mod translators;
 
 #[allow(unused_imports)]
 pub(crate) use actions::{effective_reasoning_effort, modal_page_step};

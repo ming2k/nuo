@@ -227,6 +227,11 @@ pub struct SessionRoleManifest {
     pub tools: Vec<String>,
     #[serde(default)]
     pub admit_mcp: Vec<String>,
+    /// The role's workspace policy captured at birth. `None` on manifests
+    /// written before the policy was persisted; consumers infer the binding
+    /// from the thread's durable workspace in that case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<crate::policy_schema::RoleWorkspace>,
     #[serde(default)]
     pub created_at_s: u64,
 }
@@ -245,6 +250,7 @@ impl SessionRoleManifest {
             identity,
             tools: vec!["*".to_string()],
             admit_mcp: vec!["*".to_string()],
+            workspace: Some(crate::policy_schema::RoleWorkspace::Inherit),
             created_at_s: 0,
         }
     }
@@ -290,6 +296,7 @@ impl SessionRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
+            workspace: Some(crate::policy_schema::RoleWorkspace::Inherit),
             created_at_s: 0,
         }
     }
@@ -308,6 +315,7 @@ impl SessionRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: Vec::new(),
+            workspace: Some(crate::policy_schema::RoleWorkspace::None),
             created_at_s: 0,
         }
     }
@@ -328,6 +336,7 @@ impl SessionRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
+            workspace: Some(crate::policy_schema::RoleWorkspace::None),
             created_at_s: 0,
         }
     }

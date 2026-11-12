@@ -8,6 +8,16 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+### Added
+
+- **OpenDesign Cloud API provider.** The new `opendesign` channel (`providers/nuo-provider-opendesign`) targets the account-scoped gateway at `https://amr-link.open-design.ai/v1` over OpenAI Chat Completions with an `sk-amr-…` API key. It seeds the Go/Design Plan rows (DeepSeek V4.1 Flash and Eco, V4 Flash/Pro, Claude Haiku 5.5, GPT-6 Luna, GLM-5.3 Flash/FlashX, Kimi K2.7 Code, MiMo V2.6, MiniMax M3.1 Flash, Hunyuan H4 Preview), declares the probed effort ladders for gateway-specific rows while reusing the shared model baselines for ids other providers already own, and keeps the live `/v1/models` catalog authoritative for membership. The connection preset is offered in `/connections` and the OpenAI-compatible catalog parser now reads the gateway's nested `metadata.context_limit` / `output_budget` / `architecture.input_modalities` fields.
+
+### Changed
+
+- **netune v0.0.28: consumer seams without a wire change.** The dependency moves from v0.0.27 to v0.0.28, which exposes the exact negotiated ALPN name beside the trace enum, resolves and confines a QUIC authority inside the connector's attempt, and adds a head-only HTTP/1.1 writer for caller-owned header sets. Nuo's egress is netune's shared HTTP/1.1 + HTTP/2 request path, so the release changes no request bytes here: the QUIC and head-only seams have no call site in this workspace, and raw ALPN stays a connector-level seam rather than entering `TransportTimings` ahead of a consumer. The v0.0.27 diagnostic evidence contract (`AttemptError`, `TraceSnapshot`, stable codes) and the 10 s handshake bound are unchanged.
+- **`nuo-protocol` is Layer 0 again.** The crate no longer depends on `nuo-provider`, `nuo-host`, `nuo-mcp`, `dirs`, netune, arboard, or notify. Provider-neutral contracts moved down into it: secrets and endpoint identity, effort/reasoning/tuning, instructions, prompt cache, pricing, model/effort/provider catalogs, conversation revisions and continuation state, wire surfaces/dialects, provider/auth/error vocabulary, and the `Provider` execution trait. `nuo-host` and `nuo-provider` now depend downward on `nuo-protocol` and re-export the moved paths for source compatibility. `TransportDiagnostic` crosses into the protocol as pure data, so `ProviderError` remains usable by persistence and UI without linking the network stack. The dependency invariant is pinned by `crates/nuo-protocol/tests/layering.rs`.
+- **Protocol 27 (ADR-0171).** `ControlReply` carries an optional JSON `payload` for data-bearing control verbs (`ListThreads`, `StopThreads`, `PurgeThreads`, usage/endpoint reports). The wire census is renewed with the bump.
+
 ## [0.0.83] - 2026-11-12
 
 ### Changed

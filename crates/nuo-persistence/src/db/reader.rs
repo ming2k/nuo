@@ -160,12 +160,13 @@ impl DbReader {
         crate::db::session_store::get_session(&self.engine.conn, session_id)
     }
 
-    /// Threads matching a derived grouping, newest first.
+    /// Threads matching a role-scoped filter, newest first.
     pub fn list_sessions(
         &self,
-        filter: Option<&nuo_protocol::WorkspaceFilter>,
+        filter: &nuo_protocol::ThreadFilter,
+        include_subagents: bool,
     ) -> Result<Vec<ThreadRecord>> {
-        crate::db::session_store::list_sessions(&self.engine.conn, filter)
+        crate::db::session_store::list_sessions(&self.engine.conn, filter, include_subagents)
     }
 
     /// Subagent threads spawned by `parent_id`.
@@ -176,50 +177,32 @@ impl DbReader {
     /// Candidate sessions for switching, strictly excluding the active session.
     pub fn list_switch_candidates(
         &self,
-        partition: &nuo_protocol::SessionPartition,
+        filter: &nuo_protocol::ThreadFilter,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
-        crate::db::session_store::list_switch_candidates(&self.engine.conn, partition, active_id)
+        crate::db::session_store::list_switch_candidates(&self.engine.conn, filter, active_id)
     }
 
-    /// List session summaries for a domain partition, with active session tagged.
-    pub fn list_session_summaries_in_partition(
-        &self,
-        partition: &nuo_protocol::SessionPartition,
-        active_id: &str,
-    ) -> Result<Vec<crate::session::SessionSummary>> {
-        crate::db::session_store::list_session_summaries_in_partition(
-            &self.engine.conn,
-            partition,
-            active_id,
-        )
-    }
-
-    /// The most recently updated session id in `partition` (`--resume`).
-    pub fn latest_session_in_partition(
-        &self,
-        partition: &nuo_protocol::SessionPartition,
-    ) -> Result<Option<String>> {
-        crate::db::session_store::latest_session_in_partition(&self.engine.conn, partition)
-    }
-
-    /// Picker-facing summaries for a derived grouping, newest first.
+    /// Picker-facing summaries for a role-scoped filter, newest first.
     pub fn list_session_summaries(
         &self,
-        filter: Option<&nuo_protocol::WorkspaceFilter>,
+        filter: &nuo_protocol::ThreadFilter,
         active_id: &str,
     ) -> Result<Vec<crate::session::SessionSummary>> {
         crate::db::session_store::list_session_summaries(&self.engine.conn, filter, active_id)
     }
 
-    /// The most recently updated session id in `filter`, optionally narrowed
-    /// to one persona (the `--resume` resolution leg).
-    pub fn latest_session(
+    /// The most recently updated session id in `filter` (`--resume`).
+    pub fn latest_session(&self, filter: &nuo_protocol::ThreadFilter) -> Result<Option<String>> {
+        crate::db::session_store::latest_session(&self.engine.conn, filter)
+    }
+
+    /// The most recently updated session id in an exact scope (`--resume`).
+    pub fn latest_session_in_scope(
         &self,
-        filter: &nuo_protocol::WorkspaceFilter,
-        persona: Option<&str>,
+        scope: &nuo_protocol::ThreadScope,
     ) -> Result<Option<String>> {
-        crate::db::session_store::latest_session(&self.engine.conn, filter, persona)
+        crate::db::session_store::latest_session_in_scope(&self.engine.conn, scope)
     }
 
     /// A session's inherited workspace binding plus its persona.
@@ -242,7 +225,7 @@ impl DbReader {
     pub fn resolve_session_prefix(
         &self,
         prefix: &str,
-        filter: Option<&nuo_protocol::WorkspaceFilter>,
+        filter: &nuo_protocol::ThreadFilter,
     ) -> Result<Vec<String>> {
         crate::db::session_store::resolve_session_prefix(&self.engine.conn, prefix, filter)
     }

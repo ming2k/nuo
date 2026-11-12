@@ -828,8 +828,8 @@ async fn forked_branch_is_listed_in_the_same_partition_as_its_parent() {
     let ids: Vec<&str> = listed.iter().map(|s| s.id.as_str()).collect();
     assert!(
         ids.contains(&outcome.child_id.as_str()),
-        "the branch must appear in the picker's partition snapshot (partition {:?}): {ids:?}",
-        store.partition()
+        "the branch must appear in the picker's scope snapshot (scope {:?}): {ids:?}",
+        store.scope()
     );
     let child = listed
         .iter()
@@ -1202,7 +1202,7 @@ async fn subagent_children_become_subagent_sessions_with_pointer() {
 
     // Subagent sessions never surface in the picker.
     let summaries = reader
-        .list_session_summaries(None, &store.id().await)
+        .list_session_summaries(&nuo_protocol::ThreadFilter::global(), &store.id().await)
         .unwrap();
     assert!(!summaries.iter().any(|summary| summary.id == subagent_id));
 }

@@ -23,7 +23,7 @@ required-features = ["interactive"]
 nuo-protocol = { workspace = true }
 nuo-persistence = { workspace = true }
 nuo-host = { workspace = true }
-nuo-harness = { workspace = true }
+nuo-engine = { workspace = true }
 nuo-server = { workspace = true }
 nuo-ui-primitives = { workspace = true, optional = true }
 nuo-view = { workspace = true, optional = true }

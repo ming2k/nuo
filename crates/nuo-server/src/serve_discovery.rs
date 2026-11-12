@@ -57,6 +57,11 @@ pub fn global_lock_path() -> PathBuf {
     paths::get().instance_dir().join("server.lock")
 }
 
+/// The spawn mutex lock path for single-flight server initialization (ADR-0034).
+pub fn global_spawn_lock_path() -> PathBuf {
+    paths::get().instance_dir().join("server-spawning.lock")
+}
+
 /// RAII guard over the global discovery record: `Drop` removes the file, so
 /// *every* exit path — graceful drain, forced escalation, a panic unwinding
 /// through `host::run` — leaves the record deleted. The graceful path

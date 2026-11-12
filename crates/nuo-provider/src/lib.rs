@@ -28,7 +28,7 @@ pub mod prompt_cache;
 pub mod reasoning;
 
 /// Default user agent this project sends to providers.
-pub const NUO_USER_AGENT: &str = concat!("nuo/", env!("CARGO_PKG_VERSION"));
+pub use nuo_protocol::NUO_USER_AGENT;
 pub mod response;
 pub mod spec;
 pub mod state;

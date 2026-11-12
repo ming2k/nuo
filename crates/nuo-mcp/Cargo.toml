@@ -7,6 +7,7 @@ license.workspace = true
 description = "Model Context Protocol (MCP) client engine, stdio process transport, and tool adapter bridge"
 
 [dependencies]
+nuo-protocol = { workspace = true }
 nuo-tool = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

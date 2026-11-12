@@ -33,11 +33,12 @@ pub struct MonitorAction {
     pub include_idle: bool,
 }
 
-/// How the session behind a [`MonitoredThread`] row is hosted. Under
-/// Unified ownership every session is server-held, so this is
-/// always [`Hosted`](Self::Hosted); the field is kept on the wire (with its
-/// serde default) so rows produced before the distinction was removed still
-/// deserialize.
+/// How the thread behind a [`MonitoredThread`] row is hosted.
+///
+/// `Hosted` means a driver is resident in the serving host process.
+/// `Dormant` means the row comes from durable thread history with no resident
+/// driver; the next attach lazy-resumes it. Monitor snapshots never emit
+/// `Dormant`, but history listings do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThreadHosting {
@@ -46,14 +47,25 @@ pub enum ThreadHosting {
     /// lifecycle and can serve full `Attach` clients for it.
     #[default]
     Hosted,
+    /// The thread exists durably but has no resident driver.
+    Dormant,
 }
 
 impl ThreadHosting {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hosted => "hosted",
+            Self::Dormant => "dormant",
         }
     }
+
+    pub fn is_hosted(self) -> bool {
+        matches!(self, Self::Hosted)
+    }
+}
+
+fn default_role() -> String {
+    "developer".to_string()
 }
 
 impl std::fmt::Display for ThreadHosting {
@@ -188,9 +200,9 @@ pub struct MonitoredTask {
     pub log_path: Option<String>,
 }
 
-/// One row of the control panel: a hosted thread's identity, status, and
-/// accounting. Deliberately a superset of nothing — every field is cheap and
-/// content-free (see module docs).
+/// One row of the control panel or a history listing: a thread's identity,
+/// role, workspace, status, and accounting. Deliberately content-free (see
+/// module docs).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonitoredThread {
     pub id: String,
@@ -202,8 +214,8 @@ pub struct MonitoredThread {
     pub created_at: u64,
     pub updated_at: u64,
     pub message_count: usize,
-    /// Who owns the thread's driver. Defaults to `Hosted` — the only value
-    /// so producers written against stay valid.
+    /// Whether a driver is resident (`Hosted`) or the row is durable history
+    /// with no resident driver (`Dormant`).
     #[serde(default)]
     pub hosting: ThreadHosting,
     /// Derived lifecycle status: the panel's primary sort key.
@@ -233,6 +245,10 @@ pub struct MonitoredThread {
     /// metadata, not conversation.
     #[serde(default)]
     pub project_root: String,
+    /// The staffing role that owns this thread's scope. Every list, resume,
+    /// and purge operation is constrained by `(role, workspace)`.
+    #[serde(default = "default_role")]
+    pub role: String,
     /// Lineage (fork surfacing, ADR-0120): the parent session this one was
     /// forked from, when it is a branch. `None` on a trunk. A **card grid**
     /// (the dashboard dock) cannot nest, so a branch card states the relation
@@ -278,6 +294,7 @@ impl MonitoredThread {
             context_tokens: None,
             note: None,
             project_root: String::new(),
+            role: default_role(),
             parent_id: None,
             fork_kind: ThreadForkKind::default(),
             fork_point: None,
@@ -432,6 +449,7 @@ mod tests {
                 context_tokens: Some(48_000),
                 note: None,
                 project_root: "/tmp/proj".into(),
+                role: "developer".into(),
                 parent_id: None,
                 fork_kind: ThreadForkKind::Trunk,
                 fork_point: None,

@@ -1332,9 +1332,14 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
         .map_err(|e| format!("cannot open {}: {e}", db_path.display()))?;
     let mut examined = 0usize;
     let mut corrupt = 0usize;
-    let filter = project_root.map(|p| nuo_protocol::WorkspaceFilter::Path(p.to_path_buf()));
+    let filter = match project_root {
+        Some(path) => nuo_protocol::ThreadFilter::workspace_only(
+            nuo_protocol::WorkspaceFilter::Path(path.to_path_buf()),
+        ),
+        None => nuo_protocol::ThreadFilter::global(),
+    };
     for session in reader
-        .list_sessions(filter.as_ref())
+        .list_sessions(&filter, true)
         .map_err(|e| e.to_string())?
     {
         examined += 1;
@@ -1358,6 +1363,28 @@ pub async fn run_doctor(project_root: Option<&std::path::Path>) -> Result<(), St
     println!("---");
     println!("examined: {}, corrupt: {}", examined, corrupt);
     Ok(())
+}
+
+/// Permanently delete one durable thread and its snapshot/log artifacts.
+///
+/// This is the server-side purge primitive, not the in-session picker delete:
+/// it has no active store to repoint and therefore only touches the durable
+/// row, derived indexes (through the single writer), and the two per-thread
+/// files. Callers must stop and await any resident driver first.
+pub async fn delete_thread(id: &str, workspace_root: Option<&Path>) -> Result<bool, String> {
+    let existed = crate::db::get_persistence_handle()
+        .delete_session(id.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
+    let dirs = paths::get();
+    let dir = match workspace_root.filter(|root| !root.as_os_str().is_empty()) {
+        Some(root) => dirs.project_sessions_dir(root),
+        None => dirs.bucket_sessions_dir("workspace-free"),
+    };
+    let snapshot = dir.join(format!("{id}.json"));
+    let _ = fs::remove_file(&snapshot);
+    let _ = fs::remove_file(snapshot.with_extension("jsonl"));
+    Ok(existed)
 }
 
 mod fields;

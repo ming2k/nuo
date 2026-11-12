@@ -1,19 +1,25 @@
-//! `nuo thread …` (ADR-0043, ADR-0048): thread management.
+//! `nuo thread …` (ADR-0043, ADR-0048, ADR-0170, ADR-0171): role-scoped
+//! thread history.
 //!
-//! Listing is `nuo thread ls`, administrative termination is `nuo thread rm <id>`.
+//! The scope is `(role, workspace binding)`. `--role` defaults to `developer`,
+//! whose workspace policy binds it to the current project. `ls` reads durable
+//! history, `stop` ends a resident driver and keeps history, and `rm` deletes
+//! history permanently.
 
 use crate::cli::ThreadAction;
-use nuo::transport::{self as client, ControlRequest};
-use nuo_protocol::{MonitorAction, MonitorEvent, MonitoredThread};
+use nuo::transport as client;
+use nuo_protocol::{MonitoredThread, ThreadFilter, ThreadRemovalReport, WorkspaceFilter};
 use std::path::PathBuf;
 
 #[cfg(feature = "interactive")]
 async fn open_thread(
     id: Option<String>,
+    role: Option<String>,
     project_override: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut tui_args = nuo::shell::cli::parse(&[])?;
     tui_args.project = project_override;
+    tui_args.role = role;
     tui_args.mode = nuo::shell::cli::Mode::Attach { id };
     nuo::shell::runner::run_with_options(tui_args).await
 }
@@ -21,6 +27,7 @@ async fn open_thread(
 #[cfg(not(feature = "interactive"))]
 async fn open_thread(
     _id: Option<String>,
+    _role: Option<String>,
     _project_override: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Err(
@@ -33,159 +40,258 @@ pub async fn run(
     action: ThreadAction,
     project_override: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let project_root = project_override
+    let explicit_project = project_override.is_some();
+    let raw_root = project_override
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let project_root = nuo_host::paths::find_project_root(&raw_root);
 
     match action {
-        ThreadAction::Open(id) => open_thread(id, project_override).await,
-        ThreadAction::List { watch, json, all } => {
-            let info = match client::discover(&project_root).await {
-                Some(info) => info,
-                None => {
-                    if json {
-                        println!("[]");
-                    } else {
-                        eprintln!(
-                            "nuo: no server is running. Start one with `nuo` or `nuo server start`."
-                        );
-                    }
-                    return Ok(());
+        ThreadAction::Open { id, role } => open_thread(id, role, project_override).await,
+        ThreadAction::List {
+            json,
+            hosted,
+            role,
+            all_workspaces,
+            all_roles,
+        } => {
+            let Some(info) = client::discover(&project_root).await else {
+                if json {
+                    println!("[]");
+                } else {
+                    eprintln!(
+                        "nuo: no server is running. Start one with `nuo` or `nuo server start`."
+                    );
                 }
+                return Ok(());
             };
             if !client::versions_compatible(&info) {
                 return Err(client::incompatibility_error(&info).into());
             }
-
-            let action = MonitorAction {
-                watch,
-                include_idle: all,
-            };
-            let mut rx = client::monitor_stream(&info, action).await?;
-            let mut state = match rx.recv().await {
-                Some(MonitorEvent::Snapshot(snapshot)) => snapshot,
-                Some(_) => return Err("monitor stream opened without a snapshot".into()),
-                None => return Err("server closed the monitor stream".into()),
-            };
-
-            render_threads(&state.threads, watch, json);
-            if !watch {
-                return Ok(());
+            let filter = resolve_scope_filter(
+                &project_root,
+                role.as_deref(),
+                all_workspaces,
+                all_roles,
+                explicit_project,
+            )?;
+            let mut rows = client::list_threads(&info, filter.clone()).await?;
+            if hosted {
+                rows.retain(|row| row.hosting.is_hosted());
             }
-
-            while let Some(event) = rx.recv().await {
-                match event {
-                    MonitorEvent::Snapshot(snapshot) => state = snapshot,
-                    MonitorEvent::ThreadAdded(row) | MonitorEvent::ThreadUpdated(row) => {
-                        client::upsert_session_row(&mut state.threads, row);
-                    }
-                    MonitorEvent::ThreadRemoved { thread_id } => {
-                        state.threads.retain(|row| row.id != thread_id);
-                    }
-                    MonitorEvent::ServerDraining => {
-                        if !json {
-                            eprintln!("nuo: server is shutting down; watch ended.");
-                        }
-                        return Ok(());
-                    }
-                    _ => {}
-                }
-                render_threads(&state.threads, watch, json);
-            }
+            render_threads(&rows, json, &filter);
             Ok(())
         }
-        ThreadAction::Delete { id, all, force } => {
-            let info = client::discover(&project_root).await.ok_or_else(|| {
-                "no server is running. Start or discover one before managing threads.".to_string()
-            })?;
-            if !client::versions_compatible(&info) {
-                return Err(client::incompatibility_error(&info).into());
-            }
+        ThreadAction::Stop {
+            id,
+            all,
+            force,
+            role,
+            all_workspaces,
+            all_roles,
+        } => {
+            let info = discover_for_management(&project_root).await?;
             if all {
-                let ids = snapshot_thread_ids(&info).await?;
-                let count = ids.len();
-                if count == 0 {
-                    eprintln!("nuo: no threads to remove.");
+                let filter = resolve_scope_filter(
+                    &project_root,
+                    role.as_deref(),
+                    all_workspaces,
+                    all_roles,
+                    explicit_project,
+                )?;
+                let rows = client::list_threads(&info, filter.clone()).await?;
+                let ids: Vec<String> = rows
+                    .iter()
+                    .filter(|row| row.hosting.is_hosted())
+                    .map(|row| row.id.clone())
+                    .collect();
+                if ids.is_empty() {
+                    eprintln!("nuo: no hosted threads to stop in this scope.");
                     return Ok(());
                 }
-                if !force && !confirm_purge(count)? {
+                if !force && !confirm("stop", ids.len(), ids.len(), &filter)? {
+                    eprintln!("nuo: aborting stop; nothing was stopped.");
+                    return Ok(());
+                }
+                let report = client::stop_threads(&info, Some(filter), ids).await?;
+                report_removal("Stopped", &report)?;
+                return Ok(());
+            }
+            let tid = id.ok_or_else(|| "thread stop needs a thread id or --all".to_string())?;
+            let guard = role
+                .as_deref()
+                .map(|role| {
+                    resolve_scope_filter(&project_root, Some(role), false, false, explicit_project)
+                })
+                .transpose()?;
+            let report = client::stop_threads(&info, guard, vec![tid]).await?;
+            report_removal("Stopped", &report)
+        }
+        ThreadAction::Delete {
+            id,
+            all,
+            force,
+            dry_run,
+            role,
+            all_workspaces,
+            all_roles,
+        } => {
+            let info = discover_for_management(&project_root).await?;
+            if all {
+                let filter = resolve_scope_filter(
+                    &project_root,
+                    role.as_deref(),
+                    all_workspaces,
+                    all_roles,
+                    explicit_project,
+                )?;
+                let rows = client::list_threads(&info, filter.clone()).await?;
+                if dry_run {
+                    print_purge_preview(&rows, &filter);
+                    return Ok(());
+                }
+                if rows.is_empty() {
+                    eprintln!("nuo: no thread history to remove in this scope.");
+                    return Ok(());
+                }
+                let hosted = rows.iter().filter(|row| row.hosting.is_hosted()).count();
+                if !force && !confirm("delete", rows.len(), hosted, &filter)? {
                     eprintln!("nuo: aborting purge; nothing was removed.");
                     return Ok(());
                 }
-                let mut failed = 0usize;
-                for tid in ids {
-                    match client::control(
-                        &info,
-                        ControlRequest::KillThread {
-                            thread_id: tid.clone(),
-                        },
-                    )
-                    .await
-                    {
-                        Ok(()) => {}
-                        Err(e) => {
-                            eprintln!("nuo: failed to terminate thread '{tid}': {e}");
-                            failed += 1;
-                        }
-                    }
-                }
-                if failed == 0 {
-                    println!("Removed all {count} threads.");
-                } else {
-                    println!(
-                        "Purged {} of {count} threads; {failed} failed (a thread may have ended concurrently).",
-                        count - failed
-                    );
-                }
-                if failed > 0 {
-                    return Err("some threads could not be purged".into());
-                }
+                let ids = rows.into_iter().map(|row| row.id).collect();
+                let report = client::purge_threads(&info, Some(filter), ids).await?;
+                report_removal("Removed", &report)?;
                 return Ok(());
             }
             let tid = id.ok_or_else(|| "thread rm needs a thread id or --all".to_string())?;
-            client::control(
-                &info,
-                ControlRequest::KillThread {
-                    thread_id: tid.clone(),
-                },
-            )
-            .await?;
-            println!("Thread '{tid}' has been terminated.");
-            Ok(())
+            let guard = role
+                .as_deref()
+                .map(|role| {
+                    resolve_scope_filter(&project_root, Some(role), false, false, explicit_project)
+                })
+                .transpose()?;
+            let report = client::purge_threads(&info, guard, vec![tid]).await?;
+            report_removal("Removed", &report)
         }
     }
 }
 
-/// Points at a single snapshot of all hosted thread ids.
-async fn snapshot_thread_ids(
-    info: &client::ServerInfo,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let action = MonitorAction {
-        watch: false,
-        include_idle: true,
-    };
-    let mut rx = client::monitor_stream(info, action).await?;
-    match rx.recv().await {
-        Some(MonitorEvent::Snapshot(snapshot)) => {
-            Ok(snapshot.threads.into_iter().map(|t| t.id).collect())
-        }
-        Some(_) => Err("monitor stream opened without a snapshot".into()),
-        None => Err("server closed the monitor stream".into()),
+async fn discover_for_management(
+    project_root: &std::path::Path,
+) -> Result<client::ServerInfo, Box<dyn std::error::Error>> {
+    let info = client::discover(project_root).await.ok_or_else(|| {
+        "no server is running. Start or discover one before managing threads.".to_string()
+    })?;
+    if !client::versions_compatible(&info) {
+        return Err(client::incompatibility_error(&info).into());
     }
+    Ok(info)
 }
 
-/// Affirmative confirmation for a destructive purge (ADR-0048 / ADR-0161).
-/// Defaults to "no"; only an exact "yes"/"y" proceeds.
-fn confirm_purge(count: usize) -> Result<bool, Box<dyn std::error::Error>> {
+/// Resolve the role-first scope from CLI flags. The default role is
+/// `developer`, whose workspace policy binds it to the current project.
+fn resolve_scope_filter(
+    project_root: &std::path::Path,
+    role: Option<&str>,
+    all_workspaces: bool,
+    all_roles: bool,
+    explicit_project: bool,
+) -> Result<ThreadFilter, Box<dyn std::error::Error>> {
+    if all_roles && role.is_some() {
+        return Err("--role and --all-roles are mutually exclusive".into());
+    }
+    if all_roles {
+        return Ok(ThreadFilter {
+            role: None,
+            workspace: if all_workspaces {
+                WorkspaceFilter::Any
+            } else {
+                WorkspaceFilter::Path(project_root.to_path_buf())
+            },
+        });
+    }
+    let scope = nuo_persistence::roles::resolve_thread_scope(role, Some(project_root))?;
+    if scope.workspace.is_none() && explicit_project {
+        return Err(format!(
+            "role '{}' is workspace-free; --project is not applicable",
+            scope.role
+        )
+        .into());
+    }
+    Ok(if all_workspaces {
+        ThreadFilter {
+            role: Some(scope.role),
+            workspace: WorkspaceFilter::Any,
+        }
+    } else {
+        scope.filter()
+    })
+}
+
+/// Affirmative confirmation for a destructive scope action. Defaults to
+/// "no"; only an exact "yes"/"y" proceeds.
+fn confirm(
+    verb: &str,
+    count: usize,
+    hosted: usize,
+    filter: &ThreadFilter,
+) -> Result<bool, Box<dyn std::error::Error>> {
     use std::io::BufRead;
-    eprint!("Remove all {count} thread(s)? This cannot be undone [y/N] ");
+    eprint!(
+        "{} {} thread(s) ({} hosted) in {}? This cannot be undone [y/N] ",
+        if verb == "delete" { "Delete" } else { "Stop" },
+        count,
+        hosted,
+        scope_label(filter)
+    );
     let mut line = String::new();
     std::io::stdin().lock().read_line(&mut line)?;
     let reply = line.trim().to_ascii_lowercase();
     Ok(reply == "y" || reply == "yes")
 }
 
-fn render_threads(sessions: &[MonitoredThread], watch: bool, json: bool) {
+fn scope_label(filter: &ThreadFilter) -> String {
+    let role = filter.role.as_deref().unwrap_or("all roles");
+    let workspace = match &filter.workspace {
+        WorkspaceFilter::Any => "all workspaces".to_string(),
+        WorkspaceFilter::Path(path) => path.display().to_string(),
+        WorkspaceFilter::Unbound => "workspace-free".to_string(),
+    };
+    format!("role {role} · workspace {workspace}")
+}
+
+fn print_purge_preview(rows: &[MonitoredThread], filter: &ThreadFilter) {
+    let hosted = rows.iter().filter(|row| row.hosting.is_hosted()).count();
+    println!("Scope:     {}", scope_label(filter));
+    println!(
+        "Threads:   {} ({} hosted, {} dormant)",
+        rows.len(),
+        hosted,
+        rows.len() - hosted
+    );
+    println!("Subagents: deleted with their parent threads; not counted in the user-facing total.");
+}
+
+fn report_removal(
+    verb: &str,
+    report: &ThreadRemovalReport,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!(
+        "{verb} {} thread(s); {} subagent run(s); {} already gone.",
+        report.removed, report.subagents_removed, report.already_gone
+    );
+    for skip in &report.skipped {
+        eprintln!("nuo: skipped thread '{}': {}", skip.thread_id, skip.reason);
+    }
+    if report.skipped.is_empty() {
+        Ok(())
+    } else {
+        Err("some threads could not be processed".into())
+    }
+}
+
+fn render_threads(sessions: &[MonitoredThread], json: bool, filter: &ThreadFilter) {
     if json {
         println!(
             "{}",
@@ -193,10 +299,7 @@ fn render_threads(sessions: &[MonitoredThread], watch: bool, json: bool) {
         );
         return;
     }
-    if watch {
-        print!("\x1b[2J\x1b[H");
-    }
-    println!("{}", format_threads_table(sessions));
+    println!("{}", format_threads_table(sessions, filter));
 }
 
 /// One headless row: a live session plus the lineage geometry it paints.
@@ -294,16 +397,19 @@ fn thread_rows(sessions: &[MonitoredThread]) -> Vec<ThreadRow<'_>> {
     out
 }
 
-pub fn format_threads_table(sessions: &[MonitoredThread]) -> String {
+pub fn format_threads_table(sessions: &[MonitoredThread], filter: &ThreadFilter) -> String {
     let mut out = String::new();
     if sessions.is_empty() {
-        out.push_str("  (no active threads hosted on server; run `nuo thread ls -a` to include reaped/suspended threads)\n");
+        out.push_str(&format!(
+            "  (no thread history in {})\n",
+            scope_label(filter)
+        ));
         return out;
     }
 
     out.push_str(&format!(
-        "  {:<12} {:<12} {:<9} {:>8} {:<10} {}\n",
-        "THREAD ID", "STATUS", "ROUNDS", "TOKENS", "UPDATED", "TITLE"
+        "  {:<10} {:<12} {:<24} {:<9} {:>8} {:>7} {:<10} {}\n",
+        "THREAD ID", "ROLE", "WORKSPACE", "STATUS", "ROUNDS", "TOKENS", "UPDATED", "TITLE"
     ));
     for ThreadRow { row, lane } in thread_rows(sessions) {
         let tokens = if let Some(ctx) = row.context_tokens {
@@ -318,6 +424,16 @@ pub fn format_threads_table(sessions: &[MonitoredThread]) -> String {
             (0, _) => "–".to_string(),
             (r, Some(t)) => format!("{r} › {t}"),
             (r, None) => format!("{r}"),
+        };
+        let status = if row.hosting.is_hosted() {
+            row.status.as_str().to_string()
+        } else {
+            "dormant".to_string()
+        };
+        let workspace = if row.project_root.is_empty() || row.project_root == "workspace-free" {
+            "–".to_string()
+        } else {
+            row.project_root.clone()
         };
         // Title carries the lineage: the lane geometry, the fork address when
         // the store recorded one, and a warning when the origin is not here.
@@ -343,9 +459,11 @@ pub fn format_threads_table(sessions: &[MonitoredThread]) -> String {
         title.push_str(&truncate(&row.overview, 50));
 
         out.push_str(&format!(
-            "  {:<12} {:<12} {:<9} {:>8} {:<10} {}\n",
+            "  {:<10} {:<12} {:<24} {:<9} {:>8} {:>7} {:<10} {}\n",
             short_id(&row.id),
-            row.status.as_str(),
+            truncate(&row.role, 12),
+            truncate(&workspace, 24),
+            status,
             rounds,
             tokens,
             updated,
@@ -404,6 +522,35 @@ mod tests {
     use super::*;
     use nuo_protocol::{ThreadForkKind, ThreadHosting, ThreadStatus};
 
+    fn test_filter() -> ThreadFilter {
+        ThreadFilter {
+            role: Some("developer".into()),
+            workspace: WorkspaceFilter::Path("/data".into()),
+        }
+    }
+
+    #[test]
+    fn scope_flags_are_role_first() {
+        let project = std::path::Path::new("/repo/a");
+        let developer = resolve_scope_filter(project, None, false, false, false).unwrap();
+        assert_eq!(developer.role.as_deref(), Some("developer"));
+        assert_eq!(
+            developer.workspace,
+            WorkspaceFilter::Path(project.to_path_buf())
+        );
+
+        let philosophist =
+            resolve_scope_filter(project, Some("philosophist"), false, false, false).unwrap();
+        assert_eq!(philosophist.role.as_deref(), Some("philosophist"));
+        assert_eq!(philosophist.workspace, WorkspaceFilter::Unbound);
+
+        assert!(
+            resolve_scope_filter(project, Some("philosophist"), false, false, true).is_err(),
+            "an explicit --project on a workspace-free role must be refused"
+        );
+        assert!(resolve_scope_filter(project, Some("no-such-role"), false, false, false).is_err());
+    }
+
     #[test]
     fn format_threads_table_renders_header_and_rows() {
         let rows = vec![MonitoredThread {
@@ -424,12 +571,13 @@ mod tests {
             context_tokens: Some(12_500),
             note: None,
             project_root: "/data".into(),
+            role: "developer".into(),
             parent_id: None,
             fork_kind: ThreadForkKind::default(),
             fork_point: None,
             digest: None,
         }];
-        let formatted = format_threads_table(&rows);
+        let formatted = format_threads_table(&rows, &test_filter());
         assert!(formatted.contains("THREAD ID"));
         assert!(formatted.contains("thr_999988"));
         assert!(formatted.contains("running"));
@@ -461,6 +609,7 @@ mod tests {
             context_tokens: None,
             note: None,
             project_root: "/data".into(),
+            role: "developer".into(),
             parent_id: parent.map(str::to_string),
             fork_kind: if parent.is_some() {
                 ThreadForkKind::Fork
@@ -476,7 +625,7 @@ mod tests {
             row("fork00001", Some("trunk0001"), 20),
             row("fork00002", Some("trunk0001"), 30),
         ];
-        let formatted = format_threads_table(&rows);
+        let formatted = format_threads_table(&rows, &test_filter());
 
         assert!(formatted.contains("trunk0001"), "{formatted}");
         assert!(
@@ -519,6 +668,7 @@ mod tests {
             context_tokens: None,
             note: None,
             project_root: "/data".into(),
+            role: "developer".into(),
             parent_id: parent.map(str::to_string),
             fork_kind: if parent.is_some() {
                 ThreadForkKind::Fork
@@ -535,7 +685,7 @@ mod tests {
             // Created after every trunk: still nested, never promoted.
             row("fork-old1x", Some("trunk-old1"), 30),
         ];
-        let formatted = format_threads_table(&rows);
+        let formatted = format_threads_table(&rows, &test_filter());
 
         let pos = |needle: &str| formatted.find(needle).unwrap();
         assert!(
@@ -575,12 +725,13 @@ mod tests {
             context_tokens: None,
             note: None,
             project_root: "/data".into(),
+            role: "developer".into(),
             parent_id: Some("missing-parent-id".into()),
             fork_kind: ThreadForkKind::Fork,
             fork_point: None,
             digest: None,
         }];
-        let formatted = format_threads_table(&rows);
+        let formatted = format_threads_table(&rows, &test_filter());
         assert!(
             formatted.contains("(from missing-pa)"),
             "the absent origin is named (short id), not hidden: {formatted}"
@@ -593,8 +744,8 @@ mod tests {
 
     #[test]
     fn empty_threads_table_gives_actionable_tip() {
-        let formatted = format_threads_table(&[]);
-        assert!(formatted.contains("no active threads"));
-        assert!(formatted.contains("nuo thread ls -a"));
+        let formatted = format_threads_table(&[], &test_filter());
+        assert!(formatted.contains("no thread history"));
+        assert!(formatted.contains("role developer"));
     }
 }

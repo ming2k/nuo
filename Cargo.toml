@@ -63,15 +63,15 @@ pulldown-cmark = "0.13"
 # L1 `Traced` policy for model attempts because its latency telemetry is derived
 # from the protocol timeline; control-plane calls keep a small traced ring only
 # to name the phase a timeout interrupted.
-# v0.0.27 is netune's diagnostic-spine release. A failed attempt
-# returns `AttemptError` with a real trace id, a bounded diagnostic table and a
-# `TraceSnapshot`, even when observation is off; `RequestTrace` schema v2 and
-# `TraceSink` v2 carry that envelope through both directions. Nuo adopts the
-# evidence at its own transport boundary so a provider failure can name the
-# netune phase instead of reconstructing it from a display string. 0.0.27 is the
-# documentation-only correction to 0.0.26 and keeps the same API.
-netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.27" }
-netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.27" }
+# v0.0.28 adds three consumer seams on top of the v0.0.27 diagnostic spine:
+# `Established` exposes the exact negotiated ALPN name beside the trace enum,
+# a QUIC connector can resolve and confine an authority inside the attempt, and
+# `netune-http1::write_request_head` serializes a caller-owned header set with
+# no synthetic framing. Nuo's egress is the shared netune HTTP/1.1 + HTTP/2
+# request path, so the release changes no wire bytes here; it inherits the same
+# `AttemptError`/`TraceSnapshot` evidence contract and the 10 s handshake bound.
+netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.28" }
+netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.28" }
 http = "1.2"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 windows-sys = "0.61"
@@ -116,6 +116,7 @@ nuo-provider-copilot = { version = "0.0.83", path = "providers/nuo-provider-copi
 nuo-provider-commandcode-goat = { version = "0.0.83", path = "providers/nuo-provider-commandcode-goat" }
 nuo-provider-opencode-go = { version = "0.0.83", path = "providers/nuo-provider-opencode-go" }
 nuo-provider-opencode-zen = { version = "0.0.83", path = "providers/nuo-provider-opencode-zen" }
+nuo-provider-opendesign = { version = "0.0.83", path = "providers/nuo-provider-opendesign" }
 nuo-provider-openrouter = { version = "0.0.83", path = "providers/nuo-provider-openrouter" }
 nuo-provider-xai = { version = "0.0.83", path = "providers/nuo-provider-xai" }
 nuo-provider-qianwen = { version = "0.0.83", path = "providers/nuo-provider-qianwen" }
@@ -137,7 +138,8 @@ nuo-persistence = { version = "0.0.83", path = "crates/nuo-persistence" }
 nuo-ui-primitives = { version = "0.0.83", path = "crates/nuo-ui-primitives" }
 nuo-view = { version = "0.0.83", path = "crates/nuo-view" }
 nuo-host = { version = "0.0.83", path = "crates/nuo-host" }
-nuo-harness = { version = "0.0.83", path = "crates/nuo-harness" }
+nuo-engine = { version = "0.0.83", path = "crates/nuo-engine" }
+nuo-guardrails = { version = "0.0.83", path = "crates/nuo-guardrails" }
 nuo-model-routing = { version = "0.0.83", path = "crates/nuo-model-routing" }
 nuo-tool-fs = { version = "0.0.83", path = "tools/nuo-tool-fs" }
 nuo-tool-exec = { version = "0.0.83", path = "tools/nuo-tool-exec" }
