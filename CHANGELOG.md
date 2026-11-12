@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.86] - 2026-11-13
+
 ### Fixed
 
 - **Deleting a thread no longer fights its append-only workspace journal.** `workspace_effects.thread_id` declared `ON DELETE CASCADE` while the journal's no-delete trigger correctly refuses every row delete (`[INV-EFFECT-01]`), so any thread that had journaled a file mutation could never be removed — `nuo thread rm` reported `workspace journal rows are append-only` per thread. Migration 33 rebuilds the table without the foreign key: the observation and its thread id survive as evidence, while the completed, un-reversed pre-image bytes are expired on thread deletion so the CAS collector can reclaim them. A direct `DELETE FROM workspace_effects` is still refused.
