@@ -8,7 +8,6 @@ use super::*;
 /// [`SubAgentProfile`] (today always [`SubAgentProfile::EXPLORE`]): read-only, non-interactive,
 /// non-recursive. Its final answer is returned to the calling agent, which
 /// stays in control of any write operations and any questions for the user.
-
 pub struct SubagentTool {
     provider: Arc<dyn nuo_protocol::Provider>,
     toolset: nuo_protocol::ToolSet,

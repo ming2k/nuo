@@ -4,7 +4,6 @@ use super::*;
 
 /// Resolve either a curated template or the standalone `custom` template by
 /// its **provider id**.
-
 pub fn connection_definition(provider: &str) -> Option<&'static ConnectionTemplate> {
     if provider == CUSTOM_TEMPLATE.id {
         return Some(&CUSTOM_TEMPLATE);

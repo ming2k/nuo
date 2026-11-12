@@ -25,7 +25,7 @@ rsa = { workspace = true }
 aes = { workspace = true }
 cbc = { workspace = true }
 md-5 = { workspace = true }
-http = "1.4"
+http = { workspace = true }
 uuid = { workspace = true }
 fastrand = { workspace = true }
 inventory = { workspace = true }

@@ -481,8 +481,6 @@ pub enum UserPromptVerdict {
     Prepend(String),
 }
 
-/// The decision a `PreToolUse` hook produces. The first `Deny` blocks the call;
-
 #[cfg(test)]
 mod tests {
     use super::*;

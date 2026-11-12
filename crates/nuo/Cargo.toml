@@ -54,7 +54,6 @@ dirs = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
-mockito = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 nuo-host = { workspace = true, features = ["test-path-override"] }

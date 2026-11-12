@@ -47,7 +47,6 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = { workspace = true }
-bytes = { workspace = true }
 tokio-tungstenite = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
@@ -67,7 +66,7 @@ tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 nuo-host = { workspace = true, features = ["test-path-override"] }
 # The `qoder_catalog_dump` example builds a `Request` by HTTP method.
-http = "1.4"
+http = { workspace = true }
 
 [features]
 collaboration = []

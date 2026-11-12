@@ -15,7 +15,7 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 inventory = { workspace = true }
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt"] }
-http = "1.4"
+http = { workspace = true }
 uuid = { workspace = true }
 nuo-tool = { workspace = true }
 

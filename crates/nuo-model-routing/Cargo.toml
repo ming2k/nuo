@@ -25,11 +25,11 @@ tracing = { workspace = true }
 # (`nuo-server -> nuo-model-routing`) stays acyclic. `nuo-harness` declares the same
 # edge for the same reason.
 nuo-server = { workspace = true }
-# `test-path-override` exposes `nuo_host::paths::TestDirsGuard` so the routing
-# discovery tests can sandbox the XDG roots; without it a `DiscoveryCache::save()`
-# in a test writes `test-instance` rows into the developer's real
-# `$XDG_STATE_HOME/nuo/models_discovery.json`.
-nuo-host = { workspace = true, features = ["test-path-override"] }
+# `test-path-override` exposes `paths::TestDirsGuard` through the persistence
+# façade so the routing discovery tests can sandbox the XDG roots; without it a
+# `DiscoveryCache::save()` in a test writes `test-instance` rows into the
+# developer's real `$XDG_STATE_HOME/nuo/models_discovery.json`.
+nuo-persistence = { workspace = true, features = ["test-path-override"] }
 mockito = { workspace = true }
 tempfile = { workspace = true }
 serde_json = { workspace = true }

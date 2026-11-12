@@ -10,7 +10,7 @@ description = "Web search and reader tools for Nuo cognitive agents"
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
-http = "1.4"
+http = { workspace = true }
 netune = { workspace = true }
 nuo-tool = { workspace = true }
 nuo-protocol = { workspace = true }

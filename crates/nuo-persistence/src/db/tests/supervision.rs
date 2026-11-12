@@ -5,7 +5,6 @@ use super::*;
 
 /// Supervision fault-injection suite (D6). Every variant of
 /// [`PersistenceError`] and every supervisor transition is exercised.
-
 fn temp_db() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("nuo.db");

@@ -7,7 +7,6 @@ use super::*;
 /// fuzzy-filtered by `query` against the provider (instance) name and sorted
 /// last-used → name. An empty `query` (browse mode) keeps every provider with
 /// no match positions.
-
 pub fn providers_filtered_from(
     picker: &ProviderPickerSnapshot,
     query: &str,

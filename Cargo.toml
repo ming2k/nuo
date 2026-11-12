@@ -32,7 +32,10 @@ ignore = "0.4"
 walkdir = "2"
 dirs = "6"
 directories = "6.0"
-arboard = "3.6"
+# Text clipboard only: the TUI never calls `get_image`/`set_image`, so arboard's
+# default `image-data` feature would drag platform image/codec dependencies in
+# for no capability we use.
+arboard = { version = "3.6", default-features = false }
 uuid = { version = "1", features = ["v4", "serde"] }
 httpdate = "1"
 fastrand = "2"
@@ -51,7 +54,6 @@ base64 = "0.22"
 hex = "0.4"
 hmac = "0.12"
 thiserror = "2.0"
-pulldown-cmark = "0.13"
 # netune is distributed by git tag only: the crates.io `0.1.x` line is yanked
 # and unmaintained, and the registry `0.0.1` is a stale stub. Pin the release
 # tag here; `Cargo.lock` records the exact commit for reproducible builds.
@@ -73,7 +75,9 @@ pulldown-cmark = "0.13"
 netune = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.28" }
 netune-trace = { git = "https://github.com/ming2k/netune.git", tag = "v0.0.28" }
 http = "1.2"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+# Image normalization accepts only JPEG and PNG (see `nuo-host/src/image.rs`);
+# GIF/WebP are deliberately left untouched, so their decoders must not be built.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 windows-sys = "0.61"
 notify = "8"
 tree-sitter = "0.25"
@@ -178,17 +182,39 @@ invalid_html_tags = "deny"
 debug = 1
 split-debuginfo = "unpacked"
 
-# Optimize external dependencies (crates.io / git) for fast test execution and
-# strip their debug symbols entirely (developers rarely debug 3rd-party internals).
+# Optimize external dependencies for responsive tests, but not at `opt-level = 2`
+# across the whole graph: that multiplies cold-build time for ~300 crates and,
+# measured on this workspace, only shaves a few percent off test execution.
+# `1` keeps the hot paths (serde, tokio, image, rustls) reasonable while cutting
+# total dependency codegen materially. See the `libsqlite3-sys` override below.
 [profile.dev.package."*"]
-opt-level = 2
+opt-level = 1
 debug = false
+
+# SQLite's bundled amalgamation is a single multi-megabyte C translation unit on
+# the critical build path. `1` halves its compile time versus `2` without the
+# severe query slowdown of `0`; see ADR-0003's local build guidance.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 1
 
 [profile.test]
 debug = 1
 split-debuginfo = "unpacked"
 
 [profile.test.package."*"]
-opt-level = 2
+opt-level = 1
 debug = false
+
+[profile.test.package.libsqlite3-sys]
+opt-level = 1
+
+# Release artifacts are shipped and compressed for download. Thin LTO plus one
+# codegen unit is a deliberate size/quality tradeoff: it costs ~30s of cold
+# release build time here, but removes cross-crate duplication and drops the
+# stripped binary by a further ~15%. `panic = "abort"` is intentionally absent:
+# the persistence actor and task supervisor rely on `catch_unwind`.
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
 

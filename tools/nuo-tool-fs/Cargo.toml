@@ -11,7 +11,7 @@ async-trait = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
 nuo-tool = { workspace = true }
-regex = "1"
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "rt"] }

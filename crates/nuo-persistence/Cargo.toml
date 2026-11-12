@@ -18,9 +18,8 @@ toml = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
-glob = { workspace = true }
 crc32c = "0.6"
-hex = "0.4"
+hex = { workspace = true }
 base64 = { workspace = true }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
