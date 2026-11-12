@@ -8,6 +8,12 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.85] - 2026-11-12
+
+### Changed
+
+- **Dependency and build-profile hygiene.** Inline `http`, `regex`, and `hex` requirements now resolve through `[workspace.dependencies]`, and unused direct and dev dependencies (`pulldown-cmark`, `glob`, `inventory`, `url`, `bytes`, `toml`, `mockito`, plus unused `tokio`/`tempfile` edges) are removed. Catalog discovery tests take `test-path-override` through the `nuo-persistence` façade instead of depending on `nuo-host` directly. Capability features now match call sites: `arboard` drops `image-data`, and `image` decodes only JPEG/PNG. External dependencies build at `opt-level = 1` in dev/test, while release artifacts use thin LTO, one codegen unit, and stripped symbols. `nuo-guardrails` scopes its panicking-clippy allowance to test builds.
+
 ## [0.0.84] - 2026-11-12
 
 ### Added
