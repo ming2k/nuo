@@ -8,6 +8,8 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+## [0.0.84] - 2026-11-12
+
 ### Added
 
 - **OpenDesign Cloud API provider.** The new `opendesign` channel (`providers/nuo-provider-opendesign`) targets the account-scoped gateway at `https://amr-link.open-design.ai/v1` over OpenAI Chat Completions with an `sk-amr-…` API key. It seeds the Go/Design Plan rows (DeepSeek V4.1 Flash and Eco, V4 Flash/Pro, Claude Haiku 5.5, GPT-6 Luna, GLM-5.3 Flash/FlashX, Kimi K2.7 Code, MiMo V2.6, MiniMax M3.1 Flash, Hunyuan H4 Preview), declares the probed effort ladders for gateway-specific rows while reusing the shared model baselines for ids other providers already own, and keeps the live `/v1/models` catalog authoritative for membership. The connection preset is offered in `/connections` and the OpenAI-compatible catalog parser now reads the gateway's nested `metadata.context_limit` / `output_budget` / `architecture.input_modalities` fields.

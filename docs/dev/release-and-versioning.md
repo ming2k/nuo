@@ -11,7 +11,7 @@ It translates the architectural mandates of **[ADR-0004](../adr/0004-federated-c
 In a multi-crate repository spanning different technical layers, two common extremes lead to architectural decay:
 
 1. **The Monolithic Lockstep Anti-Pattern**: Forcing domain-free graphics engines (`nuotc`) or universal open standards to bump their versions whenever an upper application bug in `nuo` is patched. This pollutes external consumers' dependency trees and misleads the open-source ecosystem regarding stability.
-2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`nuo-host`, `nuo-persistence`, `nuo-harness`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
+2. **The Anarchic Independent Anti-Pattern**: Allowing every in-house crate (`nuo-host`, `nuo-persistence`, `nuo-engine`) to drift on completely independent SemVer numbers. This causes severe maintenance friction, manual changelog sprawl, and diamond dependency resolution failures during rapid host development.
 
 To solve this, the Nuo repository operates under **Federated Cluster SemVer**: autonomous substrate engines maintain independent versioning and release cycles, while the core host application suite evolves in lockstep.
 
@@ -42,7 +42,8 @@ Every crate in the repository belongs strictly to one of two operational version
 │  • crates/nuo-tool, nuo-tool-derive (tool contracts)   │
 │  • crates/nuo-inference-wire (model wire substrate)    │
 │  • crates/nuo-persistence (SQLite store & migrations)  │
-│  • crates/nuo-harness (execution policy & approvals)   │
+│  • crates/nuo-engine (cognition & orchestration)       │
+│  • crates/nuo-guardrails (execution policy & approval) │
 │  • crates/nuo-provider (provider specs & auth)         │
 │  • crates/nuo-model-routing (catalog pipeline)         │
 │  • crates/nuo-mcp (Model Context Protocol transport)   │
@@ -69,7 +70,8 @@ Every crate in the repository belongs strictly to one of two operational version
 | **`nuo-tool-derive`** | **Cluster B** | Compile-time JSON schema derive macro | Direct path companion to `nuo-tool` | crates.io package |
 | **`nuo-inference-wire`**| **Cluster B** | Model wire substrate, JSON framing & loop detection | `version.workspace = true` | crates.io package |
 | **`nuo-persistence`**| **Cluster B** | SQLite session store, migrations & memory ledger | `version.workspace = true` | crates.io package |
-| **`nuo-harness`** | **Cluster B** | Host execution harness, approvals & policy engine | `version.workspace = true` | crates.io package |
+| **`nuo-engine`** | **Cluster B** | Cognitive engine, ReAct orchestration & model requests | `version.workspace = true` | crates.io package |
+| **`nuo-guardrails`** | **Cluster B** | Execution policy, approvals & trajectory supervision | `version.workspace = true` | crates.io package |
 | **`nuo-provider`** | **Cluster B** | Model provider specification, OAuth & transport | `version.workspace = true` | crates.io package |
 | **`nuo-model-routing`** | **Cluster B** | Single model-catalog pipeline (derive, picker, sync) ([ADR-0082](../adr/0082-single-catalog-pipeline-definition-in-a-dedicated-layer2-crate.md)) | `version.workspace = true` | crates.io package |
 | **`nuo-mcp`** | **Cluster B** | Model Context Protocol client & server transport | `version.workspace = true` | crates.io package |
@@ -85,16 +87,17 @@ All internal inter-crate dependencies declared in the root `Cargo.toml` under `[
 ```toml
 [workspace.dependencies]
 # In-house Nuo crates (Cluster B lockstep suite)
-nuo-protocol = { version = "0.0.83", path = "crates/nuo-protocol" }
-nuo-host = { version = "0.0.83", path = "crates/nuo-host" }
-nuo-tool = { version = "0.0.83", path = "crates/nuo-tool" }
-nuo-inference-wire = { version = "0.0.83", path = "crates/nuo-inference-wire", default-features = false }
-nuo-persistence = { version = "0.0.83", path = "crates/nuo-persistence" }
-nuo-harness = { version = "0.0.83", path = "crates/nuo-harness" }
-nuo-provider = { version = "0.0.83", path = "crates/nuo-provider" }
-nuo-model-routing = { version = "0.0.83", path = "crates/nuo-model-routing" }
-nuo-ui-primitives = { version = "0.0.83", path = "crates/nuo-ui-primitives" }
-nuo-view = { version = "0.0.83", path = "crates/nuo-view" }
+nuo-protocol = { version = "0.0.84", path = "crates/nuo-protocol" }
+nuo-host = { version = "0.0.84", path = "crates/nuo-host" }
+nuo-tool = { version = "0.0.84", path = "crates/nuo-tool" }
+nuo-inference-wire = { version = "0.0.84", path = "crates/nuo-inference-wire", default-features = false }
+nuo-persistence = { version = "0.0.84", path = "crates/nuo-persistence" }
+nuo-engine = { version = "0.0.84", path = "crates/nuo-engine" }
+nuo-guardrails = { version = "0.0.84", path = "crates/nuo-guardrails" }
+nuo-provider = { version = "0.0.84", path = "crates/nuo-provider" }
+nuo-model-routing = { version = "0.0.84", path = "crates/nuo-model-routing" }
+nuo-ui-primitives = { version = "0.0.84", path = "crates/nuo-ui-primitives" }
+nuo-view = { version = "0.0.84", path = "crates/nuo-view" }
 ```
 
 ### Why Both Fields Are Non-Negotiable:
@@ -179,7 +182,7 @@ When releasing a new milestone of the Nuo product and workspace:
 - Zero crates reside directly at the workspace root. Enforced mechanically by `cargo test -p nuo --test architecture_firewall`.
 
 ### 3. Unified Lockstep Invariant (`[INV-VER-01]`)
-- Host suite crates (`nuo`, `nuo-server`, `nuo-harness`, `nuo-protocol`, `nuo-ui-primitives`, `nuo-view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.
+- Host suite crates (`nuo`, `nuo-server`, `nuo-engine`, `nuo-guardrails`, `nuo-protocol`, `nuo-ui-primitives`, `nuo-view`, etc.) must **never** declare independent version numbers; they inherit `version.workspace = true` to prevent diamond dependency resolution failures and version drift.
 
 ---
 
