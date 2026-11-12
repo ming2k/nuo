@@ -283,7 +283,7 @@ pub(super) async fn finish_handshake_with_project(
                     );
                     let notice = AgentResponse::Error(format!(
                         "The server sent a message this client does not understand{}. \
-                         The connection is still live — run `nuo stop` so both \
+                         The connection is still live — run `nuo server stop` so both \
                          sides come up on the same build.",
                         envelope
                             .map(|tag| format!(" (envelope `{tag}`)"))

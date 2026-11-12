@@ -122,6 +122,28 @@ pub fn canonical_role_id(role_id: &str, project_root: Option<&Path>) -> Result<S
         })
 }
 
+/// Resolve a role id to its canonical spelling and workspace policy.
+///
+/// This is the role-first primitive every scope, create, and bulk operation
+/// shares. The policy is a *resolution* rule: `Unbound` never binds,
+/// `Inherit` takes the invocation project, and `Fixed` is a constant.
+pub fn resolve_role_workspace(
+    role_id: Option<&str>,
+    project_root: Option<&Path>,
+) -> Result<(String, RoleWorkspace), String> {
+    let requested = role_id.unwrap_or("developer");
+    let role = canonical_role_id(requested, project_root)?;
+    let roles_cfg = RolesConfig::load_for_workspace(project_root);
+    let policy = if let Some(user_role) = roles_cfg.get(&role) {
+        user_role.resolved_workspace()
+    } else {
+        MainAgentRole::parse(&role)
+            .ok_or_else(|| format!("unknown role '{role}'"))?
+            .workspace_policy()
+    };
+    Ok((role, policy))
+}
+
 /// Resolve the exact `(role, workspace)` scope an operation must use.
 ///
 /// The role policy is authoritative: `developer` and `workspace = "inherit"`
@@ -133,38 +155,18 @@ pub fn resolve_thread_scope(
     role_id: Option<&str>,
     project_root: Option<&Path>,
 ) -> Result<nuo_protocol::ThreadScope, String> {
-    let requested = role_id.unwrap_or("developer");
-    let role = canonical_role_id(requested, project_root)?;
-    let roles_cfg = RolesConfig::load_for_workspace(project_root);
-
-    let workspace: Option<std::path::PathBuf> = if let Some(user_role) = roles_cfg.get(&role) {
-        match user_role.resolved_workspace() {
-            RoleWorkspace::None => None,
-            RoleWorkspace::Inherit => Some(
-                project_root
-                    .ok_or_else(|| {
-                        format!("role '{role}' requires a workspace; pass --project <path>")
-                    })?
-                    .to_path_buf(),
-            ),
-            RoleWorkspace::Fixed(root) => Some(root),
-        }
-    } else {
-        let builtin =
-            MainAgentRole::parse(&role).ok_or_else(|| format!("unknown role '{role}'"))?;
-        if builtin.requires_workspace() {
-            Some(
-                project_root
-                    .ok_or_else(|| {
-                        format!("role '{role}' requires a workspace; pass --project <path>")
-                    })?
-                    .to_path_buf(),
-            )
-        } else {
-            None
-        }
+    let (role, policy) = resolve_role_workspace(role_id, project_root)?;
+    let workspace = match policy {
+        RoleWorkspace::Unbound => None,
+        RoleWorkspace::Inherit => Some(
+            project_root
+                .ok_or_else(|| {
+                    format!("role '{role}' requires a workspace; pass --project <path>")
+                })?
+                .to_path_buf(),
+        ),
+        RoleWorkspace::Fixed(root) => Some(root),
     };
-
     Ok(nuo_protocol::ThreadScope::new(role, workspace))
 }
 
@@ -232,7 +234,7 @@ tools = ["read_*", "code_query"]
     fn parses_and_round_trips_a_role() {
         let config = RolesConfig::from_toml_str(SAMPLE).unwrap();
         let role = config.get("english-practice").unwrap();
-        assert_eq!(role.resolved_workspace(), RoleWorkspace::None);
+        assert_eq!(role.resolved_workspace(), RoleWorkspace::Unbound);
         assert_eq!(
             role.identity().preamble(),
             "You are a patient English conversation partner."

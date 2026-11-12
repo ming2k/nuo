@@ -215,6 +215,83 @@ fn schema_guard_rejects_missing_columns() {
     assert!(err.to_string().contains("missing column(s)"), "{err}");
 }
 
+/// Migration 33 detaches the append-only workspace journal from `threads`.
+///
+/// A foreign key with `ON DELETE CASCADE` asks SQLite to delete the child rows,
+/// but the journal's no-delete trigger correctly refuses. The rebuilt table has
+/// no foreign key; thread deletion leaves the observations in place.
+#[test]
+fn migration_33_detaches_the_workspace_journal_from_threads() {
+    let conn = initialize_in_memory_db().unwrap();
+    let foreign_keys: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_list('workspace_effects')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(foreign_keys, 0, "the journal must outlive its thread");
+    let no_delete: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+              WHERE type = 'trigger' AND name = 'trg_workspace_effects_no_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(no_delete, 1, "append-only evidence is still enforced");
+}
+
+/// The migration-31 lock: no trigger on the transcript may write the derived
+/// FTS table.
+///
+/// Migration 28 dropped four names, but migration 24 had re-created the
+/// membership pair as `trg_entries_membership_*`. They survived, so every
+/// commit indexed FTS inline and a full rewrite scanned the whole FTS table
+/// through the `UNINDEXED` session column — the seconds-long `saving request`
+/// stall. The sweep also covers a name the list does not know.
+#[test]
+fn migration_31_drops_every_legacy_fts_write_trigger() {
+    let mut conn = initialize_in_memory_db().unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TRIGGER trg_entries_membership_ai AFTER INSERT ON entry_memberships BEGIN
+            INSERT INTO fts_entries(rowid, entry_id, session_id, role, content)
+            SELECT new.rowid, new.entry_id, new.session_id, e.role, e.content
+            FROM entries e WHERE e.id = new.entry_id;
+        END;
+        CREATE TRIGGER trg_entries_membership_ad AFTER DELETE ON entry_memberships BEGIN
+            DELETE FROM fts_entries WHERE rowid = old.rowid;
+        END;
+        -- A trigger spelling the named list cannot anticipate.
+        CREATE TRIGGER trg_unexpected_fts_write AFTER INSERT ON entries BEGIN
+            INSERT INTO fts_entries(entry_id, session_id, role, content)
+            VALUES (new.id, '', '', '');
+        END;
+        PRAGMA user_version = 30;
+        "#,
+    )
+    .unwrap();
+
+    migrate_schema(&mut conn).unwrap();
+
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(version, CURRENT_DB_VERSION);
+    let leftover: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+              WHERE type = 'trigger'
+                AND tbl_name IN ('entries', 'entry_memberships')
+                AND lower(sql) LIKE '%fts_entries%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(leftover, 0, "a transcript trigger still writes FTS");
+}
+
 /// Migration immutability lock: once a migration version has shipped in a
 /// commit, editing its SQL in place strands databases stamped by the old
 /// SQL (the interim-v5 incident). Any change to the catalog — including

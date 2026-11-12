@@ -58,21 +58,45 @@ pub(crate) fn enqueue(
     Ok(())
 }
 
+/// Delete this session's FTS rows through the one key FTS5 can address.
+///
+/// `session_id` is an `UNINDEXED` FTS5 column: a `WHERE session_id = ?`
+/// predicate cannot use the inverted index and scans the whole content table.
+/// On the live database (~400 k rows, ~270 MB of content, ~800 MB of index
+/// segments) that scan cost seconds — even when it matched nothing — and it ran
+/// inside every full transcript rewrite, including a brand-new session's first
+/// save. `[INV-DERIVED-06]` makes `fts_entries.rowid` equal the owning
+/// `entry_memberships.rowid`, so the membership primary key enumerates exactly
+/// the rows to drop and each delete is a rowid lookup.
+///
+/// Callers must invoke this while the session's memberships still exist.
+fn delete_fts_for_session(conn: &Connection, session_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM fts_entries WHERE rowid IN (
+            SELECT rowid FROM entry_memberships WHERE session_id = ?1
+         )",
+        params![session_id],
+    )?;
+    Ok(())
+}
+
 /// Drop both derived views for a session and enqueue a full rebuild.
 ///
 /// Called when the transcript itself was replaced (a full rewrite): entry
 /// identities and sequences restart, so every mirror node and every FTS row is
 /// stale by construction.
+///
+/// **Ordering:** the caller runs this *before* replacing the transcript's
+/// membership rows. The FTS delete derives its rowids from those memberships;
+/// deleting them first would leave the rows unreachable and force the old
+/// whole-index scan.
 pub(crate) fn reset_for_rebuild(
     conn: &Connection,
     session_id: &str,
     through_seq: Option<u64>,
     now_ms: u64,
 ) -> Result<()> {
-    conn.execute(
-        "DELETE FROM fts_entries WHERE session_id = ?1",
-        params![session_id],
-    )?;
+    delete_fts_for_session(conn, session_id)?;
     conn.execute(
         "DELETE FROM causal_nodes WHERE session_id = ?1",
         params![session_id],
@@ -111,11 +135,11 @@ pub(crate) fn advance_causal_cursor(conn: &Connection, session_id: &str, seq: u6
 }
 
 /// Remove every derived row and cursor for a session that is being deleted.
+///
+/// Runs before the owning thread (and its cascading memberships) is removed,
+/// so the FTS rows are addressable by their membership rowids.
 pub(crate) fn purge_session(conn: &Connection, session_id: &str) -> Result<()> {
-    conn.execute(
-        "DELETE FROM fts_entries WHERE session_id = ?1",
-        params![session_id],
-    )?;
+    delete_fts_for_session(conn, session_id)?;
     conn.execute(
         "DELETE FROM causal_nodes WHERE session_id = ?1",
         params![session_id],

@@ -237,7 +237,8 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
 
             lines.push(String::new());
             lines.push(
-                "Usage: `/role ops`, `/role philosophist`, or `/role developer <workspace>`"
+                "Usage: `/role ops`, `/role philosophist`, or `/role developer <workspace>`.\n\
+                 A thread is owned by exactly one role: `/role` resumes or starts that role's thread; it never rebinds the current one."
                     .to_string(),
             );
 
@@ -290,86 +291,117 @@ pub(crate) async fn role(mut env: SlashEnv<'_>, name: &str, args: &str, parts: &
                 return;
             }
 
-            let target_workspace = if builtin == Some(nuo_protocol::MainAgentRole::Developer) {
-                let ws_arg = parts
-                    .get(2..)
-                    .map(|p| p.join(" "))
-                    .filter(|s| !s.trim().is_empty());
-                let target_path = match ws_arg {
-                    Some(ws_str) => {
-                        let trimmed = ws_str.trim();
-                        let raw_path = std::path::PathBuf::from(trimmed);
-                        let resolved = if raw_path.starts_with("~") {
-                            if let Some(home) = dirs::home_dir() {
-                                if let Ok(stripped) = raw_path.strip_prefix("~") {
-                                    home.join(stripped)
+            let policy = if let Some(user_role) = user_role {
+                user_role.resolved_workspace()
+            } else {
+                builtin
+                    .map(nuo_protocol::MainAgentRole::workspace_policy)
+                    .unwrap_or(nuo_persistence::roles::RoleWorkspace::Unbound)
+            };
+            let ws_arg = parts
+                .get(2..)
+                .map(|p| p.join(" "))
+                .filter(|s| !s.trim().is_empty());
+            let target_workspace = match policy {
+                nuo_persistence::roles::RoleWorkspace::Unbound => {
+                    if ws_arg.is_some() {
+                        record_error(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            format!(
+                                "Role `{role_id}` is workspace-free; it does not accept a workspace path."
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                    None
+                }
+                nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
+                    if ws_arg.is_some() {
+                        record_error(
+                            session,
+                            resp_tx,
+                            name,
+                            args,
+                            format!(
+                                "Role `{role_id}` is pinned to `{}`; omit the workspace argument.",
+                                root.display()
+                            ),
+                        )
+                        .await;
+                        return;
+                    }
+                    Some(nuo_protocol::WorkspaceBinding::new(root))
+                }
+                nuo_persistence::roles::RoleWorkspace::Inherit => {
+                    let target_path = match ws_arg {
+                        Some(ws_str) => {
+                            let trimmed = ws_str.trim();
+                            let raw_path = std::path::PathBuf::from(trimmed);
+                            let resolved = if raw_path.starts_with("~") {
+                                if let Some(home) = dirs::home_dir() {
+                                    if let Ok(stripped) = raw_path.strip_prefix("~") {
+                                        home.join(stripped)
+                                    } else {
+                                        raw_path
+                                    }
                                 } else {
                                     raw_path
                                 }
                             } else {
                                 raw_path
+                            };
+                            match std::fs::canonicalize(&resolved) {
+                                Ok(canon) if canon.is_dir() => canon,
+                                Ok(_) => {
+                                    record_error(
+                                        session,
+                                        resp_tx,
+                                        name,
+                                        args,
+                                        format!("Workspace path `{trimmed}` is not a directory"),
+                                    )
+                                    .await;
+                                    return;
+                                }
+                                Err(e) => {
+                                    record_error(
+                                        session,
+                                        resp_tx,
+                                        name,
+                                        args,
+                                        format!(
+                                            "Workspace path `{trimmed}` does not exist or is inaccessible: {e}"
+                                        ),
+                                    )
+                                    .await;
+                                    return;
+                                }
                             }
-                        } else {
-                            raw_path
-                        };
-                        match std::fs::canonicalize(&resolved) {
-                            Ok(canon) if canon.is_dir() => canon,
-                            Ok(_) => {
-                                record_error(
-                                    session,
-                                    resp_tx,
-                                    name,
-                                    args,
-                                    format!("Workspace path `{trimmed}` is not a directory"),
-                                )
-                                .await;
-                                return;
-                            }
-                            Err(e) => {
+                        }
+                        None => {
+                            if let Some(ws_root) = session.workspace_root() {
+                                ws_root
+                            } else {
                                 record_error(
                                     session,
                                     resp_tx,
                                     name,
                                     args,
                                     format!(
-                                        "Workspace path `{trimmed}` does not exist or is inaccessible: {e}"
+                                        "Role `{role_id}` requires a workspace path. Usage: `/role {role_id} <workspace>`"
                                     ),
                                 )
                                 .await;
                                 return;
                             }
                         }
-                    }
-                    None => {
-                        if let Some(ws_root) = session.workspace_root() {
-                            ws_root
-                        } else {
-                            record_error(
-                                session,
-                                resp_tx,
-                                name,
-                                args,
-                                "Developer role requires a workspace path. Usage: `/role developer <workspace>`"
-                                    .to_string(),
-                            )
-                            .await;
-                            return;
-                        }
-                    }
-                };
-                Some(nuo_protocol::WorkspaceBinding::new(target_path))
-            } else if builtin.map(|b| !b.requires_workspace()).unwrap_or(false) {
-                None
-            } else if let Some(user_role) = user_role {
-                match user_role.resolved_workspace() {
-                    nuo_persistence::roles::RoleWorkspace::None => None,
-                    nuo_persistence::roles::RoleWorkspace::Inherit => session.workspace(),
-                    nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
-                        Some(nuo_protocol::WorkspaceBinding::new(root))
-                    }
+                    };
+                    Some(nuo_protocol::WorkspaceBinding::new(target_path))
                 }
-            } else {
-                None
             };
 
             let force_new = parts.iter().any(|&p| p == "--new" || p == "-n");

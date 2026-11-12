@@ -8,6 +8,7 @@ use super::types::*;
 use super::v01_v15::*;
 use super::v16_v25::*;
 use super::v26_v30::*;
+use super::v31_v35::*;
 use crate::db::{FastSummaryProbe, apply_durable_attempt_schema};
 
 /// Initialize and return a connection to the SQLite database.
@@ -430,6 +431,15 @@ pub fn apply_migrations(conn: &mut Connection, observed_version: u32) -> Result<
                 }
                 if migration.version == 30 {
                     apply_role_scoped_thread_scope_schema(&tx)?;
+                }
+                if migration.version == 31 {
+                    apply_drop_legacy_fts_triggers_schema(&tx)?;
+                }
+                if migration.version == 32 {
+                    apply_thread_scope_immutability_schema(&tx)?;
+                }
+                if migration.version == 33 {
+                    apply_workspace_effect_detach_schema(&tx)?;
                 }
             }
         }

@@ -329,7 +329,10 @@ async fn protocol_window_is_the_only_admission_authority() {
     match first_frame(port, None, PROTOCOL_VERSION + 1).await {
         Wire::Error { message, code } => {
             assert_eq!(code.as_deref(), Some("protocol_mismatch"));
-            assert!(message.contains("nuo stop"), "names the fix: {message}");
+            assert!(
+                message.contains("nuo server stop"),
+                "names the fix: {message}"
+            );
             assert!(
                 message.contains(&format!("protocol {}", PROTOCOL_VERSION + 1)),
                 "names the client's protocol number: {message}"

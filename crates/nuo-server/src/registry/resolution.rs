@@ -332,7 +332,7 @@ impl ThreadRegistry {
             if let Some(role_entry) = roles_cfg.get(role_id) {
                 if role_selected.is_some() {
                     workspace = match role_entry.resolved_workspace() {
-                        nuo_persistence::roles::RoleWorkspace::None => None,
+                        nuo_persistence::roles::RoleWorkspace::Unbound => None,
                         nuo_persistence::roles::RoleWorkspace::Inherit => workspace,
                         nuo_persistence::roles::RoleWorkspace::Fixed(root) => {
                             Some(nuo_protocol::WorkspaceBinding::new(root))

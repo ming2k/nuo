@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use crate::db::SessionMessageView;
 
 /// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 30;
+pub const CURRENT_DB_VERSION: u32 = 33;
 
 /// SHA-256 fingerprint of the migration catalog (version + SQL of every
 /// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
 /// for the discipline this enforces.
 #[cfg(test)]
 pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "ce1b8736db061125eb7d7a799fd09665e8a533de99589f06ba435f734962585d";
+    "3c0959b1dc6e1ecbee7325d41958e329d3c6300e3a5a885ff0ff6c3f4a5d19dd";
 
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;

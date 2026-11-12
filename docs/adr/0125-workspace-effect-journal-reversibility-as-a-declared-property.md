@@ -441,6 +441,23 @@ comment in `nuo-tool/src/hazard.rs` is now true.
   `previews_are_emitted_up_front_for_every_mutating_call` (every preview precedes the
   first result) and `read_only_calls_are_not_previewed`.
 
+## Amendment (2026-11-12): the journal outlives its thread
+
+The first schema declared `workspace_effects.thread_id REFERENCES threads(id)
+ON DELETE CASCADE`, which directly contradicted `INV-EFFECT-01`: deleting a
+thread asked SQLite to delete its journal rows, and the no-delete trigger
+correctly refused, so any thread that had journaled a file mutation could never
+be removed. Migration 33 rebuilds the table without the foreign key. The
+observation — including the original `thread_id` — survives as evidence;
+`/diff` and `/undo` are unreachable once the thread itself is gone.
+
+Deleting the owner also **expires** the completed, un-reversed pre-images of
+that thread (`expired_at_ms`), so the CAS collector can reclaim those bytes
+without deleting the row. Incomplete effects keep their pre-image: they are the
+only record of a mutation that may have run before the thread was removed. This
+is the same "expire bytes, never rows" rule as §8; a direct
+`DELETE FROM workspace_effects` remains refused.
+
 ## Related
 
 - [ADR-0008](0008-single-tool-contract.md) — the single tool contract this extends.

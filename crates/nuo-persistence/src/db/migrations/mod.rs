@@ -9,6 +9,7 @@ pub mod types;
 pub mod v01_v15;
 pub mod v16_v25;
 pub mod v26_v30;
+pub mod v31_v35;
 
 pub use catalog::MIGRATIONS;
 pub use runner::*;
@@ -16,3 +17,4 @@ pub use types::*;
 pub use v01_v15::*;
 pub use v16_v25::*;
 pub use v26_v30::*;
+pub use v31_v35::*;

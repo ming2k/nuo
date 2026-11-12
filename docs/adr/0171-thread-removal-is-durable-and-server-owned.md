@@ -56,9 +56,10 @@ shim keeps it.
 
 ### 2. Removal is role-scoped by ADR-0170
 
-`rm --all` deletes the current role's history in the current workspace. It is
-not a global drop. The scope expands only through the explicit
-`--all-workspaces` / `--all-roles` flags from ADR-0170.
+`rm --all` deletes the current role's history in its resolved workspace. It is
+not a global drop. `--workspace` selects another binding for an `inherit` role;
+`--all-roles` expands the role dimension inside one workspace; `--global` is the
+explicit every-role × every-binding admin scope.
 
 A single-id removal uses the target's own stored role and workspace. An
 optional `--role` acts as a guard: a mismatch is refused with the target's real

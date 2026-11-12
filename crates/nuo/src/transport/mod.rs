@@ -24,8 +24,7 @@ use tokio_util::codec::Framed;
 pub use nuo_protocol::discovery::{Discovery, ServerInfo};
 pub use nuo_protocol::version::{
     ERR_PROTOCOL_MISMATCH, ERR_VERSION_MISMATCH, VersionRelation, compare_versions,
-    incompatibility_error, protocol_accepts, protocol_mismatch, server_image_is_current,
-    version_mismatch, versions_compatible,
+    protocol_accepts, protocol_mismatch, version_mismatch,
 };
 pub use nuo_protocol::{
     AttachAction, ControlRequest, MIN_PROTOCOL_VERSION, NativeWireCodec, PROTOCOL_VERSION,

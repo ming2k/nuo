@@ -123,13 +123,19 @@ fn default_scope() -> String {
 
 /// Where a declared role expects to run.
 ///
-/// A role declaration's workspace policy: run anywhere, inherit the caller's
-/// workspace, or require exactly one. Deserialized from a plain string
-/// (`"none"`, `"inherit"`, or a path), which is why the `Deserialize` impl is
-/// hand-written rather than derived.
+/// This is a *resolution policy*, not a stored binding. `Unbound` means the
+/// role has no workspace at all (it is not a wildcard); `Inherit` resolves to
+/// the workspace of the invocation that creates the thread; `Fixed` is a
+/// constant path. A thread snapshots the resolved `workspace_root` at birth and
+/// never re-resolves this policy, so the two bound variants are
+/// indistinguishable once the thread exists.
+///
+/// Deserialized from a plain string (`"none"`/`"unbound"`, `"inherit"`, or a
+/// path), which is why the `Deserialize` impl is hand-written rather than
+/// derived.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoleWorkspace {
-    None,
+    Unbound,
     Inherit,
     Fixed(std::path::PathBuf),
 }
@@ -137,7 +143,7 @@ pub enum RoleWorkspace {
 impl RoleWorkspace {
     pub fn parse(value: &str) -> Self {
         match value.trim() {
-            "none" => RoleWorkspace::None,
+            "none" | "unbound" => RoleWorkspace::Unbound,
             "inherit" => RoleWorkspace::Inherit,
             other => RoleWorkspace::Fixed(std::path::PathBuf::from(other)),
         }
@@ -145,7 +151,7 @@ impl RoleWorkspace {
 
     /// Whether this policy demands a workspace binding.
     pub fn requires_binding(&self) -> bool {
-        !matches!(self, RoleWorkspace::None)
+        !matches!(self, RoleWorkspace::Unbound)
     }
 }
 
@@ -165,7 +171,9 @@ impl Serialize for RoleWorkspace {
         S: serde::Serializer,
     {
         match self {
-            Self::None => serializer.serialize_str("none"),
+            // Keep the historical spelling: existing `roles.toml` files and
+            // persisted role manifests already carry `"none"`.
+            Self::Unbound => serializer.serialize_str("none"),
             Self::Inherit => serializer.serialize_str("inherit"),
             Self::Fixed(path) => serializer.serialize_str(&path.to_string_lossy()),
         }
@@ -184,11 +192,21 @@ pub struct CustomRole {
     pub name: String,
     pub description: Option<String>,
     pub instructions: Option<String>,
-    pub workspace: Option<RoleWorkspace>,
+    /// Resolution policy, not an optional value: an omitted field means
+    /// [`RoleWorkspace::Inherit`], while an explicit `workspace = "none"`
+    /// means [`RoleWorkspace::Unbound`]. Keeping this a plain enum (instead of
+    /// `Option<RoleWorkspace>`) removes the two-Nones-with-opposite-meaning
+    /// ambiguity from the manifest and config boundary.
+    #[serde(default = "default_role_workspace")]
+    pub workspace: RoleWorkspace,
     #[serde(default = "default_tools")]
     pub tools: Vec<String>,
     #[serde(default = "default_admit_mcp")]
     pub admit_mcp: Vec<String>,
+}
+
+fn default_role_workspace() -> RoleWorkspace {
+    RoleWorkspace::Inherit
 }
 
 fn default_tools() -> Vec<String> {
@@ -210,7 +228,7 @@ impl Default for CustomRole {
             name: String::new(),
             description: None,
             instructions: None,
-            workspace: None,
+            workspace: RoleWorkspace::Inherit,
             tools: default_tools(),
             admit_mcp: default_admit_mcp(),
         }
@@ -218,9 +236,10 @@ impl Default for CustomRole {
 }
 
 impl CustomRole {
-    /// The role's workspace policy, with the documented default.
+    /// The role's workspace policy. The field is already defaulted by serde;
+    /// this accessor exists so callers never need to know the encoding.
     pub fn resolved_workspace(&self) -> RoleWorkspace {
-        self.workspace.clone().unwrap_or(RoleWorkspace::Inherit)
+        self.workspace.clone()
     }
 
     /// The identity bound at agent construction.
@@ -242,6 +261,14 @@ impl CustomRole {
     pub fn validate(&mut self, id: &str) -> Result<(), String> {
         if self.name.trim().is_empty() {
             self.name = id.to_string();
+        }
+        if let RoleWorkspace::Fixed(root) = &self.workspace
+            && !root.is_absolute()
+        {
+            return Err(format!(
+                "workspace fixed path '{}' must be absolute",
+                root.display()
+            ));
         }
         Ok(())
     }
@@ -328,10 +355,34 @@ mod tests {
                 "round trip must preserve {raw}: {encoded}"
             );
         }
+        assert_eq!(
+            RoleWorkspace::parse("unbound"),
+            RoleWorkspace::Unbound,
+            "the explicit spelling is accepted even though `none` is serialized"
+        );
         let fixed = RoleWorkspace::parse("/srv/project");
         assert_eq!(fixed, RoleWorkspace::Fixed("/srv/project".into()));
         assert!(fixed.requires_binding());
         assert!(!RoleWorkspace::parse("none").requires_binding());
+    }
+
+    #[test]
+    fn omitted_workspace_defaults_to_inherit_and_explicit_none_is_unbound() {
+        let omitted: CustomRole = toml::from_str("name = \"omitted\"").unwrap();
+        assert_eq!(omitted.workspace, RoleWorkspace::Inherit);
+        let unbound: CustomRole = toml::from_str("name = \"free\"\nworkspace = \"none\"").unwrap();
+        assert_eq!(unbound.workspace, RoleWorkspace::Unbound);
+        let fixed: CustomRole =
+            toml::from_str("name = \"pin\"\nworkspace = \"/srv/repo\"").unwrap();
+        assert_eq!(fixed.workspace, RoleWorkspace::Fixed("/srv/repo".into()));
+    }
+
+    #[test]
+    fn a_relative_fixed_workspace_is_refused_at_load() {
+        let mut role: CustomRole =
+            toml::from_str("name = \"pin\"\nworkspace = \"relative/repo\"").unwrap();
+        let error = role.validate("pin").unwrap_err();
+        assert!(error.contains("must be absolute"), "{error}");
     }
 
     #[test]

@@ -3,8 +3,8 @@
 //! control plane (owner-only native local IPC by default, TCP + bearer token
 //! with `--public`) so TUI/CLI/web clients can drive, observe, and manage them.
 //!
-//! Vocabulary: the *role* is the **server**; `nuo start --fg` runs
-//! it in the foreground and `nuo start` detaches it.
+//! Vocabulary: the *role* is the **server**; `nuo server start --fg` runs
+//! it in the foreground and `nuo server start` detaches it.
 //!
 //! # Lifecycle (ADR-0034)
 //!
@@ -354,7 +354,7 @@ async fn run_inner(
         // rebuilt binary apart from a live one by content, not just by path.
         image_digest: image_identity.as_ref().map(|(_, digest)| digest.clone()),
         image_len: image_identity.as_ref().map(|(len, _)| *len),
-        // Publish the drain budget so `nuo stop` waits *this*
+        // Publish the drain budget so `nuo server stop` waits *this*
         // server's grace before escalating: an early SIGTERM
         // would force-exit the server and skip the very session teardown
         // the stop requested.
@@ -390,7 +390,7 @@ async fn run_inner(
         eprintln!("nuo: health probe on http://{bind}:{port}/healthz");
     }
     eprintln!(
-        "nuo: observe with `nuo status --watch`, drive with `nuo attach [id]`, stop with `nuo stop`"
+        "nuo: observe with `nuo status --watch`, drive with `nuo attach [id]`, stop with `nuo server stop`"
     );
     if handle.token.is_some() {
         // Never print the token itself: it is a credential and stderr lands

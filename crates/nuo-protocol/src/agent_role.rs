@@ -296,7 +296,7 @@ impl SessionRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
-            workspace: Some(crate::policy_schema::RoleWorkspace::Inherit),
+            workspace: Some(MainAgentRole::Developer.workspace_policy()),
             created_at_s: 0,
         }
     }
@@ -315,7 +315,7 @@ impl SessionRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: Vec::new(),
-            workspace: Some(crate::policy_schema::RoleWorkspace::None),
+            workspace: Some(MainAgentRole::Philosophist.workspace_policy()),
             created_at_s: 0,
         }
     }
@@ -336,7 +336,7 @@ impl SessionRoleManifest {
                 .map(|t| t.as_str().to_string())
                 .collect(),
             admit_mcp: vec!["*".to_string()],
-            workspace: Some(crate::policy_schema::RoleWorkspace::None),
+            workspace: Some(MainAgentRole::Ops.workspace_policy()),
             created_at_s: 0,
         }
     }
@@ -427,11 +427,22 @@ impl MainAgentRole {
     }
 
     /// Whether this role requires a filesystem workspace binding.
-    pub fn requires_workspace(self) -> bool {
+    /// The role's workspace resolution policy.
+    ///
+    /// This is the single source of truth for both the built-in manifests and
+    /// the scope resolver; `requires_workspace` is derived from it so the two
+    /// cannot drift.
+    pub fn workspace_policy(self) -> crate::policy_schema::RoleWorkspace {
         match self {
-            MainAgentRole::Developer => true,
-            MainAgentRole::Philosophist | MainAgentRole::Ops => false,
+            MainAgentRole::Developer => crate::policy_schema::RoleWorkspace::Inherit,
+            MainAgentRole::Philosophist | MainAgentRole::Ops => {
+                crate::policy_schema::RoleWorkspace::Unbound
+            }
         }
+    }
+
+    pub fn requires_workspace(self) -> bool {
+        self.workspace_policy().requires_binding()
     }
 
     /// Default confinement posture for this role when starting without an explicit override.

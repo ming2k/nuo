@@ -40,7 +40,7 @@ implementation never returned.
 
 The role system already carried the missing fact. Built-in roles expose
 `requires_workspace()` (`developer` requires one; `philosophist` and `ops` do
-not), and custom roles carry `RoleWorkspace::{None, Inherit, Fixed(path)}`.
+not), and custom roles carry `RoleWorkspace::{Unbound, Inherit, Fixed(path)}`.
 The role policy is the authority: it decides whether a thread is anchored to a
 workspace at all.
 
@@ -79,21 +79,26 @@ pub struct ThreadFilter {
 ```text
 nuo thread ls                                  # developer + current workspace
 nuo thread ls --role philosophist              # philosophist + unbound
-nuo thread ls --role coder --project /repo-a   # coder + /repo-a (inherit)
-nuo thread ls --all-workspaces                 # selected role, every workspace
+nuo thread ls --role coder --workspace /repo-a # coder + /repo-a (inherit)
+nuo thread ls --global                         # every role, every workspace
 nuo thread ls --all-roles                      # every role, current workspace
-nuo thread ls --all-roles --all-workspaces     # explicit global admin view
+nuo thread ls --global --role developer         # developer, every workspace
 ```
 
 - `--role` defaults to `developer`.
 - A workspace-requiring role without a project context is an error.
-- A workspace-free role with `--project` is an error, not a silent ignore.
+- A workspace-free role with `--project` or `--workspace` is an error, not a
+  silent ignore.
 - An unknown role is an error. It never falls back to `developer`.
 - Built-in aliases (`dev`, `sre`, `philosopher`, …) canonicalize before they
   become a scope key. Custom role ids are preserved verbatim.
-- `--all-workspaces` expands the workspace dimension only.
-- `--all-roles` expands the role dimension only.
-- Both flags together are the only path to a global scope.
+- `--workspace` is the second stage and requires an explicit `--role`: it
+  selects another binding for an `inherit` role and confirms (or is omitted
+  for) a `fixed` one. It is never a free-form rebind and never implied by the
+  default role.
+- `--all-roles` expands the role dimension inside one workspace.
+- `--global` is the explicit every-role × every-binding admin scope; it cannot
+  be combined with `--workspace` or `--all-roles`.
 
 ### 3. `thread ls` reads history, not the live monitor
 
@@ -136,11 +141,16 @@ later `roles.toml` edit cannot reinterpret an existing thread's binding.
   `RoleWorkspace` policy, not cwd alone, decides whether a workspace is
   required, unbound, or fixed.
 - **`[INV-SCOPE-03]` No Silent Global**: A global scope is reachable only via
-  explicit `--all-roles --all-workspaces`. Neither flag alone is global.
+  an explicit `--global` (or the equivalent admin selector). `--all` and
+  `--all-roles` alone are never global.
 - **`[INV-SCOPE-04]` Unknown Role Refused**: Scoped operations MUST reject an
   unknown role instead of falling back to `developer`.
 - **`[INV-SCOPE-05]` Workspace-First Is Retired**: `SessionPartition` and any
   query that drops the role when a workspace exists MUST NOT exist.
+- **`[INV-SCOPE-06]` Thread Scope Is Write-Once**: A thread's role and resolved
+  workspace are immutable for its lifetime. `/role` resumes or starts a thread
+  owned by the target role; it never rebinds the current transcript. The
+  durable rule is enforced by `trg_thread_policy_scope_immutable`.
 
 ## Consequences
 
@@ -165,3 +175,21 @@ later `roles.toml` edit cannot reinterpret an existing thread's binding.
   thread when the default developer scope is purged, and delete it only under
   `--role coder`.
 - `cargo check --workspace --all-targets` is clean.
+
+## Amendment (2026-11-12): explicit policy, explicit global, write-once scope
+
+- `RoleWorkspace::None` is renamed `Unbound` (serde keeps `"none"`; `"unbound"`
+  is accepted) and its doc no longer says "run anywhere". `CustomRole` carries a
+  plain `RoleWorkspace` with `inherit` as the serde default, removing the two
+  `None`s-with-opposite-meaning encoding. Built-in roles expose
+  `workspace_policy()` and derive `requires_workspace()` from it.
+- `Fixed` paths must be absolute. (Resolving a relative path against the
+  process cwd made the binding depend on where the command happened to run.)
+- The CLI no longer exposes the workspace dimension as a boolean expansion.
+  `--workspace <path>` selects another binding for an `inherit` role and is
+  refused for `unbound`/`fixed`; `--all-roles` expands roles inside one
+  workspace; `--global` is the explicit every-role × every-binding scope and
+  may be narrowed by `--role`. `--all-workspaces` is retired.
+- `[INV-SCOPE-06]` makes the thread scope write-once in the schema, not only in
+  the command path. `/role` still switches threads; it never rebinds the
+  current one.

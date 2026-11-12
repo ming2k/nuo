@@ -119,7 +119,7 @@ The redundant parser in `nuo-tui/src/cli.rs` is eradicated. The entrypoint in `n
 The thread management surface is standardized under `nuo thread`:
 
 ```text
-nuo thread ls [--role <id>] [--json] [--hosted] [--all-workspaces] [--all-roles]
+nuo thread ls [--role <id>] [--workspace <path>] [--json] [--hosted] [--all-roles] [--global]
 nuo thread stop <id> | --all
 nuo thread rm <id> | --all
 ```
@@ -128,7 +128,7 @@ nuo thread rm <id> | --all
   - Columns: `THREAD ID`, `ROLE`, `WORKSPACE`, `STATUS`, `ROUNDS`, `TOKENS`, `UPDATED`, `TITLE`.
   - `--role` defaults to `developer`; its workspace policy binds it to the current project.
   - Durable rows (including suspended/post-restart history) merge with resident drivers; `--hosted` narrows to resident drivers.
-  - `--all-workspaces` and `--all-roles` are explicit scope expansions (ADR-0170).
+  - `--workspace` selects another binding for an `inherit` role; `--all-roles` expands every role in one workspace; `--global` is the explicit every-role × every-binding admin view (ADR-0170).
   - Supports `--json` for automation.
 - **Canonical Noun**: All help text, completion scripts, and reference documentation advertise `thread`.
 - **Silent Backward Compatibility**: `session` remains supported at the parser level as an unadvertised, zero-cost alias for `thread` (`names: &["thread", "session"]`).

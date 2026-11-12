@@ -26,7 +26,7 @@
 //!   project, one [`registry::HostedThread`] per assembled harness, and
 //!   lazily resumes persisted sessions on attach.
 //! - [`host`] is the server runtime; the `nuo` binary runs it via
-//!   `nuo start --fg`, or a frontend starts it on demand.
+//!   `nuo server start --fg`, or a frontend starts it on demand.
 //! - Clients — the `nuo-tui` TUI and headless CLI — talk to the server over
 //!   the [`serve`] WebSocket/UDS control plane: owner-only native IPC by default
 //!   (a Unix domain socket or Windows Named Pipe), plus TCP with a bearer

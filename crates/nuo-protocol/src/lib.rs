@@ -39,7 +39,7 @@ pub mod version;
 pub use version::{
     ERR_PROTOCOL_MISMATCH, ERR_SESSION_GONE, ERR_SESSION_UNRESUMABLE, ERR_VERSION_MISMATCH,
     VersionRelation, compare_versions, incompatibility_error, protocol_accepts, protocol_mismatch,
-    server_image_is_current, version_mismatch, versions_compatible,
+    version_mismatch, versions_compatible,
 };
 pub mod cache;
 pub use cache::{

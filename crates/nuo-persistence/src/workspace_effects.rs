@@ -604,6 +604,30 @@ pub fn expire_preimages(
     Ok(expired)
 }
 
+/// Expire the live pre-images of one thread that is being deleted.
+///
+/// The journal rows themselves are append-only evidence and survive the
+/// thread (`INV-EFFECT-01`); expiring their bytes lets the CAS collector reclaim
+/// them without pretending the observed change never happened. Incomplete
+/// effects keep their pre-image: they are the only record of a mutation that
+/// may have run before the thread was removed.
+pub(crate) fn expire_thread_preimages(
+    conn: &Connection,
+    thread_id: &str,
+    now_ms: u64,
+) -> Result<usize, PersistenceError> {
+    let expired = conn.execute(
+        "UPDATE workspace_effects
+            SET expired_at_ms = ?1
+          WHERE thread_id = ?2
+            AND expired_at_ms IS NULL
+            AND completed_at_ms IS NOT NULL
+            AND reversed_at_ms IS NULL",
+        params![now_ms as i64, thread_id],
+    )?;
+    Ok(expired)
+}
+
 /// How many pre-images are live, and how many are past the window but not yet
 /// expired. Reporting only; the collector acts on the derived live set.
 pub fn preimage_posture(

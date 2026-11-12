@@ -508,4 +508,33 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 30,
         sql: "",
     },
+    Migration {
+        // Remove the FTS write triggers migration 28 intended to drop.
+        //
+        // Migration 24 re-created the membership pair as
+        // `trg_entries_membership_ai`/`trg_entries_membership_ad`, names
+        // migration 28 did not know. They survived, keeping FTS indexing on the
+        // commit path (`[INV-DERIVED-01]`) and making a full rewrite's
+        // `DELETE ... WHERE session_id` scan the whole FTS content table.
+        version: 31,
+        sql: "",
+    },
+    Migration {
+        // A thread's role and workspace are its durable identity, not a
+        // mutable preference. `/role` switches to a thread of the target role;
+        // it never rebinds the current one. This trigger enforces the rule for
+        // every writer, including a future path that bypasses the CLI.
+        version: 32,
+        sql: "",
+    },
+    Migration {
+        // The workspace-effect journal is append-only evidence and must outlive
+        // the thread it describes. The original table declared
+        // `thread_id REFERENCES threads(id) ON DELETE CASCADE`, which made every
+        // thread delete with journaled mutations fail on the no-delete trigger.
+        // Rebuild the table without the reference; the journal keeps its
+        // thread_id as evidence.
+        version: 33,
+        sql: "",
+    },
 ];

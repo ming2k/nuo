@@ -665,7 +665,7 @@ pub async fn run_attached(
                             .map(|endpoint| endpoint.to_string())
                             .unwrap_or_else(|| format!("port {}", info.port));
                         eprintln!(
-                            "nuo: detached from hosted server (PID {}, {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo stop",
+                            "nuo: detached from hosted server (PID {}, {}).\n  • Reconnect:   nuo\n  • Terminate:   nuo server stop",
                             info.pid, endpoint
                         );
                     }

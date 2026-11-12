@@ -55,20 +55,23 @@ Open the full-screen fleet dashboard (`/dashboard` or `d` via Help `[F1 / Alt-h]
 
 Thread operations are role-scoped. `--role` defaults to `developer`, whose
 workspace policy binds it to the current project. A workspace-free role such as
-`philosophist` or `ops` resolves to its unbound history instead.
+`philosophist` or `ops` resolves to its unbound history instead. A thread is
+owned by exactly one role for its lifetime: there is no command that rebinds an
+existing transcript.
 
 ```bash
 # Developer history in this project (the default scope).
 nuo thread ls
 nuo thread ls --json
 
-# A different role, or a different workspace binding.
+# A different role, or another workspace binding for an inherited role.
 nuo thread ls --role philosophist
-nuo thread ls --role coder --project /repo-a
+nuo thread ls --role coder --workspace /repo-a
 
-# Explicit expansion: one role across workspaces, or every role in this one.
-nuo thread ls --role developer --all-workspaces
+# Explicit expansion: every role in this workspace, or every binding.
 nuo thread ls --all-roles
+nuo thread ls --global
+nuo thread ls --global --role developer
 
 # Runtime-only stop: the driver ends, the transcript remains.
 nuo thread stop <thread_id>
@@ -80,19 +83,22 @@ nuo thread rm <thread_id>
 nuo thread rm --all --dry-run     # preview scope and counts
 nuo thread rm --all               # prompts; default is "no"
 nuo thread rm --all --force       # scripted teardown
+nuo thread rm --global            # every role × every workspace
 ```
 
-`rm --all` deletes only the selected role's history in the selected workspace.
-`--all-workspaces` expands the workspace dimension; `--all-roles` expands the
-role dimension. Both together are the explicit global admin operation. The
-command lists the exact id set first, quotes the role/workspace/count, and then
-sends that set to the server (ADR-0171). Threads created after the snapshot
-survive. Subagent runs belonging to selected parents are deleted with them and
-reported separately.
+`rm --all` deletes the selected role's history in its resolved workspace.
+`--workspace <path>` is the second stage and requires an explicit `--role`: it
+selects another binding when the role's policy is `inherit`, is refused for a
+workspace-free role, and must match a `fixed` one. `--all-roles` expands the
+role dimension inside the current workspace; `--global` is the explicit global
+admin operation (optionally narrowed by `--role`). The command lists the exact
+id set first, quotes the role/workspace/count, and then sends that set to the
+server (ADR-0171). Threads created after the snapshot survive. Subagent runs
+belonging to selected parents are deleted with them and reported separately.
 
-`--force` is only valid with `--all`; `--dry-run` is only valid with `--all`.
-A single-id `rm` uses the thread's stored role and workspace; an explicit
-`--role` acts as a guard and a mismatch is refused.
+`--force` is only valid with `--all` or `--global`; `--dry-run` is likewise
+bulk-only. A single-id `rm` uses the thread's stored role and workspace; an
+explicit `--role` acts as a guard and a mismatch is refused.
 
 `rm` does not remove configuration, credentials, permissions, prompt history,
 usage records, or the workspace effect journal. It removes thread history.

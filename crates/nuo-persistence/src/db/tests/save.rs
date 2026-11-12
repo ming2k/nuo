@@ -188,6 +188,197 @@ fn a_save_enqueues_derived_work_and_a_flush_produces_it() {
     assert_eq!(count_causal_nodes(&engine.conn), 2);
 }
 
+/// A full rewrite purges exactly its own FTS rows, not the whole table.
+///
+/// `fts_entries.session_id` is `UNINDEXED`, so the old
+/// `DELETE FROM fts_entries WHERE session_id = ?` scanned every row in the
+/// database. The derived reset now enumerates the session's membership rowids
+/// (`[INV-DERIVED-06]`) while they still exist. This pins the correctness the
+/// fast path depends on: another session's rows survive untouched, and the
+/// rewritten session is re-indexed by the normal drain.
+#[test]
+fn a_full_rewrite_purges_only_its_own_fts_rows() {
+    use nuo_protocol::{Message, Role, TranscriptEntry};
+
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut other = crate::session::SessionData {
+        id: "other-session".to_string(),
+        ..Default::default()
+    };
+    other.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::User, "other dialogue"),
+    ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &other).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &other.id).unwrap();
+
+    let mut rewritten = crate::session::SessionData {
+        id: "rewritten-session".to_string(),
+        ..Default::default()
+    };
+    rewritten.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::User, "old one"),
+    ));
+    rewritten.transcript.push(TranscriptEntry::from_message(
+        1,
+        &Message::new(Role::Assistant, "old two"),
+    ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &rewritten).unwrap();
+    crate::db::derived::flush_session(&engine.conn, &rewritten.id).unwrap();
+
+    let fts_for = |id: &str| -> i64 {
+        engine
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM fts_entries WHERE session_id = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(fts_for(&other.id), 1);
+    assert_eq!(fts_for(&rewritten.id), 2);
+
+    // Replace the transcript (the shape a compaction fallback / resume takes).
+    rewritten.transcript = nuo_protocol::Transcript::new();
+    rewritten.transcript.push(TranscriptEntry::from_message(
+        0,
+        &Message::new(Role::User, "new one"),
+    ));
+    rewritten.generation = uuid::Uuid::new_v4().to_string();
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &rewritten).unwrap();
+
+    assert_eq!(fts_for(&other.id), 1, "another session was collateral");
+    assert_eq!(fts_for(&rewritten.id), 0, "the rewrite's old rows must go");
+    crate::db::derived::flush_session(&engine.conn, &rewritten.id).unwrap();
+    assert_eq!(
+        fts_for(&rewritten.id),
+        1,
+        "the new transcript is re-indexed"
+    );
+}
+
+/// A thread's role and workspace binding are write-once.
+///
+/// `ThreadScope` is the thread's durable identity (ADR-0170); `/role` switches
+/// to a thread of the target role instead of rebinding the current one. The
+/// database trigger makes that true for every writer, so a bug cannot silently
+/// move a conversation into another role's history bucket.
+#[test]
+fn a_thread_scope_cannot_be_rebound() {
+    use nuo_protocol::Message;
+
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData {
+        id: "immutable-scope".to_string(),
+        role: Some("developer".to_string()),
+        workspace: Some(nuo_protocol::WorkspaceBinding::new("/repo/a")),
+        ..Default::default()
+    };
+    data.transcript
+        .push(nuo_protocol::TranscriptEntry::from_message(
+            0,
+            &Message::new(nuo_protocol::Role::User, "hello"),
+        ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+
+    // The same scope is always writable.
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+
+    let mut rebound_role = data.clone();
+    rebound_role.role = Some("ops".to_string());
+    let error =
+        session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &rebound_role)
+            .expect_err("a role change must be refused");
+    assert!(
+        error.to_string().contains("immutable"),
+        "expected the immutability guard, got: {error}"
+    );
+
+    let mut rebound_workspace = data.clone();
+    rebound_workspace.workspace = Some(nuo_protocol::WorkspaceBinding::new("/repo/b"));
+    let error = session_store::save_session_full(
+        &engine.conn,
+        engine.blob_store.as_ref(),
+        &rebound_workspace,
+    )
+    .expect_err("a workspace change must be refused");
+    assert!(
+        error.to_string().contains("immutable"),
+        "expected the immutability guard, got: {error}"
+    );
+
+    // The durable scope is still the original one.
+    let reloaded = session_store::load_session_full(&engine.conn, &data.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(reloaded.role.as_deref(), Some("developer"));
+    assert_eq!(
+        reloaded.workspace.as_ref().map(|w| w.root.as_path()),
+        Some(std::path::Path::new("/repo/a"))
+    );
+}
+
+/// Deleting a thread must not cascade into the append-only workspace journal.
+///
+/// The original `workspace_effects.thread_id` declared `ON DELETE CASCADE`
+/// while `trg_workspace_effects_no_delete` correctly refuses every row delete,
+/// so a thread that had journaled a file mutation could never be removed. The
+/// journal keeps its observation (and thread id) as evidence; only the
+/// pre-image bytes are expired so the CAS collector can reclaim them.
+#[test]
+fn deleting_a_thread_keeps_its_workspace_journal_rows() {
+    use nuo_protocol::{Message, Role};
+
+    let engine = DatabaseEngine::open_in_memory().unwrap();
+    let mut data = crate::session::SessionData {
+        id: "thread-with-effects".to_string(),
+        role: Some("developer".to_string()),
+        workspace: Some(nuo_protocol::WorkspaceBinding::new("/repo/a")),
+        ..Default::default()
+    };
+    data.transcript
+        .push(nuo_protocol::TranscriptEntry::from_message(
+            0,
+            &Message::new(Role::User, "touch a file"),
+        ));
+    session_store::save_session_full(&engine.conn, engine.blob_store.as_ref(), &data).unwrap();
+
+    engine
+        .conn
+        .execute(
+            "INSERT INTO workspace_effects (
+                thread_id, round_id, turn_id, call_id, seq, tool_name, path, op,
+                effect_class, before_hash, after_hash, completed_at_ms, created_at_ms
+             ) VALUES (?1, 'r1', 't1', 'call1', 0, 'edit_text', '/repo/a/file',
+                       'edit', 'file_bytes', 'before', 'after', 1000, 1000)",
+            rusqlite::params![data.id],
+        )
+        .unwrap();
+
+    assert!(session_store::delete_session(&engine.conn, &data.id).unwrap());
+    assert!(
+        session_store::load_session_full(&engine.conn, &data.id)
+            .unwrap()
+            .is_none(),
+        "the thread row must be gone"
+    );
+    let (rows, expired): (i64, i64) = engine
+        .conn
+        .query_row(
+            "SELECT COUNT(*), COUNT(expired_at_ms) FROM workspace_effects WHERE thread_id = ?1",
+            rusqlite::params![data.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(rows, 1, "the journal observation is append-only evidence");
+    assert_eq!(
+        expired, 1,
+        "its pre-image bytes are released for collection"
+    );
+}
+
 fn dialogue_chain_len(conn: &Connection, session_id: &str) -> usize {
     let mut current = crate::db::ir_mirror::newest_position(conn, session_id)
         .unwrap()

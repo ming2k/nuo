@@ -107,7 +107,7 @@ pub struct ServeHandle {
     pub tasks: Arc<crate::shutdown::TaskBook>,
     pub token: Option<String>,
     /// The server's shutdown gate: `ControlRequest::Shutdown` (the
-    /// `nuo stop` verb) funnels into it like any other trigger.
+    /// `nuo server stop` verb) funnels into it like any other trigger.
     pub gate: Arc<ShutdownGate>,
     /// This server build's version, echoed to clients during handshake
     /// version negotiation (rule 4).
@@ -143,8 +143,8 @@ pub fn protocol_mismatch_error(client: u32, client_version: Option<&str>) -> Str
         format!(
             "client/server wire protocol mismatch: client protocol {client} is newer \
              than this server's protocol {current}. \
-             Stop the server and let it restart on demand: `nuo stop`, then rerun \
-             this command (or `nuo start` to bring it up explicitly){builds}.",
+             Stop the server and let it restart on demand: `nuo server stop`, then rerun \
+             this command (or `nuo server start` to bring it up explicitly){builds}.",
             current = PROTOCOL_VERSION
         )
     }

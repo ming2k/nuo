@@ -159,6 +159,12 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
     // was what used to reclaim FTS rows. With derived indexing off the hot path
     // the deletion is explicit and ordered before the owning row disappears.
     crate::db::derived::purge_session(conn, session_id)?;
+    // The workspace-effect journal is append-only evidence and deliberately has
+    // no foreign key to `threads`: deleting the conversation must not rewrite
+    // or erase what it did to the filesystem. Expiring the pre-image bytes lets
+    // the CAS collector reclaim them without deleting the observation.
+    let _ =
+        crate::workspace_effects::expire_thread_preimages(conn, session_id, crate::db::unix_ms());
     let affected = conn.execute("DELETE FROM threads WHERE id = ?1", params![session_id])?;
     Ok(affected > 0)
 }
@@ -372,6 +378,17 @@ pub(crate) fn save_session_inner(
         )?;
 
         if full {
+            // Derived views are reset while the *old* membership rows are
+            // still present: FTS rows are deleted by their membership rowid
+            // (`INV-DERIVED-06`), and a `WHERE session_id` predicate on the
+            // UNINDEXED FTS column scans the whole index. The reset also
+            // enqueues the rebuild for the transcript being written below.
+            crate::db::derived::reset_for_rebuild(
+                conn,
+                &data.id,
+                data.transcript.entries.last().map(|entry| entry.seq),
+                crate::db::unix_ms(),
+            )?;
             // Projection decisions: the session's own view history.
             conn.execute(
                 "DELETE FROM projections WHERE session_id = ?1",
@@ -464,15 +481,10 @@ pub(crate) fn save_session_inner(
         // durable transcript and enqueues the session; the causal mirror and
         // FTS index are advanced off the hot path by
         // `derived::advance_batch` (idle) or `derived::flush_session` (a reader
-        // that needs them). A full rewrite resets both views first: entry
-        // identities and sequences restarted, so every derived row is stale by
-        // construction.
-        let through = data.transcript.entries.last().map(|entry| entry.seq);
-        let now_ms = crate::db::unix_ms();
-        if full {
-            crate::db::derived::reset_for_rebuild(conn, &data.id, through, now_ms)?;
-        } else if let Some(through) = through {
-            crate::db::derived::enqueue(conn, &data.id, through, now_ms)?;
+        // that needs them). A full rewrite reset both views above, before the
+        // membership rows it addresses were replaced; a delta only enqueues.
+        if !full && let Some(through) = data.transcript.entries.last().map(|entry| entry.seq) {
+            crate::db::derived::enqueue(conn, &data.id, through, crate::db::unix_ms())?;
         }
 
         // D3: the revision advance and the receipt land in the

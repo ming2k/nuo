@@ -496,6 +496,43 @@ fn server_program() -> PathBuf {
     PathBuf::from(format!("nuo{}", std::env::consts::EXE_SUFFIX))
 }
 
+/// Whether the running server's executable is still the resolved `nuo` core
+/// image.
+///
+/// ADR-0021: when the record publishes a content digest, content is the only
+/// authority; otherwise fall back to the Linux inode probe. A missing or
+/// unreadable installed image is "no evidence", never drift.
+pub fn server_image_is_current(info: &ServerInfo) -> bool {
+    let expected = server_program();
+    if !expected.is_file() {
+        return true;
+    }
+    if let Some(published) = info.image_digest.as_deref() {
+        let Some((len, digest)) = nuo_host::process::image_digest_len(&expected) else {
+            return true;
+        };
+        let len_matches = info
+            .image_len
+            .is_none_or(|expected_len| expected_len == len);
+        return len_matches && digest.eq_ignore_ascii_case(published);
+    }
+    nuo_host::process::process_image_matches_path(info.pid, &expected)
+}
+
+/// Check whether the discovered server is compatible with this client.
+///
+/// The image verdict is computed here (the side that owns process/filesystem
+/// access) and handed to `nuo-protocol`, which only combines it with the
+/// protocol and product-version signals.
+pub fn versions_compatible(info: &ServerInfo) -> bool {
+    nuo_protocol::version::versions_compatible(info, server_image_is_current(info))
+}
+
+/// The actionable error for a discovered-but-incompatible server.
+pub fn incompatibility_error(info: &ServerInfo) -> String {
+    nuo_protocol::version::incompatibility_error(info, server_image_is_current(info))
+}
+
 pub fn configure_server_detachment(command: &mut std::process::Command) {
     nuo_host::process::configure_server_std(command);
 }

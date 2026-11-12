@@ -138,6 +138,28 @@ cross-store transaction story, not as a preprocessing step.
   index back inside the commit.
 - **Do not** write FTS or a causal node from `save_session_inner`. The outbox is
   the only derived write a commit may perform.
+- **Do not** filter `fts_entries` by `session_id`. It is an `UNINDEXED` FTS5
+  column, so the predicate scans the whole content table. Delete by the
+  membership rowid (`[INV-DERIVED-06]`) while those rows still exist.
+
+## Amendment (2026-11-12): the migration missed the live trigger names
+
+Migration 28 dropped `trg_memberships_*` and `trg_entries_*`, but migration 24's
+thread-canonical rebuild had re-created the same membership triggers as
+`trg_entries_membership_ai`/`_ad`. They survived, so the invariant this ADR
+declares was silently violated on every database: commits still wrote FTS
+inline, and `reset_for_rebuild`'s `DELETE FROM fts_entries WHERE session_id = ?`
+scanned the entire index. On the live database (≈400 k rows, ≈1 GB of FTS
+state) that scan took 8–9 s on a new session's first save — the visible
+`● saving request` stall.
+
+Migration 31 drops every trigger on `entries`/`entry_memberships` that writes
+`fts_entries`, including names this catalog did not anticipate. The FTS delete
+paths (`reset_for_rebuild`, `purge_session`) now resolve rowids from
+`entry_memberships` before the membership rewrite or thread delete removes
+them, and `reset_for_rebuild` runs **before** those rows are replaced. A
+570-message full rewrite measures 8.4 s → 0.2 s; a new session's first save
+~150 ms → ~30 ms.
 - **Do not** read `causal_nodes`/`fts_entries` on a path that did not flush and
   call the result current.
 - **Do not** split the database without a transaction spanning both stores.

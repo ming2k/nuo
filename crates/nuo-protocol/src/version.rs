@@ -2,7 +2,6 @@
 
 use crate::discovery::Discovery;
 use crate::{MIN_PROTOCOL_VERSION, PROTOCOL_VERSION};
-use std::path::{Path, PathBuf};
 
 /// Stable machine-readable error codes.
 pub const ERR_PROTOCOL_MISMATCH: &str = "protocol_mismatch";
@@ -59,15 +58,18 @@ pub fn compare_versions(client: &str, server: &str) -> VersionRelation {
 /// protocol number outside this client's window, then the
 /// dev-drift explanation (same version, replaced binary), and falling
 /// back to the product-version message for legacy records.
-pub fn incompatibility_error(info: &Discovery) -> String {
+///
+/// `server_image_is_current` is supplied by the client because deciding it
+/// requires reading the executable image (ADR-0021), which belongs to the
+/// host layer rather than this zero-I/O contract crate.
+pub fn incompatibility_error(info: &Discovery, server_image_is_current: bool) -> String {
     if info.protocol.is_some_and(|p| !protocol_accepts(p)) {
         protocol_mismatch(info)
-    } else if info.version.as_deref() == Some(env!("CARGO_PKG_VERSION"))
-        && !server_image_is_current(info)
+    } else if info.version.as_deref() == Some(env!("CARGO_PKG_VERSION")) && !server_image_is_current
     {
         format!(
             "client/server binary mismatch: running server (pid {}, version {}) executable differs from the installed nuo core image (rebuilt binary). \
-             Stop it with `nuo stop` and rerun — the server restarts on demand.",
+             Stop it with `nuo server stop` and rerun — the server restarts on demand.",
             info.pid,
             env!("CARGO_PKG_VERSION")
         )
@@ -83,7 +85,7 @@ pub fn version_mismatch(info: &Discovery) -> String {
     let Some(server_ver) = info.version.as_deref() else {
         return format!(
             "client/server version mismatch: this client is {client_ver} but the running server (pid {}) is unknown (older than 0.24). \
-             Stop it with `nuo stop` and rerun — the server restarts on demand at the new version.",
+             Stop it with `nuo server stop` and rerun — the server restarts on demand at the new version.",
             info.pid
         );
     };
@@ -91,7 +93,7 @@ pub fn version_mismatch(info: &Discovery) -> String {
     match compare_versions(client_ver, server_ver) {
         VersionRelation::ClientNewer => format!(
             "client/server version mismatch: running server (pid {}, version {server_ver}) is older than this client ({client_ver}). \
-             Stop it with `nuo stop` and rerun — the server restarts on demand at the new version.",
+             Stop it with `nuo server stop` and rerun — the server restarts on demand at the new version.",
             info.pid
         ),
         VersionRelation::ClientOlder => format!(
@@ -99,25 +101,15 @@ pub fn version_mismatch(info: &Discovery) -> String {
              Please update your nuo client to {server_ver} or newer.",
             info.pid
         ),
-        VersionRelation::Equal => {
-            if !server_image_is_current(info) {
-                format!(
-                    "client/server binary mismatch: running server (pid {}, version {server_ver}) executable differs from the installed nuo core image (rebuilt binary). \
-                     Stop it with `nuo stop` and rerun — the server restarts on demand.",
-                    info.pid
-                )
-            } else {
-                format!(
-                    "client/server version mismatch: client {client_ver} vs server {server_ver}. \
-                     Stop the server and let it restart on demand: `nuo stop`, then rerun \
-                     this command (or `nuo start` to bring it up explicitly)."
-                )
-            }
-        }
+        VersionRelation::Equal => format!(
+            "client/server version mismatch: client {client_ver} vs server {server_ver}. \
+             Stop the server and let it restart on demand: `nuo server stop`, then rerun \
+             this command (or `nuo server start` to bring it up explicitly)."
+        ),
         VersionRelation::Unknown => format!(
             "client/server version mismatch: client {client_ver} vs server {server_ver}. \
-             Stop the server and let it restart on demand: `nuo stop`, then rerun \
-             this command (or `nuo start` to bring it up explicitly)."
+             Stop the server and let it restart on demand: `nuo server stop`, then rerun \
+             this command (or `nuo server start` to bring it up explicitly)."
         ),
     }
 }
@@ -129,7 +121,7 @@ pub fn protocol_mismatch(info: &Discovery) -> String {
     let Some(server_proto) = info.protocol else {
         return format!(
             "protocol mismatch: this client speaks protocol {client_proto} but the running server (pid {}) declares no protocol. \
-             Stop it with `nuo stop` and rerun — the server restarts on demand.",
+             Stop it with `nuo server stop` and rerun — the server restarts on demand.",
             info.pid
         );
     };
@@ -137,7 +129,7 @@ pub fn protocol_mismatch(info: &Discovery) -> String {
     if server_proto < min_proto {
         format!(
             "protocol mismatch: running server (pid {}, protocol {server_proto}) is older than the minimum supported by this client ({min_proto}..={client_proto}). \
-             Stop it with `nuo stop` and rerun — the server restarts on demand.",
+             Stop it with `nuo server stop` and rerun — the server restarts on demand.",
             info.pid
         )
     } else {
@@ -149,12 +141,17 @@ pub fn protocol_mismatch(info: &Discovery) -> String {
     }
 }
 
-/// Check if running server is compatible with this client.
-pub fn versions_compatible(info: &Discovery) -> bool {
+/// Check if a running server is compatible with this client.
+///
+/// `server_image_is_current` is the client's ADR-0021 verdict: the running
+/// server's executable must still be the image this client would spawn. The
+/// caller computes it from the discovery record and the installed binary; this
+/// crate only combines that verdict with the protocol/version signals.
+pub fn versions_compatible(info: &Discovery, server_image_is_current: bool) -> bool {
     local_pair_compatible(
         info.protocol,
         info.version.as_deref(),
-        server_image_is_current(info),
+        server_image_is_current,
     )
 }
 
@@ -188,83 +185,6 @@ pub fn local_pair_compatible(
     // unknown fields are ignored on the wire, so exact equality is the only
     // claim that can be checked.
     version.is_some_and(|v| v == env!("CARGO_PKG_VERSION"))
-}
-
-/// Whether the running server's executable is still the resolved `nuo` core image.
-pub fn server_image_is_current(info: &Discovery) -> bool {
-    let expected = server_program();
-    if !expected.is_file() {
-        return true;
-    }
-    if info.image_digest.is_some() {
-        return content_matches_record(image_content_digest(&expected), info);
-    }
-    server_image_is_current_by_inode(info.pid)
-}
-
-fn content_matches_record(installed: Option<(u64, String)>, info: &Discovery) -> bool {
-    let Some(published) = info.image_digest.as_deref() else {
-        return true;
-    };
-    match installed {
-        Some((len, digest)) => {
-            let len_matches = info
-                .image_len
-                .is_none_or(|expected_len| expected_len == len);
-            len_matches && digest.eq_ignore_ascii_case(published)
-        }
-        None => true,
-    }
-}
-
-fn server_image_is_current_by_inode(pid: u32) -> bool {
-    let expected = server_program();
-    if !expected.is_file() {
-        return true;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let exe_link = std::path::Path::new("/proc")
-            .join(pid.to_string())
-            .join("exe");
-        match (std::fs::metadata(&exe_link), std::fs::metadata(&expected)) {
-            (Ok(server), Ok(expected_meta)) => {
-                server.dev() == expected_meta.dev() && server.ino() == expected_meta.ino()
-            }
-            _ => true,
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = pid;
-        true
-    }
-}
-
-fn image_content_digest(path: &Path) -> Option<(u64, String)> {
-    let mut file = std::fs::File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-    let n = file.read(&mut buffer).ok()?;
-    hasher.update(&buffer[..n]);
-    Some((len, format!("{:x}", hasher.finalize())))
-}
-
-fn server_program() -> PathBuf {
-    if let Some(program) = std::env::var_os("NUO_BIN").filter(|value| !value.is_empty()) {
-        return PathBuf::from(program);
-    }
-    if let Ok(current) = std::env::current_exe() {
-        let sibling_nuo = current.with_file_name(format!("nuo{}", std::env::consts::EXE_SUFFIX));
-        if sibling_nuo.is_file() {
-            return sibling_nuo;
-        }
-    }
-    PathBuf::from(format!("nuo{}", std::env::consts::EXE_SUFFIX))
 }
 
 #[cfg(test)]
@@ -366,7 +286,7 @@ mod tests {
         };
         let msg = version_mismatch(&server_older);
         assert!(msg.contains("is older than this client"));
-        assert!(msg.contains("nuo stop"));
+        assert!(msg.contains("nuo server stop"));
 
         let server_newer = Discovery {
             pid: 1234,
@@ -404,6 +324,26 @@ mod tests {
         };
         let msg = version_mismatch(&server_none);
         assert!(msg.contains("unknown (older than 0.24)"));
-        assert!(msg.contains("nuo stop"));
+        assert!(msg.contains("nuo server stop"));
+    }
+
+    #[test]
+    fn incompatibility_error_prefers_protocol_then_image_drift() {
+        let record = |protocol: Option<u32>, version: Option<&str>| Discovery {
+            pid: 1234,
+            protocol,
+            version: version.map(str::to_string),
+            ..Discovery::default()
+        };
+        let same = record(Some(PROTOCOL_VERSION), Some(env!("CARGO_PKG_VERSION")));
+
+        // Same version, stale image: the dev-drift message wins.
+        assert!(incompatibility_error(&same, false).contains("binary mismatch"));
+        // Same version, current image: no drift claim.
+        assert!(!incompatibility_error(&same, true).contains("binary mismatch"));
+
+        // An out-of-window protocol is reported as skew even with a stale image.
+        let skew = record(Some(PROTOCOL_VERSION + 1), Some(env!("CARGO_PKG_VERSION")));
+        assert!(incompatibility_error(&skew, false).contains("protocol mismatch"));
     }
 }

@@ -2,9 +2,15 @@
 //! thread history.
 //!
 //! The scope is `(role, workspace binding)`. `--role` defaults to `developer`,
-//! whose workspace policy binds it to the current project. `ls` reads durable
-//! history, `stop` ends a resident driver and keeps history, and `rm` deletes
-//! history permanently.
+//! whose workspace policy binds it to the current project. The role decides
+//! the binding: `inherit` uses the project (or an explicit `--workspace`),
+//! `fixed` uses its configured path, and `unbound` has none. `--all-roles`
+//! expands the role dimension inside one workspace; `--global` is the explicit
+//! every-role × every-binding admin scope.
+//!
+//! `ls` reads durable history, `stop` ends a resident driver and keeps
+//! history, and `rm` deletes history permanently. A thread's role/workspace
+//! is write-once: neither command can rebind an existing transcript.
 
 use crate::cli::ThreadAction;
 use nuo::transport as client;
@@ -45,6 +51,10 @@ pub async fn run(
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
     let project_root = nuo_host::paths::find_project_root(&raw_root);
+    // Stored bindings are created from the session store's canonical project
+    // root; resolve the query side the same way so a symlinked cwd does not
+    // silently produce an empty scope.
+    let project_root = std::fs::canonicalize(&project_root).unwrap_or(project_root);
 
     match action {
         ThreadAction::Open { id, role } => open_thread(id, role, project_override).await,
@@ -52,8 +62,9 @@ pub async fn run(
             json,
             hosted,
             role,
-            all_workspaces,
+            workspace,
             all_roles,
+            global,
         } => {
             let Some(info) = client::discover(&project_root).await else {
                 if json {
@@ -71,8 +82,9 @@ pub async fn run(
             let filter = resolve_scope_filter(
                 &project_root,
                 role.as_deref(),
-                all_workspaces,
+                workspace.as_deref(),
                 all_roles,
+                global,
                 explicit_project,
             )?;
             let mut rows = client::list_threads(&info, filter.clone()).await?;
@@ -87,16 +99,18 @@ pub async fn run(
             all,
             force,
             role,
-            all_workspaces,
+            workspace,
             all_roles,
+            global,
         } => {
             let info = discover_for_management(&project_root).await?;
             if all {
                 let filter = resolve_scope_filter(
                     &project_root,
                     role.as_deref(),
-                    all_workspaces,
+                    workspace.as_deref(),
                     all_roles,
+                    global,
                     explicit_project,
                 )?;
                 let rows = client::list_threads(&info, filter.clone()).await?;
@@ -118,12 +132,7 @@ pub async fn run(
                 return Ok(());
             }
             let tid = id.ok_or_else(|| "thread stop needs a thread id or --all".to_string())?;
-            let guard = role
-                .as_deref()
-                .map(|role| {
-                    resolve_scope_filter(&project_root, Some(role), false, false, explicit_project)
-                })
-                .transpose()?;
+            let guard = single_id_role_guard(&project_root, role.as_deref(), explicit_project)?;
             let report = client::stop_threads(&info, guard, vec![tid]).await?;
             report_removal("Stopped", &report)
         }
@@ -133,16 +142,18 @@ pub async fn run(
             force,
             dry_run,
             role,
-            all_workspaces,
+            workspace,
             all_roles,
+            global,
         } => {
             let info = discover_for_management(&project_root).await?;
             if all {
                 let filter = resolve_scope_filter(
                     &project_root,
                     role.as_deref(),
-                    all_workspaces,
+                    workspace.as_deref(),
                     all_roles,
+                    global,
                     explicit_project,
                 )?;
                 let rows = client::list_threads(&info, filter.clone()).await?;
@@ -165,12 +176,7 @@ pub async fn run(
                 return Ok(());
             }
             let tid = id.ok_or_else(|| "thread rm needs a thread id or --all".to_string())?;
-            let guard = role
-                .as_deref()
-                .map(|role| {
-                    resolve_scope_filter(&project_root, Some(role), false, false, explicit_project)
-                })
-                .transpose()?;
+            let guard = single_id_role_guard(&project_root, role.as_deref(), explicit_project)?;
             let report = client::purge_threads(&info, guard, vec![tid]).await?;
             report_removal("Removed", &report)
         }
@@ -189,44 +195,124 @@ async fn discover_for_management(
     Ok(info)
 }
 
-/// Resolve the role-first scope from CLI flags. The default role is
-/// `developer`, whose workspace policy binds it to the current project.
+/// Normalize a `--workspace` argument for querying. Historical bindings may
+/// name a directory that no longer exists (the project was removed), so an
+/// unresolvable path is kept as an absolute path rather than refused.
+fn normalize_workspace_arg(path: &std::path::Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(path))
+                .unwrap_or_else(|_| path.to_path_buf())
+        }
+    })
+}
+
+/// Resolve the role-first scope from CLI flags.
+///
+/// The role policy is the authority. `--workspace` only selects a different
+/// binding for an `inherit` role (or confirms a `fixed` one); `--all-roles`
+/// expands the role dimension inside one binding; `--global` is the explicit
+/// every-role × every-binding admin scope.
 fn resolve_scope_filter(
     project_root: &std::path::Path,
     role: Option<&str>,
-    all_workspaces: bool,
+    workspace: Option<&std::path::Path>,
     all_roles: bool,
+    global: bool,
     explicit_project: bool,
 ) -> Result<ThreadFilter, Box<dyn std::error::Error>> {
-    if all_roles && role.is_some() {
-        return Err("--role and --all-roles are mutually exclusive".into());
+    if global {
+        if let Some(role) = role {
+            let (role, _) =
+                nuo_persistence::roles::resolve_role_workspace(Some(role), Some(project_root))?;
+            return Ok(ThreadFilter {
+                role: Some(role),
+                workspace: WorkspaceFilter::Any,
+            });
+        }
+        return Ok(ThreadFilter::global());
     }
     if all_roles {
+        if workspace.is_some() {
+            return Err(
+                "--workspace selects a binding for one role; it cannot be combined with --all-roles"
+                    .into(),
+            );
+        }
         return Ok(ThreadFilter {
             role: None,
-            workspace: if all_workspaces {
-                WorkspaceFilter::Any
-            } else {
-                WorkspaceFilter::Path(project_root.to_path_buf())
-            },
+            workspace: WorkspaceFilter::Path(project_root.to_path_buf()),
         });
     }
-    let scope = nuo_persistence::roles::resolve_thread_scope(role, Some(project_root))?;
-    if scope.workspace.is_none() && explicit_project {
-        return Err(format!(
-            "role '{}' is workspace-free; --project is not applicable",
-            scope.role
-        )
-        .into());
+    if workspace.is_some() && role.is_none() {
+        return Err(
+            "--workspace requires an explicit --role; the default role is not enough".into(),
+        );
     }
-    Ok(if all_workspaces {
-        ThreadFilter {
-            role: Some(scope.role),
-            workspace: WorkspaceFilter::Any,
+
+    let (role, policy) = nuo_persistence::roles::resolve_role_workspace(role, Some(project_root))?;
+    if explicit_project && matches!(policy, nuo_persistence::roles::RoleWorkspace::Unbound) {
+        return Err(format!("role '{role}' is workspace-free; --project is not applicable").into());
+    }
+    let workspace = match (workspace, &policy) {
+        (Some(_), nuo_persistence::roles::RoleWorkspace::Unbound) => {
+            return Err(
+                format!("role '{role}' is workspace-free; --workspace is not applicable").into(),
+            );
         }
-    } else {
-        scope.filter()
+        (Some(selected), nuo_persistence::roles::RoleWorkspace::Fixed(fixed)) => {
+            let selected = normalize_workspace_arg(selected);
+            let fixed_canon = std::fs::canonicalize(fixed).unwrap_or_else(|_| fixed.to_path_buf());
+            if selected != fixed_canon && selected.as_path() != fixed.as_path() {
+                return Err(format!(
+                    "role '{role}' is pinned to '{}'; --workspace must match it or be omitted",
+                    fixed.display()
+                )
+                .into());
+            }
+            // Filter by the declared spelling: that is what the thread row
+            // stored at birth.
+            WorkspaceFilter::Path(fixed.clone())
+        }
+        (Some(selected), nuo_persistence::roles::RoleWorkspace::Inherit) => {
+            WorkspaceFilter::Path(normalize_workspace_arg(selected))
+        }
+        (None, nuo_persistence::roles::RoleWorkspace::Unbound) => WorkspaceFilter::Unbound,
+        (None, nuo_persistence::roles::RoleWorkspace::Fixed(fixed)) => {
+            WorkspaceFilter::Path(fixed.clone())
+        }
+        (None, nuo_persistence::roles::RoleWorkspace::Inherit) => {
+            WorkspaceFilter::Path(project_root.to_path_buf())
+        }
+    };
+    Ok(ThreadFilter {
+        role: Some(role),
+        workspace,
     })
+}
+
+/// A single-id removal already carries the target's stored scope; `--role`
+/// is only a guard, so it must not also pin the current workspace.
+fn single_id_role_guard(
+    project_root: &std::path::Path,
+    role: Option<&str>,
+    explicit_project: bool,
+) -> Result<Option<ThreadFilter>, Box<dyn std::error::Error>> {
+    let Some(role) = role else {
+        return Ok(None);
+    };
+    let (role, policy) =
+        nuo_persistence::roles::resolve_role_workspace(Some(role), Some(project_root))?;
+    if explicit_project && matches!(policy, nuo_persistence::roles::RoleWorkspace::Unbound) {
+        return Err(format!("role '{role}' is workspace-free; --project is not applicable").into());
+    }
+    Ok(Some(ThreadFilter {
+        role: Some(role),
+        workspace: WorkspaceFilter::Any,
+    }))
 }
 
 /// Affirmative confirmation for a destructive scope action. Defaults to
@@ -532,7 +618,7 @@ mod tests {
     #[test]
     fn scope_flags_are_role_first() {
         let project = std::path::Path::new("/repo/a");
-        let developer = resolve_scope_filter(project, None, false, false, false).unwrap();
+        let developer = resolve_scope_filter(project, None, None, false, false, false).unwrap();
         assert_eq!(developer.role.as_deref(), Some("developer"));
         assert_eq!(
             developer.workspace,
@@ -540,15 +626,43 @@ mod tests {
         );
 
         let philosophist =
-            resolve_scope_filter(project, Some("philosophist"), false, false, false).unwrap();
+            resolve_scope_filter(project, Some("philosophist"), None, false, false, false).unwrap();
         assert_eq!(philosophist.role.as_deref(), Some("philosophist"));
         assert_eq!(philosophist.workspace, WorkspaceFilter::Unbound);
 
         assert!(
-            resolve_scope_filter(project, Some("philosophist"), false, false, true).is_err(),
+            resolve_scope_filter(project, Some("philosophist"), None, false, false, true).is_err(),
             "an explicit --project on a workspace-free role must be refused"
         );
-        assert!(resolve_scope_filter(project, Some("no-such-role"), false, false, false).is_err());
+        assert!(
+            resolve_scope_filter(
+                project,
+                Some("philosophist"),
+                Some(std::path::Path::new("/repo/b")),
+                false,
+                false,
+                false
+            )
+            .is_err(),
+            "--workspace on a workspace-free role must be refused"
+        );
+        assert!(
+            resolve_scope_filter(project, Some("no-such-role"), None, false, false, false).is_err()
+        );
+
+        let every_role = resolve_scope_filter(project, None, None, true, false, false).unwrap();
+        assert_eq!(every_role.role, None);
+        assert_eq!(
+            every_role.workspace,
+            WorkspaceFilter::Path(project.to_path_buf())
+        );
+
+        let global = resolve_scope_filter(project, None, None, false, true, false).unwrap();
+        assert!(global.is_global());
+        let global_developer =
+            resolve_scope_filter(project, Some("developer"), None, false, true, false).unwrap();
+        assert_eq!(global_developer.role.as_deref(), Some("developer"));
+        assert!(global_developer.workspace.is_any());
     }
 
     #[test]
