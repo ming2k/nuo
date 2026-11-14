@@ -1,84 +1,17 @@
-//! Constants, record types, and column lists for SQLite migrations.
+//! Record types and runtime constants shared by the persistence layer.
 use serde::{Deserialize, Serialize};
 
 use crate::db::ThreadMessageView;
 
-/// SQLite schema version tracking. Fresh databases jump straight to the latest version.
-pub const CURRENT_DB_VERSION: u32 = 38;
-
-/// SHA-256 fingerprint of the migration catalog (version + SQL of every
-/// entry). Locked by `migration_catalog_fingerprint_is_stable`; see that test
-/// for the discipline this enforces.
-#[cfg(test)]
-pub const MIGRATION_CATALOG_FINGERPRINT: &str =
-    "fe859fbf362131bb3c788f24dcb2a484c4018435a7cf5d6ad04ee727bc99a1dd";
-
 /// Payload size threshold (4 KB) beyond which text content is offloaded to CAS BlobStore.
 pub const CAS_THRESHOLD_BYTES: usize = 4096;
 
-/// Hard cap on retained request-projection records per session. The
-/// archive is forensic, not authoritative: a bounded ring keeps a long session
-/// from growing it without limit.
+/// Hard cap on retained request-projection records per session. The archive is
+/// forensic, not authoritative: a bounded ring keeps a long session from
+/// growing it without limit.
 pub const MAX_RETAINED_REQUEST_PROJECTIONS: usize = 64;
 
-/// A structured database migration step.
-pub struct Migration {
-    pub(crate) version: u32,
-    pub(crate) sql: &'static str,
-}
-
-/// Working-state columns the final `sessions` rebuild must carry,
-/// with their DDL. Shared by the migration-6 repair and the startup schema
-/// guard so the two cannot drift.
-pub const SESSIONS_WORKING_STATE_COLUMNS: &[(&str, &str)] = &[
-    ("provider_connection", "TEXT"),
-    ("round_counter", "INTEGER NOT NULL DEFAULT 0"),
-    ("unattended", "INTEGER NOT NULL DEFAULT 0"),
-    ("disabled_tools", "TEXT NOT NULL DEFAULT '[]'"),
-    ("commands", "TEXT NOT NULL DEFAULT '[]'"),
-    ("round_interrupts", "TEXT NOT NULL DEFAULT '[]'"),
-    // `retry_resolutions` is owned by migration 9, not this conditional
-    // repair list: migration 6's repair runs before migration 9 on an
-    // interim-v5 database and would add the column first, making migration
-    // 9's unconditional `ADD COLUMN` fail with "duplicate column name".
-    ("retry_pending", "TEXT"),
-    ("request_usage_records", "TEXT NOT NULL DEFAULT '[]'"),
-    ("checksum", "INTEGER"),
-    ("schema_version", "INTEGER NOT NULL DEFAULT 13"),
-    ("role_manifest", "TEXT"),
-];
-
-/// Columns persistence v2 added to `sessions`. Guard-only:
-/// migration 7 owns their creation, so the migration-6 repair must not add
-/// them (it runs first and its additions would collide with migration 7's).
-pub const SESSIONS_V2_COLUMNS: &[(&str, &str)] = &[
-    ("digest_anchor", "INTEGER"),
-    ("tree", "TEXT NOT NULL DEFAULT '{}'"),
-    ("transcript_generation", "TEXT"),
-];
-
-/// Identity columns every `sessions` incarnation must carry. Guard-only:
-/// migrations own their creation.
-pub const SESSIONS_IDENTITY_COLUMNS: &[&str] = &[
-    "id",
-    "parent_id",
-    "origin",
-    "title",
-    "created_at_s",
-    "updated_at_s",
-    "workspace_root",
-    "persona",
-    "additional_roots",
-    "msg_count",
-    "last_user_prompt",
-    "digest",
-];
-
-/// Columns the interim version-5 rebuild inherited from the retired
-/// cron/repeat scheduling tranche; removed by the migration-6 repair.
-pub const SESSIONS_RETIRED_COLUMNS: &[&str] = &["scheduled_jobs", "data", "title_manual"];
-
-/// Session record representation in SQLite.
+/// Thread record representation in SQLite.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ThreadRecord {
     pub id: String,

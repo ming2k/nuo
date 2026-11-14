@@ -8,6 +8,16 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
+### Changed
+
+- **The durable schema is a single immutable baseline plus numbered migrations.** The 38-step replay chain, its `if migration.version == N` dispatch ladder, conditional interim repairs, and the `thread_revisions`/`asset_attestations` scaffolding are deleted. A fresh database applies `migrations/0001_baseline.sql` once; later changes are new numbered artifacts. This is a clean break: databases written by the retired chain have no `schema_migrations` ledger and are refused with a path-bearing error instead of being migrated ([ADR-0189](docs/adr/0189-immutable-baseline-plus-numbered-migrations.md)).
+- **The schema is verified structurally on every open.** The live `sqlite_master` (tables, indexes, views, triggers, constraints) is compared byte-for-byte with an in-memory build of the compiled catalog; a missing, extra, or edited object refuses the open and names the object and database path. The baseline uses `STRICT` tables, `json_valid` checks on JSON columns, explicit foreign-key cascades, and `thread_id` for fact/projection scope ([ADR-0190](docs/adr/0190-schema-integrity-is-verified-structurally-at-open.md)).
+- **No `nuo db` administration surface.** There is no `db status/check/repair/backup/migrate` command. Persistence failures are fail-fast, path-bearing errors handled through the existing session-preparation path; recovery is a file-level backup or moving the database aside ([ADR-0191](docs/adr/0191-persistence-failure-is-fail-fast-without-a-database-cli.md)).
+
+### Removed
+
+- The `v01_v15`, `v16_v25`, `v26_v30`, and `v31_v35` migration modules, the version-dispatch ladder, the interim-v5 repair, the `sessions` schema guard, the migration catalog fingerprint, and the legacy usage-ledger importer.
+
 ## [0.0.87] - 2026-11-14
 
 ### Changed

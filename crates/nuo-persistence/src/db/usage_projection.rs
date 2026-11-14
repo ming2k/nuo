@@ -71,7 +71,7 @@ pub(crate) fn insert_request_projection(
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     conn.execute(
         "INSERT OR REPLACE INTO request_projections
-            (session_id, round, turn, created_at_ms, payload)
+            (thread_id, round, turn, created_at_ms, payload)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             session_id,
@@ -83,10 +83,10 @@ pub(crate) fn insert_request_projection(
     )?;
     conn.execute(
         "DELETE FROM request_projections
-         WHERE session_id = ?1
+         WHERE thread_id = ?1
            AND rowid NOT IN (
                SELECT rowid FROM request_projections
-               WHERE session_id = ?1
+               WHERE thread_id = ?1
                ORDER BY created_at_ms DESC, rowid DESC
                LIMIT ?2
            )",
@@ -104,7 +104,7 @@ pub(crate) fn load_request_projections(
     limit: usize,
 ) -> Result<Vec<nuo_protocol::RequestProjection>> {
     let mut stmt = conn.prepare(
-        "SELECT payload FROM request_projections WHERE session_id = ?1
+        "SELECT payload FROM request_projections WHERE thread_id = ?1
          ORDER BY created_at_ms ASC, rowid ASC LIMIT ?2",
     )?;
     let rows = stmt.query_map(params![session_id, limit as i64], |row| {

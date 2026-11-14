@@ -1,20 +1,20 @@
-//! Schema catalog and migration machinery (0186/0187/0236).
+//! Database schema catalog, migration execution, ledger, and verification.
 //!
-//! Split out of `db.rs`; still inside `nuo-persistence::db`, so
-//! one-door boundary is unchanged.
+//! The DB is a single embedded SQLite file with one writer. Its durable schema
+//! is an immutable baseline plus numbered migrations (ADR-0189). A database
+//! either matches a version this binary knows exactly, or it is refused; there
+//! is no legacy replay and no silent repair.
 
+mod apply;
 pub mod catalog;
+mod history;
 pub mod runner;
 pub mod types;
-pub mod v01_v15;
-pub mod v16_v25;
-pub mod v26_v30;
-pub mod v31_v35;
+mod verify;
 
-pub use catalog::MIGRATIONS;
+pub use catalog::{CURRENT_DB_VERSION, MIGRATIONS, Migration};
 pub use runner::*;
-pub use types::*;
-pub use v01_v15::*;
-pub use v16_v25::*;
-pub use v26_v30::*;
-pub use v31_v35::*;
+pub use types::{
+    CAS_THRESHOLD_BYTES, HistorySearchResult, MAX_RETAINED_REQUEST_PROJECTIONS, ThreadRecord,
+    ThreadTranscriptView,
+};
