@@ -53,14 +53,19 @@ database to "repair" it. Starting fresh is an explicit user action (move the
 file aside). This is also why the clean-break cut refuses pre-baseline files
 rather than converting them (ADR-0189).
 
-### 4. Future migrations own their backup story
+### 4. Pending migrations snapshot the database first
 
-The baseline cut has no pending migration, so there is nothing to snapshot yet.
-A future numbered migration MUST add an upgrade test from the previous release
-and a tested backup/restore path before it ships. The migration transaction
-itself is atomic: a failure leaves the database at the previous version. The
-runner will not grow a generic repair mode; a migration that cannot be applied
-is a release blocker, not an operator puzzle.
+Before applying any pending migration to an existing database, the runner
+creates a `VACUUM INTO` snapshot beside the file, named
+`<db>.pre-v<N>.<timestamp>.bak`. If the snapshot fails, the upgrade is refused;
+the only copy is never put at risk. A brand-new database needs no snapshot:
+the baseline is its first state. The v1→v2 migration and its backup are covered
+by an upgrade test.
+
+A future numbered migration still owns its upgrade test and any data-shape
+fixtures, but the backup is a runner invariant, not a per-migration
+afterthought. The runner will not grow a generic repair mode; a migration that
+cannot be applied is a release blocker, not an operator puzzle.
 
 ## Consequences
 

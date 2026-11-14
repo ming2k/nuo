@@ -17,9 +17,9 @@ use rusqlite::{Connection, OptionalExtension, Result, TransactionBehavior, param
 use tracing::{info, warn};
 
 use super::apply::execute_body;
-use super::catalog::CURRENT_DB_VERSION;
-use super::catalog::MIGRATIONS;
+use super::catalog::NUO_SCHEMA;
 use super::history;
+use super::schema::Schema;
 use super::verify;
 
 /// Open a database file and bring it to the current schema.
@@ -30,7 +30,8 @@ pub(crate) fn initialize_db(db_path: &Path) -> Result<Connection> {
 
     let mut conn = Connection::open(db_path)?;
     configure_connection(&mut conn)?;
-    migrate_schema(&mut conn).map_err(|error| with_database_path(error, db_path))?;
+    migrate_schema_with(&mut conn, &NUO_SCHEMA, Some(db_path))
+        .map_err(|error| with_database_path(error, db_path))?;
 
     Ok(conn)
 }
@@ -53,8 +54,19 @@ pub(crate) fn initialize_connection_schema(
     conn: &mut Connection,
     db_path: Option<&Path>,
 ) -> Result<()> {
+    initialize_schema(conn, &NUO_SCHEMA, db_path)
+}
+
+/// Apply one schema's standard catalog to an already-open connection. Used by
+/// secondary durable databases (`role_memory.db`) so they share the same
+/// baseline/ledger/verification path (ADR-0192).
+pub(crate) fn initialize_schema(
+    conn: &mut Connection,
+    schema: &Schema,
+    db_path: Option<&Path>,
+) -> Result<()> {
     configure_connection(conn)?;
-    migrate_schema(conn).map_err(|error| match db_path {
+    migrate_schema_with(conn, schema, db_path).map_err(|error| match db_path {
         Some(path) => with_database_path(error, path),
         None => error,
     })
@@ -118,50 +130,78 @@ fn now_ms() -> u64 {
         .map_or(0, |duration| duration.as_millis() as u64)
 }
 
-/// Bring `conn` to the current schema, or refuse it.
+/// Bring `nuo.db` to the current schema, or refuse it.
 pub fn migrate_schema(conn: &mut Connection) -> Result<()> {
+    migrate_schema_with(conn, &NUO_SCHEMA, None)
+}
+
+/// Path-aware variant for `nuo.db`: a pending migration backs up the file
+/// first (ADR-0191).
+pub(crate) fn migrate_schema_at(conn: &mut Connection, db_path: Option<&Path>) -> Result<()> {
+    migrate_schema_with(conn, &NUO_SCHEMA, db_path)
+}
+
+/// Bring one schema to its current version.
+pub(crate) fn migrate_schema_with(
+    conn: &mut Connection,
+    schema: &Schema,
+    db_path: Option<&Path>,
+) -> Result<()> {
     let version = user_version(conn)?;
     let ledger = history::ledger_exists(conn)?;
 
     if version == 0 && !ledger {
         if has_user_schema(conn)? {
-            return Err(history::incompatible(
-                "database has tables but no migration ledger; it was written by the retired \
+            return Err(history::incompatible(format!(
+                "{}: database has tables but no migration ledger; it was written by the retired \
                  pre-baseline migration chain",
-            ));
+                schema.name
+            )));
         }
-        apply_pending(conn)?;
+        apply_pending(conn, schema, db_path)?;
     } else {
         if !ledger {
             return Err(history::incompatible(format!(
-                "PRAGMA user_version is {version} but the migration ledger is missing; \
-                 the database was written by the retired pre-baseline migration chain"
+                "{}: PRAGMA user_version is {version} but the migration ledger is missing; \
+                 the database was written by the retired pre-baseline migration chain",
+                schema.name
             )));
         }
-        if version > CURRENT_DB_VERSION {
+        if version > schema.current_version {
             return Err(history::incompatible(format!(
-                "database schema v{version} is newer than this binary (v{CURRENT_DB_VERSION}); \
-                 upgrade nuo to open it"
+                "{}: database schema v{version} is newer than this binary (v{}); \
+                 upgrade nuo to open it",
+                schema.name, schema.current_version
             )));
         }
-        history::validate(conn, version)?;
-        apply_pending(conn)?;
+        history::validate(conn, version, schema)?;
+        apply_pending(conn, schema, db_path)?;
         let version = user_version(conn)?;
-        history::validate(conn, version)?;
+        history::validate(conn, version, schema)?;
     }
 
-    verify::verify(conn)
+    verify::verify(conn, schema)
 }
 
 /// Apply every migration above the ledger's last row in one transaction.
-fn apply_pending(conn: &mut Connection) -> Result<()> {
+fn apply_pending(conn: &mut Connection, schema: &Schema, db_path: Option<&Path>) -> Result<()> {
     let applied = history::read_applied(conn)?;
-    if history::next_pending(&applied).is_empty() {
+    let pending = history::next_pending(&applied, schema);
+    if pending.is_empty() {
         return Ok(());
     }
 
+    // A brand-new database needs no backup: the baseline is the first state.
+    // An existing database is snapshotted before any pending migration, and a
+    // failed backup aborts the upgrade rather than risking the only copy.
+    if !applied.is_empty()
+        && let Some(path) = db_path
+    {
+        backup_before_migration(conn, path, pending[0].version)?;
+    }
+
     conn.pragma_update(None, "foreign_keys", "OFF")?;
-    let outcome = apply_pending_transaction(conn);
+    let outcome = apply_pending_transaction(conn, schema);
     // Enforcement is a per-connection invariant installed by
     // `configure_connection`; restore it even when the migration fails.
     let restore = conn.pragma_update(None, "foreign_keys", "ON");
@@ -173,7 +213,7 @@ fn apply_pending(conn: &mut Connection) -> Result<()> {
     Ok(())
 }
 
-fn apply_pending_transaction(conn: &mut Connection) -> Result<()> {
+fn apply_pending_transaction(conn: &mut Connection, schema: &Schema) -> Result<()> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // The ledger is infrastructure, created in the same transaction as the
     // baseline it records: a failed first migration leaves no half-created
@@ -184,15 +224,16 @@ fn apply_pending_transaction(conn: &mut Connection) -> Result<()> {
     // ledger while this process waited.
     let version = tx.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let applied = history::read_applied(&tx)?;
-    history::validate(&tx, version)?;
+    history::validate(&tx, version, schema)?;
 
-    let pending = history::next_pending(&applied);
+    let pending = history::next_pending(&applied, schema);
     if pending.is_empty() {
         return Ok(());
     }
 
     for migration in pending {
         info!(
+            schema = schema.name,
             version = migration.version,
             name = migration.name,
             "applying database migration"
@@ -212,7 +253,8 @@ fn apply_pending_transaction(conn: &mut Connection) -> Result<()> {
 
     tx.commit()?;
     info!(
-        version = CURRENT_DB_VERSION,
+        schema = schema.name,
+        version = schema.current_version,
         "database schema is up-to-date"
     );
     Ok(())
@@ -266,7 +308,8 @@ pub(crate) fn migrate_to_for_tests(conn: &mut Connection, through: u32) -> Resul
     configure_connection(conn)?;
     history::ensure_ledger(conn)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    for migration in MIGRATIONS
+    for migration in NUO_SCHEMA
+        .migrations
         .iter()
         .filter(|migration| migration.version <= through)
     {
@@ -275,6 +318,39 @@ pub(crate) fn migrate_to_for_tests(conn: &mut Connection, through: u32) -> Resul
         tx.pragma_update(None, "user_version", migration.version)?;
     }
     tx.commit()
+}
+
+/// Snapshot the database before a pending migration. `VACUUM INTO` is a
+/// consistent copy while the connection is idle and is safe with WAL. The
+/// backup keeps the pre-migration `user_version` and ledger, so restoring it is
+/// a plain file replacement.
+fn backup_before_migration(conn: &Connection, db_path: &Path, next_version: u32) -> Result<()> {
+    let stamp = now_ms();
+    let file_name = db_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "nuo.db".to_string());
+    let backup = db_path.with_file_name(format!("{file_name}.pre-v{next_version}.{stamp}.bak"));
+    let backup_str = backup.to_str().ok_or_else(|| {
+        history::incompatible(format!(
+            "pre-migration backup path is not valid UTF-8: {}",
+            backup.display()
+        ))
+    })?;
+
+    conn.execute("VACUUM INTO ?1", params![backup_str])
+        .map_err(|error| {
+            history::incompatible(format!(
+                "could not create pre-migration backup at {}: {error}; refusing to migrate",
+                backup.display()
+            ))
+        })?;
+    info!(
+        backup = %backup.display(),
+        next_version,
+        "created pre-migration database backup"
+    );
+    Ok(())
 }
 
 fn with_database_path(error: rusqlite::Error, db_path: &Path) -> rusqlite::Error {

@@ -8,7 +8,7 @@
 use sha2::{Digest, Sha256};
 
 /// Current durable schema version. A new migration bumps this to its version.
-pub const CURRENT_DB_VERSION: u32 = 1;
+pub const CURRENT_DB_VERSION: u32 = 2;
 
 /// One immutable schema step.
 pub struct Migration {
@@ -60,12 +60,22 @@ impl Migration {
     }
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "baseline",
-    code_revision: 1,
-    body: Body::Sql(include_str!("../../../migrations/0001_baseline.sql")),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "baseline",
+        code_revision: 1,
+        body: Body::Sql(include_str!("../../../migrations/0001_baseline.sql")),
+    },
+    Migration {
+        version: 2,
+        name: "drop_derived_thread_columns",
+        code_revision: 1,
+        body: Body::Sql(include_str!(
+            "../../../migrations/0002_drop_derived_thread_columns.sql"
+        )),
+    },
+];
 
 /// Immutability guard for the baseline file. The ledger checksum already
 /// catches an edit on an existing database; this constant catches it before a
@@ -73,3 +83,6 @@ pub const MIGRATIONS: &[Migration] = &[Migration {
 #[cfg(test)]
 pub const BASELINE_CHECKSUM: &str =
     "cbaae58782a16955a53a50887ee498efd8864b57f4b3aa40ddc9caa67a052226";
+
+pub static NUO_SCHEMA: super::schema::Schema =
+    super::schema::Schema::new("nuo.db", MIGRATIONS, CURRENT_DB_VERSION);

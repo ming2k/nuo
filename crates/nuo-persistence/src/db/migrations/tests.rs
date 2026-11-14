@@ -108,5 +108,28 @@ fn checksum_covers_sql_bytes() {
 #[test]
 fn a_baseline_database_matches_the_expected_schema() {
     let conn = super::runner::open_in_memory_for_tests().unwrap();
-    verify::verify(&conn).unwrap();
+    verify::verify(&conn, &super::catalog::NUO_SCHEMA).unwrap();
+}
+
+#[test]
+fn role_memory_uses_the_same_baseline_and_ledger_contract() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    super::runner::initialize_schema(&mut conn, &super::role_memory::ROLE_MEMORY_SCHEMA, None)
+        .unwrap();
+
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, super::role_memory::CURRENT_DB_VERSION);
+    let ledger_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(ledger_rows, 1);
+    assert_eq!(
+        super::role_memory::MIGRATIONS[0].checksum(),
+        super::role_memory::BASELINE_CHECKSUM
+    );
+    verify::verify(&conn, &super::role_memory::ROLE_MEMORY_SCHEMA).unwrap();
 }

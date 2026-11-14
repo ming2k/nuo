@@ -137,13 +137,25 @@ cargo test -p nuo-tests --test integration
    start fresh.
 4. An existing database validates every applied checksum and the ledger
    prefix.
-5. Pending migrations run in one `BEGIN IMMEDIATE` transaction; each writes its
+5. Before any pending migration on an existing file, the runner writes a
+   `VACUUM INTO` snapshot named `<db>.pre-v<N>.<timestamp>.bak`. A failed
+   snapshot aborts the upgrade.
+6. Pending migrations run in one `BEGIN IMMEDIATE` transaction; each writes its
    ledger row and `user_version` stamp in that same transaction.
-6. `foreign_key_check` runs after commit; `quick_check` runs only when
+7. `foreign_key_check` runs after commit; `quick_check` runs only when
    migrations were applied.
-7. `sqlite_master` is compared with an in-memory build of the catalog. Any
+8. `sqlite_master` is compared with an in-memory build of the catalog. Any
    missing, extra, or changed object refuses the open and names the object and
    database path.
+
+## Secondary durable databases
+
+The runner is schema-agnostic. `role_memory.db` has its own baseline
+(`migrations/role_memory/0001_baseline.sql`) and catalog
+(`src/db/migrations/role_memory.rs`), and goes through the same ledger,
+checksum, backup, and structural verification (ADR-0192). Do not add
+`CREATE TABLE IF NOT EXISTS` to a durable store; add a numbered migration to
+that schema's catalog.
 
 ## Do not
 

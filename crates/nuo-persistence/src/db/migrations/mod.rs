@@ -8,14 +8,17 @@
 mod apply;
 pub mod catalog;
 mod history;
+pub mod role_memory;
 pub mod runner;
+pub mod schema;
 pub mod types;
 mod verify;
 
-pub use catalog::{CURRENT_DB_VERSION, MIGRATIONS, Migration};
+pub use catalog::{CURRENT_DB_VERSION, MIGRATIONS, Migration, NUO_SCHEMA};
 #[cfg(test)]
 pub(crate) use runner::migrate_to_for_tests;
 pub use runner::*;
+pub use schema::{Schema, SchemaObject};
 pub use types::{
     CAS_THRESHOLD_BYTES, HistorySearchResult, MAX_RETAINED_REQUEST_PROJECTIONS, ThreadRecord,
     ThreadTranscriptView,

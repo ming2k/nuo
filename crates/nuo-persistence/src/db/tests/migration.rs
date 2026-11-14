@@ -9,7 +9,7 @@ fn fresh_db_migrates_to_baseline() {
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(CURRENT_DB_VERSION, 1);
+    assert_eq!(CURRENT_DB_VERSION, 2);
 
     let (name, checksum): (String, String) = conn
         .query_row(
@@ -24,7 +24,7 @@ fn fresh_db_migrates_to_baseline() {
     let ledger_rows: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(ledger_rows, 1);
+    assert_eq!(ledger_rows, 2);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn reopening_a_baseline_database_is_a_noop() {
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .unwrap();
     assert_eq!(version, CURRENT_DB_VERSION);
-    assert_eq!(ledger_rows, 1);
+    assert_eq!(ledger_rows, 2);
 }
 
 #[test]
@@ -118,7 +118,82 @@ fn concurrent_openers_apply_the_baseline_once() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(ledger_rows, 1, "the baseline must be applied exactly once");
+    assert_eq!(ledger_rows, 2, "the catalog must be applied exactly once");
+}
+
+#[test]
+fn migration_2_removes_derived_columns_and_keeps_the_list_projection() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    migrate_to_for_tests(&mut conn, 1).unwrap();
+
+    conn.execute_batch(
+        r#"
+        INSERT INTO threads(id, created_at_ms, updated_at_ms) VALUES('t1', 1, 1);
+        INSERT INTO thread_policies(thread_id, workspace_root, updated_at_ms)
+            VALUES('t1', '/tmp', 1);
+        INSERT INTO causal_nodes(id, thread_id, seq, kind, payload_json, timestamp_ms)
+            VALUES('f1', 't1', 1, 'dialogue',
+                   '{"type":"message","message":{"role":"User","content":"hello"}}', 1);
+        "#,
+    )
+    .unwrap();
+
+    migrate_schema(&mut conn).unwrap();
+
+    let columns: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM pragma_table_info('threads')")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect()
+    };
+    assert!(!columns.iter().any(|column| column == "msg_count"));
+    assert!(!columns.iter().any(|column| column == "last_user_prompt"));
+
+    let (count, prompt): (i64, Option<String>) = conn
+        .query_row(
+            "SELECT msg_count, last_user_prompt FROM thread_list_view WHERE id = 't1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(prompt.as_deref(), Some("hello"));
+}
+
+#[test]
+fn pending_migration_creates_a_pre_migration_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nuo.db");
+    let mut conn = Connection::open(&path).unwrap();
+    migrate_to_for_tests(&mut conn, 1).unwrap();
+    conn.execute(
+        "INSERT INTO threads(id, created_at_ms, updated_at_ms) VALUES('t1', 1, 1)",
+        [],
+    )
+    .unwrap();
+
+    crate::db::migrations::runner::migrate_schema_at(&mut conn, Some(&path)).unwrap();
+
+    let backups: Vec<std::path::PathBuf> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.to_string_lossy().contains(".pre-v2."))
+        .collect();
+    assert_eq!(backups.len(), 1, "expected one pre-v2 backup: {backups:?}");
+
+    let backup = Connection::open(&backups[0]).unwrap();
+    let version: u32 = backup
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 1, "the backup must be the pre-migration state");
+    let threads: i64 = backup
+        .query_row("SELECT COUNT(*) FROM threads", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(threads, 1);
 }
 
 #[test]

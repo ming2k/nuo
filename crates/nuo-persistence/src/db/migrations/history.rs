@@ -7,7 +7,8 @@
 
 use rusqlite::{Connection, Result, params};
 
-use super::catalog::{CURRENT_DB_VERSION, MIGRATIONS, Migration};
+use super::catalog::Migration;
+use super::schema::Schema;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppliedMigration {
@@ -81,28 +82,30 @@ pub fn insert_applied(
     Ok(())
 }
 
-/// Validate the ledger against the compiled catalog and the fast version gate.
+/// Validate the ledger against one schema's catalog and version gate.
 ///
 /// The applied set must be an exact prefix of the catalog: no gaps, no unknown
 /// versions, no checksum drift. A database that fails this test was written by
 /// a different binary (or edited by hand); it is not repaired silently.
-pub fn validate(conn: &Connection, user_version: u32) -> Result<()> {
+pub fn validate(conn: &Connection, user_version: u32, schema: &Schema) -> Result<()> {
     let applied = read_applied(conn)?;
 
-    if applied.len() > MIGRATIONS.len() {
+    if applied.len() > schema.migrations.len() {
         return Err(incompatible(format!(
-            "migration ledger has {} rows but this binary knows only {} migrations",
+            "{}: migration ledger has {} rows but this binary knows only {} migrations",
+            schema.name,
             applied.len(),
-            MIGRATIONS.len()
+            schema.migrations.len()
         )));
     }
 
     for (index, row) in applied.iter().enumerate() {
-        let expected = &MIGRATIONS[index];
+        let expected = &schema.migrations[index];
         if row.version != expected.version {
             return Err(incompatible(format!(
-                "migration ledger row {} is v{} but the catalog expects v{}; \
+                "{}: migration ledger row {} is v{} but the catalog expects v{}; \
                  the database was written by a different migration history",
+                schema.name,
                 index + 1,
                 row.version,
                 expected.version
@@ -110,16 +113,16 @@ pub fn validate(conn: &Connection, user_version: u32) -> Result<()> {
         }
         if row.name != expected.name {
             return Err(incompatible(format!(
-                "migration v{} is named '{}' in the ledger but '{}' in this binary",
-                expected.version, row.name, expected.name
+                "{}: migration v{} is named '{}' in the ledger but '{}' in this binary",
+                schema.name, expected.version, row.name, expected.name
             )));
         }
         let checksum = expected.checksum();
         if row.checksum != checksum {
             return Err(incompatible(format!(
-                "migration v{} ({}) checksum mismatch: database has {}, binary expects {}; \
+                "{}: migration v{} ({}) checksum mismatch: database has {}, binary expects {}; \
                  the migration body was edited after it shipped",
-                expected.version, expected.name, row.checksum, checksum
+                schema.name, expected.version, expected.name, row.checksum, checksum
             )));
         }
     }
@@ -127,23 +130,25 @@ pub fn validate(conn: &Connection, user_version: u32) -> Result<()> {
     let ledger_version = applied.last().map_or(0, |row| row.version);
     if user_version != ledger_version {
         return Err(incompatible(format!(
-            "PRAGMA user_version is {user_version} but the migration ledger ends at \
-             v{ledger_version}; the database is internally inconsistent"
+            "{}: PRAGMA user_version is {user_version} but the migration ledger ends at \
+             v{ledger_version}; the database is internally inconsistent",
+            schema.name
         )));
     }
 
-    if ledger_version > CURRENT_DB_VERSION {
+    if ledger_version > schema.current_version {
         return Err(incompatible(format!(
-            "database schema v{ledger_version} is newer than this binary (v{CURRENT_DB_VERSION}); \
-             upgrade nuo to open it"
+            "{}: database schema v{ledger_version} is newer than this binary (v{}); \
+             upgrade nuo to open it",
+            schema.name, schema.current_version
         )));
     }
 
     Ok(())
 }
 
-pub fn next_pending(applied: &[AppliedMigration]) -> &'static [Migration] {
-    &MIGRATIONS[applied.len().min(MIGRATIONS.len())..]
+pub fn next_pending(applied: &[AppliedMigration], schema: &Schema) -> &'static [Migration] {
+    &schema.migrations[applied.len().min(schema.migrations.len())..]
 }
 
 pub fn incompatible(message: impl Into<String>) -> rusqlite::Error {

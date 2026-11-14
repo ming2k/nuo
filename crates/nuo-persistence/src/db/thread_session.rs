@@ -14,16 +14,13 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
     conn.execute(
         r#"
         INSERT INTO threads (
-            id, parent_thread_id, origin, title, msg_count, last_user_prompt,
-            digest, created_at_ms, updated_at_ms
+            id, parent_thread_id, origin, title, digest, created_at_ms, updated_at_ms
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 * 1000, ?9 * 1000)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6 * 1000, ?7 * 1000)
         ON CONFLICT(id) DO UPDATE SET
             parent_thread_id = excluded.parent_thread_id,
             origin = excluded.origin,
             title = excluded.title,
-            msg_count = excluded.msg_count,
-            last_user_prompt = excluded.last_user_prompt,
             digest = excluded.digest,
             updated_at_ms = excluded.updated_at_ms;
         "#,
@@ -32,8 +29,6 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
             session.parent_id,
             session.origin,
             session.title.as_deref().unwrap_or(""),
-            session.msg_count,
-            session.last_user_prompt,
             session.digest,
             session.created_at_s,
             session.updated_at_s,
@@ -189,15 +184,12 @@ pub(crate) fn save_session_inner(
 ) -> std::result::Result<u64, SaveError> {
     let fork_str = match data.origin {
         nuo_protocol::ThreadOrigin::Trunk => "trunk",
-        nuo_protocol::ThreadOrigin::Trunk => "fork",
         nuo_protocol::ThreadOrigin::Subagent => "subagent",
     };
     let digest_str = data
         .digest
         .as_ref()
         .and_then(|d| serde_json::to_string(d).ok());
-    let last_prompt = crate::thread::last_effective_prompt_from_data(data);
-    let msg_count = data.transcript.entries.len() as i64;
     let mut thread = crate::thread::thread_from_session_data(data);
     if let Some(blob_store) = blob_store {
         offload_observation_blobs(&mut thread, blob_store)?;
@@ -268,17 +260,15 @@ pub(crate) fn save_session_inner(
             r#"
             INSERT INTO threads (
                 id, parent_thread_id, origin, title, status,
-                active_branch_id, round_counter, msg_count, last_user_prompt,
+                active_branch_id, round_counter,
                 transcript_generation, digest, digest_anchor, checksum,
                 created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12 * 1000, ?13 * 1000)
+            ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
             ON CONFLICT(id) DO UPDATE SET
                 parent_thread_id = excluded.parent_thread_id,
                 origin = excluded.origin,
                 title = excluded.title,
                 round_counter = excluded.round_counter,
-                msg_count = excluded.msg_count,
-                last_user_prompt = excluded.last_user_prompt,
                 transcript_generation = excluded.transcript_generation,
                 digest = excluded.digest,
                 digest_anchor = excluded.digest_anchor,
@@ -291,8 +281,6 @@ pub(crate) fn save_session_inner(
                 fork_str,
                 data.title.as_deref().unwrap_or(""),
                 data.round_counter as i64,
-                msg_count,
-                last_prompt,
                 data.generation,
                 digest_str,
                 data.digest_anchor.map(|a| a as i64),
