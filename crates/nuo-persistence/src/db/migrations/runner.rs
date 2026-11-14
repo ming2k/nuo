@@ -130,7 +130,6 @@ pub fn migrate_schema(conn: &mut Connection) -> Result<()> {
                  pre-baseline migration chain",
             ));
         }
-        history::ensure_ledger(conn)?;
         apply_pending(conn)?;
     } else {
         if !ledger {
@@ -176,6 +175,10 @@ fn apply_pending(conn: &mut Connection) -> Result<()> {
 
 fn apply_pending_transaction(conn: &mut Connection) -> Result<()> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    // The ledger is infrastructure, created in the same transaction as the
+    // baseline it records: a failed first migration leaves no half-created
+    // database state.
+    history::ensure_ledger(&tx)?;
 
     // Re-read inside the write lock: a concurrent opener may have advanced the
     // ledger while this process waited.

@@ -24,8 +24,8 @@ pub fn build_expected(
     conn: &mut Connection,
     migrations: &[super::catalog::Migration],
 ) -> Result<()> {
-    super::history::ensure_ledger(conn)?;
     let tx = conn.transaction()?;
+    super::history::ensure_ledger(&tx)?;
     for migration in migrations {
         execute_body(&tx, &migration.body)?;
     }

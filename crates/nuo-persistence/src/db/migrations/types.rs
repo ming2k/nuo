@@ -49,7 +49,7 @@ pub struct HistorySearchResult {
     pub session_id: String,
     pub workspace_root: Option<String>,
     /// Stored AI/manual title of the owning session, when one exists
-    /// (joined from `sessions.title`).
+    /// (joined from `threads.title`).
     pub session_title: Option<String>,
     pub role: String,
     pub snippet: String,

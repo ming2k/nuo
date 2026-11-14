@@ -513,10 +513,9 @@ fn load_usage_records(
 }
 
 /// Load a full [`crate::thread::ThreadData`] by session ID from SQLite.
-/// Entries and directives whose payloads the current binary cannot decode
-/// are preserved verbatim: they ride in memory as raw rows and
-/// round-trip through every save untouched, so a database written by a
-/// newer binary survives an older binary without loss or orphaning.
+/// Facts are the durable conversation rows; the transcript is projected from
+/// the active branch. A fact the current binary cannot decode fails the load
+/// rather than being silently reinterpreted.
 pub(crate) fn load_session_full(
     conn: &Connection,
     session_id: &str,
