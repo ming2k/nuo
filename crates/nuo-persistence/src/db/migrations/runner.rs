@@ -250,10 +250,5 @@ fn assert_quick_check(conn: &Connection) -> Result<()> {
 }
 
 fn with_database_path(error: rusqlite::Error, db_path: &Path) -> rusqlite::Error {
-    match error {
-        rusqlite::Error::InvalidParameterName(message) => rusqlite::Error::InvalidParameterName(
-            format!("{message}; database: {}", db_path.display()),
-        ),
-        other => other,
-    }
+    rusqlite::Error::InvalidParameterName(format!("{error}; database: {}", db_path.display()))
 }
