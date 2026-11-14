@@ -242,12 +242,10 @@ pub(crate) fn draw_tool_result(
                     let mut start = *start_line;
                     if start == 0
                         && let Some(path) = path_ref
-                    {
-                        if let Some(resolved) =
+                        && let Some(resolved) =
                             find_start_line_in_file(path, ctx.workspace_root, old, new)
-                        {
-                            start = resolved;
-                        }
+                    {
+                        start = resolved;
                     }
                     diff_cache.patch(message_id, old, new, start)
                 }

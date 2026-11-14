@@ -386,31 +386,31 @@ fn parse_shell_output(output: &str) -> (String, Vec<String>) {
 
     // Check for optional harness interruption note at the tail
     let mut harness_interrupted = false;
-    if let Some(last) = raw_lines.last() {
-        if last.starts_with("[terminated by harness:") || last.starts_with("[killed by harness:") {
-            harness_interrupted = true;
-            raw_lines.pop();
-        }
+    if let Some(last) = raw_lines.last()
+        && (last.starts_with("[terminated by harness:") || last.starts_with("[killed by harness:"))
+    {
+        harness_interrupted = true;
+        raw_lines.pop();
     }
 
     // Check for trailing exit code (e.g. `exit 101`)
     if let Some(last) = raw_lines.last() {
         let trimmed_last = last.trim();
-        if let Some(code_str) = trimmed_last.strip_prefix("exit ") {
-            if let Ok(code) = code_str.trim().parse::<i32>() {
-                raw_lines.pop();
-                let status = if code == 0 {
-                    "status: Completed | exit 0".to_string()
-                } else {
-                    format!("status: Failed | exit {code}")
-                };
-                let lines = raw_lines
-                    .into_iter()
-                    .filter(|l| !l.is_empty())
-                    .map(|l| l.to_string())
-                    .collect();
-                return (status, lines);
-            }
+        if let Some(code_str) = trimmed_last.strip_prefix("exit ")
+            && let Ok(code) = code_str.trim().parse::<i32>()
+        {
+            raw_lines.pop();
+            let status = if code == 0 {
+                "status: Completed | exit 0".to_string()
+            } else {
+                format!("status: Failed | exit {code}")
+            };
+            let lines = raw_lines
+                .into_iter()
+                .filter(|l| !l.is_empty())
+                .map(|l| l.to_string())
+                .collect();
+            return (status, lines);
         }
     }
 

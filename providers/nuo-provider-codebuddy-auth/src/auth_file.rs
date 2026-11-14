@@ -117,12 +117,12 @@ pub struct StoredCredentials {
 /// minting realm.
 pub fn read_stored_credentials() -> Option<StoredCredentials> {
     for path in candidate_auth_file_paths() {
-        if path.exists() && path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Some(parsed) = parse_stored(&content) {
-                    return Some(parsed);
-                }
-            }
+        if path.exists()
+            && path.is_file()
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Some(parsed) = parse_stored(&content)
+        {
+            return Some(parsed);
         }
     }
     None
@@ -287,10 +287,10 @@ impl CredentialSource for CodeBuddyByokSource {
             }
 
             // 3. Cached token
-            if let Ok(guard) = self.cached.lock() {
-                if let Some(cached) = guard.as_ref() {
-                    return Ok(cached.clone());
-                }
+            if let Ok(guard) = self.cached.lock()
+                && let Some(cached) = guard.as_ref()
+            {
+                return Ok(cached.clone());
             }
 
             // 4. Stored local credentials — gated on the realm boundary.
@@ -327,10 +327,10 @@ impl CredentialSource for CodeBuddyByokSource {
             return true;
         }
         for env_var in CREDENTIAL_ENV_VARS {
-            if let Ok(val) = std::env::var(env_var) {
-                if !val.trim().is_empty() {
-                    return true;
-                }
+            if let Ok(val) = std::env::var(env_var)
+                && !val.trim().is_empty()
+            {
+                return true;
             }
         }
         read_stored_credentials().is_some()

@@ -427,12 +427,12 @@ pub(crate) fn collect_cached_dynamic_rules()
     let cache = crate::runtime::usage_cache::shared_usage_cache();
     let stores = nuo_model_routing::Stores::load();
     for conn in &stores.connections.connections {
-        if let Some(nuo_protocol::ConnectionUsageState::Available(usage)) = cache.get(&conn.name) {
-            if !usage.model_rules.is_empty() {
-                map.insert(conn.name.clone(), usage.model_rules.clone());
-                map.entry(conn.provider.clone())
-                    .or_insert_with(|| usage.model_rules.clone());
-            }
+        if let Some(nuo_protocol::ConnectionUsageState::Available(usage)) = cache.get(&conn.name)
+            && !usage.model_rules.is_empty()
+        {
+            map.insert(conn.name.clone(), usage.model_rules.clone());
+            map.entry(conn.provider.clone())
+                .or_insert_with(|| usage.model_rules.clone());
         }
     }
     map

@@ -448,10 +448,10 @@ pub fn component_for(name: &str) -> Option<&'static ToolComponent> {
     {
         return Some(component);
     }
-    if let Some((_, base)) = name.split_once(':') {
-        if let Some(component) = component_for(base) {
-            return Some(component);
-        }
+    if let Some((_, base)) = name.split_once(':')
+        && let Some(component) = component_for(base)
+    {
+        return Some(component);
     }
     if name.starts_with("mcp__") {
         return TOOL_COMPONENTS.iter().find(|c| c.id == "mcp");
@@ -466,10 +466,10 @@ pub fn presenter_for(name: &str) -> &'static dyn ToolPresenter {
         if let Some(presenter) = component.presenter_for(name) {
             return presenter;
         }
-        if let Some((_, base)) = name.split_once(':') {
-            if let Some(presenter) = component.presenter_for(base) {
-                return presenter;
-            }
+        if let Some((_, base)) = name.split_once(':')
+            && let Some(presenter) = component.presenter_for(base)
+        {
+            return presenter;
         }
         if component.id == "mcp" {
             return &mcp::McpPresenter;

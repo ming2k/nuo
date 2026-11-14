@@ -382,10 +382,10 @@ pub fn apply_quotas_to_candidates(
             let mut rule_applied = false;
             for rule in &usage.model_rules {
                 if nuo_protocol::simple_glob_matches(&rule.pattern, &candidate.model) {
-                    if let Some(reset_ms) = rule.availability.resets_at_ms {
-                        if now_ms >= reset_ms {
-                            continue;
-                        }
+                    if let Some(reset_ms) = rule.availability.resets_at_ms
+                        && now_ms >= reset_ms
+                    {
+                        continue;
                     }
 
                     candidate.usable = rule.availability.usable;
@@ -415,10 +415,10 @@ pub fn apply_quotas_to_candidates(
                 if bucket.used_fraction < 0.999 {
                     continue;
                 }
-                if let Some(reset_ms) = bucket.reset_at_ms {
-                    if now_ms >= reset_ms {
-                        continue;
-                    }
+                if let Some(reset_ms) = bucket.reset_at_ms
+                    && now_ms >= reset_ms
+                {
+                    continue;
                 }
 
                 let lower_label = bucket.label.to_ascii_lowercase();

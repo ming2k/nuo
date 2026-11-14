@@ -13,10 +13,10 @@ pub fn extract_prominent_arg(args: &serde_json::Map<String, serde_json::Value>) 
     for key in &[
         "path", "file", "url", "uri", "query", "command", "prompt", "text", "name", "id",
     ] {
-        if let Some(val) = args.get(*key) {
-            if let Some(s) = val.as_str() {
-                return Some(format!("{s:?}"));
-            }
+        if let Some(val) = args.get(*key)
+            && let Some(s) = val.as_str()
+        {
+            return Some(format!("{s:?}"));
         }
     }
     for (k, v) in args {

@@ -325,10 +325,11 @@ pub async fn query_provider_quotas(
         .connections
         .iter()
         .filter(|c| {
-            if let Some(ref filter) = provider_filter {
-                if c.provider != *filter && c.auth.negotiated_provider() != Some(filter.as_str()) {
-                    return false;
-                }
+            if let Some(ref filter) = provider_filter
+                && c.provider != *filter
+                && c.auth.negotiated_provider() != Some(filter.as_str())
+            {
+                return false;
             }
             crate::composition::provider_registry::model_provider_spec(&c.provider)
                 .and_then(|s| s.quota)

@@ -180,24 +180,24 @@ pub(crate) fn draw_command_content(
 
     // Part 2: Process Exit Outcome Strip (flush under the output body).
     // Only non-zero exits paint a distinct marker with explanation (ADR-0070 → ADR-0093).
-    if let Some(code) = view.exit {
-        if code != 0 {
-            let expl = exit_code_explanation(code);
-            let m = format!("exit {} ({})", code, expl);
-            let footer_marker_style = Style::default().bg(result_bg).fg(ctx.theme.warn());
-            let _ = body.emit(
-                ctx,
-                mi,
-                block_idx,
-                wrap_w,
-                pad,
-                sel_range,
-                &m,
-                footer_marker_style,
-                0,
-                byte_offset,
-            );
-        }
+    if let Some(code) = view.exit
+        && code != 0
+    {
+        let expl = exit_code_explanation(code);
+        let m = format!("exit {} ({})", code, expl);
+        let footer_marker_style = Style::default().bg(result_bg).fg(ctx.theme.warn());
+        let _ = body.emit(
+            ctx,
+            mi,
+            block_idx,
+            wrap_w,
+            pad,
+            sel_range,
+            &m,
+            footer_marker_style,
+            0,
+            byte_offset,
+        );
     }
 
     // Part 3: Harness Governance Strip (flush beneath Part 2).

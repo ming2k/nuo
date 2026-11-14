@@ -69,10 +69,11 @@ impl BackupManager {
                 .and_then(|n| n.to_str())
                 .unwrap_or_default();
 
-            if file_name.starts_with(BACKUP_PREFIX) && file_name.ends_with(".db") {
-                if let Ok(metadata) = self.inspect_backup(&path) {
-                    entries.push(metadata);
-                }
+            if file_name.starts_with(BACKUP_PREFIX)
+                && file_name.ends_with(".db")
+                && let Ok(metadata) = self.inspect_backup(&path)
+            {
+                entries.push(metadata);
             }
         }
 

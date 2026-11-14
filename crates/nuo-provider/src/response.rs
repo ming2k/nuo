@@ -132,17 +132,17 @@ fn http_error_body_detail(content_type: Option<&str>, body: &str) -> Option<Stri
     if let Some(mut val) = try_repair_truncated_json(trimmed) {
         normalize_json_value(&mut val);
         if let Some(summary) = extract_error_summary(&val) {
-            if has_extra_diagnostic_metadata(&val) {
-                if let Ok(pretty) = serde_json::to_string_pretty(&val) {
-                    return Some(format!("{summary}\n{pretty}"));
-                }
+            if has_extra_diagnostic_metadata(&val)
+                && let Ok(pretty) = serde_json::to_string_pretty(&val)
+            {
+                return Some(format!("{summary}\n{pretty}"));
             }
             return Some(summary);
         }
-        if let Ok(compact) = serde_json::to_string(&val) {
-            if compact.chars().count() <= DECODE_ERROR_BODY_PREVIEW {
-                return Some(compact);
-            }
+        if let Ok(compact) = serde_json::to_string(&val)
+            && compact.chars().count() <= DECODE_ERROR_BODY_PREVIEW
+        {
+            return Some(compact);
         }
     }
 
@@ -180,18 +180,17 @@ pub fn extract_error_message(val: &serde_json::Value) -> Option<String> {
                 "error", "message", "detail", "param", "inner", "reason", "msg", "cause", "text",
                 "title", "err",
             ] {
-                if let Some(v) = map.get(key) {
-                    if let Some(m) = extract_error_message(v) {
-                        return Some(m);
-                    }
+                if let Some(v) = map.get(key)
+                    && let Some(m) = extract_error_message(v)
+                {
+                    return Some(m);
                 }
             }
-            if map.len() == 1 {
-                if let Some(v) = map.values().next() {
-                    if let Some(m) = extract_error_message(v) {
-                        return Some(m);
-                    }
-                }
+            if map.len() == 1
+                && let Some(v) = map.values().next()
+                && let Some(m) = extract_error_message(v)
+            {
+                return Some(m);
             }
             None
         }
@@ -204,10 +203,10 @@ pub fn extract_error_type_or_code(val: &serde_json::Value) -> Option<String> {
         if let Some(code) = obj.get("code").and_then(|v| v.as_str()) {
             return Some(code.to_string());
         }
-        if let Some(err_val) = obj.get("error") {
-            if let Some(code) = extract_error_type_or_code(err_val) {
-                return Some(code);
-            }
+        if let Some(err_val) = obj.get("error")
+            && let Some(code) = extract_error_type_or_code(err_val)
+        {
+            return Some(code);
         }
         if let Some(err_type) = obj.get("type").and_then(|v| v.as_str()) {
             return Some(err_type.to_string());
@@ -317,10 +316,10 @@ fn try_repair_truncated_json(input: &str) -> Option<serde_json::Value> {
     }
 
     for slice in slices {
-        if let Some(repaired) = close_open_json_brackets(slice) {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&repaired) {
-                return Some(val);
-            }
+        if let Some(repaired) = close_open_json_brackets(slice)
+            && let Ok(val) = serde_json::from_str::<serde_json::Value>(&repaired)
+        {
+            return Some(val);
         }
     }
 

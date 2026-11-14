@@ -515,10 +515,10 @@ pub fn effective_availability_with_rules(
     // 2. Dynamic live rules from provider quota/rate limits
     for rule in rules {
         if nuo_protocol::simple_glob_matches(&rule.pattern, model) {
-            if let Some(reset_ms) = rule.availability.resets_at_ms {
-                if now_ms >= reset_ms {
-                    continue;
-                }
+            if let Some(reset_ms) = rule.availability.resets_at_ms
+                && now_ms >= reset_ms
+            {
+                continue;
             }
             if !rule.availability.usable {
                 let sovereign = connection

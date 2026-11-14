@@ -490,10 +490,10 @@ impl Config {
                     cfg.server.idle_exit_minutes = i;
                 }
             }
-            if let Some(nw) = server.network {
-                if let Some(la) = nw.local_auth {
-                    cfg.server.local_auth = la;
-                }
+            if let Some(nw) = server.network
+                && let Some(la) = nw.local_auth
+            {
+                cfg.server.local_auth = la;
             }
             if let Some(d) = server.server {
                 cfg.server = d;

@@ -380,11 +380,11 @@ impl Tool for FindFilesTool {
 
     async fn execute(&self, _ctx: &ToolContext, arguments: Value) -> Result<ToolOutput, ToolError> {
         let mut arguments = arguments;
-        if let Some(obj) = arguments.as_object_mut() {
-            if let Some(p) = obj.get("patterns").and_then(|v| v.as_str()) {
-                let p_str = p.to_string();
-                obj.insert("patterns".to_string(), serde_json::json!([p_str]));
-            }
+        if let Some(obj) = arguments.as_object_mut()
+            && let Some(p) = obj.get("patterns").and_then(|v| v.as_str())
+        {
+            let p_str = p.to_string();
+            obj.insert("patterns".to_string(), serde_json::json!([p_str]));
         }
 
         let args: FindFilesArgs = serde_json::from_value(arguments).map_err(|err| {
@@ -403,10 +403,10 @@ impl Tool for FindFilesTool {
         }
 
         let mut raw_patterns = args.patterns.unwrap_or_default();
-        if let Some(p) = args.pattern {
-            if !raw_patterns.contains(&p) {
-                raw_patterns.push(p);
-            }
+        if let Some(p) = args.pattern
+            && !raw_patterns.contains(&p)
+        {
+            raw_patterns.push(p);
         }
 
         let mut compiled_globs = Vec::new();

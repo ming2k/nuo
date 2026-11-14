@@ -279,14 +279,13 @@ async fn test_exec_tool_truncation_stub() {
     if let ToolOutput::Shell {
         truncated, stdout, ..
     } = &res
+        && stdout.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS
     {
-        if stdout.len() > nuo_tool::tool_output::SHELL_MAX_OUTPUT_CHARS {
-            assert!(
-                truncated,
-                "Oversized output must be marked as truncated stub"
-            );
-            assert!(res.content().contains("Output truncated"));
-        }
+        assert!(
+            truncated,
+            "Oversized output must be marked as truncated stub"
+        );
+        assert!(res.content().contains("Output truncated"));
     }
 }
 

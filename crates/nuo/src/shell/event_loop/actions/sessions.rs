@@ -180,22 +180,22 @@ pub(super) async fn handle_session_action(
                 ),
             );
             let idx = app.active_index().min(rows.len().saturating_sub(1));
-            if let Some(item) = rows.get(idx) {
-                if item.child_count > 0 {
-                    let id = item.session().id.clone();
-                    let collapsed = app
-                        .surfaces
+            if let Some(item) = rows.get(idx)
+                && item.child_count > 0
+            {
+                let id = item.session().id.clone();
+                let collapsed = app
+                    .surfaces
+                    .surfaces
+                    .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
+                    .expanded
+                    .remove(&id);
+                if !collapsed {
+                    app.surfaces
                         .surfaces
                         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                         .expanded
-                        .remove(&id);
-                    if !collapsed {
-                        app.surfaces
-                            .surfaces
-                            .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
-                            .expanded
-                            .insert(id);
-                    }
+                        .insert(id);
                 }
             }
             Some(ActionFlow::Handled)

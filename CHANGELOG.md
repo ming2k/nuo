@@ -21,6 +21,11 @@ the project adheres to the federated SemVer model described in
 
 - The `v01_v15`, `v16_v25`, `v26_v30`, and `v31_v35` migration modules, the version-dispatch ladder, the interim-v5 repair, the `sessions` schema guard, the migration catalog fingerprint, and the legacy usage-ledger importer.
 
+### Security
+
+- **Dependency advisories cleared for the production cut.** `rusqlite` moves from 0.31 to 0.41, bundling SQLite 3.54.1 and closing RUSTSEC-2026-0459; `rsa` moves from 0.9 to 0.10, closing the Marvin timing advisory (RUSTSEC-2023-0071), and the Qoder PKCS#1 v1.5 padding now comes from the OS CSPRNG instead of the non-cryptographic `fastrand` state. `rustls` moves to 0.23.46, `rustls-webpki` to 0.103.17, `tokio` to 1.54.1, and `webpki-root-certs` to 1.0.12. The declared MSRV is now 1.89: `rusqlite` 0.41 requires it, and the workspace already used let-chains (1.88).
+- **The repository carries its MIT license text.** `LICENSE.md` is added at the root; every `Cargo.toml` already declared `license = "MIT"`.
+
 ## [0.0.87] - 2026-11-14
 
 ### Changed

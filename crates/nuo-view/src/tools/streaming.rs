@@ -21,10 +21,10 @@ pub fn parse_streaming_arguments(input: &str) -> serde_json::Map<String, Value> 
     }
 
     // Heuristic 1: repair unclosed delimiters and parse via serde_json.
-    if let Some(map) = repair_and_parse_json(trimmed) {
-        if !map.is_empty() {
-            return map;
-        }
+    if let Some(map) = repair_and_parse_json(trimmed)
+        && !map.is_empty()
+    {
+        return map;
     }
 
     // Heuristic 2: direct scanner fallback extracting completed or partial key-values.

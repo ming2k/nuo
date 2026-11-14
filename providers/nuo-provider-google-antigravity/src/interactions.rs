@@ -346,42 +346,40 @@ impl Provider for GoogleInteractionsProvider {
                             )));
                         } else if let Ok(json_val) =
                             serde_json::from_str::<serde_json::Value>(&payload)
-                        {
-                            if let Some(chunk) =
+                            && let Some(chunk) =
                                 nuo_inference_wire::protocol::google_interactions::parse_chunk(
                                     &json_val,
                                 )
-                            {
-                                if let Some(content) = chunk.delta_content {
-                                    events.push(Ok(ProviderStreamEvent::TextDelta(content)));
-                                }
-                                if let Some(thinking) = chunk.delta_thinking {
-                                    events.push(Ok(ProviderStreamEvent::ReasoningDelta(thinking)));
-                                }
-                                for tc in chunk.delta_tool_calls {
-                                    events.push(Ok(ProviderStreamEvent::ToolCallDelta {
-                                        index: tc.index,
-                                        id: tc.id,
-                                        name: tc.name,
-                                        arguments: tc.arguments_delta.unwrap_or_default(),
-                                    }));
-                                }
-                                if chunk.is_done {
-                                    let meta = ProviderCompletionMeta {
-                                        usage: chunk.usage.map(|u| TokenUsage {
-                                            prompt_tokens: u.prompt_tokens as i64,
-                                            completion_tokens: u.completion_tokens as i64,
-                                            total_tokens: u.total_tokens as i64,
-                                            cache_creation_input_tokens: 0,
-                                            cache_read_input_tokens: u.cached_tokens as i64,
-                                            cache_miss_input_tokens: 0,
-                                            reasoning_tokens: 0,
-                                        }),
-                                        artifacts: None,
-                                        continuation: None,
-                                    };
-                                    events.push(Ok(ProviderStreamEvent::Completed(meta)));
-                                }
+                        {
+                            if let Some(content) = chunk.delta_content {
+                                events.push(Ok(ProviderStreamEvent::TextDelta(content)));
+                            }
+                            if let Some(thinking) = chunk.delta_thinking {
+                                events.push(Ok(ProviderStreamEvent::ReasoningDelta(thinking)));
+                            }
+                            for tc in chunk.delta_tool_calls {
+                                events.push(Ok(ProviderStreamEvent::ToolCallDelta {
+                                    index: tc.index,
+                                    id: tc.id,
+                                    name: tc.name,
+                                    arguments: tc.arguments_delta.unwrap_or_default(),
+                                }));
+                            }
+                            if chunk.is_done {
+                                let meta = ProviderCompletionMeta {
+                                    usage: chunk.usage.map(|u| TokenUsage {
+                                        prompt_tokens: u.prompt_tokens as i64,
+                                        completion_tokens: u.completion_tokens as i64,
+                                        total_tokens: u.total_tokens as i64,
+                                        cache_creation_input_tokens: 0,
+                                        cache_read_input_tokens: u.cached_tokens as i64,
+                                        cache_miss_input_tokens: 0,
+                                        reasoning_tokens: 0,
+                                    }),
+                                    artifacts: None,
+                                    continuation: None,
+                                };
+                                events.push(Ok(ProviderStreamEvent::Completed(meta)));
                             }
                         }
                     }

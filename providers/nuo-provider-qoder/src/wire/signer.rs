@@ -137,38 +137,14 @@ fn rsa_encrypt_with_pinned_key(data: &[u8]) -> Option<String> {
     let der = base64::engine::general_purpose::STANDARD
         .decode(QODER_RSA_PUBLIC_KEY_B64)
         .ok()?;
-    let key = rsa::RsaPublicKey::from_public_key_der(&der).ok()?;
-    let mut rng = QoderRng;
-    let ciphertext = key.encrypt(&mut rng, rsa::Pkcs1v15Encrypt, data).ok()?;
+    let key = rsa::PublicKey::from_public_key_der(&der).ok()?;
+    // PKCS#1 v1.5 padding must be unpredictable: use the OS CSPRNG, not the
+    // workspace's non-cryptographic `fastrand` state.
+    let ciphertext = key
+        .encrypt(&mut getrandom::SysRng, rsa::Pkcs1v15Encrypt, data)
+        .ok()?;
     Some(base64::engine::general_purpose::STANDARD.encode(ciphertext))
 }
-
-struct QoderRng;
-
-impl rsa::rand_core::RngCore for QoderRng {
-    fn next_u32(&mut self) -> u32 {
-        fastrand::u32(..)
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        fastrand::u64(..)
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        for chunk in dest.chunks_mut(8) {
-            let val = fastrand_entropy().to_ne_bytes();
-            let len = chunk.len().min(val.len());
-            chunk[..len].copy_from_slice(&val[..len]);
-        }
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rsa::rand_core::Error> {
-        self.fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl rsa::rand_core::CryptoRng for QoderRng {}
 
 fn fastrand_entropy() -> u64 {
     let now = std::time::SystemTime::now()

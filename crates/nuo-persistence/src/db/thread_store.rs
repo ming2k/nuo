@@ -404,12 +404,12 @@ pub(crate) fn load_thread(
         branches.insert(main.id.clone(), main);
     }
     let active_branch_id = BranchId(active_branch);
-    if !branches.contains_key(&active_branch_id) {
-        if let Some(first) = branches.keys().next().cloned() {
-            // The row's active branch was removed; the newest surviving
-            // branch becomes the active one.
-            branches.get_mut(&first);
-        }
+    if !branches.contains_key(&active_branch_id)
+        && let Some(first) = branches.keys().next().cloned()
+    {
+        // The row's active branch was removed; the newest surviving
+        // branch becomes the active one.
+        branches.get_mut(&first);
     }
     let policy: ThreadPolicy = conn
         .query_row(

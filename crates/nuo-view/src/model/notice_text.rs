@@ -126,25 +126,25 @@ pub(crate) fn extract_error_message(val: &serde_json::Value) -> Option<String> {
             None
         }
         serde_json::Value::Object(map) => {
-            if let Some(err_val) = map.get("error") {
-                if let Some(m) = extract_error_message(err_val) {
-                    return Some(m);
-                }
+            if let Some(err_val) = map.get("error")
+                && let Some(m) = extract_error_message(err_val)
+            {
+                return Some(m);
             }
-            if let Some(msg_val) = map.get("message") {
-                if let Some(m) = extract_error_message(msg_val) {
-                    return Some(m);
-                }
+            if let Some(msg_val) = map.get("message")
+                && let Some(m) = extract_error_message(msg_val)
+            {
+                return Some(m);
             }
-            if let Some(det_val) = map.get("detail") {
-                if let Some(m) = extract_error_message(det_val) {
-                    return Some(m);
-                }
+            if let Some(det_val) = map.get("detail")
+                && let Some(m) = extract_error_message(det_val)
+            {
+                return Some(m);
             }
-            if let Some(param_val) = map.get("param") {
-                if let Some(m) = extract_error_message(param_val) {
-                    return Some(m);
-                }
+            if let Some(param_val) = map.get("param")
+                && let Some(m) = extract_error_message(param_val)
+            {
+                return Some(m);
             }
             None
         }
@@ -157,10 +157,10 @@ pub(crate) fn extract_error_type_or_code(val: &serde_json::Value) -> Option<Stri
         if let Some(code) = obj.get("code").and_then(|v| v.as_str()) {
             return Some(code.to_string());
         }
-        if let Some(err_val) = obj.get("error") {
-            if let Some(code) = extract_error_type_or_code(err_val) {
-                return Some(code);
-            }
+        if let Some(err_val) = obj.get("error")
+            && let Some(code) = extract_error_type_or_code(err_val)
+        {
+            return Some(code);
         }
         if let Some(err_type) = obj.get("type").and_then(|v| v.as_str()) {
             return Some(err_type.to_string());
@@ -255,10 +255,10 @@ fn try_repair_truncated_json(input: &str) -> Option<serde_json::Value> {
     }
 
     for slice in slices {
-        if let Some(repaired) = close_open_json_brackets(slice) {
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&repaired) {
-                return Some(val);
-            }
+        if let Some(repaired) = close_open_json_brackets(slice)
+            && let Ok(val) = serde_json::from_str::<serde_json::Value>(&repaired)
+        {
+            return Some(val);
         }
     }
 

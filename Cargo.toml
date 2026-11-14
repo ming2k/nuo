@@ -33,7 +33,7 @@ resolver = "2"
 [workspace.package]
 version = "0.0.87"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]
@@ -65,7 +65,8 @@ fastrand = "2"
 chrono = { version = "0.4", features = ["serde"] }
 sha2 = "0.10"
 md-5 = "0.10"
-rsa = { version = "0.9", features = ["sha2"] }
+rsa = { version = "0.10", features = ["pkcs1v15"] }
+getrandom = "0.4"
 cbc = { version = "0.1", features = ["alloc"] }
 aes = "0.8"
 tracing = "0.1"

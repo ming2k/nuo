@@ -1215,51 +1215,51 @@ impl Agent {
         request_accounting: &mut RequestAccountingGuard,
     ) -> Result<(), HarnessError> {
         let connection_id = self.provider.provider_id();
-        if let Some(conn) = nuo_persistence::connections::Connections::load().get(&connection_id) {
-            if let nuo_protocol::ConnectionBudget::Local { limit, period, .. } = &conn.budget {
-                let current_spend = match period {
-                    nuo_protocol::BudgetPeriod::Session => {
-                        if state.spend > nuo_protocol::pricing::NanoUsd::ZERO {
-                            state.spend
-                        } else if let Some(pricing) = nuo_protocol::pricing::resolve_model_pricing(
-                            &conn.provider,
-                            &self.provider.model(),
-                        ) {
-                            pricing
-                                .calculate_cost(
-                                    &state.token_usage,
-                                    nuo_protocol::pricing::RatingInstant::UNKNOWN,
-                                )
-                                .amount
-                        } else {
-                            nuo_protocol::pricing::NanoUsd::ZERO
-                        }
+        if let Some(conn) = nuo_persistence::connections::Connections::load().get(&connection_id)
+            && let nuo_protocol::ConnectionBudget::Local { limit, period, .. } = &conn.budget
+        {
+            let current_spend = match period {
+                nuo_protocol::BudgetPeriod::Session => {
+                    if state.spend > nuo_protocol::pricing::NanoUsd::ZERO {
+                        state.spend
+                    } else if let Some(pricing) = nuo_protocol::pricing::resolve_model_pricing(
+                        &conn.provider,
+                        &self.provider.model(),
+                    ) {
+                        pricing
+                            .calculate_cost(
+                                &state.token_usage,
+                                nuo_protocol::pricing::RatingInstant::UNKNOWN,
+                            )
+                            .amount
+                    } else {
+                        nuo_protocol::pricing::NanoUsd::ZERO
                     }
-                    nuo_protocol::BudgetPeriod::Daily | nuo_protocol::BudgetPeriod::Total => {
-                        let total_nano = nuo_persistence::connection_usage::ConnectionUsage::load()
-                            .connection_spend(&connection_id);
-                        nuo_protocol::pricing::NanoUsd(total_nano)
-                    }
-                };
-
-                if conn.budget.is_exceeded(current_spend) {
-                    let err_msg = format!(
-                        "[SPEND CIRCUIT BREAKER]: Connection `{}` reached its {} budget limit of {} (accumulated: {}). Execution halted to protect your account balance.",
-                        connection_id,
-                        period.label(),
-                        limit.format_usd(),
-                        current_spend.format_usd(),
-                    );
-                    request_accounting.record_error(&err_msg);
-                    return Err(HarnessError::Provider(
-                        nuo_protocol::ProviderError::new(
-                            &connection_id,
-                            nuo_protocol::ProviderErrorKind::QuotaExhausted,
-                            err_msg,
-                        )
-                        .retryable(None),
-                    ));
                 }
+                nuo_protocol::BudgetPeriod::Daily | nuo_protocol::BudgetPeriod::Total => {
+                    let total_nano = nuo_persistence::connection_usage::ConnectionUsage::load()
+                        .connection_spend(&connection_id);
+                    nuo_protocol::pricing::NanoUsd(total_nano)
+                }
+            };
+
+            if conn.budget.is_exceeded(current_spend) {
+                let err_msg = format!(
+                    "[SPEND CIRCUIT BREAKER]: Connection `{}` reached its {} budget limit of {} (accumulated: {}). Execution halted to protect your account balance.",
+                    connection_id,
+                    period.label(),
+                    limit.format_usd(),
+                    current_spend.format_usd(),
+                );
+                request_accounting.record_error(&err_msg);
+                return Err(HarnessError::Provider(
+                    nuo_protocol::ProviderError::new(
+                        &connection_id,
+                        nuo_protocol::ProviderErrorKind::QuotaExhausted,
+                        err_msg,
+                    )
+                    .retryable(None),
+                ));
             }
         }
         Ok(())

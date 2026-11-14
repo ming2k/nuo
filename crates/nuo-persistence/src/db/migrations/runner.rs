@@ -135,12 +135,6 @@ pub fn migrate_schema(conn: &mut Connection) -> Result<()> {
     migrate_schema_with(conn, &NUO_SCHEMA, None)
 }
 
-/// Path-aware variant for `nuo.db`: a pending migration backs up the file
-/// first (ADR-0191).
-pub(crate) fn migrate_schema_at(conn: &mut Connection, db_path: Option<&Path>) -> Result<()> {
-    migrate_schema_with(conn, &NUO_SCHEMA, db_path)
-}
-
 /// Bring one schema to its current version.
 pub(crate) fn migrate_schema_with(
     conn: &mut Connection,

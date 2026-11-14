@@ -17,15 +17,14 @@ pub fn find_workspace_root() -> PathBuf {
         let mut candidate = PathBuf::from(manifest_dir);
         while candidate.pop() {
             let manifest = candidate.join("Cargo.toml");
-            if manifest.exists() {
-                if let Ok(content) = std::fs::read_to_string(&manifest) {
-                    if content.contains("[workspace]") {
-                        if let Ok(canonical) = candidate.canonicalize() {
-                            return canonical;
-                        }
-                        return candidate;
-                    }
+            if manifest.exists()
+                && let Ok(content) = std::fs::read_to_string(&manifest)
+                && content.contains("[workspace]")
+            {
+                if let Ok(canonical) = candidate.canonicalize() {
+                    return canonical;
                 }
+                return candidate;
             }
         }
     }
@@ -33,12 +32,11 @@ pub fn find_workspace_root() -> PathBuf {
     let mut current = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     loop {
         let manifest = current.join("Cargo.toml");
-        if manifest.exists() {
-            if let Ok(content) = std::fs::read_to_string(&manifest) {
-                if content.contains("[workspace]") {
-                    return current;
-                }
-            }
+        if manifest.exists()
+            && let Ok(content) = std::fs::read_to_string(&manifest)
+            && content.contains("[workspace]")
+        {
+            return current;
         }
         if !current.pop() {
             break;

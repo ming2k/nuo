@@ -55,16 +55,16 @@ pub fn record_event(process_kind: &str, event_kind: &str, summary: &str, details
     }
 
     // Best-effort prune if oversized before appending
-    if let Ok(metadata) = std::fs::metadata(&path) {
-        if metadata.len() > MAX_DIAGNOSTICS_FILE_BYTES {
-            prune_diagnostics_file(&path);
-        }
+    if let Ok(metadata) = std::fs::metadata(&path)
+        && metadata.len() > MAX_DIAGNOSTICS_FILE_BYTES
+    {
+        prune_diagnostics_file(&path);
     }
 
-    if let Ok(json) = serde_json::to_string(&event) {
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
-            let _ = writeln!(file, "{json}");
-        }
+    if let Ok(json) = serde_json::to_string(&event)
+        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path)
+    {
+        let _ = writeln!(file, "{json}");
     }
 }
 

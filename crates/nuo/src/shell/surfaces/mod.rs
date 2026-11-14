@@ -792,11 +792,11 @@ impl SurfaceRouter {
         };
         let mut updated = false;
         for tab in &mut self.tabs {
-            if let TabKind::Thread(id) = &tab.kind {
-                if id == thread_id {
-                    tab.title = cleaned.clone();
-                    updated = true;
-                }
+            if let TabKind::Thread(id) = &tab.kind
+                && id == thread_id
+            {
+                tab.title = cleaned.clone();
+                updated = true;
             }
         }
         updated
@@ -891,22 +891,22 @@ impl SurfaceRouter {
 
     /// Step back in active tab's navigation stack (ADR-0040 [INV-KEY-02]).
     pub fn tab_history_back(&mut self) -> bool {
-        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-            if let Some(scene) = tab.back() {
-                self.scene = scene;
-                return true;
-            }
+        if let Some(tab) = self.tabs.get_mut(self.active_tab)
+            && let Some(scene) = tab.back()
+        {
+            self.scene = scene;
+            return true;
         }
         false
     }
 
     /// Step forward in active tab's navigation stack (ADR-0040 [INV-KEY-02]).
     pub fn tab_history_forward(&mut self) -> bool {
-        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
-            if let Some(scene) = tab.forward() {
-                self.scene = scene;
-                return true;
-            }
+        if let Some(tab) = self.tabs.get_mut(self.active_tab)
+            && let Some(scene) = tab.forward()
+        {
+            self.scene = scene;
+            return true;
         }
         false
     }

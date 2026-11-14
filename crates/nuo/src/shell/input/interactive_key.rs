@@ -29,10 +29,10 @@ pub(crate) fn handle_focused_entry_key(
                 .modifiers
                 .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER));
     if is_activate {
-        if message.is_subagent_task() {
-            if let Some(id) = message.tool_step_call_id() {
-                return EntryKeyOutcome::EnterSubagent(id.to_string());
-            }
+        if message.is_subagent_task()
+            && let Some(id) = message.tool_step_call_id()
+        {
+            return EntryKeyOutcome::EnterSubagent(id.to_string());
         }
         let changed = message.toggle_expanded();
         return EntryKeyOutcome::Handled { changed };

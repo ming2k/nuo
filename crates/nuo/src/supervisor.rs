@@ -18,15 +18,15 @@ pub struct ServerStart {
 /// Start detached: spawn the server in the background and return.
 /// If a conflicting server is already running, directly replace it (ADR-0029).
 pub async fn detach_server(flags: &ServerStart) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(info) = client::discover(Path::new(".")).await {
-        if info.pid != std::process::id() {
-            eprintln!("nuo: replacing existing server (pid {})...", info.pid);
-            let _ = nuo_host::process::takeover_pid_sync(
-                info.pid,
-                nuo_host::process::TakeoverOptions::default(),
-            );
-            client::discovery::remove(&client::discovery::global_discovery_path());
-        }
+    if let Some(info) = client::discover(Path::new(".")).await
+        && info.pid != std::process::id()
+    {
+        eprintln!("nuo: replacing existing server (pid {})...", info.pid);
+        let _ = nuo_host::process::takeover_pid_sync(
+            info.pid,
+            nuo_host::process::TakeoverOptions::default(),
+        );
+        client::discovery::remove(&client::discovery::global_discovery_path());
     }
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("nuo"));
     let mut command = std::process::Command::new(&program);

@@ -778,13 +778,13 @@ pub fn compose_shell_body(
         out
     };
 
-    if let Some(code) = exit {
-        if code != 0 {
-            if !body.is_empty() && !body.ends_with('\n') {
-                body.push('\n');
-            }
-            body.push_str(&format!("exit {code}"));
+    if let Some(code) = exit
+        && code != 0
+    {
+        if !body.is_empty() && !body.ends_with('\n') {
+            body.push('\n');
         }
+        body.push_str(&format!("exit {code}"));
     }
 
     body

@@ -372,10 +372,11 @@ pub async fn ensure_server_explicit(
             let mut acquired = None;
             while tokio::time::Instant::now() < wait_deadline {
                 tokio::time::sleep(SERVER_START_POLL).await;
-                if let Some(info) = discover(project_root).await {
-                    if versions_compatible(&info) && !is_dev_drift(&info) {
-                        return Ok(info);
-                    }
+                if let Some(info) = discover(project_root).await
+                    && versions_compatible(&info)
+                    && !is_dev_drift(&info)
+                {
+                    return Ok(info);
                 }
                 if let Ok(guard) = nuo_host::lock::ProcessLock::acquire(&spawn_lock_path) {
                     acquired = Some(guard);

@@ -60,10 +60,10 @@ fn has_bin_target(path: &Path, content: &str) -> bool {
     if content.contains("[[bin]]") {
         return true;
     }
-    if let Some(parent) = path.parent() {
-        if parent.join("src/main.rs").exists() {
-            return true;
-        }
+    if let Some(parent) = path.parent()
+        && parent.join("src/main.rs").exists()
+    {
+        return true;
     }
     false
 }
@@ -94,10 +94,10 @@ fn parse_manifest(root: &Path, full_path: &Path) -> Result<ManifestInfo, String>
         if let Some(table) = val.get(*section).and_then(|s| s.as_table()) {
             for (key, dep_val) in table {
                 shipped_deps.insert(key.clone());
-                if let Some(dep_tbl) = dep_val.as_table() {
-                    if let Some(pkg) = dep_tbl.get("package").and_then(|p| p.as_str()) {
-                        shipped_deps.insert(pkg.to_string());
-                    }
+                if let Some(dep_tbl) = dep_val.as_table()
+                    && let Some(pkg) = dep_tbl.get("package").and_then(|p| p.as_str())
+                {
+                    shipped_deps.insert(pkg.to_string());
                 }
             }
         }
@@ -111,15 +111,14 @@ fn parse_manifest(root: &Path, full_path: &Path) -> Result<ManifestInfo, String>
 }
 
 fn parse_root_members(content: &str) -> Vec<String> {
-    if let Ok(val) = toml::from_str::<toml::Table>(content) {
-        if let Some(ws) = val.get("workspace").and_then(|w| w.as_table()) {
-            if let Some(arr) = ws.get("members").and_then(|m| m.as_array()) {
-                return arr
-                    .iter()
-                    .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                    .collect();
-            }
-        }
+    if let Ok(val) = toml::from_str::<toml::Table>(content)
+        && let Some(ws) = val.get("workspace").and_then(|w| w.as_table())
+        && let Some(arr) = ws.get("members").and_then(|m| m.as_array())
+    {
+        return arr
+            .iter()
+            .filter_map(|item| item.as_str().map(|s| s.to_string()))
+            .collect();
     }
     Vec::new()
 }
@@ -333,13 +332,13 @@ pub fn check_presentation_firewall(root: &Path) -> Result<(), String> {
     }
 
     // R4: Check primitives purity
-    if let Some(primitives) = manifests.get("nuo-ui-primitives") {
-        if primitives.shipped_deps.contains("nuo-view") {
-            problems.push(format!(
+    if let Some(primitives) = manifests.get("nuo-ui-primitives")
+        && primitives.shipped_deps.contains("nuo-view")
+    {
+        problems.push(format!(
                 "R4: nuo-ui-primitives ({}) depends on domain views 'nuo-view' ([INV-ARCH-UI-PRIMITIVES-PURITY])",
                 primitives.rel_path
             ));
-        }
     }
 
     // Retired crates presence in workspace

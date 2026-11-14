@@ -32,10 +32,10 @@ pub(crate) fn find_start_line_in_file(
             return Some(content[..offset].matches('\n').count() + 1);
         }
         let trimmed = needle.trim_end();
-        if !trimmed.is_empty() {
-            if let Some((offset, _)) = content.match_indices(trimmed).next() {
-                return Some(content[..offset].matches('\n').count() + 1);
-            }
+        if !trimmed.is_empty()
+            && let Some((offset, _)) = content.match_indices(trimmed).next()
+        {
+            return Some(content[..offset].matches('\n').count() + 1);
         }
         if needle.contains('\r') || content.contains('\r') {
             let content_norm = content.replace("\r\n", "\n");
@@ -44,10 +44,10 @@ pub(crate) fn find_start_line_in_file(
                 return Some(content_norm[..offset].matches('\n').count() + 1);
             }
             let needle_norm_trimmed = needle_norm.trim_end();
-            if !needle_norm_trimmed.is_empty() {
-                if let Some((offset, _)) = content_norm.match_indices(needle_norm_trimmed).next() {
-                    return Some(content_norm[..offset].matches('\n').count() + 1);
-                }
+            if !needle_norm_trimmed.is_empty()
+                && let Some((offset, _)) = content_norm.match_indices(needle_norm_trimmed).next()
+            {
+                return Some(content_norm[..offset].matches('\n').count() + 1);
             }
         }
         None

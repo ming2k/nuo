@@ -42,10 +42,10 @@ pub fn resolve_model_pricing(provider: &str, model: &str) -> Option<ModelPricing
         });
 
     // Explicit subscription / quota plan providers do not have per-token API pricing.
-    if let Some(canonical) = canonical_provider.as_deref() {
-        if is_subscription_plan(canonical) {
-            return None;
-        }
+    if let Some(canonical) = canonical_provider.as_deref()
+        && is_subscription_plan(canonical)
+    {
+        return None;
     }
 
     // Determine the effective vendor scheme for pricing:

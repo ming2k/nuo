@@ -24,15 +24,15 @@ pub(super) fn input_dialog(
     if let Some(delta) = scroll_delta(action, app) {
         return handle_dialog_scroll(view, delta);
     }
-    if let InputAction::DialogKeysScroll { delta } = action {
-        if view.keys_open() {
-            if *delta < 0 {
-                *view.keys_scroll_mut() = view.keys_scroll_mut().saturating_sub((-delta) as usize);
-            } else {
-                *view.keys_scroll_mut() = view.keys_scroll_mut().saturating_add(*delta as usize);
-            }
-            return DialogOutcome::Consumed;
+    if let InputAction::DialogKeysScroll { delta } = action
+        && view.keys_open()
+    {
+        if *delta < 0 {
+            *view.keys_scroll_mut() = view.keys_scroll_mut().saturating_sub((-delta) as usize);
+        } else {
+            *view.keys_scroll_mut() = view.keys_scroll_mut().saturating_add(*delta as usize);
         }
+        return DialogOutcome::Consumed;
     }
 
     // Spatial click-to-select delegation (ADR-0047 [INV-SURFACE-07]):

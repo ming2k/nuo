@@ -16,12 +16,12 @@ impl ToolPresenter for ExecuteCommandPresenter {
         &self,
         view: &'a ToolView,
     ) -> nuo_ui_primitives::components::inline_layout::SemanticLine<'a> {
-        if let Some(cmd) = view.str("command") {
-            if let Some(comm) = extract_comm(cmd) {
-                return nuo_ui_primitives::components::inline_layout::SemanticLine::new()
-                    .push_fixed("Run ")
-                    .push_flexible(comm);
-            }
+        if let Some(cmd) = view.str("command")
+            && let Some(comm) = extract_comm(cmd)
+        {
+            return nuo_ui_primitives::components::inline_layout::SemanticLine::new()
+                .push_fixed("Run ")
+                .push_flexible(comm);
         }
         nuo_ui_primitives::components::inline_layout::SemanticLine::plain("Run command")
     }

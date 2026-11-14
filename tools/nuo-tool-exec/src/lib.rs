@@ -160,15 +160,15 @@ impl ExecuteCommandTool {
         })?;
 
         // If prefilled data provided, write it out and close stdin immediately
-        if let Some(data) = prefilled_data {
-            if let Some(mut stdin) = child.stdin.take() {
-                tokio::spawn(async move {
-                    use tokio::io::AsyncWriteExt;
-                    let _ = stdin.write_all(data.as_bytes()).await;
-                    let _ = stdin.flush().await;
-                    drop(stdin);
-                });
-            }
+        if let Some(data) = prefilled_data
+            && let Some(mut stdin) = child.stdin.take()
+        {
+            tokio::spawn(async move {
+                use tokio::io::AsyncWriteExt;
+                let _ = stdin.write_all(data.as_bytes()).await;
+                let _ = stdin.flush().await;
+                drop(stdin);
+            });
         }
 
         let stdout = child.stdout.take();

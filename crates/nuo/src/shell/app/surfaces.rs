@@ -385,27 +385,27 @@ impl App {
 
     /// Checkpoint the active tab's intra-scene interaction context (ADR-0091 [INV-TAB-12]).
     pub(crate) fn checkpoint_active_tab_context(&mut self) {
-        if let Some(active_tab) = self.surfaces.surfaces.active_tab_mut() {
-            if matches!(active_tab.kind, crate::shell::surfaces::TabKind::Thread(_)) {
-                active_tab.context.focus = self.transcript.focus;
-                active_tab.context.scroll = self.transcript.scroll;
-                active_tab.context.input = self.composer.input.clone();
-                active_tab.context.cursor_position = self.composer.cursor_position;
-                active_tab.context.input_scroll = self.composer.input_scroll;
-            }
+        if let Some(active_tab) = self.surfaces.surfaces.active_tab_mut()
+            && matches!(active_tab.kind, crate::shell::surfaces::TabKind::Thread(_))
+        {
+            active_tab.context.focus = self.transcript.focus;
+            active_tab.context.scroll = self.transcript.scroll;
+            active_tab.context.input = self.composer.input.clone();
+            active_tab.context.cursor_position = self.composer.cursor_position;
+            active_tab.context.input_scroll = self.composer.input_scroll;
         }
     }
 
     /// Restore the active tab's intra-scene interaction context (ADR-0091 [INV-TAB-12]).
     pub(crate) fn restore_active_tab_context(&mut self) {
-        if let Some(tab) = self.surfaces.surfaces.active_tab() {
-            if matches!(tab.kind, crate::shell::surfaces::TabKind::Thread(_)) {
-                self.transcript.focus = tab.context.focus;
-                self.transcript.scroll = tab.context.scroll;
-                self.composer.input = tab.context.input.clone();
-                self.composer.cursor_position = tab.context.cursor_position;
-                self.composer.input_scroll = tab.context.input_scroll;
-            }
+        if let Some(tab) = self.surfaces.surfaces.active_tab()
+            && matches!(tab.kind, crate::shell::surfaces::TabKind::Thread(_))
+        {
+            self.transcript.focus = tab.context.focus;
+            self.transcript.scroll = tab.context.scroll;
+            self.composer.input = tab.context.input.clone();
+            self.composer.cursor_position = tab.context.cursor_position;
+            self.composer.input_scroll = tab.context.input_scroll;
         }
     }
 
@@ -418,14 +418,12 @@ impl App {
     pub(crate) fn viewed_thread_title(&self) -> Option<String> {
         let viewed_id = &self.session.current_session_id;
         // 1. Check active tab title
-        if let Some(tab) = self.surfaces.surfaces.active_tab() {
-            if let Some(tab_id) = tab.thread_id() {
-                if tab_id == viewed_id {
-                    if let Some(title) = tab.display_title() {
-                        return Some(title.to_string());
-                    }
-                }
-            }
+        if let Some(tab) = self.surfaces.surfaces.active_tab()
+            && let Some(tab_id) = tab.thread_id()
+            && tab_id == viewed_id
+            && let Some(title) = tab.display_title()
+        {
+            return Some(title.to_string());
         }
         // 2. Check host_sessions for authentic title
         if let Some(row) = self
@@ -433,23 +431,21 @@ impl App {
             .host_sessions
             .iter()
             .find(|r| &r.id == viewed_id)
+            && let Some(ref t) = row.title
         {
-            if let Some(ref t) = row.title {
-                let trimmed = t.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
-                }
+            let trimmed = t.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
             }
         }
         // 3. Check session_detail if matching viewed session
-        if let Some(ref detail) = self.session.session_detail {
-            if &detail.id == viewed_id {
-                if let Some(ref t) = detail.title {
-                    let trimmed = t.trim();
-                    if !trimmed.is_empty() {
-                        return Some(trimmed.to_string());
-                    }
-                }
+        if let Some(ref detail) = self.session.session_detail
+            && &detail.id == viewed_id
+            && let Some(ref t) = detail.title
+        {
+            let trimmed = t.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
             }
         }
         None

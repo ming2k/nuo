@@ -272,21 +272,20 @@ pub(super) async fn handle_selection_start(
                     .transcript
                     .ui
                     .contains(UiKey::Overlay(active_overlay), x, y)
+                && let Some(mut ent) = app.surfaces.surfaces.take_active_view()
             {
-                if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
-                    let action = input::InputAction::SelectionStart { x, y };
-                    let outcome = ent.handle_input(&action, app, viewed_session_id);
-                    app.surfaces.surfaces.put_active_view(ent);
-                    if outcome == crate::shell::surfaces::DialogOutcome::Dismiss {
-                        app.surfaces.surfaces.pop_overlay();
-                        if let Some(help_action) = app.surfaces.pending_help_action.take() {
-                            execute_help_action(app, runtime, help_action, viewed_session_id).await;
-                        }
-                        return;
+                let action = input::InputAction::SelectionStart { x, y };
+                let outcome = ent.handle_input(&action, app, viewed_session_id);
+                app.surfaces.surfaces.put_active_view(ent);
+                if outcome == crate::shell::surfaces::DialogOutcome::Dismiss {
+                    app.surfaces.surfaces.pop_overlay();
+                    if let Some(help_action) = app.surfaces.pending_help_action.take() {
+                        execute_help_action(app, runtime, help_action, viewed_session_id).await;
                     }
-                    if outcome.is_consumed() {
-                        return;
-                    }
+                    return;
+                }
+                if outcome.is_consumed() {
+                    return;
                 }
             }
         }

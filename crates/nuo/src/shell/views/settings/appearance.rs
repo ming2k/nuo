@@ -240,23 +240,23 @@ pub(super) fn draw_appearance_detail(
         props.theme,
     );
 
-    if let Some(spec_rect) = specimen_rect {
-        if !schemes.is_empty() {
-            let candidate_idx = props.detail_index.min(schemes.len().saturating_sub(1));
-            let candidate_preset = &schemes[candidate_idx];
-            let candidate_theme = crate::shell::config::theme_from_color_scheme(
-                &candidate_preset.id,
-                props.custom_color_scheme,
-                ws_path,
-            );
-            draw_live_specimen_gallery(
-                frame,
-                spec_rect,
-                props.theme,
-                &candidate_theme,
-                &candidate_preset.label,
-            );
-        }
+    if let Some(spec_rect) = specimen_rect
+        && !schemes.is_empty()
+    {
+        let candidate_idx = props.detail_index.min(schemes.len().saturating_sub(1));
+        let candidate_preset = &schemes[candidate_idx];
+        let candidate_theme = crate::shell::config::theme_from_color_scheme(
+            &candidate_preset.id,
+            props.custom_color_scheme,
+            ws_path,
+        );
+        draw_live_specimen_gallery(
+            frame,
+            spec_rect,
+            props.theme,
+            &candidate_theme,
+            &candidate_preset.label,
+        );
     }
 
     result

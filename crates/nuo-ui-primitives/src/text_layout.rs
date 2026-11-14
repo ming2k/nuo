@@ -84,14 +84,13 @@ fn wrap_impl(text: &str, max_width: usize, hidden_ranges: &[(usize, usize)]) -> 
         let curr_first = grapheme.chars().next();
         let curr_last = grapheme.chars().last();
 
-        if let (Some(prev), Some(first)) = (prev_char, curr_first) {
-            if prev.is_whitespace()
+        if let (Some(prev), Some(first)) = (prev_char, curr_first)
+            && (prev.is_whitespace()
                 || ((is_cjk_breakable(prev) || is_cjk_breakable(first))
                     && !prohibited_line_end(prev)
-                    && !prohibited_line_start(first))
-            {
-                last_breakpoint = Some(byte_idx);
-            }
+                    && !prohibited_line_start(first)))
+        {
+            last_breakpoint = Some(byte_idx);
         }
 
         let is_hidden = !hidden_ranges.is_empty()

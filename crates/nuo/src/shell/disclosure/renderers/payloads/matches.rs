@@ -22,10 +22,10 @@ struct MatchLine<'a> {
 /// Check if a leading line is the filesystem tool's `Found N match(es):` count header.
 pub(crate) fn is_matches_header(first: &str) -> bool {
     let first = first.trim();
-    if let Some(rest) = first.strip_prefix("Found ") {
-        if let Some(num) = rest.strip_suffix("match(es):") {
-            return num.trim().parse::<usize>().is_ok();
-        }
+    if let Some(rest) = first.strip_prefix("Found ")
+        && let Some(num) = rest.strip_suffix("match(es):")
+    {
+        return num.trim().parse::<usize>().is_ok();
     }
     false
 }

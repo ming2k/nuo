@@ -458,18 +458,18 @@ pub fn parse_antigravity_catalog(root: &Value) -> Vec<DiscoveredModel> {
 
     if !curated_canonical_ids.is_empty() {
         for canon_id in curated_canonical_ids {
-            if let Some(acc) = accumulators.remove(&canon_id) {
-                if emitted.insert(acc.canonical_id.clone()) {
-                    out.push(acc.into_discovered());
-                }
+            if let Some(acc) = accumulators.remove(&canon_id)
+                && emitted.insert(acc.canonical_id.clone())
+            {
+                out.push(acc.into_discovered());
             }
         }
     } else {
         for base_id in fallback_order {
-            if let Some(acc) = accumulators.remove(&base_id) {
-                if emitted.insert(acc.canonical_id.clone()) {
-                    out.push(acc.into_discovered());
-                }
+            if let Some(acc) = accumulators.remove(&base_id)
+                && emitted.insert(acc.canonical_id.clone())
+            {
+                out.push(acc.into_discovered());
             }
         }
     }

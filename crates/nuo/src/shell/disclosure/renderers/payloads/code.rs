@@ -262,11 +262,11 @@ pub(crate) fn normalize_code_content(
                     if first_num.is_none() {
                         first_num = Some(num);
                     }
-                    if let Some(prev) = prev_num {
-                        if num <= prev {
-                            strictly_increasing = false;
-                            break;
-                        }
+                    if let Some(prev) = prev_num
+                        && num <= prev
+                    {
+                        strictly_increasing = false;
+                        break;
                     }
                     prev_num = Some(num);
                 } else {

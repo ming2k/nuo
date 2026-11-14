@@ -230,12 +230,11 @@ async fn run_inner(
             match wait_for_lock(&lock_path, budget).await {
                 Ok(lock) => Some(lock),
                 Err(_) => {
-                    if let Some(pid) = ProcessLock::probe_holder(&lock_path) {
-                        if pid != std::process::id() {
-                            if let Ok(identity) = nuo_host::process::process_identity(pid) {
-                                let _ = nuo_host::process::force_terminate(identity);
-                            }
-                        }
+                    if let Some(pid) = ProcessLock::probe_holder(&lock_path)
+                        && pid != std::process::id()
+                        && let Ok(identity) = nuo_host::process::process_identity(pid)
+                    {
+                        let _ = nuo_host::process::force_terminate(identity);
                     }
                     match wait_for_lock(&lock_path, Duration::from_millis(500)).await {
                         Ok(lock) => Some(lock),
@@ -589,23 +588,23 @@ async fn takeover_conflicting_server(
     let current_pid = std::process::id();
     let mut candidate_pids = std::collections::HashSet::new();
 
-    if let Some(pid) = ProcessLock::probe_holder(lock_path) {
-        if pid != current_pid {
-            candidate_pids.insert(pid);
-        }
+    if let Some(pid) = ProcessLock::probe_holder(lock_path)
+        && pid != current_pid
+    {
+        candidate_pids.insert(pid);
     }
     let db_lock_path = nuo_host::paths::get()
         .db_file()
         .with_extension("db.owner.lock");
-    if let Some(pid) = ProcessLock::probe_holder(&db_lock_path) {
-        if pid != current_pid {
-            candidate_pids.insert(pid);
-        }
+    if let Some(pid) = ProcessLock::probe_holder(&db_lock_path)
+        && pid != current_pid
+    {
+        candidate_pids.insert(pid);
     }
-    if let Some(record) = discovery::read() {
-        if record.pid != current_pid {
-            candidate_pids.insert(record.pid);
-        }
+    if let Some(record) = discovery::read()
+        && record.pid != current_pid
+    {
+        candidate_pids.insert(record.pid);
     }
 
     let is_uds_in_use = uds_path.map(is_uds_live).unwrap_or(false);
@@ -630,10 +629,10 @@ async fn takeover_conflicting_server(
                     .await;
         }
 
-        if let Some(path) = uds_path {
-            if path.exists() {
-                let _ = std::fs::remove_file(path);
-            }
+        if let Some(path) = uds_path
+            && path.exists()
+        {
+            let _ = std::fs::remove_file(path);
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

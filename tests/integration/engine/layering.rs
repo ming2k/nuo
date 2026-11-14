@@ -111,11 +111,11 @@ impl<'ast> Visit<'ast> for GroupCollector {
     }
 
     fn visit_item_use(&mut self, item: &'ast ItemUse) {
-        if let UseTree::Path(root) = &item.tree {
-            if root.ident == "crate" {
-                self.note_after_crate(&root.tree, true);
-                return;
-            }
+        if let UseTree::Path(root) = &item.tree
+            && root.ident == "crate"
+        {
+            self.note_after_crate(&root.tree, true);
+            return;
         }
         visit::visit_item_use(self, item);
     }
@@ -123,12 +123,11 @@ impl<'ast> Visit<'ast> for GroupCollector {
     fn visit_path(&mut self, path: &'ast SynPath) {
         if path.leading_colon.is_none() {
             let mut segments = path.segments.iter();
-            if let Some(first) = segments.next() {
-                if first.ident == "crate" {
-                    if let Some(second) = segments.next() {
-                        self.groups.insert(second.ident.to_string());
-                    }
-                }
+            if let Some(first) = segments.next()
+                && first.ident == "crate"
+                && let Some(second) = segments.next()
+            {
+                self.groups.insert(second.ident.to_string());
             }
         }
         visit::visit_path(self, path);
@@ -145,10 +144,12 @@ impl<'ast> Visit<'ast> for GroupCollector {
             let is_crate = matches!(&tokens[i], TokenTree::Ident(id) if id == "crate");
             let colon = matches!(&tokens[i + 1], TokenTree::Punct(p) if p.as_char() == ':');
             let colon2 = matches!(&tokens[i + 2], TokenTree::Punct(p) if p.as_char() == ':');
-            if is_crate && colon && colon2 {
-                if let TokenTree::Ident(second) = &tokens[i + 3] {
-                    self.groups.insert(second.to_string());
-                }
+            if is_crate
+                && colon
+                && colon2
+                && let TokenTree::Ident(second) = &tokens[i + 3]
+            {
+                self.groups.insert(second.to_string());
             }
             i += 1;
         }

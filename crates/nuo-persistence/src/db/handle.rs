@@ -30,10 +30,11 @@ pub fn get_persistence_handle() -> PersistenceHandle {
     let dirs = nuo_host::paths::get();
     let db_path = dirs.db_file();
     let mut guard = GLOBAL_HANDLE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(handle) = guard.as_ref() {
-        if handle.db_path == db_path && handle.startup_error.is_none() {
-            return handle.clone();
-        }
+    if let Some(handle) = guard.as_ref()
+        && handle.db_path == db_path
+        && handle.startup_error.is_none()
+    {
+        return handle.clone();
     }
     let blobs = Some(BlobStore::new(dirs.blobs_dir()));
     let handle = PersistenceHandle::spawn(db_path, blobs);

@@ -431,13 +431,14 @@ impl ThreadStore for MemoryThreadStore {
             return Err(ThreadStoreError::NotFound(thread.clone()));
         }
         let now = now_ms();
-        if let Some(current) = inner.leases.get(thread) {
-            if current.expires_at_ms > now && current.owner_id != owner {
-                return Err(ThreadStoreError::LeaseHeld {
-                    owner: current.owner_id.clone(),
-                    expires_at_ms: current.expires_at_ms,
-                });
-            }
+        if let Some(current) = inner.leases.get(thread)
+            && current.expires_at_ms > now
+            && current.owner_id != owner
+        {
+            return Err(ThreadStoreError::LeaseHeld {
+                owner: current.owner_id.clone(),
+                expires_at_ms: current.expires_at_ms,
+            });
         }
         let token = inner
             .next_fencing_token

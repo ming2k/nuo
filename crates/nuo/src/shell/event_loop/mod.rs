@@ -469,22 +469,22 @@ pub(crate) async fn run_app_loop(
         };
         let composer_resized =
             last_composer_height.is_some_and(|prev| prev != current_composer_height);
-        if let Some(prev_h) = last_composer_height {
-            if prev_h != current_composer_height && app.transcript.view_height > 0 {
-                let delta = current_composer_height as i32 - prev_h as i32;
-                let estimated_view_height =
-                    (app.transcript.view_height as i32 - delta).max(1) as u16;
-                app.transcript.view_height = estimated_view_height;
-                app.transcript.max_scroll = app
-                    .transcript
-                    .content_lines
-                    .saturating_sub(estimated_view_height as usize)
-                    .min(u16::MAX as usize) as u16;
-                if !app.transcript.follow_bottom {
-                    app.transcript.scroll_settle_pending = true;
-                }
-                frame_dirty = true;
+        if let Some(prev_h) = last_composer_height
+            && prev_h != current_composer_height
+            && app.transcript.view_height > 0
+        {
+            let delta = current_composer_height as i32 - prev_h as i32;
+            let estimated_view_height = (app.transcript.view_height as i32 - delta).max(1) as u16;
+            app.transcript.view_height = estimated_view_height;
+            app.transcript.max_scroll = app
+                .transcript
+                .content_lines
+                .saturating_sub(estimated_view_height as usize)
+                .min(u16::MAX as usize) as u16;
+            if !app.transcript.follow_bottom {
+                app.transcript.scroll_settle_pending = true;
             }
+            frame_dirty = true;
         }
         last_composer_height = Some(current_composer_height);
 

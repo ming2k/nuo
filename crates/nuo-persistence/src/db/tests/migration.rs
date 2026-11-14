@@ -175,7 +175,7 @@ fn pending_migration_creates_a_pre_migration_backup() {
     )
     .unwrap();
 
-    crate::db::migrations::runner::migrate_schema_at(&mut conn, Some(&path)).unwrap();
+    initialize_schema(&mut conn, &NUO_SCHEMA, Some(&path)).unwrap();
 
     let backups: Vec<std::path::PathBuf> = std::fs::read_dir(dir.path())
         .unwrap()

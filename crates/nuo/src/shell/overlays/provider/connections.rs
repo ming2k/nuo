@@ -915,10 +915,8 @@ pub(crate) fn normalize_quota_bucket_label(
         None => true,
     };
 
-    if !contains_window {
-        if let Some(w) = window {
-            clean.push_str(&format!(" | {}", w.label()));
-        }
+    if !contains_window && let Some(w) = window {
+        clean.push_str(&format!(" | {}", w.label()));
     }
 
     clean

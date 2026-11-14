@@ -322,16 +322,15 @@ fn parse_variant_meta(variant: &syn::Variant) -> syn::Result<ParsedVariantMeta> 
 fn extract_doc_comment(attrs: &[syn::Attribute]) -> Option<String> {
     let mut lines = Vec::new();
     for attr in attrs.iter().filter(|a| a.path().is_ident("doc")) {
-        if let syn::Meta::NameValue(meta) = &attr.meta {
-            if let syn::Expr::Lit(syn::ExprLit {
+        if let syn::Meta::NameValue(meta) = &attr.meta
+            && let syn::Expr::Lit(syn::ExprLit {
                 lit: syn::Lit::Str(s),
                 ..
             }) = &meta.value
-            {
-                let val = s.value();
-                let trimmed = val.strip_prefix(' ').unwrap_or(&val);
-                lines.push(trimmed.trim_end().to_string());
-            }
+        {
+            let val = s.value();
+            let trimmed = val.strip_prefix(' ').unwrap_or(&val);
+            lines.push(trimmed.trim_end().to_string());
         }
     }
     if lines.is_empty() {

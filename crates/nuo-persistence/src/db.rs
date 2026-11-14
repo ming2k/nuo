@@ -215,35 +215,6 @@ pub(crate) struct DatabaseEngine {
     pub(crate) blob_store: Option<BlobStore>,
 }
 
-#[derive(Deserialize)]
-#[allow(dead_code)]
-struct FastSummaryProbe {
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    digest: Option<nuo_protocol::ThreadDigest>,
-    #[serde(default)]
-    model_window: Vec<FastMessageProbe>,
-    #[serde(default)]
-    archived_transcript: Vec<FastMessageProbe>,
-}
-
-#[derive(Deserialize)]
-struct FastMessageProbe {
-    role: nuo_tool::Role,
-    #[serde(default)]
-    content: String,
-    #[serde(default)]
-    hidden: bool,
-    #[serde(default)]
-    origin: Option<FastOriginProbe>,
-}
-
-#[derive(Deserialize)]
-struct FastOriginProbe {
-    kind: nuo_tool::InjectionKind,
-}
-
 /// The **only** way to read the unified store.
 ///
 /// `DatabaseEngine` is crate-private, so no other module — in this crate or in

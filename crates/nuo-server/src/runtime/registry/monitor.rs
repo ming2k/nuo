@@ -159,12 +159,11 @@ impl ThreadRegistry {
 
     /// Drop one session's ACP mailbox (teardown path).
     pub(super) async fn drop_session_mailbox(&self, session_id: &str) {
-        if let Some(_mb) = self.session_mailboxes.lock().await.remove(session_id) {
-            if let Ok(addr) =
+        if let Some(_mb) = self.session_mailboxes.lock().await.remove(session_id)
+            && let Ok(addr) =
                 acp::AgentAddress::parse(&format!("agent://local/session/{session_id}"))
-            {
-                self.fabric.leave(&addr).await;
-            }
+        {
+            self.fabric.leave(&addr).await;
         }
     }
 

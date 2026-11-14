@@ -513,8 +513,8 @@ fn collect_asset_files(
         return Ok(());
     }
     if meta.is_dir() {
-        if let Some(name) = current.file_name().and_then(|s| s.to_str()) {
-            if matches!(
+        if let Some(name) = current.file_name().and_then(|s| s.to_str())
+            && matches!(
                 name,
                 ".git"
                     | "node_modules"
@@ -523,9 +523,9 @@ fn collect_asset_files(
                     | "target"
                     | "__pycache__"
                     | ".pytest_cache"
-            ) {
-                return Ok(());
-            }
+            )
+        {
+            return Ok(());
         }
         let entries = std::fs::read_dir(current).map_err(|error| {
             format!(
