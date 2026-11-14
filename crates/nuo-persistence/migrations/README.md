@@ -130,7 +130,8 @@ cargo test -p nuo-tests --test integration
 2. A database with `user_version = 0` and no objects gets the baseline.
 3. A pre-baseline database (old 38-step chain, no ledger) is refused with a
    path-bearing error. Move `nuo.db`, `nuo.db-wal`, and `nuo.db-shm` aside to
-   start fresh.
+   start fresh. The same applies to a pre-baseline `role_memory.db` (and its
+   WAL files): it has no ledger and is refused rather than recreated.
 4. An existing database validates every applied checksum and the ledger
    prefix.
 5. Before any pending migration on an existing file, the runner writes a
