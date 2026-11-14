@@ -156,6 +156,10 @@ impl RoleMemoryStore {
             &crate::db::migrations::role_memory::ROLE_MEMORY_SCHEMA,
             db_path,
         )?;
+        // `nuo.db` disables SQLite's automatic checkpoint because the storage
+        // maintenance thread owns it. The role-memory file has no such thread,
+        // so it must keep the default bounded WAL behavior.
+        conn.pragma_update(None, "wal_autocheckpoint", 1000)?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
