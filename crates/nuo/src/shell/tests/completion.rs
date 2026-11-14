@@ -283,14 +283,14 @@ fn completion_catalog_matches_the_dispatchers_vocabulary() {
 #[test]
 fn anchor_seeds_the_first_candidate_when_the_menu_opens() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/se".to_string();
-    app.cursor_position = app.input.chars().count();
-    assert!(app.suggestion_index.is_none());
+    app.composer.input = "/se".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
+    assert!(app.composer.suggestion_index.is_none());
     let completions = app.completions();
     assert!(!completions.is_empty(), "`/se` should have candidates");
     app.anchor_completion_selection(&completions);
     assert_eq!(
-        app.suggestion_index,
+        app.composer.suggestion_index,
         Some(0),
         "a freshly opened menu must start highlighted on its first row"
     );
@@ -302,16 +302,16 @@ fn anchor_seeds_the_first_candidate_when_the_menu_opens() {
 #[test]
 fn anchor_clamps_a_stale_highlight_into_range() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/se".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/se".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let count = completions.len();
     // Simulate a stale index from a wider list (e.g. a refine filtered
     // candidates away between keystrokes).
-    app.suggestion_index = Some(count + 5);
+    app.composer.suggestion_index = Some(count + 5);
     app.anchor_completion_selection(&completions);
     assert_eq!(
-        app.suggestion_index,
+        app.composer.suggestion_index,
         Some(count - 1),
         "an out-of-range highlight must clamp to the last candidate"
     );
@@ -323,20 +323,20 @@ fn anchor_clamps_a_stale_highlight_into_range() {
 #[test]
 fn anchor_clears_the_highlight_when_no_menu_is_rendered() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/sessions".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/sessions".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     // `/sessions` is a real command: its exact match is the composer text.
     assert!(
         completions
             .iter()
-            .any(|c| c.label == app.input && c.replace_end == app.input.len()),
+            .any(|c| c.label == app.composer.input && c.replace_end == app.composer.input.len()),
         "`/sessions` should be among its own candidates"
     );
-    app.suggestion_index = Some(0);
+    app.composer.suggestion_index = Some(0);
     app.anchor_completion_selection(&completions);
     assert_eq!(
-        app.suggestion_index, None,
+        app.composer.suggestion_index, None,
         "no rendered menu must mean no highlight"
     );
 }
@@ -347,17 +347,17 @@ fn anchor_clears_the_highlight_when_no_menu_is_rendered() {
 #[test]
 fn completion_trigger_text_present_matches_the_composer_state() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/se".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/se".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     assert!(app.completion_trigger_text_present());
-    app.input = "/sessions".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/sessions".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     assert!(
         !app.completion_trigger_text_present(),
         "a resolved exact command must not offer a re-open"
     );
-    app.input = "plain prose".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "plain prose".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     assert!(!app.completion_trigger_text_present());
 }
 
@@ -370,27 +370,27 @@ fn completion_trigger_text_present_matches_the_composer_state() {
 #[test]
 fn esc_then_tab_round_trip_restores_a_highlighted_menu() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/se".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/se".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
 
     // Frame 1: menu opens, anchor seeds the first candidate.
     let completions = app.completions();
     app.anchor_completion_selection(&completions);
-    assert_eq!(app.suggestion_index, Some(0));
-    assert!(!app.completion_dismissed);
+    assert_eq!(app.composer.suggestion_index, Some(0));
+    assert!(!app.composer.completion_dismissed);
 
     // Esc (CloseCompletion arm): popup hidden, highlight dropped.
-    app.suggestion_index = None;
-    app.completion_dismissed = true;
+    app.composer.suggestion_index = None;
+    app.composer.completion_dismissed = true;
     assert!(app.completion_trigger_text_present());
 
     // Tab (ReopenCompletion arm): latch dropped, then the loop's post-
     // dispatch anchor re-derives candidates and re-seeds the highlight.
-    app.completion_dismissed = false;
+    app.composer.completion_dismissed = false;
     let completions = app.completions();
     app.anchor_completion_selection(&completions);
     assert_eq!(
-        app.suggestion_index,
+        app.composer.suggestion_index,
         Some(0),
         "the reopened menu must land already selected"
     );
@@ -460,23 +460,23 @@ fn delete_provider_stages_overlay_without_deleting() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "my-custom".to_string(),
         rows: vec![custom("my-custom")],
     };
-    app.modal_index = 0;
+    app.surfaces.modal_index = 0;
 
     app.stage_provider_delete();
 
     // The deletion is staged, not dispatched.
     assert_eq!(
-        app.pending_provider_delete.as_deref(),
+        app.surfaces.pending_provider_delete.as_deref(),
         Some("my-custom"),
         "Shift+D stages the provider id without deleting"
     );
     // Default focus is Cancel (the safe choice) so a reflexive Enter cancels.
     assert_eq!(
-        app.provider_delete_focus,
+        app.surfaces.provider_delete_focus,
         crate::shell::ProviderDeleteChoice::Cancel,
         "confirm overlay defaults to Cancel focus"
     );
@@ -503,16 +503,16 @@ fn delete_provider_ignores_builtin() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "kimi-code".to_string(),
         rows: vec![builtin("kimi-code")],
     };
-    app.modal_index = 0;
+    app.surfaces.modal_index = 0;
 
     app.stage_provider_delete();
 
     assert!(
-        app.pending_provider_delete.is_none(),
+        app.surfaces.pending_provider_delete.is_none(),
         "built-in provider is never staged for deletion"
     );
 }
@@ -525,8 +525,8 @@ fn accept_slash_completion_does_not_append_trailing_space() {
     // of "Enter/Tab finishes the completion". The user opts into subcommand
     // discovery by typing a space themselves.
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/thr".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/thr".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let idx = completions
         .iter()
@@ -534,16 +534,16 @@ fn accept_slash_completion_does_not_append_trailing_space() {
         .expect("/threads in candidates");
     app.accept_completion(idx);
     // The label is spliced verbatim — no trailing space.
-    assert_eq!(app.input, "/threads");
-    assert_eq!(app.cursor_position, "/threads".chars().count());
+    assert_eq!(app.composer.input, "/threads");
+    assert_eq!(app.composer.cursor_position, "/threads".chars().count());
     // A slash accept is a terminal commit: the popup must stay hidden and
     // no subcommand menu may fire. This holds for BOTH Tab and Enter since
     // both route through accept_completion for slash commands.
     assert!(
-        app.completion_dismissed,
+        app.composer.completion_dismissed,
         "slash accept must latch dismissal"
     );
-    assert!(app.suggestion_index.is_none(), "highlight cleared");
+    assert!(app.composer.suggestion_index.is_none(), "highlight cleared");
     assert!(
         app.completions()
             .iter()
@@ -558,8 +558,8 @@ fn accept_path_dir_completion_stays_live_for_descend() {
     // Accepting `@file:` stays live and descends into Stage 2 project files/dirs.
     // Further accepting `@file:src/` stays live and descends into directory contents.
     let (mut app, _tmp) = app_in_tempdir(&["src/main.rs", "src/util.rs"], &["src"]);
-    app.input = "@".to_string();
-    app.cursor_position = 1;
+    app.composer.input = "@".to_string();
+    app.composer.cursor_position = 1;
     let completions = app.completions();
     // Stage 1: namespace candidate `@file:`.
     let file_ns_idx = completions
@@ -568,10 +568,10 @@ fn accept_path_dir_completion_stays_live_for_descend() {
         .expect("@file: namespace in Stage 1 candidates");
     app.accept_completion(file_ns_idx);
     assert!(
-        !app.completion_dismissed,
+        !app.composer.completion_dismissed,
         "namespace accept must stay live for Stage 2"
     );
-    assert_eq!(app.input, "@file:");
+    assert_eq!(app.composer.input, "@file:");
 
     // Stage 2: directory candidate (`@file:src/`).
     let completions = app.completions();
@@ -582,10 +582,10 @@ fn accept_path_dir_completion_stays_live_for_descend() {
     app.accept_completion(dir_idx);
     // Directory accept must NOT latch dismissal — descend continues.
     assert!(
-        !app.completion_dismissed,
+        !app.composer.completion_dismissed,
         "directory accept must stay live for descend"
     );
-    assert_eq!(app.input, "@file:src/");
+    assert_eq!(app.composer.input, "@file:src/");
 
     // Stage 2: file candidate (`@file:src/main.rs`).
     let completions = app.completions();
@@ -595,17 +595,17 @@ fn accept_path_dir_completion_stays_live_for_descend() {
         .expect("src/main.rs in directory candidates");
     app.accept_completion(file_idx);
     assert!(
-        app.completion_dismissed,
+        app.composer.completion_dismissed,
         "terminal file accept must latch dismissal"
     );
-    assert_eq!(app.input, "@file:src/main.rs ");
+    assert_eq!(app.composer.input, "@file:src/main.rs ");
 }
 
 #[test]
 fn two_stage_skill_completion_descends_and_terminates() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "@".to_string();
-    app.cursor_position = 1;
+    app.composer.input = "@".to_string();
+    app.composer.cursor_position = 1;
     let completions = app.completions();
     let skill_ns_idx = completions
         .iter()
@@ -615,10 +615,10 @@ fn two_stage_skill_completion_descends_and_terminates() {
     // Accepting @skill: is a drilldown into Stage 2:
     app.accept_completion(skill_ns_idx);
     assert!(
-        !app.completion_dismissed,
+        !app.composer.completion_dismissed,
         "@skill: namespace accept must stay live for Stage 2 skills"
     );
-    assert_eq!(app.input, "@skill:");
+    assert_eq!(app.composer.input, "@skill:");
 
     // Simulate backend skill arrival for Stage 2
     let item = nuo_tool::InputCompletion {
@@ -631,7 +631,12 @@ fn two_stage_skill_completion_descends_and_terminates() {
         alias_of: None,
         command: None,
     };
-    app.apply_backend_completions(0, app.input.clone(), app.cursor_position, vec![item]);
+    app.apply_backend_completions(
+        0,
+        app.composer.input.clone(),
+        app.composer.cursor_position,
+        vec![item],
+    );
 
     let completions = app.completions();
     assert_eq!(completions.len(), 1);
@@ -639,9 +644,9 @@ fn two_stage_skill_completion_descends_and_terminates() {
 
     // Accepting a terminal skill item completes and dismisses
     app.accept_completion(0);
-    assert_eq!(app.input, "@skill:rust-expert ");
+    assert_eq!(app.composer.input, "@skill:rust-expert ");
     assert!(
-        app.completion_dismissed,
+        app.composer.completion_dismissed,
         "terminal skill accept must latch dismissal"
     );
 }
@@ -652,8 +657,8 @@ fn bare_at_query_does_not_pass_through_to_stage2_content() {
     // Stage-2 skill/file content. The server engine returns nothing for a bare
     // query that is not a namespace prefix; the composer mirrors that.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "@wright".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "@wright".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
 
     let completions = app.completions();
     assert!(
@@ -663,28 +668,33 @@ fn bare_at_query_does_not_pass_through_to_stage2_content() {
     );
 
     // Stage-2 content IS reachable — but only after the namespace is committed.
-    app.input = "@skill:wright".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "@skill:wright".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let item = nuo_tool::InputCompletion {
         label: "@skill:wright-plan-authoring".to_string(),
         description: "Author and write wright plan.toml manifests".to_string(),
         insert_text: "@skill:wright-plan-authoring ".to_string(),
         replace_start: 0,
-        replace_end: app.input.chars().count(),
+        replace_end: app.composer.input.chars().count(),
         kind: nuo_tool::InputCompletionKind::PathExplicit,
         alias_of: None,
         command: None,
     };
-    app.apply_backend_completions(0, app.input.clone(), app.cursor_position, vec![item]);
+    app.apply_backend_completions(
+        0,
+        app.composer.input.clone(),
+        app.composer.cursor_position,
+        vec![item],
+    );
 
     let completions = app.completions();
     assert_eq!(completions.len(), 1);
     assert_eq!(completions[0].label, "@skill:wright-plan-authoring");
 
     app.accept_completion(0);
-    assert_eq!(app.input, "@skill:wright-plan-authoring ");
+    assert_eq!(app.composer.input, "@skill:wright-plan-authoring ");
     assert!(
-        app.completion_dismissed,
+        app.composer.completion_dismissed,
         "accepting a terminal skill completion must latch dismissal"
     );
 }
@@ -695,8 +705,8 @@ fn accept_path_file_completion_is_terminal_and_formats_canonical() {
     // formats it as `@file:path `, appends a trailing space, and latches
     // the dismissal flag so the popup stays closed while typing resumes.
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "@file:Ca".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "@file:Ca".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let idx = completions
         .iter()
@@ -704,9 +714,9 @@ fn accept_path_file_completion_is_terminal_and_formats_canonical() {
         .expect("Cargo.toml in candidates");
     app.accept_completion(idx);
     // Canonical entity mention format `@file:... `
-    assert_eq!(app.input, "@file:Cargo.toml ");
+    assert_eq!(app.composer.input, "@file:Cargo.toml ");
     assert!(
-        app.completion_dismissed,
+        app.composer.completion_dismissed,
         "file accept must be terminal (latch dismissal)"
     );
 }
@@ -719,8 +729,8 @@ fn accept_path_file_completion_inline_preserves_surrounding_text() {
     // Cursor sits right after the `@file:Cargo` token, inside the mention.
     // `look at @file:Cargo please`: `look at ` is 8 chars, `@file:Cargo` is 11 → cursor
     // at char index 19 sits just past the `o`.
-    app.input = "look at @file:Cargo please".to_string();
-    app.cursor_position = 19;
+    app.composer.input = "look at @file:Cargo please".to_string();
+    app.composer.cursor_position = 19;
     let completions = app.completions();
     let idx = completions
         .iter()
@@ -728,7 +738,7 @@ fn accept_path_file_completion_inline_preserves_surrounding_text() {
         .expect("Cargo.toml in candidates");
     app.accept_completion(idx);
     // Replaced with canonical @file: mention; trailing `please` is preserved.
-    assert_eq!(app.input, "look at @file:Cargo.toml please");
+    assert_eq!(app.composer.input, "look at @file:Cargo.toml please");
 }
 
 /// Esc back-out must respect modal hierarchy: a drill-in sub-page backs out to
@@ -747,36 +757,40 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     // The user is in the Sessions › Info sub-view at startup: both the startup
     // gate AND the info drill-in are active. Esc must back out to the list,
     // NOT quit.
-    app.startup_overlay = crate::shell::StartupOverlay::SessionsPicker;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
         .info_detail = true;
-    app.session_detail = Some(nuo_protocol::ThreadDetail {
+    app.session.session_detail = Some(nuo_protocol::ThreadDetail {
         id: "x".to_string(),
         ..Default::default()
     });
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 
     // Mirror the CloseModal arm's ordering (deepest level wins).
     let quit = if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Sessions)
         && app
             .surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .info_detail
     {
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .info_detail = false;
-        app.session_detail = None;
+        app.session.session_detail = None;
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .info_scroll = 0;
         false
-    } else if app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+    } else if app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Sessions)
     {
-        app.should_quit.store(true, Ordering::SeqCst);
+        app.link.should_quit.store(true, Ordering::SeqCst);
         true
     } else {
         false
@@ -784,12 +798,13 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     assert!(!quit, "Esc from Info backs out to the list, never quits");
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .info_detail,
         "sub-view cleared — back on the list"
     );
     assert!(
-        !app.should_quit.load(Ordering::SeqCst),
+        !app.link.should_quit.load(Ordering::SeqCst),
         "program did not quit"
     );
 
@@ -798,20 +813,21 @@ fn esc_in_session_info_subpage_backs_out_before_quit_or_close() {
     let quit = if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Sessions)
         && app
             .surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .info_detail
     {
         false
-    } else if app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+    } else if app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Sessions)
     {
-        app.should_quit.store(true, Ordering::SeqCst);
+        app.link.should_quit.store(true, Ordering::SeqCst);
         true
     } else {
         false
     };
     assert!(quit, "Esc from the startup list quits the program");
-    assert!(app.should_quit.load(Ordering::SeqCst));
+    assert!(app.link.should_quit.load(Ordering::SeqCst));
 }
 
 /// Ctrl+C at the `nuo attach` startup picker must quit the program — the
@@ -825,18 +841,18 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
     use std::sync::atomic::Ordering;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.startup_overlay = crate::shell::StartupOverlay::SessionsPicker;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 
     // Mirror the CtrlC arm: startup_overlay + Sessions → quit (not modal-close).
     // (Selection copy is skipped — no selection in a modal.)
-    let quit = if app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+    let quit = if app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Sessions)
     {
-        app.should_quit.store(true, Ordering::SeqCst);
+        app.link.should_quit.store(true, Ordering::SeqCst);
         true
-    } else if app.surfaces.active_overlay().is_some() && app.active_sheet().is_none() {
+    } else if app.surfaces.surfaces.active_overlay().is_some() && app.active_sheet().is_none() {
         app.reset_to_thread();
         false
     } else if app.active_sheet().is_some() {
@@ -847,7 +863,7 @@ fn ctrl_c_at_startup_picker_quits_instead_of_dropping_to_empty_session() {
     };
     assert!(quit, "Ctrl+C at the startup picker quits");
     assert!(
-        app.should_quit.load(Ordering::SeqCst),
+        app.link.should_quit.load(Ordering::SeqCst),
         "program quits, does not drop into an empty session"
     );
     // The modal was NOT merely closed (which is what created the empty-session
@@ -875,9 +891,9 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     use std::sync::atomic::Ordering;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.startup_overlay = crate::shell::StartupOverlay::Dashboard;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::Dashboard;
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 
     // Esc from the dashboard itself (no preview/prompt sub-layer open) is a
     // spent gesture: scene-local, so nothing happens and nothing quits.
@@ -906,7 +922,7 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     );
     app.scene_back();
     assert!(
-        !app.should_quit.load(Ordering::SeqCst),
+        !app.link.should_quit.load(Ordering::SeqCst),
         "Esc never exits a scene, standalone or not"
     );
     assert_eq!(
@@ -921,7 +937,7 @@ fn esc_at_startup_dashboard_steps_back_and_the_scene_exit_quits() {
     // so a `true` here means the scene was never left.
     assert!(crate::shell::event_loop::host_test_shims::quit_standalone_scene_at_startup(&mut app));
     assert!(
-        app.should_quit.load(Ordering::SeqCst),
+        app.link.should_quit.load(Ordering::SeqCst),
         "the scene-exit verb quits the TUI"
     );
     assert_eq!(
@@ -936,7 +952,7 @@ fn ctrl_c_at_startup_dashboard_arms_then_quits_never_opens_chat() {
     use std::sync::atomic::Ordering;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.startup_overlay = crate::shell::StartupOverlay::Dashboard;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::Dashboard;
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -949,12 +965,12 @@ fn ctrl_c_at_startup_dashboard_arms_then_quits_never_opens_chat() {
         crate::shell::surfaces::SceneKind::Dashboard,
         "dashboard stays open"
     );
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 
     // Second Ctrl+C inside the window: quit, not a drop into the chat.
     super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
     assert!(
-        app.should_quit.load(Ordering::SeqCst),
+        app.link.should_quit.load(Ordering::SeqCst),
         "double Ctrl+C exits the whole TUI"
     );
     assert_eq!(
@@ -969,7 +985,7 @@ fn ctrl_c_at_startup_dashboard_after_window_expires_rearms_not_opens_chat() {
     use std::sync::atomic::Ordering;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.startup_overlay = crate::shell::StartupOverlay::Dashboard;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::Dashboard;
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -985,7 +1001,7 @@ fn ctrl_c_at_startup_dashboard_after_window_expires_rearms_not_opens_chat() {
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Dashboard
     );
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 }
 
 /// The in-session dashboard (`/dashboard` typed in a thread) keeps the
@@ -997,8 +1013,8 @@ fn ctrl_c_at_in_session_dashboard_double_press_detaches() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
-    app.startup_overlay = crate::shell::StartupOverlay::None;
+    app.link.tx = tx;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1009,7 +1025,7 @@ fn ctrl_c_at_in_session_dashboard_double_press_detaches() {
         rx.try_recv().is_err(),
         "double Ctrl+C detaches the client without sending EndSession (ADR-0038)"
     );
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 }
 
 /// The dashboard's inline prompt (`p` / `n`) borrows the composer buffer.
@@ -1020,29 +1036,35 @@ fn ctrl_c_at_dashboard_inline_prompt_clears_text_before_arming() {
     use std::sync::atomic::Ordering;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.startup_overlay = crate::shell::StartupOverlay::Dashboard;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::Dashboard;
     app.switch_scene(crate::shell::surfaces::SceneKind::Dashboard);
-    app.host_prompting = true;
-    app.host_prompt_new = true;
-    app.input = "refactor the parser".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.surfaces.host_prompting = true;
+    app.surfaces.host_prompt_new = true;
+    app.composer.input = "refactor the parser".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     // First press: clears staged text, does NOT arm quit
     super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
-    assert!(app.input.is_empty(), "the staged task text is cleared");
+    assert!(
+        app.composer.input.is_empty(),
+        "the staged task text is cleared"
+    );
     assert!(
         !app.ctrl_c_armed(),
         "clearing text does not arm the quit window"
     );
-    assert_eq!(app.copy_toast_message, "input cleared");
+    assert_eq!(app.surfaces.copy_toast_message, "input cleared");
     assert_eq!(
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Dashboard,
         "the dashboard stays open"
     );
-    assert!(app.host_prompting, "the prompt itself stays mounted");
+    assert!(
+        app.surfaces.host_prompting,
+        "the prompt itself stays mounted"
+    );
 
     // Second press (input now empty): arms quit window
     super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
@@ -1050,11 +1072,11 @@ fn ctrl_c_at_dashboard_inline_prompt_clears_text_before_arming() {
         app.ctrl_c_armed(),
         "first press with empty input arms the quit window"
     );
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 
     // Third press: inside armed window quits
     super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
-    assert!(app.should_quit.load(Ordering::SeqCst));
+    assert!(app.link.should_quit.load(Ordering::SeqCst));
     assert_eq!(
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Dashboard
@@ -1067,25 +1089,25 @@ fn ctrl_c_at_composer_clears_text_without_arming_then_double_press_quits() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
-    app.input = "draft query text".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.link.tx = tx;
+    app.composer.input = "draft query text".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let (copy_tx, _copy_rx) = mpsc::unbounded_channel();
     let copy_pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     // First Ctrl+C: clears input only; does NOT arm quit.
     let flow = super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
     assert_eq!(flow, ActionFlow::Handled);
-    assert!(app.input.is_empty(), "input was cleared");
+    assert!(app.composer.input.is_empty(), "input was cleared");
     assert!(!app.ctrl_c_armed(), "clearing text must not arm quit");
-    assert_eq!(app.copy_toast_message, "input cleared");
+    assert_eq!(app.surfaces.copy_toast_message, "input cleared");
 
     // Second Ctrl+C: now input is empty, so this arms quit confirmation.
     let flow = super::event_loop::handle_ctrl_c(&mut app, "test-session", &copy_tx, &copy_pending);
     assert_eq!(flow, ActionFlow::Handled);
     assert!(app.ctrl_c_armed(), "press on empty input arms quit window");
     assert!(
-        app.copy_toast_until.is_none(),
+        app.surfaces.copy_toast_until.is_none(),
         "copy toast cleared when armed"
     );
 
@@ -1104,7 +1126,7 @@ async fn ctrl_c_armed_cancelled_by_other_action() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, _rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = UiRuntime::minimal_for_test();
 
     // Arm Ctrl+C
@@ -1143,7 +1165,9 @@ fn esc_interrupt_window_is_wall_clock_not_frame_counted() {
     assert!(app.esc_armed());
     // The viewed session's round is running, so the per-frame keep-alive
     // holds the window open regardless of how often the loop wakes.
-    app.running_sessions.insert(app.current_session_id.clone());
+    app.session
+        .running_sessions
+        .insert(app.session.current_session_id.clone());
     for _ in 0..100 {
         app.tick_esc_arm();
     }
@@ -1175,8 +1199,10 @@ fn esc_interrupt_window_is_wall_clock_not_frame_counted() {
 fn esc_interrupt_fires_on_second_press_and_rearms_after() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
-    app.running_sessions.insert(app.current_session_id.clone());
+    app.link.tx = tx;
+    app.session
+        .running_sessions
+        .insert(app.session.current_session_id.clone());
 
     // Main view: arm, then fire. Driven through the real dispatch arm so
     // the wire request (not just the state flip) is asserted.
@@ -1203,7 +1229,7 @@ fn esc_interrupt_fires_on_second_press_and_rearms_after() {
 fn subagent_scene_esc_interrupts_only_the_viewed_child() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     // A running subagent task in the transcript, zoomed in. The primary
     // session is ALSO running — exactly the state where the old code leaked the
@@ -1213,8 +1239,10 @@ fn subagent_scene_esc_interrupts_only_the_viewed_child() {
         "spawn_agent",
         r#"{"description":"explore","prompt":"..."}"#,
     );
-    app.messages.push(task);
-    app.running_sessions.insert(app.current_session_id.clone());
+    app.transcript.messages.push(task);
+    app.session
+        .running_sessions
+        .insert(app.session.current_session_id.clone());
     app.enter_subagent("call_zoom".to_string());
     assert_eq!(
         app.current_scene(),
@@ -1241,7 +1269,9 @@ fn subagent_scene_esc_interrupts_only_the_viewed_child() {
     // keeps its responding flag (the scene-scoped path deliberately skips the
     // session-level flip the chat paths perform).
     assert!(
-        app.running_sessions.contains(&app.current_session_id),
+        app.session
+            .running_sessions
+            .contains(&app.session.current_session_id),
         "the enclosing primary round must keep running"
     );
 }
@@ -1259,9 +1289,11 @@ fn finished_viewed_child_advertises_no_subagent_interrupt() {
     );
     // Drive the step to a terminal state (the child finished).
     task.cancel_tool_step("call_done");
-    app.messages.push(task);
+    app.transcript.messages.push(task);
     // The primary round still runs.
-    app.running_sessions.insert(app.current_session_id.clone());
+    app.session
+        .running_sessions
+        .insert(app.session.current_session_id.clone());
     app.enter_subagent("call_done".to_string());
 
     assert!(
@@ -1303,16 +1335,16 @@ fn finished_viewed_child_advertises_no_subagent_interrupt() {
 fn delete_input_selection_clears_buffer_and_selection() {
     let mut app = app_with_input_selection("hello world");
     assert!(app.delete_input_selection());
-    assert_eq!(app.input, "");
-    assert_eq!(app.cursor_position, 0);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.input, "");
+    assert_eq!(app.composer.cursor_position, 0);
+    assert_eq!(app.transcript.selection, SelectionState::None);
     // Second call is a no-op.
     assert!(!app.delete_input_selection());
 
     // Partial range deletion deletes only the selected slice.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
-    app.selection = SelectionState::Range {
+    app.composer.input = "hello world".to_string();
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1325,17 +1357,17 @@ fn delete_input_selection_clears_buffer_and_selection() {
         ),
     };
     assert!(app.delete_input_selection());
-    assert_eq!(app.input, "hello ");
-    assert_eq!(app.cursor_position, 6);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.input, "hello ");
+    assert_eq!(app.composer.cursor_position, 6);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 }
 
 #[test]
 fn range_selection_left_arrow_breaks_selection_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     // Drag forward from 'w' (6) to 'd' (10/11): mouse released at 11.
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1347,7 +1379,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
             11,
         ),
     };
-    app.cursor_position = 11;
+    app.composer.cursor_position = 11;
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
     assert!(matches!(
@@ -1355,17 +1387,17 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         SelectionState::None,
         "selection must be cancelled"
     );
     assert_eq!(
-        app.cursor_position, 10,
+        app.composer.cursor_position, 10,
         "caret steps left from release point 11"
     );
 
     // Backward drag: drag from 'd' (11) to 'w' (6): mouse released at 6.
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1377,7 +1409,7 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
             6,
         ),
     };
-    app.cursor_position = 6;
+    app.composer.cursor_position = 6;
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
     assert!(matches!(
@@ -1385,12 +1417,12 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         SelectionState::None,
         "selection must be cancelled"
     );
     assert_eq!(
-        app.cursor_position, 5,
+        app.composer.cursor_position, 5,
         "caret steps left from release point 6"
     );
 }
@@ -1398,9 +1430,9 @@ fn range_selection_left_arrow_breaks_selection_at_release_position() {
 #[test]
 fn range_selection_right_arrow_breaks_selection_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     // Backward drag: drag from 'd' (11) to 'w' (6): mouse released at 6.
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1412,7 +1444,7 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
             6,
         ),
     };
-    app.cursor_position = 6;
+    app.composer.cursor_position = 6;
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Right);
     assert!(matches!(
@@ -1420,12 +1452,12 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         SelectionState::None,
         "selection must be cancelled"
     );
     assert_eq!(
-        app.cursor_position, 7,
+        app.composer.cursor_position, 7,
         "caret steps right from release point 6"
     );
 }
@@ -1433,8 +1465,8 @@ fn range_selection_right_arrow_breaks_selection_at_release_position() {
 #[test]
 fn range_selection_up_and_down_restore_caret_at_release_position() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
-    app.selection = SelectionState::Range {
+    app.composer.input = "hello world".to_string();
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1446,22 +1478,25 @@ fn range_selection_up_and_down_restore_caret_at_release_position() {
             6,
         ),
     };
-    app.cursor_position = 1; // stale
+    app.composer.cursor_position = 1; // stale
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Up);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.selection, SelectionState::None);
-    assert_eq!(app.cursor_position, 6, "↑ restores caret at release point");
+    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(
+        app.composer.cursor_position, 6,
+        "↑ restores caret at release point"
+    );
 }
 
 #[test]
 fn range_selection_home_and_end_jump_to_selection_edges() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
-    app.selection = SelectionState::Range {
+    app.composer.input = "hello world".to_string();
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1479,10 +1514,13 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.selection, SelectionState::None);
-    assert_eq!(app.cursor_position, 6, "Home jumps to start of range");
+    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(
+        app.composer.cursor_position, 6,
+        "Home jumps to start of range"
+    );
 
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1500,17 +1538,20 @@ fn range_selection_home_and_end_jump_to_selection_edges() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.selection, SelectionState::None);
-    assert_eq!(app.cursor_position, 11, "End jumps to end of range");
+    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(
+        app.composer.cursor_position, 11,
+        "End jumps to end of range"
+    );
 }
 
 #[test]
 fn range_selection_cjk_left_arrow_snaps_grapheme() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "你好世界".to_string();
+    app.composer.input = "你好世界".to_string();
     // Drag backwards from '界' (byte 9..12, char 3..4) to '好' (byte 3..6, char 1..2).
     // Mouse released at byte 3 (char 1).
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -1522,15 +1563,18 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
             3,
         ),
     };
-    app.cursor_position = 3;
+    app.composer.cursor_position = 3;
 
     let action = relay_probe(&mut app, crossterm::event::KeyCode::Left);
     assert!(matches!(
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.selection, SelectionState::None);
-    assert_eq!(app.cursor_position, 0, "← steps left from char 1 to char 0");
+    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(
+        app.composer.cursor_position, 0,
+        "← steps left from char 1 to char 0"
+    );
 }
 
 // Zero-Latency Two-Tier Completion & SWR Tests
@@ -1538,8 +1582,8 @@ fn range_selection_cjk_left_arrow_snaps_grapheme() {
 #[test]
 fn adr0162_slash_completions_are_synchronous_and_zero_latency() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "/m".to_string();
-    app.cursor_position = 2;
+    app.composer.input = "/m".to_string();
+    app.composer.cursor_position = 2;
 
     // Zero-latency Tier 1: completions available immediately on frame 1
     let completions = app.completions();
@@ -1562,8 +1606,8 @@ fn adr0162_slash_completions_are_synchronous_and_zero_latency() {
 #[test]
 fn adr0162_swr_retains_backend_completions_during_path_mention_typing() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "look at @src/".to_string();
-    app.cursor_position = app.input.len();
+    app.composer.input = "look at @src/".to_string();
+    app.composer.cursor_position = app.composer.input.len();
 
     // Simulate backend response arriving for @src/
     let item = nuo_tool::InputCompletion {
@@ -1576,13 +1620,18 @@ fn adr0162_swr_retains_backend_completions_during_path_mention_typing() {
         alias_of: None,
         command: None,
     };
-    app.apply_backend_completions(0, app.input.clone(), app.cursor_position, vec![item]);
+    app.apply_backend_completions(
+        0,
+        app.composer.input.clone(),
+        app.composer.cursor_position,
+        vec![item],
+    );
 
     assert_eq!(app.completions().len(), 1);
 
     // User types 'm' -> input becomes @src/m
-    app.input = "look at @src/m".to_string();
-    app.cursor_position = app.input.len();
+    app.composer.input = "look at @src/m".to_string();
+    app.composer.cursor_position = app.composer.input.len();
     app.refresh_backend_completion_request();
 
     // SWR: completions are retained during in-flight request, not dropped to 0
@@ -1602,8 +1651,8 @@ fn mid_paragraph_mention_completes_behind_multibyte_text() {
     // like it sits past the end of the input, so the engine returned nothing and
     // the popup never opened — the mention "only worked at the start of a line".
     let (mut app, _tmp) = app_in_tempdir(&["src/main.rs", "src/lib.rs"], &[]);
-    app.input = "看一下这个 @file:src/".to_string();
-    app.cursor_position = app.input.len();
+    app.composer.input = "看一下这个 @file:src/".to_string();
+    app.composer.cursor_position = app.composer.input.len();
 
     assert_eq!(
         app.completion_kind(),
@@ -1612,7 +1661,7 @@ fn mid_paragraph_mention_completes_behind_multibyte_text() {
     );
     assert_eq!(
         app.wire_cursor(),
-        app.input.chars().count(),
+        app.composer.input.chars().count(),
         "the wire carries scalar indices, not bytes"
     );
     let completions = app.completions();
@@ -1631,8 +1680,8 @@ fn mid_paragraph_mention_replaces_only_the_token() {
     // adds the trailing space only when the suffix does not already supply one,
     // so the user's own spacing is never doubled.
     let (mut app, _tmp) = app_in_tempdir(&["src/main.rs"], &[]);
-    app.input = "看一下这个 @file:src/ 然后再继续".to_string();
-    app.cursor_position = app.input.find(" 然后再继续").expect("suffix");
+    app.composer.input = "看一下这个 @file:src/ 然后再继续".to_string();
+    app.composer.cursor_position = app.composer.input.find(" 然后再继续").expect("suffix");
 
     let index = app
         .completions()
@@ -1641,7 +1690,10 @@ fn mid_paragraph_mention_replaces_only_the_token() {
         .expect("file candidate for a mid-paragraph mention");
     app.accept_completion(index);
 
-    assert_eq!(app.input, "看一下这个 @file:src/main.rs 然后再继续");
+    assert_eq!(
+        app.composer.input,
+        "看一下这个 @file:src/main.rs 然后再继续"
+    );
 }
 
 #[test]
@@ -1649,8 +1701,8 @@ fn mid_paragraph_mention_completes_on_a_later_line() {
     // "Paragraph" in the composer is a multi-line draft: the mention sits after
     // prose on a line that is neither the first row nor the first column.
     let (mut app, _tmp) = app_in_tempdir(&["src/main.rs"], &[]);
-    app.input = "first line\nplease read @file:src/".to_string();
-    app.cursor_position = app.input.len();
+    app.composer.input = "first line\nplease read @file:src/".to_string();
+    app.composer.cursor_position = app.composer.input.len();
 
     assert_eq!(app.completion_kind(), CompletionKind::Path);
     let completions = app.completions();
@@ -1666,17 +1718,17 @@ fn mid_paragraph_mention_completes_on_a_later_line() {
 fn wire_cursor_converts_bytes_to_scalar_indices() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // Pure ASCII: identical.
-    app.input = "hello @file".to_string();
-    app.cursor_position = app.input.len();
-    assert_eq!(app.wire_cursor(), app.input.len());
+    app.composer.input = "hello @file".to_string();
+    app.composer.cursor_position = app.composer.input.len();
+    assert_eq!(app.wire_cursor(), app.composer.input.len());
     // Multibyte prefix: fewer scalars than bytes.
-    app.input = "看一下 @file".to_string();
-    app.cursor_position = app.input.len();
+    app.composer.input = "看一下 @file".to_string();
+    app.composer.cursor_position = app.composer.input.len();
     assert_eq!(app.wire_cursor(), 9);
-    assert_eq!(app.byte_cursor(), app.input.len());
+    assert_eq!(app.byte_cursor(), app.composer.input.len());
     // A caret parked mid-buffer converts the prefix only.
-    app.input = "看一下 @file:src".to_string();
-    app.cursor_position = "看一下 @file".len();
+    app.composer.input = "看一下 @file:src".to_string();
+    app.composer.cursor_position = "看一下 @file".len();
     assert_eq!(app.wire_cursor(), 9);
 }
 
@@ -1688,8 +1740,8 @@ fn wire_cursor_converts_bytes_to_scalar_indices() {
 #[test]
 fn builtin_quotas_is_completable_from_the_composer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "/quot".to_string();
-    app.cursor_position = app.input.len();
+    app.composer.input = "/quot".to_string();
+    app.composer.cursor_position = app.composer.input.len();
     let labels: Vec<String> = app.completions().into_iter().map(|c| c.label).collect();
     assert!(
         labels.iter().any(|l| l == "/quotas"),
@@ -1707,8 +1759,8 @@ fn advertised_aliases_complete_and_commit_their_canonical_target() {
         ("/jai", "/jail", "/confinement"),
         ("/set", "/setup", "/init"),
     ] {
-        app.input = typed.to_string();
-        app.cursor_position = app.input.len();
+        app.composer.input = typed.to_string();
+        app.composer.cursor_position = app.composer.input.len();
         let completions = app.completions();
         let row = completions
             .iter()
@@ -1736,15 +1788,19 @@ fn advertised_aliases_complete_and_commit_their_canonical_target() {
 #[test]
 fn mid_paragraph_mention_edit_offsets_are_scalar_indices() {
     let (mut app, _tmp) = app_in_tempdir(&["src/main.rs"], &[]);
-    app.input = "看一下这个 @file:src/ 然后再继续".to_string();
+    app.composer.input = "看一下这个 @file:src/ 然后再继续".to_string();
     // Caret at the end of the mention token; prose before, prose after.
-    let caret = app.input.find(" 然后再继续").expect("suffix present");
-    app.cursor_position = caret;
+    let caret = app
+        .composer
+        .input
+        .find(" 然后再继续")
+        .expect("suffix present");
+    app.composer.cursor_position = caret;
 
     let wire_items = nuo_server::runtime::input_completion::complete_for_frontend_test(
-        app.command_catalog.clone(),
-        app.cwd.clone(),
-        &app.input,
+        app.composer.command_catalog.clone(),
+        app.session.cwd.clone(),
+        &app.composer.input,
         app.wire_cursor(),
     );
     let file = wire_items
@@ -1763,9 +1819,12 @@ fn mid_paragraph_mention_edit_offsets_are_scalar_indices() {
         .position(|c| c.insert_text.starts_with("@file:src/main.rs"))
         .expect("file candidate through the TUI adapter");
     app.accept_completion(index);
-    assert_eq!(app.input, "看一下这个 @file:src/main.rs 然后再继续");
+    assert_eq!(
+        app.composer.input,
+        "看一下这个 @file:src/main.rs 然后再继续"
+    );
     assert!(
-        app.input.starts_with("看一下这个 "),
+        app.composer.input.starts_with("看一下这个 "),
         "the CJK prefix must survive the splice byte-for-byte"
     );
 }

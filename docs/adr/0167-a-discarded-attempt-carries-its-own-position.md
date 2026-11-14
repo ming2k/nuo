@@ -1,8 +1,18 @@
+---
+id: ADR-0167
+title: "A Discarded Attempt Carries Its Own Position"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0167: A Discarded Attempt Carries Its Own Position
 
 - **Status:** Accepted
 - **Date:** 2026-11-08
-- **Related:** [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md), [ADR-0166](0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0133](0133-transcript-attachment-and-hydration-invariants.md)
+- **Related:** [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md), [ADR-0166](0166-a-tool-call-has-one-identity-and-the-tool-step-reducer-is-idempotent.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0133](0133-attach-readiness-boundary-network-free-handshake-typed-session-phases-and-authoritative-late-hydration.md)
 - **Amends:** ADR-0162 §"2026-11-08 Amendment: The Discard Sweeps Every Provisional Row"
 - **Amended by:** [ADR-0168](0168-turn-scoped-events-carry-their-own-context.md) (the discard keeps its position; the position now rides the turn envelope)
 

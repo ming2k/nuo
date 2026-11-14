@@ -5,8 +5,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// Models served by Moonshot's Kimi Code endpoint, in display/activation
 /// order — the first entry is the initial active channel. `k3` is the

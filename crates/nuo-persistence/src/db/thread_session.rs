@@ -170,15 +170,6 @@ pub(crate) fn delete_session(conn: &Connection, session_id: &str) -> Result<bool
 /// transaction: the session row (identity + working state),
 /// the session's memberships and directives, and the entries themselves
 /// (upsert — facts are shared by identity across forks).
-#[cfg(test)]
-pub(crate) fn save_session_full(
-    conn: &Connection,
-    blob_store: Option<&BlobStore>,
-    data: &crate::thread::ThreadData,
-) -> std::result::Result<(), SaveError> {
-    save_session_inner(conn, blob_store, data, true, &[], &CommitGuard::default()).map(|_| ())
-}
-
 pub(crate) fn save_session_inner(
     conn: &Connection,
     blob_store: Option<&BlobStore>,
@@ -189,7 +180,6 @@ pub(crate) fn save_session_inner(
 ) -> std::result::Result<u64, SaveError> {
     let fork_str = match data.origin {
         nuo_protocol::ThreadOrigin::Trunk => "trunk",
-        nuo_protocol::ThreadOrigin::Trunk => "fork",
         nuo_protocol::ThreadOrigin::Subagent => "subagent",
     };
     let digest_str = data
@@ -307,10 +297,10 @@ pub(crate) fn save_session_inner(
             INSERT INTO thread_policies (
                 thread_id, workspace_root, system_role, unattended, provider_pin,
                 disabled_tools_json, additional_roots_json, commands_json,
-                round_interrupts_json, retry_pending,
+                round_interrupts_json, retry_resolutions_json, retry_pending,
                 role_manifest, todos_json, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
-                      ?13 * 1000)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                      ?14 * 1000)
             ON CONFLICT(thread_id) DO UPDATE SET
                 workspace_root = excluded.workspace_root,
                 system_role = excluded.system_role,
@@ -320,6 +310,7 @@ pub(crate) fn save_session_inner(
                 additional_roots_json = excluded.additional_roots_json,
                 commands_json = excluded.commands_json,
                 round_interrupts_json = excluded.round_interrupts_json,
+                retry_resolutions_json = excluded.retry_resolutions_json,
                 retry_pending = excluded.retry_pending,
                 role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
                 todos_json = excluded.todos_json,
@@ -340,6 +331,7 @@ pub(crate) fn save_session_inner(
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                 serde_json::to_string(&data.round_interrupts)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                "[]",
                 data.retry_pending
                     .as_ref()
                     .and_then(|s| serde_json::to_string(s).ok()),
@@ -369,6 +361,11 @@ pub(crate) fn save_session_inner(
         // same transaction as the facts they describe, so recovery can
         // always resolve an unknown outcome by operation identity.
         let committed_revision = current_revision + 1;
+        conn.execute(
+            "INSERT INTO thread_revisions(thread_id, revision) VALUES(?1, ?2)
+             ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision",
+            params![data.id, committed_revision as i64],
+        )?;
         conn.execute(
             "UPDATE threads SET revision = ?2 WHERE id = ?1",
             params![data.id, committed_revision as i64],
@@ -409,7 +406,7 @@ fn offload_observation_blobs(
     thread: &mut nuo_protocol::Thread,
     blob_store: &BlobStore,
 ) -> Result<()> {
-    use nuo_protocol::{BlobRef, FactPayload, ObservationLifecycle, ObservationMetrics};
+    use nuo_protocol::{BlobRef, FactPayload, ObservationLifecycle};
 
     let mut replacements = Vec::new();
     for fact in thread.graph.iter() {
@@ -473,19 +470,6 @@ fn offload_observation_blobs(
     Ok(())
 }
 
-/// Write one entry row, offloading an oversized body to the CAS when this
-/// engine has a blob store. The offload applies only to the
-/// row about to be inserted: already-durable rows keep their stored shape.
-///
-/// Returns every blob hash this row references, so the caller can maintain
-/// `blob_refs` from the hashes the write already computed. The earlier shape
-/// re-decoded each image *again* in the reference ledger — a second base64
-/// decode and hash per image per save.
-
-/// Maintain the durable blob reference ledger for the blobs this save
-/// touches. Callers pass exactly the hashes the row writes already produced —
-/// the ledger never re-decodes or re-hashes content.
-
 /// Read the durable usage ledger for one session, in deterministic key
 /// order: rows live in their own table, not on the session row.
 fn load_usage_records(
@@ -530,7 +514,7 @@ pub(crate) fn load_session_full(
                    t.digest, t.digest_anchor, t.transcript_generation,
                    p.provider_pin, t.round_counter, p.unattended,
                    p.disabled_tools_json, p.commands_json, p.round_interrupts_json,
-                   p.retry_pending, t.checksum,
+                   p.retry_resolutions_json, p.retry_pending, t.checksum,
                    13, p.role_manifest
             FROM threads t
             LEFT JOIN thread_policies p ON p.thread_id = t.id
@@ -557,10 +541,11 @@ pub(crate) fn load_session_full(
                     row.get::<_, String>(15)?,
                     row.get::<_, String>(16)?,
                     row.get::<_, String>(17)?,
-                    row.get::<_, Option<String>>(18)?,
-                    row.get::<_, Option<i64>>(19)?,
-                    row.get::<_, i64>(20)?,
-                    row.get::<_, Option<String>>(21)?,
+                    row.get::<_, String>(18)?,
+                    row.get::<_, Option<String>>(19)?,
+                    row.get::<_, Option<i64>>(20)?,
+                    row.get::<_, i64>(21)?,
+                    row.get::<_, Option<String>>(22)?,
                 ))
             },
         )
@@ -584,6 +569,7 @@ pub(crate) fn load_session_full(
         disabled_tools,
         commands,
         round_interrupts,
+        _retry_resolutions,
         retry_pending,
         checksum,
         schema_version,

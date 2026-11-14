@@ -272,11 +272,7 @@ pub fn command_invocation(structured: Option<&ToolOutput>, arguments: &str) -> S
 /// UI-authoritative order); falls back to the all-stdout-then-all-stderr flat
 /// strings for the live-seed window before the final result lands and for
 /// restored sessions recorded without `lines`.
-fn structured_rows(
-    lines: &[nuo_tool::ShellLine],
-    stdout: &str,
-    stderr: &str,
-) -> Vec<String> {
+fn structured_rows(lines: &[nuo_tool::ShellLine], stdout: &str, stderr: &str) -> Vec<String> {
     if !lines.is_empty() {
         return lines
             .iter()

@@ -1,7 +1,7 @@
 //! Canonical model registry — baseline metadata for models whose provider does
 //! not publish a complete live model catalogue.
 //!
-//! A [`ProviderEntry`](crate::catalog::ProviderEntry) references a model by its
+//! A [`ProviderEntry`](crate::dialects::ProviderEntry) references a model by its
 //! wire id (e.g. `"glm-5.2"`); this module supplies conservative defaults for
 //! that id. A trusted provider may instead attach a [`RemoteModelMetadata`]
 //! snapshot to its channel. Such metadata is scoped to the provider because an
@@ -272,7 +272,7 @@ pub struct RemoteModelMetadata {
     pub advertised: Option<bool>,
     /// Live catalog **observation** of the concrete effort-parameterized wire
     /// entities the upstream registered for this canonical model — evidence
-    /// carried verbatim from [`crate::catalog::DiscoveredModel::wire_entities`]
+    /// carried verbatim from [`crate::dialects::DiscoveredModel::wire_entities`]
     /// (ADR-0068: parsers record, they do not infer). `None`/empty means the
     /// canonical id routes verbatim. Consumed by the request builder through
     /// [`ModelCapabilities::wire_entity_resolution`]; never consulted for display.

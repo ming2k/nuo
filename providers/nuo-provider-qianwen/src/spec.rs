@@ -39,8 +39,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// The model ids the built-in `qianwen` provider seeds (the plan's
 /// Qwen-native models; the live catalog serves the rest). Each id exists in
@@ -131,8 +131,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 mod tests {
     use super::*;
     use nuo_protocol::effort::Effort;
-    use nuo_provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
     use nuo_protocol::model::resolve;
+    use nuo_provider::effort_ladders::{DEEPSEEK_V4_PLAN, QWEN_MIXED};
 
     /// Every seeded id is registered (the same invariant
     /// `builtin_provider_models_resolve_with_expected_wire_formats` enforces

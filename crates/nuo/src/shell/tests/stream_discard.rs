@@ -68,19 +68,23 @@ fn discard() -> TranscriptEdit {
 }
 
 fn rows(app: &crate::shell::App) -> Vec<String> {
-    app.messages.iter().map(|m| m.raw.clone()).collect()
+    app.transcript
+        .messages
+        .iter()
+        .map(|m| m.raw.clone())
+        .collect()
 }
 
 #[test]
 fn discard_removes_a_lone_thinking_trace() {
     let mut app = new_app_for_relay_tests();
     apply_transcript(&mut app, reasoning("attempt one reasoning"));
-    assert_eq!(app.messages.len(), 1);
+    assert_eq!(app.transcript.messages.len(), 1);
 
     apply_transcript(&mut app, discard());
 
     assert!(
-        app.messages.is_empty(),
+        app.transcript.messages.is_empty(),
         "the failed attempt's thinking trace must not survive: {:?}",
         rows(&app)
     );
@@ -94,12 +98,12 @@ fn discard_removes_thinking_that_outlived_its_answer_text() {
     let mut app = new_app_for_relay_tests();
     apply_transcript(&mut app, reasoning("stale thinking"));
     apply_transcript(&mut app, text("partial answer"));
-    assert_eq!(app.messages.len(), 2, "thinking + answer text");
+    assert_eq!(app.transcript.messages.len(), 2, "thinking + answer text");
 
     apply_transcript(&mut app, discard());
 
     assert!(
-        app.messages.is_empty(),
+        app.transcript.messages.is_empty(),
         "the whole attempt must be discarded, not just its last row: {:?}",
         rows(&app)
     );
@@ -123,6 +127,7 @@ fn retried_attempt_never_fuses_into_the_failed_attempt() {
     apply_transcript(&mut app, reasoning_finalize("attempt two reasoning"));
 
     let traces: Vec<String> = app
+        .transcript
         .messages
         .iter()
         .filter(|m| m.is_reasoning())
@@ -143,7 +148,8 @@ fn discard_keeps_committed_dialogue_below_the_attempt() {
     // dialogue; truncating beneath it would reorder history.
     let mut app = new_app_for_relay_tests();
     apply_transcript(&mut app, text("an earlier answer"));
-    app.messages
+    app.transcript
+        .messages
         .push(TranscriptMessage::pending_command("delegate", "on"));
     apply_transcript(&mut app, reasoning("provisional thinking"));
 
@@ -204,13 +210,13 @@ fn discard_reaches_text_beneath_a_still_pending_tool_step() {
     let mut step = TranscriptMessage::tool_step_announced("call_1", "bash");
     step.round = ROUND;
     step.turn = TURN;
-    app.messages.push(step);
-    assert_eq!(app.messages.len(), 2, "answer + announced step");
+    app.transcript.messages.push(step);
+    assert_eq!(app.transcript.messages.len(), 2, "answer + announced step");
 
     apply_transcript(&mut app, discard());
 
     assert!(
-        app.messages.is_empty(),
+        app.transcript.messages.is_empty(),
         "the retracted pending step must not shield the failed attempt's text: {:?}",
         rows(&app)
     );
@@ -226,7 +232,7 @@ fn discard_never_truncates_beneath_a_dispatched_tool_step() {
     let mut dispatched = TranscriptMessage::tool_step("call_1", "bash", "{}");
     dispatched.round = ROUND;
     dispatched.turn = TURN;
-    app.messages.push(dispatched);
+    app.transcript.messages.push(dispatched);
     let before = rows(&app);
 
     apply_transcript(&mut app, discard());

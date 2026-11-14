@@ -5,9 +5,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::reasoning::ReasoningSupport;
 use nuo_protocol::{Effort, Model};
 
-
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 pub use nuo_protocol::model_providers::OPENROUTER_BUILTIN_MODELS;
 

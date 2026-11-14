@@ -1,3 +1,13 @@
+---
+id: ADR-0169
+title: "Netune Failure Evidence Crosses Nuo's Transport Boundary"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0169: Netune Failure Evidence Crosses Nuo's Transport Boundary
 
 - **Status:** Accepted

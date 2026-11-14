@@ -42,7 +42,8 @@ fn publish_setback(
 ) {
     let state = setback(attempt, 16);
     if side {
-        app.session_chrome
+        app.session
+            .session_chrome
             .entry(session_id.to_string())
             .or_default()
             .transport_setback = Some(state);
@@ -223,7 +224,7 @@ fn a_one_shot_text_payload_retires_the_clause() {
 fn an_ended_round_retires_the_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.live_session_id = "s1".to_string();
+    app.session.live_session_id = "s1".to_string();
 
     publish_setback(&mut app, &runtime, "s1", false, 2);
     set_phase(&mut app, &runtime, None);
@@ -237,7 +238,8 @@ fn an_ended_round_retires_the_clause() {
     assert!(app.viewed_chrome().phase.is_none());
     assert!(!app.has_live_transport_setback());
     assert!(
-        app.session_chrome
+        app.session
+            .session_chrome
             .get("s1")
             .is_some_and(|chrome| chrome.transport_setback.is_none() && chrome.phase.is_none()),
         "the session-scoped store is clean too"
@@ -251,7 +253,7 @@ fn an_ended_round_retires_the_clause() {
 fn a_background_thread_setback_never_reaches_the_viewed_thread_bar() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.current_session_id = "primary".to_string();
+    app.session.current_session_id = "primary".to_string();
 
     publish_setback(&mut app, &runtime, "thread-2", true, 2);
 
@@ -270,7 +272,7 @@ fn a_background_thread_setback_never_reaches_the_viewed_thread_bar() {
 fn a_background_thread_phase_progress_retires_its_own_clause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.current_session_id = "primary".to_string();
+    app.session.current_session_id = "primary".to_string();
 
     publish_setback(&mut app, &runtime, "thread-2", true, 2);
     assert!(app.has_live_transport_setback());
@@ -369,7 +371,7 @@ fn one_retry_episode_feeds_the_clause_and_the_receipt_from_one_state() {
         "a completed round leaves no countdown on the bar"
     );
     assert!(
-        app.messages.is_empty(),
+        app.transcript.messages.is_empty(),
         "a recovered round leaves no retry row in the transcript"
     );
 }

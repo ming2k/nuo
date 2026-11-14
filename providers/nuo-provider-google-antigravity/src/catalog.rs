@@ -6,8 +6,8 @@
 //! Dialect Ingestion) per ADR-0068.
 
 use nuo_protocol::Availability;
-use nuo_provider::catalog::DiscoveredModel;
 use nuo_protocol::reasoning::ReasoningSupport;
+use nuo_provider::catalog::DiscoveredModel;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 

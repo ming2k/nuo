@@ -41,7 +41,10 @@ pub(crate) async fn reload_trusted_assets(
     super::session_ops::apply_additional_roots(shared_additional_roots, &effective, project_root);
 
     let mcp_report = mcp_runtime.reconfigure(effective.mcp.clone()).await;
-    agent.set_hooks(crate::runtime::hooks::build_hook_registry(&effective.hooks, agent));
+    agent.set_hooks(crate::runtime::hooks::build_hook_registry(
+        &effective.hooks,
+        agent,
+    ));
     skills_registry.reload().await;
     let rules = if snapshot.instructions.is_trusted() {
         crate::product::project::load_project_rules(project_root)?

@@ -51,14 +51,20 @@ fn a_fault_that_fades_from_the_bubble_is_still_in_the_log_and_flagged_unread() {
     );
 
     // While the bubble is up.
-    assert!(app.notice_toast_until.is_some(), "a fault interrupts");
+    assert!(
+        app.surfaces.notice_toast_until.is_some(),
+        "a fault interrupts"
+    );
     assert!(app.has_unread_notice_fault(), "and is counted as unseen");
 
     // After it expires (what the timer tick does).
-    app.notice_toast_until = None;
-    app.copy_toast_until = None;
+    app.surfaces.notice_toast_until = None;
+    app.surfaces.copy_toast_until = None;
 
-    assert!(app.notice_toast_until.is_none(), "the bubble is gone");
+    assert!(
+        app.surfaces.notice_toast_until.is_none(),
+        "the bubble is gone"
+    );
     assert_eq!(app.notice_count(), 1, "the record is not");
     assert_eq!(
         app.notice_lines().back().map(|l| l.text.as_str()),
@@ -89,7 +95,7 @@ fn a_second_fault_does_not_erase_the_first() {
     );
 
     assert_eq!(
-        app.notice_toast_message, "clipboard write timed out",
+        app.surfaces.notice_toast_message, "clipboard write timed out",
         "the bubble shows the newest fault"
     );
     assert_eq!(app.notice_count(), 2, "both are retained");
@@ -145,6 +151,7 @@ fn the_viewer_opens_at_the_newest_notice() {
     app.open_notice_viewer();
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .index,
         3
@@ -170,7 +177,7 @@ fn an_acknowledgement_is_retained_but_never_lights_the_badge() {
 #[test]
 fn the_copied_block_carries_every_notice_with_severity_time_and_topic() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -252,10 +259,12 @@ fn the_log_survives_a_scene_switch() {
     let count = app.notice_count();
 
     app.surfaces
+        .surfaces
         .switch_scene(crate::shell::surfaces::SceneKind::Settings);
     assert_eq!(app.notice_count(), count, "client-global, not scene-scoped");
 
     app.surfaces
+        .surfaces
         .switch_scene(crate::shell::surfaces::SceneKind::Thread);
     assert_eq!(app.notice_count(), count);
 }
@@ -265,7 +274,7 @@ fn the_log_survives_a_session_switch() {
     // The same invariant against the other unwinder: session-scoped dialogs are
     // archived per session, and the notice log must not be one of them.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "a".to_string();
+    app.session.current_session_id = "a".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -274,9 +283,9 @@ fn the_log_survives_a_session_switch() {
     );
     let count = app.notice_count();
 
-    app.surfaces.dialogs.switch_session("b");
+    app.surfaces.surfaces.dialogs.switch_session("b");
     assert_eq!(app.notice_count(), count);
-    app.surfaces.dialogs.switch_session("a");
+    app.surfaces.surfaces.dialogs.switch_session("a");
     assert_eq!(app.notice_count(), count);
 }
 
@@ -285,7 +294,7 @@ fn the_viewer_paints_over_the_transcript_when_opened() {
     // The panel is a real surface, not a data structure: it must reach the
     // screen, over whatever the scene is painting beneath it.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -316,7 +325,7 @@ fn the_unread_fault_badge_paints_on_the_tabbar() {
     // Under ADR-0131, the badge paints in the TabBar right cluster ([!N]),
     // leaving the model bar 100% pure telemetry.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -344,7 +353,7 @@ fn the_badge_is_absent_when_only_acknowledgements_are_unread() {
     // A badge that fired for "copied to clipboard" trains the user to ignore the
     // one that matters.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Info,
@@ -366,7 +375,7 @@ fn the_badge_is_absent_when_only_acknowledgements_are_unread() {
 #[test]
 fn the_badge_clears_once_the_viewer_has_been_opened() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -404,7 +413,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
     // or zero when the viewer paints over a dialog) would step by one row and
     // make paging useless.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     for i in 0..40 {
         disclose(
             &mut app,
@@ -421,6 +430,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
     });
     let body_height = app
         .surfaces
+        .surfaces
         .dlg::<crate::shell::surfaces::NoticesDialog>()
         .body_height;
     assert!(
@@ -432,6 +442,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
     // position: cursor at the top, scroll at zero, follow off.
     {
         let viewer = app
+            .surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
         viewer.index = 0;
@@ -449,6 +460,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
     .await;
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .scroll,
         body_height as usize,
@@ -464,6 +476,7 @@ async fn paging_steps_by_the_panels_real_body_height() {
     .await;
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .scroll,
         0,
@@ -476,7 +489,7 @@ async fn alt_o_opens_the_viewer_even_with_a_dialog_up() {
     // A fault recorded while a dialog is up is exactly the case the user needs
     // to review, so the chord must not be swallowed by the modal.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
 
     let action = crate::shell::input::route_event(
@@ -487,7 +500,7 @@ async fn alt_o_opens_the_viewer_even_with_a_dialog_up() {
         &mut String::new(),
         &mut 0,
         crate::shell::input::Dispatch {
-            overlay: app.surfaces.active_overlay(),
+            overlay: app.surfaces.surfaces.active_overlay(),
             sheet: None,
             pre_attach: false,
             scene: app.current_scene(),
@@ -499,7 +512,7 @@ async fn alt_o_opens_the_viewer_even_with_a_dialog_up() {
         &crate::shell::modal_keys::ModalKeys::default(),
         &crate::shell::sheet::SheetKeys::default(),
         &crate::shell::session::SceneKeys::default(),
-        &mut app.drag,
+        &mut app.transcript.drag,
     );
     assert_eq!(action, crate::shell::input::InputAction::OpenNotices);
 }
@@ -509,7 +522,7 @@ async fn the_viewer_owns_its_keys_while_open() {
     // The viewer is not an `OverlaySurface`, so without an explicit arm its
     // arrow keys would scroll the transcript behind it.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     for i in 0..3 {
         disclose(
             &mut app,
@@ -541,7 +554,7 @@ async fn the_viewer_owns_its_keys_while_open() {
             &crate::shell::modal_keys::ModalKeys::default(),
             &crate::shell::sheet::SheetKeys::default(),
             &crate::shell::session::SceneKeys::default(),
-            &mut app.drag,
+            &mut app.transcript.drag,
         )
     };
 
@@ -573,7 +586,7 @@ async fn esc_closes_the_viewer_before_it_reaches_a_dialog_beneath() {
     // user's point of view. Without the unwinder arm, `Esc` dismissed the dialog
     // *behind* the panel — which looks like the key did nothing at all.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -607,14 +620,14 @@ async fn typing_does_not_kill_a_fault_bubble_but_esc_does() {
     // happened to sit still — the dwell constants were unreachable in practice.
     // Typing is how a user resumes work; it must not cost them the message.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
         crate::shell::app::notice_catalog::ClientTopic::Client,
         "link down",
     );
-    assert!(app.notice_toast_until.is_some());
+    assert!(app.surfaces.notice_toast_until.is_some());
 
     // A printable key.
     crate::shell::event_loop::process_event_for_test(
@@ -627,7 +640,7 @@ async fn typing_does_not_kill_a_fault_bubble_but_esc_does() {
     )
     .await;
     assert!(
-        app.notice_toast_until.is_some(),
+        app.surfaces.notice_toast_until.is_some(),
         "typing must not dismiss a fault the user has not read"
     );
 
@@ -642,7 +655,7 @@ async fn typing_does_not_kill_a_fault_bubble_but_esc_does() {
     )
     .await;
     assert!(
-        app.notice_toast_until.is_none(),
+        app.surfaces.notice_toast_until.is_none(),
         "Esc means 'I have seen this'"
     );
     assert_eq!(
@@ -657,14 +670,14 @@ async fn typing_does_dismiss_an_acknowledgement_bubble() {
     // The mirror: an ack reports the outcome of the action the user just took, so
     // it must yield the composer the moment they resume typing.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Info,
         crate::shell::app::notice_catalog::ClientTopic::Command,
         "delegated mode on",
     );
-    assert!(app.notice_toast_until.is_some());
+    assert!(app.surfaces.notice_toast_until.is_some());
 
     crate::shell::event_loop::process_event_for_test(
         &mut app,
@@ -676,7 +689,7 @@ async fn typing_does_dismiss_an_acknowledgement_bubble() {
     )
     .await;
     assert!(
-        app.notice_toast_until.is_none(),
+        app.surfaces.notice_toast_until.is_none(),
         "an ack never lingers over the composer"
     );
     assert_eq!(app.notice_count(), 1, "but it is still in the log");
@@ -694,6 +707,7 @@ async fn a_fault_bubble_outlives_the_wcag_perception_threshold() {
         "could not reach the backend",
     );
     let remaining = app
+        .surfaces
         .notice_toast_until
         .expect("a fault interrupts")
         .saturating_duration_since(std::time::Instant::now());
@@ -713,7 +727,7 @@ async fn esc_in_the_viewer_closes_only_the_panel_not_the_bubble_it_points_at() {
     // points at. With the panel open, `Esc` closes the panel; the bubble is
     // already moot because the user is reading the record.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -762,6 +776,7 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
     });
     let body_height = app
         .surfaces
+        .surfaces
         .dlg::<crate::shell::surfaces::NoticesDialog>()
         .body_height as usize;
     assert!(body_height > 1);
@@ -769,6 +784,7 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
     // Select the newest notice and expand it: the body now has extra rows.
     {
         let viewer = app
+            .surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
         viewer.index = 29;
@@ -787,6 +803,7 @@ fn the_cursor_stays_visible_after_an_expanded_row_grows_the_body() {
     // And the offset is a real viewport offset, not a row index.
     let scroll = app
         .surfaces
+        .surfaces
         .dlg::<crate::shell::surfaces::NoticesDialog>()
         .scroll;
     assert!(
@@ -800,9 +817,10 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
     // The sovereign notice center dialog (ADR-0134): the footer stack remains 100% pure
     // and notices arrive into SurfaceLog without reflowing the conversation or injecting a dock.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     for i in 0..20 {
-        app.messages
+        app.transcript
+            .messages
             .push(nuo_view::model::document::TranscriptMessage::new(
                 nuo_tool::Role::Assistant,
                 format!("turn {i}"),
@@ -857,7 +875,7 @@ fn footer_stack_remains_pure_and_does_not_reflow_when_notices_arrive_or_dialog_o
 #[test]
 fn the_composer_stays_live_below_and_unaffected_by_notices() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     disclose(
         &mut app,
         NoticeSeverity::Error,
@@ -883,9 +901,10 @@ fn the_composer_stays_live_below_and_unaffected_by_notices() {
 #[test]
 fn the_conversation_stays_visible_when_notice_arrives() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     for i in 0..20 {
-        app.messages
+        app.transcript
+            .messages
             .push(nuo_view::model::document::TranscriptMessage::new(
                 nuo_tool::Role::Assistant,
                 format!("visible-turn-{i}"),
@@ -912,7 +931,7 @@ fn the_conversation_stays_visible_when_notice_arrives() {
 #[test]
 fn notices_arrival_never_alters_footer_height() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
 
     let mut terminal = nuotc::TestTerminal::new(100, 40);
     terminal.draw(|f| {
@@ -938,7 +957,7 @@ fn notices_arrival_never_alters_footer_height() {
 #[test]
 fn expanding_a_detail_toggles_dialog_detail() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     for i in 0..10 {
         disclose(
             &mut app,
@@ -950,15 +969,18 @@ fn expanding_a_detail_toggles_dialog_detail() {
     app.open_notice_viewer();
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .detail
     );
 
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::NoticesDialog>()
         .detail = true;
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .detail
     );
@@ -967,7 +989,7 @@ fn expanding_a_detail_toggles_dialog_detail() {
 #[tokio::test]
 async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     for i in 0..5 {
         disclose(
             &mut app,
@@ -979,6 +1001,7 @@ async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
     app.open_notice_viewer();
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .index,
         4
@@ -994,6 +1017,7 @@ async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
     .await;
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .index,
         3
@@ -1008,6 +1032,7 @@ async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
     .await;
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .detail,
         "detail toggles on"
@@ -1022,6 +1047,7 @@ async fn notices_dialog_keyboard_navigation_and_detail_toggle() {
     .await;
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::NoticesDialog>()
             .detail,
         "detail toggles off"

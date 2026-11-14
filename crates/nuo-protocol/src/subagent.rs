@@ -41,7 +41,6 @@ use crate::model::Model;
 use crate::{CapabilityScope, ToolSelection, ToolSet};
 use nuo_tool::{BuiltinTool, Tool};
 
-
 /// Ceiling on what a subagent may do. There is no capability ladder — a tool is
 /// admitted purely by name. [`Tool::spawns_subagent`] and
 /// [`Tool::affects_control_flow`] tools are always excluded (recursion and

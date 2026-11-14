@@ -53,7 +53,7 @@ impl TelemetryAttempt {
         self.snapshot().and_then(|s| s.stream_tps())
     }
 
-    /// The first→last token span, the denominator behind [`Self::stream_tps`].
+    /// The first→last token span, the denominator behind `Self::stream_tps`.
     pub fn stream_span_us(&self) -> Option<u64> {
         self.performance
             .and_then(|performance| performance.stream_us)

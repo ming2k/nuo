@@ -23,32 +23,35 @@ use super::{ActionFlow, UiRuntime};
 /// exactly like every other selection-driven action.
 fn selection_seq(app: &App) -> Option<(usize, String)> {
     let idx = app
+        .surfaces
         .modal_index
-        .min(app.host_sessions.len().saturating_sub(1));
-    let order = crate::shell::overlays::creation_order(&app.host_sessions);
+        .min(app.session.host_sessions.len().saturating_sub(1));
+    let order = crate::shell::overlays::creation_order(&app.session.host_sessions);
     order
         .get(idx)
-        .map(|&i| (idx + 1, app.host_sessions[i].id.clone()))
+        .map(|&i| (idx + 1, app.session.host_sessions[i].id.clone()))
 }
 
 /// Resolve a `#N` address to a session id against the live snapshot.
 /// `None` when no session holds that number (the receipt names it).
 fn seq_to_id(app: &App, n: usize) -> Option<String> {
-    let order = crate::shell::overlays::creation_order(&app.host_sessions);
+    let order = crate::shell::overlays::creation_order(&app.session.host_sessions);
     order
         .get(n.saturating_sub(1))
-        .map(|&i| app.host_sessions[i].id.clone())
+        .map(|&i| app.session.host_sessions[i].id.clone())
 }
 
 /// Push a local notice into the console log.
 fn notice(app: &mut App, text: impl Into<String>) {
-    app.host_console_log.push(ConsoleLine::Notice(text.into()));
+    app.transcript
+        .host_console_log
+        .push(ConsoleLine::Notice(text.into()));
 }
 
 /// Record a dispatch line — the "what I asked the fleet to do" half of the
 /// cockpit log, written synchronously so it precedes any receipt.
 fn log_dispatch(app: &mut App, raw: &str, targets: Vec<usize>, action: &'static str) {
-    app.host_console_log.push(ConsoleLine::Dispatch {
+    app.transcript.host_console_log.push(ConsoleLine::Dispatch {
         raw: raw.to_string(),
         targets,
         action,
@@ -134,14 +137,16 @@ pub(super) fn kill_selected(app: &mut App, runtime: &UiRuntime) {
     let Some((seq, id)) = selection_seq(app) else {
         return;
     };
-    if app.host_kill_confirm.is_some() && app.host_kill_confirm_id.as_deref() == Some(&id) {
-        app.host_kill_confirm = None;
-        app.host_kill_confirm_id = None;
+    if app.surfaces.host_kill_confirm.is_some()
+        && app.surfaces.host_kill_confirm_id.as_deref() == Some(&id)
+    {
+        app.surfaces.host_kill_confirm = None;
+        app.surfaces.host_kill_confirm_id = None;
         log_dispatch(app, &format!("/kill @{seq}"), vec![seq], "kill");
         spawn_control_verb(runtime, ConsoleVerb::Kill, Some(seq), id);
     } else {
-        app.host_kill_confirm = Some("armed".to_string());
-        app.host_kill_confirm_id = Some(id);
+        app.surfaces.host_kill_confirm = Some("armed".to_string());
+        app.surfaces.host_kill_confirm_id = Some(id);
         notice(
             app,
             format!("kill #{seq}: press k again to confirm (any other key cancels)"),
@@ -151,9 +156,9 @@ pub(super) fn kill_selected(app: &mut App, runtime: &UiRuntime) {
 
 /// Cancel an armed kill confirm (any non-`k` key or a selection move).
 pub(super) fn cancel_kill_confirm(app: &mut App) {
-    if app.host_kill_confirm.is_some() {
-        app.host_kill_confirm = None;
-        app.host_kill_confirm_id = None;
+    if app.surfaces.host_kill_confirm.is_some() {
+        app.surfaces.host_kill_confirm = None;
+        app.surfaces.host_kill_confirm_id = None;
     }
 }
 
@@ -415,7 +420,7 @@ pub(crate) const USAGE_EVENT_CAP: usize = 200;
 /// event loop repaints. A failure keeps whatever report is already on screen
 /// (re-opening never flashes the loading state) and clears only the flag.
 pub(crate) fn refresh_usage(app: &mut App, runtime: &UiRuntime) {
-    app.usage_loading = true;
+    app.telemetry.usage_loading = true;
     let mutations = runtime.mutations.clone();
     let dirty = (runtime.dirty.clone(), runtime.dirty_notify.clone());
     tokio::spawn(async move {
@@ -446,22 +451,24 @@ pub(super) async fn handle_host_action(
     match action {
         InputAction::HostPreviewSelected => {
             let idx = app
+                .surfaces
                 .modal_index
-                .min(app.host_sessions.len().saturating_sub(1));
-            let order = crate::shell::overlays::creation_order(&app.host_sessions);
-            if let Some(row) = order.get(idx).map(|&i| &app.host_sessions[i]) {
-                app.host_preview = Some(row.id.clone());
-                app.host_preview_scroll = 0;
+                .min(app.session.host_sessions.len().saturating_sub(1));
+            let order = crate::shell::overlays::creation_order(&app.session.host_sessions);
+            if let Some(row) = order.get(idx).map(|&i| &app.session.host_sessions[i]) {
+                app.surfaces.host_preview = Some(row.id.clone());
+                app.surfaces.host_preview_scroll = 0;
             }
         }
         InputAction::HostSwitchSelected => {
             let idx = app
+                .surfaces
                 .modal_index
-                .min(app.host_sessions.len().saturating_sub(1));
-            let order = crate::shell::overlays::creation_order(&app.host_sessions);
+                .min(app.session.host_sessions.len().saturating_sub(1));
+            let order = crate::shell::overlays::creation_order(&app.session.host_sessions);
             let target_info = order
                 .get(idx)
-                .and_then(|&i| app.host_sessions.get(i))
+                .and_then(|&i| app.session.host_sessions.get(i))
                 .map(|r| (r.id.clone(), r.title.clone()));
             if let Some((target_id, target_title)) = target_info {
                 let switchable = target_id != viewed_session_id;
@@ -475,12 +482,18 @@ pub(super) async fn handle_host_action(
                         app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
                         });
-                        let active_idx = app.surfaces.active_tab_index();
+                        let active_idx = app.surfaces.surfaces.active_tab_index();
                         if let Some(existing_pos) =
-                            app.surfaces.tabs().iter().position(|t| match &t.kind {
-                                crate::shell::surfaces::TabKind::Thread(tid) => tid == &target_id,
-                                _ => false,
-                            })
+                            app.surfaces
+                                .surfaces
+                                .tabs()
+                                .iter()
+                                .position(|t| match &t.kind {
+                                    crate::shell::surfaces::TabKind::Thread(tid) => {
+                                        tid == &target_id
+                                    }
+                                    _ => false,
+                                })
                         {
                             app.close_tab(active_idx);
                             let new_pos = if existing_pos > active_idx {
@@ -488,35 +501,35 @@ pub(super) async fn handle_host_action(
                             } else {
                                 existing_pos
                             };
-                            app.surfaces.select_tab(new_pos);
+                            app.surfaces.surfaces.select_tab(new_pos);
                         } else {
                             app.replace_tab(active_idx, tab);
                         }
                     } else {
                         app.open_tab(tab);
                     }
-                    app.switch_to_target = Some(target_id);
-                    app.should_quit.store(true, Ordering::SeqCst);
+                    app.surfaces.switch_to_target = Some(target_id);
+                    app.link.should_quit.store(true, Ordering::SeqCst);
                 }
                 app.dismiss_active_dialog();
                 app.set_active_index(0);
-                app.host_prompting = false;
+                app.surfaces.host_prompting = false;
             }
         }
         InputAction::HostToggleUsage => {
-            app.dashboard_view_usage = !app.dashboard_view_usage;
-            if app.dashboard_view_usage {
+            app.surfaces.dashboard_view_usage = !app.surfaces.dashboard_view_usage;
+            if app.surfaces.dashboard_view_usage {
                 refresh_usage(app, runtime);
             }
         }
         InputAction::HostFilterOpen => {
-            app.dashboard_filtering = !app.dashboard_filtering;
-            if !app.dashboard_filtering {
-                app.dashboard_filter.clear();
+            app.surfaces.dashboard_filtering = !app.surfaces.dashboard_filtering;
+            if !app.surfaces.dashboard_filtering {
+                app.surfaces.dashboard_filter.clear();
             }
         }
         InputAction::HostFocusToggle => {
-            app.host_focus = match app.host_focus {
+            app.surfaces.host_focus = match app.surfaces.host_focus {
                 crate::shell::overlays::DashboardFocus::List => {
                     crate::shell::overlays::DashboardFocus::Detail
                 }
@@ -535,30 +548,30 @@ pub(super) async fn handle_host_action(
             suspend_selected(app, runtime);
         }
         InputAction::HostPromptOpen => {
-            app.host_prompting = true;
-            app.host_prompt_new = false;
-            app.input.clear();
+            app.surfaces.host_prompting = true;
+            app.surfaces.host_prompt_new = false;
+            app.composer.input.clear();
             app.set_cursor(0);
         }
         InputAction::HostNewSession => {
-            app.host_prompting = true;
-            app.host_prompt_new = true;
-            app.input.clear();
+            app.surfaces.host_prompting = true;
+            app.surfaces.host_prompt_new = true;
+            app.composer.input.clear();
             app.set_cursor(0);
         }
         InputAction::HostPromptSeed(c) => {
-            app.host_prompting = true;
-            app.host_prompt_new = false;
-            app.input.clear();
-            app.input.insert(0, c);
+            app.surfaces.host_prompting = true;
+            app.surfaces.host_prompt_new = false;
+            app.composer.input.clear();
+            app.composer.input.insert(0, c);
             app.set_cursor(1);
         }
         InputAction::HostPromptSubmit => {
-            let text = app.input.trim().to_string();
-            let create_new = app.host_prompt_new;
-            app.host_prompting = false;
-            app.host_prompt_new = false;
-            app.input.clear();
+            let text = app.composer.input.trim().to_string();
+            let create_new = app.surfaces.host_prompt_new;
+            app.surfaces.host_prompting = false;
+            app.surfaces.host_prompt_new = false;
+            app.composer.input.clear();
             app.set_cursor(0);
             if text.is_empty() {
                 return ActionFlow::Handled;

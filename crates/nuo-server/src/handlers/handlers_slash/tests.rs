@@ -535,7 +535,8 @@ mod unknown_command_tests {
     fn unrelated_slash_text_gets_the_escape_hatch() {
         let result = CommandResult::UnknownCommand {
             name: "/etc/hosts".to_string(),
-            suggestion: crate::composition::startup::suggest_command("/etc/hosts").map(str::to_string),
+            suggestion: crate::composition::startup::suggest_command("/etc/hosts")
+                .map(str::to_string),
         };
         assert!(
             matches!(
@@ -681,10 +682,10 @@ mod command_effect_tests {
 
     use tokio::sync::mpsc;
 
+    use crate::composition::startup::{BuiltinCmd, effect_for};
     use crate::handlers::handlers_slash::record::{
         record_ack, record_command, record_error, record_invocation, record_surface_only,
     };
-    use crate::composition::startup::{BuiltinCmd, effect_for};
 
     fn store(dir: &tempfile::TempDir) -> Arc<ThreadSession> {
         Arc::new(ThreadSession::for_path(dir.path().join("session.json")))

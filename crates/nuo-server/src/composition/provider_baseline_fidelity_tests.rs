@@ -8,7 +8,6 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::reasoning::ReasoningSupport;
 use nuo_protocol::{Model, resolve_model};
 
-
 use nuo_provider::effort_ladders;
 
 const PRE_MIGRATION: &[Model] = &[

@@ -20,11 +20,11 @@ use super::enricher::{OAuthTokenEnricher, StandardOAuthEnricher, build_token_set
 use super::manual::parse_authorization_response;
 use super::provider::{OAuthProvider, oauth_provider};
 use super::token::TokenResponse;
-use nuo_protocol::connection_auth::LoginMethod;
 use crate::credentials::{CredentialHost, CredentialStore, TokenSet};
 use crate::transport::Http;
 use futures::future::BoxFuture;
 use nuo_host::SecretString;
+use nuo_protocol::connection_auth::LoginMethod;
 use std::sync::{Arc, Mutex};
 
 const OAUTH_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);

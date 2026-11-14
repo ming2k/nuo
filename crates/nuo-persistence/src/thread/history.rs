@@ -2,16 +2,6 @@
 //! bookkeeping, fork/lineage queries, and the session tree.
 use super::*;
 
-/// Identity of a durable compaction, returned to the caller that already holds
-/// the in-memory horizon node.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommittedCompaction {
-    /// The checkpoint entry's id, which is also the derived causal node's id.
-    pub entry_id: String,
-    /// The checkpoint entry's membership sequence.
-    pub entry_seq: u64,
-}
-
 /// What the caller guarantees about the durable projection.
 ///
 /// `commit_turn` used to *infer* append-vs-rebuild by deep-comparing the
@@ -764,7 +754,7 @@ fn fork_fact_for_target(
     target: ForkTarget,
 ) -> Result<nuo_protocol::FactId, String> {
     use nuo_protocol::FactPayload;
-use nuo_tool::Role;
+    use nuo_tool::Role;
     let head = || {
         path.last()
             .map(|fact| fact.id.clone())

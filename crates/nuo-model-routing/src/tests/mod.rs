@@ -16,14 +16,14 @@ use nuo_persistence::config::{
 };
 use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::route_settings::RouteSettingsStore;
+use nuo_protocol::model_providers::DEEPSEEK_BUILTIN_MODELS;
 use nuo_protocol::{
     ConnectionAuth, ConnectionFilterPolicy, Effort, NamedFilterPolicy, OpenAiResponsesDialect,
     WireProtocol,
 };
 use nuo_provider::catalog::Transport;
-use nuo_provider::{CredentialStore, TokenSet};
-use nuo_protocol::model_providers::DEEPSEEK_BUILTIN_MODELS;
 use nuo_provider::route_for_model;
+use nuo_provider::{CredentialStore, TokenSet};
 
 use std::sync::Mutex;
 

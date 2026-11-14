@@ -5,8 +5,8 @@ impl App {
     /// Whether one outbox row is addressable/manipulable in the queue modal.
     ///
     /// **This is the single definition of the outbox's visible set.** Every
-    /// addressing helper ([`Self::queued_at`], [`Self::remove_queued_at`],
-    /// [`Self::recall_queued_at`], [`Self::move_queued`]) and every projection
+    /// addressing helper (`Self::queued_at`, `Self::remove_queued_at`,
+    /// `Self::recall_queued_at`, `Self::move_queued`) and every projection
     /// (the queue modal, the activity strip) MUST filter through it, because a
     /// display index and a mutation index that disagree silently mutate the
     /// wrong row — `D` deleting a different item than the highlighted one.
@@ -21,7 +21,8 @@ impl App {
     /// The viewed session's visible outbox rows, in dispatch order. The one
     /// projection every surface and every index-based mutation agrees on.
     fn outbox_rows(&self, session_id: &str) -> impl Iterator<Item = (usize, &QueuedDispatch)> {
-        self.pending_dispatch
+        self.composer
+            .pending_dispatch
             .iter()
             .enumerate()
             .filter(move |(_, item)| item.session_id == session_id && Self::is_outbox_visible(item))
@@ -38,7 +39,8 @@ impl App {
     /// `queue_count` answers "is there outbox work anywhere", which must be the
     /// same population every per-session surface counts.
     pub fn outbox_total(&self) -> usize {
-        self.pending_dispatch
+        self.composer
+            .pending_dispatch
             .iter()
             .filter(|item| Self::is_outbox_visible(item))
             .count()
@@ -50,16 +52,16 @@ impl App {
     /// a `Waiting` follow-up that happens to share an id, because that row is a
     /// projection of the server's queue and still has a life of its own.
     pub fn take_steer_row(&mut self, session_id: &str, input_id: &str) -> Option<QueuedDispatch> {
-        let position = self.pending_dispatch.iter().position(|item| {
+        let position = self.composer.pending_dispatch.iter().position(|item| {
             item.session_id == session_id
                 && item.id == input_id
                 && item.state == QueuedDispatchState::Steering
         })?;
-        self.pending_dispatch.remove(position)
+        self.composer.pending_dispatch.remove(position)
     }
 
-    /// Reconcile [`App::pending_images`] / [`App::pending_text_pastes`]
-    /// against the chips that currently survive in [`App::input`], and
+    /// Reconcile `App::pending_images` / `App::pending_text_pastes`
+    /// against the chips that currently survive in `App::input`, and
     /// relabel the surviving chips so their `#N` matches their new 1-based
     /// position in the truncated vectors. Cheap to run on every input
     /// mutation: it is a single linear scan over the input string.
@@ -71,26 +73,27 @@ impl App {
     /// effect, adapted to nuo's "chip text lives in the input" model.
     pub fn reconcile_attachments(&mut self) {
         let new_input = composer_attachments::reconcile(
-            &self.input,
-            &mut self.pending_images,
-            &mut self.pending_text_pastes,
+            &self.composer.input,
+            &mut self.composer.pending_images,
+            &mut self.composer.pending_text_pastes,
         );
-        self.input = new_input;
+        self.composer.input = new_input;
     }
 
     /// How many staged messages are visible in this session's outbox (front
     /// pops first). Counts exactly the rows the queue modal and the activity
-    /// strip render — see [`Self::is_outbox_visible`]. A count that disagreed
+    /// strip render — see `Self::is_outbox_visible`. A count that disagreed
     /// with the rendered rows would make `N queued` name items the operator
     /// cannot address.
     ///
     /// The count is **per session**, deliberately: the strip above the composer
     /// speaks about the session on screen, while the command registry's
-    /// `AppContext::queue_count` uses [`Self::outbox_total`] to answer the
+    /// `AppContext::queue_count` uses `Self::outbox_total` to answer the
     /// different question "is there outbox work anywhere". Two names, two
     /// scopes, never one.
     pub fn pending_count(&self, session_id: &str) -> usize {
-        self.pending_dispatch
+        self.composer
+            .pending_dispatch
             .iter()
             .filter(|item| item.session_id == session_id && Self::is_outbox_visible(item))
             .count()
@@ -98,10 +101,11 @@ impl App {
 
     pub fn remove_dispatch(&mut self, session_id: &str, input_id: &str) -> Option<QueuedDispatch> {
         let position = self
+            .composer
             .pending_dispatch
             .iter()
             .position(|item| item.session_id == session_id && item.id == input_id)?;
-        self.pending_dispatch.remove(position)
+        self.composer.pending_dispatch.remove(position)
     }
 
     /// Is this session's outbox paused? While paused the **driver** ships
@@ -109,12 +113,12 @@ impl App {
     /// ship), even after natural completion + idle.
     ///
     /// This set is the client's optimistic projection of the server's
-    /// authoritative flag — [`Self::set_queue_blocked`] always accompanies the
+    /// authoritative flag — `Self::set_queue_blocked` always accompanies the
     /// `QueuePaused` verb, and the `QueueUpdated` snapshot overwrites it. The
     /// queue modal pauses on open and resumes on close; `Ctrl+P` and
     /// `/queue block` toggle it.
     pub fn is_queue_blocked(&self, session_id: &str) -> bool {
-        self.queue_blocked_sessions.contains(session_id)
+        self.session.queue_blocked_sessions.contains(session_id)
     }
 
     /// Force the pause on, regardless of its current state. Used when the queue
@@ -123,17 +127,19 @@ impl App {
     ///
     /// Local projection only — the caller sends `QueuePaused`.
     pub fn block_queue(&mut self, session_id: &str) {
-        self.queue_blocked_sessions.insert(session_id.to_string());
+        self.session
+            .queue_blocked_sessions
+            .insert(session_id.to_string());
     }
 
-    /// Force the pause off, releasing what [`Self::block_queue`] set.
+    /// Force the pause off, releasing what `Self::block_queue` set.
     ///
     /// Every close path is a *symmetric* release of the open path's pause — but
     /// a release that stops at this set leaves the driver paused forever, so
     /// the exit hooks that call it also send `QueuePaused{paused:false}`. Local
     /// projection only, like `block_queue`.
     pub fn resume_queue(&mut self, session_id: &str) {
-        self.queue_blocked_sessions.remove(session_id);
+        self.session.queue_blocked_sessions.remove(session_id);
     }
 
     /// The id of the queue-modal-highlighted item (M4: queue verbs
@@ -146,9 +152,11 @@ impl App {
     /// authoritative (M4).
     pub fn set_queue_blocked(&mut self, session_id: &str, blocked: bool) {
         if blocked {
-            self.queue_blocked_sessions.insert(session_id.to_string());
+            self.session
+                .queue_blocked_sessions
+                .insert(session_id.to_string());
         } else {
-            self.queue_blocked_sessions.remove(session_id);
+            self.session.queue_blocked_sessions.remove(session_id);
         }
     }
 
@@ -161,7 +169,7 @@ impl App {
     /// (`[INV-OUTBOX-03]`).
     pub fn remove_queued_at(&mut self, session_id: &str, idx: usize) -> Option<QueuedDispatch> {
         let position = self.outbox_rows(session_id).nth(idx).map(|(pos, _)| pos)?;
-        self.pending_dispatch.remove(position)
+        self.composer.pending_dispatch.remove(position)
     }
 
     /// Move the viewed session's outbox item at display index `idx` by `delta`
@@ -194,8 +202,8 @@ impl App {
         // and the item lands just before the neighbor. `from` is a valid index
         // by construction (enumerated from the deque above), so the remove is
         // guarded rather than `expect`-ed.
-        if let Some(item) = self.pending_dispatch.remove(from) {
-            self.pending_dispatch.insert(target, item);
+        if let Some(item) = self.composer.pending_dispatch.remove(from) {
+            self.composer.pending_dispatch.insert(target, item);
         }
     }
 
@@ -208,10 +216,10 @@ impl App {
     /// boundary and duplicates the prompt the user is editing. The queue
     /// modal's `Enter` (`RecallQueuedSelected`) does exactly that.
     pub fn recall_queued(&mut self, session_id: &str) -> Option<QueuedDispatch> {
-        let position = self.pending_dispatch.iter().rposition(|item| {
+        let position = self.composer.pending_dispatch.iter().rposition(|item| {
             item.session_id == session_id && item.state == QueuedDispatchState::Waiting
         })?;
-        self.pending_dispatch.remove(position)
+        self.composer.pending_dispatch.remove(position)
     }
 
     /// Remove and return the outbox item at display index `idx`
@@ -220,7 +228,7 @@ impl App {
     /// so a mid-queue item can be pulled back to the composer too.
     pub fn recall_queued_at(&mut self, session_id: &str, idx: usize) -> Option<QueuedDispatch> {
         let position = self.outbox_rows(session_id).nth(idx).map(|(pos, _)| pos)?;
-        self.pending_dispatch.remove(position)
+        self.composer.pending_dispatch.remove(position)
     }
 
     /// Put a recalled outbox item back into the composer.

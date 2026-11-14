@@ -24,7 +24,7 @@ fn picker_connections_count_matches_provider_rows_no_add_row() {
         last_used_ms: None,
         auth: Default::default(),
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "kimi-code".to_string(),
         rows: vec![row("kimi-code"), row("openai"), row("anthropic")],
     };
@@ -39,7 +39,7 @@ fn picker_connections_count_matches_provider_rows_no_add_row() {
 fn confirm_provider_delete_dispatches_once_and_clears() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // Simulate the overlay already being open (staged from a prior Shift+D).
-    app.pending_provider_delete = Some("doomed".to_string());
+    app.surfaces.pending_provider_delete = Some("doomed".to_string());
 
     let req = app
         .confirm_provider_delete()
@@ -50,7 +50,7 @@ fn confirm_provider_delete_dispatches_once_and_clears() {
     );
     // Overlay torn down: no staged id remains.
     assert!(
-        app.pending_provider_delete.is_none(),
+        app.surfaces.pending_provider_delete.is_none(),
         "confirm clears the staged id"
     );
     // A second confirm is a no-op (nothing left to delete).
@@ -65,17 +65,17 @@ fn confirm_provider_delete_dispatches_once_and_clears() {
 #[test]
 fn cancel_provider_delete_clears_and_resets_focus() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_provider_delete = Some("doomed".to_string());
-    app.provider_delete_focus = crate::shell::ProviderDeleteChoice::Delete;
+    app.surfaces.pending_provider_delete = Some("doomed".to_string());
+    app.surfaces.provider_delete_focus = crate::shell::ProviderDeleteChoice::Delete;
 
     app.cancel_provider_delete();
 
     assert!(
-        app.pending_provider_delete.is_none(),
+        app.surfaces.pending_provider_delete.is_none(),
         "cancel clears the staged id"
     );
     assert_eq!(
-        app.provider_delete_focus,
+        app.surfaces.provider_delete_focus,
         crate::shell::ProviderDeleteChoice::Cancel,
         "cancel resets focus to the safe default"
     );

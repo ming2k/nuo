@@ -58,10 +58,10 @@ fn test_inv_tune_01_no_vendor_wire_encoding_or_family_branch_in_core_vocabulary(
     // The files that constitute the *framework's* depth vocabulary and its
     // resolution points. A wire encoding or a family branch here is the defect.
     let guarded = [
-        "crates/nuo-provider/src/effort.rs",
-        "crates/nuo-provider/src/tuning.rs",
-        "crates/nuo-provider/src/model.rs",
-        "crates/nuo-provider/src/dialects.rs",
+        "crates/nuo-protocol/src/effort.rs",
+        "crates/nuo-protocol/src/tuning.rs",
+        "crates/nuo-protocol/src/model.rs",
+        "crates/nuo-protocol/src/dialects.rs",
     ];
 
     let mut problems = Vec::new();
@@ -202,7 +202,7 @@ fn test_inv_tune_03_no_typed_knob_mirrors_beside_the_open_map() {
     // (`ReasoningSupport::has_thinking_switch`), so a parallel
     // `thinking_switch: bool` field would be a second source that can drift
     // (it did exist and was removed).
-    files.push(root.join("crates/nuo-provider/src/model.rs"));
+    files.push(root.join("crates/nuo-protocol/src/model.rs"));
 
     let mut problems = Vec::new();
     for path in files {

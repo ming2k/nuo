@@ -21,22 +21,22 @@ pub(super) async fn handle_selection_start(
     y: u16,
 ) {
     use crate::shell::ui::UiKey;
-    app.input_drag_scroll = None;
-    app.ui.runtime.release_pointer();
-    let target = app.ui.target(x, y);
+    app.composer.input_drag_scroll = None;
+    app.transcript.ui.runtime.release_pointer();
+    let target = app.transcript.ui.target(x, y);
 
     // Dismiss open dropdown if clicking outside it
-    if app.config_dropdown.is_some() && target != Some(UiKey::ConfigDropdown) {
-        app.config_dropdown = None;
+    if app.surfaces.config_dropdown.is_some() && target != Some(UiKey::ConfigDropdown) {
+        app.surfaces.config_dropdown = None;
     }
 
     if let Some(key) = target
-        && let Some(id) = app.ui.scene().id(&key)
+        && let Some(id) = app.transcript.ui.scene().id(&key)
     {
         // A non-focusable decoration cannot steal focus. Capture belongs to
         // the component that received the press and is released on unmount.
-        let _ = app.ui.runtime.focus(id);
-        let _ = app.ui.runtime.capture_pointer(id);
+        let _ = app.transcript.ui.runtime.focus(id);
+        let _ = app.transcript.ui.runtime.capture_pointer(id);
     }
     match target {
         Some(UiKey::TabBar | UiKey::SceneBar) => {
@@ -44,33 +44,34 @@ pub(super) async fn handle_selection_start(
             // (empty background, margins) are inert container gestures. They cancel drags
             // and release pointer capture, but MUST NOT mutate intra-scene context (such as
             // blurring the composer, altering transcript focus, or clearing selection).
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::TabBarItem(index)) => {
             super::activate_tab_at_index(app, index, runtime, viewed_session_id);
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::TabBarPrev) => {
-            let total = app.surfaces.tabs().len().max(1);
-            let prev_idx = if app.surfaces.active_tab_index() == 0 {
+            let total = app.surfaces.surfaces.tabs().len().max(1);
+            let prev_idx = if app.surfaces.surfaces.active_tab_index() == 0 {
                 total - 1
             } else {
-                app.surfaces.active_tab_index() - 1
+                app.surfaces.surfaces.active_tab_index() - 1
             };
             super::activate_tab_at_index(app, prev_idx, runtime, viewed_session_id);
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::TabBarNext) => {
-            let next_idx = (app.surfaces.active_tab_index() + 1) % app.surfaces.tabs().len().max(1);
+            let next_idx = (app.surfaces.surfaces.active_tab_index() + 1)
+                % app.surfaces.surfaces.tabs().len().max(1);
             super::activate_tab_at_index(app, next_idx, runtime, viewed_session_id);
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::TabBarOverview) => {
@@ -79,27 +80,28 @@ pub(super) async fn handle_selection_start(
             } else if app.can_open_switcher() {
                 app.open_dialog(crate::shell::surfaces::DialogKind::Switcher);
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .begin();
             }
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::SceneHistoryBack) => {
             app.tab_history_back();
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::SceneHistoryForward) => {
             app.tab_history_forward();
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
         Some(UiKey::SceneBreadcrumb(target_depth)) => {
-            if let Some(tab) = app.surfaces.active_tab() {
+            if let Some(tab) = app.surfaces.surfaces.active_tab() {
                 let current_cursor = tab.cursor;
                 if target_depth < current_cursor {
                     let steps = current_cursor - target_depth;
@@ -117,50 +119,52 @@ pub(super) async fn handle_selection_start(
                     }
                 }
             }
-            app.drag.cancel();
-            app.ui.runtime.release_pointer();
+            app.transcript.drag.cancel();
+            app.transcript.ui.runtime.release_pointer();
             return;
         }
-        Some(UiKey::ProviderDelete) if !app.ui.contains(UiKey::ProviderDelete, x, y) => {
-            app.pending_provider_delete = None;
-            app.provider_delete_focus = ProviderDeleteChoice::default();
+        Some(UiKey::ProviderDelete) if !app.transcript.ui.contains(UiKey::ProviderDelete, x, y) => {
+            app.surfaces.pending_provider_delete = None;
+            app.surfaces.provider_delete_focus = ProviderDeleteChoice::default();
         }
         Some(UiKey::QuestionOption(index)) => {
-            if let Some(question) = app.question.take() {
-                app.question = Some(
+            if let Some(question) = app.human.question.take() {
+                app.human.question = Some(
                     question
                         .update(crate::shell::question_model::QuestionAction::Select(
                             index + 1,
                         ))
                         .0,
                 );
-                app.question_modal_follow = true;
+                app.human.question_modal_follow = true;
             }
         }
         Some(UiKey::PermissionAction(index)) => {
-            app.modal_index = index;
+            app.surfaces.modal_index = index;
             handle_permission_submit(app, runtime).await;
         }
         Some(UiKey::Sheet(crate::shell::sheet::SheetKind::Permission)) => {
             if let Some(cursor) =
-                app.ui.document.cursor_at(x, y).filter(|cursor| {
+                app.transcript.ui.document.cursor_at(x, y).filter(|cursor| {
                     cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
                 })
             {
-                app.drag.begin_range(&mut app.selection, cursor);
+                app.transcript
+                    .drag
+                    .begin_range(&mut app.transcript.selection, cursor);
                 return;
             }
         }
         Some(UiKey::SettingsCategory(index)) => {
-            app.config_category = index;
-            app.config_focus = crate::shell::overlays::ConfigFocus::Categories;
-            app.config_detail_index = 0;
-            app.config_detail_scroll = 0;
-            app.config_hover_index = None;
+            app.surfaces.config_category = index;
+            app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Categories;
+            app.surfaces.config_detail_index = 0;
+            app.surfaces.config_detail_scroll = 0;
+            app.surfaces.config_hover_index = None;
         }
         Some(UiKey::ConfigDropdown) => {
-            if let Some((dropdown, _anchor)) = app.config_dropdown.take() {
-                if let Some(popup_area) = app.ui.bounds(UiKey::ConfigDropdown) {
+            if let Some((dropdown, _anchor)) = app.surfaces.config_dropdown.take() {
+                if let Some(popup_area) = app.transcript.ui.bounds(UiKey::ConfigDropdown) {
                     let has_descriptions = dropdown.items.iter().any(|it| it.description.is_some());
                     let rows_per_item = if has_descriptions { 2 } else { 1 };
                     let items_top = popup_area.y + 2;
@@ -173,8 +177,11 @@ pub(super) async fn handle_selection_start(
                             if !dropdown.items[raw_idx].disabled {
                                 let payload = dropdown.items[raw_idx].payload.clone();
                                 let ctx = dropdown.context.as_deref().unwrap_or("");
-                                let revision =
-                                    app.websearch_config.as_ref().map(|config| config.revision);
+                                let revision = app
+                                    .surfaces
+                                    .websearch_config
+                                    .as_ref()
+                                    .map(|config| config.revision);
                                 match ctx {
                                     "websearch_provider" => {
                                         if let (Some(revision), Ok(provider)) =
@@ -208,27 +215,28 @@ pub(super) async fn handle_selection_start(
                                     }
                                     _ => {}
                                 }
-                                app.config_dropdown = None;
+                                app.surfaces.config_dropdown = None;
                                 return;
                             }
                         }
                     }
                 }
-                app.config_dropdown = None;
+                app.surfaces.config_dropdown = None;
             }
         }
         Some(UiKey::SettingsOption(index)) => {
-            app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
-            app.config_detail_index = index;
+            app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+            app.surfaces.config_detail_index = index;
             super::handle_config_activate(app);
         }
         Some(UiKey::SettingsRow(index)) => {
-            let was_selected = app.config_focus == crate::shell::overlays::ConfigFocus::Detail
-                && app.config_detail_index == index;
-            app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
-            app.config_detail_index = index;
+            let was_selected = app.surfaces.config_focus
+                == crate::shell::overlays::ConfigFocus::Detail
+                && app.surfaces.config_detail_index == index;
+            app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+            app.surfaces.config_detail_index = index;
             let active_category =
-                crate::shell::overlays::ConfigCategory::from_index(app.config_category);
+                crate::shell::overlays::ConfigCategory::from_index(app.surfaces.config_category);
             // Click-to-toggle for Components, click-to-apply for Appearance,
             // or re-clicking an already-selected row activates:
             if was_selected
@@ -240,30 +248,38 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::Overlay(_overlay)) => {
             if let Some(cursor) =
-                app.ui.document.cursor_at(x, y).filter(|cursor| {
+                app.transcript.ui.document.cursor_at(x, y).filter(|cursor| {
                     cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
                 })
             {
-                app.drag.begin_range(&mut app.selection, cursor);
+                app.transcript
+                    .drag
+                    .begin_range(&mut app.transcript.selection, cursor);
                 return;
             }
-            if let Some(active_overlay) = app.surfaces.active_overlay()
-                && app.click_outside_dismiss
-                && !app.ui.contains(UiKey::Overlay(active_overlay), x, y)
+            if let Some(active_overlay) = app.surfaces.surfaces.active_overlay()
+                && app.surfaces.click_outside_dismiss
+                && !app
+                    .transcript
+                    .ui
+                    .contains(UiKey::Overlay(active_overlay), x, y)
             {
                 super::modals::handle_close_modal(app, viewed_session_id);
                 return;
             }
-            if let Some(active_overlay) = app.surfaces.active_overlay()
-                && app.ui.contains(UiKey::Overlay(active_overlay), x, y)
+            if let Some(active_overlay) = app.surfaces.surfaces.active_overlay()
+                && app
+                    .transcript
+                    .ui
+                    .contains(UiKey::Overlay(active_overlay), x, y)
             {
-                if let Some(mut ent) = app.surfaces.take_active_view() {
+                if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
                     let action = input::InputAction::SelectionStart { x, y };
                     let outcome = ent.handle_input(&action, app, viewed_session_id);
-                    app.surfaces.put_active_view(ent);
+                    app.surfaces.surfaces.put_active_view(ent);
                     if outcome == crate::shell::surfaces::DialogOutcome::Dismiss {
-                        app.surfaces.pop_overlay();
-                        if let Some(help_action) = app.pending_help_action.take() {
+                        app.surfaces.surfaces.pop_overlay();
+                        if let Some(help_action) = app.surfaces.pending_help_action.take() {
                             execute_help_action(app, runtime, help_action, viewed_session_id).await;
                         }
                         return;
@@ -276,24 +292,29 @@ pub(super) async fn handle_selection_start(
         }
         Some(UiKey::OauthUrl | UiKey::OauthCode) => {
             if let Some(cursor) =
-                app.ui.document.cursor_at(x, y).filter(|cursor| {
+                app.transcript.ui.document.cursor_at(x, y).filter(|cursor| {
                     cursor.message_idx == nuo_view::model::layout::MODAL_DOC_MSG_IDX
                 })
             {
-                app.drag.begin_range(&mut app.selection, cursor);
+                app.transcript
+                    .drag
+                    .begin_range(&mut app.transcript.selection, cursor);
                 return;
             }
-            if let Some(active_overlay) = app.surfaces.active_overlay()
-                && app.click_outside_dismiss
-                && !app.ui.contains(UiKey::Overlay(active_overlay), x, y)
+            if let Some(active_overlay) = app.surfaces.surfaces.active_overlay()
+                && app.surfaces.click_outside_dismiss
+                && !app
+                    .transcript
+                    .ui
+                    .contains(UiKey::Overlay(active_overlay), x, y)
             {
                 super::modals::handle_close_modal(app, viewed_session_id);
             }
         }
         Some(UiKey::CompletionItem(index)) => {
             app.accept_completion(index);
-            app.suggestion_index = None;
-            app.completion_dismissed = true;
+            app.composer.suggestion_index = None;
+            app.composer.completion_dismissed = true;
         }
         Some(UiKey::Queue) => {
             super::enter_panel(
@@ -328,7 +349,7 @@ pub(super) async fn handle_selection_start(
             app.open_notice_viewer();
         }
         Some(UiKey::Sticky) => {
-            if let Some(mi) = app.sticky_step {
+            if let Some(mi) = app.transcript.sticky_step {
                 // Clicking the pinned summary is a pointer acceleration onto the
                 // transcript plane: it highlights the entry it names
                 // (ADR-0145). A sticky summary that maps to no focusable kind
@@ -343,18 +364,18 @@ pub(super) async fn handle_selection_start(
                         None
                     }
                 });
-                app.focus.enter_transcript(match target {
+                app.transcript.focus.enter_transcript(match target {
                     Some(target) => crate::shell::focus::TranscriptFocus::Entry(target),
                     None => crate::shell::focus::TranscriptFocus::Browse,
                 });
-                let mut messages = std::mem::take(&mut app.messages);
+                let mut messages = std::mem::take(&mut app.transcript.messages);
                 app.toggle_step_pinned(&mut messages, mi);
-                app.messages = messages;
-                app.layout_height_cache.clear();
-                app.transcript_changed_pending = true;
+                app.transcript.messages = messages;
+                app.transcript.layout_height_cache.clear();
+                app.transcript.transcript_changed_pending = true;
             }
-            app.selection = SelectionState::None;
-            app.drag.cancel();
+            app.transcript.selection = SelectionState::None;
+            app.transcript.drag.cancel();
             return;
         }
         Some(UiKey::Transcript | UiKey::Composer) => {
@@ -363,10 +384,10 @@ pub(super) async fn handle_selection_start(
         }
         _ => {}
     }
-    app.selection = SelectionState::None;
-    app.focus.enter_composer();
-    app.drag.cancel();
-    app.ui.runtime.release_pointer();
+    app.transcript.selection = SelectionState::None;
+    app.transcript.focus.enter_composer();
+    app.transcript.drag.cancel();
+    app.transcript.ui.runtime.release_pointer();
 }
 
 async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u16) {
@@ -376,7 +397,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
         // chain (input box → step summary → table cell →
         // generic content → gap → dead) so the event loop
         // only needs a single match.
-        match interaction::classify_click(&app.ui.document, x, y) {
+        match interaction::classify_click(&app.transcript.ui.document, x, y) {
             // The fold block's two verb clauses. `press v view full log` is pure
             // navigation into the step's own log scene. `press y copy hidden`
             // needs the clipboard channel, which the pointer handler does not
@@ -387,8 +408,9 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 app.open_command_log_scene(message_idx);
             }
             ClickTarget::FoldCopyRows { message_idx } => {
-                app.pending_fold_copy = Some(message_idx);
-                app.focus
+                app.surfaces.pending_fold_copy = Some(message_idx);
+                app.transcript
+                    .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                         InteractiveTarget::tool_step(message_idx),
                     ));
@@ -397,7 +419,7 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Click inside the live input box: hand the keyboard to the
                 // composer plane so the next keypress edits rather than acting
                 // on a transcript entry (ADR-0145).
-                app.focus.enter_composer();
+                app.transcript.focus.enter_composer();
                 // Relay hand-off: place the (possibly hidden) caret at the
                 // clicked character so any pending whole-input selection is
                 // broken exactly where the user clicked, and the next
@@ -405,14 +427,14 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // into a selected input and pressing ← would jump from the
                 // stale pre-selection caret instead of the click point.
                 app.adopt_caret_from_input_selection(SelectionEdge::Tail);
-                app.selection = SelectionState::None;
-                let byte = floor_grapheme_boundary(&app.input, cursor.byte_offset);
+                app.transcript.selection = SelectionState::None;
+                let byte = floor_grapheme_boundary(&app.composer.input, cursor.byte_offset);
                 app.set_cursor(byte);
                 // Arm a fresh drag from the click point; a plain click (no
                 // drag) collapses to a zero-length range that paints nothing,
                 // exactly like the previous behaviour.
-                app.drag.begin_range(
-                    &mut app.selection,
+                app.transcript.drag.begin_range(
+                    &mut app.transcript.selection,
                     SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, byte),
                 );
             }
@@ -420,29 +442,31 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // Clicked a step summary: navigate into a subagent
                 // task, otherwise toggle that step's disclosure.
                 let mi = message_idx;
-                app.focus
+                app.transcript
+                    .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                         kind.focus_target(mi),
                     ));
-                let mut messages = std::mem::take(&mut app.messages);
+                let mut messages = std::mem::take(&mut app.transcript.messages);
                 match kind {
                     StepKind::ToolStep => {
-                        let enter_id = resolve_focused_mut(&mut messages, &app.focus_stack, mi)
-                            .and_then(|message| {
-                                if message.is_subagent_task() {
-                                    message.tool_step_call_id().map(String::from)
-                                } else {
-                                    None
-                                }
-                            });
+                        let enter_id =
+                            resolve_focused_mut(&mut messages, &app.transcript.focus_stack, mi)
+                                .and_then(|message| {
+                                    if message.is_subagent_task() {
+                                        message.tool_step_call_id().map(String::from)
+                                    } else {
+                                        None
+                                    }
+                                });
                         if let Some(id) = enter_id {
-                            app.messages = messages;
+                            app.transcript.messages = messages;
                             app.enter_subagent(id);
                         } else {
                             app.toggle_step_pinned(&mut messages, mi);
-                            app.messages = messages;
-                            app.layout_height_cache.clear();
-                            app.transcript_changed_pending = true;
+                            app.transcript.messages = messages;
+                            app.transcript.layout_height_cache.clear();
+                            app.transcript.transcript_changed_pending = true;
                         }
                     }
                     StepKind::Reasoning
@@ -450,13 +474,13 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                     | StepKind::CommandResult
                     | StepKind::CompactedCard => {
                         app.toggle_step_pinned(&mut messages, mi);
-                        app.messages = messages;
-                        app.layout_height_cache.clear();
-                        app.transcript_changed_pending = true;
+                        app.transcript.messages = messages;
+                        app.transcript.layout_height_cache.clear();
+                        app.transcript.transcript_changed_pending = true;
                     }
                 }
-                app.selection = SelectionState::None;
-                app.drag.cancel();
+                app.transcript.selection = SelectionState::None;
+                app.transcript.drag.cancel();
             }
             ClickTarget::TableCell {
                 message_idx,
@@ -471,8 +495,8 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // can never cross a `│` border into an adjacent
                 // cell.  Within the cell the user has free
                 // substring selection — no auto-full-select.
-                app.drag.begin_cell(
-                    &mut app.selection,
+                app.transcript.drag.begin_cell(
+                    &mut app.transcript.selection,
                     cursor,
                     CellDragInfo {
                         message_idx,
@@ -481,15 +505,16 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                         segments: cell_segments,
                     },
                 );
-                app.focus
+                app.transcript
+                    .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             }
             ClickTarget::Link { url, .. } => {
                 // Opening a link is not an act on the transcript's content, so
                 // it neither claims nor releases the plane: the plane the user
                 // was in is the one the next keypress lands in.
-                app.selection = SelectionState::None;
-                app.drag.cancel();
+                app.transcript.selection = SelectionState::None;
+                app.transcript.drag.cancel();
                 let url_for_open = url.clone();
                 let mutations = runtime.mutations.clone();
                 tokio::task::spawn_blocking(move || {
@@ -514,8 +539,11 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // immediate drag extends it normally. Message-text
                 // clicks also park attention on the transcript
                 // (browse focus).
-                app.drag.begin_range(&mut app.selection, cursor);
-                app.focus
+                app.transcript
+                    .drag
+                    .begin_range(&mut app.transcript.selection, cursor);
+                app.transcript
+                    .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             }
             ClickTarget::ContentGap => {
@@ -525,26 +553,28 @@ async fn handle_document_press(app: &mut App, runtime: &UiRuntime, x: u16, y: u1
                 // click parks attention on the transcript (
                 // browse focus): the composer dims until a composer
                 // click or a keystroke hands focus back.
-                app.selection = SelectionState::None;
-                app.focus
+                app.transcript.selection = SelectionState::None;
+                app.transcript
+                    .focus
                     .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
-                app.drag.cancel();
+                app.transcript.drag.cancel();
             }
             ClickTarget::Dead => {
                 // Click outside all known areas (outer gutters,
                 // below content). Parks attention on browse focus so the composer
                 // becomes inactive.
-                app.selection = SelectionState::None;
+                app.transcript.selection = SelectionState::None;
                 if app.current_scene() == crate::shell::surfaces::SceneKind::Thread
-                    && app.surfaces.active_overlay().is_none()
+                    && app.surfaces.surfaces.active_overlay().is_none()
                     && app.active_sheet().is_none()
                 {
-                    app.focus
+                    app.transcript
+                        .focus
                         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
                 } else {
-                    app.focus.enter_composer();
+                    app.transcript.focus.enter_composer();
                 }
-                app.drag.cancel();
+                app.transcript.drag.cancel();
             }
         }
     }
@@ -559,20 +589,21 @@ pub(super) async fn handle_right_click(app: &mut App, _runtime: &UiRuntime, x: u
     if let ClickTarget::StepSummary {
         message_idx,
         kind: StepKind::ToolStep,
-    } = interaction::classify_click(&app.ui.document, x, y)
+    } = interaction::classify_click(&app.transcript.ui.document, x, y)
     {
-        app.focus
+        app.transcript
+            .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
                 InteractiveTarget::tool_step(message_idx),
             ));
-        let mut messages = std::mem::take(&mut app.messages);
+        let mut messages = std::mem::take(&mut app.transcript.messages);
         app.toggle_step_pinned(&mut messages, message_idx);
-        app.messages = messages;
-        app.layout_height_cache.clear();
-        app.transcript_changed_pending = true;
+        app.transcript.messages = messages;
+        app.transcript.layout_height_cache.clear();
+        app.transcript.transcript_changed_pending = true;
     }
-    app.selection = SelectionState::None;
-    app.drag.cancel();
+    app.transcript.selection = SelectionState::None;
+    app.transcript.drag.cancel();
 }
 
 /// Loop stage (input dispatch): the `SelectionUpdate` arm of the action match.
@@ -584,22 +615,26 @@ pub(super) fn handle_selection_update(app: &mut App, x: u16, y: u16) {
     // knows visible rows. The event loop's heartbeat keeps stepping while the
     // pointer rests past the edge (`App::step_input_drag_scroll`).
     if let Some(up) = app.input_drag_scroll_edge(y) {
-        app.input_drag_scroll = Some(up);
+        app.composer.input_drag_scroll = Some(up);
         app.step_input_drag_scroll();
         return;
     }
-    app.input_drag_scroll = None;
-    app.drag
-        .update_from_point(&mut app.selection, &app.ui.document, x, y);
+    app.composer.input_drag_scroll = None;
+    app.transcript.drag.update_from_point(
+        &mut app.transcript.selection,
+        &app.transcript.ui.document,
+        x,
+        y,
+    );
 }
 
 /// Loop stage (input dispatch): the `SelectionEnd` arm of the action match.
 pub(super) fn handle_selection_end(app: &mut App) {
-    app.ui.runtime.release_pointer();
-    app.drag.finish(&mut app.selection);
+    app.transcript.ui.runtime.release_pointer();
+    app.transcript.drag.finish(&mut app.transcript.selection);
     // An edge-autoscroll armed by this drag stops with it: holding the
     // pointer still after release must not keep scrolling the input.
-    app.input_drag_scroll = None;
+    app.composer.input_drag_scroll = None;
     // Caret relay: when the finished drag selected (part of) the live input,
     // the caret is hidden for as long as the selection paints — but its
     // position is defined to be the drag's head, the point where the mouse
@@ -607,17 +642,17 @@ pub(super) fn handle_selection_end(app: &mut App) {
     // key after the drag relays from the release point instead of the stale
     // pre-drag caret (the composer's scene-routed selection handler resolves
     // it when the selection is next touched).
-    if let SelectionState::InputRange { head_byte, .. } = app.selection
+    if let SelectionState::InputRange { head_byte, .. } = app.transcript.selection
         && app.caret_owner() == CaretOwner::Composer
     {
-        let byte = floor_grapheme_boundary(&app.input, head_byte);
+        let byte = floor_grapheme_boundary(&app.composer.input, head_byte);
         app.set_cursor(byte);
     }
-    if let SelectionState::Range { head, .. } = app.selection
+    if let SelectionState::Range { head, .. } = app.transcript.selection
         && head.message_idx == crate::shell::render::INPUT_MSG_IDX
         && app.caret_owner() == CaretOwner::Composer
     {
-        let byte = floor_grapheme_boundary(&app.input, head.byte_offset);
+        let byte = floor_grapheme_boundary(&app.composer.input, head.byte_offset);
         app.set_cursor(byte);
     }
     // Middle-click-style whole-block select on the input selects the entire
@@ -625,16 +660,16 @@ pub(super) fn handle_selection_end(app: &mut App) {
     if let SelectionState::Block {
         message_idx: crate::shell::render::INPUT_MSG_IDX,
         ..
-    } = app.selection
+    } = app.transcript.selection
     {
-        app.set_cursor(app.input.len());
+        app.set_cursor(app.composer.input.len());
     }
 }
 
 /// Loop stage (input dispatch): the `SelectBlock` arm of the action match.
 pub(super) fn handle_select_block(app: &mut App, x: u16, y: u16) {
-    if let Some((mi, bi)) = input::resolve_block(&app.ui.document, x, y) {
-        app.selection = SelectionState::Block {
+    if let Some((mi, bi)) = input::resolve_block(&app.transcript.ui.document, x, y) {
+        app.transcript.selection = SelectionState::Block {
             message_idx: mi,
             block_idx: bi,
         };
@@ -642,7 +677,7 @@ pub(super) fn handle_select_block(app: &mut App, x: u16, y: u16) {
         // caret's position is defined as the buffer's end, so a following
         // ←/Backspace relays from there once the selection breaks.
         if mi == crate::shell::render::INPUT_MSG_IDX {
-            app.set_cursor(app.input.len());
+            app.set_cursor(app.composer.input.len());
         }
     }
 }
@@ -653,7 +688,7 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // up to the shared palette-derived hover band so the mouse and the keyboard
     // cursor read as one affordance. Recomputed on every motion — moving off a
     // row (or off the pane) clears it.
-    app.config_hover_index = match app.ui.target(x, y) {
+    app.surfaces.config_hover_index = match app.transcript.ui.target(x, y) {
         Some(crate::shell::ui::UiKey::SettingsOption(index))
         | Some(crate::shell::ui::UiKey::SettingsRow(index)) => Some(index),
         _ => None,
@@ -665,22 +700,24 @@ pub(super) async fn handle_hover(app: &mut App, _runtime: &UiRuntime, x: u16, y:
     // pinned variant — record its message index so the next draw
     // lights it up to the intermediate hover tone; otherwise
     // clear it.
-    if app.ui.target(x, y) == Some(crate::shell::ui::UiKey::Sticky) {
-        if let Some(mi) = app.sticky_step {
+    if app.transcript.ui.target(x, y) == Some(crate::shell::ui::UiKey::Sticky) {
+        if let Some(mi) = app.transcript.sticky_step {
             let is_step = app
+                .transcript
                 .messages
                 .get(mi)
                 .map(|m| m.is_reasoning() || m.is_tool_step() || m.is_subagent_task())
                 .unwrap_or(false);
-            app.hovered_step = is_step.then_some(mi);
+            app.transcript.hovered_step = is_step.then_some(mi);
         }
-    } else if app.ui.target(x, y) == Some(crate::shell::ui::UiKey::Transcript) {
-        app.hovered_step = match interaction::classify_click(&app.ui.document, x, y) {
-            ClickTarget::StepSummary { message_idx, .. } => Some(message_idx),
-            _ => None,
-        };
+    } else if app.transcript.ui.target(x, y) == Some(crate::shell::ui::UiKey::Transcript) {
+        app.transcript.hovered_step =
+            match interaction::classify_click(&app.transcript.ui.document, x, y) {
+                ClickTarget::StepSummary { message_idx, .. } => Some(message_idx),
+                _ => None,
+            };
     } else {
-        app.hovered_step = None;
+        app.transcript.hovered_step = None;
     }
 }
 
@@ -693,17 +730,18 @@ async fn execute_help_action(
     use crate::shell::overlays::help::HelpActionKind as K;
     match action {
         K::NewTab => {
-            app.startup_overlay = crate::shell::StartupOverlay::None;
+            app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
             if app.is_current_thread_empty() {
                 app.send_intent(nuo_protocol::AgentRequest::SlashCommand("/new".to_string()));
             } else {
-                app.switch_to_new = true;
-                app.should_quit
+                app.surfaces.switch_to_new = true;
+                app.link
+                    .should_quit
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             }
         }
         K::CloseTab => {
-            let idx = app.surfaces.active_tab_index();
+            let idx = app.surfaces.surfaces.active_tab_index();
             app.close_tab(idx);
         }
         K::Dashboard => {

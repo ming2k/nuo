@@ -55,48 +55,6 @@ fn role_str(role: nuo_tool::Role) -> &'static str {
     }
 }
 
-fn role_from_str(role: &str) -> Option<nuo_tool::Role> {
-    match role {
-        "user" => Some(nuo_tool::Role::User),
-        "assistant" => Some(nuo_tool::Role::Assistant),
-        "system" => Some(nuo_tool::Role::System),
-        "tool" => Some(nuo_tool::Role::Tool),
-        _ => None,
-    }
-}
-
-fn origin_str(origin: nuo_protocol::EntryOrigin) -> &'static str {
-    match origin {
-        nuo_protocol::EntryOrigin::Harness => "harness",
-        nuo_protocol::EntryOrigin::Checkpoint => "checkpoint",
-    }
-}
-
-fn origin_from_str(origin: &str) -> Option<nuo_protocol::EntryOrigin> {
-    match origin {
-        "harness" => Some(nuo_protocol::EntryOrigin::Harness),
-        "checkpoint" => Some(nuo_protocol::EntryOrigin::Checkpoint),
-        _ => None,
-    }
-}
-
-fn serde_plain(kind: nuo_protocol::DirectiveKind) -> rusqlite::Result<&'static str> {
-    Ok(match kind {
-        nuo_protocol::DirectiveKind::Prune => "prune",
-        nuo_protocol::DirectiveKind::Compact => "compact",
-    })
-}
-
-/// Pull the `content_blob` hash out of a raw payload JSON document without a
-/// typed decode (used for verbatim-preserved unknown entries).
-fn extract_content_blob(payload_json: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(payload_json).ok()?;
-    value
-        .get("content_blob")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-}
-
 fn map_session_row(row: &Row) -> Result<ThreadRecord> {
     Ok(ThreadRecord {
         id: row.get(0)?,
@@ -245,25 +203,6 @@ fn sanitize_fts_words(query: &str) -> Vec<String> {
             }
         })
         .collect()
-}
-
-/// The strict (AND) form, kept as the test-facing wrapper around the joined
-/// sanitizer.
-#[cfg(test)]
-fn sanitize_fts_query(query: &str) -> String {
-    sanitize_fts_query_joined(query, false)
-}
-
-/// Envelope columns of one `entries` row, as written by a save.
-struct EntryEnvelope<'a> {
-    id: &'a str,
-    kind: &'a str,
-    role: Option<&'a str>,
-    content: Option<&'a str>,
-    origin: Option<&'a str>,
-    hidden: bool,
-    created_at_ms: u64,
-    payload: &'a str,
 }
 
 /// Authoritative relational database access object for Nuo persistence.
@@ -993,12 +932,14 @@ pub(crate) enum PersistenceCommand {
     /// Test-only: the writer acks and then exits its loop, simulating actor
     /// death so the supervisor's respawn path is exercisable (D6).
     #[cfg(test)]
+    #[allow(dead_code)]
     Die { ack: oneshot::Sender<()> },
     /// Test-only: apply a session commit and then exit the loop **without
     /// acknowledging** — simulating death after the commit but before its ack
     /// (D3 verification gate: an unknown outcome is resolved by
     /// operation identity, never assumed uncommitted).
     #[cfg(test)]
+    #[allow(dead_code)]
     SaveSessionThenDie {
         data: Box<crate::thread::ThreadData>,
         full: bool,

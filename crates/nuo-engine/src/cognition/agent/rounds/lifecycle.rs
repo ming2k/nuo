@@ -369,6 +369,7 @@ impl StreamAttempt {
 
     /// Accumulate one tool-call fragment, announce the slot once it is named,
     /// and report throttled count-only progress.
+    #[allow(clippy::too_many_arguments)]
     fn ingest_tool_call_delta<F>(
         &mut self,
         agent: &Agent,
@@ -732,7 +733,8 @@ impl Agent {
         // Reset the human-decision pause accumulator for this round so the
         // tokens/sec derived at the exit gate excludes only *this* round's
         // permission/ask_user waits.
-        self.round_paused_ms
+        self.queues
+            .round_paused_ms
             .store(0, std::sync::atomic::Ordering::Relaxed);
         StreamingRoundState {
             turn_context: Arc::default(),
@@ -743,6 +745,7 @@ impl Agent {
             turn_index: 0,
             stream_loop_recoveries: 0,
             inbox_rx: self
+                .queues
                 .inbox_rx
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -775,7 +778,8 @@ impl Agent {
         &self,
         point: &nuo_protocol::RetryPoint,
     ) -> StreamingRoundState {
-        self.round_paused_ms
+        self.queues
+            .round_paused_ms
             .store(point.paused_ms, std::sync::atomic::Ordering::Relaxed);
         StreamingRoundState {
             turn_context: Arc::default(),
@@ -786,6 +790,7 @@ impl Agent {
             turn_index: point.turns_committed,
             stream_loop_recoveries: 0,
             inbox_rx: self
+                .queues
                 .inbox_rx
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -1028,6 +1033,7 @@ impl Agent {
                         duration_ms,
                         generation_ms: round.state.generation_ms,
                         paused_ms: self
+                            .queues
                             .round_paused_ms
                             .load(std::sync::atomic::Ordering::Relaxed),
                     });
@@ -1072,7 +1078,7 @@ impl Agent {
         }
 
         crate::cognition::conversation_context::inject_mentioned_skills(
-            &self.skills_registry,
+            &self.context.skills_registry,
             messages,
         );
         // `@file:` injection happens exactly here — once per prompt, into the

@@ -9,24 +9,25 @@ fn modal_paste_splices_text_inline_stripping_newlines() {
     // chip is inserted and no attachment is staged.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::ModelEditor);
-    app.editor_field = 0;
-    app.input = "sk-".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.provider_editor.editor_field = 0;
+    app.composer.input = "sk-".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
         crate::shell::clipboard::ClipboardRead::Text("abc\ndef\n".to_string()),
     );
 
-    assert_eq!(app.input, "sk-abcdef");
-    assert_eq!(app.cursor_position, "sk-abcdef".chars().count());
+    assert_eq!(app.composer.input, "sk-abcdef");
+    assert_eq!(app.composer.cursor_position, "sk-abcdef".chars().count());
     assert!(
-        app.pending_text_pastes.is_empty(),
+        app.composer.pending_text_pastes.is_empty(),
         "no chip staging in modals"
     );
     assert!(
-        !app.input.contains("Pasted text"),
+        !app.composer.input.contains("Pasted text"),
         "no chip label in modals"
     );
 }
@@ -38,19 +39,20 @@ fn modal_paste_inserts_at_cursor_not_at_end() {
     // than appending.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::ModelEditor);
-    app.editor_field = 1;
-    app.input = "gpt-4omini".to_string();
-    app.cursor_position = "gpt-4o".chars().count();
+    app.provider_editor.editor_field = 1;
+    app.composer.input = "gpt-4omini".to_string();
+    app.composer.cursor_position = "gpt-4o".chars().count();
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
         crate::shell::clipboard::ClipboardRead::Text("turbo".to_string()),
     );
 
-    assert_eq!(app.input, "gpt-4oturbomini");
+    assert_eq!(app.composer.input, "gpt-4oturbomini");
     assert_eq!(
-        app.cursor_position,
+        app.composer.cursor_position,
         "gpt-4oturbo".chars().count(),
         "cursor lands just past the inserted text"
     );
@@ -67,8 +69,8 @@ fn modal_paste_applies_to_provider_picker_and_history_search() {
     ] {
         let (mut app, _tmp) = app_in_tempdir(&[], &[]);
         app.open_dialog(dialog);
-        app.input = String::new();
-        app.cursor_position = 0;
+        app.composer.input = String::new();
+        app.composer.cursor_position = 0;
 
         clipboard_ops::apply_clipboard_paste(
             &mut app,
@@ -76,11 +78,11 @@ fn modal_paste_applies_to_provider_picker_and_history_search() {
         );
 
         assert_eq!(
-            app.input, "query",
+            app.composer.input, "query",
             "paste should inline into free-text modal"
         );
-        assert_eq!(app.cursor_position, "query".chars().count());
-        assert!(app.pending_text_pastes.is_empty());
+        assert_eq!(app.composer.cursor_position, "query".chars().count());
+        assert!(app.composer.pending_text_pastes.is_empty());
     }
 }
 
@@ -91,9 +93,10 @@ fn modal_paste_drops_image_with_failure_toast() {
     // as an attachment.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::ModelEditor);
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
@@ -103,16 +106,19 @@ fn modal_paste_drops_image_with_failure_toast() {
         },
     );
 
-    assert!(app.input.is_empty(), "image paste must not insert text");
     assert!(
-        app.pending_images.is_empty(),
+        app.composer.input.is_empty(),
+        "image paste must not insert text"
+    );
+    assert!(
+        app.composer.pending_images.is_empty(),
         "no attachment staging in modals"
     );
     assert!(
-        app.copy_toast_failed,
+        app.surfaces.copy_toast_failed,
         "image paste in a modal should toast a failure"
     );
-    assert!(app.copy_toast_until.is_some());
+    assert!(app.surfaces.copy_toast_until.is_some());
 }
 
 #[test]
@@ -150,12 +156,13 @@ fn overlay_caret_owner_is_arbitrated_by_the_layer_stack() {
     // `picker_caret_owner_exists_only_in_search_mode` for those cases.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
     assert_eq!(
         app.caret_owner(),
         CaretOwner::Overlay,
         "CustomProvider owns the caret"
     );
-    app.surfaces.dismiss_all_overlays();
+    app.surfaces.surfaces.dismiss_all_overlays();
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
 }

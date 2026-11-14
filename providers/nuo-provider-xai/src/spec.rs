@@ -5,8 +5,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// xAI Grok models over OpenAI-compatible chat completions (SuperGrok OAuth or
 /// `XAI_API_KEY`).

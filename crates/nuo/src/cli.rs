@@ -540,6 +540,20 @@ fn parse_table_flags(args: &[String], diagnostic: bool) -> Result<TableFlags, Fl
 
 /// Parse the command line into [`CliArgs`]. Errors are short, actionable
 /// strings; the caller owns the exit policy (GNU: stderr + exit 2).
+/// Removed verbs that still deserve a targeted "use X instead" message
+/// (ADR-0061). Returns `None` for a live command.
+fn removed_command_error(cmd: &str) -> Option<String> {
+    Some(match cmd {
+        "run" => "'run' was removed in favor of '--headless' (ADR-0061).\n\n  tip: use 'nuo --headless <prompt>' or 'nuo -p <prompt>'".into(),
+        "config" => "'config' CLI commands were removed (ADR-0061).\n\n  tip: configuration is declarative in config.toml or managed interactively via /settings in TUI. Run 'nuo status' for environment overview.".into(),
+        "mcp" => "'mcp' CLI commands were removed (ADR-0061).\n\n  tip: MCP servers are configured declaratively in config.toml or managed via /mcp in TUI. Run 'nuo status' to check MCP health.".into(),
+        "skill" | "skills" => "'skill' CLI commands were removed (ADR-0061).\n\n  tip: skills are discovered from .nuo/skills or managed via /skills in TUI. Run 'nuo status' for overview.".into(),
+        "resume" => "'resume' was unified into 'nuo -t' / 'nuo thread' (ADR-0061).\n\n  tip: use 'nuo -t' to select a thread interactively, or 'nuo -t <id>' to resume by id.".into(),
+        "session" | "sessions" => "'session' was removed in favor of 'nuo thread' (ADR-0038, ADR-0048, ADR-0061).\n\n  tip: use 'nuo thread' to browse threads, or 'nuo thread ls'.".into(),
+        _ => return None,
+    })
+}
+
 pub fn parse(args: &[String]) -> Result<CliArgs, String> {
     let mut project: Option<PathBuf> = None;
     let mut json = false;
@@ -619,40 +633,8 @@ pub fn parse(args: &[String]) -> Result<CliArgs, String> {
         return parse_interactive(args);
     };
 
-    if cmd == "run" {
-        return Err(
-            "'run' was removed in favor of '--headless' (ADR-0061).\n\n  tip: use 'nuo --headless <prompt>' or 'nuo -p <prompt>'".into(),
-        );
-    }
-
-    if cmd == "config" {
-        return Err(
-            "'config' CLI commands were removed (ADR-0061).\n\n  tip: configuration is declarative in config.toml or managed interactively via /settings in TUI. Run 'nuo status' for environment overview.".into(),
-        );
-    }
-
-    if cmd == "mcp" {
-        return Err(
-            "'mcp' CLI commands were removed (ADR-0061).\n\n  tip: MCP servers are configured declaratively in config.toml or managed via /mcp in TUI. Run 'nuo status' to check MCP health.".into(),
-        );
-    }
-
-    if cmd == "skill" || cmd == "skills" {
-        return Err(
-            "'skill' CLI commands were removed (ADR-0061).\n\n  tip: skills are discovered from .nuo/skills or managed via /skills in TUI. Run 'nuo status' for overview.".into(),
-        );
-    }
-
-    if cmd == "resume" {
-        return Err(
-            "'resume' was unified into 'nuo -t' / 'nuo thread' (ADR-0061).\n\n  tip: use 'nuo -t' to select a thread interactively, or 'nuo -t <id>' to resume by id.".into(),
-        );
-    }
-
-    if cmd == "session" || cmd == "sessions" {
-        return Err(
-            "'session' was removed in favor of 'nuo thread' (ADR-0038, ADR-0048, ADR-0061).\n\n  tip: use 'nuo thread' to browse threads, or 'nuo thread ls'.".into(),
-        );
+    if let Some(message) = removed_command_error(&cmd) {
+        return Err(message);
     }
 
     if cmd == "-i"
@@ -1620,5 +1602,4 @@ mod surface_tests {
         let tui = nuo::shell::cli::parse(&args).unwrap();
         assert_eq!(tui.thread, Some(None));
     }
-
 }

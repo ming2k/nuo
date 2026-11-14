@@ -737,7 +737,11 @@ pub struct ToolDeclaration {
 }
 
 impl ToolDeclaration {
-    pub fn new(agent_name: impl Into<String>, kind: crate::AgentKind, scope: CapabilityScope) -> Self {
+    pub fn new(
+        agent_name: impl Into<String>,
+        kind: crate::AgentKind,
+        scope: CapabilityScope,
+    ) -> Self {
         Self {
             agent_name: agent_name.into(),
             kind,

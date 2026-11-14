@@ -6,7 +6,6 @@ use futures::stream::{self, BoxStream};
 use nuo_protocol::{Provider, ProviderStreamEvent, SubAgentProfile};
 use nuo_tool::{Message, Role};
 
-
 struct CannedProvider;
 
 #[async_trait::async_trait]

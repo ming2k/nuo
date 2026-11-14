@@ -81,29 +81,32 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
                 | KeyCode::End
         );
         if is_nav {
-            let anchor_byte = match app.selection {
+            let anchor_byte = match app.transcript.selection {
                 SelectionState::InputRange { anchor_byte, .. } => anchor_byte,
                 SelectionState::Range { anchor, .. }
                     if anchor.message_idx == crate::shell::render::INPUT_MSG_IDX =>
                 {
                     anchor.byte_offset
                 }
-                _ => normalized_cursor_byte(&app.input, app.cursor_position),
+                _ => normalized_cursor_byte(&app.composer.input, app.composer.cursor_position),
             };
 
             let new_pos = match key.code {
                 KeyCode::Left => {
                     if word_chord {
-                        prev_word_start(&app.input, app.cursor_position)
+                        prev_word_start(&app.composer.input, app.composer.cursor_position)
                     } else {
-                        previous_grapheme_boundary(&app.input, app.cursor_position)
+                        previous_grapheme_boundary(
+                            &app.composer.input,
+                            app.composer.cursor_position,
+                        )
                     }
                 }
                 KeyCode::Right => {
                     if word_chord {
-                        next_word_end(&app.input, app.cursor_position)
+                        next_word_end(&app.composer.input, app.composer.cursor_position)
                     } else {
-                        next_grapheme_boundary(&app.input, app.cursor_position)
+                        next_grapheme_boundary(&app.composer.input, app.composer.cursor_position)
                     }
                 }
                 // Shift+↑/↓ extend the selection one *visual row*, the same
@@ -113,33 +116,41 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
                 // would have.
                 KeyCode::Up => {
                     let grid = app.composer_grid();
-                    grid.shift_row(app.cursor_position, Vertical::Up, &mut app.caret_motion)
-                        .unwrap_or(0)
+                    grid.shift_row(
+                        app.composer.cursor_position,
+                        Vertical::Up,
+                        &mut app.composer.caret_motion,
+                    )
+                    .unwrap_or(0)
                 }
                 KeyCode::Down => {
                     let grid = app.composer_grid();
-                    grid.shift_row(app.cursor_position, Vertical::Down, &mut app.caret_motion)
-                        .unwrap_or(app.input.len())
+                    grid.shift_row(
+                        app.composer.cursor_position,
+                        Vertical::Down,
+                        &mut app.composer.caret_motion,
+                    )
+                    .unwrap_or(app.composer.input.len())
                 }
                 KeyCode::Home => {
-                    let mut target = app.cursor_position;
-                    cursor_line_start(&app.input, &mut target);
+                    let mut target = app.composer.cursor_position;
+                    cursor_line_start(&app.composer.input, &mut target);
                     target
                 }
                 KeyCode::End => {
-                    let mut target = app.cursor_position;
-                    cursor_line_end(&app.input, &mut target);
+                    let mut target = app.composer.cursor_position;
+                    cursor_line_end(&app.composer.input, &mut target);
                     target
                 }
-                _ => app.cursor_position,
+                _ => app.composer.cursor_position,
             };
 
             app.set_cursor(new_pos);
-            let head_byte = normalized_cursor_byte(&app.input, new_pos);
+            let head_byte = normalized_cursor_byte(&app.composer.input, new_pos);
             if anchor_byte == head_byte {
-                app.selection = SelectionState::None;
+                app.transcript.selection = SelectionState::None;
             } else {
-                app.selection = SelectionState::InputRange {
+                app.transcript.selection = SelectionState::InputRange {
                     anchor_byte,
                     head_byte,
                 };
@@ -156,14 +167,14 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
         app.adopt_caret_from_input_selection(SelectionEdge::Head);
         let target = if word {
             if forward {
-                next_word_end(&app.input, app.cursor_position)
+                next_word_end(&app.composer.input, app.composer.cursor_position)
             } else {
-                prev_word_start(&app.input, app.cursor_position)
+                prev_word_start(&app.composer.input, app.composer.cursor_position)
             }
         } else if forward {
-            next_grapheme_boundary(&app.input, app.cursor_position)
+            next_grapheme_boundary(&app.composer.input, app.composer.cursor_position)
         } else {
-            previous_grapheme_boundary(&app.input, app.cursor_position)
+            previous_grapheme_boundary(&app.composer.input, app.composer.cursor_position)
         };
         app.set_cursor(target);
     };
@@ -193,17 +204,17 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             if let SelectionState::InputRange {
                 anchor_byte,
                 head_byte,
-            } = app.selection
+            } = app.transcript.selection
             {
-                let lo = anchor_byte.min(head_byte).min(app.input.len());
-                app.selection = SelectionState::None;
-                app.drag.cancel();
+                let lo = anchor_byte.min(head_byte).min(app.composer.input.len());
+                app.transcript.selection = SelectionState::None;
+                app.transcript.drag.cancel();
                 app.set_cursor(lo);
-            } else if let Some((start, _)) = app.selection.active_normalized_range() {
-                let byte =
-                    floor_grapheme_boundary(&app.input, start.byte_offset).min(app.input.len());
-                app.selection = SelectionState::None;
-                app.drag.cancel();
+            } else if let Some((start, _)) = app.transcript.selection.active_normalized_range() {
+                let byte = floor_grapheme_boundary(&app.composer.input, start.byte_offset)
+                    .min(app.composer.input.len());
+                app.transcript.selection = SelectionState::None;
+                app.transcript.drag.cancel();
                 app.set_cursor(byte);
             } else {
                 app.adopt_caret_from_input_selection(SelectionEdge::Tail);
@@ -214,16 +225,17 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             if let SelectionState::InputRange {
                 anchor_byte,
                 head_byte,
-            } = app.selection
+            } = app.transcript.selection
             {
-                let hi = anchor_byte.max(head_byte).min(app.input.len());
-                app.selection = SelectionState::None;
-                app.drag.cancel();
+                let hi = anchor_byte.max(head_byte).min(app.composer.input.len());
+                app.transcript.selection = SelectionState::None;
+                app.transcript.drag.cancel();
                 app.set_cursor(hi);
-            } else if let Some((_, end)) = app.selection.active_normalized_range() {
-                let byte = inclusive_grapheme_end(&app.input, end.byte_offset).min(app.input.len());
-                app.selection = SelectionState::None;
-                app.drag.cancel();
+            } else if let Some((_, end)) = app.transcript.selection.active_normalized_range() {
+                let byte = inclusive_grapheme_end(&app.composer.input, end.byte_offset)
+                    .min(app.composer.input.len());
+                app.transcript.selection = SelectionState::None;
+                app.transcript.drag.cancel();
                 app.set_cursor(byte);
             } else {
                 app.adopt_caret_from_input_selection(SelectionEdge::Head);
@@ -231,8 +243,8 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
             Some(input::InputAction::None)
         }
         (KeyCode::Esc, _) => {
-            app.selection = SelectionState::None;
-            app.drag.cancel();
+            app.transcript.selection = SelectionState::None;
+            app.transcript.drag.cancel();
             Some(input::InputAction::None)
         }
         (KeyCode::Backspace | KeyCode::Delete, _) => {
@@ -254,7 +266,7 @@ fn handle_input_selection(app: &mut App, event: &Event) -> Option<input::InputAc
 }
 
 fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAction> {
-    app.config_dropdown.as_ref()?;
+    app.surfaces.config_dropdown.as_ref()?;
 
     let Event::Key(k) = event else {
         return Some(input::InputAction::None);
@@ -264,24 +276,28 @@ fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAc
         return Some(input::InputAction::None);
     }
 
-    let (mut dropdown, anchor) = app.config_dropdown.take()?;
+    let (mut dropdown, anchor) = app.surfaces.config_dropdown.take()?;
     let outcome = dropdown.handle_key(crate::shell::input::keystroke::stroke_from_event(*k));
     match outcome {
         DropdownEventOutcome::Ignored => {
-            app.config_dropdown = Some((dropdown, anchor));
+            app.surfaces.config_dropdown = Some((dropdown, anchor));
             None
         }
         DropdownEventOutcome::Handled => {
-            app.config_dropdown = Some((dropdown, anchor));
+            app.surfaces.config_dropdown = Some((dropdown, anchor));
             Some(input::InputAction::None)
         }
         DropdownEventOutcome::Cancelled => {
-            app.config_dropdown = None;
+            app.surfaces.config_dropdown = None;
             Some(input::InputAction::None)
         }
         DropdownEventOutcome::Confirmed(payload) => {
             let ctx = dropdown.context.as_deref().unwrap_or("");
-            let revision = app.websearch_config.as_ref().map(|config| config.revision);
+            let revision = app
+                .surfaces
+                .websearch_config
+                .as_ref()
+                .map(|config| config.revision);
             match ctx {
                 "websearch_provider" => {
                     if let (Some(revision), Ok(provider)) = (revision, payload.parse()) {
@@ -307,14 +323,14 @@ fn handle_config_dropdown(app: &mut App, event: &Event) -> Option<input::InputAc
                 }
                 _ => {}
             }
-            app.config_dropdown = None;
+            app.surfaces.config_dropdown = None;
             Some(input::InputAction::None)
         }
     }
 }
 
 fn handle_delete_overlay(app: &mut App, event: &Event) -> Option<input::InputAction> {
-    app.pending_provider_delete.as_ref()?;
+    app.surfaces.pending_provider_delete.as_ref()?;
 
     let Event::Key(k) = event else {
         return Some(input::InputAction::None);
@@ -330,7 +346,7 @@ fn handle_delete_overlay(app: &mut App, event: &Event) -> Option<input::InputAct
         }
         (KeyModifiers::NONE, KeyCode::Esc) => Some(input::InputAction::DeleteProviderCancel),
         (KeyModifiers::NONE, KeyCode::Enter) => {
-            if app.provider_delete_focus == ProviderDeleteChoice::Delete {
+            if app.surfaces.provider_delete_focus == ProviderDeleteChoice::Delete {
                 Some(input::InputAction::DeleteProviderConfirm)
             } else {
                 Some(input::InputAction::DeleteProviderCancel)
@@ -339,19 +355,19 @@ fn handle_delete_overlay(app: &mut App, event: &Event) -> Option<input::InputAct
         (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Left)
         | (KeyModifiers::CONTROL, KeyCode::Char('b'))
         | (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char('h')) => {
-            app.provider_delete_focus = ProviderDeleteChoice::Cancel;
+            app.surfaces.provider_delete_focus = ProviderDeleteChoice::Cancel;
             Some(input::InputAction::None)
         }
         (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Right)
         | (KeyModifiers::CONTROL, KeyCode::Char('f'))
         | (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Char('l')) => {
-            app.provider_delete_focus = ProviderDeleteChoice::Delete;
+            app.surfaces.provider_delete_focus = ProviderDeleteChoice::Delete;
             Some(input::InputAction::None)
         }
         (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Tab)
         | (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Down)
         | (KeyModifiers::NONE | KeyModifiers::SHIFT, KeyCode::Up) => {
-            app.provider_delete_focus = match app.provider_delete_focus {
+            app.surfaces.provider_delete_focus = match app.surfaces.provider_delete_focus {
                 ProviderDeleteChoice::Cancel => ProviderDeleteChoice::Delete,
                 ProviderDeleteChoice::Delete => ProviderDeleteChoice::Cancel,
             };

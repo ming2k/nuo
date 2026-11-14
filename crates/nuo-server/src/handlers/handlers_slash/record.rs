@@ -37,8 +37,7 @@ use tokio::sync::mpsc;
 use nuo_engine::orchestration::round_response;
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, CommandRecord, CommandResult, RoundEvent};
-use nuo_tool::{CommandEffect};
-
+use nuo_tool::CommandEffect;
 
 /// Where the act happened.
 ///

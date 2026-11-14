@@ -1,3 +1,13 @@
+---
+id: ADR-0164
+title: "Instructions Are One Pipeline over System and Project Sources"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0164: Instructions Are One Pipeline over System and Project Sources
 
 - **Status:** Accepted

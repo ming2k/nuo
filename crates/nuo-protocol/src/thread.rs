@@ -16,8 +16,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use nuo_tool::Message;
 use crate::observation::{ObservationLifecycle, ObservationMetrics, TerminationReason, Trust};
+use nuo_tool::Message;
 
 /// Current persisted thread-record schema version.
 pub const THREAD_SCHEMA_VERSION: u16 = 1;

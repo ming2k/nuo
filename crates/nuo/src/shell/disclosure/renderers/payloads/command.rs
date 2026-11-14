@@ -54,10 +54,7 @@ pub(crate) fn termination_footer(
 }
 
 /// Dynamic supervisor surface tint for Part 3 Harness Governance band (ADR-0070 → ADR-0093).
-fn harness_intervention_surface(
-    term: nuo_tool::ShellTermination,
-    theme: &Theme,
-) -> Color {
+fn harness_intervention_surface(term: nuo_tool::ShellTermination, theme: &Theme) -> Color {
     use nuo_tool::ShellTermination as T;
     let tint = match term {
         T::Cancelled => theme.err(),
@@ -817,10 +814,7 @@ pub(crate) fn emit_command_lines(
 /// call starts, so it is available even while streaming), falling back to
 /// parsing the JSON arguments for legacy / restored sessions without a
 /// structured payload.
-pub(crate) fn command_for(
-    structured: Option<&nuo_tool::ToolOutput>,
-    arguments: &str,
-) -> String {
+pub(crate) fn command_for(structured: Option<&nuo_tool::ToolOutput>, arguments: &str) -> String {
     if let Some(nuo_tool::ToolOutput::Shell { command, .. }) = structured
         && !command.is_empty()
     {

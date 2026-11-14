@@ -54,19 +54,19 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             true
         }
         AppMutation::SetRoundCount(round) => {
-            app.round_count = round;
+            app.session.round_count = round;
             true
         }
         AppMutation::SetCurrentTurn(turn) => {
-            app.current_turn = turn;
+            app.session.current_turn = turn;
             true
         }
         AppMutation::SetRoundStartedAt(started) => {
-            app.round_started_at = started;
+            app.session.round_started_at = started;
             true
         }
         AppMutation::SetProviderRetry(retry) => {
-            app.provider_retry = Some(retry);
+            app.session.provider_retry = Some(retry);
             true
         }
 
@@ -74,19 +74,19 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         AppMutation::Harness(snapshot) => apply_harness_snapshot(app, runtime, snapshot),
         AppMutation::SessionPhase(phase) => apply_session_phase(app, phase),
         AppMutation::CommandCatalog(catalog) => {
-            app.command_catalog = catalog;
+            app.composer.command_catalog = catalog;
             true
         }
         AppMutation::HarnessUnattended(enabled) => {
-            app.unattended = enabled;
+            app.session.unattended = enabled;
             true
         }
         AppMutation::HarnessConfined(confined) => {
-            app.confined = confined;
+            app.session.confined = confined;
             true
         }
         AppMutation::ClearSwitchingSession => {
-            app.switching_session = None;
+            app.session.switching_session = None;
             true
         }
         AppMutation::LiveSession {
@@ -95,25 +95,25 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
         } => apply_live_session(app, previous_id, next_id),
         AppMutation::SessionsOverview(sessions) => apply_sessions_overview(app, sessions),
         AppMutation::OpenSessionsPanel => {
-            app.open_sessions_signal = true;
+            app.link.open_sessions_signal = true;
             true
         }
         AppMutation::OpenTreePanel => {
-            app.open_tree_signal = true;
+            app.link.open_tree_signal = true;
             true
         }
         AppMutation::SessionDetail(detail) => apply_session_detail(app, detail),
         AppMutation::ConnectionDetail(detail) => apply_connection_detail(app, detail),
         AppMutation::SessionTree(tree) => {
-            app.session_tree = tree;
+            app.session.session_tree = tree;
             true
         }
         AppMutation::SessionContext(snapshot) => {
-            app.session_context = Some(snapshot);
+            app.session.session_context = Some(snapshot);
             true
         }
         AppMutation::CompletionSignal(signal) => {
-            app.backend_completion_signal = Some(signal);
+            app.composer.backend_completion_signal = Some(signal);
             true
         }
         AppMutation::HostSessions(rows) => apply_host_sessions(app, rows),
@@ -128,11 +128,11 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             parent_call_id,
         } => apply_queue_question(app, request, parent_call_id),
         AppMutation::QueueInput(request) => {
-            app.pending_inputs.push_back(request);
+            app.human.pending_inputs.push_back(request);
             true
         }
         AppMutation::ClearPermissions => {
-            app.pending_permissions.clear();
+            app.human.pending_permissions.clear();
             true
         }
         AppMutation::BackgroundTaskStarted {
@@ -192,17 +192,17 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             overrides,
         } => apply_route_settings(app, provider_id, model, overrides),
         AppMutation::KeyStatus(status) => {
-            app.key_status = status;
+            app.surfaces.key_status = status;
             true
         }
         AppMutation::ProviderPicker(snapshot) => apply_provider_picker(app, snapshot),
         AppMutation::ProviderSwitched { provider, model } => {
-            app.current_provider = provider;
-            app.current_model = model;
+            app.session.current_provider = provider;
+            app.session.current_model = model;
             true
         }
         AppMutation::WebSearchConfig(snapshot) => {
-            app.websearch_config = snapshot;
+            app.surfaces.websearch_config = snapshot;
             true
         }
         AppMutation::ServerEndpoints(report) => apply_server_endpoints(app, report),
@@ -219,12 +219,12 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
 
         // ---- Telemetry / usage --------------------------------------------
         AppMutation::TokenReport(report) => {
-            app.token_report = report;
+            app.telemetry.token_report = report;
             true
         }
         AppMutation::UsageStats(report) => apply_usage_stats(app, report),
         AppMutation::UsageFailed(_error) => {
-            app.usage_loading = false;
+            app.telemetry.usage_loading = false;
             true
         }
         AppMutation::ProviderQuotas(snapshot) => apply_provider_quotas(app, snapshot),
@@ -232,28 +232,31 @@ pub(crate) fn apply(app: &mut App, runtime: &UiRuntime, mutation: AppMutation) -
             session_id,
             snapshot,
         } => {
-            app.context_tokens_by_session.insert(session_id, snapshot);
+            app.telemetry
+                .context_tokens_by_session
+                .insert(session_id, snapshot);
             true
         }
         AppMutation::ClearContextTokens => {
-            app.context_tokens_by_session.clear();
+            app.telemetry.context_tokens_by_session.clear();
             true
         }
 
         // ---- Notices / link / process -------------------------------------
         AppMutation::NoticeDisclosure(rendered) => apply_notice_disclosure(app, rendered),
         AppMutation::Quit => {
-            app.should_quit
+            app.link
+                .should_quit
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             true
         }
         AppMutation::LinkLost { reason } => apply_link_lost(app, reason),
         AppMutation::PersistenceHealth(health) => {
-            app.persistence_health = health;
+            app.session.persistence_health = health;
             true
         }
         AppMutation::HostConsole(line) => {
-            app.host_console_log.push(line);
+            app.transcript.host_console_log.push(line);
             true
         }
     }
@@ -268,12 +271,12 @@ fn apply_chrome_mutation(app: &mut App, session_id: &str, edit: ChromeEdit) -> b
     // the queue bar's running rows and the keymap's has-running-task
     // guard read `App::running_sessions` (M4: formerly the
     // deleted dispatch `HarnessState` signal).
-    if let Some(chrome) = app.session_chrome.get(session_id) {
+    if let Some(chrome) = app.session.session_chrome.get(session_id) {
         let running = chrome.responding;
         if running {
-            app.running_sessions.insert(session_id.to_string());
+            app.session.running_sessions.insert(session_id.to_string());
         } else if !is_phase_only {
-            app.running_sessions.remove(session_id);
+            app.session.running_sessions.remove(session_id);
         }
     }
     true
@@ -285,30 +288,30 @@ fn apply_harness_snapshot(
     runtime: &UiRuntime,
     snapshot: nuo_protocol::HarnessSnapshot,
 ) -> bool {
-    app.loop_status = snapshot.loop_status;
-    app.unattended = snapshot.unattended;
-    app.confined = snapshot.confined;
-    app.harness_retry_pending = snapshot.retry_pending;
-    app.workspace_security = snapshot.workspace_security.clone();
+    app.session.loop_status = snapshot.loop_status;
+    app.session.unattended = snapshot.unattended;
+    app.session.confined = snapshot.confined;
+    app.session.harness_retry_pending = snapshot.retry_pending;
+    app.session.workspace_security = snapshot.workspace_security.clone();
     if let Some(role) = snapshot.role {
-        app.current_role = Some(role);
+        app.session.current_role = Some(role);
     }
     if let Some(ws) = snapshot.workspace {
-        app.current_workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&ws));
-    } else if app.current_role.is_some() {
-        app.current_workspace.clear();
+        app.session.current_workspace = crate::shell::chrome::tilde_home(std::path::Path::new(&ws));
+    } else if app.session.current_role.is_some() {
+        app.session.current_workspace.clear();
     }
     // PreAttach unmount: when the snapshot transitions
     // to having no unresolved quarantined/changed/expired domains (or the
     // workspace is no longer quarantined), clear the interstitial and latch
     // the per-run gate so a subsequent periodic republish cannot re-mount
     // within this run.
-    if let Some(pa) = app.pre_attach.as_mut() {
+    if let Some(pa) = app.surfaces.pre_attach.as_mut() {
         let gate_needed =
             nuo_view::trust_gate::gate_request(&snapshot.workspace_security).is_some();
         if !gate_needed {
             tracing::info!("nuo: clearing PreAttach interstitial (workspace review resolved)");
-            app.pre_attach = None;
+            app.surfaces.pre_attach = None;
             runtime
                 .trust_gate_dismissed
                 .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -335,10 +338,10 @@ fn apply_session_phase(app: &mut App, phase: nuo_protocol::ThreadPhase) -> bool 
         _ => None,
     };
     let ready = phase == nuo_protocol::ThreadPhase::Ready;
-    app.session_phase = phase;
+    app.session.session_phase = phase;
     if ready {
-        app.switching_session = None;
-        let queued: Vec<_> = std::mem::take(&mut app.pending_prompts);
+        app.session.switching_session = None;
+        let queued: Vec<_> = std::mem::take(&mut app.composer.pending_prompts);
         for request in queued {
             let _ = app.send_intent(request);
         }
@@ -349,7 +352,7 @@ fn apply_session_phase(app: &mut App, phase: nuo_protocol::ThreadPhase) -> bool 
         // next boundary — the user is shown "nothing pending" and then
         // gets prompt they did not see coming.
         let _ = app.send_intent(nuo_protocol::AgentRequest::QueueSnapshot {
-            thread_id: app.current_session_id.clone(),
+            thread_id: app.session.current_session_id.clone(),
         });
     }
     if let Some(message) = failed {
@@ -358,7 +361,7 @@ fn apply_session_phase(app: &mut App, phase: nuo_protocol::ThreadPhase) -> bool 
         app.record_client_notice(
             crate::shell::app::notice_catalog::ClientNotice::SessionPrepFailed { detail: message },
         );
-        app.switching_session = None;
+        app.session.switching_session = None;
     }
     true
 }
@@ -366,17 +369,21 @@ fn apply_session_phase(app: &mut App, phase: nuo_protocol::ThreadPhase) -> bool 
 /// Record the live session move and rebase only the tab carrying the session
 /// being left (ADR-0123 `[INV-TAB-13]`).
 fn apply_live_session(app: &mut App, previous_id: String, next_id: String) -> bool {
-    app.live_session_id = next_id.clone();
+    app.session.live_session_id = next_id.clone();
     // `[INV-TAB-13]`: address the tab by the session it is *leaving*.
     // Rebasing "the active tab" is the ghost-tab generator — the active
     // tab may already be a replacement that has nothing to do with this
     // switch. No matching tab means this receipt is for a session the
     // client no longer shows, so there is nothing to rebase.
-    if app.surfaces.rebase_thread_tab(&previous_id, &next_id) {
+    if app
+        .surfaces
+        .surfaces
+        .rebase_thread_tab(&previous_id, &next_id)
+    {
         // Only the rebased tab loses its title: the new session has no
         // authentic title yet (ADR-0050). Titles of untouched tabs are
         // never collateral damage.
-        app.surfaces.clear_tab_title(&next_id);
+        app.surfaces.surfaces.clear_tab_title(&next_id);
     }
     true
 }
@@ -397,10 +404,11 @@ fn apply_queue_permission(
     parent_call_id: Option<String>,
 ) -> bool {
     if let Some(parent) = parent_call_id {
-        app.subagent_permission_parent
+        app.human
+            .subagent_permission_parent
             .insert(request.id.clone(), parent);
     }
-    app.pending_permissions.push_back(request);
+    app.human.pending_permissions.push_back(request);
     true
 }
 
@@ -410,10 +418,11 @@ fn apply_queue_question(
     parent_call_id: Option<String>,
 ) -> bool {
     if let Some(parent) = parent_call_id {
-        app.subagent_question_parent
+        app.human
+            .subagent_question_parent
             .insert(request.id.clone(), parent);
     }
-    app.pending_questions.push_back(request);
+    app.human.pending_questions.push_back(request);
     true
 }
 
@@ -424,7 +433,8 @@ fn apply_queue_question(
 /// event ends this id — admitted, missed, cancelled, cancel-failed — the row
 /// leaves through this mutation, so the flag leaves with it.
 fn apply_dispatch_removed(app: &mut App, session_id: String, input_id: String) -> bool {
-    app.suppress_steer_restore
+    app.composer
+        .suppress_steer_restore
         .remove(&(session_id.clone(), input_id.clone()));
     app.remove_dispatch(&session_id, &input_id);
     true
@@ -447,6 +457,7 @@ fn apply_steer_missed(app: &mut App, session_id: String, input_id: String) -> bo
     // old code removed the flag first and then restored unconditionally,
     // which made every deletion of a missed steer undo itself.
     let suppress = app
+        .composer
         .suppress_steer_restore
         .remove(&(session_id.clone(), input_id.clone()));
     // The **row is the payload** (text + attachments), so the restore
@@ -456,7 +467,7 @@ fn apply_steer_missed(app: &mut App, session_id: String, input_id: String) -> bo
     // receipt. (A full-replace `QueueSnapshot` used to delete pending
     // steers, which made this arm silently drop the text.)
     let restored = app.take_steer_row(&session_id, &input_id);
-    if app.live_session_id == session_id && !suppress {
+    if app.session.live_session_id == session_id && !suppress {
         match restored {
             Some(item) => {
                 app.adopt_as_draft(
@@ -492,10 +503,11 @@ fn apply_steer_cancelled_restored(app: &mut App, session_id: String, input_id: S
     // `D` flags `suppress_steer_restore` so a deleted steer cannot
     // resurrect itself (ADR-0137).
     let suppress = app
+        .composer
         .suppress_steer_restore
         .remove(&(session_id.to_string(), input_id.to_string()));
     let restored = app.take_steer_row(&session_id, &input_id);
-    if app.live_session_id == session_id && !suppress {
+    if app.session.live_session_id == session_id && !suppress {
         match restored {
             Some(item) => {
                 app.adopt_as_draft(
@@ -533,13 +545,14 @@ fn apply_steer_cancel_failed_cleared(app: &mut App, session_id: String, input_id
     // the user had deliberately deleted. If the row is already gone
     // (a delete removed it before the race resolved), nothing will ever
     // end this id again, so the flag must go now or it leaks.
-    let row_alive = app.pending_dispatch.iter().any(|item| {
+    let row_alive = app.composer.pending_dispatch.iter().any(|item| {
         item.session_id == session_id
             && item.id == input_id
             && item.state == crate::shell::app::QueuedDispatchState::Steering
     });
     if !row_alive {
-        app.suppress_steer_restore
+        app.composer
+            .suppress_steer_restore
             .remove(&(session_id.clone(), input_id.clone()));
     }
     // One outcome, one disclosure. The row being gone means the user's
@@ -547,7 +560,7 @@ fn apply_steer_cancel_failed_cleared(app: &mut App, session_id: String, input_id
     // so; the admission that follows will end the id again and must not
     // add a "text lost" receipt for a loss that never happened. So the
     // race is disclosed only while the item is still live.
-    if app.live_session_id == session_id && row_alive {
+    if app.session.live_session_id == session_id && row_alive {
         // Through the catalog funnel (ADR-0138 / [INV-NOTICE-05]), so
         // the disclosure is *retained* in the notice log rather than
         // flashed and lost, and its wording/topic live in one place.
@@ -560,6 +573,7 @@ fn apply_steer_cancel_failed_cleared(app: &mut App, session_id: String, input_id
 /// `Waiting` so it is once again server-owned.
 fn apply_dispatch_queued(app: &mut App, session_id: String, input_id: String) -> bool {
     if let Some(item) = app
+        .composer
         .pending_dispatch
         .iter_mut()
         .find(|item| item.session_id == session_id && item.id == input_id)
@@ -596,6 +610,7 @@ fn apply_queue_snapshot(
     let server_ids: std::collections::HashSet<&str> =
         items.iter().map(|queued| queued.id.as_str()).collect();
     let client_owned: Vec<crate::shell::app::QueuedDispatch> = app
+        .composer
         .pending_dispatch
         .iter()
         .filter(|item| {
@@ -615,7 +630,7 @@ fn apply_queue_snapshot(
     // session-filtered, so the global slot is not observable).
     let mut rebuilt: std::collections::VecDeque<crate::shell::app::QueuedDispatch> =
         std::collections::VecDeque::new();
-    for item in app.pending_dispatch.drain(..) {
+    for item in app.composer.pending_dispatch.drain(..) {
         if item.session_id != session_id {
             rebuilt.push_back(item);
         }
@@ -637,11 +652,11 @@ fn apply_queue_snapshot(
     for item in client_owned {
         rebuilt.push_back(item);
     }
-    app.pending_dispatch = rebuilt;
+    app.composer.pending_dispatch = rebuilt;
     if paused {
-        app.queue_blocked_sessions.insert(session_id);
+        app.session.queue_blocked_sessions.insert(session_id);
     } else {
-        app.queue_blocked_sessions.remove(&session_id);
+        app.session.queue_blocked_sessions.remove(&session_id);
     }
     true
 }
@@ -649,7 +664,7 @@ fn apply_queue_snapshot(
 /// Replace the persisted prompt history, scrubbing legacy slash invocations
 /// when command recording is disabled.
 fn apply_input_history(app: &mut App, rows: Vec<nuo_protocol::HistoryEntry>) -> bool {
-    app.input_history = if app.input_history_record_commands {
+    app.composer.input_history = if app.composer.input_history_record_commands {
         rows
     } else {
         // `[input_history] record_commands = false`: scrub any legacy
@@ -671,9 +686,11 @@ fn apply_route_settings(
 ) -> bool {
     // Prefill only if the editor is still open on the same route —
     // the answer is async, the operator may have moved on.
-    if app.editor_target.as_deref() == Some(provider_id.as_str()) && app.editor_model == model {
-        app.editor_vision_override = overrides.as_ref().and_then(|o| o.vision);
-        app.editor_tool_override = overrides.as_ref().and_then(|o| o.tool_call);
+    if app.provider_editor.editor_target.as_deref() == Some(provider_id.as_str())
+        && app.provider_editor.editor_model == model
+    {
+        app.provider_editor.editor_vision_override = overrides.as_ref().and_then(|o| o.vision);
+        app.provider_editor.editor_tool_override = overrides.as_ref().and_then(|o| o.tool_call);
         true
     } else {
         false
@@ -681,11 +698,13 @@ fn apply_route_settings(
 }
 
 fn apply_provider_picker(app: &mut App, snapshot: nuo_protocol::ProviderPickerSnapshot) -> bool {
-    app.provider_picker = snapshot;
+    app.surfaces.provider_picker = snapshot;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
         .refreshing = false;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .refreshing = false;
     true
@@ -698,7 +717,7 @@ fn apply_sessions_overview(app: &mut App, sessions: Vec<nuo_protocol::ThreadOver
         if let Some(ref t) = s.title {
             let trimmed = t.trim();
             if !trimmed.is_empty() {
-                app.surfaces.update_tab_title(&s.id, trimmed);
+                app.surfaces.surfaces.update_tab_title(&s.id, trimmed);
             }
         }
     }
@@ -712,9 +731,13 @@ fn apply_sessions_overview(app: &mut App, sessions: Vec<nuo_protocol::ThreadOver
     // "where can I go"; the attached row is marked current, and
     // selecting it is the idempotent focus-recovery path that already
     // existed for a re-selected session.
-    app.modal_index = app.modal_index.min(sessions.len().saturating_sub(1));
-    app.sessions_overview = sessions;
+    app.surfaces.modal_index = app
+        .surfaces
+        .modal_index
+        .min(sessions.len().saturating_sub(1));
+    app.session.sessions_overview = sessions;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
         .loading = false;
     true
@@ -724,13 +747,14 @@ fn apply_session_detail(app: &mut App, detail: nuo_protocol::ThreadDetail) -> bo
     if let Some(ref t) = detail.title {
         let trimmed = t.trim();
         if !trimmed.is_empty() {
-            app.surfaces.update_tab_title(&detail.id, trimmed);
+            app.surfaces.surfaces.update_tab_title(&detail.id, trimmed);
         }
     }
-    let same_id = app.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
-    app.session_detail = Some(detail);
+    let same_id = app.session.session_detail.as_ref().map(|s| &s.id) == Some(&detail.id);
+    app.session.session_detail = Some(detail);
     if !same_id {
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .info_scroll = 0;
     }
@@ -738,10 +762,11 @@ fn apply_session_detail(app: &mut App, detail: nuo_protocol::ThreadDetail) -> bo
 }
 
 fn apply_connection_detail(app: &mut App, detail: nuo_protocol::ConnectionDetail) -> bool {
-    let same_id = app.connection_detail.as_ref().map(|c| &c.name) == Some(&detail.name);
-    app.connection_detail = Some(detail);
+    let same_id = app.surfaces.connection_detail.as_ref().map(|c| &c.name) == Some(&detail.name);
+    app.surfaces.connection_detail = Some(detail);
     if !same_id {
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_scroll = 0;
     }
@@ -753,16 +778,17 @@ fn apply_host_sessions(app: &mut App, rows: Vec<nuo_protocol::MonitoredThread>) 
         if let Some(ref t) = row.title {
             let trimmed = t.trim();
             if !trimmed.is_empty() {
-                app.surfaces.update_tab_title(&row.id, trimmed);
+                app.surfaces.surfaces.update_tab_title(&row.id, trimmed);
             }
         }
     }
-    app.host_sessions = rows;
+    app.session.host_sessions = rows;
     true
 }
 
 fn apply_server_endpoints(app: &mut App, report: nuo_protocol::ServerEndpointsReport) -> bool {
     let d = app
+        .surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::PortShareDialog>();
     d.port = report.tcp_port;
@@ -787,13 +813,13 @@ fn apply_pre_attach(
         .load(std::sync::atomic::Ordering::SeqCst);
     if !dismissed
         && let Some(state) = crate::shell::PreAttachState::from_snapshot(&signal.snapshot)
-        && app.pre_attach.is_none()
+        && app.surfaces.pre_attach.is_none()
     {
         tracing::info!("nuo: mounting PreAttach interstitial");
-        app.pre_attach = Some(state);
+        app.surfaces.pre_attach = Some(state);
         // PreAttach claims the keyboard; reset the composer/sheet
         // state the way an ordinary sheet mount does.
-        app.modal_index = 0;
+        app.surfaces.modal_index = 0;
         app.park_focus_for_sheet();
     }
     true
@@ -803,7 +829,7 @@ fn apply_pre_attach_attestation_error(app: &mut App, message: String) -> bool {
     // Gate on the surface being mounted: with no gate up, a trust
     // notice is ordinary session flow (in-session `/trust`, the
     // attach banner) and must keep its transcript/toast path.
-    if let Some(pa) = app.pre_attach.as_mut() {
+    if let Some(pa) = app.surfaces.pre_attach.as_mut() {
         tracing::warn!(
             %message,
             "nuo: PreAttach trust grant failed; resuming the decision surface"
@@ -814,17 +840,18 @@ fn apply_pre_attach_attestation_error(app: &mut App, message: String) -> bool {
 }
 
 fn apply_usage_stats(app: &mut App, report: nuo_protocol::usage_stats::UsageStatsReport) -> bool {
-    app.usage_stats = Some(report);
-    app.usage_loading = false;
+    app.telemetry.usage_stats = Some(report);
+    app.telemetry.usage_loading = false;
     true
 }
 
 fn apply_provider_quotas(app: &mut App, snapshot: nuo_protocol::ProviderQuotaSnapshot) -> bool {
     for entry in &snapshot.entries {
-        app.connection_usages
+        app.telemetry
+            .connection_usages
             .insert(entry.name.clone(), entry.state.clone());
     }
-    app.provider_quotas = Some(snapshot);
+    app.telemetry.provider_quotas = Some(snapshot);
     true
 }
 
@@ -850,8 +877,8 @@ fn apply_link_lost(app: &mut App, reason: String) -> bool {
     // no longer be delivered — which is exactly what `link_down` already
     // renders. Retaining the reason is what makes the fault answerable
     // after a window that previously closed with no explanation at all.
-    app.link_down = true;
-    app.relink_requested = true;
+    app.link.link_down = true;
+    app.link.relink_requested = true;
     nuo_host::diagnostics::record_event(
         "client",
         "link_lost",
@@ -872,33 +899,37 @@ fn apply_oauth(app: &mut App, signal: crate::shell::app::OauthAddSignal) {
             user_code,
             message,
         } => {
-            if app.awaiting_oauth_add {
-                app.oauth_pending_url = url;
-                app.oauth_pending_user_code = user_code;
-                app.oauth_pending_message = message;
-                app.oauth_pending_error = None;
+            if app.provider_editor.awaiting_oauth_add {
+                app.provider_editor.oauth_pending_url = url;
+                app.provider_editor.oauth_pending_user_code = user_code;
+                app.provider_editor.oauth_pending_message = message;
+                app.provider_editor.oauth_pending_error = None;
                 if !app
+                    .surfaces
                     .surfaces
                     .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending)
                 {
                     app.surfaces
+                        .surfaces
                         .present_sheet(crate::shell::surfaces::SheetKind::OAuthPending);
                 }
             }
         }
         Signal::Done => {
-            if app.awaiting_oauth_add {
+            if app.provider_editor.awaiting_oauth_add {
                 app.open_oauth_instance_name_editor();
             }
         }
         Signal::Failed { message } => {
-            if app.awaiting_oauth_add {
-                app.oauth_pending_error = Some(message);
+            if app.provider_editor.awaiting_oauth_add {
+                app.provider_editor.oauth_pending_error = Some(message);
                 if !app
+                    .surfaces
                     .surfaces
                     .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending)
                 {
                     app.surfaces
+                        .surfaces
                         .present_sheet(crate::shell::surfaces::SheetKind::OAuthPending);
                 }
             }
@@ -914,9 +945,9 @@ fn apply_oauth(app: &mut App, signal: crate::shell::app::OauthAddSignal) {
 /// messages have no cached entry to evict.
 pub(crate) fn apply_transcript(app: &mut App, edit: TranscriptEdit) -> bool {
     // Snapshot the disclosure input the tool arms need before the document borrow.
-    let tui_config = app.tui_config.clone();
+    let tui_config = app.session.tui_config.clone();
     let mut apply = TranscriptApply::new(tui_config);
-    apply_transcript_edit(&mut app.messages, edit, &mut apply);
+    apply_transcript_edit(&mut app.transcript.messages, edit, &mut apply);
     apply.finish(app)
 }
 
@@ -979,16 +1010,17 @@ impl TranscriptApply {
         match self.post {
             PostEdit::None => {}
             PostEdit::Invalidate(id) => {
-                app.layout_height_cache
+                app.transcript
+                    .layout_height_cache
                     .invalidate_messages(std::iter::once(id));
             }
-            PostEdit::ClearCache => app.layout_height_cache.clear(),
+            PostEdit::ClearCache => app.transcript.layout_height_cache.clear(),
         }
         if let Some(rejected) = self.rejected_invocation {
             restore_rejected_command_draft(app, rejected);
         }
         if self.changed {
-            app.transcript_changed_pending = true;
+            app.transcript.transcript_changed_pending = true;
         }
         self.changed
     }
@@ -1256,7 +1288,7 @@ fn apply_reasoning_delta(
 }
 
 fn apply_reasoning_finalize(
-    messages: &mut Vec<TranscriptMessage>,
+    messages: &mut [TranscriptMessage],
     round: Option<u64>,
     turn: Option<u64>,
     content: String,
@@ -1369,7 +1401,7 @@ fn apply_retract_pending_tool_steps(
 }
 
 fn apply_tool_preview(
-    messages: &mut Vec<TranscriptMessage>,
+    messages: &mut [TranscriptMessage],
     id: String,
     preview: nuo_tool::PreviewResult,
     apply: &mut TranscriptApply,
@@ -1388,7 +1420,7 @@ fn apply_tool_preview(
 }
 
 fn apply_tool_input_progress(
-    messages: &mut Vec<TranscriptMessage>,
+    messages: &mut [TranscriptMessage],
     id: String,
     bytes: usize,
     arguments: Option<String>,
@@ -1412,6 +1444,7 @@ fn apply_tool_input_progress(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_tool_result(
     messages: &mut Vec<TranscriptMessage>,
     id: String,
@@ -1459,6 +1492,7 @@ fn apply_tool_result(
     }
 }
 
+#[allow(clippy::ptr_arg)]
 fn apply_tool_cancel(
     messages: &mut Vec<TranscriptMessage>,
     id: String,
@@ -1486,7 +1520,7 @@ fn apply_tool_cancel(
 }
 
 fn apply_tool_stream(
-    messages: &mut Vec<TranscriptMessage>,
+    messages: &mut [TranscriptMessage],
     id: String,
     stream: nuo_tool::ToolStream,
     apply: &mut TranscriptApply,
@@ -1501,7 +1535,7 @@ fn apply_tool_stream(
 }
 
 fn apply_subagent_event(
-    messages: &mut Vec<TranscriptMessage>,
+    messages: &mut [TranscriptMessage],
     parent_call_id: String,
     event: nuo_tool::SubagentEvent,
     apply: &mut TranscriptApply,
@@ -1665,13 +1699,13 @@ fn apply_stamp_turn_prompt(messages: &mut [TranscriptMessage], round: u64) {
 ///   dismissal is latched exactly as a programmatic replacement would do, so the
 ///   popup does not flash open over the restored text.
 fn restore_rejected_command_draft(app: &mut App, invocation: String) {
-    if !app.input.is_empty() {
+    if !app.composer.input.is_empty() {
         return;
     }
-    app.input = invocation;
+    app.composer.input = invocation;
     app.set_cursor_end();
-    app.suggestion_index = None;
-    app.completion_dismissed = true;
+    app.composer.suggestion_index = None;
+    app.composer.completion_dismissed = true;
     app.refresh_backend_completion_request();
 }
 
@@ -1679,6 +1713,7 @@ fn restore_rejected_command_draft(app: &mut App, invocation: String) {
 /// (formerly `ChromeUpdate` closures over a shared map).
 fn apply_chrome(app: &mut App, session_id: &str, edit: ChromeEdit) {
     let chrome = app
+        .session
         .session_chrome
         .entry(session_id.to_string())
         .or_default();
@@ -1754,16 +1789,16 @@ mod rejected_command_draft_tests {
     fn rejected_command_returns_the_draft_to_the_composer() {
         let mut app = new_app_for_relay_tests();
         // The Enter already consumed the buffer, exactly as it would live.
-        assert!(app.input.is_empty());
+        assert!(app.composer.input.is_empty());
         restore_rejected_command_draft(&mut app, "/modles".to_string());
-        assert_eq!(app.input, "/modles");
+        assert_eq!(app.composer.input, "/modles");
         assert_eq!(
-            app.cursor_position,
-            app.input.len(),
+            app.composer.cursor_position,
+            app.composer.input.len(),
             "caret is retype-ready"
         );
         assert!(
-            app.completion_dismissed,
+            app.composer.completion_dismissed,
             "the popup must not flash over a restored draft"
         );
     }
@@ -1771,11 +1806,11 @@ mod rejected_command_draft_tests {
     #[test]
     fn rejected_command_never_clobbers_text_the_user_already_typed() {
         let mut app = new_app_for_relay_tests();
-        app.input = "next question".to_string();
-        app.cursor_position = app.input.len();
+        app.composer.input = "next question".to_string();
+        app.composer.cursor_position = app.composer.input.len();
         restore_rejected_command_draft(&mut app, "/modles".to_string());
         assert_eq!(
-            app.input, "next question",
+            app.composer.input, "next question",
             "the user's newer draft wins; the rejection stays in the transcript and in ↑ history"
         );
     }

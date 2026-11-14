@@ -19,7 +19,9 @@ pub(crate) type WorkspaceBase = Option<PathBuf>;
 /// Capture the workspace base from a tool-assembly context. Factories call
 /// this once at build time; the returned value is immutable for the tool's
 /// lifetime, matching the session whose bootstrap assembled it.
-pub(crate) fn workspace_base(ctx: &nuo_protocol::tool_registry::ToolFactoryContext) -> WorkspaceBase {
+pub(crate) fn workspace_base(
+    ctx: &nuo_protocol::tool_registry::ToolFactoryContext,
+) -> WorkspaceBase {
     ctx.workspace_root().map(Path::to_path_buf)
 }
 

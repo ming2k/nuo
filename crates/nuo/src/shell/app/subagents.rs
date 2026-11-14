@@ -2,14 +2,14 @@
 use super::*;
 
 impl App {
-    /// Splice the `idx`-th live completion's label into [`App::input`] over
+    /// Splice the `idx`-th live completion's label into `App::input` over
     /// its `[replace_start, replace_end)` byte range, landing the cursor
     /// just past the inserted text. Shared by `Tab` cycling and `Enter`
     /// commit.
     ///
     /// **Slash commands are terminal accepts.** Accepting a `/command` is a
     /// commit: no trailing space is appended, the highlight is cleared, and
-    /// [`App::completion_dismissed`] is latched so the popup stays hidden
+    /// `App::completion_dismissed` is latched so the popup stays hidden
     /// until the next edit. This unifies Tab and Enter — a `/pursue ` (with
     /// the space) would immediately match the subcommand prefix and
     /// re-trigger the menu (defeating the point of accepting), and once a
@@ -34,12 +34,12 @@ impl App {
         let replace_start = comp.replace_start;
         let replace_end = comp.replace_end;
         let insert_text = &comp.insert_text;
-        let mut new_input = String::with_capacity(self.input.len() + insert_text.len());
-        new_input.push_str(&self.input[..replace_start]);
+        let mut new_input = String::with_capacity(self.composer.input.len() + insert_text.len());
+        new_input.push_str(&self.composer.input[..replace_start]);
         new_input.push_str(insert_text);
         let cursor_byte = replace_start + insert_text.len();
-        new_input.push_str(&self.input[replace_end..]);
-        self.input = new_input;
+        new_input.push_str(&self.composer.input[replace_end..]);
+        self.composer.input = new_input;
         self.set_cursor(cursor_byte);
         // A terminal accept is a commit: exit completion so the popup does
         // not re-open on the just-spliced label (which would collapse to a
@@ -49,14 +49,14 @@ impl App {
         // stay live (DrillDown) so Tab/Enter keeps descending the
         // tree or exploring sub-entities.
         if !matches!(comp.kind, CompletionItemKind::PathDir) {
-            self.suggestion_index = None;
-            self.completion_dismissed = true;
+            self.composer.suggestion_index = None;
+            self.composer.completion_dismissed = true;
         } else {
-            self.suggestion_index = Some(0);
-            self.completion_dismissed = false;
-            self.backend_completions.clear();
-            self.completion_response_input = None;
-            self.completion_response_cursor = 0;
+            self.composer.suggestion_index = Some(0);
+            self.composer.completion_dismissed = false;
+            self.composer.backend_completions.clear();
+            self.composer.completion_response_input = None;
+            self.composer.completion_response_cursor = 0;
         }
     }
 
@@ -86,34 +86,37 @@ impl App {
         messages: &mut [TranscriptMessage],
         mi: usize,
     ) -> bool {
-        let pinned_to_top = self.sticky_step == Some(mi);
-        let sticky_summary_line = self.sticky_summary_line;
+        let pinned_to_top = self.transcript.sticky_step == Some(mi);
+        let sticky_summary_line = self.transcript.sticky_summary_line;
 
         let transcript_top_y = self
+            .transcript
             .ui
             .document
             .transcript_content_rect()
             .map(|r| r.y)
             .unwrap_or(0);
-        let prev_region = self.ui.document.first_region_for_message(mi);
+        let prev_region = self.transcript.ui.document.first_region_for_message(mi);
         let summary_screen_y = prev_region.map(|r| r.rect.y);
-        let msg_line_index = summary_screen_y
-            .map(|y| self.scroll as usize + (y.saturating_sub(transcript_top_y) as usize));
-
-        let toggled = resolve_focused_mut(messages, &self.focus_stack, mi).and_then(|message| {
-            use nuo_view::model::interactive::InteractiveEntry;
-            if message.toggle_expanded() {
-                message.is_expanded()
-            } else {
-                None
-            }
+        let msg_line_index = summary_screen_y.map(|y| {
+            self.transcript.scroll as usize + (y.saturating_sub(transcript_top_y) as usize)
         });
+
+        let toggled =
+            resolve_focused_mut(messages, &self.transcript.focus_stack, mi).and_then(|message| {
+                use nuo_view::model::interactive::InteractiveEntry;
+                if message.toggle_expanded() {
+                    message.is_expanded()
+                } else {
+                    None
+                }
+            });
 
         let Some(newly_expanded) = toggled else {
             return false;
         };
 
-        self.follow_bottom = false;
+        self.transcript.follow_bottom = false;
 
         // `[tui] expand_auto_scroll` (default off): a toggle is a read
         // interaction, so by default the scroll offset is the user's and
@@ -123,16 +126,16 @@ impl App {
         // latches either way: the toggle changed the stream's height, so the
         // clamp must validate the (untouched) offset against the *new*
         // measurement — a hard collapse can shrink the tail below it.
-        if !self.expand_auto_scroll {
+        if !self.transcript.expand_auto_scroll {
             if !newly_expanded && pinned_to_top {
                 if let Some(summary_line) = sticky_summary_line {
-                    self.scroll = summary_line.min(u16::MAX as usize) as u16;
-                    self.pin_summary_line = Some(summary_line);
+                    self.transcript.scroll = summary_line.min(u16::MAX as usize) as u16;
+                    self.transcript.pin_summary_line = Some(summary_line);
                 }
             } else {
-                self.pin_summary_line = None;
+                self.transcript.pin_summary_line = None;
             }
-            self.scroll_settle_pending = true;
+            self.transcript.scroll_settle_pending = true;
             return true;
         }
 
@@ -145,25 +148,26 @@ impl App {
             {
                 let rel_y = y.saturating_sub(transcript_top_y);
                 if rel_y > 1 {
-                    self.scroll = line_idx.saturating_sub(1).min(u16::MAX as usize) as u16;
+                    self.transcript.scroll =
+                        line_idx.saturating_sub(1).min(u16::MAX as usize) as u16;
                 }
             }
-            self.pin_summary_line = None;
+            self.transcript.pin_summary_line = None;
         } else if pinned_to_top {
             if let Some(summary_line) = sticky_summary_line {
-                self.scroll = summary_line.min(u16::MAX as usize) as u16;
-                self.pin_summary_line = Some(summary_line);
+                self.transcript.scroll = summary_line.min(u16::MAX as usize) as u16;
+                self.transcript.pin_summary_line = Some(summary_line);
             }
         } else if let Some(line_idx) = msg_line_index {
             // If collapsing a step that was scrolled above the viewport, keep the collapsed summary visible
-            if line_idx < self.scroll as usize {
-                self.scroll = line_idx.min(u16::MAX as usize) as u16;
-                self.pin_summary_line = Some(line_idx);
+            if line_idx < self.transcript.scroll as usize {
+                self.transcript.scroll = line_idx.min(u16::MAX as usize) as u16;
+                self.transcript.pin_summary_line = Some(line_idx);
             } else {
-                self.pin_summary_line = None;
+                self.transcript.pin_summary_line = None;
             }
         } else {
-            self.pin_summary_line = None;
+            self.transcript.pin_summary_line = None;
         }
 
         // The toggle changed the transcript's height, so the scroll target
@@ -172,7 +176,7 @@ impl App {
         // the event loop stages that frame (measure first, paint the final
         // offset second) instead of painting an intermediate viewport that
         // the post-draw clamp then has to correct.
-        self.scroll_settle_pending = true;
+        self.transcript.scroll_settle_pending = true;
 
         true
     }
@@ -183,20 +187,22 @@ impl App {
         key: crate::shell::keymap::Key,
     ) -> nuo_view::model::interactive::EntryKeyOutcome {
         use nuo_view::model::interactive::EntryKeyOutcome;
-        let Some(target) = self.focus.entry() else {
+        let Some(target) = self.transcript.focus.entry() else {
             return EntryKeyOutcome::Unhandled;
         };
 
-        let mut messages = std::mem::take(&mut self.messages);
-        let outcome = if let Some(message) =
-            resolve_focused_mut(&mut messages, &self.focus_stack, target.message_idx)
-        {
+        let mut messages = std::mem::take(&mut self.transcript.messages);
+        let outcome = if let Some(message) = resolve_focused_mut(
+            &mut messages,
+            &self.transcript.focus_stack,
+            target.message_idx,
+        ) {
             crate::shell::input::interactive_key::handle_focused_entry_key(message, key)
         } else {
             EntryKeyOutcome::Unhandled
         };
 
-        self.messages = messages;
+        self.transcript.messages = messages;
 
         match &outcome {
             EntryKeyOutcome::EnterSubagent(id) => {
@@ -205,11 +211,11 @@ impl App {
             }
             EntryKeyOutcome::Handled { changed } => {
                 if *changed {
-                    self.follow_bottom = false;
-                    self.scroll_settle_pending = true;
-                    self.layout_height_cache.clear();
-                    self.transcript_changed_pending = true;
-                    self.selection = SelectionState::None;
+                    self.transcript.follow_bottom = false;
+                    self.transcript.scroll_settle_pending = true;
+                    self.transcript.layout_height_cache.clear();
+                    self.transcript.transcript_changed_pending = true;
+                    self.transcript.selection = SelectionState::None;
                 }
             }
             EntryKeyOutcome::Unhandled => {}
@@ -221,8 +227,8 @@ impl App {
     pub(crate) fn visible_interactive_targets(&self) -> Vec<InteractiveTarget> {
         use nuo_view::model::interactive::InteractiveEntry;
         use nuo_view::model::layout::InteractiveTargetKind;
-        let mut targets = self.ui.document.interactive_targets();
-        if let Some(message_idx) = self.sticky_step
+        let mut targets = self.transcript.ui.document.interactive_targets();
+        if let Some(message_idx) = self.transcript.sticky_step
             && let Some(message) = self.focused_messages().get(message_idx)
             && message.is_focusable()
             && let Some(kind) = message.target_kind()
@@ -252,12 +258,14 @@ impl App {
     /// surface the user was reading) and only the highlight degrades
     /// ([`crate::shell::Focus::retain_entry`]).
     pub(crate) fn retain_visible_focused_target(&mut self) {
-        if self.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
-            self.focus.browse();
+        if self.surfaces.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
+            self.transcript.focus.browse();
             return;
         }
         let visible = self.visible_interactive_targets();
-        self.focus.retain_entry(|target| visible.contains(&target));
+        self.transcript
+            .focus
+            .retain_entry(|target| visible.contains(&target));
     }
 
     /// Walk the transcript entry highlight one step (`direction < 0` =
@@ -273,21 +281,23 @@ impl App {
         if targets.is_empty() {
             // Nothing to highlight: browse the transcript rather than
             // pretending the entry plane is live.
-            self.focus
+            self.transcript
+                .focus
                 .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
             return;
         }
 
         let current = self
+            .transcript
             .focus
             .entry()
             .and_then(|target| targets.iter().position(|candidate| *candidate == target));
         let next = match (current, direction < 0) {
             (Some(0), true) => {
-                if self.scroll > 0 {
-                    self.scroll = self.scroll.saturating_sub(4);
-                    self.follow_bottom = false;
-                    self.pin_summary_line = None;
+                if self.transcript.scroll > 0 {
+                    self.transcript.scroll = self.transcript.scroll.saturating_sub(4);
+                    self.transcript.follow_bottom = false;
+                    self.transcript.pin_summary_line = None;
                     return;
                 } else {
                     targets.len() - 1
@@ -296,12 +306,16 @@ impl App {
             (Some(idx), true) => idx - 1,
             (Some(idx), false) => {
                 if idx == targets.len() - 1 {
-                    if self.scroll < self.max_scroll {
-                        self.scroll = self.scroll.saturating_add(4).min(self.max_scroll);
-                        if self.scroll >= self.max_scroll {
-                            self.follow_bottom = true;
+                    if self.transcript.scroll < self.transcript.max_scroll {
+                        self.transcript.scroll = self
+                            .transcript
+                            .scroll
+                            .saturating_add(4)
+                            .min(self.transcript.max_scroll);
+                        if self.transcript.scroll >= self.transcript.max_scroll {
+                            self.transcript.follow_bottom = true;
                         }
-                        self.pin_summary_line = None;
+                        self.transcript.pin_summary_line = None;
                         return;
                     } else {
                         // The transcript is exhausted in this direction:
@@ -309,9 +323,9 @@ impl App {
                         // second, *implicit* crossing gesture of ADR-0145 —
                         // it needs no chord because it is what walking off the
                         // end of a list already means.
-                        self.focus.enter_composer();
-                        self.selection = SelectionState::None;
-                        self.drag.cancel();
+                        self.transcript.focus.enter_composer();
+                        self.transcript.selection = SelectionState::None;
+                        self.transcript.drag.cancel();
                         return;
                     }
                 } else {
@@ -322,10 +336,11 @@ impl App {
             (None, false) => 0,
         };
 
-        self.focus
+        self.transcript
+            .focus
             .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(targets[next]));
-        self.selection = SelectionState::None;
-        self.drag.cancel();
+        self.transcript.selection = SelectionState::None;
+        self.transcript.drag.cancel();
     }
 
     /// What kind of entry currently holds keyboard focus, for the composer's
@@ -339,7 +354,7 @@ impl App {
     pub(crate) fn focused_entry_kind(
         &self,
     ) -> Option<crate::shell::composer_hints::FocusedEntryKind> {
-        let target = self.focus.entry()?;
+        let target = self.transcript.focus.entry()?;
         let message = self.focused_messages().get(target.message_idx)?;
         Some(if message.is_subagent_task() {
             crate::shell::composer_hints::FocusedEntryKind::Subagent
@@ -360,7 +375,10 @@ impl App {
     /// of the focus stack, which is also the addressable identity the
     /// `SubagentRegistry` keys the live child by. `None` when not zoomed.
     pub fn focused_subagent_call_id(&self) -> Option<&str> {
-        self.focus_stack.last().map(|frame| frame.call_id.as_str())
+        self.transcript
+            .focus_stack
+            .last()
+            .map(|frame| frame.call_id.as_str())
     }
 
     /// Whether the focused subagent task's own round is still live — the
@@ -374,7 +392,7 @@ impl App {
         let Some(call_id) = self.focused_subagent_call_id() else {
             return false;
         };
-        self.messages.iter().any(|message| {
+        self.transcript.messages.iter().any(|message| {
             message.is_subagent_task()
                 && message.tool_step_call_id() == Some(call_id)
                 && message.tool_step_status().is_some_and(|s| s.is_running())
@@ -384,10 +402,11 @@ impl App {
     /// The message slice currently in view: the focused subagent task's child
     /// messages when zoomed, or the root thread otherwise.
     pub fn focused_messages(&self) -> &[TranscriptMessage] {
-        let Some(frame) = self.focus_stack.last() else {
-            return &self.messages;
+        let Some(frame) = self.transcript.focus_stack.last() else {
+            return &self.transcript.messages;
         };
-        self.messages
+        self.transcript
+            .messages
             .iter()
             .find_map(|message| {
                 if message.is_subagent_task()
@@ -406,15 +425,16 @@ impl App {
     /// `SceneKind::TaskInspection`.
     pub fn enter_subagent(&mut self, call_id: String) {
         let saved_scroll = ScrollSnapshot {
-            offset: self.scroll,
-            follow_bottom: self.follow_bottom,
+            offset: self.transcript.scroll,
+            follow_bottom: self.transcript.follow_bottom,
         };
-        self.focus_stack.push(ZoomFrame {
+        self.transcript.focus_stack.push(ZoomFrame {
             call_id,
             saved_scroll,
         });
         if self.current_scene() != crate::shell::surfaces::SceneKind::Subagent {
             self.surfaces
+                .surfaces
                 .switch_scene(crate::shell::surfaces::SceneKind::Subagent);
         }
         self.reset_view_state();
@@ -426,12 +446,12 @@ impl App {
     /// (which also drains a destination scene opened over the zoom, e.g. the
     /// dashboard).
     pub fn exit_subagent(&mut self) -> bool {
-        if let Some(frame) = self.focus_stack.pop() {
+        if let Some(frame) = self.transcript.focus_stack.pop() {
             self.reset_view_state();
-            self.scroll = frame.saved_scroll.offset;
-            self.follow_bottom = frame.saved_scroll.follow_bottom;
-            if self.focus_stack.is_empty() && self.in_subagent_view() {
-                self.surfaces.back_scene();
+            self.transcript.scroll = frame.saved_scroll.offset;
+            self.transcript.follow_bottom = frame.saved_scroll.follow_bottom;
+            if self.transcript.focus_stack.is_empty() && self.in_subagent_view() {
+                self.surfaces.surfaces.back_scene();
             }
             true
         } else {

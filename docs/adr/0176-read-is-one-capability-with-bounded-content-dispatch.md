@@ -16,7 +16,7 @@ negative_knowledge: true
 - Consulted: Tool Runtime, Filesystem Tools, Context Lifecycle, Presentation, Security
 - Supersedes: the split `read_text` / `read_image` model-facing read surface, and the
   unbounded `read_text` whole-file default
-- Complements: [ADR-0093](0093-ephemeral-session-spooling-and-tail-heavy-output-folding.md),
+- Complements: [ADR-0093](0093-abolition-of-pseudo-vfs-spool-architecture-and-salience-folding.md),
   [ADR-0153](0153-effective-input-ceiling-tool-output-retention-and-ingest-image-normalization.md),
   [ADR-0008](0008-single-tool-contract.md)
 

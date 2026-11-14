@@ -54,16 +54,27 @@
 // so the shipped graph stays under the workspace `deny` for these lints.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-
 // Bounded contract re-exports: only protocol types that cross the harness boundary.
-pub use nuo_protocol::{AgentEvent, AgentIdentity, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile, Block, BlockRender, DynamicToolSink, Hook, HookContext, HookEvent, HookOutcome, HookStartSource, InstructionText, LoopStatus, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint, RoundEvent, ToolSet, Transport, async_trait};
-pub use nuo_tool::{AgentNotice, HookEventKind, Message, Role, SubagentEvent, TokenUsage, Tool, ToolOutput, ToolStream};
-
+pub use nuo_protocol::{
+    AgentEvent, AgentIdentity, AgentOp, AgentRequest, AgentResponse, AgentRoleProfile, Block,
+    BlockRender, DynamicToolSink, Hook, HookContext, HookEvent, HookOutcome, HookStartSource,
+    InstructionText, LoopStatus, PermissionDecision, Provider, ProviderStreamEvent, RetryPoint,
+    RoundEvent, ToolSet, Transport, async_trait,
+};
+pub use nuo_tool::{
+    AgentNotice, HookEventKind, Message, Role, SubagentEvent, TokenUsage, Tool, ToolOutput,
+    ToolStream,
+};
 
 #[allow(unused_imports)]
-pub(crate) use nuo_protocol::{ExecutionEnvironment, HarnessError, InputRequest, QueuedMessage, StdinReply, UserQuestionReply, WorkspaceRoot, WorkspaceRoots, pressure};
-pub(crate) use nuo_tool::{ImagePart, InjectionKind, InjectionOrigin, NoticeKind, NoticeSeverity, NoticeSource, TodoList, ToolCall, UserQuestion, UserQuestionRequest, message};
-
+pub(crate) use nuo_protocol::{
+    ExecutionEnvironment, HarnessError, InputRequest, QueuedMessage, StdinReply, UserQuestionReply,
+    WorkspaceRoot, WorkspaceRoots, pressure,
+};
+pub(crate) use nuo_tool::{
+    ImagePart, InjectionKind, InjectionOrigin, NoticeKind, NoticeSeverity, NoticeSource, ToolCall,
+    UserQuestion, UserQuestionRequest, message,
+};
 
 // Same ambient std/tokio prelude the Agent struct used to inherit from
 // `nuo-protocol`'s lib.rs (`use super::*`).

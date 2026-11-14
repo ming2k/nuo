@@ -3,7 +3,7 @@
 //!
 //! Owns the "always allow" rule set (optionally persisted to disk per
 //! project), the map of pending permission requests awaiting a user reply,
-//! and the project root used for persistence. The [`crate::Agent`] owns a
+//! and the project root used for persistence. The `Agent` owns a
 //! single `PermissionStore` and delegates its permission-related public
 //! methods here.
 use std::collections::HashSet;

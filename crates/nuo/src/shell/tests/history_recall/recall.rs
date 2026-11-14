@@ -8,9 +8,11 @@ fn recall_queued_is_lifo_and_restores_input() {
     // staged message in LIFO order and restores it locally without an agent
     // roundtrip (no insert to cancel).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("1", "session-a", "first"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("2", "session-a", "second"));
 
     // First recall: most-recently-queued = "second".
@@ -18,10 +20,10 @@ fn recall_queued_is_lifo_and_restores_input() {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "second");
-    assert_eq!(app.cursor_position, "second".chars().count());
+    assert_eq!(app.composer.input, "second");
+    assert_eq!(app.composer.cursor_position, "second".chars().count());
     assert_eq!(
-        app.history_index, None,
+        app.composer.history_index, None,
         "history cursor must be cleared so ↓ returns to empty input"
     );
     // Second recall: now "first".
@@ -29,12 +31,12 @@ fn recall_queued_is_lifo_and_restores_input() {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "first");
+    assert_eq!(app.composer.input, "first");
 
     // Third recall: queue empty → no-op.
     assert!(app.recall_queued("session-a").is_none());
     assert_eq!(
-        app.input, "first",
+        app.composer.input, "first",
         "input must be untouched when the queue is empty"
     );
 }
@@ -51,19 +53,19 @@ fn recall_queued_restores_staged_images() {
     };
     let mut dispatch = queued_dispatch("1", "session-a", "look at this");
     dispatch.images = vec![image.clone()];
-    app.pending_dispatch.push_back(dispatch);
+    app.composer.pending_dispatch.push_back(dispatch);
 
     let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "look at this");
+    assert_eq!(app.composer.input, "look at this");
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "recalled images must land back in pending_images for resend"
     );
-    assert_eq!(app.pending_images[0].data, image.data);
+    assert_eq!(app.composer.pending_images[0].data, image.data);
 }
 
 /// The interrupt → ↑/↓ → resend bug: a message sent with pasted images is
@@ -75,8 +77,8 @@ fn recall_queued_restores_staged_images() {
 #[tokio::test]
 async fn history_recall_restores_staged_images_and_pastes() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
 
     let image = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
@@ -92,23 +94,29 @@ async fn history_recall_restores_staged_images_and_pastes() {
     let session_rows = app.current_session_history();
     assert_eq!(session_rows.len(), 1);
     let orig_idx = session_rows[0];
-    app.input = app.history_entry(orig_idx).expect("row").text.clone();
+    app.composer.input = app.history_entry(orig_idx).expect("row").text.clone();
     app.restore_history_attachments(orig_idx);
 
-    assert_eq!(app.input, text, "recalled text keeps its chip labels");
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.input, text,
+        "recalled text keeps its chip labels"
+    );
+    assert_eq!(
+        app.composer.pending_images.len(),
         1,
         "image payload restored for resend"
     );
-    assert_eq!(app.pending_images[0].data, "abc");
-    assert_eq!(app.pending_text_pastes, vec!["big paste".to_string()]);
+    assert_eq!(app.composer.pending_images[0].data, "abc");
+    assert_eq!(
+        app.composer.pending_text_pastes,
+        vec!["big paste".to_string()]
+    );
 
     // The chips pair back up with the payloads after an edit reconcile, so
     // a Backspace or typing never orphans them.
     app.reconcile_attachments();
-    assert_eq!(app.pending_images.len(), 1);
-    assert_eq!(app.pending_text_pastes.len(), 1);
+    assert_eq!(app.composer.pending_images.len(), 1);
+    assert_eq!(app.composer.pending_text_pastes.len(), 1);
 }
 
 /// Recalling a text-only entry (no cached payloads) must clear the staged
@@ -118,25 +126,25 @@ async fn history_recall_restores_staged_images_and_pastes() {
 #[tokio::test]
 async fn history_recall_clears_staged_attachments_for_plain_entries() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     app.record_input_history("plain prompt".to_string(), Vec::new(), Vec::new());
 
     let image = nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "abc".to_string(),
     };
-    app.pending_images.push(image);
+    app.composer.pending_images.push(image);
 
     let orig_idx = app.current_session_history()[0];
-    app.input = app.history_entry(orig_idx).expect("row").text.clone();
+    app.composer.input = app.history_entry(orig_idx).expect("row").text.clone();
     app.restore_history_attachments(orig_idx);
 
     assert!(
-        app.pending_images.is_empty(),
+        app.composer.pending_images.is_empty(),
         "no orphaned payloads on recall"
     );
-    assert!(app.pending_text_pastes.is_empty());
+    assert!(app.composer.pending_text_pastes.is_empty());
 }
 
 /// The ↓-past-newest branch restores the draft the user was composing before
@@ -150,8 +158,8 @@ fn history_draft_round_trip_keeps_attachments() {
         mime: "image/png".to_string(),
         data: "draft-img".to_string(),
     };
-    app.input = draft.clone();
-    app.pending_images = vec![image.clone()];
+    app.composer.input = draft.clone();
+    app.composer.pending_images = vec![image.clone()];
 
     // First ↑: stash text + attachments (what the HistoryPrev handler does).
     app.stash_draft();
@@ -159,11 +167,11 @@ fn history_draft_round_trip_keeps_attachments() {
     // ↓ past the newest entry: restore text + attachments together.
     app.restore_stashed_draft();
 
-    assert_eq!(app.input, draft);
-    assert_eq!(app.pending_images.len(), 1);
-    assert_eq!(app.pending_images[0].mime, "image/png");
-    assert_eq!(app.pending_images[0].data, "draft-img");
-    assert!(app.pending_text_pastes.is_empty());
+    assert_eq!(app.composer.input, draft);
+    assert_eq!(app.composer.pending_images.len(), 1);
+    assert_eq!(app.composer.pending_images[0].mime, "image/png");
+    assert_eq!(app.composer.pending_images[0].data, "draft-img");
+    assert!(app.composer.pending_text_pastes.is_empty());
 }
 
 /// The in-memory cache is bounded so a long session of image-heavy sends
@@ -171,7 +179,7 @@ fn history_draft_round_trip_keeps_attachments() {
 #[tokio::test]
 async fn history_attachment_cache_is_capped() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
+    app.session.current_session_id = "session-a".to_string();
     for i in 0..40 {
         app.record_input_history(
             format!("prompt {i}"),
@@ -183,28 +191,30 @@ async fn history_attachment_cache_is_capped() {
         );
     }
     assert!(
-        app.history_attachments.len() <= crate::shell::app::App::HISTORY_ATTACHMENTS_CAP,
+        app.composer.history_attachments.len() <= crate::shell::app::App::HISTORY_ATTACHMENTS_CAP,
         "cache must stay bounded"
     );
     // A recent entry's payload survives the FIFO eviction…
     let newest_idx = app
+        .composer
         .input_history
         .iter()
         .position(|e| e.text == "prompt 39")
         .expect("last prompt recorded");
     app.restore_history_attachments(newest_idx);
-    assert_eq!(app.pending_images[0].data, "img-39");
+    assert_eq!(app.composer.pending_images[0].data, "img-39");
     // …while the oldest entries were evicted (their recall clears the
     // staged vectors rather than restoring a stale payload).
     let oldest_idx = app
+        .composer
         .input_history
         .iter()
         .position(|e| e.text == "prompt 0")
         .expect("first prompt recorded");
-    app.pending_images.clear();
+    app.composer.pending_images.clear();
     app.restore_history_attachments(oldest_idx);
     assert!(
-        app.pending_images.is_empty(),
+        app.composer.pending_images.is_empty(),
         "evicted entries must not restore attachments"
     );
 }
@@ -215,24 +225,25 @@ async fn history_attachment_cache_is_capped() {
 #[tokio::test]
 async fn record_input_history_dedups_globally_by_text() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
 
     app.record_input_history("build the thing".to_string(), Vec::new(), Vec::new());
     app.record_input_history("different prompt".to_string(), Vec::new(), Vec::new());
-    assert_eq!(app.input_history.len(), 2);
+    assert_eq!(app.composer.input_history.len(), 2);
 
     // The same text in a *different* session still collapses to one entry,
     // adopting the newest origin so ↑/↓ in the newer session finds it.
-    app.current_session_id = "session-b".to_string();
+    app.session.current_session_id = "session-b".to_string();
     app.record_input_history("build the thing".to_string(), Vec::new(), Vec::new());
 
     assert_eq!(
-        app.input_history.len(),
+        app.composer.input_history.len(),
         2,
         "global dedup keeps one row per text"
     );
     let deduped = app
+        .composer
         .input_history
         .iter()
         .find(|e| e.text == "build the thing")
@@ -240,7 +251,7 @@ async fn record_input_history_dedups_globally_by_text() {
     assert_eq!(deduped.session_id.as_deref(), Some("session-b"));
     // The re-sent entry is newest → first in the history order.
     let order = app.history_order();
-    assert_eq!(app.input_history[order[0]].text, "build the thing");
+    assert_eq!(app.composer.input_history[order[0]].text, "build the thing");
 }
 
 /// With dedup off (`[input_history] dedup = false`) the same words typed in
@@ -248,25 +259,25 @@ async fn record_input_history_dedups_globally_by_text() {
 #[tokio::test]
 async fn record_input_history_without_dedup_keeps_per_session_entries() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history_dedup = false;
-    app.current_session_id = "session-a".to_string();
+    app.composer.input_history_dedup = false;
+    app.session.current_session_id = "session-a".to_string();
     app.record_input_history("hello".to_string(), Vec::new(), Vec::new());
-    app.current_session_id = "session-b".to_string();
+    app.session.current_session_id = "session-b".to_string();
     app.record_input_history("hello".to_string(), Vec::new(), Vec::new());
-    assert_eq!(app.input_history.len(), 2);
+    assert_eq!(app.composer.input_history.len(), 2);
 }
 
 #[tokio::test]
 async fn resumed_session_backfills_prompt_rows_from_transcript() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     // One prompt this client genuinely recorded (simulating the live tail of
     // the resumed session typed through this TUI), and a stale prompt that
     // belongs to a different session entirely.
     app.record_input_history("live prompt".to_string(), Vec::new(), Vec::new());
     app.record_input_history("other session's prompt".to_string(), Vec::new(), Vec::new());
-    app.input_history.last_mut().unwrap().session_id = Some("session-b".to_string());
+    app.composer.input_history.last_mut().unwrap().session_id = Some("session-b".to_string());
 
     // The resumed transcript: genuine chat prompts (oldest-first, as the
     // listener rebuilds it) plus a slash command and a shell passthrough —
@@ -283,12 +294,16 @@ async fn resumed_session_backfills_prompt_rows_from_transcript() {
     // Only the unseen prompt is backfilled; the already-recorded one is not
     // duplicated, and the derived rows never touch the persisted store.
     assert_eq!(
-        app.session_history_backfill.len(),
+        app.composer.session_history_backfill.len(),
         1,
         "only the unrecorded prompt is backfilled"
     );
-    assert_eq!(app.session_history_backfill[0].text, "first turn");
-    assert_eq!(app.input_history.len(), 2, "persisted history untouched");
+    assert_eq!(app.composer.session_history_backfill[0].text, "first turn");
+    assert_eq!(
+        app.composer.input_history.len(),
+        2,
+        "persisted history untouched"
+    );
 
     // ↑ walks the union newest-first: the live prompt (ts stamped by the
     // send), then the backfilled row.
@@ -297,18 +312,18 @@ async fn resumed_session_backfills_prompt_rows_from_transcript() {
     assert_eq!(app.history_entry(rows[0]).unwrap().text, "live prompt");
     assert_eq!(app.history_entry(rows[1]).unwrap().text, "first turn");
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "live prompt");
+    assert_eq!(app.composer.input, "live prompt");
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "first turn");
+    assert_eq!(app.composer.input, "first turn");
 
     // The backfill is incremental: re-running with the same transcript adds
     // nothing; appending a new turn adds exactly that row.
     app.backfill_session_history(&prompt_tail(&transcript), 1000);
-    assert_eq!(app.session_history_backfill.len(), 1);
+    assert_eq!(app.composer.session_history_backfill.len(), 1);
     let mut grown = transcript.clone();
     grown.push(TranscriptMessage::new(Role::User, "third turn").with_sent_at_ms(300));
     app.backfill_session_history(&prompt_tail(&grown), 1000);
-    assert_eq!(app.session_history_backfill.len(), 2);
+    assert_eq!(app.composer.session_history_backfill.len(), 2);
 }
 
 /// The ↑/↓ rows follow the **live** session id, not the id the client started
@@ -321,14 +336,14 @@ async fn resumed_session_backfills_prompt_rows_from_transcript() {
 async fn history_rows_are_scoped_by_the_live_session_id() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // The client started attached to session-old…
-    app.current_session_id = "session-old".to_string();
+    app.session.current_session_id = "session-old".to_string();
     app.record_input_history(
         "typed before the switch".to_string(),
         Vec::new(),
         Vec::new(),
     );
     // …then `/session open` repointed the harness and the listener tracked it.
-    app.current_session_id = "session-new".to_string();
+    app.session.current_session_id = "session-new".to_string();
     app.on_viewed_session_changed();
     app.record_input_history("typed after the switch".to_string(), Vec::new(), Vec::new());
 
@@ -345,19 +360,19 @@ async fn history_rows_are_scoped_by_the_live_session_id() {
 #[tokio::test]
 async fn record_input_history_skips_slash_commands_by_default() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
+    app.session.current_session_id = "session-a".to_string();
     app.record_input_history("/model".to_string(), Vec::new(), Vec::new());
     app.record_input_history("/new".to_string(), Vec::new(), Vec::new());
     assert!(
-        app.input_history.is_empty(),
+        app.composer.input_history.is_empty(),
         "commands must not pollute the prompt history"
     );
 
     // Opting in restores them.
-    app.input_history_record_commands = true;
+    app.composer.input_history_record_commands = true;
     app.record_input_history("/model".to_string(), Vec::new(), Vec::new());
-    assert_eq!(app.input_history.len(), 1);
-    assert_eq!(app.input_history[0].text, "/model");
+    assert_eq!(app.composer.input_history.len(), 1);
+    assert_eq!(app.composer.input_history[0].text, "/model");
 }
 
 /// `App`'s test constructor keeps disk persistence off, so exercising the
@@ -370,14 +385,14 @@ async fn record_input_history_skips_slash_commands_by_default() {
 async fn test_app_does_not_touch_disk_history() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert!(
-        !app.input_history_persist,
+        !app.composer.input_history_persist,
         "test-constructed App must default to no disk persistence"
     );
     // Retain the request receiver so dispatched intents are observable.
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
-    app.current_session_id = "session-a".to_string();
+    app.session.current_session_id = "session-a".to_string();
     for i in 0..5 {
         app.record_input_history(format!("prompt {i}"), Vec::new(), Vec::new());
     }
@@ -406,8 +421,8 @@ async fn test_app_does_not_touch_disk_history() {
 #[tokio::test]
 async fn history_rows_are_readonly_snapshots() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     app.record_input_history("older row".to_string(), Vec::new(), Vec::new());
     app.record_input_history("newest row".to_string(), Vec::new(), Vec::new());
 
@@ -415,28 +430,28 @@ async fn history_rows_are_readonly_snapshots() {
     assert_eq!(rows.len(), 2);
     // Newest-first: rows[0] = "newest row" (later stamp), rows[1] = "older row".
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "newest row");
+    assert_eq!(app.composer.input, "newest row");
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "older row");
+    assert_eq!(app.composer.input, "older row");
 
     // Edit the history row — the edit is temporary.
-    app.input = "EDITED".to_string();
+    app.composer.input = "EDITED".to_string();
     // At the oldest row, pressing Up is a no-op: no reload, edit stays in place until moving away.
     assert!(!app.history_prev(&rows));
-    assert_eq!(app.input, "EDITED");
+    assert_eq!(app.composer.input, "EDITED");
     // Move away toward newer rows and back: the original text is reloaded.
     assert!(app.history_next(&rows));
-    assert_eq!(app.input, "newest row");
+    assert_eq!(app.composer.input, "newest row");
     assert!(app.history_prev(&rows));
     assert_eq!(
-        app.input, "older row",
+        app.composer.input, "older row",
         "history row reloads its original text"
     );
     assert!(app.history_next(&rows));
-    assert_eq!(app.input, "newest row");
+    assert_eq!(app.composer.input, "newest row");
     assert!(!app.history_next(&rows));
     // The adopted/empty draft comes back, never the temporary edit.
-    assert_eq!(app.input, app.draft_capsule.text);
+    assert_eq!(app.composer.input, app.composer.draft_capsule.text);
 }
 
 /// The composer's recall badge: a 1-based pointer position over
@@ -448,8 +463,8 @@ async fn history_rows_are_readonly_snapshots() {
 #[tokio::test]
 async fn history_recall_badge_tracks_the_pointer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     app.record_input_history("older row".to_string(), Vec::new(), Vec::new());
     app.record_input_history("newest row".to_string(), Vec::new(), Vec::new());
     let rows = app.current_session_history();
@@ -460,23 +475,23 @@ async fn history_recall_badge_tracks_the_pointer() {
 
     // First ↑ lands on the newest row: 1-based position 1 of 2, unedited.
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "newest row");
+    assert_eq!(app.composer.input, "newest row");
     assert_eq!(app.history_recall_badge(), Some((1, 2, false)));
 
     // Second ↑ walks to the older row: position 2 of 2, still unedited.
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "older row");
+    assert_eq!(app.composer.input, "older row");
     assert_eq!(app.history_recall_badge(), Some((2, 2, false)));
 
     // Editing the buffer forks it from the loaded row → the badge's `edited`
     // clause goes live while the pointer still addresses row 2.
-    app.input = "EDITED".to_string();
+    app.composer.input = "EDITED".to_string();
     assert_eq!(app.history_recall_badge(), Some((2, 2, true)));
 
     // ↓ back past the newest row returns to the draft: badge gone.
     assert!(app.history_next(&rows));
     assert!(!app.history_next(&rows));
-    assert_eq!(app.history_index, None);
+    assert_eq!(app.composer.history_index, None);
     assert_eq!(app.history_recall_badge(), None);
 }
 
@@ -485,25 +500,25 @@ async fn history_recall_badge_tracks_the_pointer() {
 #[tokio::test]
 async fn esc_cancels_history_recall_and_restores_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     app.record_input_history("older row".to_string(), Vec::new(), Vec::new());
     app.record_input_history("newest row".to_string(), Vec::new(), Vec::new());
     let rows = app.current_session_history();
 
     // A draft (with a staged attachment) exists before navigation.
-    app.input = "half-typed draft".to_string();
+    app.composer.input = "half-typed draft".to_string();
 
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "newest row");
-    assert!(app.history_index.is_some());
+    assert_eq!(app.composer.input, "newest row");
+    assert!(app.composer.history_index.is_some());
 
     app.cancel_history_recall();
-    assert_eq!(app.history_index, None, "recall cancelled");
-    assert_eq!(app.input, "half-typed draft", "draft restored");
+    assert_eq!(app.composer.history_index, None, "recall cancelled");
+    assert_eq!(app.composer.input, "half-typed draft", "draft restored");
     // Cancel is a no-op in draft mode: the live draft is untouched.
     app.cancel_history_recall();
-    assert_eq!(app.input, "half-typed draft");
+    assert_eq!(app.composer.input, "half-typed draft");
 }
 
 /// Queue recall adopts the recalled content as the draft (text + attachments
@@ -517,20 +532,20 @@ fn recall_queued_adopts_content_as_draft() {
     };
     let mut dispatch = queued_dispatch("1", "session-a", "queued msg");
     dispatch.images = vec![image];
-    app.pending_dispatch.push_back(dispatch);
+    app.composer.pending_dispatch.push_back(dispatch);
 
     let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "queued msg");
-    assert_eq!(app.history_index, None, "recall enters draft mode");
+    assert_eq!(app.composer.input, "queued msg");
+    assert_eq!(app.composer.history_index, None, "recall enters draft mode");
     assert_eq!(
-        app.draft_capsule.text, "queued msg",
+        app.composer.draft_capsule.text, "queued msg",
         "recalled text becomes the draft"
     );
-    assert_eq!(app.draft_capsule.pending_images.len(), 1);
-    assert_eq!(app.pending_images.len(), 1);
+    assert_eq!(app.composer.draft_capsule.pending_images.len(), 1);
+    assert_eq!(app.composer.pending_images.len(), 1);
 }
 
 #[test]
@@ -540,7 +555,8 @@ fn recall_queued_always_restores_locally() {
     // hands it back as a local `Restored` item (the event loop then feeds it
     // to `restore_dispatch`), leaving the queue one item shorter.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("queued-1", "session-a", "queued"));
 
     let Some(dispatch) = app.recall_queued("session-a") else {
@@ -548,9 +564,9 @@ fn recall_queued_always_restores_locally() {
     };
     assert_eq!(dispatch.id, "queued-1");
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "queued");
+    assert_eq!(app.composer.input, "queued");
     assert!(
-        app.pending_dispatch.is_empty(),
+        app.composer.pending_dispatch.is_empty(),
         "recalled item must be removed from the outbox"
     );
 }
@@ -563,20 +579,21 @@ fn recall_queued_latches_completion_dismissal() {
     // slash-completion popup — a spurious "complete" step the user never asked
     // for. Mirrors the latch in the history-navigation paths.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("1", "session-a", "/help"));
 
     let Some(dispatch) = app.recall_queued("session-a") else {
         panic!("expected local restore");
     };
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "/help");
+    assert_eq!(app.composer.input, "/help");
     assert!(
-        app.completion_dismissed,
+        app.composer.completion_dismissed,
         "recall must latch dismissal so the slash popup stays hidden"
     );
     assert!(
-        app.suggestion_index.is_none(),
+        app.composer.suggestion_index.is_none(),
         "recall must clear the completion highlight"
     );
     // The completions for `/help` are non-empty, so the latch is the only thing
@@ -594,9 +611,11 @@ fn recall_queued_at_targets_selected_index_not_newest() {
     // the newest. `recall_queued_at(idx=0)` returns the front (next to pop),
     // distinct from `recall_queued` which is LIFO/newest.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("front", "session-a", "first"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("back", "session-a", "second"));
 
     // idx 0 = front = "first".
@@ -605,7 +624,7 @@ fn recall_queued_at_targets_selected_index_not_newest() {
     };
     assert_eq!(dispatch.id, "front");
     app.restore_dispatch(dispatch);
-    assert_eq!(app.input, "first");
+    assert_eq!(app.composer.input, "first");
     assert_eq!(
         app.pending_count("session-a"),
         1,

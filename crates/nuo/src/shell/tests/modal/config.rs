@@ -16,8 +16,8 @@ fn config_view_reopen_keeps_pane_and_category() {
     );
 
     // Esc's back never leaves the scene, whatever sub-layer is open.
-    app.config_category = 2;
-    app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+    app.surfaces.config_category = 2;
+    app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
     app.scene_back();
     assert_eq!(
         app.current_scene(),
@@ -26,7 +26,7 @@ fn config_view_reopen_keeps_pane_and_category() {
     );
 
     // The deliberate exit verb leaves.
-    app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+    app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
     app.close_scene();
     assert_eq!(
         app.current_scene(),
@@ -35,9 +35,12 @@ fn config_view_reopen_keeps_pane_and_category() {
 
     // Reopen: the pane/category survived.
     app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
-    assert_eq!(app.config_category, 2, "category retained across hide");
     assert_eq!(
-        app.config_focus,
+        app.surfaces.config_category, 2,
+        "category retained across hide"
+    );
+    assert_eq!(
+        app.surfaces.config_focus,
         crate::shell::overlays::ConfigFocus::Detail,
         "pane retained across hide"
     );
@@ -154,37 +157,40 @@ fn config_view_navigation_and_theme_preview() {
         crate::shell::surfaces::SceneKind::Settings
     );
     assert_eq!(
-        app.config_focus,
+        app.surfaces.config_focus,
         crate::shell::overlays::ConfigFocus::Categories
     );
-    assert_eq!(app.config_category, 0);
+    assert_eq!(app.surfaces.config_category, 0);
 
     // Cycling down through all 5 categories
     for expected_cat in [1, 2, 3, 4, 0] {
         crate::shell::event_loop::handle_modal_down(&mut app, "s1");
-        assert_eq!(app.config_category, expected_cat);
+        assert_eq!(app.surfaces.config_category, expected_cat);
     }
 
     // Switch focus to Detail pane
-    app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
-    app.config_detail_index = 0;
+    app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+    app.surfaces.config_detail_index = 0;
 
-    let original_surface = app.theme.surface();
+    let original_surface = app.surfaces.theme.surface();
 
     // Up/down in detail pane does NOT apply themes before Enter apply
     crate::shell::event_loop::handle_modal_down(&mut app, "s1");
-    assert_eq!(app.config_detail_index, 1);
+    assert_eq!(app.surfaces.config_detail_index, 1);
     assert_eq!(
-        app.theme.surface(),
+        app.surfaces.theme.surface(),
         original_surface,
         "theme must not change on navigation before Enter apply"
     );
 
-    app.config_focus = crate::shell::overlays::ConfigFocus::Categories;
+    app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Categories;
     assert_eq!(
-        app.theme.surface(),
-        crate::shell::render::Theme::from_color_scheme(&app.color_scheme, &app.custom_color_scheme)
-            .surface()
+        app.surfaces.theme.surface(),
+        crate::shell::render::Theme::from_color_scheme(
+            &app.surfaces.color_scheme,
+            &app.surfaces.custom_color_scheme
+        )
+        .surface()
     );
 
     // Leaving from Categories is the scene-exit verb — a dismiss on the bare
@@ -208,8 +214,8 @@ fn config_view_navigation_and_theme_preview() {
 #[test]
 fn config_view_monochrome_profile_navigation_and_item_counts() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.profile = nuotc::TerminalProfile::dec_vt100_monochrome();
-    app.theme = crate::shell::render::Theme::monochrome();
+    app.surfaces.profile = nuotc::TerminalProfile::dec_vt100_monochrome();
+    app.surfaces.theme = crate::shell::render::Theme::monochrome();
 
     app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
     assert_eq!(
@@ -217,23 +223,23 @@ fn config_view_monochrome_profile_navigation_and_item_counts() {
         crate::shell::surfaces::SceneKind::Settings
     );
     assert_eq!(
-        app.config_focus,
+        app.surfaces.config_focus,
         crate::shell::overlays::ConfigFocus::Categories
     );
-    assert_eq!(app.config_category, 0);
+    assert_eq!(app.surfaces.config_category, 0);
 
     // Categories are always all 5, cleanly available on all profiles
     for expected_cat in [1, 2, 3, 4, 0] {
         crate::shell::event_loop::handle_modal_down(&mut app, "s1");
-        assert_eq!(app.config_category, expected_cat);
+        assert_eq!(app.surfaces.config_category, expected_cat);
     }
 
     // On monochrome, Appearance detail item count is 1 (Monochrome Hardware Mode)
-    app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
-    app.config_detail_index = 0;
+    app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+    app.surfaces.config_detail_index = 0;
     // Cycling down on single-item detail pane remains at index 0
     crate::shell::event_loop::handle_modal_down(&mut app, "s1");
-    assert_eq!(app.config_detail_index, 0);
+    assert_eq!(app.surfaces.config_detail_index, 0);
 }
 
 #[tokio::test]
@@ -252,8 +258,8 @@ async fn config_view_components_toggle_and_persistence() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
     // Navigate to category 1 (Components)
-    app.config_category = 1;
-    app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+    app.surfaces.config_category = 1;
+    app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
 
     // Rows are addressed through the panel's own ordering so this test cannot
     // silently drift when a component is added (ADR-0020).
@@ -269,11 +275,11 @@ async fn config_view_components_toggle_and_persistence() {
     let search_row = index_of(&|row| matches!(row, ComponentRowId::Tool(c) if c.id == "search"));
     let auto_scroll_row = index_of(&|row| row == ComponentRowId::AutoScroll);
 
-    app.config_detail_index = reasoning_row;
+    app.surfaces.config_detail_index = reasoning_row;
     assert!(!crate::shell::config::reasoning_default_expanded(
-        &app.tui_config
+        &app.session.tui_config
     ));
-    assert!(!app.reasoning_default_expanded);
+    assert!(!app.transcript.reasoning_default_expanded);
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -283,15 +289,15 @@ async fn config_view_components_toggle_and_persistence() {
     )
     .await;
     assert!(crate::shell::config::reasoning_default_expanded(
-        &app.tui_config
+        &app.session.tui_config
     ));
-    assert!(app.reasoning_default_expanded);
+    assert!(app.transcript.reasoning_default_expanded);
 
     // The command component is collapsed by default, so activating expands it — and
     // the choice must land on every shell spelling, not just the canonical one.
-    app.config_detail_index = command_row;
+    app.surfaces.config_detail_index = command_row;
     assert!(!crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "execute_command"
     ));
     crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -302,14 +308,14 @@ async fn config_view_components_toggle_and_persistence() {
     )
     .await;
     assert!(crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "execute_command"
     ));
 
     // The Diffs row covers edit_text and write_file together.
-    app.config_detail_index = diff_row;
+    app.surfaces.config_detail_index = diff_row;
     assert!(crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "edit_text"
     ));
     crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -320,21 +326,21 @@ async fn config_view_components_toggle_and_persistence() {
     )
     .await;
     assert!(!crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "edit_text"
     ));
     assert!(!crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "write_file"
     ));
 
     // An untouched row keeps its declared default — toggling one component
     // must never move another.
     assert!(!crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "search_text"
     ));
-    app.config_detail_index = search_row;
+    app.surfaces.config_detail_index = search_row;
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
@@ -343,16 +349,16 @@ async fn config_view_components_toggle_and_persistence() {
     )
     .await;
     assert!(crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "search_text"
     ));
     assert!(!crate::shell::config::tool_default_expanded(
-        &app.tui_config,
+        &app.session.tui_config,
         "edit_text"
     ));
 
-    app.config_detail_index = auto_scroll_row;
-    assert!(!app.expand_auto_scroll);
+    app.surfaces.config_detail_index = auto_scroll_row;
+    assert!(!app.transcript.expand_auto_scroll);
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
         &runtime,
@@ -360,8 +366,8 @@ async fn config_view_components_toggle_and_persistence() {
         "s1",
     )
     .await;
-    assert!(app.expand_auto_scroll);
-    assert!(app.tui_config.expand_auto_scroll);
+    assert!(app.transcript.expand_auto_scroll);
+    assert!(app.session.tui_config.expand_auto_scroll);
 
     // Verify config file on disk has the persisted settings
     let loaded = crate::shell::config::TuiConfig::load();

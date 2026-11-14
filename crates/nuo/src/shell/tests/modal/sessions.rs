@@ -5,16 +5,17 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "session-running-123";
-    app.current_session_id = sid.to_string();
-    app.running_sessions.insert(sid.to_string());
-    app.messages
+    app.session.current_session_id = sid.to_string();
+    app.session.running_sessions.insert(sid.to_string());
+    app.transcript
+        .messages
         .push(nuo_view::model::document::TranscriptMessage::new(
             nuo_tool::Role::User,
             "Hello",
         ));
-    app.scroll = 42;
+    app.transcript.scroll = 42;
 
-    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: sid.to_string(),
         title: Some("Running Task".into()),
         overview: "Running Task".into(),
@@ -44,11 +45,11 @@ async fn open_selected_session_preserves_current_running_session_messages_and_re
     // Modal dismissed
     assert_eq!(app.active_dialog(), None);
     // Messages must NOT be wiped!
-    assert_eq!(app.messages.len(), 1);
+    assert_eq!(app.transcript.messages.len(), 1);
     // Scroll reset to 0 (pinned to bottom)
-    assert_eq!(app.scroll, 0);
+    assert_eq!(app.transcript.scroll, 0);
     // Same session does not trigger process quit / switch
-    assert_eq!(app.switch_to_target, None);
+    assert_eq!(app.surfaces.switch_to_target, None);
 }
 
 #[tokio::test]
@@ -57,9 +58,9 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let current_sid = "session-1";
     let target_sid = "session-2";
-    app.current_session_id = current_sid.to_string();
+    app.session.current_session_id = current_sid.to_string();
 
-    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Task".into()),
         overview: "Target Task".into(),
@@ -91,13 +92,18 @@ async fn open_selected_session_switches_to_another_thread_via_client_tab_and_run
     // ClientTab opened/focused
     assert!(
         app.surfaces
+            .surfaces
             .tabs()
             .iter()
             .any(|t| t.thread_id() == Some(target_sid))
     );
     // Runner attach queued
-    assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
-    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(app.surfaces.switch_to_target, Some(target_sid.to_string()));
+    assert!(
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
 }
 
 #[tokio::test]
@@ -163,8 +169,8 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
         "conv-2",
         None::<String>,
     ));
-    assert_eq!(app.surfaces.tabs().len(), 2);
-    assert_eq!(app.surfaces.active_tab_index(), 1);
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 1);
 
     // Enter subagent in Tab 1
     app.enter_subagent("call_sub_2".to_string());
@@ -182,13 +188,13 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
     )
     .await;
 
-    assert_eq!(app.surfaces.tabs().len(), 1);
-    assert_eq!(app.surfaces.active_tab_index(), 0);
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
     assert_eq!(
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Thread
     );
-    assert_eq!(app.switch_to_target, Some("conv-1".to_string()));
+    assert_eq!(app.surfaces.switch_to_target, Some("conv-1".to_string()));
 
     // Close remaining Tab 0
     let flow = crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -200,14 +206,14 @@ async fn test_close_tab_accurately_closes_tab_on_thread_and_subagent() {
     .await;
 
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Exit);
-    assert!(app.surfaces.tabs().is_empty());
+    assert!(app.surfaces.surfaces.tabs().is_empty());
 }
 
 #[tokio::test]
 async fn test_close_tab_switches_to_mru_thread_and_arms_reconnect() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.current_session_id = "conv-1".to_string();
+    app.session.current_session_id = "conv-1".to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         "conv-1",
         Some("Thread 1"),
@@ -220,13 +226,13 @@ async fn test_close_tab_switches_to_mru_thread_and_arms_reconnect() {
         "conv-3",
         Some("Thread 3"),
     ));
-    assert_eq!(app.surfaces.tabs().len(), 3);
-    assert_eq!(app.surfaces.active_tab_index(), 2);
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 3);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 2);
 
     // Visit conv-1, then conv-2
-    app.surfaces.select_tab(0);
-    app.surfaces.select_tab(1);
-    assert_eq!(app.surfaces.active_tab_index(), 1);
+    app.surfaces.surfaces.select_tab(0);
+    app.surfaces.surfaces.select_tab(1);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 1);
 
     // Close Tab 1 (conv-2). MRU history: conv-3 -> conv-1 -> conv-2.
     // Closing conv-2 must jump back to conv-1, NOT conv-3!
@@ -238,18 +244,22 @@ async fn test_close_tab_switches_to_mru_thread_and_arms_reconnect() {
     )
     .await;
 
-    assert_eq!(app.surfaces.tabs().len(), 2);
-    assert_eq!(app.surfaces.active_tab_index(), 0);
-    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some("conv-1"));
-    assert_eq!(app.switch_to_target, Some("conv-1".to_string()));
-    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
+    assert_eq!(app.surfaces.surfaces.tabs()[0].thread_id(), Some("conv-1"));
+    assert_eq!(app.surfaces.switch_to_target, Some("conv-1".to_string()));
+    assert!(
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
 }
 
 #[tokio::test]
 async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.current_session_id = "s1".to_string();
+    app.session.current_session_id = "s1".to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         "s1",
         Some("Thread 1"),
@@ -257,8 +267,8 @@ async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() 
     app.open_tab(crate::shell::surfaces::ClientTab::settings());
     app.open_tab(crate::shell::surfaces::ClientTab::dashboard());
 
-    assert_eq!(app.surfaces.tabs().len(), 3);
-    assert_eq!(app.surfaces.active_tab_index(), 2);
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 3);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 2);
     assert_eq!(
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Dashboard
@@ -274,14 +284,14 @@ async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() 
     .await;
 
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
-    assert_eq!(app.surfaces.tabs().len(), 2);
-    assert_eq!(app.surfaces.active_tab_index(), 1);
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 2);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 1);
     assert_eq!(
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Settings
     );
     assert_eq!(
-        app.config_focus,
+        app.surfaces.config_focus,
         crate::shell::overlays::ConfigFocus::Categories
     );
 
@@ -295,33 +305,33 @@ async fn test_close_tab_from_dashboard_and_settings_updates_scene_and_renders() 
     .await;
 
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
-    assert_eq!(app.surfaces.tabs().len(), 1);
-    assert_eq!(app.surfaces.active_tab_index(), 0);
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
     assert_eq!(
         app.current_scene(),
         crate::shell::surfaces::SceneKind::Thread
     );
-    assert!(app.focus.is_composer());
+    assert!(app.transcript.focus.is_composer());
 }
 
 #[tokio::test]
 async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let empty_sid = "empty-session-1";
     let target_sid = "target-session-2";
-    app.current_session_id = empty_sid.to_string();
+    app.session.current_session_id = empty_sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         empty_sid,
         None::<String>,
     ));
-    assert_eq!(app.surfaces.tabs().len(), 1);
-    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(empty_sid));
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 1);
+    assert_eq!(app.surfaces.surfaces.tabs()[0].thread_id(), Some(empty_sid));
     assert!(app.is_current_thread_empty());
 
-    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Thread".into()),
         overview: "Target Thread".into(),
@@ -344,9 +354,12 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
     .await;
 
     // Must NOT create a second tab! Tab count must remain 1, overwritten in-place!
-    assert_eq!(app.surfaces.tabs().len(), 1);
-    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(target_sid));
-    assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 1);
+    assert_eq!(
+        app.surfaces.surfaces.tabs()[0].thread_id(),
+        Some(target_sid)
+    );
+    assert_eq!(app.surfaces.switch_to_target, Some(target_sid.to_string()));
 
     // Must have sent DeleteSession intent for the abandoned empty thread
     let req = rx.try_recv().expect("DeleteSession sent for empty thread");
@@ -362,24 +375,25 @@ async fn open_selected_session_overwrites_empty_tab_and_discards_empty_thread() 
 async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let active_sid = "active-session-1";
     let target_sid = "target-session-2";
-    app.current_session_id = active_sid.to_string();
+    app.session.current_session_id = active_sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         active_sid,
         Some("Active Thread"),
     ));
     // Add a message to make it non-empty
-    app.messages
+    app.transcript
+        .messages
         .push(nuo_view::model::document::TranscriptMessage::new(
             nuo_tool::Role::User,
             "Hello",
         ));
     assert!(!app.is_current_thread_empty());
 
-    app.sessions_overview = vec![nuo_protocol::ThreadOverview {
+    app.session.sessions_overview = vec![nuo_protocol::ThreadOverview {
         id: target_sid.to_string(),
         title: Some("Target Thread".into()),
         overview: "Target Thread".into(),
@@ -402,10 +416,16 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
     .await;
 
     // Must append a new tab (total 2 tabs)!
-    assert_eq!(app.surfaces.tabs().len(), 2);
-    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some(active_sid));
-    assert_eq!(app.surfaces.tabs()[1].thread_id(), Some(target_sid));
-    assert_eq!(app.switch_to_target, Some(target_sid.to_string()));
+    assert_eq!(app.surfaces.surfaces.tabs().len(), 2);
+    assert_eq!(
+        app.surfaces.surfaces.tabs()[0].thread_id(),
+        Some(active_sid)
+    );
+    assert_eq!(
+        app.surfaces.surfaces.tabs()[1].thread_id(),
+        Some(target_sid)
+    );
+    assert_eq!(app.surfaces.switch_to_target, Some(target_sid.to_string()));
 
     // Must NOT have sent DeleteSession!
     assert!(rx.try_recv().is_err());
@@ -415,10 +435,10 @@ async fn open_selected_session_appends_new_tab_when_current_tab_has_messages() {
 async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_non_empty() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let empty_sid = "empty-session-1";
-    app.current_session_id = empty_sid.to_string();
+    app.session.current_session_id = empty_sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         empty_sid,
         None::<String>,
@@ -434,7 +454,7 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     )
     .await;
 
-    assert!(!app.switch_to_new);
+    assert!(!app.surfaces.switch_to_new);
     let req = rx.try_recv().expect("/new sent for empty thread");
     match req {
         nuo_protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
@@ -442,7 +462,8 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     }
 
     // 2. In non-empty tab: pressing 'N' should arm switch_to_new
-    app.messages
+    app.transcript
+        .messages
         .push(nuo_view::model::document::TranscriptMessage::new(
             nuo_tool::Role::User,
             "Existing message",
@@ -457,18 +478,22 @@ async fn create_new_session_resets_in_place_when_empty_and_switches_to_new_when_
     )
     .await;
 
-    assert!(app.switch_to_new);
-    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(app.surfaces.switch_to_new);
+    assert!(
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
 }
 
 #[tokio::test]
 async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_when_non_empty() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "session-test-1";
-    app.current_session_id = sid.to_string();
+    app.session.current_session_id = sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         sid,
         None::<String>,
@@ -481,7 +506,7 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     // 1. In empty tab: "/new" should send /new to reset in-place
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
-    assert!(!app.switch_to_new);
+    assert!(!app.surfaces.switch_to_new);
     let req = rx.try_recv().expect("/new sent for empty thread");
     match req {
         nuo_protocol::AgentRequest::SlashCommand(cmd) => assert_eq!(cmd, "/new"),
@@ -489,8 +514,9 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
     }
 
     // 2. In non-empty tab: "/new" must NOT send /new over wire, but arm switch_to_new and preserve conversation
-    app.messages.clear();
-    app.messages
+    app.transcript.messages.clear();
+    app.transcript
+        .messages
         .push(nuo_view::model::document::TranscriptMessage::new(
             nuo_tool::Role::User,
             "Crucial conversation",
@@ -499,24 +525,28 @@ async fn slash_new_command_resets_in_place_when_empty_and_switches_to_new_tab_wh
 
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
-    assert!(app.switch_to_new);
-    assert_eq!(app.switch_to_new_prompt, None);
-    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(app.surfaces.switch_to_new);
+    assert_eq!(app.surfaces.switch_to_new_prompt, None);
+    assert!(
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
     // Verify no destructive in-place reset command was sent
     assert!(rx.try_recv().is_err());
     // Verify existing messages are preserved
-    assert_eq!(app.messages.len(), 1);
-    assert_eq!(app.messages[0].raw, "Crucial conversation");
+    assert_eq!(app.transcript.messages.len(), 1);
+    assert_eq!(app.transcript.messages[0].raw, "Crucial conversation");
 }
 
 #[tokio::test]
 async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "session-test-2";
-    app.current_session_id = sid.to_string();
+    app.session.current_session_id = sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         sid,
         None::<String>,
@@ -525,7 +555,8 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
         session_id: sid.to_string(),
     };
 
-    app.messages
+    app.transcript
+        .messages
         .push(nuo_view::model::document::TranscriptMessage::new(
             nuo_tool::Role::User,
             "Prior turn",
@@ -540,12 +571,16 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
     )
     .await;
 
-    assert!(app.switch_to_new);
+    assert!(app.surfaces.switch_to_new);
     assert_eq!(
-        app.switch_to_new_prompt,
+        app.surfaces.switch_to_new_prompt,
         Some("optimize memory allocations".to_string())
     );
-    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
     assert!(rx.try_recv().is_err());
 }
 
@@ -553,10 +588,10 @@ async fn slash_new_with_prompt_arms_switch_to_new_prompt_when_non_empty() {
 async fn slash_session_new_behaves_identically_to_slash_new() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "session-canonical-test";
-    app.current_session_id = sid.to_string();
+    app.session.current_session_id = sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         sid,
         None::<String>,
@@ -565,7 +600,8 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         session_id: sid.to_string(),
     };
 
-    app.messages
+    app.transcript
+        .messages
         .push(nuo_view::model::document::TranscriptMessage::new(
             nuo_tool::Role::User,
             "Active dialogue",
@@ -576,11 +612,13 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
         .await;
 
     assert!(
-        app.switch_to_new,
+        app.surfaces.switch_to_new,
         "/session new must arm switch_to_new on non-empty thread"
     );
     assert!(
-        app.should_quit.load(std::sync::atomic::Ordering::SeqCst),
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst),
         "/session new must request runner quit to mount new tab"
     );
     assert!(
@@ -593,10 +631,10 @@ async fn slash_session_new_behaves_identically_to_slash_new() {
 async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "session-rounds-test";
-    app.current_session_id = sid.to_string();
+    app.session.current_session_id = sid.to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         sid,
         None::<String>,
@@ -605,14 +643,18 @@ async fn slash_new_with_round_count_greater_than_zero_opens_new_tab() {
         session_id: sid.to_string(),
     };
 
-    app.messages.clear();
-    app.round_count = 1;
+    app.transcript.messages.clear();
+    app.session.round_count = 1;
     assert!(!app.is_current_thread_empty());
 
     super::event_loop::handle_send_slash(&mut app, &runtime, &session, "/new".to_string()).await;
 
-    assert!(app.switch_to_new);
-    assert!(app.should_quit.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(app.surfaces.switch_to_new);
+    assert!(
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst)
+    );
 }
 
 /// `[INV-TAB-13]` — a session rebase must be addressed by the session being
@@ -638,21 +680,23 @@ fn conversation_cleared_does_not_rebase_a_replacement_tab() {
 
     // Step 1: the empty thread the user was on.
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::thread(
             discarded,
             None::<String>,
         ));
     // Step 2: the picker swapped it synchronously (before the delete reply).
-    app.surfaces.replace_tab(
+    app.surfaces.surfaces.replace_tab(
         0,
         crate::shell::surfaces::ClientTab::thread(picked, Some("Picked")),
     );
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::thread(
             "other",
             Some("Other"),
         ));
-    app.surfaces.select_tab(1); // "other" is active: positional rebase would hit this
+    app.surfaces.surfaces.select_tab(1); // "other" is active: positional rebase would hit this
 
     // Step 3: the delete reply lands, naming the session being left.
     crate::shell::event_loop::apply::apply(
@@ -666,24 +710,25 @@ fn conversation_cleared_does_not_rebase_a_replacement_tab() {
 
     // No tab represented `discarded` any more, so nothing may be rebased.
     assert_eq!(
-        app.surfaces.tabs()[0].thread_id(),
+        app.surfaces.surfaces.tabs()[0].thread_id(),
         Some(picked),
         "the replacement tab must keep its identity"
     );
     assert_eq!(
-        app.surfaces.tabs()[1].thread_id(),
+        app.surfaces.surfaces.tabs()[1].thread_id(),
         Some("other"),
         "an unrelated active tab must not be rebased by position"
     );
     assert!(
         !app.surfaces
+            .surfaces
             .tabs()
             .iter()
             .any(|t| t.thread_id() == Some(minted)),
         "no tab may be manufactured for a session that was never attached"
     );
     // The lookup fact still follows the server: the live session *did* move.
-    assert_eq!(app.live_session_id, minted);
+    assert_eq!(app.session.live_session_id, minted);
 }
 
 /// `[INV-TAB-13]` — when the tab *does* represent the session being left, the
@@ -694,11 +739,13 @@ fn conversation_cleared_rebases_the_named_tab_only() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::thread(
             "left-behind",
             Some("Old Title"),
         ));
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::thread(
             "bystander",
             Some("Keep Me"),
@@ -713,15 +760,18 @@ fn conversation_cleared_rebases_the_named_tab_only() {
         },
     );
 
-    assert_eq!(app.surfaces.tabs()[0].thread_id(), Some("fresh"));
+    assert_eq!(app.surfaces.surfaces.tabs()[0].thread_id(), Some("fresh"));
     assert_eq!(
-        app.surfaces.tabs()[0].title,
+        app.surfaces.surfaces.tabs()[0].title,
         None,
         "the rebased tab has no authentic title yet"
     );
-    assert_eq!(app.surfaces.tabs()[1].thread_id(), Some("bystander"));
     assert_eq!(
-        app.surfaces.tabs()[1].title.as_deref(),
+        app.surfaces.surfaces.tabs()[1].thread_id(),
+        Some("bystander")
+    );
+    assert_eq!(
+        app.surfaces.surfaces.tabs()[1].title.as_deref(),
         Some("Keep Me"),
         "an untouched tab's title must never be collateral damage"
     );

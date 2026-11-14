@@ -189,7 +189,7 @@ pub(super) fn mention_range_at(input: &str, cursor_byte: usize) -> Option<(usize
 
 impl App {
     pub fn completion_kind(&self) -> CompletionKind {
-        if self.input.starts_with('/') {
+        if self.composer.input.starts_with('/') {
             CompletionKind::Slash
         } else if self.active_mention_range().is_some() {
             CompletionKind::Path
@@ -202,32 +202,34 @@ impl App {
         match self.completion_kind() {
             CompletionKind::None => false,
             CompletionKind::Slash => {
-                !self.input.trim().is_empty() && !self.known_exact_slash_input()
+                !self.composer.input.trim().is_empty() && !self.known_exact_slash_input()
             }
             CompletionKind::Path => true,
         }
     }
 
     fn known_exact_slash_input(&self) -> bool {
-        let Some(first) = self.input.split_whitespace().next() else {
+        let Some(first) = self.composer.input.split_whitespace().next() else {
             return false;
         };
-        self.input.starts_with('/')
-            && self.input.trim() == first
-            && self.command_catalog.recognizes(first)
+        self.composer.input.starts_with('/')
+            && self.composer.input.trim() == first
+            && self.composer.command_catalog.recognizes(first)
     }
 
     pub fn anchor_completion_selection(&mut self, completions: &[Completion]) {
-        let input_len = self.input.len();
+        let input_len = self.composer.input.len();
         let exact = completions.iter().any(|item| {
-            item.replace_start == 0 && item.replace_end == input_len && item.label == self.input
+            item.replace_start == 0
+                && item.replace_end == input_len
+                && item.label == self.composer.input
         });
         let visible = !completions.is_empty() && !exact;
-        match (visible, self.suggestion_index) {
-            (false, _) => self.suggestion_index = None,
-            (true, None) => self.suggestion_index = Some(0),
+        match (visible, self.composer.suggestion_index) {
+            (false, _) => self.composer.suggestion_index = None,
+            (true, None) => self.composer.suggestion_index = Some(0),
             (true, Some(index)) => {
-                self.suggestion_index = Some(index.min(completions.len() - 1));
+                self.composer.suggestion_index = Some(index.min(completions.len() - 1));
             }
         }
     }
@@ -250,26 +252,29 @@ impl App {
     ///   answer while the next is in flight.
     pub fn completions(&self) -> Vec<Completion> {
         // Tier 1: synchronous `/` command matching, straight from the owner.
-        if self.input.starts_with('/') {
+        if self.composer.input.starts_with('/') {
             let items = nuo_server::runtime::input_completion::complete_slash_items(
-                &self.command_catalog,
-                &self.input,
+                &self.composer.command_catalog,
+                &self.composer.input,
                 self.byte_cursor(),
             );
             return items
                 .iter()
-                .filter_map(|item| Completion::from_backend(&self.input, item))
+                .filter_map(|item| Completion::from_backend(&self.composer.input, item))
                 .collect();
         }
 
         // Tier 2: Path mentions and dynamic queries from backend (SWR with cache retention)
-        let items = if self.completion_response_input.as_deref() == Some(self.input.as_str())
-            && self.completion_response_cursor == self.wire_cursor()
+        let items = if self.composer.completion_response_input.as_deref()
+            == Some(self.composer.input.as_str())
+            && self.composer.completion_response_cursor == self.wire_cursor()
         {
-            self.backend_completions.clone()
-        } else if self.active_mention_range().is_some() && !self.backend_completions.is_empty() {
+            self.composer.backend_completions.clone()
+        } else if self.active_mention_range().is_some()
+            && !self.composer.backend_completions.is_empty()
+        {
             // SWR: Retain active backend completions while in-flight
-            self.backend_completions.clone()
+            self.composer.backend_completions.clone()
         } else {
             #[cfg(test)]
             {
@@ -278,9 +283,9 @@ impl App {
                 // test is the one production uses (the cursor is the wire's
                 // scalar index, as over the control plane).
                 nuo_server::runtime::input_completion::complete_for_frontend_test(
-                    self.command_catalog.clone(),
-                    self.cwd.clone(),
-                    &self.input,
+                    self.composer.command_catalog.clone(),
+                    self.session.cwd.clone(),
+                    &self.composer.input,
                     self.wire_cursor(),
                 )
             }
@@ -292,7 +297,7 @@ impl App {
 
         items
             .iter()
-            .filter_map(|item| Completion::from_backend(&self.input, item))
+            .filter_map(|item| Completion::from_backend(&self.composer.input, item))
             .collect()
     }
 
@@ -302,27 +307,28 @@ impl App {
         // speaks bytes — normalise once, here, so the request, the echoed
         // response, and the cached-response comparison all agree.
         let cursor = self.wire_cursor();
-        let state = (self.input.clone(), cursor);
-        if self.completion_requested.as_ref() == Some(&state) {
+        let state = (self.composer.input.clone(), cursor);
+        if self.composer.completion_requested.as_ref() == Some(&state) {
             return;
         }
-        self.completion_requested = Some(state.clone());
+        self.composer.completion_requested = Some(state.clone());
 
         // When not inside an active mention, clean up stale backend completions.
         // Slash commands are handled synchronously by Tier 1 with zero latency.
-        if !self.input.starts_with('/') && self.active_mention_range().is_none() {
-            self.backend_completions.clear();
-            self.completion_response_input = None;
-            self.completion_response_cursor = 0;
+        if !self.composer.input.starts_with('/') && self.active_mention_range().is_none() {
+            self.composer.backend_completions.clear();
+            self.composer.completion_response_input = None;
+            self.composer.completion_response_cursor = 0;
             return;
         }
 
         // Retain `backend_completions` during typing (SWR).
         // Only bump generation request ID and send request if dynamic path completion is needed.
         if self.active_mention_range().is_some() {
-            self.completion_request_id = self.completion_request_id.wrapping_add(1);
+            self.composer.completion_request_id =
+                self.composer.completion_request_id.wrapping_add(1);
             self.send_intent(nuo_protocol::AgentRequest::CompleteComposer {
-                request_id: self.completion_request_id,
+                request_id: self.composer.completion_request_id,
                 text: state.0,
                 cursor,
             });
@@ -336,18 +342,18 @@ impl App {
         cursor: usize,
         items: Vec<nuo_tool::InputCompletion>,
     ) {
-        if request_id != self.completion_request_id
-            || input != self.input
+        if request_id != self.composer.completion_request_id
+            || input != self.composer.input
             || cursor != self.wire_cursor()
         {
             return;
         }
-        self.completion_response_input = Some(input);
-        self.completion_response_cursor = cursor;
-        self.backend_completions = items;
+        self.composer.completion_response_input = Some(input);
+        self.composer.completion_response_cursor = cursor;
+        self.composer.backend_completions = items;
     }
 
     pub fn active_mention_range(&self) -> Option<(usize, usize)> {
-        mention_range_at(&self.input, self.byte_cursor())
+        mention_range_at(&self.composer.input, self.byte_cursor())
     }
 }

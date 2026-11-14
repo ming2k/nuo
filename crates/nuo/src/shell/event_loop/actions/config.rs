@@ -10,10 +10,14 @@ pub(crate) fn select_connection_preset(
     app: &mut App,
     forced_method: Option<nuo_protocol::LoginMethod>,
 ) {
-    if !app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
+    if !app
+        .surfaces
+        .surfaces
+        .contains_sheet(SheetKind::ProviderPreset)
+    {
         return;
     }
-    let Some(preset) = crate::PROVIDER_PRESETS.get(app.preset_choice) else {
+    let Some(preset) = crate::PROVIDER_PRESETS.get(app.provider_editor.preset_choice) else {
         return;
     };
     if !preset.oauth_first() {
@@ -64,11 +68,6 @@ pub(crate) fn select_connection_preset(
     });
 }
 
-/// Loop stage: dispatch one drained [`input::InputAction`]. The match body is
-/// verbatim from `run_app_loop`; only `continue` / `return Ok(())` inside arms
-/// became [`ActionFlow`] values, and the clipboard senders / viewed session id
-/// are passed explicitly instead of captured.
-
 pub(crate) fn open_active_connection_detail(
     app: &mut App,
     runtime: &UiRuntime,
@@ -80,8 +79,8 @@ pub(crate) fn open_active_connection_detail(
         runtime,
         viewed_session_id,
     );
-    let target_id = if !app.current_provider.is_empty() {
-        app.current_provider.clone()
+    let target_id = if !app.session.current_provider.is_empty() {
+        app.session.current_provider.clone()
     } else {
         app.providers_filtered()
             .first()
@@ -96,13 +95,16 @@ pub(crate) fn open_active_connection_detail(
         app.set_active_index(pos);
     }
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_detail = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_standalone = true;
-    app.connection_detail = None;
+    app.surfaces.connection_detail = None;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_scroll = 0;
     if !target_id.is_empty() {
@@ -117,39 +119,40 @@ pub(crate) fn handle_config_activate(app: &mut App) {
     if app.current_scene() != SceneKind::Settings {
         return;
     }
-    let ws_path = if app.current_workspace.is_empty() {
+    let ws_path = if app.session.current_workspace.is_empty() {
         None
     } else {
-        Some(std::path::Path::new(&app.current_workspace))
+        Some(std::path::Path::new(&app.session.current_workspace))
     };
-    let active_category = crate::shell::overlays::ConfigCategory::from_index(app.config_category);
-    match app.config_focus {
+    let active_category =
+        crate::shell::overlays::ConfigCategory::from_index(app.surfaces.config_category);
+    match app.surfaces.config_focus {
         crate::shell::overlays::ConfigFocus::Categories => {
-            app.config_focus = crate::shell::overlays::ConfigFocus::Detail;
+            app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Detail;
             if active_category == crate::shell::overlays::ConfigCategory::Appearance {
-                app.config_detail_index =
-                    crate::shell::config::color_scheme_index(&app.color_scheme, ws_path);
+                app.surfaces.config_detail_index =
+                    crate::shell::config::color_scheme_index(&app.surfaces.color_scheme, ws_path);
             } else {
-                app.config_detail_index = 0;
+                app.surfaces.config_detail_index = 0;
             }
         }
         crate::shell::overlays::ConfigFocus::Detail => match active_category {
             crate::shell::overlays::ConfigCategory::Appearance => {
-                if app.profile.supports_color_themes() {
+                if app.surfaces.profile.supports_color_themes() {
                     let schemes = crate::shell::config::available_color_schemes(ws_path);
-                    let sel_idx = app.config_detail_index % schemes.len().max(1);
+                    let sel_idx = app.surfaces.config_detail_index % schemes.len().max(1);
                     if let Some(scheme) = schemes.get(sel_idx) {
                         let name = &scheme.id;
-                        app.color_scheme = name.to_string();
-                        app.theme = crate::shell::config::resolve_theme_with_profile(
+                        app.surfaces.color_scheme = name.to_string();
+                        app.surfaces.theme = crate::shell::config::resolve_theme_with_profile(
                             name.as_ref(),
-                            &app.custom_color_scheme,
+                            &app.surfaces.custom_color_scheme,
                             ws_path,
-                            &app.profile,
+                            &app.surfaces.profile,
                         );
                         app.send_intent(AgentRequest::UpdateTuiColorScheme {
-                            name: app.color_scheme.clone(),
-                            custom: serde_json::to_value(&app.custom_color_scheme)
+                            name: app.surfaces.color_scheme.clone(),
+                            custom: serde_json::to_value(&app.surfaces.custom_color_scheme)
                                 .unwrap_or_default(),
                         });
                         app.save_tui_config();
@@ -158,37 +161,41 @@ pub(crate) fn handle_config_activate(app: &mut App) {
             }
             crate::shell::overlays::ConfigCategory::Components => {
                 use crate::shell::views::settings::components::{ComponentRowId, row_for_index};
-                match row_for_index(app.config_detail_index) {
+                match row_for_index(app.surfaces.config_detail_index) {
                     Some(ComponentRowId::Reasoning) => {
-                        let next =
-                            !crate::shell::config::reasoning_default_expanded(&app.tui_config);
+                        let next = !crate::shell::config::reasoning_default_expanded(
+                            &app.session.tui_config,
+                        );
                         if next {
-                            app.tui_config
+                            app.session
+                                .tui_config
                                 .default_expanded
                                 .insert(crate::shell::config::THINKING_KEY.to_string(), true);
                         } else {
-                            app.tui_config
+                            app.session
+                                .tui_config
                                 .default_expanded
                                 .remove(crate::shell::config::THINKING_KEY);
                         }
-                        app.reasoning_default_expanded = next;
+                        app.transcript.reasoning_default_expanded = next;
                         app.save_tui_config();
                     }
                     Some(ComponentRowId::Tool(component)) => {
                         let next = !crate::shell::config::tool_default_expanded(
-                            &app.tui_config,
+                            &app.session.tui_config,
                             component.primary_name(),
                         );
                         crate::shell::config::set_component_default_expanded(
-                            &mut app.tui_config,
+                            &mut app.session.tui_config,
                             component,
                             next,
                         );
                         app.save_tui_config();
                     }
                     Some(ComponentRowId::AutoScroll) => {
-                        app.expand_auto_scroll = !app.expand_auto_scroll;
-                        app.tui_config.expand_auto_scroll = app.expand_auto_scroll;
+                        app.transcript.expand_auto_scroll = !app.transcript.expand_auto_scroll;
+                        app.session.tui_config.expand_auto_scroll =
+                            app.transcript.expand_auto_scroll;
                         app.save_tui_config();
                     }
                     None => {}
@@ -196,15 +203,19 @@ pub(crate) fn handle_config_activate(app: &mut App) {
             }
             crate::shell::overlays::ConfigCategory::WebSearch
             | crate::shell::overlays::ConfigCategory::WebReader => {
-                let Some(revision) = app.websearch_config.as_ref().map(|config| config.revision)
+                let Some(revision) = app
+                    .surfaces
+                    .websearch_config
+                    .as_ref()
+                    .map(|config| config.revision)
                 else {
                     return;
                 };
                 let is_search =
                     active_category == crate::shell::overlays::ConfigCategory::WebSearch;
-                match app.config_detail_index {
+                match app.surfaces.config_detail_index {
                     0 => {
-                        let anchor = if let Some(target_rect) = app.config_selected_rect {
+                        let anchor = if let Some(target_rect) = app.surfaces.config_selected_rect {
                             nuo_ui_primitives::components::dropdown::DropdownAnchor::anchored(
                                 target_rect,
                                 nuo_ui_primitives::components::dropdown::DropdownPlacement::Auto,
@@ -214,6 +225,7 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                         };
                         if is_search {
                             let current = app
+                                .surfaces
                                 .websearch_config
                                 .as_ref()
                                 .map(|ws| ws.provider.as_str())
@@ -221,11 +233,12 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                             let dropdown =
                                 crate::shell::views::settings::build_websearch_provider_dropdown(
                                     current,
-                                    app.websearch_config.as_ref(),
+                                    app.surfaces.websearch_config.as_ref(),
                                 );
-                            app.config_dropdown = Some((dropdown, anchor));
+                            app.surfaces.config_dropdown = Some((dropdown, anchor));
                         } else {
                             let current = app
+                                .surfaces
                                 .websearch_config
                                 .as_ref()
                                 .map(|ws| ws.reader.as_str())
@@ -233,13 +246,14 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                             let dropdown =
                                 crate::shell::views::settings::build_websearch_reader_dropdown(
                                     current,
-                                    app.websearch_config.as_ref(),
+                                    app.surfaces.websearch_config.as_ref(),
                                 );
-                            app.config_dropdown = Some((dropdown, anchor));
+                            app.surfaces.config_dropdown = Some((dropdown, anchor));
                         }
                     }
                     1 => {
                         let current = app
+                            .surfaces
                             .websearch_config
                             .as_ref()
                             .map(|ws| ws.timeout_secs)
@@ -258,7 +272,7 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                         )));
                     }
                     2 => {
-                        let editor = app.websearch_config.as_ref().and_then(|ws| {
+                        let editor = app.surfaces.websearch_config.as_ref().and_then(|ws| {
                             let (axis, id) = if is_search {
                                 ("search", ws.provider.id())
                             } else {
@@ -288,13 +302,13 @@ pub(crate) fn handle_config_activate(app: &mut App) {
                             Some((target, capability.display_name.clone(), initial))
                         });
                         if let Some((target, display_name, initial)) = editor {
-                            app.surfaces.present_sheet(SheetKind::ModelEditor);
-                            app.editor_target = Some(target);
-                            app.editor_model = display_name;
-                            app.editor_key.clear();
-                            app.editor_field = 0;
-                            app.input = initial;
-                            app.set_cursor(app.input.len());
+                            app.surfaces.surfaces.present_sheet(SheetKind::ModelEditor);
+                            app.provider_editor.editor_target = Some(target);
+                            app.provider_editor.editor_model = display_name;
+                            app.provider_editor.editor_key.clear();
+                            app.provider_editor.editor_field = 0;
+                            app.composer.input = initial;
+                            app.set_cursor(app.composer.input.len());
                         }
                     }
                     _ => {}

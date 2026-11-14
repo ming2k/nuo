@@ -5,9 +5,9 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use nuo::runtime::registry::ThreadRegistry;
-use nuo_server::transport::serve::{self, AttachAction, Wire};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentRequest, AgentResponse, RoundEvent};
+use nuo_server::transport::serve::{self, AttachAction, Wire};
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use super::helpers::{host_with_project, prehosted, prehosted_with_catalog};
@@ -335,10 +335,7 @@ async fn attach_receives_restored_todos_after_welcome() {
 
     // Give the session content so its file persists, then a non-empty list.
     session
-        .replace_messages(vec![nuo_tool::Message::new(
-            nuo_tool::Role::User,
-            "hello",
-        )])
+        .replace_messages(vec![nuo_tool::Message::new(nuo_tool::Role::User, "hello")])
         .await
         .unwrap();
     let mut todos = nuo_tool::TodoList::new();

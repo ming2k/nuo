@@ -6,6 +6,7 @@ date: 2026-11-12
 scope: protocol/control, server/registry, persistence/session-store, cli/thread
 superseded_by: null
 supersedes: [ADR-0161]
+negative_knowledge: true
 ---
 
 # 0171. Thread Removal Is Durable and Server-Owned: Stop Is Not Delete

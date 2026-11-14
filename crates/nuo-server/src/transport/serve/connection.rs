@@ -12,7 +12,9 @@ use super::options::{ServeExpose, protocol_mismatch_error};
 use super::sync_buffer::workspace_trust_notice;
 use super::tcp::{TcpManager, TcpTransport, classify};
 use crate::runtime::shutdown::ShutdownGate;
-use crate::transport::wire_channel::{BoxWireSink, BoxWireStream, native_framed_split, websocket_split};
+use crate::transport::wire_channel::{
+    BoxWireSink, BoxWireStream, native_framed_split, websocket_split,
+};
 use nuo_protocol::{
     AgentRequest, AgentResponse, AttachAction, ControlRequest, ERR_PROTOCOL_MISMATCH,
     MonitorAction, MonitorEvent, Wire, WireFrame, protocol_accepts,
@@ -51,9 +53,12 @@ pub(crate) fn spawn_tcp_connection(
             Ok(TcpTransport::Http) => {
                 // Health responses are momentary and stateless; they stay out
                 // of the drain-tracked connection table by design.
-                if let Err(e) =
-                    crate::transport::health_http::serve(stream, gate.version_of_server(), expected_token)
-                        .await
+                if let Err(e) = crate::transport::health_http::serve(
+                    stream,
+                    gate.version_of_server(),
+                    expected_token,
+                )
+                .await
                 {
                     tracing::debug!(%peer, error=%e, "nuo server: http error");
                 }
@@ -83,7 +88,6 @@ pub(crate) fn spawn_tcp_connection(
 /// Spawn one connection task, registered in the connection table for the
 /// drain phase. Every accepted socket funnels through here so the table can
 /// never miss one; the guard unregisters on every exit path.
-
 pub(crate) fn spawn_local_connection<S>(stream: S, ctx: ServeCtx, peer: String)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,

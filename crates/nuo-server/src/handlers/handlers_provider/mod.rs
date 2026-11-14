@@ -14,12 +14,14 @@ use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::thread::{ProviderSelection, ThreadSession};
 use nuo_protocol::{AgentResponse, CommandResult, Provider, RoundEvent, SecretString};
-use nuo_tool::{AgentNotice};
+use nuo_tool::AgentNotice;
 
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
-use crate::composition::agent_setup::{reseed_context_policy, reseed_instructions, reseed_tool_variants};
+use crate::composition::agent_setup::{
+    reseed_context_policy, reseed_instructions, reseed_tool_variants,
+};
 use crate::transport::thread_view::provider_key_status;
 
 pub(crate) mod connection;
@@ -107,7 +109,9 @@ pub(crate) async fn switch(
             prov.root_url = url.trim().to_string();
             if let Err(error) = ModelProviders::save(&store)
                 .map_err(|e| e.to_string())
-                .and_then(|_| crate::composition::provider_registry::sync_user_declared_providers(&store))
+                .and_then(|_| {
+                    crate::composition::provider_registry::sync_user_declared_providers(&store)
+                })
             {
                 let _ = resp_tx.send(AgentResponse::Error(error));
                 return;

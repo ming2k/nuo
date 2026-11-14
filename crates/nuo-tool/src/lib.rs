@@ -63,8 +63,8 @@ pub use mcp::McpTool;
 pub use media::{ImageNormalizer, NormalizedImage};
 pub use mention::*;
 pub use message::{
-    HookEventKind, ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta, ToolCall,
-    ToolResult,
+    HookEventKind, ImagePart, InjectionKind, InjectionOrigin, Message, Role, SubagentMeta,
+    ToolCall, ToolResult,
 };
 pub use output::ToolOutput;
 pub use preview::PreviewResult;

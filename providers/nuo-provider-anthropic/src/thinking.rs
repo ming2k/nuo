@@ -15,7 +15,6 @@
 
 use nuo_protocol::{Effort, reasoning::ReasoningSupport};
 
-
 /// Re-export the on/off enum so callers reaching it through this module keep a
 /// stable path.
 pub use nuo_protocol::ReasoningMode;

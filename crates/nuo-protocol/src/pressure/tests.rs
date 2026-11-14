@@ -448,11 +448,12 @@ fn companion_tool_image_is_evicted_on_prune() {
 
 #[test]
 fn user_uploaded_image_is_evicted_with_artifact_invoice() {
-    let user_msg =
-        Message::new(Role::User, "User prompt with visual").with_images(vec![nuo_tool::ImagePart {
+    let user_msg = Message::new(Role::User, "User prompt with visual").with_images(vec![
+        nuo_tool::ImagePart {
             mime: "image/png".into(),
             data: "very_large_base64_data".into(),
-        }]);
+        },
+    ]);
     let assistant_msg = Message::new(Role::Assistant, "I will analyze this.");
     let mut messages = vec![user_msg, assistant_msg];
 

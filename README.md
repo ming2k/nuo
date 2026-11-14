@@ -10,9 +10,9 @@ Nuo is a high-performance, modular AI session server and semantic terminal syste
 
 ## Features
 
-- **Semantic Terminal UI**: Rich, flicker-free terminal interface powered by `nuo-tui` and the retained-mode `nuotc` engine with sub-millisecond differential updates and flawless CJK alignment.
+- **Semantic Terminal UI**: Rich, flicker-free terminal interface powered by `nuo-view` and `nuo-ui-primitives` over the retained-mode `nuotc` engine with sub-millisecond differential updates and flawless CJK alignment.
 - **Session Server (`nuo`)**: Detached background server hosting multi-client sessions across workspaces, serving local IPC (Unix Domain Sockets) and WebSocket control planes.
-- **Execution Harness (`nuo-engine`)**: Outfits agents with targeted identities and prompts, enforces strict hazard controls (`RiskProfile`), interactive human confirmation checkpoints, and real-time loop detection.
+- **Cognitive Engine (`nuo-engine`)**: Runs the streaming ReAct loop, assembles model requests, and coordinates subagents. The separate `nuo-guardrails` policy layer enforces hazard controls (`RiskProfile`), human confirmation checkpoints, and loop detection.
 - **Multi-Agent Coordination (ACP)**: Native Agent Coordination Protocol supporting peer-to-peer task delegation (`agent://`) and collaborative multi-subscriber channels (`acp://`).
 - **Zero-Runtime Tools**: Zero-I/O contracts with compile-time schema derivation (`nuo-tool-derive`) and native Model Context Protocol (MCP) client/server integration.
 

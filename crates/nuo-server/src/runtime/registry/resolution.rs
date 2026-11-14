@@ -6,10 +6,6 @@ impl ThreadRegistry {
         self.sessions.lock().await.get(session_id).cloned()
     }
 
-    /// Record the host's provenance (project root + start time) so monitor
-    /// snapshots can identify the host. Called once by `host::run` before
-    /// the listener starts accepting monitor clients.
-
     pub async fn resolve(
         &self,
         action: AttachAction,
@@ -88,9 +84,6 @@ impl ThreadRegistry {
             }
         }
     }
-
-    /// Control plane: create a session for `project` and return
-    /// its id. The session is server-held; no client is attached yet.
 
     pub async fn host(&self, entry: HostedThread) -> AttachHandle {
         let entry = Arc::new(entry);
@@ -290,7 +283,8 @@ impl ThreadRegistry {
 
         // `--resume`: pick the most recent matching session instead
         // of a fresh one, inside the exact role + workspace scope.
-        if init_options.resume && matches!(startup, crate::composition::startup::ThreadStart::Fresh) {
+        if init_options.resume && matches!(startup, crate::composition::startup::ThreadStart::Fresh)
+        {
             let scope = nuo_protocol::ThreadScope::from_binding(
                 role_id.as_deref(),
                 resume_workspace.as_ref(),

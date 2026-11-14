@@ -157,20 +157,20 @@ impl App {
     /// That is the one place the two differ, so it lives here rather than at
     /// each producer.
     fn raise_notice_bubble(&mut self, line: &SurfaceLine) {
-        self.copy_toast_until = None;
-        self.notice_toast_severity = match line.status {
+        self.surfaces.copy_toast_until = None;
+        self.surfaces.notice_toast_severity = match line.status {
             LineStatus::Failed => NoticeSeverity::Error,
             LineStatus::Warn => NoticeSeverity::Warning,
             LineStatus::Ok | LineStatus::Info => NoticeSeverity::Info,
         };
-        self.notice_toast_message = line.text.clone();
-        self.notice_toast_topic = line.label.clone().unwrap_or_default();
+        self.surfaces.notice_toast_message = line.text.clone();
+        self.surfaces.notice_toast_topic = line.label.clone().unwrap_or_default();
         let ms = if line.status.is_fault() {
             fault_dwell_ms(&line.text)
         } else {
             ACK_BUBBLE_MS
         };
-        self.notice_toast_until =
+        self.surfaces.notice_toast_until =
             Some(std::time::Instant::now() + std::time::Duration::from_millis(ms));
     }
 
@@ -179,7 +179,7 @@ impl App {
     /// `None` for an acknowledgement: an ack needs no escape hatch, and adding
     /// one would spend a row telling the user about a log they do not need.
     pub(crate) fn notice_bubble_hint(&self) -> Option<String> {
-        if !self.notice_toast_severity.is_fault() {
+        if !self.surfaces.notice_toast_severity.is_fault() {
             return None;
         }
         Some(format!("{} | all notices", Key::ALT_O.display()))
@@ -200,6 +200,7 @@ impl App {
         let count = self.notice_count();
         self.open_dialog(crate::shell::surfaces::DialogKind::Notices);
         let notices_dlg = self
+            .surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::NoticesDialog>();
         notices_dlg.index = count.saturating_sub(1);
@@ -307,11 +308,11 @@ mod tests {
         assert_eq!(app.notice_count(), 1, "the record is the home");
         assert!(app.has_unread_notice_fault());
         assert!(
-            app.notice_toast_until.is_some(),
+            app.surfaces.notice_toast_until.is_some(),
             "a fault interrupts while the user can still act on it"
         );
-        assert_eq!(app.notice_toast_message, "link down");
-        assert_eq!(app.notice_toast_topic, "link");
+        assert_eq!(app.surfaces.notice_toast_message, "link down");
+        assert_eq!(app.surfaces.notice_toast_topic, "link");
     }
 
     #[test]
@@ -355,10 +356,10 @@ mod tests {
             ClientTopic::Images,
             "withheld",
         ));
-        assert_eq!(app.notice_toast_severity, NoticeSeverity::Warning);
+        assert_eq!(app.surfaces.notice_toast_severity, NoticeSeverity::Warning);
         app.record_notice(link_fault("gone"));
         assert_eq!(
-            app.notice_toast_message, "gone",
+            app.surfaces.notice_toast_message, "gone",
             "the one slot shows the newest fault"
         );
         assert_eq!(app.notice_count(), 2, "and the earlier one is not lost");
@@ -384,12 +385,14 @@ mod tests {
         app.record_notice(link_fault("link down"));
         app.open_notice_viewer();
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::NoticesDialog>()
             .scroll = 4;
         app.clear_notices();
         assert!(!app.has_notices());
         assert_eq!(
             app.surfaces
+                .surfaces
                 .dlg::<crate::shell::surfaces::NoticesDialog>()
                 .scroll,
             0
@@ -410,6 +413,6 @@ mod tests {
         let mut app = crate::shell::tests::new_app_for_relay_tests();
         assert!(!app.record_notice(link_fault("   ")));
         assert!(!app.has_notices());
-        assert!(app.notice_toast_until.is_none());
+        assert!(app.surfaces.notice_toast_until.is_none());
     }
 }

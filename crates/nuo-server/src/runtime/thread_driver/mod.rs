@@ -88,5 +88,6 @@ mod driver;
 mod followup;
 mod recovery;
 
+pub(crate) use self::driver::SessionContext;
 pub use self::driver::ThreadDriver;
 pub(crate) use self::followup::FollowUpQueue;

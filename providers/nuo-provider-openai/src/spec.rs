@@ -5,8 +5,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// The model ids the built-in `openai` provider serves over the OpenAI
 /// chat-completions API, one key (`OPENAI_API_KEY`). Mirrors OpenAI's current

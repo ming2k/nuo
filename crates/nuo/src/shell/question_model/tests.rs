@@ -3,7 +3,6 @@
 use super::*;
 use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
-
 /// A single-select question with two labeled options.
 fn single_select_req() -> UserQuestionRequest {
     UserQuestionRequest {

@@ -12,7 +12,7 @@ pub(crate) fn activate_tab_at_index(
     runtime: &UiRuntime,
     viewed_session_id: &str,
 ) -> ActionFlow {
-    let current_idx = app.surfaces.active_tab_index();
+    let current_idx = app.surfaces.surfaces.active_tab_index();
     if index == current_idx {
         // [INV-TAB-11] Idempotent container gesture: Re-selecting the already active tab
         // is an inert container operation that preserves the active scene context.
@@ -30,24 +30,24 @@ pub(crate) fn activate_tab_at_index(
         return ActionFlow::Handled;
     }
 
-    if let Some(target_tab) = app.surfaces.tabs().get(index).cloned() {
+    if let Some(target_tab) = app.surfaces.surfaces.tabs().get(index).cloned() {
         // Checkpoint departing tab context (ADR-0091 [INV-TAB-12])
         app.checkpoint_active_tab_context();
 
         let was_in_thread = app.current_scene() == crate::shell::surfaces::SceneKind::Thread;
-        app.surfaces.select_tab(index);
+        app.surfaces.surfaces.select_tab(index);
         match &target_tab.kind {
             crate::shell::surfaces::TabKind::Thread(id) => {
                 if id != viewed_session_id {
-                    app.switch_to_target = Some(id.clone());
-                    app.should_quit.store(true, Ordering::SeqCst);
+                    app.surfaces.switch_to_target = Some(id.clone());
+                    app.link.should_quit.store(true, Ordering::SeqCst);
                     return ActionFlow::Exit;
                 } else {
                     if !was_in_thread {
                         enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
                     }
                     app.restore_active_tab_context();
-                    app.selection = SelectionState::None;
+                    app.transcript.selection = SelectionState::None;
                 }
             }
             crate::shell::surfaces::TabKind::Dashboard => {
@@ -67,30 +67,29 @@ pub(crate) fn activate_tab_at_index(
 
 /// Close active tab and automatically activate the next tab according to MRU history,
 /// re-attaching or refreshing the focused scene.
-
 pub(crate) fn handle_close_tab(
     app: &mut App,
     runtime: &UiRuntime,
     viewed_session_id: &str,
 ) -> ActionFlow {
-    let active_idx = app.surfaces.active_tab_index();
+    let active_idx = app.surfaces.surfaces.active_tab_index();
     app.close_tab(active_idx);
-    if app.surfaces.tabs().is_empty() {
+    if app.surfaces.surfaces.tabs().is_empty() {
         tracing::info!(reason = "close_last_tab", "client detaching");
         return ActionFlow::Exit;
     }
 
-    if let Some(target_tab) = app.surfaces.active_tab().cloned() {
+    if let Some(target_tab) = app.surfaces.surfaces.active_tab().cloned() {
         match &target_tab.kind {
             crate::shell::surfaces::TabKind::Thread(id) => {
                 if id != viewed_session_id {
-                    app.switch_to_target = Some(id.clone());
-                    app.should_quit.store(true, Ordering::SeqCst);
+                    app.surfaces.switch_to_target = Some(id.clone());
+                    app.link.should_quit.store(true, Ordering::SeqCst);
                     return ActionFlow::Exit;
                 } else {
                     enter_scene(app, crate::shell::surfaces::SceneKind::Thread, runtime);
                     app.restore_active_tab_context();
-                    app.selection = SelectionState::None;
+                    app.transcript.selection = SelectionState::None;
                 }
             }
             crate::shell::surfaces::TabKind::Dashboard => {

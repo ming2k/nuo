@@ -5,10 +5,10 @@ use super::*;
 #[test]
 fn test_delete_selected_history_entry_and_cascade() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-test".to_string();
+    app.session.current_session_id = "session-test".to_string();
 
     // 1. Setup 3 history entries
-    app.input_history = vec![
+    app.composer.input_history = vec![
         nuo_protocol::HistoryEntry::new(
             "first entry".into(),
             Some("session-test".into()),
@@ -29,7 +29,7 @@ fn test_delete_selected_history_entry_and_cascade() {
         ),
     ];
     // Backfill has target entry
-    app.session_history_backfill = vec![
+    app.composer.session_history_backfill = vec![
         nuo_protocol::HistoryEntry::new(
             "target entry".into(),
             Some("session-test".into()),
@@ -45,18 +45,21 @@ fn test_delete_selected_history_entry_and_cascade() {
     ];
     // Attachments has target entry
     let identity = ("target entry".to_string(), Some("session-test".to_string()));
-    app.history_attachments.insert(
+    app.composer.history_attachments.insert(
         identity.clone(),
         crate::shell::app::HistoryAttachments {
             images: vec![],
             text_pastes: vec!["some paste".into()],
         },
     );
-    app.history_attachments_order.push_back(identity.clone());
+    app.composer
+        .history_attachments_order
+        .push_back(identity.clone());
 
     // History order newest first: "third entry" (idx 2), "target entry" (idx 1), "first entry" (idx 0).
     // Let's select row 1 ("target entry")
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
         .index = 1;
     let removed = app.delete_selected_history_entry();
@@ -65,20 +68,34 @@ fn test_delete_selected_history_entry_and_cascade() {
     assert_eq!(removed.text, "target entry");
 
     // Verify removed from input_history
-    assert_eq!(app.input_history.len(), 2);
-    assert!(!app.input_history.iter().any(|e| e.text == "target entry"));
+    assert_eq!(app.composer.input_history.len(), 2);
+    assert!(
+        !app.composer
+            .input_history
+            .iter()
+            .any(|e| e.text == "target entry")
+    );
 
     // Verify pruned from session_history_backfill
-    assert_eq!(app.session_history_backfill.len(), 1);
-    assert_eq!(app.session_history_backfill[0].text, "other backfill");
+    assert_eq!(app.composer.session_history_backfill.len(), 1);
+    assert_eq!(
+        app.composer.session_history_backfill[0].text,
+        "other backfill"
+    );
 
     // Verify pruned from history_attachments and order
-    assert!(!app.history_attachments.contains_key(&identity));
-    assert!(!app.history_attachments_order.iter().any(|k| k == &identity));
+    assert!(!app.composer.history_attachments.contains_key(&identity));
+    assert!(
+        !app.composer
+            .history_attachments_order
+            .iter()
+            .any(|k| k == &identity)
+    );
 
     // Verify the panel's index is clamped
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
             .index,
         1
@@ -86,11 +103,12 @@ fn test_delete_selected_history_entry_and_cascade() {
 
     // Delete remaining entries
     app.delete_selected_history_entry();
-    assert_eq!(app.input_history.len(), 1);
+    assert_eq!(app.composer.input_history.len(), 1);
     app.delete_selected_history_entry();
-    assert_eq!(app.input_history.len(), 0);
+    assert_eq!(app.composer.input_history.len(), 0);
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
             .index,
         0
@@ -201,12 +219,14 @@ fn test_shift_delete_and_bare_delete_dispatch() {
 #[tokio::test]
 async fn test_history_delete_selected_action_dispatch() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history.push(nuo_protocol::HistoryEntry::new(
-        "entry 1".to_string(),
-        Some("s1".to_string()),
-        None,
-        100,
-    ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "entry 1".to_string(),
+            Some("s1".to_string()),
+            None,
+            100,
+        ));
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let flow = crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -217,7 +237,7 @@ async fn test_history_delete_selected_action_dispatch() {
     )
     .await;
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
-    assert_eq!(app.input_history.len(), 0);
+    assert_eq!(app.composer.input_history.len(), 0);
 }
 
 #[test]
@@ -298,9 +318,10 @@ async fn test_ctrl_c_in_history_search() {
     );
 
     // Case 1: Filter query is non-empty -> Ctrl+C clears the filter and resets cursor
-    app.input = "my search query".to_string();
-    app.cursor_position = 5;
+    app.composer.input = "my search query".to_string();
+    app.composer.cursor_position = 5;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
         .index = 2;
 
@@ -314,9 +335,10 @@ async fn test_ctrl_c_in_history_search() {
         app.active_dialog(),
         Some(crate::shell::surfaces::DialogKind::HistorySearch)
     );
-    assert_eq!(app.input, "");
+    assert_eq!(app.composer.input, "");
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
             .index,
         0

@@ -80,7 +80,11 @@ pub(super) async fn ship_queued_follow_ups(
             // The queue's target is not this driver's session: the items can
             // never ship from here, so drop them and say so.
             followup_queue.clear(&target_id);
-            crate::handlers::handlers_chat::emit_queue_snapshot(resp_tx, followup_queue, &target_id);
+            crate::handlers::handlers_chat::emit_queue_snapshot(
+                resp_tx,
+                followup_queue,
+                &target_id,
+            );
             continue;
         }
         if lifecycle.is_running().await || followup_queue.is_paused(&target_id) {
@@ -191,8 +195,8 @@ pub(super) async fn recover_crashed_round(
     records: Vec<nuo_protocol::RequestUsageRecord>,
     now_ms: u64,
 ) -> CrashResidue {
-    use nuo_protocol::{RequestUsageStatus};
-    use nuo_tool::{Role};
+    use nuo_protocol::RequestUsageStatus;
+    use nuo_tool::Role;
 
     let mut residue = CrashResidue::default();
     let Some(latest) = records

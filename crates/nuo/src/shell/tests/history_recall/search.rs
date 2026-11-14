@@ -18,7 +18,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
             ts,
         )
     };
-    app.input_history = vec![
+    app.composer.input_history = vec![
         mk("scatter", "s1", 10),     // idx 0 — 'cat' mid-word, lowest score
         mk("catalog", "s1", 20),     // idx 1 — 'cat' at boundary, high score
         mk("cargo build", "s1", 30), // idx 2 — 'cat' is not a subsequence
@@ -26,7 +26,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     ];
 
     // Empty query → newest-first by timestamp, score 0, no highlights.
-    app.input.clear();
+    app.composer.input.clear();
     let rows = app.history_rows();
     let indices: Vec<usize> = rows.iter().map(|(i, _)| *i).collect();
     assert_eq!(indices, vec![3, 2, 1, 0], "newest first by timestamp");
@@ -39,7 +39,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
     // "cargo build" (no 't' after the 'ca'). Boundary matches outrank
     // scatter; among the tied boundary matches the newest-first order wins
     // (idx 3 "the cat sat" ts=40 before idx 1 "catalog" ts=20).
-    app.input = "cat".to_string();
+    app.composer.input = "cat".to_string();
     let rows = app.history_rows();
     let indices: Vec<usize> = rows.iter().map(|(i, _)| *i).collect();
     assert_eq!(
@@ -54,7 +54,7 @@ fn history_rows_lists_newest_first_then_ranks_search() {
 
     // Query with no subsequence match → empty list (the renderer turns this
     // into the "no matches" placeholder).
-    app.input = "xyz".to_string();
+    app.composer.input = "xyz".to_string();
     assert!(app.history_rows().is_empty());
 }
 
@@ -62,52 +62,60 @@ fn history_rows_lists_newest_first_then_ranks_search() {
 fn history_modal_never_borrows_the_draft_and_resets_its_own_query() {
     // `[INV-HIST-03]`: draft is stashed on open and restored on dismiss.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "my draft".to_string();
-    app.cursor_position = "my draft".chars().count();
+    app.composer.input = "my draft".to_string();
+    app.composer.cursor_position = "my draft".chars().count();
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
-    assert_eq!(app.input, "", "composer input cleared for search query");
     assert_eq!(
-        app.draft_capsule.text, "my draft",
+        app.composer.input, "",
+        "composer input cleared for search query"
+    );
+    assert_eq!(
+        app.composer.draft_capsule.text, "my draft",
         "composer draft stashed in capsule"
     );
-    app.input = "git".to_string();
+    app.composer.input = "git".to_string();
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
         .index = 4;
 
     assert!(app.dismiss_surface());
 
-    assert_eq!(app.input, "my draft", "composer draft restored");
-    assert_eq!(app.cursor_position, "my draft".chars().count());
-    assert!(app.surfaces.active_overlay().is_none());
+    assert_eq!(app.composer.input, "my draft", "composer draft restored");
+    assert_eq!(app.composer.cursor_position, "my draft".chars().count());
+    assert!(app.surfaces.surfaces.active_overlay().is_none());
 }
 
 #[test]
 fn history_insert_clears_search_query_buffer_and_places_entry() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input_history.push(nuo_protocol::HistoryEntry::new(
-        "history row 1".to_string(),
-        Some("s1".to_string()),
-        None,
-        100,
-    ));
-    app.input_history.push(nuo_protocol::HistoryEntry::new(
-        "history row 2".to_string(),
-        Some("s1".to_string()),
-        None,
-        200,
-    ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "history row 1".to_string(),
+            Some("s1".to_string()),
+            None,
+            100,
+        ));
+    app.composer
+        .input_history
+        .push(nuo_protocol::HistoryEntry::new(
+            "history row 2".to_string(),
+            Some("s1".to_string()),
+            None,
+            200,
+        ));
 
-    app.input = "draft before search".to_string();
+    app.composer.input = "draft before search".to_string();
     app.open_dialog(crate::shell::surfaces::DialogKind::HistorySearch);
-    app.input = "row".to_string();
+    app.composer.input = "row".to_string();
 
     // Simulate HistoryInsert action (Tab / Enter accept)
     let ranked = app.history_rows();
     let pick = ranked.first();
     assert!(pick.is_some());
     let (orig_idx, _) = *pick.unwrap();
-    let text = app.input_history[orig_idx].text.clone();
+    let text = app.composer.input_history[orig_idx].text.clone();
     app.adopt_as_draft(
         text,
         vec![],
@@ -116,23 +124,24 @@ fn history_insert_clears_search_query_buffer_and_places_entry() {
     );
     app.clear_stashed_draft();
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
         .index = 0;
-    app.surfaces.dismiss_all_overlays();
+    app.surfaces.surfaces.dismiss_all_overlays();
 
     // Composer now holds the selected history entry, not the search query or old draft
-    assert_eq!(app.input, "history row 2");
+    assert_eq!(app.composer.input, "history row 2");
 }
 
 #[test]
 fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "live-session".to_string();
+    app.session.current_session_id = "live-session".to_string();
 
     let hour_ms = 3_600_000;
     let base_time = 1_000_000_000;
 
-    app.input_history = vec![
+    app.composer.input_history = vec![
         // Scattered acronym initials across sentence: "all dogs run in the park" (ts: newest!)
         nuo_protocol::HistoryEntry::new(
             "all dogs run in the park".into(),
@@ -163,25 +172,31 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
         ),
     ];
 
-    app.input = "adr".to_string();
+    app.composer.input = "adr".to_string();
     let rows = app.history_rows();
     assert_eq!(rows.len(), 4, "all 4 match the subsequence 'adr'");
 
     // Row 0: "review the adr now" (exact word + current session + newest)
-    assert_eq!(app.input_history[rows[0].0].text, "review the adr now");
+    assert_eq!(
+        app.composer.input_history[rows[0].0].text,
+        "review the adr now"
+    );
 
     // Row 1: "let's write the adr" (exact word, older)
-    assert_eq!(app.input_history[rows[1].0].text, "let's write the adr");
+    assert_eq!(
+        app.composer.input_history[rows[1].0].text,
+        "let's write the adr"
+    );
 
     // Row 2: "adroit approach to problems" (word prefix)
     assert_eq!(
-        app.input_history[rows[2].0].text,
+        app.composer.input_history[rows[2].0].text,
         "adroit approach to problems"
     );
 
     // Row 3: "all dogs run in the park" (scattered acronym, MUST be lowest rank despite newer timestamp!)
     assert_eq!(
-        app.input_history[rows[3].0].text,
+        app.composer.input_history[rows[3].0].text,
         "all dogs run in the park"
     );
 
@@ -193,19 +208,19 @@ fn test_history_ranking_prefers_exact_word_over_scattered_and_applies_recency() 
 #[tokio::test]
 async fn ctrl_c_clears_history_recall_and_resets_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     app.record_input_history("prior command".to_string(), Vec::new(), Vec::new());
     let rows = app.current_session_history();
 
-    app.input = "draft text".to_string();
+    app.composer.input = "draft text".to_string();
     assert!(app.history_prev(&rows));
-    assert_eq!(app.input, "prior command");
-    assert!(app.history_index.is_some());
-    assert_eq!(app.draft_capsule.text, "draft text");
+    assert_eq!(app.composer.input, "prior command");
+    assert!(app.composer.history_index.is_some());
+    assert_eq!(app.composer.draft_capsule.text, "draft text");
 
     // Edit the recalled text
-    app.input.push_str(" --flag");
+    app.composer.input.push_str(" --flag");
 
     let (copy_tx, _copy_rx) = tokio::sync::mpsc::unbounded_channel();
     let copy_pending = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -213,7 +228,7 @@ async fn ctrl_c_clears_history_recall_and_resets_draft() {
     // Pressing Ctrl-C clears the recalled / edited text and exits recall mode
     crate::shell::event_loop::handle_ctrl_c(&mut app, "session-a", &copy_tx, &copy_pending);
 
-    assert_eq!(app.input, "");
-    assert_eq!(app.history_index, None);
-    assert_eq!(app.draft_capsule.text, "");
+    assert_eq!(app.composer.input, "");
+    assert_eq!(app.composer.history_index, None);
+    assert_eq!(app.composer.draft_capsule.text, "");
 }

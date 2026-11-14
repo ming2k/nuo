@@ -5,7 +5,6 @@ use nuotc::{
 
 use nuo_tool::{PermissionRequest, UserQuestionRequest};
 
-
 use crate::shell::render::Theme;
 use crate::shell::ui::ComponentTree;
 use nuo_ui_primitives::components::options::{
@@ -50,46 +49,17 @@ pub fn permission_action_count(confirm_always: bool, one_off: bool) -> usize {
 /// all answers on the final page. A numbered digit key (1-9) jumps directly to
 /// an option; Shift+Tab returns to the previous question.
 const OTHER_OPTION_LABEL: &str = "Other";
+const OTHER_FIELD_INDENT: usize = 2;
 
 #[allow(clippy::too_many_arguments)] // modal draw fns thread many context args by nature
-pub fn draw_question_modal(
-    frame: &mut Frame,
-    hit_map: &mut ComponentTree,
+fn question_modal_demand(
     request: &UserQuestionRequest,
     current_question: usize,
     selected: &[Vec<usize>],
     other_text: &[String],
-    highlighted: usize,
-    scroll: &mut usize,
-    follow_highlight: bool,
-    queue_depth: usize,
-    slot: Rect,
-    // The frame-level caret verdict: `true` only while this sheet is
-    // the layer that owns the physical cursor. The sheet never places the
-    // cursor on its own authority.
-    show_caret: bool,
-    theme: &Theme,
-) -> nuotc::Rect {
-    // The minimum body height that keeps the sheet usable. Below this the
-    // body paints zero (or highlight-starved) rows — the "blank sheet that
-    // eats every keypress" failure — so the frame falls back to a
-    // centered panel sized for the content instead.
-    const MIN_BODY_ROWS: u16 = 2;
-    // The question sheet is anchored to the composer slot —
-    // the same bottom edge, extended over the hint bar — not centered over
-    // the surface. The body scrolls within whatever height the slot leaves.
-    //
-    // The slot's height is only partially ours to spend: a sheet pinned
-    // over the hint bar leaves just the composer's raw height, and the
-    // frame's header/footer/padding chrome is deducted from it. A request
-    // with a header row, a multi-line question, or descriptions per option
-    // does not fit in that budget, and the body would open at (or below)
-    // zero rows — a blank, key-dead sheet. Measure the demand first
-    // (mirroring the wrap passes the body build performs below) and grow
-    // the sheet upward into the transcript when the slot's budget falls
-    // short, capped at the terminal so the header always stays on screen.
-    let measure_width = slot.width.saturating_sub(2 * MODAL_INNER_H_PADDING).max(1) as usize;
-    let demand = request
+    measure_width: usize,
+) -> usize {
+    request
         .questions
         .get(current_question)
         .map(|q| {
@@ -139,7 +109,54 @@ pub fn draw_question_modal(
             .max(1);
             rows
         })
-        .unwrap_or(0);
+        .unwrap_or(0)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn draw_question_modal(
+    frame: &mut Frame,
+    hit_map: &mut ComponentTree,
+    request: &UserQuestionRequest,
+    current_question: usize,
+    selected: &[Vec<usize>],
+    other_text: &[String],
+    highlighted: usize,
+    scroll: &mut usize,
+    follow_highlight: bool,
+    queue_depth: usize,
+    slot: Rect,
+    // The frame-level caret verdict: `true` only while this sheet is
+    // the layer that owns the physical cursor. The sheet never places the
+    // cursor on its own authority.
+    show_caret: bool,
+    theme: &Theme,
+) -> nuotc::Rect {
+    // The minimum body height that keeps the sheet usable. Below this the
+    // body paints zero (or highlight-starved) rows — the "blank sheet that
+    // eats every keypress" failure — so the frame falls back to a
+    // centered panel sized for the content instead.
+    const MIN_BODY_ROWS: u16 = 2;
+    // The question sheet is anchored to the composer slot —
+    // the same bottom edge, extended over the hint bar — not centered over
+    // the surface. The body scrolls within whatever height the slot leaves.
+    //
+    // The slot's height is only partially ours to spend: a sheet pinned
+    // over the hint bar leaves just the composer's raw height, and the
+    // frame's header/footer/padding chrome is deducted from it. A request
+    // with a header row, a multi-line question, or descriptions per option
+    // does not fit in that budget, and the body would open at (or below)
+    // zero rows — a blank, key-dead sheet. Measure the demand first
+    // (mirroring the wrap passes the body build performs below) and grow
+    // the sheet upward into the transcript when the slot's budget falls
+    // short, capped at the terminal so the header always stays on screen.
+    let measure_width = slot.width.saturating_sub(2 * MODAL_INNER_H_PADDING).max(1) as usize;
+    let demand = question_modal_demand(
+        request,
+        current_question,
+        selected,
+        other_text,
+        measure_width,
+    );
     let content_h = demand.min(u16::MAX as usize) as u16;
     let terminal_bottom = frame.area().bottom();
     let slot_bottom = slot.y.saturating_add(slot.height).min(terminal_bottom);
@@ -237,7 +254,6 @@ pub fn draw_question_modal(
     // glyph (1 col) plus one gap col, matching the `"› "` prefix passed to
     // `push_wrapped_styled`. Continuation rows use the same 2 columns so
     // wrapped lines stay aligned under the prompt.
-    const OTHER_FIELD_INDENT: usize = 2;
     let other_highlighted = question.is_some_and(|q| highlighted == q.options.len());
     if let Some(q) = question {
         if let Some(header) = &q.header {

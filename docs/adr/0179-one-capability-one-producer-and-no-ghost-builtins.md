@@ -15,7 +15,7 @@ negative_knowledge: true
 - Deciders: Nuo Architecture Working Group
 - Consulted: Tool Runtime, Agent Assembly, Skill Registry, Persistence, Presentation
 - Complements: [ADR-0176](0176-read-is-one-capability-with-bounded-content-dispatch.md),
-  [ADR-0008](0008-single-tool-contract.md), [ADR-0064](0064-developer-tool-scope.md)
+  [ADR-0008](0008-single-tool-contract.md), [ADR-0064](0064-orthogonal-agent-tool-surface-meta-tool-pruning-and-mutation-topology.md)
 
 ---
 
@@ -82,7 +82,7 @@ the `skill` subagent role, which is the implemented design.
 ### 4. Scope is not production
 
 `ask_user` and `todo` are installed/registered and deliberately excluded from
-the developer/ops allowlists ([ADR-0064](0064-developer-tool-scope.md)).
+the developer/ops allowlists ([ADR-0064](0064-orthogonal-agent-tool-surface-meta-tool-pruning-and-mutation-topology.md)).
 `code_query` is admitted only to the explore/debug subagents; `recall_memory`
 only to the philosophist role. These are scope policies, not ghosts. Removing a
 tool because a role does not admit it would confuse the two axes.

@@ -6,15 +6,15 @@
 //! unique to its wire format.
 use std::sync::Arc;
 
-use nuo_protocol::auth::{CredentialSource, ResolvedAuth, static_credential};
 use nuo_host::SecretString;
+use nuo_protocol::auth::{CredentialSource, ResolvedAuth, static_credential};
 
 /// The connection fields every provider shares.
 ///
 /// A provider-specific struct embeds this as `pub endpoint: Endpoint` and adds
 /// only its wire-format-unique fields (e.g. Anthropic's `max_tokens` /
 /// `thinking`). `id` is the stable provider/solution id surfaced via
-/// [`crate::capability::Provider::provider_id`] so assistant responses can be
+/// [`nuo_protocol::capability::Provider::provider_id`] so assistant responses can be
 /// attributed to the logical channel even after a mid-session switch.
 #[derive(Clone)]
 pub struct Endpoint {

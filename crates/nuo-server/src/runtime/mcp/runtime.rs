@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use nuo_protocol::DynamicToolSink;
 use nuo_protocol::mcp::{McpConnectionStatus, McpServerConfig};
-use nuo_protocol::{DynamicToolSink};
-use nuo_tool::{Tool};
+use nuo_tool::Tool;
 
 use tokio::sync::Mutex;
 

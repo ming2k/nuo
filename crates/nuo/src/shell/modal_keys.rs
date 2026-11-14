@@ -116,6 +116,53 @@ pub fn modal_swallows_printable(overlay: Option<OverlaySurface>, keys: &ModalKey
         && matches!(keys.editor_field, Some(2..=4))
 }
 
+fn resolve_enter_action(
+    overlay: Option<OverlaySurface>,
+    scene: SceneKind,
+    keys: &ModalKeys,
+) -> Option<InputAction> {
+    if let Some(overlay) = overlay {
+        Some(match overlay {
+            OverlaySurface::Dialog(DialogKind::Models) => InputAction::ProviderPickerActivate,
+            OverlaySurface::Dialog(DialogKind::Connections) if keys.connection_info_detail => {
+                InputAction::BrowseConnectionModels
+            }
+            OverlaySurface::Dialog(DialogKind::Connections) => InputAction::OpenConnectionDetail,
+            OverlaySurface::Sheet(SheetKind::ModelEditor) => InputAction::SubmitModelEditor,
+            OverlaySurface::Sheet(SheetKind::ProviderPreset) => InputAction::SelectPreset,
+            OverlaySurface::Sheet(SheetKind::OAuthPending) => InputAction::CopyOauthContent {
+                target: OauthCopyTarget::Selected,
+            },
+            OverlaySurface::Sheet(SheetKind::CustomProvider) => InputAction::SubmitCustomProvider,
+            OverlaySurface::Dialog(DialogKind::Threads) if keys.session_info_detail => {
+                return None;
+            }
+            OverlaySurface::Dialog(DialogKind::Threads) => InputAction::OpenSelectedSession,
+            OverlaySurface::Dialog(DialogKind::Tools) if !keys.tools_info_detail => {
+                InputAction::OpenToolDetail
+            }
+            OverlaySurface::Dialog(DialogKind::Tools) => return None,
+            OverlaySurface::Dialog(
+                DialogKind::Mcp
+                | DialogKind::Permissions
+                | DialogKind::SessionTree
+                | DialogKind::UsageStats,
+            ) => InputAction::CloseModal,
+            OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasToggleDetail,
+            OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
+            OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
+            OverlaySurface::Dialog(DialogKind::SessionTrace) => InputAction::TraceInspectDetail,
+            _ => return None,
+        })
+    } else {
+        match scene {
+            SceneKind::Dashboard => Some(InputAction::HostPreviewSelected),
+            SceneKind::Settings => Some(InputAction::ConfigActivate),
+            _ => None,
+        }
+    }
+}
+
 /// Resolve a key an overlay or scene owns.
 pub(crate) fn resolve_modal_key(
     overlay: Option<OverlaySurface>,
@@ -189,58 +236,7 @@ pub(crate) fn resolve_modal_key(
 
     match key.code {
         KeyCode::Enter if !key.modifiers.contains(KeyModifiers::ALT) => {
-            return Some(if let Some(overlay) = overlay {
-                match overlay {
-                    OverlaySurface::Dialog(DialogKind::Models) => {
-                        InputAction::ProviderPickerActivate
-                    }
-                    OverlaySurface::Dialog(DialogKind::Connections)
-                        if keys.connection_info_detail =>
-                    {
-                        InputAction::BrowseConnectionModels
-                    }
-                    OverlaySurface::Dialog(DialogKind::Connections) => {
-                        InputAction::OpenConnectionDetail
-                    }
-                    OverlaySurface::Sheet(SheetKind::ModelEditor) => InputAction::SubmitModelEditor,
-                    OverlaySurface::Sheet(SheetKind::ProviderPreset) => InputAction::SelectPreset,
-                    OverlaySurface::Sheet(SheetKind::OAuthPending) => {
-                        InputAction::CopyOauthContent {
-                            target: OauthCopyTarget::Selected,
-                        }
-                    }
-                    OverlaySurface::Sheet(SheetKind::CustomProvider) => {
-                        InputAction::SubmitCustomProvider
-                    }
-                    OverlaySurface::Dialog(DialogKind::Threads) if keys.session_info_detail => {
-                        return None;
-                    }
-                    OverlaySurface::Dialog(DialogKind::Threads) => InputAction::OpenSelectedSession,
-                    OverlaySurface::Dialog(DialogKind::Tools) if !keys.tools_info_detail => {
-                        InputAction::OpenToolDetail
-                    }
-                    OverlaySurface::Dialog(DialogKind::Tools) => return None,
-                    OverlaySurface::Dialog(
-                        DialogKind::Mcp
-                        | DialogKind::Permissions
-                        | DialogKind::SessionTree
-                        | DialogKind::UsageStats,
-                    ) => InputAction::CloseModal,
-                    OverlaySurface::Dialog(DialogKind::Quotas) => InputAction::QuotasToggleDetail,
-                    OverlaySurface::Dialog(DialogKind::Skills) => InputAction::SkillsToggleDetail,
-                    OverlaySurface::Dialog(DialogKind::Queue) => InputAction::RecallQueuedSelected,
-                    OverlaySurface::Dialog(DialogKind::SessionTrace) => {
-                        InputAction::TraceInspectDetail
-                    }
-                    _ => return None,
-                }
-            } else {
-                match scene {
-                    SceneKind::Dashboard => InputAction::HostPreviewSelected,
-                    SceneKind::Settings => InputAction::ConfigActivate,
-                    _ => return None,
-                }
-            });
+            return resolve_enter_action(overlay, scene, keys);
         }
         KeyCode::Up
             if !(key.modifiers.contains(KeyModifiers::CONTROL)

@@ -2,7 +2,7 @@ use std::sync::{OnceLock, RwLock};
 
 use async_trait::async_trait;
 use nuo_protocol::{SharedWebConfig, WebRuntimeConfig, WebSearchProvider};
-use nuo_tool::{Tool};
+use nuo_tool::Tool;
 
 use nuo_tool::{BuiltinTool, ToolSchema};
 use serde::Deserialize;

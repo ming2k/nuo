@@ -38,9 +38,11 @@ use nuo_persistence::{
     config::Config,
     thread::{CommitBasis, ContextProjectionCheckpoint, ContextProjectionResult, ThreadSession},
 };
-use nuo_protocol::{AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, LoopStatus, ModelRequest, Provider, ProviderStreamEvent, RoundEvent, RoundScope, TurnContext};
+use nuo_protocol::{
+    AgentEvent, AgentResponse, HarnessError, HarnessSnapshot, LoopStatus, ModelRequest, Provider,
+    ProviderStreamEvent, RoundEvent, RoundScope, TurnContext,
+};
 use nuo_tool::{ImagePart, InjectionKind, Message, NoticeKind, NoticeSeverity, NoticeSource, Role};
-
 
 /// Wrap a session-scoped [`RoundEvent`] in the [`AgentResponse::Round`]
 /// envelope. Every round-scoped emitter routes through this so the

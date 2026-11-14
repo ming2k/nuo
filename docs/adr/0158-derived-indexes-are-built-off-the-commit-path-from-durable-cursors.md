@@ -14,7 +14,7 @@ negative_knowledge: true
 - Date: 2026-11-07
 - Deciders: Nuo Architecture Working Group
 - Consulted: Storage Engine, Agent Runtime, Retrieval, Performance Engineering
-- Amends: [ADR-0048](0048-mid-round-save-points-and-durable-replay.md) (save-point cadence stands; what a save writes is narrowed here)
+- Amends: [ADR-0048](0048-cli-architecture-modernization-resource-symmetry-and-application-observability-topology.md) (save-point cadence stands; what a save writes is narrowed here)
 - Complements: [ADR-0155](0155-turn-persistence-is-o-delta-and-storage-maintenance-never-blocks-the-writer.md), [ADR-0157](0157-provider-calls-borrow-the-assembled-request.md)
 
 ---

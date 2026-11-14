@@ -59,6 +59,7 @@ impl Agent {
     /// (unspecified), matching the trait default.
     pub(crate) fn tool_target_is_unspecified(&self, name: &str, arguments: &str) -> bool {
         match self
+            .tools
             .resolved_tools
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -264,7 +265,8 @@ impl Agent {
         if posture == nuo_protocol::human_request::HumanChannelPosture::Autonomous {
             return match self.autonomous_fallback_policy() {
                 nuo_protocol::human_request::AutonomousFallbackPolicy::FailClosed => {
-                    self.human_broker
+                    self.control
+                        .human_broker
                         .metrics_note_refused(HumanRequestKind::Question);
                     ToolOutput::Text(
                         "ask_user is unavailable: no human channel is attached to this \
@@ -292,7 +294,7 @@ impl Agent {
                         request_id: request.id.clone(),
                         answers,
                     };
-                    let settled = self.human_broker.settle_by_policy_owned(
+                    let settled = self.control.human_broker.settle_by_policy_owned(
                         request.id.clone(),
                         HumanReply::Question(Some(reply.clone())),
                         nuo_protocol::human_request::AutonomousFallbackPolicy::RecommendedLabeled,
@@ -312,6 +314,7 @@ impl Agent {
         }
 
         let receiver = self
+            .control
             .human_broker
             .park(request.id.clone(), HumanRequestKind::Question);
         tracing::info!(questions = request.questions.len(), "asking user");
@@ -365,7 +368,8 @@ impl Agent {
         // Posture gate: with no human channel there is nobody to type
         // into the panel; do not park.
         if self.human_posture() == HumanChannelPosture::Autonomous {
-            self.human_broker
+            self.control
+                .human_broker
                 .metrics_note_refused(HumanRequestKind::Stdin);
             tracing::info!("autonomous posture: runtime input refused");
             return None;
@@ -377,6 +381,7 @@ impl Agent {
             secret: prompt.secret,
         };
         let receiver = self
+            .control
             .human_broker
             .park(request.id.clone(), HumanRequestKind::Stdin);
         tracing::info!(
@@ -450,7 +455,7 @@ impl Agent {
         // ADR-0166: the call id is the call's identity — there is no second,
         // dispatch-local id to thread alongside it.
         let call_id = call.id.as_str();
-        let tool: Arc<dyn Tool> = match self.tool_manager.find(&call.name) {
+        let tool: Arc<dyn Tool> = match self.tools.tool_manager.find(&call.name) {
             Some(sourced) => sourced.tool,
             None => {
                 return ToolOutput::Error {
@@ -476,11 +481,13 @@ impl Agent {
         // they must not live across the `.await`.
         let (disabled_snapshot, scoped_snapshot) = {
             let disabled = self
+                .tools
                 .disabled_tools
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .clone();
             let scoped = self
+                .tools
                 .scoped_disabled_tools
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -504,7 +511,10 @@ impl Agent {
             nuo_guardrails::permission_policy::PolicyDecision::Deny { output, .. } => {
                 return output;
             }
-            nuo_guardrails::permission_policy::PolicyDecision::MissingAuthority { request, rule } => {
+            nuo_guardrails::permission_policy::PolicyDecision::MissingAuthority {
+                request,
+                rule,
+            } => {
                 if self.unattended() {
                     // Under unattended mode, missing authority is auto-approved.
                 } else {
@@ -524,7 +534,8 @@ impl Agent {
                     // an interactive watcher attached, so this is the belt to
                     // that braces.)
                     if self.human_posture() == HumanChannelPosture::Autonomous {
-                        self.human_broker
+                        self.control
+                            .human_broker
                             .metrics_note_refused(HumanRequestKind::Permission);
                         tracing::warn!(
                             tool = %request.tool,
@@ -533,6 +544,7 @@ impl Agent {
                         return permission_required_output(&request);
                     }
                     let receiver = self
+                        .control
                         .human_broker
                         .park(request.id.clone(), HumanRequestKind::Permission);
                     let parked_at = std::time::Instant::now();
@@ -552,7 +564,7 @@ impl Agent {
                         }
                         PermissionDecision::Session => {
                             tracing::info!(tool = %tool.name(), decision = "session", "permission granted for current session");
-                            self.permissions.add_session(rule);
+                            self.context.permissions.add_session(rule);
                         }
                         PermissionDecision::Always => {
                             if one_off {
@@ -569,7 +581,7 @@ impl Agent {
                                 );
                             } else {
                                 tracing::info!(tool = %tool.name(), decision = "always", "permission granted permanently for workspace");
-                                self.permissions.add_always(rule);
+                                self.context.permissions.add_always(rule);
                             }
                         }
                         PermissionDecision::Reject => {
@@ -752,8 +764,7 @@ impl Agent {
             tokio::select! {
                 biased;
                 _ = cancel.cancelled() => {
-                    let cancellable = self
-                        .tool_manager
+                    let cancellable = self.tools.tool_manager
                         .find(&call.name)
                         .is_some_and(|sourced| sourced.tool.supports_cooperative_cancel());
                     if !cancellable {
@@ -773,7 +784,7 @@ impl Agent {
                     // future against a bounded grace period. The subagent stops
                     // at its next safe boundary and returns its partial
                     // transcript as a terminal result.
-                    if let Some(sourced) = self.tool_manager.find(&call.name) {
+                    if let Some(sourced) = self.tools.tool_manager.find(&call.name) {
                         sourced.tool.request_cancel(call_id);
                     }
                     let grace = tokio::time::sleep(SUBAGENT_DRAIN_GRACE);
@@ -837,13 +848,14 @@ impl Agent {
     /// serializing an error.
     pub(crate) fn accesses_for_call(&self, call: &ToolCall) -> nuo_tool::ToolAccesses {
         let tool: Option<Arc<dyn Tool>> = self
+            .tools
             .resolved_tools
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .find(|t| t.matches_name(&call.name))
             .cloned()
-            .or_else(|| self.dynamic_tools.find(&call.name));
+            .or_else(|| self.tools.dynamic_tools.find(&call.name));
         match tool {
             Some(tool) => tool.accesses(&call.arguments),
             None => nuo_tool::ToolAccesses::none(),

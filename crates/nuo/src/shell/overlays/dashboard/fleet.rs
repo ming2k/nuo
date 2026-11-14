@@ -282,7 +282,6 @@ pub(crate) fn draw_fleet_table(
 }
 
 #[allow(clippy::too_many_arguments)]
-
 pub(crate) fn draw_thread_dossier(
     frame: &mut Frame,
     area: Rect,
@@ -310,8 +309,6 @@ pub(crate) fn draw_thread_dossier(
     render_scrollable(frame, body, lines, scroll, None, theme);
     body
 }
-
-/// Render the directives and receipts cockpit console log (ADR-0116, ADR-0129).
 
 pub(crate) fn draw_model_usage_view(
     frame: &mut Frame,

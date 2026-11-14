@@ -3,10 +3,9 @@
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-use nuo_protocol::{DynamicToolSink};
+use nuo_protocol::DynamicToolSink;
 
-use nuo_tool::{Tool};
-
+use nuo_tool::Tool;
 
 /// A deterministic snapshot entry carrying provenance beside the tool.
 pub(crate) struct DynamicToolEntry {

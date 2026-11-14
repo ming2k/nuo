@@ -28,10 +28,10 @@ fn apply_delta(scroll: &mut usize, delta: ScrollDelta) {
 }
 
 pub(super) fn scroll_delta(action: &InputAction, app: &crate::shell::App) -> Option<ScrollDelta> {
-    let page_step = if app.modal_body_height > 0 {
-        app.modal_body_height.saturating_sub(1).max(1) as isize
+    let page_step = if app.transcript.modal_body_height > 0 {
+        app.transcript.modal_body_height.saturating_sub(1).max(1) as isize
     } else {
-        app.view_height.saturating_sub(1).max(1) as isize
+        app.transcript.view_height.saturating_sub(1).max(1) as isize
     };
     match action {
         InputAction::ScrollUp => Some(ScrollDelta::Lines(-1)),
@@ -257,11 +257,11 @@ pub(super) fn handle_dialog_click(
                 return DialogOutcome::Consumed;
             }
             let projected = crate::shell::overlays::session::project_session_rows(
-                &app.sessions_overview,
+                &app.session.sessions_overview,
                 Some(&e.expanded),
             );
-            let visible = if app.modal_body_height > 0 {
-                app.modal_body_height as usize
+            let visible = if app.transcript.modal_body_height > 0 {
+                app.transcript.modal_body_height as usize
             } else {
                 10
             };
@@ -291,9 +291,13 @@ pub(super) fn handle_dialog_click(
                             app.send_intent(nuo_protocol::AgentRequest::DeleteThread {
                                 id: viewed_session_id.to_string(),
                             });
-                            let active_idx = app.surfaces.active_tab_index();
-                            if let Some(existing_pos) =
-                                app.surfaces.tabs().iter().position(|t| match &t.kind {
+                            let active_idx = app.surfaces.surfaces.active_tab_index();
+                            if let Some(existing_pos) = app
+                                .surfaces
+                                .surfaces
+                                .tabs()
+                                .iter()
+                                .position(|t| match &t.kind {
                                     crate::shell::surfaces::TabKind::Thread(tid) => {
                                         tid == &target_id
                                     }
@@ -306,15 +310,16 @@ pub(super) fn handle_dialog_click(
                                 } else {
                                     existing_pos
                                 };
-                                app.surfaces.select_tab(new_pos);
+                                app.surfaces.surfaces.select_tab(new_pos);
                             } else {
                                 app.replace_tab(active_idx, tab);
                             }
                         } else {
                             app.open_tab(tab);
                         }
-                        app.switch_to_target = Some(target_id);
-                        app.should_quit
+                        app.surfaces.switch_to_target = Some(target_id);
+                        app.link
+                            .should_quit
                             .store(true, std::sync::atomic::Ordering::SeqCst);
                     } else {
                         return DialogOutcome::Dismiss;
@@ -349,7 +354,12 @@ pub(super) fn handle_dialog_click(
                     && let Some(rm) = models.get(*row_idx)
                     && rm.usable
                 {
-                    let ready = app.key_status.get(&rm.provider_id).copied().unwrap_or(true);
+                    let ready = app
+                        .surfaces
+                        .key_status
+                        .get(&rm.provider_id)
+                        .copied()
+                        .unwrap_or(true);
                     crate::shell::event_loop::actions::activate_picked_model(
                         app,
                         rm.provider_id.clone(),
@@ -399,7 +409,11 @@ pub(super) fn handle_dialog_click(
         }
         DialogKind::Mcp => {
             let e = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
-            let count = app.session_context.as_ref().map_or(0, |s| s.mcp.len());
+            let count = app
+                .session
+                .session_context
+                .as_ref()
+                .map_or(0, |s| s.mcp.len());
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
                 e.index = target_idx;
@@ -412,7 +426,11 @@ pub(super) fn handle_dialog_click(
                 .as_any_mut()
                 .downcast_mut::<SkillsDialog>()
                 .expect("kind");
-            let count = app.session_context.as_ref().map_or(0, |s| s.skills.len());
+            let count = app
+                .session
+                .session_context
+                .as_ref()
+                .map_or(0, |s| s.skills.len());
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
                 let was_selected = e.index == target_idx;
@@ -434,6 +452,7 @@ pub(super) fn handle_dialog_click(
                 .downcast_mut::<PermissionsDialog>()
                 .expect("kind");
             let count = app
+                .session
                 .session_context
                 .as_ref()
                 .map_or(0, |s| s.permissions.len());
@@ -461,7 +480,7 @@ pub(super) fn handle_dialog_click(
                 .as_any_mut()
                 .downcast_mut::<SessionTreeDialog>()
                 .expect("kind");
-            let count = crate::shell::overlays::tree::flatten_tree(&app.session_tree).len();
+            let count = crate::shell::overlays::tree::flatten_tree(&app.session.session_tree).len();
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
                 e.index = target_idx;
@@ -474,7 +493,11 @@ pub(super) fn handle_dialog_click(
                 .as_any_mut()
                 .downcast_mut::<QuotasDialog>()
                 .expect("kind");
-            let count = app.provider_quotas.as_ref().map_or(0, |q| q.entries.len());
+            let count = app
+                .telemetry
+                .provider_quotas
+                .as_ref()
+                .map_or(0, |q| q.entries.len());
             let target_idx = e.scroll + visual_row;
             if target_idx < count {
                 let was_selected = e.index == target_idx;
@@ -512,20 +535,21 @@ pub(super) fn handle_dialog_click(
                 has_overlay: true,
                 active_dialog: app
                     .surfaces
+                    .surfaces
                     .underlying_dialog()
                     .or_else(|| app.active_dialog()),
                 is_responding: app.viewed_chrome().responding,
-                has_selection: !matches!(app.selection, SelectionState::None),
+                has_selection: !matches!(app.transcript.selection, SelectionState::None),
                 has_running_task: app.viewed_chrome().responding,
                 has_notices: !!app.has_notices(),
-                has_focused_entry: app.focus.entry().is_some(),
+                has_focused_entry: app.transcript.focus.entry().is_some(),
                 queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             };
             let entries = crate::shell::overlays::command_palette::filter_palette_commands(
                 &e.query.text,
-                &app.recent_commands,
+                &app.composer.recent_commands,
                 &app_ctx,
             );
             let target_idx = e.scroll + visual_row;
@@ -542,7 +566,7 @@ pub(super) fn handle_dialog_click(
                 .expect("kind");
             let target_line = e.scroll + visual_row;
             if let Some(Some(action_kind)) = e.actions.get(target_line) {
-                app.pending_help_action = Some(*action_kind);
+                app.surfaces.pending_help_action = Some(*action_kind);
                 return DialogOutcome::Dismiss;
             }
             DialogOutcome::Consumed

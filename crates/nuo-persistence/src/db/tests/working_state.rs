@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn digest_anchor_and_generation_round_trip() {
     use nuo_protocol::TranscriptEntry;
-use nuo_tool::{Message, Role};
+    use nuo_tool::{Message, Role};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::thread::ThreadData {
         digest: Some(nuo_protocol::ThreadDigest::default()),
@@ -40,7 +40,7 @@ fn newer_database_is_refused() {
 #[test]
 fn row_checksum_detects_working_state_corruption_on_load() {
     use nuo_protocol::TranscriptEntry;
-use nuo_tool::{Message, Role};
+    use nuo_tool::{Message, Role};
     let engine = DatabaseEngine::open_in_memory().unwrap();
     let mut data = crate::thread::ThreadData::default();
     data.transcript.push(TranscriptEntry::from_message(

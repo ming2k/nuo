@@ -14,8 +14,8 @@ negative_knowledge: true
 - Date: 2026-11-07
 - Deciders: Nuo Architecture Working Group
 - Consulted: Storage Engine, Agent Runtime, Presentation Substrate, Performance Engineering
-- Amends: [ADR-0048](0048-mid-round-save-points-and-durable-replay.md) (save-point *cadence* stands; the cost model of a save is corrected here)
-- Complements: [ADR-0019](0019-token-pressure-measurement-and-budget-accounting.md), [ADR-0090](0090-autonomous-rolling-database-backups.md)
+- Amends: [ADR-0048](0048-cli-architecture-modernization-resource-symmetry-and-application-observability-topology.md) (save-point *cadence* stands; the cost model of a save is corrected here)
+- Complements: [ADR-0019](0019-token-pressure-measurement-and-budget-accounting.md), [ADR-0090](0090-autonomous-persistence-resilience-transparent-lease-handoff-and-zero-plaintext-credentials.md)
 
 ---
 

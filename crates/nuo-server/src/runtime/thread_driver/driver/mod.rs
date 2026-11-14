@@ -8,74 +8,88 @@ use super::recovery::{
 use super::*;
 
 pub struct ThreadDriver {
+    pub(crate) ctx: SessionContext,
+}
+
+/// The long-lived inputs of one live session.
+///
+/// `ThreadDriver` is the public handle; this is the state it owns. The loop
+/// splits it into `DriverCtx`, which adds per-run bookkeeping.
+pub(crate) struct SessionContext {
     /// Inbound requests consumed by this driver.
-    pub req_rx: mpsc::Receiver<AgentRequest>,
+    pub(crate) req_rx: mpsc::Receiver<AgentRequest>,
     /// Responses bound for the frontend (`resp_tx` in the old code).
-    pub tx: mpsc::UnboundedSender<AgentResponse>,
+    pub(crate) tx: mpsc::UnboundedSender<AgentResponse>,
     /// Inbound request sender, cloned so `/repeat` can self-fire a `Chat`
     /// (`req_tx_for_commands` in the old code).
-    pub req_tx: mpsc::Sender<AgentRequest>,
+    pub(crate) req_tx: mpsc::Sender<AgentRequest>,
     /// The primary agent.
-    pub agent: Arc<Agent>,
+    pub(crate) agent: Arc<Agent>,
     /// The primary session store.
-    pub session: Arc<ThreadSession>,
+    pub(crate) session: Arc<ThreadSession>,
     /// Authoritative runtime configuration shared across all hosted sessions.
-    pub config: crate::SharedConfig,
+    pub(crate) config: crate::SharedConfig,
     /// Authoritative connection usage shared across all hosted sessions.
-    pub provider_usage: crate::SharedConnectionUsage,
+    pub(crate) provider_usage: crate::SharedConnectionUsage,
     /// The shared provider holder backing the `ProxyProvider`
     /// (`provider_for_task` in the old code).
-    pub provider_holder: Arc<RwLock<Arc<dyn Provider>>>,
+    pub(crate) provider_holder: Arc<RwLock<Arc<dyn Provider>>>,
     /// Shared skills registry.
-    pub skills_registry: Arc<SkillRegistry>,
+    pub(crate) skills_registry: Arc<SkillRegistry>,
     /// Full-duplex subagent registry (ADR-0029): maps the parent tool-call
     /// id to the live child handle so a permission / ask_user reply can be
     /// routed back down into the specific subagent that surfaced it.
-    pub subagent_registry: Arc<SubagentRegistry>,
+    pub(crate) subagent_registry: Arc<SubagentRegistry>,
     /// Live MCP runtime: the connected server set, their tools, and status.
     /// Mutated by the `/mcp` modal (toggle / reconnect) and the periodic
     /// catalog refresh; read for the session-context snapshot's MCP pane.
-    pub mcp_runtime: Arc<McpRuntime>,
+    pub(crate) mcp_runtime: Arc<McpRuntime>,
     /// Workspace execution authority and content-bound extension trust.
-    pub workspace_security: Arc<WorkspaceSecurityStore>,
+    pub(crate) workspace_security: Arc<WorkspaceSecurityStore>,
     /// Live additional-roots handle: trust decisions recompute the admitted
     /// set through it, effective on the next confined tool call.
-    pub shared_additional_roots: nuo_protocol::SharedAdditionalRoots,
+    pub(crate) shared_additional_roots: nuo_protocol::SharedAdditionalRoots,
     /// Live handle for toggling session-level workspace confinement.
-    pub shared_confinement: nuo_protocol::SharedConfinement,
+    pub(crate) shared_confinement: nuo_protocol::SharedConfinement,
     /// Backend-owned command vocabulary used by both attach metadata and the
     /// composer completion engine.
-    pub command_catalog: nuo_tool::CommandCatalog,
+    pub(crate) command_catalog: nuo_tool::CommandCatalog,
     /// Primary round lifecycle: at most one active round, superseded by the
     /// next begin (replaces the old token-slot + generation-counter pair).
-    pub lifecycle: Arc<RoundLifecycle>,
+    pub(crate) lifecycle: Arc<RoundLifecycle>,
     /// Workspace root of the session.
-    pub project_root: Option<PathBuf>,
+    pub(crate) project_root: Option<PathBuf>,
     /// Startup mode of the session.
-    pub startup: ThreadStart,
+    pub(crate) startup: ThreadStart,
     /// Whether the sessions picker should open on launch (`nuo attach`
     /// with no id).
-    pub open_picker_on_start: bool,
+    pub(crate) open_picker_on_start: bool,
     /// Frontend clipboard bridge (ADR-0037 step 3). The TUI provides a real
     /// impl; a future browser frontend provides its own. Used only by the
     /// `/export` slash command.
-    pub ui: Arc<dyn UiBridge>,
+    pub(crate) ui: Arc<dyn UiBridge>,
     /// Shared token-source ledger (reported vs. estimated token accounting).
     /// Installed into `agent` once at startup; the TUI reads it for the
     /// token-source report modal.
-    pub token_ledger: Arc<nuo_protocol::TokenSourceLedger>,
+    pub(crate) token_ledger: Arc<nuo_protocol::TokenSourceLedger>,
     /// Application-registered slash command handlers (the extension point for
     /// commands that run Rust logic, e.g. a sibling binary's custom command).
     /// The dispatcher consults this in its unknown-built-in arm
     /// before falling back to the markdown-template path. Empty for `nuo`
     /// today; populated by embeddings that need it.
-    pub extra_commands: Arc<crate::handlers::slash_handler::SlashCommandRegistry>,
+    pub(crate) extra_commands: Arc<crate::handlers::slash_handler::SlashCommandRegistry>,
     /// Shared hot-reloadable resolved `[web]` configuration. The web tools hold
     /// the same handle; `UpdateWebSearchConfig` replaces one versioned snapshot
     /// so changes take effect on the next call without rebuilding the toolset.
-    pub websearch_shared: nuo_protocol::SharedWebConfig,
+    pub(crate) websearch_shared: nuo_protocol::SharedWebConfig,
     /// Background job manager for asynchronous processes and sub-subagents.
-    pub background_jobs: crate::runtime::background_jobs::BackgroundJobManager,
+    pub(crate) background_jobs: crate::runtime::background_jobs::BackgroundJobManager,
+}
+
+impl ThreadDriver {
+    pub(crate) fn new(ctx: SessionContext) -> Self {
+        Self { ctx }
+    }
 }
 
 /// Result of one background OAuth task (authorize or connect).
@@ -157,7 +171,7 @@ impl DriverCtx {
     /// engine is built here, as the old inline task did, from the command
     /// catalog and workspace root.
     fn from_driver(driver: ThreadDriver) -> Self {
-        let ThreadDriver {
+        let SessionContext {
             req_rx,
             tx: resp_tx,
             req_tx: req_tx_for_commands,
@@ -182,7 +196,7 @@ impl DriverCtx {
             extra_commands,
             websearch_shared,
             background_jobs,
-        } = driver;
+        } = driver.ctx;
         let completion_engine = crate::runtime::input_completion::InputCompletionEngine::new(
             command_catalog,
             project_root_for_side.clone().unwrap_or_default(),
@@ -391,7 +405,10 @@ impl DriverCtx {
             // favorite / key-ready / last-used) so the picker is ready the moment
             // the user opens it.
             let _ = resp_tx.send(AgentResponse::ProviderPicker(
-                crate::handlers::handlers_provider::build_live_picker_state(&config, &provider_usage),
+                crate::handlers::handlers_provider::build_live_picker_state(
+                    &config,
+                    &provider_usage,
+                ),
             ));
             // Announce the active provider/model as a synthetic `ProviderSwitched`
             // so an attach client (which subscribes to the broadcast only after the
@@ -439,8 +456,7 @@ impl DriverCtx {
         loop {
             let incoming = tokio::select! {
                 res_opt = self.req_rx.recv() => {
-                    let Some(req) = res_opt else { return None; };
-                    Incoming::Request(req)
+                    Incoming::Request(res_opt?)
                 }
                 wake_res = self.followup_wake_rx.recv() => {
                     match wake_res {
@@ -641,9 +657,11 @@ impl DriverCtx {
         if session_changed {
             self.token_ledger
                 .restore_session(&post_session_id, self.session.request_usage_records().await);
-            self.token_ledger.set_active_session(post_session_id.clone());
+            self.token_ledger
+                .set_active_session(post_session_id.clone());
             self.agent.set_thread_id(post_session_id.clone());
-            self.agent.restore_round_count(self.session.round_counter().await);
+            self.agent
+                .restore_round_count(self.session.round_counter().await);
             // D4: a switched-to session may itself carry crash
             // residue; classify it durably now that its store is live.
             if let Err(error) = self.session.settle_abandoned_attempts().await {
@@ -658,12 +676,10 @@ impl DriverCtx {
                 .total_tokens;
             let _ = self.resp_tx.send(round_response(
                 &post_session_id,
-                nuo_protocol::RoundEvent::ContextTokens(
-                    nuo_protocol::ContextTokenSnapshot::new(
-                        post_projection,
-                        nuo_protocol::ContextTokenSource::Projection,
-                    ),
-                ),
+                nuo_protocol::RoundEvent::ContextTokens(nuo_protocol::ContextTokenSnapshot::new(
+                    post_projection,
+                    nuo_protocol::ContextTokenSource::Projection,
+                )),
             ));
         }
     }
@@ -752,11 +768,7 @@ impl DriverCtx {
     }
 
     /// Chat/round requests: prompts, steering, and the follow-up queue.
-    async fn handle_chat(
-        &mut self,
-        req: AgentRequest,
-        config: &nuo_persistence::config::Config,
-    ) {
+    async fn handle_chat(&mut self, req: AgentRequest, config: &nuo_persistence::config::Config) {
         let agent = Arc::clone(&self.agent);
         let session = Arc::clone(&self.session);
         let resp_tx = self.resp_tx.clone();
@@ -767,8 +779,11 @@ impl DriverCtx {
                 text,
                 cursor,
             } => {
-                let _ =
-                    resp_tx.send(self.completion_engine.complete(request_id, text, cursor).await);
+                let _ = resp_tx.send(
+                    self.completion_engine
+                        .complete(request_id, text, cursor)
+                        .await,
+                );
             }
             AgentRequest::Prompt {
                 text,
@@ -790,8 +805,10 @@ impl DriverCtx {
                 .await;
             }
             AgentRequest::Steer { thread_id, message } => {
-                crate::handlers::handlers_chat::steer(&agent, &session, &resp_tx, thread_id, message)
-                    .await;
+                crate::handlers::handlers_chat::steer(
+                    &agent, &session, &resp_tx, thread_id, message,
+                )
+                .await;
             }
             AgentRequest::CancelSteer {
                 thread_id,
@@ -831,8 +848,12 @@ impl DriverCtx {
                 .await;
             }
             AgentRequest::QueueClear { thread_id } => {
-                crate::handlers::handlers_chat::queue_clear(&resp_tx, &mut self.followup_queue, thread_id)
-                    .await;
+                crate::handlers::handlers_chat::queue_clear(
+                    &resp_tx,
+                    &mut self.followup_queue,
+                    thread_id,
+                )
+                .await;
             }
             AgentRequest::QueueReorder {
                 thread_id,
@@ -888,15 +909,20 @@ impl DriverCtx {
         let mcp_runtime = Arc::clone(&self.mcp_runtime);
         match req {
             AgentRequest::Interrupt => {
-                crate::handlers::handlers_permission::interrupt(&agent, &session, &resp_tx, &lifecycle)
-                    .await;
+                crate::handlers::handlers_permission::interrupt(
+                    &agent, &session, &resp_tx, &lifecycle,
+                )
+                .await;
             }
             AgentRequest::InterruptSubagent { call_id } => {
                 // Scene-scoped interrupt: stop only the viewed
                 // subagent — its token races its in-flight request, the
                 // parent round and every sibling keep running. A no-op for
                 // a finished or unknown call.
-                crate::handlers::handlers_permission::interrupt_subagent(&subagent_registry, &call_id);
+                crate::handlers::handlers_permission::interrupt_subagent(
+                    &subagent_registry,
+                    &call_id,
+                );
             }
             AgentRequest::PermissionReply {
                 request_id,
@@ -1320,8 +1346,12 @@ impl DriverCtx {
                 }));
                 let quota_resp_tx = resp_tx.clone();
                 tokio::spawn(async move {
-                    crate::handlers::handlers_provider::query_provider_quotas(&quota_resp_tx, None, true)
-                        .await;
+                    crate::handlers::handlers_provider::query_provider_quotas(
+                        &quota_resp_tx,
+                        None,
+                        true,
+                    )
+                    .await;
                 });
             }
             AgentRequest::QueryConnectionDetail { id, force_refresh } => {
@@ -1515,17 +1545,14 @@ impl DriverCtx {
 
             if granting {
                 if !ws_domains.is_empty()
-                    && let Err(error) =
-                        workspace_security.trust_domains(root, &ws_domains)
+                    && let Err(error) = workspace_security.trust_domains(root, &ws_domains)
                 {
                     tracing::error!(?error, "failed to persist workspace trust");
                     let _ = resp_tx.send(round_response(
                         &session.id().await,
-                        nuo_protocol::RoundEvent::Notice(
-                            nuo_tool::AgentNotice::trust_failure(format!(
-                                "Workspace trust failed: {error}"
-                            )),
-                        ),
+                        nuo_protocol::RoundEvent::Notice(nuo_tool::AgentNotice::trust_failure(
+                            format!("Workspace trust failed: {error}"),
+                        )),
                     ));
                 }
 
@@ -1552,11 +1579,9 @@ impl DriverCtx {
                     tracing::error!(?error, "failed to persist workspace refusal");
                     let _ = resp_tx.send(round_response(
                         &session.id().await,
-                        nuo_protocol::RoundEvent::Notice(
-                            nuo_tool::AgentNotice::trust_failure(format!(
-                                "Workspace trust refusal failed: {error}"
-                            )),
-                        ),
+                        nuo_protocol::RoundEvent::Notice(nuo_tool::AgentNotice::trust_failure(
+                            format!("Workspace trust refusal failed: {error}"),
+                        )),
                     ));
                 }
             }
@@ -1569,20 +1594,16 @@ impl DriverCtx {
             // Fast path: load in-memory configs, rules, hooks, roots immediately
             let mut effective = nuo_persistence::config::Config::load();
             if snapshot.mcp.is_trusted() {
-                effective.merge_project_mcp(
-                    nuo_persistence::config::Config::load_project_mcp(root),
-                );
+                effective
+                    .merge_project_mcp(nuo_persistence::config::Config::load_project_mcp(root));
             }
             if snapshot.hooks.is_trusted() {
-                effective.merge_project_hooks(
-                    nuo_persistence::config::Config::load_project_hooks(root),
-                );
+                effective
+                    .merge_project_hooks(nuo_persistence::config::Config::load_project_hooks(root));
             }
             if snapshot.ex_workspace.is_trusted() {
                 effective.merge_project_additional_roots(
-                    nuo_persistence::config::Config::load_project_additional_roots(
-                        root,
-                    ),
+                    nuo_persistence::config::Config::load_project_additional_roots(root),
                 );
             }
             crate::handlers::handlers_slash::session_ops::apply_additional_roots(
@@ -1623,13 +1644,14 @@ impl DriverCtx {
                 Vec::new()
             };
             agent.set_project_instructions(instructions);
-            agent
-                .set_hooks(crate::runtime::hooks::build_hook_registry(&effective.hooks, &agent));
+            agent.set_hooks(crate::runtime::hooks::build_hook_registry(
+                &effective.hooks,
+                &agent,
+            ));
             effective
         } else {
             // Workspace-free session: user-level assets only.
-            let mut snapshot =
-                nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
+            let mut snapshot = nuo_protocol::WorkspaceSecuritySnapshot::new("workspace-free");
             snapshot.user_assets =
                 crate::handlers::handlers_slash::security_ops::compute_user_assets_trust();
             agent.set_workspace_security(snapshot);
@@ -1765,7 +1787,11 @@ impl DriverCtx {
                 crate::handlers::handlers_history::delete_input_history_entry(&text, created_at_ms);
             }
             AgentRequest::QueryRouteSettings { provider_id, model } => {
-                crate::handlers::handlers_history::query_route_settings(&provider_id, &model, &resp_tx);
+                crate::handlers::handlers_history::query_route_settings(
+                    &provider_id,
+                    &model,
+                    &resp_tx,
+                );
             }
             AgentRequest::SearchHistory {
                 query,
@@ -1851,15 +1877,13 @@ impl DriverCtx {
 impl ThreadDriver {
     /// Run the session to completion, exiting when the request channel closes.
     ///
-    /// The driver is destructured into [`DriverCtx`], which carries the
+    /// The driver is destructured into `DriverCtx`, which carries the
     /// long-lived locals across requests; `run` then dispatches each request
     /// to its family handler.
     pub async fn run(self) {
         DriverCtx::from_driver(self).run().await;
     }
 }
-
-/// Whether `req` may mutate the conversation context window or loaded capabilities.
 
 #[cfg(test)]
 mod tests;

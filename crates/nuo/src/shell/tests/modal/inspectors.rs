@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn thread_stats_slash_open_and_unbound_ctrl_o() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
 
     let runtime = crate::shell::event_loop::runtime::UiRuntime::minimal_for_test();
     crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -31,7 +31,7 @@ async fn thread_stats_slash_open_and_unbound_ctrl_o() {
 async fn thread_stats_t_affordance_transitions_to_session_trace() {
     // ThreadStats modal binds `t` to transition directly to SessionTrace.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
     app.open_dialog(crate::shell::surfaces::DialogKind::ThreadStats);
     assert_eq!(
         app.active_dialog(),
@@ -57,7 +57,7 @@ async fn thread_stats_t_affordance_transitions_to_session_trace() {
 #[tokio::test]
 async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
 
     // 1. OpenThreadStats action opens DialogKind::ThreadStats
     let runtime = crate::shell::event_loop::runtime::UiRuntime::minimal_for_test();
@@ -96,7 +96,7 @@ async fn thread_stats_modal_lifecycle_and_gestalt_layout() {
     );
 
     // 3. Thread Stats overview body utilizes standardized DetailLayout components
-    let theme = app.theme;
+    let theme = app.surfaces.theme;
     let rows = crate::shell::overlays::telemetry::overview::build_overview_body(
         &nuo_protocol::TokenSourceReport::default(),
         &[],
@@ -163,7 +163,7 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
     // `[INV-TRACE-01]` / ADR-0037:
     // SessionTrace has hierarchical drill-down without tabs or lateral page hops.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
 
     let runtime = crate::shell::event_loop::runtime::UiRuntime::minimal_for_test();
     crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -183,11 +183,13 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
     // Initial state: L1 rounds list, no detail, no turn
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::SessionTraceDialog>()
             .detail
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::SessionTraceDialog>()
             .turn
             .is_none()
@@ -195,13 +197,16 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
 
     // Enter in L1 drills into L2 (turns list) when rounds exist or directly via action
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
         .detail = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionTraceDialog>()
         .turn = Some((1, 1));
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::SessionTraceDialog>()
             .turn
             .is_some()
@@ -211,12 +216,14 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
     assert!(app.pop_sublayer());
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::SessionTraceDialog>()
             .turn
             .is_none()
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::SessionTraceDialog>()
             .detail
     );
@@ -225,6 +232,7 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
     assert!(app.pop_sublayer());
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::SessionTraceDialog>()
             .detail
     );
@@ -242,8 +250,8 @@ async fn session_trace_slash_and_drill_down_lifecycle() {
 #[tokio::test]
 async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
-    app.session_context = Some(nuo_protocol::ThreadContextSnapshot {
+    app.session.current_session_id = "test-session".to_string();
+    app.session.session_context = Some(nuo_protocol::ThreadContextSnapshot {
         model: nuo_protocol::ModelInfo::default(),
         tools: vec![
             nuo_protocol::ToolInfo {
@@ -282,11 +290,13 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     // Initial state: Level 1 list, info_detail is false
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .info_detail
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .index,
         0
@@ -304,6 +314,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     .await;
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .index,
         1
@@ -319,12 +330,14 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     .await;
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .info_detail,
         "Drilled into Level 2 tool detail"
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .info_scroll,
         0
@@ -340,6 +353,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     .await;
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .info_scroll,
         1,
@@ -347,6 +361,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .index,
         1
@@ -364,6 +379,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     assert!(app.pop_sublayer(), "pop_sublayer pops Level 2 detail");
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .info_detail,
         "Returned to Level 1 list"
@@ -375,6 +391,7 @@ async fn tools_dialog_two_tier_drill_in_and_pop_sublayer() {
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ToolsDialog>()
             .index,
         1,

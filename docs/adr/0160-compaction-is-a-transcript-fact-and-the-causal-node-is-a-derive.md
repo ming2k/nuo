@@ -1,3 +1,13 @@
+---
+id: ADR-0160
+title: "Compaction Is a Transcript Fact; the Causal Node Is a Derive"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0160: Compaction Is a Transcript Fact; the Causal Node Is a Derive
 
 - **Status:** Accepted

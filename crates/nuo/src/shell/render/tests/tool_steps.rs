@@ -21,14 +21,13 @@ fn subagent_view_groups_children_into_turn_bands() {
         "spawn_agent",
         r#"{"description":"explore the codebase","prompt":"..."}"#,
     );
-    let call =
-        |id: &str, name: &str, round: u64, turn: usize| nuo_tool::SubagentEvent::ToolCall {
-            id: id.into(),
-            name: name.into(),
-            arguments: r#"{"p":"x"}"#.into(),
-            round,
-            turn,
-        };
+    let call = |id: &str, name: &str, round: u64, turn: usize| nuo_tool::SubagentEvent::ToolCall {
+        id: id.into(),
+        name: name.into(),
+        arguments: r#"{"p":"x"}"#.into(),
+        round,
+        turn,
+    };
     let result = |id: &str, name: &str| nuo_tool::SubagentEvent::ToolResult {
         id: id.into(),
         name: name.into(),

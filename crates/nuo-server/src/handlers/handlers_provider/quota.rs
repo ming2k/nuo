@@ -55,7 +55,8 @@ pub(crate) async fn query_connection_detail(
             }
         })
         .unwrap_or_else(|| {
-            let spec = crate::composition::provider_registry::model_provider_spec(&connection.provider);
+            let spec =
+                crate::composition::provider_registry::model_provider_spec(&connection.provider);
             let p = spec
                 .as_ref()
                 .map(|s| s.protocol)
@@ -148,7 +149,9 @@ pub(crate) async fn query_connection_detail(
 
     if force_refresh {
         crate::runtime::usage_cache::shared_usage_cache().invalidate(&connection.name);
-    } else if let Some(cached) = crate::runtime::usage_cache::shared_usage_cache().get(&connection.name) {
+    } else if let Some(cached) =
+        crate::runtime::usage_cache::shared_usage_cache().get(&connection.name)
+    {
         initial_detail.usage = cached;
         let _ = resp_tx.send(AgentResponse::ConnectionDetail(initial_detail));
         return;

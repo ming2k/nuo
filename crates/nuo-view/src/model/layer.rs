@@ -32,7 +32,6 @@
 use crate::model::log::SurfaceId;
 use nuo_tool::{AgentNotice, NoticeKind, NoticeSource};
 
-
 /// The layers a surface can actually host.
 ///
 /// Declared by the *client*, because "does this surface have a banner row?" is a

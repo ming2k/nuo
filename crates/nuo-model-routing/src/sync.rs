@@ -14,9 +14,11 @@ use futures::stream::{self, StreamExt};
 use nuo_persistence::config::{FittedModelInfo, ModelListCacheState, RemoteCatalogCache};
 use nuo_persistence::connections::Connections;
 use nuo_protocol::WireProtocol;
-use nuo_provider::{RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, model_provider_spec};
 use nuo_protocol::{CatalogShape, ModelListError, RemoteCatalogSource};
 use nuo_provider::ModelProviderSpec;
+use nuo_provider::{
+    RemoteCatalogOptions, RemoteCatalogRequest, RemoteCatalogUpdate, model_provider_spec,
+};
 
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
@@ -452,9 +454,7 @@ async fn sync_routes_matching(
             changed = true;
             tracing::info!(connection = %connection_name, "live route sync updated connection");
         }
-        let refused = error
-            .as_ref()
-            .is_some_and(ModelListError::is_refusal);
+        let refused = error.as_ref().is_some_and(ModelListError::is_refusal);
         if let Some(error) = &error {
             tracing::warn!(
                 connection = %connection_name,
@@ -921,10 +921,7 @@ mod tests {
         let failed = CatalogFetchResult {
             connection,
             source_identity: "sha256:test".to_string(),
-            update: Err(ModelListError::Status(
-                503,
-                "upstream down".to_string(),
-            )),
+            update: Err(ModelListError::Status(503, "upstream down".to_string())),
         };
         let (_changed, error) = apply_fetched(&mut cache, failed, 2);
         assert!(error.is_some_and(|error| !error.is_refusal()));

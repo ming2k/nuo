@@ -8,9 +8,11 @@ fn toggle_queue_block_flips_state_and_blocks_dispatch() {
     // `is_queue_blocked` (and the app-side gate is its mirror) so a blocked
     // outbox can't slip through.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("1", "session-a", "first"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("2", "session-a", "second"));
 
     // Not blocked initially.
@@ -24,7 +26,8 @@ fn toggle_queue_block_flips_state_and_blocks_dispatch() {
 
     // The block is persistent and session-scoped: another session is
     // unaffected.
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("3", "session-b", "other"));
     assert!(!app.is_queue_blocked("session-b"));
 
@@ -39,7 +42,8 @@ fn block_and_resume_helpers_are_idempotent() {
     // must be safe to call repeatedly. The queue modal's open/close path
     // relies on this: open always blocks, close always resumes.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("1", "session-a", "x"));
 
     app.block_queue("session-a");
@@ -59,11 +63,14 @@ fn remove_queued_at_deletes_by_index_and_clamps() {
     // clamps `modal_index` after a delete; here we verify the core removal is
     // index-keyed and session-scoped.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("a", "session-a", "one"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("b", "session-b", "two"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("c", "session-a", "three"));
 
     // session-a has two items: idx 0 = "a", idx 1 = "c". Delete idx 1.
@@ -86,19 +93,24 @@ fn move_queued_swaps_within_session_and_clamps_at_edges() {
     // pushes it back. Reorder is clamped to the session slice so it can't
     // escape into another session's items.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("a", "session-a", "one"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("x", "session-b", "intruder"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("b", "session-a", "two"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("c", "session-a", "three"));
 
     // session-a display order: [a, b, c]. Move idx 0 (a) toward the tail by 2:
     // clamped to the last position → order becomes [b, c, a].
     app.move_queued("session-a", 0, 2);
     let order: Vec<&str> = app
+        .composer
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-a")
@@ -109,6 +121,7 @@ fn move_queued_swaps_within_session_and_clamps_at_edges() {
     // The intruder session-b item is untouched: reorder never crossed session
     // boundaries (session-b still has exactly one item, the same one).
     let session_b: Vec<&str> = app
+        .composer
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-b")
@@ -120,6 +133,7 @@ fn move_queued_swaps_within_session_and_clamps_at_edges() {
     // stays put. Order unchanged.
     app.move_queued("session-a", 0, -5);
     let order: Vec<&str> = app
+        .composer
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-a")
@@ -130,6 +144,7 @@ fn move_queued_swaps_within_session_and_clamps_at_edges() {
     // Move idx 1 (c) toward the front by 1: swaps with b → [c, b, a].
     app.move_queued("session-a", 1, -1);
     let order: Vec<&str> = app
+        .composer
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-a")
@@ -147,12 +162,13 @@ fn steer_ending_paths_consume_only_the_steer_row() {
     // follow-up, because a `Waiting` row is a projection of the driver's queue
     // and still has a life of its own.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("w1", "session-a", "waiting one"));
 
     let mut staged = queued_dispatch("steer-1", "session-a", "steer this");
     staged.state = QueuedDispatchState::Steering;
-    app.pending_dispatch.push_back(staged);
+    app.composer.pending_dispatch.push_back(staged);
 
     // An id that names no steer row is a no-op: the take is state-scoped, so a
     // `Waiting` row can never be mistaken for the steer it shares no id with.
@@ -171,6 +187,7 @@ fn steer_ending_paths_consume_only_the_steer_row() {
     assert_eq!(taken.text, "steer this");
     assert_eq!(taken.state, QueuedDispatchState::Steering);
     let ids: Vec<&str> = app
+        .composer
         .pending_dispatch
         .iter()
         .filter(|d| d.session_id == "session-a")
@@ -194,7 +211,7 @@ fn a_dispatching_row_is_not_addressable_outbox_work() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let mut dispatching = queued_dispatch("in-flight", "session-a", "dispatching");
     dispatching.state = QueuedDispatchState::Dispatching;
-    app.pending_dispatch.push_back(dispatching);
+    app.composer.pending_dispatch.push_back(dispatching);
 
     assert_eq!(
         app.pending_count("session-a"),
@@ -219,12 +236,14 @@ fn a_dispatching_row_is_not_addressable_outbox_work() {
 async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "s1";
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("q1", sid, "first"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("q2", sid, "second"));
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
@@ -272,7 +291,10 @@ async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
         Ok(AgentRequest::QueueRemove { input_id, .. }) => assert_eq!(input_id, "q2"),
         other => panic!("recall must send QueueRemove, got {other:?}"),
     }
-    assert_eq!(app.input, "second", "the prompt returns to the composer");
+    assert_eq!(
+        app.composer.input, "second",
+        "the prompt returns to the composer"
+    );
     assert_eq!(app.pending_count(sid), 0);
 
     // Closing the modal releases the pause it set — the symmetric half.
@@ -292,10 +314,11 @@ async fn queue_modal_delete_and_recall_are_mirrored_to_the_server() {
 async fn queue_block_toggles_are_mirrored_to_the_server() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "s1";
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("q1", sid, "first"));
 
     // The slash command path (`/queue block`) must not be a local-only lie.
@@ -338,14 +361,15 @@ async fn queue_block_toggles_are_mirrored_to_the_server() {
 async fn clear_queue_command_cancels_a_live_steer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("a", "s1", "mine"));
     let mut steer = queued_dispatch("st1", "s1", "steer this");
     steer.state = QueuedDispatchState::Steering;
-    app.pending_dispatch.push_back(steer);
+    app.composer.pending_dispatch.push_back(steer);
 
     crate::shell::event_loop::actions::dispatch_command_for_test(
         &mut app,
@@ -375,7 +399,8 @@ async fn clear_queue_command_cancels_a_live_steer() {
     );
     assert_eq!(app.pending_count("s1"), 0);
     assert!(
-        app.suppress_steer_restore
+        app.composer
+            .suppress_steer_restore
             .contains(&("s1".to_string(), "st1".to_string())),
         "a clear consumes the draft; it must not hand the text back"
     );
@@ -386,12 +411,14 @@ async fn clear_queue_command_cancels_a_live_steer() {
 async fn clear_queue_command_is_session_scoped_and_mirrored() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("a", "s1", "mine"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("b", "s2", "someone else's"));
 
     crate::shell::event_loop::actions::dispatch_command_for_test(
@@ -425,10 +452,11 @@ async fn clear_queue_command_is_session_scoped_and_mirrored() {
 async fn closing_the_queue_panel_does_not_undo_an_explicit_pause() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "s1";
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("q1", sid, "first"));
 
     // Open (auto-pauses), then pause *deliberately* is a no-op — it is already
@@ -487,14 +515,15 @@ async fn closing_the_queue_panel_does_not_undo_an_explicit_pause() {
 async fn closing_the_queue_panel_after_a_steer_leaves_the_list() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     let sid = "s1";
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("q1", sid, "first"));
     let mut steer = queued_dispatch("st1", sid, "steer this");
     steer.state = QueuedDispatchState::Steering;
-    app.pending_dispatch.push_back(steer);
+    app.composer.pending_dispatch.push_back(steer);
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -525,6 +554,7 @@ async fn closing_the_queue_panel_after_a_steer_leaves_the_list() {
     )
     .await;
     let idx = app
+        .surfaces
         .surfaces
         .dlg::<crate::shell::surfaces::QueueDialog>()
         .index;

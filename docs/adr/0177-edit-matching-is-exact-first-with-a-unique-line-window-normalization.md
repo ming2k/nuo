@@ -16,7 +16,7 @@ negative_knowledge: true
 - Consulted: Filesystem Tools, Cognitive Runtime, Diff/Preview, Security
 - Supersedes: the exact-byte-only `edit_text` matcher
 - Complements: [ADR-0176](0176-read-is-one-capability-with-bounded-content-dispatch.md),
-  [ADR-0125](0125-tool-effects-are-reversible-or-explicitly-opaque.md)
+  [ADR-0125](0125-workspace-effect-journal-reversibility-as-a-declared-property.md)
 
 ---
 

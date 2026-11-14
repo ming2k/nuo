@@ -4,10 +4,10 @@
 //! meta-tools ([`AskUserTool`], [`TodoTool`]).
 //!
 //! Capability tools are decentralized in capability crates:
-//! - Filesystem: [`nuo_tool_fs`]
-//! - Process execution: [`nuo_tool_exec`]
-//! - Web retrieval: [`nuo_tool_web`]
-//! - Code & AST: [`nuo_tool_ast`]
+//! - Filesystem: `nuo-tool-fs`
+//! - Process execution: `nuo-tool-exec`
+//! - Web retrieval: `nuo-tool-web`
+//! - Code & AST: `nuo-tool-ast`
 
 mod ask_user;
 pub mod recall_memory;

@@ -21,7 +21,7 @@ negative_knowledge: true
 - Complements: [ADR-0019](0019-token-pressure-measurement-and-budget-accounting.md),
   [ADR-0031](0031-domain-separated-configuration-matrix-and-legacy-retirement.md),
   [ADR-0048](0048-cli-architecture-modernization-resource-symmetry-and-application-observability-topology.md),
-  [ADR-0093](0093-ephemeral-session-spooling-and-tail-heavy-output-folding.md),
+  [ADR-0093](0093-abolition-of-pseudo-vfs-spool-architecture-and-salience-folding.md),
   [ADR-0142](0142-transcoding-gateway-surfaces-portable-mode-and-dual-form-reasoning-replay.md)
 
 ---

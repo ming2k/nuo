@@ -5,8 +5,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// The minimal model seed for a fresh GitHub Copilot instance, before its
 /// first live catalog sync completes. A Copilot instance uses a remote-catalog

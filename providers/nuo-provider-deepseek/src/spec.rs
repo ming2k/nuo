@@ -44,8 +44,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// The model ids the built-in `deepseek` provider seeds. Each id exists in the
 /// model registry and floats with the upstream latest.

@@ -36,7 +36,6 @@
 //! loop the old inline arms made impossible.
 use nuo_tool::{UserQuestion, UserQuestionRequest};
 
-
 /// The "Other" free-text option label emitted in a reply when the user
 /// selected the synthetic "Other" row but left its text field blank — matches
 /// the original inline behavior in `event_loop.rs`.

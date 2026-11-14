@@ -138,73 +138,83 @@ impl Agent {
         Self {
             host: crate::runtime::host::KernelHost::none(),
             provider,
-            execution_policy: std::sync::RwLock::new(nuo_protocol::ExecutionPolicy::root_default()),
-            pool,
-            toolset,
-            resolved_tools,
-
-            dynamic_tools,
-            disabled_tools,
-            scoped_disabled_tools,
-            tool_manager,
-            todos,
-            round_counter,
-            permissions: Arc::new(nuo_guardrails::permission_store::PermissionStore::new()),
-            additional_workspace_roots: Vec::new(),
-            workspace_topology_cache: std::sync::Mutex::new(None),
-            workspace_security: Arc::new(std::sync::Mutex::new(
-                nuo_protocol::WorkspaceSecuritySnapshot::default(),
-            )),
-            confinement: nuo_protocol::SharedConfinement::default(),
-            project_rules: Arc::new(std::sync::RwLock::new(String::new())),
-            skills_registry,
-            thread_id,
-            accounting_actor_id: std::sync::Mutex::new(
-                nuo_protocol::token_ledger::ROOT_ACTOR_ID.to_string(),
-            ),
-            context_prune_threshold_tokens: Arc::new(std::sync::Mutex::new(0)),
-            tool_output_projection: Arc::new(std::sync::Mutex::new(
-                crate::cognition::agent::ToolOutputProjectionBudget::default(),
-            )),
-            context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
-            history_reprojected: std::sync::atomic::AtomicBool::new(false),
-            images_suppressed: Arc::new(std::sync::RwLock::new(None)),
-            hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
-            trajectory_guard_config: Arc::new(std::sync::RwLock::new(
-                nuo_tool::TrajectoryGuardConfig::default(),
-            )),
-            interaction: Arc::new(nuo_guardrails::interaction::InteractionController::default()),
-            human_broker: crate::human_broker::HumanRequestBroker::new(),
-            bash_policy: std::sync::RwLock::new(nuo_guardrails::bash_policy::BashPolicy::default()),
-
-            hooks: crate::runtime::hook_runner::HookRunner::new(),
-            inbox_tx: std::sync::Mutex::new(None),
-            inbox_rx: std::sync::Mutex::new(None),
-            session_queues: std::sync::Mutex::new(None),
-            steering_mode: std::sync::RwLock::new(nuo_protocol::QueueMode::default()),
-            follow_up_mode: std::sync::RwLock::new(nuo_protocol::QueueMode::default()),
-            round_paused_ms: std::sync::atomic::AtomicU64::new(0),
             identity: std::sync::RwLock::new(identity),
-            turn_persist: std::sync::Mutex::new(None),
-            workspace_journal: std::sync::RwLock::new(None),
-            current_turn: std::sync::atomic::AtomicU64::new(0),
-            request_projection_persist: std::sync::Mutex::new(None),
-            title_established: std::sync::Mutex::new(None),
-            model_request_assembler,
-            variant_selection: Arc::new(std::sync::Mutex::new(
-                nuo_protocol::VariantSelection::new(),
-            )),
-            tools: std::sync::Mutex::new(tools),
-            token_ledger: std::sync::Mutex::new(None),
-            token_weights: std::sync::Arc::new(nuo_protocol::MessageTokenWeights::new()),
-            tool_schema_weights: std::sync::Arc::new(nuo_protocol::ToolSchemaWeights::new()),
-            extensions: Arc::new(std::sync::RwLock::new(vec![Arc::new(
-                crate::runtime::extension::CodeIntelligenceExtension,
-            )])),
-            active_role: std::sync::RwLock::new(Some("developer".to_string())),
-            project_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
-            user_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
-            instruction_provider_kind: Arc::new(std::sync::RwLock::new(None)),
+            tools: substate::ToolState {
+                pool,
+                toolset,
+                resolved_tools,
+                dynamic_tools,
+                disabled_tools,
+                scoped_disabled_tools,
+                tool_manager,
+                tools: std::sync::Mutex::new(tools),
+                token_weights: std::sync::Arc::new(nuo_protocol::MessageTokenWeights::new()),
+                tool_schema_weights: std::sync::Arc::new(nuo_protocol::ToolSchemaWeights::new()),
+            },
+            context: substate::ContextState {
+                todos,
+                round_counter,
+                permissions: Arc::new(nuo_guardrails::permission_store::PermissionStore::new()),
+                additional_workspace_roots: Vec::new(),
+                workspace_topology_cache: std::sync::Mutex::new(None),
+                workspace_security: Arc::new(std::sync::Mutex::new(
+                    nuo_protocol::WorkspaceSecuritySnapshot::default(),
+                )),
+                confinement: nuo_protocol::SharedConfinement::default(),
+                project_rules: Arc::new(std::sync::RwLock::new(String::new())),
+                skills_registry,
+                thread_id,
+                accounting_actor_id: std::sync::Mutex::new(
+                    nuo_protocol::token_ledger::ROOT_ACTOR_ID.to_string(),
+                ),
+                context_prune_threshold_tokens: Arc::new(std::sync::Mutex::new(0)),
+                tool_output_projection: Arc::new(std::sync::Mutex::new(
+                    crate::cognition::agent::ToolOutputProjectionBudget::default(),
+                )),
+                context_projection_gate: Arc::new(std::sync::Mutex::new(None)),
+                history_reprojected: std::sync::atomic::AtomicBool::new(false),
+                images_suppressed: Arc::new(std::sync::RwLock::new(None)),
+                hard_stop_turns: Arc::new(std::sync::Mutex::new(0)),
+                trajectory_guard_config: Arc::new(std::sync::RwLock::new(
+                    nuo_tool::TrajectoryGuardConfig::default(),
+                )),
+                current_turn: std::sync::atomic::AtomicU64::new(0),
+                model_request_assembler,
+                variant_selection: Arc::new(std::sync::Mutex::new(
+                    nuo_protocol::VariantSelection::new(),
+                )),
+                token_ledger: std::sync::Mutex::new(None),
+                active_role: std::sync::RwLock::new(Some("developer".to_string())),
+                project_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
+                user_instructions: Arc::new(std::sync::RwLock::new(Vec::new())),
+                instruction_provider_kind: Arc::new(std::sync::RwLock::new(None)),
+            },
+            control: substate::ControlState {
+                execution_policy: std::sync::RwLock::new(
+                    nuo_protocol::ExecutionPolicy::root_default(),
+                ),
+                interaction: Arc::new(nuo_guardrails::interaction::InteractionController::default()),
+                human_broker: crate::human_broker::HumanRequestBroker::new(),
+                bash_policy: std::sync::RwLock::new(
+                    nuo_guardrails::bash_policy::BashPolicy::default(),
+                ),
+                hooks: crate::runtime::hook_runner::HookRunner::new(),
+                turn_persist: std::sync::Mutex::new(None),
+                workspace_journal: std::sync::RwLock::new(None),
+                request_projection_persist: std::sync::Mutex::new(None),
+                title_established: std::sync::Mutex::new(None),
+                extensions: Arc::new(std::sync::RwLock::new(vec![Arc::new(
+                    crate::runtime::extension::CodeIntelligenceExtension,
+                )])),
+            },
+            queues: substate::QueueState {
+                inbox_tx: std::sync::Mutex::new(None),
+                inbox_rx: std::sync::Mutex::new(None),
+                session_queues: std::sync::Mutex::new(None),
+                steering_mode: std::sync::RwLock::new(nuo_protocol::QueueMode::default()),
+                follow_up_mode: std::sync::RwLock::new(nuo_protocol::QueueMode::default()),
+                round_paused_ms: std::sync::atomic::AtomicU64::new(0),
+            },
         }
     }
 
@@ -213,6 +223,7 @@ impl Agent {
     /// switch so the threshold tracks the new model's context window.
     pub fn set_context_prune_threshold(&self, budget_tokens: usize) {
         *self
+            .context
             .context_prune_threshold_tokens
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = budget_tokens;
@@ -230,6 +241,7 @@ impl Agent {
             retention_tokens: retention_tokens.max(verbatim_tokens),
         };
         *self
+            .context
             .tool_output_projection
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = budget;
@@ -239,6 +251,7 @@ impl Agent {
         &self,
     ) -> crate::cognition::agent::ToolOutputProjectionBudget {
         *self
+            .context
             .tool_output_projection
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -253,6 +266,7 @@ impl Agent {
     pub fn set_variant_selection(&self, selection: nuo_protocol::VariantSelection) {
         self.reresolve_tools(&selection);
         *self
+            .context
             .variant_selection
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = selection;
@@ -261,6 +275,7 @@ impl Agent {
     /// Replace the user-authored scoped instruction set (ADR-0165).
     pub fn set_user_instructions(&self, instructions: Vec<nuo_protocol::ScopedInstruction>) {
         *self
+            .context
             .user_instructions
             .write()
             .unwrap_or_else(|error| error.into_inner()) = instructions;
@@ -270,7 +285,7 @@ impl Agent {
     pub fn user_instructions_handle(
         &self,
     ) -> Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>> {
-        Arc::clone(&self.user_instructions)
+        Arc::clone(&self.context.user_instructions)
     }
 
     /// Bind this agent to share an existing user-instruction handle.
@@ -278,12 +293,13 @@ impl Agent {
         &mut self,
         handle: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
     ) {
-        self.user_instructions = handle;
+        self.context.user_instructions = handle;
     }
 
     /// Replace the repository-authored scoped instruction set.
     pub fn set_project_instructions(&self, instructions: Vec<nuo_protocol::ScopedInstruction>) {
         *self
+            .context
             .project_instructions
             .write()
             .unwrap_or_else(|error| error.into_inner()) = instructions;
@@ -294,7 +310,7 @@ impl Agent {
     pub fn project_instructions_handle(
         &self,
     ) -> Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>> {
-        Arc::clone(&self.project_instructions)
+        Arc::clone(&self.context.project_instructions)
     }
 
     /// Bind this agent to share an existing project-instruction handle.
@@ -302,13 +318,14 @@ impl Agent {
         &mut self,
         handle: Arc<std::sync::RwLock<Vec<nuo_protocol::ScopedInstruction>>>,
     ) {
-        self.project_instructions = handle;
+        self.context.project_instructions = handle;
     }
 
     /// Set the provider type behind the active connection (ADR-0164). Resolved
     /// by the server from `connections.toml` at setup and on provider switch.
     pub fn set_instruction_provider_kind(&self, kind: Option<String>) {
         *self
+            .context
             .instruction_provider_kind
             .write()
             .unwrap_or_else(|error| error.into_inner()) = kind;
@@ -316,7 +333,8 @@ impl Agent {
 
     /// The provider type behind the active connection, when known.
     pub fn instruction_provider_kind(&self) -> Option<String> {
-        self.instruction_provider_kind
+        self.context
+            .instruction_provider_kind
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .clone()
@@ -324,7 +342,7 @@ impl Agent {
 
     /// Handle for the shared provider-type fact, inherited by subagents.
     pub fn instruction_provider_kind_handle(&self) -> Arc<std::sync::RwLock<Option<String>>> {
-        Arc::clone(&self.instruction_provider_kind)
+        Arc::clone(&self.context.instruction_provider_kind)
     }
 
     /// Bind this agent to share an existing provider-type handle.
@@ -332,7 +350,7 @@ impl Agent {
         &mut self,
         handle: Arc<std::sync::RwLock<Option<String>>>,
     ) {
-        self.instruction_provider_kind = handle;
+        self.context.instruction_provider_kind = handle;
     }
 
     /// Replace this agent's identity-side selection (capability scope + variant
@@ -341,8 +359,9 @@ impl Agent {
     /// master to a capability subset). The current per-model variant
     /// selection is preserved and re-composed.
     pub fn set_tools(&self, selection: nuo_protocol::ToolSelection) {
-        *self.tools.lock().unwrap_or_else(|e| e.into_inner()) = selection;
+        *self.tools.tools.lock().unwrap_or_else(|e| e.into_inner()) = selection;
         let model_variants = self
+            .context
             .variant_selection
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -368,14 +387,22 @@ impl Agent {
             vision: capabilities.accepts_images(),
             ..nuo_protocol::resolve_model(&self.provider.model())
         };
-        let tools = self.tools.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let tools = self
+            .tools
+            .tools
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let model_selection =
             nuo_protocol::ToolSelection::unrestricted().with_variants(model_variants.clone());
         *self
+            .tools
             .resolved_tools
             .write()
             .unwrap_or_else(|e| e.into_inner()) =
-            self.toolset.resolve_for(&model, &tools, &model_selection);
+            self.tools
+                .toolset
+                .resolve_for(&model, &tools, &model_selection);
     }
 
     /// Every currently installed tool, including dynamic sources. Static
@@ -383,7 +410,8 @@ impl Agent {
     pub fn installed_tools(&self) -> Vec<Arc<dyn Tool>> {
         // Delegate to the unified ToolManager — the single authority for the
         // two-bucket classification (builtin/mcp) and name-clash priority.
-        self.tool_manager
+        self.tools
+            .tool_manager
             .installed()
             .into_iter()
             .map(|s| s.tool)
@@ -393,7 +421,7 @@ impl Agent {
     /// The unified tool manager (kimi-code port). Exposed so the dispatcher /
     /// model-request assembly can call its authoritative methods directly.
     pub(crate) fn tool_manager(&self) -> &crate::tool_manager::ToolManager {
-        &self.tool_manager
+        &self.tools.tool_manager
     }
 
     /// The permission policy chain for this agent. Built fresh per call.
@@ -401,7 +429,9 @@ impl Agent {
     /// (`ask_user`, stdin, and missing-authority prompting) stays in
     /// `execute_tool`, outside the authority context by construction.
     pub(crate) fn permission_chain(&self) -> nuo_guardrails::permission_policy::PermissionChain {
-        nuo_guardrails::permission_policy::PermissionChain::new(nuo_guardrails::permission_policy::default_chain())
+        nuo_guardrails::permission_policy::PermissionChain::new(
+            nuo_guardrails::permission_policy::default_chain(),
+        )
     }
 
     /// The workspace topology shown to the model, cached by root-manifest
@@ -420,6 +450,7 @@ impl Agent {
             .and_then(|metadata| metadata.modified())
             .ok();
         let mut cache = self
+            .context
             .workspace_topology_cache
             .lock()
             .unwrap_or_else(|error| error.into_inner());
@@ -467,8 +498,8 @@ impl Agent {
             });
             matched
         };
-        let user_instructions = matched(&self.user_instructions);
-        let project_instructions = matched(&self.project_instructions);
+        let user_instructions = matched(&self.context.user_instructions);
+        let project_instructions = matched(&self.context.project_instructions);
 
         crate::InstructionContext {
             identity_preamble: self
@@ -481,11 +512,13 @@ impl Agent {
             user_instructions,
             provider_guidance,
             project_rules: self
+                .context
                 .project_rules
                 .read()
                 .map(|rules| rules.clone())
                 .unwrap_or_default(),
             additional_workspace_roots: self
+                .context
                 .additional_workspace_roots
                 .iter()
                 .map(|p| p.display().to_string())
@@ -581,7 +614,7 @@ impl Agent {
         // so keeping it here costs no I/O and keeps the debug preview honest
         // about implicit loads.
         crate::cognition::conversation_context::inject_mentioned_skills(
-            &self.skills_registry,
+            &self.context.skills_registry,
             &mut enriched,
         );
         crate::cognition::agent::remove_empty_assistant_messages(&mut enriched);
@@ -609,7 +642,7 @@ impl Agent {
                 &mut enriched,
                 tool_output_budget.verbatim_tokens,
                 tool_output_budget.retention_tokens,
-                &self.token_weights,
+                &self.tools.token_weights,
             );
         }
 
@@ -640,7 +673,8 @@ impl Agent {
 
         let tools = self.visible_tools();
         let context = self.instruction_context(&tools);
-        self.model_request_assembler
+        self.context
+            .model_request_assembler
             .assemble_prepared(enriched, temporary_context, &context, &tools)
             .with_route_state(&self.provider.route_fingerprint(), continuation)
     }
@@ -670,7 +704,7 @@ impl Agent {
         }
         let tools = self.visible_tools();
         let context = self.instruction_context(&tools);
-        let request = self.model_request_assembler.assemble_thread(
+        let request = self.context.model_request_assembler.assemble_thread(
             thread,
             branch,
             temporary_context,
@@ -737,7 +771,8 @@ impl Agent {
     /// route that demonstrated it, never to the model id in the abstract
     pub fn images_suppressed_for_current_route(&self) -> bool {
         let current = self.provider.route_fingerprint();
-        self.images_suppressed
+        self.context
+            .images_suppressed
             .read()
             .unwrap_or_else(|error| error.into_inner())
             .as_deref()
@@ -758,6 +793,7 @@ impl Agent {
     pub fn suppress_images_for_current_route(&self) -> bool {
         let current = self.provider.route_fingerprint();
         let mut guard = self
+            .context
             .images_suppressed
             .write()
             .unwrap_or_else(|error| error.into_inner());
@@ -786,8 +822,8 @@ impl Agent {
     ) -> nuo_protocol::LayeredRequestWeights {
         nuo_protocol::layered_request_weights(
             request,
-            &self.token_weights,
-            &self.tool_schema_weights,
+            &self.tools.token_weights,
+            &self.tools.tool_schema_weights,
         )
     }
 
@@ -851,7 +887,7 @@ impl Agent {
     pub fn variant_selection_handle(
         &self,
     ) -> Arc<std::sync::Mutex<nuo_protocol::VariantSelection>> {
-        Arc::clone(&self.variant_selection)
+        Arc::clone(&self.context.variant_selection)
     }
 
     /// Override the opt-in hard-stop budget. Mirrors `[agent] hard_stop_turns`
@@ -860,6 +896,7 @@ impl Agent {
     /// tight non-zero bound so a runaway diagnostic cannot loop.
     pub fn set_hard_stop_turns(&self, turns: usize) {
         *self
+            .context
             .hard_stop_turns
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = turns;
@@ -869,6 +906,7 @@ impl Agent {
     /// present) and by `check_hard_stop` at each ReAct-turn boundary.
     pub fn get_hard_stop_turns(&self) -> usize {
         *self
+            .context
             .hard_stop_turns
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -883,6 +921,7 @@ impl Agent {
     /// diagnostic so they run unobstructed regardless of user settings.
     pub fn set_trajectory_guard_config(&self, config: nuo_tool::TrajectoryGuardConfig) {
         *self
+            .context
             .trajectory_guard_config
             .write()
             .unwrap_or_else(|e| e.into_inner()) = config;
@@ -892,6 +931,7 @@ impl Agent {
     /// `enabled` to gate the pre-dispatch trajectory check.
     pub fn trajectory_guard_config(&self) -> nuo_tool::TrajectoryGuardConfig {
         *self
+            .context
             .trajectory_guard_config
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -910,7 +950,7 @@ impl Agent {
     /// classifier → input panel) or fails fast. When on, the model may feed
     /// a command's stdin directly — for delegated automatic flows.
     pub fn set_allow_model_stdin(&self, enabled: bool) {
-        self.interaction.set_allow_model_stdin(enabled);
+        self.control.interaction.set_allow_model_stdin(enabled);
     }
 
     /// Replace the command-aware bash safety policy from `[bash_policy]` config.
@@ -921,14 +961,18 @@ impl Agent {
         for error in policy.invalid_rules() {
             tracing::warn!(error = %error, "ignoring invalid bash policy rule");
         }
-        *self.bash_policy.write().unwrap_or_else(|e| e.into_inner()) = policy;
+        *self
+            .control
+            .bash_policy
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = policy;
     }
 
     /// Whether the model may supply stdin for a `bash` call. Read at the
     /// dispatch site to decide the [`InputContract`](nuo_tool::InputContract)
     /// and whether the bash schema exposes a `stdin` parameter.
     pub fn allow_model_stdin(&self) -> bool {
-        self.interaction.allow_model_stdin()
+        self.control.interaction.allow_model_stdin()
     }
 
     /// Mirrors `[agent] skip_interactive_input` in `config.toml`. When on,
@@ -938,19 +982,20 @@ impl Agent {
     /// who finds the prompt disruptive opt out without turning the agent
     /// itself unattended.
     pub fn set_skip_interactive_input(&self, enabled: bool) {
-        self.interaction.set_skip_interactive_input(enabled);
+        self.control.interaction.set_skip_interactive_input(enabled);
     }
 
     /// Whether an interactive command should skip operator-input supervision
     /// and run sealed instead. Read at the command dispatch site to decide the
     /// [`InputContract`](nuo_tool::InputContract).
     pub fn skip_interactive_input(&self) -> bool {
-        self.interaction.skip_interactive_input()
+        self.control.interaction.skip_interactive_input()
     }
 
     /// Install (or clear with `None`) the mid-turn model-context projection gate.
     pub fn set_context_projection_gate(&self, gate: Option<Arc<dyn ContextProjectionGate>>) {
         *self
+            .context
             .context_projection_gate
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = gate;
@@ -963,7 +1008,8 @@ impl Agent {
     /// silently, because `project_context_if_needed` treats a missing gate as
     /// "nothing to do".
     pub fn has_context_projection_gate(&self) -> bool {
-        self.context_projection_gate
+        self.context
+            .context_projection_gate
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .is_some()
@@ -972,6 +1018,7 @@ impl Agent {
     /// The mid-turn prune threshold in tokens (`0` = relief disabled).
     pub fn context_prune_threshold_tokens(&self) -> usize {
         *self
+            .context
             .context_prune_threshold_tokens
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -983,13 +1030,18 @@ impl Agent {
     /// No-op for subagents/tests that never call this (the ledger stays `None`
     /// and booking is skipped).
     pub fn install_token_ledger(&self, ledger: Arc<nuo_protocol::TokenSourceLedger>) {
-        *self.token_ledger.lock().unwrap_or_else(|e| e.into_inner()) = Some(ledger);
+        *self
+            .context
+            .token_ledger
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(ledger);
     }
 
     /// A handle to the token-source ledger, if one was installed. The TUI uses
     /// this to snapshot the report for the modal.
     pub fn token_ledger(&self) -> Option<Arc<nuo_protocol::TokenSourceLedger>> {
-        self.token_ledger
+        self.context
+            .token_ledger
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
@@ -1000,7 +1052,7 @@ impl Agent {
     /// every estimate path — wire projection, prune, mid-turn pressure —
     /// pays each message's BPE cost exactly once per session.
     pub fn token_weights_handle(&self) -> Arc<nuo_protocol::MessageTokenWeights> {
-        std::sync::Arc::clone(&self.token_weights)
+        std::sync::Arc::clone(&self.tools.token_weights)
     }
 
     /// Book one turn's token usage into [`RoundState::token_usage`] and, when a
@@ -1067,7 +1119,7 @@ impl Agent {
     /// registry; intended to be called once at startup after the `[hooks]`
     /// config is parsed. Subagents and tests leave the default empty registry.
     pub fn set_hooks(&self, registry: crate::runtime::hooks::HookRegistry) {
-        self.hooks.set(registry);
+        self.control.hooks.set(registry);
     }
 
     /// Install the mid-round save point fired at every ReAct-turn boundary
@@ -1078,7 +1130,11 @@ impl Agent {
     /// diagnostic never call this, so the default `None` keeps their turn
     /// boundaries no-ops.
     pub fn set_turn_persist(&self, f: TurnPersistFn) {
-        *self.turn_persist.lock().unwrap_or_else(|e| e.into_inner()) = Some(f);
+        *self
+            .control
+            .turn_persist
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(f);
     }
 
     /// Install the workspace effect journal port (ADR-0125).
@@ -1093,6 +1149,7 @@ impl Agent {
         journal: std::sync::Arc<dyn crate::runtime::WorkspaceJournalPort>,
     ) {
         *self
+            .control
             .workspace_journal
             .write()
             .unwrap_or_else(|e| e.into_inner()) = Some(journal);
@@ -1102,7 +1159,8 @@ impl Agent {
     pub(crate) fn workspace_journal(
         &self,
     ) -> Option<std::sync::Arc<dyn crate::runtime::WorkspaceJournalPort>> {
-        self.workspace_journal
+        self.control
+            .workspace_journal
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
@@ -1111,13 +1169,16 @@ impl Agent {
     /// Advance the ReAct turn counter used for journal coordinates. Called by the
     /// round loop at each turn boundary.
     pub(crate) fn set_current_turn(&self, turn: u64) {
-        self.current_turn
+        self.context
+            .current_turn
             .store(turn, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// The ReAct turn currently executing, for journal coordinates.
     pub(crate) fn current_turn(&self) -> u64 {
-        self.current_turn.load(std::sync::atomic::Ordering::Relaxed)
+        self.context
+            .current_turn
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Install the title-established observer fired by the background session
@@ -1128,6 +1189,7 @@ impl Agent {
     /// this, so titling stays a silent background write there.
     pub fn set_title_established(&self, f: TitleEstablishedFn) {
         *self
+            .control
             .title_established
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(f);
@@ -1139,6 +1201,7 @@ impl Agent {
     /// tool results are in `messages` and before the next model request.
     pub(super) async fn fire_turn_persist(&self, messages: &[Message]) -> Result<(), HarnessError> {
         let f = self
+            .control
             .turn_persist
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1163,6 +1226,7 @@ impl Agent {
     /// session driver; `None` (subagents, tests) makes recording a no-op.
     pub fn set_request_projection_persist(&self, f: RequestProjectionFn) {
         *self
+            .control
             .request_projection_persist
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(f);
@@ -1176,6 +1240,7 @@ impl Agent {
         projection: nuo_protocol::RequestProjection,
     ) {
         let f = self
+            .control
             .request_projection_persist
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1188,7 +1253,7 @@ impl Agent {
     /// Snapshot the hook registry as a cheap `Arc` clone, so insertion points
     /// fire hooks without holding the swap lock across the async `fire`.
     pub(super) fn hooks(&self) -> Arc<crate::runtime::hooks::HookRegistry> {
-        self.hooks.get()
+        self.control.hooks.get()
     }
 
     /// The session id hooks see (the live thread id, if any).
@@ -1209,16 +1274,16 @@ impl Agent {
     /// once by the assembling bootstrap after they validate; they surface to
     /// the model through the `WorkspaceRootsGuidance` system-prompt section.
     pub fn set_additional_workspace_roots(&mut self, roots: Vec<std::path::PathBuf>) {
-        self.additional_workspace_roots = roots;
+        self.context.additional_workspace_roots = roots;
     }
 
     /// The session's additional workspace roots, if any.
     pub fn additional_workspace_roots(&self) -> &[std::path::PathBuf] {
-        &self.additional_workspace_roots
+        &self.context.additional_workspace_roots
     }
 
     pub fn workspace_root(&self) -> Option<std::path::PathBuf> {
-        self.permissions.project_root()
+        self.context.permissions.project_root()
     }
 
     // Public hook entry points (ADR-0025)
@@ -1291,6 +1356,7 @@ impl Agent {
         cancel: &CancellationToken,
     ) -> Result<bool, HarnessError> {
         let budget = *self
+            .context
             .context_prune_threshold_tokens
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -1302,6 +1368,7 @@ impl Agent {
             return Ok(false);
         }
         let gate = self
+            .context
             .context_projection_gate
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1318,7 +1385,8 @@ impl Agent {
             && !replacement.is_empty()
         {
             *messages = replacement;
-            self.history_reprojected
+            self.context
+                .history_reprojected
                 .store(true, std::sync::atomic::Ordering::SeqCst);
             return Ok(true);
         }
@@ -1331,54 +1399,70 @@ impl Agent {
     /// caller's committed prefix may have been rewritten. Consuming (rather
     /// than reading) resets the round's state at the same boundary.
     pub(crate) fn take_history_reprojected(&self) -> bool {
-        self.history_reprojected
+        self.context
+            .history_reprojected
             .swap(false, std::sync::atomic::Ordering::SeqCst)
     }
 
     pub fn set_thread_id(&self, thread_id: impl Into<String>) {
-        *self.thread_id.lock().unwrap_or_else(|e| e.into_inner()) = Some(thread_id.into());
+        *self
+            .context
+            .thread_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(thread_id.into());
     }
 
     pub fn thread_id_handle(&self) -> Arc<std::sync::Mutex<Option<String>>> {
-        Arc::clone(&self.thread_id)
+        Arc::clone(&self.context.thread_id)
     }
 
     pub fn round_counter_handle(&self) -> Arc<std::sync::Mutex<u64>> {
-        Arc::clone(&self.round_counter)
+        Arc::clone(&self.context.round_counter)
     }
 
     pub fn set_accounting_actor_id(&self, actor_id: impl Into<String>) {
         *self
+            .context
             .accounting_actor_id
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = actor_id.into();
     }
 
     pub(super) fn accounting_actor_id(&self) -> String {
-        self.accounting_actor_id
+        self.context
+            .accounting_actor_id
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
     pub fn clear_thread_id(&self) {
-        *self.thread_id.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        *self
+            .context
+            .thread_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// Current task list snapshot. Read by the harness to mirror into the
     /// session and by the TUI to render the sticky panel.
     pub fn todos(&self) -> nuo_tool::TodoList {
-        self.todos.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.context
+            .todos
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Replace the task list. Used by session-restore paths on resume.
     pub fn set_todos(&self, todos: nuo_tool::TodoList) {
-        *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = todos;
+        *self.context.todos.lock().unwrap_or_else(|e| e.into_inner()) = todos;
     }
 
     /// Drop the task list.
     pub fn clear_todos(&self) {
-        *self.todos.lock().unwrap_or_else(|e| e.into_inner()) = nuo_tool::TodoList::default();
+        *self.context.todos.lock().unwrap_or_else(|e| e.into_inner()) =
+            nuo_tool::TodoList::default();
     }
 
     /// Access the harness internal task pipeline for out-of-band typed execution.
@@ -1393,7 +1477,8 @@ impl Agent {
 
     /// Access the atomic extensions bound to this agent.
     pub fn extensions(&self) -> Vec<Arc<dyn nuo_protocol::Extension>> {
-        self.extensions
+        self.control
+            .extensions
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
@@ -1401,7 +1486,8 @@ impl Agent {
 
     /// Add an atomic extension to this agent.
     pub fn add_extension(&self, extension: Arc<dyn nuo_protocol::Extension>) {
-        self.extensions
+        self.control
+            .extensions
             .write()
             .unwrap_or_else(|e| e.into_inner())
             .push(extension);

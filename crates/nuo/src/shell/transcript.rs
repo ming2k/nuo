@@ -10,7 +10,6 @@ use std::collections::VecDeque;
 
 use nuo_tool::{Message, Role};
 
-
 use crate::shell::step_interaction;
 use nuo_view::disclosure_config::DisclosureSource;
 use nuo_view::model::document::{TranscriptMessage, UserMessageOrigin};
@@ -649,7 +648,6 @@ mod tests {
         use crate::shell::config::TuiConfig;
         use nuo_tool::SubagentMeta;
         use nuo_tool::{Message, ToolCall};
-
 
         let call = ToolCall {
             id: "call_9".to_string(),

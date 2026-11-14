@@ -48,13 +48,14 @@ pub(super) fn switcher_app_ctx(app: &crate::shell::App) -> crate::shell::keymap:
         has_overlay: true,
         active_dialog: app
             .surfaces
+            .surfaces
             .underlying_dialog()
             .or_else(|| app.active_dialog()),
         is_responding: app.viewed_chrome().responding,
-        has_selection: !matches!(app.selection, SelectionState::None),
+        has_selection: !matches!(app.transcript.selection, SelectionState::None),
         has_running_task: app.viewed_chrome().responding,
         has_notices: !!app.has_notices(),
-        has_focused_entry: app.focus.entry().is_some(),
+        has_focused_entry: app.transcript.focus.entry().is_some(),
         queue_count: app.outbox_total(),
         has_session: app.has_session(),
         scene: app.current_scene(),

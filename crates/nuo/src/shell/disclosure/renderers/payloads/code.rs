@@ -10,6 +10,7 @@ use nuo_view::text_layout::{
     padded_tail, wrap_text,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_code_content(
     ctx: &mut RenderCtx<'_, '_>,
     mi: usize,
@@ -338,6 +339,7 @@ pub(crate) fn normalize_code_content(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn code_gutter_line_syntax(
     left_indent: usize,
     gutter: &str,

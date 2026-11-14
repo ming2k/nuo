@@ -137,7 +137,7 @@ impl Focus {
     ///
     /// Used when the highlighted entry is no longer visible: the user's
     /// attention is still on the transcript, so the plane never silently
-    /// reverts to the composer ([`Self::retain_entry`] callers).
+    /// reverts to the composer (`Self::retain_entry` callers).
     pub fn browse(&mut self) {
         self.transcript = TranscriptFocus::Browse;
     }

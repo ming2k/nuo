@@ -4,10 +4,9 @@
 //! dividing consumption into tiered zones (Safe, Warning, Critical) and
 //! triggering proactive observation folding and Turn-aware compaction.
 
-use nuo_protocol::{estimate_tokens};
+use nuo_protocol::estimate_tokens;
 
-use nuo_tool::{Message};
-
+use nuo_tool::Message;
 
 /// Operational pressure tier of the current context window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

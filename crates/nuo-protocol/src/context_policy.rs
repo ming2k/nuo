@@ -222,9 +222,7 @@ impl ContextPolicy {
                 protect: self.recent_observation_protect_tokens,
             });
         }
-        self.watermarks
-            .validate()
-            .map_err(PolicyError::Watermarks)
+        self.watermarks.validate().map_err(PolicyError::Watermarks)
     }
 
     /// Resolve a model window into the runtime context budget thresholds.

@@ -5,6 +5,7 @@ status: accepted
 date: 2026-11-12
 scope: host/workspace, protocol/thread-scope, persistence/session-store, cli/thread, server/registry
 superseded_by: null
+negative_knowledge: true
 ---
 
 # 0170. Role-Scoped Thread History: The Role Owns the Workspace Policy

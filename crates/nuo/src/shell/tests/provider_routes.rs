@@ -51,8 +51,8 @@ fn provider_retry_state_formats_the_retry_ordinal_and_countdown() {
 #[test]
 fn completions_trigger_word_pins_suggestion_on_top() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/clear".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/clear".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert_eq!(app.completion_kind(), CompletionKind::Slash);
     let first = completions.first().expect("a suggestion row is present");
@@ -63,7 +63,7 @@ fn completions_trigger_word_pins_suggestion_on_top() {
     );
     // Accepting rewrites the whole input to the target command.
     assert_eq!(first.replace_start, 0);
-    assert_eq!(first.replace_end, app.input.len());
+    assert_eq!(first.replace_end, app.composer.input.len());
     // No built-in starts with `/clear`, so the suggestion is the only row.
     assert_eq!(completions.len(), 1);
 }
@@ -74,15 +74,15 @@ fn completions_trigger_word_suggestion_precedes_prefix_matches() {
     // suggestion first. `/re` is a shared prefix, not a trigger: normal
     // prefix completion with no suggestion. `/reset` is the full trigger.
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/re".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/re".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     assert!(
         !app.completions().iter().any(|c| c.label == "/new"),
         "a partial trigger is prose-in-progress, not a suggestion"
     );
 
-    app.input = "/reset".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/reset".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert_eq!(
         completions.first().map(|c| c.label.as_str()),
@@ -94,8 +94,8 @@ fn completions_trigger_word_suggestion_precedes_prefix_matches() {
 #[test]
 fn completions_continue_trigger_suggests_threads() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/continue".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/continue".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert_eq!(
         completions.first().map(|c| c.label.as_str()),
@@ -108,16 +108,16 @@ fn completions_settings_and_dashboard_purged_from_session_completions() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
 
     // ADR-0041 [INV-CMD-01]: Workspace views are purged from thread completions
-    app.input = "/settings".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/settings".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert!(
         completions.is_empty(),
         "expected no completion for /settings"
     );
 
-    app.input = "/dashboard".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/dashboard".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert!(
         completions.is_empty(),
@@ -130,8 +130,8 @@ fn completions_subcommand_argument_never_triggers_suggestion() {
     // `clear` is a trigger word at the top level, but as a `/permissions`
     // argument it is a real subcommand and must not be steered away.
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/permissions clear".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/permissions clear".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert_eq!(labels, vec!["/permissions clear"]);
@@ -140,12 +140,12 @@ fn completions_subcommand_argument_never_triggers_suggestion() {
 #[test]
 fn completions_intent_keywords_suggest_canonical_command() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/cron-x-intent".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/cron-x-intent".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     // Intent keyword routing: a word that matches a command's intent_keywords
     // suggests the canonical command. `/resume` maps to `/threads`.
-    app.input = "/resume".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/resume".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert_eq!(app.completion_kind(), CompletionKind::Slash);
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
@@ -165,8 +165,8 @@ fn completions_intent_keywords_suggest_canonical_command() {
     assert_eq!(doc.name, "/threads");
 
     // /switch suggests /models and /role
-    app.input = "/switch".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/switch".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert!(labels.contains(&"/models"));
@@ -176,8 +176,8 @@ fn completions_intent_keywords_suggest_canonical_command() {
 #[test]
 fn completions_candidates_carry_rich_doc_for_inspector() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/models".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/models".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let models_cand = completions
         .iter()
@@ -195,8 +195,8 @@ fn completions_candidates_carry_rich_doc_for_inspector() {
 fn completions_returns_empty_when_input_does_not_trigger() {
     // Plain text without `@` or `/` produces no completions.
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "hello world".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "hello world".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     assert!(app.completions().is_empty());
     assert_eq!(app.completion_kind(), CompletionKind::None);
 }
@@ -204,23 +204,23 @@ fn completions_returns_empty_when_input_does_not_trigger() {
 #[test]
 fn completions_classifies_slash_input_as_slash_kind() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/re".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/re".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert_eq!(app.completion_kind(), CompletionKind::Slash);
     assert!(completions.iter().any(|c| c.label == "/resume"));
     // Slash candidates replace the whole input.
     for c in &completions {
         assert_eq!(c.replace_start, 0);
-        assert_eq!(c.replace_end, app.input.len());
+        assert_eq!(c.replace_end, app.composer.input.len());
     }
 }
 
 #[test]
 fn completions_delegate_subcommand_offers_on_off() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/delegate ".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/delegate ".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert_eq!(app.completion_kind(), CompletionKind::Slash);
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
@@ -231,19 +231,19 @@ fn completions_delegate_subcommand_offers_on_off() {
     // Candidates replace the whole input.
     for c in &completions {
         assert_eq!(c.replace_start, 0);
-        assert_eq!(c.replace_end, app.input.len());
+        assert_eq!(c.replace_end, app.composer.input.len());
     }
 
     // Typing a prefix narrows the pair.
-    app.input = "/delegate of".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/delegate of".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert_eq!(labels, vec!["/delegate off"]);
 
     // An unknown suffix dead-ends (no candidates, like any non-prefix).
-    app.input = "/delegate x".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/delegate x".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     assert!(app.completions().is_empty());
 }
 
@@ -252,14 +252,14 @@ fn completions_expose_only_canonical_trust_subcommands() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
 
     // Retired extension command is not suggested.
-    app.input = "/extensions ".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/extensions ".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     assert!(completions.is_empty());
 
     // /trust <space> offers only the closed asset-domain grammar.
-    app.input = "/trust ".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/trust ".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert_eq!(
@@ -278,8 +278,8 @@ fn completions_expose_only_canonical_trust_subcommands() {
     );
 
     // Removed subcommands do not reappear through prefix matching.
-    app.input = "/trust w".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/trust w".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert!(labels.is_empty());
@@ -290,16 +290,23 @@ fn add_connection_row_opens_the_template_chooser() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_preset_chooser();
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::ProviderPreset)
     );
-    assert_eq!(app.preset_choice, 0);
+    assert_eq!(app.provider_editor.preset_choice, 0);
     // `↑/↓` wrap across the template list.
     let n = crate::PROVIDER_PRESETS.len();
     app.move_preset_choice(false);
-    assert_eq!(app.preset_choice, n - 1, "wraps to the last template");
+    assert_eq!(
+        app.provider_editor.preset_choice,
+        n - 1,
+        "wraps to the last template"
+    );
     app.move_preset_choice(true);
-    assert_eq!(app.preset_choice, 0, "wraps back to the first");
+    assert_eq!(
+        app.provider_editor.preset_choice, 0,
+        "wraps back to the first"
+    );
 }
 
 #[test]
@@ -307,12 +314,15 @@ fn custom_connection_opens_as_a_sibling_of_the_template_chooser() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_custom_connection_editor();
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::CustomProvider)
     );
-    assert_eq!(app.custom_provider_id.as_deref(), Some("custom"));
     assert_eq!(
-        app.custom_fields,
+        app.provider_editor.custom_provider_id.as_deref(),
+        Some("custom")
+    );
+    assert_eq!(
+        app.provider_editor.custom_fields,
         vec![
             crate::CustomField::Name,
             crate::CustomField::BaseUrl,
@@ -326,54 +336,94 @@ fn custom_connection_opens_as_a_sibling_of_the_template_chooser() {
 #[test]
 fn custom_provider_editor_opens_empty_on_name_field() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.custom_name = "stale".to_string();
+    app.provider_editor.custom_name = "stale".to_string();
     app.open_custom_provider_editor(openai_template());
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::CustomProvider)
     );
-    assert_eq!(app.custom_field, 0, "opens on the Name field");
-    assert!(app.custom_name.is_empty(), "buffers reset on open");
+    assert_eq!(
+        app.provider_editor.custom_field, 0,
+        "opens on the Name field"
+    );
     assert!(
-        app.input.is_empty(),
+        app.provider_editor.custom_name.is_empty(),
+        "buffers reset on open"
+    );
+    assert!(
+        app.composer.input.is_empty(),
         "Name field borrows an empty input line"
     );
     // The template seeds the protocol and OpenAI model list.
-    assert_eq!(app.custom_protocol_wire, "openai-chat-completions");
-    assert!(app.custom_models.iter().any(|m| m == "gpt-5.5"));
-    assert!(!app.custom_fields.contains(&crate::CustomField::Model));
+    assert_eq!(
+        app.provider_editor.custom_protocol_wire,
+        "openai-chat-completions"
+    );
+    assert!(
+        app.provider_editor
+            .custom_models
+            .iter()
+            .any(|m| m == "gpt-5.5")
+    );
+    assert!(
+        !app.provider_editor
+            .custom_fields
+            .contains(&crate::CustomField::Model)
+    );
 }
 
 #[test]
 fn anthropic_template_seeds_the_claude_family_without_a_model_field() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_custom_provider_editor(anthropic_template());
-    assert_eq!(app.custom_protocol_wire, "anthropic-messages");
+    assert_eq!(
+        app.provider_editor.custom_protocol_wire,
+        "anthropic-messages"
+    );
     // The Claude family is seeded as the provider's model list…
-    assert!(app.custom_models.len() > 1, "seeds multiple Claude models");
-    assert!(app.custom_models.iter().any(|m| m.starts_with("claude-")));
+    assert!(
+        app.provider_editor.custom_models.len() > 1,
+        "seeds multiple Claude models"
+    );
+    assert!(
+        app.provider_editor
+            .custom_models
+            .iter()
+            .any(|m| m.starts_with("claude-"))
+    );
     // …and there is no Model field (models are fixed by the provider).
-    assert!(!app.custom_fields.contains(&crate::CustomField::Model));
+    assert!(
+        !app.provider_editor
+            .custom_fields
+            .contains(&crate::CustomField::Model)
+    );
 }
 
 #[test]
 fn antigravity_template_prefills_url_and_seeds_relay_models() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_custom_provider_editor(antigravity_template());
-    assert_eq!(app.custom_protocol_wire, "google-generate-content");
     assert_eq!(
-        app.custom_base_url,
+        app.provider_editor.custom_protocol_wire,
+        "google-generate-content"
+    );
+    assert_eq!(
+        app.provider_editor.custom_base_url,
         "https://daily-cloudcode-pa.googleapis.com"
     );
     assert_eq!(
-        app.custom_models,
+        app.provider_editor.custom_models,
         nuo_protocol::model_providers::ANTIGRAVITY_OAUTH_MODELS
     );
     // No free-text Model field — the closed Gemini family is the seed.
-    assert!(!app.custom_fields.contains(&crate::CustomField::Model));
+    assert!(
+        !app.provider_editor
+            .custom_fields
+            .contains(&crate::CustomField::Model)
+    );
     // Name and Token still start empty (the user supplies them).
-    assert!(app.custom_name.is_empty());
-    assert!(app.custom_token.is_empty());
+    assert!(app.provider_editor.custom_name.is_empty());
+    assert!(app.provider_editor.custom_token.is_empty());
 }
 
 #[test]
@@ -382,20 +432,23 @@ fn custom_provider_field_cycle_wraps_and_swaps_buffers() {
     let custom_template = &nuo_view::providers::CUSTOM_TEMPLATE;
     app.open_custom_provider_editor(custom_template);
     // Fields: Name / Base URL / Token / Model / Protocol / Identity.
-    let n = app.custom_fields.len() as u8;
+    let n = app.provider_editor.custom_fields.len() as u8;
     // Type a name, then advance: the name is stashed and the Base URL field
     // loads its (empty) buffer.
-    app.input = "My Relay".to_string();
+    app.composer.input = "My Relay".to_string();
     app.cycle_custom_field(true);
-    assert_eq!(app.custom_field, 1);
-    assert_eq!(app.custom_name, "My Relay");
-    assert!(app.input.is_empty(), "Base URL buffer is empty");
+    assert_eq!(app.provider_editor.custom_field, 1);
+    assert_eq!(app.provider_editor.custom_name, "My Relay");
+    assert!(app.composer.input.is_empty(), "Base URL buffer is empty");
     // Wrap backward from Name (0) to the last field (Identity).
     app.cycle_custom_field(false); // 1 -> 0
-    assert_eq!(app.custom_field, 0);
-    assert_eq!(app.input, "My Relay", "Name buffer reloads into the line");
+    assert_eq!(app.provider_editor.custom_field, 0);
+    assert_eq!(
+        app.composer.input, "My Relay",
+        "Name buffer reloads into the line"
+    );
     app.cycle_custom_field(false); // 0 -> n-1 (wrap)
-    assert_eq!(app.custom_field, n - 1);
+    assert_eq!(app.provider_editor.custom_field, n - 1);
 }
 
 #[test]
@@ -405,15 +458,15 @@ fn custom_provider_model_is_an_unmodified_text_field() {
     // models, so the flow under test is exactly what ships.
     let free_model_template = &nuo_view::providers::CUSTOM_TEMPLATE;
     app.open_custom_provider_editor(free_model_template);
-    assert!(app.custom_model.is_empty());
+    assert!(app.provider_editor.custom_model.is_empty());
     // Focus Model and type an arbitrary, case-sensitive id. No registry-backed
     // suggestions or normalization participate.
-    app.custom_field = 3;
+    app.provider_editor.custom_field = 3;
     assert_eq!(app.current_custom_field(), Some(crate::CustomField::Model));
     app.load_custom_field();
-    app.input = "My Private Model/V2".to_string();
+    app.composer.input = "My Private Model/V2".to_string();
     app.stash_custom_field();
-    assert_eq!(app.custom_model, "My Private Model/V2");
+    assert_eq!(app.provider_editor.custom_model, "My Private Model/V2");
 }
 
 #[test]
@@ -421,13 +474,13 @@ fn custom_provider_cycles_protocol_and_request_identity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_custom_provider_editor(&nuo_view::providers::CUSTOM_TEMPLATE);
 
-    app.custom_field = 4;
+    app.provider_editor.custom_field = 4;
     assert_eq!(
         app.current_custom_field(),
         Some(crate::CustomField::Protocol)
     );
     app.cycle_custom_choice(true);
-    assert_eq!(app.custom_protocol_wire, "openai-responses");
+    assert_eq!(app.provider_editor.custom_protocol_wire, "openai-responses");
 }
 
 #[test]
@@ -442,9 +495,20 @@ fn custom_provider_edit_restores_protocol_and_budget() {
         false,
         Default::default(),
     );
-    assert_eq!(app.custom_protocol_wire, "anthropic-messages");
-    assert!(app.custom_fields.contains(&crate::CustomField::Protocol));
-    assert!(app.custom_fields.contains(&crate::CustomField::Budget));
+    assert_eq!(
+        app.provider_editor.custom_protocol_wire,
+        "anthropic-messages"
+    );
+    assert!(
+        app.provider_editor
+            .custom_fields
+            .contains(&crate::CustomField::Protocol)
+    );
+    assert!(
+        app.provider_editor
+            .custom_fields
+            .contains(&crate::CustomField::Budget)
+    );
 }
 
 #[test]
@@ -466,25 +530,26 @@ fn custom_connection_submits_with_the_typed_model_and_url() {
         ]
     );
     app.open_custom_provider_editor(template);
-    app.custom_name = "WeChat".to_string();
-    app.custom_base_url = "https://chatapi.weixin.qq.com/openai/v1/chat/completions".to_string();
-    app.custom_token = "tok".to_string();
+    app.provider_editor.custom_name = "WeChat".to_string();
+    app.provider_editor.custom_base_url =
+        "https://chatapi.weixin.qq.com/openai/v1/chat/completions".to_string();
+    app.provider_editor.custom_token = "tok".to_string();
     // Focus the Model field and type the cased id directly.
-    app.custom_field = 3;
+    app.provider_editor.custom_field = 3;
     app.load_custom_field();
-    app.input = "GLM-5.2".to_string();
+    app.composer.input = "GLM-5.2".to_string();
     app.stash_custom_field();
-    assert_eq!(app.custom_model, "GLM-5.2");
+    assert_eq!(app.provider_editor.custom_model, "GLM-5.2");
 
     // Submit: the request carries the `custom` provider, the single typed
     // model, and the endpoint — a case-sensitive id travels
     // verbatim (the WeChat endpoint 400s on the lowercase spelling).
     let payload = serde_json::json!({
-        "name": app.custom_name,
-        "provider": app.custom_provider_id,
-        "protocol": app.custom_protocol_wire,
-        "base_url": app.custom_base_url,
-        "models": [app.custom_model],
+        "name": app.provider_editor.custom_name,
+        "provider": app.provider_editor.custom_provider_id,
+        "protocol": app.provider_editor.custom_protocol_wire,
+        "base_url": app.provider_editor.custom_base_url,
+        "models": [app.provider_editor.custom_model],
     });
     assert_eq!(payload["models"][0], "GLM-5.2");
     assert_eq!(payload["provider"], "custom");
@@ -499,8 +564,8 @@ fn custom_connection_submits_with_the_typed_model_and_url() {
 fn completions_path_returns_top_level_for_bare_at() {
     // Stage 1: bare `@` lists entity namespaces (@file:, @skill:).
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml", "src/main.rs", "README.md"], &["src"]);
-    app.input = "@".to_string();
-    app.cursor_position = 1;
+    app.composer.input = "@".to_string();
+    app.composer.cursor_position = 1;
     let completions = app.completions();
     assert_eq!(app.completion_kind(), CompletionKind::Path);
 
@@ -511,8 +576,8 @@ fn completions_path_returns_top_level_for_bare_at() {
     assert!(!labels.contains(&"@file:Cargo.toml"));
 
     // Stage 2: selecting or typing `@file:` lists top-level entries.
-    app.input = "@file:".to_string();
-    app.cursor_position = 6;
+    app.composer.input = "@file:".to_string();
+    app.composer.cursor_position = 6;
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert!(labels.contains(&"@file:src/"));
@@ -533,8 +598,8 @@ fn completions_path_descends_into_subdirectory() {
         &["src/main.rs", "src/util/mod.rs", "tests/smoke.rs"],
         &["src", "src/util", "tests"],
     );
-    app.input = "@file:src/".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "@file:src/".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert!(labels.contains(&"@file:src/"));
@@ -549,8 +614,8 @@ fn completions_path_descends_into_subdirectory() {
 fn completions_path_substring_match_picks_files_across_dirs() {
     // Stage 2: `@file:main` finds `src/main.rs` via substring match.
     let (mut app, _tmp) = app_in_tempdir(&["src/main.rs", "lib/other.rs"], &["src", "lib"]);
-    app.input = "@file:main".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "@file:main".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     assert!(labels.contains(&"@file:src/main.rs"));
@@ -564,8 +629,8 @@ fn completions_path_skips_dotgit_directory() {
         &[".git/HEAD", ".git/config", "src/main.rs", ".env"],
         &[".git", "src"],
     );
-    app.input = "@file:".to_string();
-    app.cursor_position = 6;
+    app.composer.input = "@file:".to_string();
+    app.composer.cursor_position = 6;
     let completions = app.completions();
     let labels: Vec<&str> = completions.iter().map(|c| c.label.as_str()).collect();
     // Hidden files like `.env` are listed; `.git/` and its contents are not.
@@ -578,13 +643,14 @@ fn completions_path_skips_dotgit_directory() {
 fn model_editor_owns_caret_only_for_provider_key_field() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::ModelEditor);
-    app.editor_model_settings_only = false;
-    app.editor_field = 0;
+    app.provider_editor.editor_model_settings_only = false;
+    app.provider_editor.editor_field = 0;
     assert_eq!(app.caret_owner(), CaretOwner::Overlay);
 
-    app.editor_model_settings_only = true;
-    app.editor_field = 1;
+    app.provider_editor.editor_model_settings_only = true;
+    app.provider_editor.editor_field = 1;
     assert_eq!(app.caret_owner(), CaretOwner::None);
 }
 
@@ -597,33 +663,48 @@ fn model_editor_owns_caret_only_for_provider_key_field() {
 #[test]
 fn sessions_picker_delete_keeps_cursor_on_the_same_line() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.sessions_overview = (0..5)
+    app.session.sessions_overview = (0..5)
         .map(|i| overview_row(&format!("s{i}")))
         .collect::<Vec<_>>();
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
 
     // Delete the row at index 2 (mid-list). The cursor must stay at 2 — now
     // pointing at "s3", which slid into the freed slot.
-    app.modal_index = 2;
-    let idx = app.modal_index.min(app.sessions_overview.len() - 1);
-    let deleted = app.sessions_overview.remove(idx);
+    app.surfaces.modal_index = 2;
+    let idx = app
+        .surfaces
+        .modal_index
+        .min(app.session.sessions_overview.len() - 1);
+    let deleted = app.session.sessions_overview.remove(idx);
     assert_eq!(deleted.id, "s2");
-    app.modal_index = app.modal_index.min(app.sessions_overview.len() - 1);
-    assert_eq!(app.modal_index, 2, "mid-list delete keeps the cursor put");
+    app.surfaces.modal_index = app
+        .surfaces
+        .modal_index
+        .min(app.session.sessions_overview.len() - 1);
     assert_eq!(
-        app.sessions_overview[app.modal_index].id, "s3",
+        app.surfaces.modal_index, 2,
+        "mid-list delete keeps the cursor put"
+    );
+    assert_eq!(
+        app.session.sessions_overview[app.surfaces.modal_index].id, "s3",
         "the next session slid into the removed slot"
     );
 
     // Delete the now-last row (index 3 in the shrunken 4-row list, which holds
     // s4). The list then has 3 rows, so the cursor must clamp to index 2 (the
     // new last row), not jump to 0.
-    app.modal_index = 3;
-    let idx = app.modal_index.min(app.sessions_overview.len() - 1);
-    app.sessions_overview.remove(idx);
-    app.modal_index = app.modal_index.min(app.sessions_overview.len() - 1);
+    app.surfaces.modal_index = 3;
+    let idx = app
+        .surfaces
+        .modal_index
+        .min(app.session.sessions_overview.len() - 1);
+    app.session.sessions_overview.remove(idx);
+    app.surfaces.modal_index = app
+        .surfaces
+        .modal_index
+        .min(app.session.sessions_overview.len() - 1);
     assert_eq!(
-        app.modal_index, 2,
+        app.surfaces.modal_index, 2,
         "deleting the last row clamps to the new last row, not the top"
     );
 }
@@ -637,12 +718,13 @@ fn sessions_picker_delete_keeps_cursor_on_the_same_line() {
 #[test]
 fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.sessions_overview = (0..5)
+    app.session.sessions_overview = (0..5)
         .map(|i| overview_row(&format!("s{i}")))
         .collect::<Vec<_>>();
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
     app.set_active_index(3);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
         .scroll = 2;
 
@@ -653,15 +735,18 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
         app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
         app.set_active_index(0);
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .scroll = 0;
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .follow = true;
     }
     assert_eq!(app.active_index(), 3, "refresh while open keeps the cursor");
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .scroll,
         2,
@@ -676,15 +761,18 @@ fn sessions_picker_data_refresh_does_not_reset_cursor_when_already_open() {
         app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
         app.set_active_index(0);
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .scroll = 0;
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .follow = true;
     }
     assert_eq!(app.active_index(), 0, "a genuine open resets the cursor");
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
             .scroll,
         0,
@@ -703,6 +791,7 @@ fn model_editor_esc_pops_back_to_its_picker() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::ModelEditor);
     app.pop_transient_surface();
     assert_eq!(
@@ -714,6 +803,7 @@ fn model_editor_esc_pops_back_to_its_picker() {
     // From Connections: the same editor, a different pushed parent.
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::ModelEditor);
     app.pop_transient_surface();
     assert_eq!(
@@ -730,17 +820,18 @@ fn custom_connection_submits_with_multiple_comma_separated_models() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.open_custom_provider_editor(template);
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::CustomProvider)
     );
-    app.custom_name = "WeChat Multi".to_string();
-    app.custom_base_url = "https://chatapi.weixin.qq.com/openai/v1/chat/completions".to_string();
-    app.custom_token = "tok".to_string();
-    app.custom_field = 3;
-    app.input = "gpt-4o, gpt-4o-mini, claudy".to_string();
+    app.provider_editor.custom_name = "WeChat Multi".to_string();
+    app.provider_editor.custom_base_url =
+        "https://chatapi.weixin.qq.com/openai/v1/chat/completions".to_string();
+    app.provider_editor.custom_token = "tok".to_string();
+    app.provider_editor.custom_field = 3;
+    app.composer.input = "gpt-4o, gpt-4o-mini, claudy".to_string();
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     crate::shell::event_loop::actions::handle_submit_custom_provider(&mut app);
 
@@ -780,11 +871,11 @@ fn curated_template_submits_the_provider_id_without_a_protocol_override() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.open_custom_provider_editor(openai_template());
     // The focused Name field owns the composer line.
-    app.input = "OpenAI Work".to_string();
-    app.custom_token = "sk-test".to_string();
+    app.composer.input = "OpenAI Work".to_string();
+    app.provider_editor.custom_token = "sk-test".to_string();
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     crate::shell::event_loop::actions::handle_submit_custom_provider(&mut app);
 
@@ -811,7 +902,8 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
     // by the new name) and then the `EditConnection` metadata update.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
-    app.provider_picker
+    app.surfaces
+        .provider_picker
         .rows
         .push(nuo_protocol::ProviderPickerRow {
             id: "my-relay".to_string(),
@@ -838,11 +930,11 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
         Default::default(),
     );
     // The Name field owns the composer line; typing a new name renames.
-    app.custom_field = 0;
-    app.input = "My Relay Renamed".to_string();
+    app.provider_editor.custom_field = 0;
+    app.composer.input = "My Relay Renamed".to_string();
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     crate::shell::event_loop::actions::handle_submit_custom_provider(&mut app);
 
@@ -875,10 +967,10 @@ fn editor_rename_sends_the_rename_transaction_then_the_metadata_edit() {
 #[tokio::test]
 async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_provider = "anthropic-prod".to_string();
+    app.session.current_provider = "anthropic-prod".to_string();
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
@@ -890,11 +982,13 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_detail
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_standalone
     );
@@ -909,14 +1003,16 @@ async fn open_active_connection_detail_opens_standalone_and_closes_to_none() {
 
     // Esc in standalone connection detail closes directly to None (no drill-down backout)
     crate::shell::event_loop::handle_close_modal(&mut app, "s1");
-    assert!(app.surfaces.active_overlay().is_none());
+    assert!(app.surfaces.surfaces.active_overlay().is_none());
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_detail
     );
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_standalone
     );
@@ -956,17 +1052,19 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_scroll,
         0
     );
     assert_eq!(
-        app.connection_detail.as_ref().map(|d| &d.name),
+        app.surfaces.connection_detail.as_ref().map(|d| &d.name),
         Some(&"google-antigravity".to_string())
     );
 
     // User scrolls down while reading the connection details
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_scroll = 5;
 
@@ -983,6 +1081,7 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
     // Scroll must be preserved and not jump to 0!
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_scroll,
         5,
@@ -994,14 +1093,15 @@ async fn connection_detail_quota_update_preserves_scroll_position() {
 async fn connection_detail_refresh_action_queries_active_detail_id() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_detail = true;
-    app.connection_detail = Some(nuo_protocol::ConnectionDetail {
+    app.surfaces.connection_detail = Some(nuo_protocol::ConnectionDetail {
         name: "custom-relay".to_string(),
         provider: "custom".to_string(),
         provider_label: "Custom connection".to_string(),
@@ -1031,7 +1131,7 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
 
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
     assert_eq!(
-        app.connection_detail.as_ref().map(|d| &d.usage),
+        app.surfaces.connection_detail.as_ref().map(|d| &d.usage),
         Some(&nuo_protocol::ConnectionUsageState::Fetching)
     );
 
@@ -1050,12 +1150,13 @@ async fn connection_detail_refresh_action_queries_active_detail_id() {
 async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .refreshing
     );
@@ -1072,11 +1173,12 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .refreshing
     );
-    assert_eq!(app.copy_toast_message, "Refreshing models…");
-    assert!(app.copy_toast_until.is_some());
+    assert_eq!(app.surfaces.copy_toast_message, "Refreshing models…");
+    assert!(app.surfaces.copy_toast_until.is_some());
 
     let req = rx.try_recv().expect("should send refresh request");
     assert!(matches!(
@@ -1099,10 +1201,14 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .refreshing
     );
-    assert_eq!(app.copy_toast_message, "Model refresh already in progress…");
+    assert_eq!(
+        app.surfaces.copy_toast_message,
+        "Model refresh already in progress…"
+    );
     assert!(rx.try_recv().is_err(), "should not send duplicate request");
 
     // When ProviderPicker snapshot arrives, models_refreshing resets to false
@@ -1115,6 +1221,7 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     );
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .refreshing
     );
@@ -1122,7 +1229,8 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
     // When a disclosure arrives, the local copy toast yields the single bubble
     // slot so the server's notice is visible.
     let notices_before = app.notice_count();
-    app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
+    app.surfaces.copy_toast_until =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(10));
     crate::shell::event_loop::apply::apply(
         &mut app,
         &runtime,
@@ -1134,9 +1242,9 @@ async fn models_modal_refresh_action_provides_feedback_and_deduplicates() {
             .render(),
         ),
     );
-    assert!(app.copy_toast_until.is_none());
+    assert!(app.surfaces.copy_toast_until.is_none());
     assert_eq!(
-        app.notice_toast_message,
+        app.surfaces.notice_toast_message,
         "Model list refreshed (up to date)"
     );
     assert_eq!(
@@ -1165,30 +1273,33 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
     );
 
     // Initial budget is Remote
-    assert_eq!(app.custom_budget, nuo_protocol::ConnectionBudget::Remote);
+    assert_eq!(
+        app.provider_editor.custom_budget,
+        nuo_protocol::ConnectionBudget::Remote
+    );
 
     // Focus on Budget field (index 2 for curated API key: Name=0, Token=1, Budget=2)
     assert_eq!(
-        app.custom_fields,
+        app.provider_editor.custom_fields,
         vec![
             nuo_view::providers::CustomField::Name,
             nuo_view::providers::CustomField::Token,
             nuo_view::providers::CustomField::Budget,
         ]
     );
-    app.custom_field = 2;
+    app.provider_editor.custom_field = 2;
 
     // Cycle forward with Right arrow
     app.cycle_custom_choice(true);
     assert_eq!(
-        app.custom_budget,
+        app.provider_editor.custom_budget,
         nuo_protocol::ConnectionBudget::local(1.0, nuo_protocol::BudgetPeriod::Session)
     );
 
     // Cycle forward again
     app.cycle_custom_choice(true);
     assert_eq!(
-        app.custom_budget,
+        app.provider_editor.custom_budget,
         nuo_protocol::ConnectionBudget::local(5.0, nuo_protocol::BudgetPeriod::Daily)
     );
 
@@ -1197,11 +1308,13 @@ fn test_tui_connection_editor_cycles_budget_and_renders_detail() {
         name: "gemini-work".to_string(),
         provider: "google".to_string(),
         provider_label: "Google Gemini".to_string(),
-        budget: app.custom_budget.clone(),
+        budget: app.provider_editor.custom_budget.clone(),
         ..Default::default()
     };
     let rows = crate::shell::overlays::provider::connections::connection_detail_body(
-        &detail, 0, &app.theme,
+        &detail,
+        0,
+        &app.surfaces.theme,
     );
     let budget_row = rows.iter().find(|r| {
         r.prefix
@@ -1225,13 +1338,13 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
     app.open_preset_chooser();
     app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending)
     );
 
     // Simulate mouse interaction during verification:
     // 1. User sets an active selection range (e.g. dragging over verification URL or code)
-    app.selection = nuo_view::model::selection::SelectionState::Range {
+    app.transcript.selection = nuo_view::model::selection::SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             nuo_view::model::layout::MODAL_DOC_MSG_IDX,
             0,
@@ -1244,7 +1357,8 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         ),
     };
     // 2. Transcript focus might have been falsely set by mouse click
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
     // Now OAuth succeeds, server sends Done signal
@@ -1252,22 +1366,23 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
 
     // Invariants that MUST hold:
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::CustomProvider),
         "CustomProvider name editor must be active"
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending),
         "OAuthPending must be pruned from the overlay stack"
     );
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         nuo_view::model::selection::SelectionState::None,
         "Selection must be cleared on transition to name editor"
     );
     assert!(
-        app.focus.is_composer(),
+        app.transcript.focus.is_composer(),
         "Transcript focus must be false when entering name editor"
     );
     assert!(app.caret_visible(), "Caret must be visible in name editor");
@@ -1278,8 +1393,8 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
     );
 
     // Typing must work!
-    let mut input = app.input.clone();
-    let mut cursor = app.cursor_position;
+    let mut input = app.composer.input.clone();
+    let mut cursor = app.composer.cursor_position;
     let action = crate::shell::input::route_event_motion(
         crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
             crossterm::event::KeyCode::Char('!'),
@@ -1289,22 +1404,22 @@ fn oauth_mouse_selection_during_verification_does_not_break_typing_in_name_edito
         &mut cursor,
         &mut crate::shell::composer_grid::CaretMotion::default(),
         crate::shell::input::Dispatch {
-            overlay: app.surfaces.active_overlay(),
+            overlay: app.surfaces.surfaces.active_overlay(),
             sheet: None,
             pre_attach: false,
             scene: app.current_scene(),
             key_overrides: Default::default(),
-            focus: app.focus.plane(),
+            focus: app.transcript.focus.plane(),
             scene_blocked: false,
             notice_viewer_open: false,
         },
         &crate::shell::modal_keys::ModalKeys {
-            custom_provider_field: Some(app.custom_field),
+            custom_provider_field: Some(app.provider_editor.custom_field),
             ..Default::default()
         },
         &crate::shell::sheet::SheetKeys::default(),
         &crate::shell::session::SceneKeys::default(),
-        &mut app.drag,
+        &mut app.transcript.drag,
     );
 
     assert_eq!(action, crate::shell::input::InputAction::InsertChar('!'));
@@ -1332,31 +1447,32 @@ fn oauth_cancel_pops_cleanly_without_bouncing_loop() {
     // 2. Open preset chooser
     app.open_preset_chooser();
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::ProviderPreset)
     );
 
     // 3. Begin OAuth
     app.begin_oauth_add(antigravity, nuo_protocol::LoginMethod::Browser);
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending)
     );
 
     // Stack should have: [Dialog(Connections), Sheet(ProviderPreset), Sheet(OAuthPending)]
-    assert_eq!(app.surfaces.overlay_stack().len(), 3);
+    assert_eq!(app.surfaces.surfaces.overlay_stack().len(), 3);
 
     // 4. Cancel OAuth (Esc on OAuthPending)
     app.cancel_oauth_pending();
 
     // OAuthPending must be dismissed, revealing ProviderPreset underneath!
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::ProviderPreset),
         "Cancelling OAuthPending must reveal the underlying ProviderPreset"
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending),
         "No OAuthPending left on stack"
     );
@@ -1371,18 +1487,20 @@ fn oauth_cancel_pops_cleanly_without_bouncing_loop() {
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::ProviderPreset),
         "No ProviderPreset left on stack"
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending),
         "No OAuthPending left on stack"
     );
 
     // 6. Dismiss Connections dialog -> cleanly returns to main scene
     assert!(app.dismiss_surface());
-    assert!(app.surfaces.active_overlay().is_none());
+    assert!(app.surfaces.surfaces.active_overlay().is_none());
 }
 
 #[test]
@@ -1400,11 +1518,12 @@ fn oauth_success_name_editor_cancel_pops_cleanly() {
     // Simulate OAuth Done signal -> opens name editor
     app.open_oauth_instance_name_editor();
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::CustomProvider)
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending),
         "OAuthPending must be pruned on success"
     );
@@ -1414,19 +1533,20 @@ fn oauth_success_name_editor_cancel_pops_cleanly() {
 
     // Must NOT reveal OAuthPending!
     assert_ne!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::OAuthPending),
         "Cancelling name editor must NEVER reveal OAuthPending"
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending),
         "Overlay stack must remain free of zombie OAuthPending"
     );
 
     // Should reveal ProviderPreset (the parent that opened it)
     assert_eq!(
-        app.surfaces.active_sheet(),
+        app.surfaces.surfaces.active_sheet(),
         Some(crate::shell::surfaces::SheetKind::ProviderPreset)
     );
 
@@ -1442,12 +1562,12 @@ fn oauth_success_name_editor_cancel_pops_cleanly() {
 async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availability() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // 1. Initial picker with a Claude model
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "antigravity".to_string(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "antigravity".to_string(),
@@ -1559,6 +1679,7 @@ async fn open_models_panel_triggers_silent_quota_query_and_updates_model_availab
     assert_eq!(flow, crate::shell::event_loop::actions::ActionFlow::Handled);
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );

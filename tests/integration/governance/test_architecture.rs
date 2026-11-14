@@ -343,6 +343,7 @@ fn tier_runner_profiles_are_declared() {
 /// second definition waiting to drift. Four byte-identical files once lived in
 /// both `nuo-protocol` and `nuo-host`; this gate makes a recurrence loud.
 #[test]
+#[allow(clippy::type_complexity)]
 fn source_files_are_not_byte_identical_across_crates() {
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
@@ -380,7 +381,10 @@ fn source_files_are_not_byte_identical_across_crates() {
                     duplicates.push(format!(
                         "{} == {}",
                         path.strip_prefix(&root).unwrap_or(path).display(),
-                        other_path.strip_prefix(&root).unwrap_or(other_path).display()
+                        other_path
+                            .strip_prefix(&root)
+                            .unwrap_or(other_path)
+                            .display()
                     ));
                 }
             }

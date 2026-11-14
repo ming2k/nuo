@@ -1,8 +1,8 @@
 //! Model catalog discovery interfaces, query types, and update envelopes (ADR-0015).
 
-use nuo_protocol::surface::CatalogShape;
 use async_trait::async_trait;
 use nuo_host::SecretString;
+use nuo_protocol::surface::CatalogShape;
 
 pub use nuo_protocol::dialects::{
     AnthropicMessagesDialect, Channel, DiscoveredModel, GoogleInteractionsDialect, ModelListError,

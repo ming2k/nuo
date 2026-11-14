@@ -19,9 +19,11 @@
 //! before invoking [`assemble`].
 use nuo_engine::orchestration::{ProxyProvider, round_response};
 use nuo_engine::{Agent, AgentIdentity, AgentRoleProfile, RoundLifecycle, SubagentTool};
-use nuo_protocol::{AgentRequest, AgentResponse, Provider, RoundEvent, SubAgentProfile, ToolFactoryContextBuilder, ToolSet, collect_toolset};
+use nuo_protocol::{
+    AgentRequest, AgentResponse, Provider, RoundEvent, SubAgentProfile, ToolFactoryContextBuilder,
+    ToolSet, collect_toolset,
+};
 use nuo_tool::{AgentNotice, NoticeKind, NoticeSeverity, NoticeSource};
-
 
 use crate::runtime::mcp::{McpCatalog, McpRuntime};
 use nuo_engine::cognition::skills::SkillRegistry;
@@ -31,8 +33,8 @@ use nuo_persistence::{
 };
 
 use crate::composition::startup::ThreadStart;
-use nuo_host::paths;
 use crate::{ThreadDriver, UiBridge};
+use nuo_host::paths;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -531,8 +533,9 @@ impl Assembler {
         let resolved_additional = match &self.workspace_root {
             Some(root) => {
                 if security_snapshot.ex_workspace.is_trusted() {
-                    self.config
-                        .merge_project_additional_roots(Config::load_project_additional_roots(root));
+                    self.config.merge_project_additional_roots(
+                        Config::load_project_additional_roots(root),
+                    );
                 }
                 let resolved = self
                     .config
@@ -760,7 +763,8 @@ impl Assembler {
         subagent_tool_handle.bind_variant_selection(agent.variant_selection_handle());
         subagent_tool_handle.bind_user_instructions(agent.user_instructions_handle());
         subagent_tool_handle.bind_project_instructions(agent.project_instructions_handle());
-        subagent_tool_handle.bind_instruction_provider_kind(agent.instruction_provider_kind_handle());
+        subagent_tool_handle
+            .bind_instruction_provider_kind(agent.instruction_provider_kind_handle());
         subagent_tool_handle.bind_workspace_security(agent.workspace_security_handle());
         subagent_tool_handle.bind_execution_policy(agent.execution_policy());
         // Every subagent opens its own session beneath this one, so its transcript is
@@ -844,7 +848,9 @@ impl Assembler {
             if security_snapshot.instructions.is_trusted() {
                 match crate::product::project::load_project_rules(root) {
                     Ok(rules) => agent.set_project_rules(rules),
-                    Err(error) => tracing::warn!(%error, "trusted project rules could not be loaded"),
+                    Err(error) => {
+                        tracing::warn!(%error, "trusted project rules could not be loaded")
+                    }
                 }
                 match crate::product::project::load_project_instructions(root) {
                     Ok(instructions) => agent.set_project_instructions(instructions),
@@ -1141,10 +1147,7 @@ impl Assembler {
                     ThreadStart::Resume(_) => nuo_protocol::HookStartSource::Resume,
                     _ => nuo_protocol::HookStartSource::Startup,
                 };
-                Self::publish_stage(
-                    self.phase_sink.as_ref(),
-                    nuo_protocol::PrepareStage::Hooks,
-                );
+                Self::publish_stage(self.phase_sink.as_ref(), nuo_protocol::PrepareStage::Hooks);
                 let mut messages = self.session.model_window().await;
                 let before_len = messages.len();
                 match tokio::time::timeout(
@@ -1229,7 +1232,7 @@ impl Assembler {
             agent.round_counter_handle(),
         );
 
-        let driver = ThreadDriver {
+        let driver = ThreadDriver::new(crate::runtime::thread_driver::SessionContext {
             req_rx: self.req_rx,
             tx: self.resp_tx,
             req_tx: req_tx_for_commands,
@@ -1254,7 +1257,7 @@ impl Assembler {
             extra_commands: Arc::new(crate::handlers::slash_handler::SlashCommandRegistry::new()),
             websearch_shared,
             background_jobs,
-        };
+        });
 
         Bootstrap {
             driver,

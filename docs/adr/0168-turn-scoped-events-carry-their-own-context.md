@@ -1,8 +1,18 @@
+---
+id: ADR-0168
+title: "Turn-Scoped Events Carry Their Own Context"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0168: Turn-Scoped Events Carry Their Own Context
 
 - **Status:** Accepted
 - **Date:** 2026-11-10
-- **Related:** [ADR-0167](0167-a-discarded-attempt-carries-its-own-position.md), [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0133](0133-transcript-attachment-and-hydration-invariants.md)
+- **Related:** [ADR-0167](0167-a-discarded-attempt-carries-its-own-position.md), [ADR-0162](0162-stream-restarts-are-a-separate-budget-and-visible-attempts-are-discarded.md), [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md), [ADR-0133](0133-attach-readiness-boundary-network-free-handshake-typed-session-phases-and-authoritative-late-hydration.md)
 - **Amends:** ADR-0167 (the discard keeps its position; the position moves from per-variant fields to the turn envelope)
 
 ## Context
@@ -219,5 +229,5 @@ rot this decision removes.
   — the sweep contract.
 - [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md) — the protocol
   number and shape census.
-- [ADR-0133](0133-transcript-attachment-and-hydration-invariants.md) — the
+- [ADR-0133](0133-attach-readiness-boundary-network-free-handshake-typed-session-phases-and-authoritative-late-hydration.md) — the
   hydration payload that does not replay `TurnStarted`.

@@ -27,9 +27,9 @@
 use crate::UiBridge;
 use crate::composition::bootstrap;
 use crate::runtime::registry::{HostParams, ThreadRegistry};
+use crate::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason, SignalGuard, TaskBook};
 use crate::transport::serve::{ServeExpose, ServeOptions, StartupParts, start_server};
 use crate::transport::serve_discovery as discovery;
-use crate::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason, SignalGuard, TaskBook};
 use nuo_engine::{AgentIdentity, AgentRoleProfile};
 use nuo_host::lock::ProcessLock;
 use nuo_persistence::config::Config;
@@ -201,8 +201,11 @@ async fn run_inner(
     // supervised call sites then turn it into a state transition instead of
     // a silent zombie. Installed before any task is spawned.
     crate::runtime::task_fault_tolerance::install_panic_hook();
-    let gate: Arc<ShutdownGate> =
-        Arc::new((*gate).clone().with_version(crate::transport::serve::server_version()));
+    let gate: Arc<ShutdownGate> = Arc::new(
+        (*gate)
+            .clone()
+            .with_version(crate::transport::serve::server_version()),
+    );
     bootstrap::ensure_app_roots();
 
     // Single instance & takeover (ADR-0029, ADR-0034):

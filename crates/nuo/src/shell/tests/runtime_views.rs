@@ -29,18 +29,18 @@ async fn transcript_sync_publishes_viewed_session_inside_runtime() {
 #[test]
 fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
     let (mut app, _tmp) = app_in_tempdir(&["Cargo.toml"], &[]);
-    app.input = "/se".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.composer.input = "/se".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
 
     // Esc's arm: latch the dismissal, drop the highlight.
-    app.suggestion_index = None;
-    app.completion_dismissed = true;
+    app.composer.suggestion_index = None;
+    app.composer.completion_dismissed = true;
 
     // Build the context exactly as `run_app_loop` does: the candidate list
     // is suppressed (empty) while the latch is set, but the classification
     // is NOT — that distinction is what makes the re-open gesture visible
     // to the input layer.
-    let suppress_completions = app.completion_dismissed;
+    let suppress_completions = app.composer.completion_dismissed;
     let completions = if suppress_completions {
         Vec::new()
     } else {
@@ -48,8 +48,8 @@ fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
     };
     let completion_kind = app.completion_kind();
     let has_trigger_text = app.completion_trigger_text_present();
-    let mut input = app.input.clone();
-    let mut cursor = app.cursor_position;
+    let mut input = app.composer.input.clone();
+    let mut cursor = app.composer.cursor_position;
     let mut drag = nuo_view::model::selection::SelectionDrag::default();
     let action = crate::shell::input::route_event_motion(
         crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
@@ -66,8 +66,8 @@ fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
             completion_kind,
             suggestion_count: completions.len(),
             has_exact_suggestion: false,
-            suggestion_index: app.suggestion_index,
-            completion_dismissed: app.completion_dismissed,
+            suggestion_index: app.composer.suggestion_index,
+            completion_dismissed: app.composer.completion_dismissed,
             has_trigger_text,
             ..Default::default()
         },
@@ -80,11 +80,11 @@ fn tab_after_esc_reopens_through_the_event_loop_context_shape() {
     );
     // And the ReopenCompletion arm's state change restores a selected menu
     // once the loop's post-dispatch anchor runs.
-    app.completion_dismissed = false;
+    app.composer.completion_dismissed = false;
     let completions = app.completions();
     app.anchor_completion_selection(&completions);
-    assert_eq!(app.suggestion_index, Some(0));
-    assert!(!app.completion_dismissed);
+    assert_eq!(app.composer.suggestion_index, Some(0));
+    assert!(!app.composer.completion_dismissed);
 }
 
 #[test]
@@ -98,12 +98,12 @@ fn relay_left_arrow_breaks_selection_at_head_then_steps() {
         Some(crate::shell::input::InputAction::None)
     ));
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         SelectionState::None,
         "← must break selection"
     );
     assert_eq!(
-        app.cursor_position, 10,
+        app.composer.cursor_position, 10,
         "first ← lands one past the release point"
     );
 }
@@ -111,10 +111,10 @@ fn relay_left_arrow_breaks_selection_at_head_then_steps() {
 #[test]
 fn relay_right_arrow_clamps_at_buffer_end() {
     let mut app = app_with_input_selection("abc");
-    app.cursor_position = 3; // released at the end
+    app.composer.cursor_position = 3; // released at the end
     relay_probe(&mut app, crossterm::event::KeyCode::Right);
-    assert_eq!(app.cursor_position, 3, "→ past the end clamps");
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.cursor_position, 3, "→ past the end clamps");
+    assert_eq!(app.transcript.selection, SelectionState::None);
 }
 
 #[test]
@@ -124,22 +124,22 @@ fn relay_up_and_down_restore_hidden_caret() {
     // consume the press, rather than leaving the stale pre-selection
     // position in place.
     let mut app = app_with_input_selection("hello");
-    app.cursor_position = 1; // stale visible caret from before the drag
+    app.composer.cursor_position = 1; // stale visible caret from before the drag
     relay_probe(&mut app, crossterm::event::KeyCode::Up);
     assert_eq!(
-        app.cursor_position, 5,
+        app.composer.cursor_position, 5,
         "↑ must restore the caret at the head edge, not the stale position"
     );
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 
     // ↓ behaves identically: adopt the head edge and consume the press. The
     // press itself does not walk lines or history — that resumes from the
     // restored position on the next key.
     let mut app = app_with_input_selection("hello");
-    app.cursor_position = 1;
+    app.composer.cursor_position = 1;
     relay_probe(&mut app, crossterm::event::KeyCode::Down);
-    assert_eq!(app.cursor_position, 5);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.cursor_position, 5);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 }
 
 #[test]
@@ -149,15 +149,18 @@ fn relay_backspace_and_delete_replace_selection() {
         crossterm::event::KeyCode::Delete,
     ] {
         let mut app = app_with_input_selection("keep this");
-        app.cursor_position = 1; // stale visible caret
+        app.composer.cursor_position = 1; // stale visible caret
         let action = relay_probe(&mut app, code);
         assert!(
             matches!(action, Some(crate::shell::input::InputAction::Backspace)),
             "delete-family must return Backspace's post-edit signal"
         );
-        assert_eq!(app.input, "", "the whole selection goes in one stroke");
-        assert_eq!(app.cursor_position, 0);
-        assert_eq!(app.selection, SelectionState::None);
+        assert_eq!(
+            app.composer.input, "",
+            "the whole selection goes in one stroke"
+        );
+        assert_eq!(app.composer.cursor_position, 0);
+        assert_eq!(app.transcript.selection, SelectionState::None);
     }
 }
 
@@ -165,7 +168,7 @@ fn relay_backspace_and_delete_replace_selection() {
 fn relay_ignores_keys_without_selection_or_outside_family() {
     // No selection: the probe must miss so ordinary input handling runs.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hi".to_string();
+    app.composer.input = "hi".to_string();
     assert!(relay_probe(&mut app, crossterm::event::KeyCode::Left).is_none());
 
     // With a selection, an uninvolved key (e.g. `x`) must NOT be swallowed:
@@ -184,7 +187,7 @@ async fn console_bare_text_prompts_the_selection() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
     console_dispatch(&mut app, "fix the flaky test", false).await;
-    match &app.host_console_log[..] {
+    match &app.transcript.host_console_log[..] {
         [
             crate::shell::overlays::ConsoleLine::Dispatch {
                 targets, action, ..
@@ -205,7 +208,7 @@ async fn console_bare_text_from_n_creates_instead() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
     console_dispatch(&mut app, "refactor the retry loop", true).await;
-    match &app.host_console_log[..] {
+    match &app.transcript.host_console_log[..] {
         [
             crate::shell::overlays::ConsoleLine::Dispatch {
                 targets, action, ..
@@ -223,7 +226,7 @@ async fn console_unknown_address_is_a_notice_not_a_dispatch() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
     console_dispatch(&mut app, "@9 do the thing", false).await;
-    match &app.host_console_log[..] {
+    match &app.transcript.host_console_log[..] {
         [crate::shell::overlays::ConsoleLine::Notice(text)] => {
             assert!(text.contains("#9"), "notice names the address: {text}");
         }
@@ -235,9 +238,9 @@ async fn console_unknown_address_is_a_notice_not_a_dispatch() {
 async fn console_verb_without_selection_is_a_notice() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     console_host_rows(&mut app);
-    app.host_sessions.clear();
+    app.session.host_sessions.clear();
     console_dispatch(&mut app, "/interrupt", false).await;
-    match &app.host_console_log[..] {
+    match &app.transcript.host_console_log[..] {
         [crate::shell::overlays::ConsoleLine::Notice(text)] => {
             assert!(text.contains("no session"), "notice explains: {text}");
         }
@@ -251,6 +254,7 @@ async fn console_help_lists_the_grammar() {
     console_host_rows(&mut app);
     console_dispatch(&mut app, "/help", false).await;
     let text: Vec<String> = app
+        .transcript
         .host_console_log
         .iter()
         .filter_map(|l| match l {
@@ -271,16 +275,16 @@ async fn console_kill_key_arms_then_confirms() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     crate::shell::event_loop::host_test_shims::kill(&mut app, &runtime);
     // First press: armed, with a notice naming the target.
-    assert!(app.host_kill_confirm.is_some(), "first k arms");
+    assert!(app.surfaces.host_kill_confirm.is_some(), "first k arms");
     assert!(matches!(
-        app.host_console_log.last(),
+        app.transcript.host_console_log.last(),
         Some(crate::shell::overlays::ConsoleLine::Notice(t)) if t.contains("#1")
     ));
     // Second press: confirmed — the arm clears and a kill dispatch logs.
     crate::shell::event_loop::host_test_shims::kill(&mut app, &runtime);
-    assert!(app.host_kill_confirm.is_none(), "second k fires");
+    assert!(app.surfaces.host_kill_confirm.is_none(), "second k fires");
     assert!(matches!(
-        app.host_console_log.last(),
+        app.transcript.host_console_log.last(),
         Some(crate::shell::overlays::ConsoleLine::Dispatch { action, .. }) if *action == "kill"
     ));
 }
@@ -291,14 +295,18 @@ async fn console_kill_arm_cancels_on_selection_move() {
     console_host_rows(&mut app);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     crate::shell::event_loop::host_test_shims::kill(&mut app, &runtime);
-    assert!(app.host_kill_confirm.is_some());
+    assert!(app.surfaces.host_kill_confirm.is_some());
     // Moving the dock selection (the ModalUp path) cancels the arm.
     crate::shell::event_loop::host_test_shims::kill_cancel(&mut app);
-    assert!(app.host_kill_confirm.is_none());
+    assert!(app.surfaces.host_kill_confirm.is_none());
     // A `k` after the cancel arms afresh rather than firing.
     crate::shell::event_loop::host_test_shims::kill(&mut app, &runtime);
-    assert!(app.host_kill_confirm.is_some(), "re-arm, not fire");
-    assert_eq!(app.host_console_log.len(), 2, "no kill dispatched yet");
+    assert!(app.surfaces.host_kill_confirm.is_some(), "re-arm, not fire");
+    assert_eq!(
+        app.transcript.host_console_log.len(),
+        2,
+        "no kill dispatched yet"
+    );
 }
 
 #[test]
@@ -381,16 +389,16 @@ fn websearch_reader_dropdown_builds_and_selects() {
 async fn sheet_mount_parks_browse_focus_not_just_step_target() {
     use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
-
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Browse focus is live: the user clicked into the transcript a moment ago.
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
     // The agent's question arrives; the per-frame sync mounts the sheet.
-    app.pending_questions.push_back(UserQuestionRequest {
+    app.human.pending_questions.push_back(UserQuestionRequest {
         id: "q1".into(),
         questions: vec![UserQuestion {
             header: Some("Style".into()),
@@ -417,14 +425,14 @@ async fn sheet_mount_parks_browse_focus_not_just_step_target() {
         "question sheet mounted"
     );
     assert!(
-        app.focus.is_composer(),
+        app.transcript.focus.is_composer(),
         "browse focus must be parked at sheet mount, alongside the step target"
     );
-    assert!(app.focus.entry().is_none());
+    assert!(app.transcript.focus.entry().is_none());
 
     // The user answers; the Closed effect unmounts the sheet. The composer
     // slot is handed back clean — no stale focus dims it.
-    app.question = None;
+    app.human.question = None;
     app.dismiss_sheet();
 
     assert_eq!(
@@ -445,7 +453,7 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    app.pending_permissions.push_back(PermissionRequest {
+    app.human.pending_permissions.push_back(PermissionRequest {
         id: "p1".into(),
         tool: "bash".into(),
         label: "Run tests".into(),
@@ -464,18 +472,19 @@ async fn permission_sheet_does_not_steal_focus_rearmed_behind_it() {
         app.active_sheet(),
         Some(crate::shell::sheet::SheetKind::Permission)
     );
-    assert!(app.focus.is_composer(), "parked at mount");
+    assert!(app.transcript.focus.is_composer(), "parked at mount");
 
     // The user clicks the transcript behind the pass-through sheet — the
     // mouse path legitimately re-arms browse focus (mouse.rs).
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
 
     // A later sync frame must not clear it again (no re-mount occurs —
     // the sheet is already up).
     crate::shell::event_loop::sync::sync_request_surfaces(&mut app, &runtime);
     assert!(
-        app.focus.is_transcript(),
+        app.transcript.focus.is_transcript(),
         "browse focus re-armed behind the pass-through sheet must survive"
     );
 }
@@ -486,12 +495,12 @@ async fn terminal_resize_action_clears_height_cache_and_marks_scroll_settle() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // Populate a height cache entry
-    app.layout_height_cache.set(1, 10);
-    assert_eq!(app.layout_height_cache.get(1), Some(10));
+    app.transcript.layout_height_cache.set(1, 10);
+    assert_eq!(app.transcript.layout_height_cache.get(1), Some(10));
 
     // When scrolled into history (!follow_bottom)
-    app.follow_bottom = false;
-    app.scroll_settle_pending = false;
+    app.transcript.follow_bottom = false;
+    app.transcript.scroll_settle_pending = false;
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -505,9 +514,9 @@ async fn terminal_resize_action_clears_height_cache_and_marks_scroll_settle() {
     .await;
 
     // Height cache must be cleared for re-layout
-    assert_eq!(app.layout_height_cache.get(1), None);
+    assert_eq!(app.transcript.layout_height_cache.get(1), None);
     // Scroll settle must be pending to re-clamp scroll offset
-    assert!(app.scroll_settle_pending);
+    assert!(app.transcript.scroll_settle_pending);
 }
 
 /// ADR-0129 [INV-USAGE-01]: the usage view is decoupled from threads.
@@ -525,8 +534,8 @@ async fn open_usage_fetches_over_the_control_plane_not_the_session() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
     // No usage report yet, and no fetch in flight.
-    assert!(app.usage_stats.is_none());
-    assert!(!app.usage_loading);
+    assert!(app.telemetry.usage_stats.is_none());
+    assert!(!app.telemetry.usage_loading);
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -539,7 +548,7 @@ async fn open_usage_fetches_over_the_control_plane_not_the_session() {
     // The control-plane fetch was kicked: the view is in its loading state.
     // A thread-scoped request would leave this false (nothing was fetched).
     assert!(
-        app.usage_loading,
+        app.telemetry.usage_loading,
         "opening /usage must start a session-free control-plane fetch"
     );
     // The usage dialog is up (the view itself is unchanged by the decoupling).
@@ -558,7 +567,7 @@ async fn dashboard_u_toggles_the_model_usage_view_and_fetches() {
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
     crate::shell::tests::console_host_rows(&mut app);
 
-    assert!(!app.dashboard_view_usage);
+    assert!(!app.surfaces.dashboard_view_usage);
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -567,9 +576,12 @@ async fn dashboard_u_toggles_the_model_usage_view_and_fetches() {
         "session-1",
     )
     .await;
-    assert!(app.dashboard_view_usage, "u switches to the usage view");
     assert!(
-        app.usage_loading,
+        app.surfaces.dashboard_view_usage,
+        "u switches to the usage view"
+    );
+    assert!(
+        app.telemetry.usage_loading,
         "the usage view fetches over the control plane"
     );
 
@@ -581,7 +593,7 @@ async fn dashboard_u_toggles_the_model_usage_view_and_fetches() {
     )
     .await;
     assert!(
-        !app.dashboard_view_usage,
+        !app.surfaces.dashboard_view_usage,
         "u switches back to the fleet view"
     );
 }
@@ -601,8 +613,8 @@ async fn dashboard_filter_opens_and_clears_on_close() {
         "session-1",
     )
     .await;
-    assert!(app.dashboard_filtering);
-    app.dashboard_filter = "bbb".to_string();
+    assert!(app.surfaces.dashboard_filtering);
+    app.surfaces.dashboard_filter = "bbb".to_string();
 
     crate::shell::event_loop::actions::dispatch_action_for_test(
         &mut app,
@@ -611,9 +623,9 @@ async fn dashboard_filter_opens_and_clears_on_close() {
         "session-1",
     )
     .await;
-    assert!(!app.dashboard_filtering);
+    assert!(!app.surfaces.dashboard_filtering);
     assert!(
-        app.dashboard_filter.is_empty(),
+        app.surfaces.dashboard_filter.is_empty(),
         "closing the filter clears the query so no thread stays hidden"
     );
 }

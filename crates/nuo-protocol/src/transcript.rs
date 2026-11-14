@@ -5,8 +5,8 @@
 //! over the two. Entries are immutable and position-free facts; position lives
 //! in the per-session membership (seq). Projections never rewrite entries —
 //! they append a directive and, for compaction, one checkpoint entry.
-use nuo_tool::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall};
 use nuo_tool::todos::unix_now;
+use nuo_tool::{ImagePart, InjectionKind, InjectionOrigin, Message, Role, ToolCall};
 use serde::{Deserialize, Serialize};
 
 /// Unix-epoch milliseconds now.
@@ -218,9 +218,7 @@ impl TranscriptEntry {
     pub fn from_message(seq: u64, message: &Message) -> Self {
         let injection = message.origin.clone();
         let origin = match message.origin.as_ref().map(|o| o.kind) {
-            Some(nuo_tool::InjectionKind::CompactionCheckpoint) => {
-                Some(EntryOrigin::Checkpoint)
-            }
+            Some(nuo_tool::InjectionKind::CompactionCheckpoint) => Some(EntryOrigin::Checkpoint),
             Some(_) => Some(EntryOrigin::Harness),
             None => None,
         };

@@ -245,13 +245,11 @@ pub(crate) fn workspace_trust_notice(
     };
 
     round(nuo_protocol::RoundEvent::Notice(
-        nuo_tool::AgentNotice::trust_changed("Workspace configuration changed").with_body(
-            format!(
-                "Awaiting review: {changed_desc}.\n\
+        nuo_tool::AgentNotice::trust_changed("Workspace configuration changed").with_body(format!(
+            "Awaiting review: {changed_desc}.\n\
              Run `/trust` to approve and reload, `/trust deny` to ignore until the content \
              changes, or `/untrust` to revoke every grant for this workspace.",
-            ),
-        ),
+        )),
     ))
 }
 

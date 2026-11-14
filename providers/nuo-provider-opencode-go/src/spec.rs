@@ -6,8 +6,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// Curated seed models offered by the OpenCode Go channel.
 pub use nuo_protocol::model_providers::OPENCODE_GO_MODELS;
@@ -490,8 +490,8 @@ pub const MODEL_PROVIDER_SPEC: ModelProviderSpec = ModelProviderSpec {
 #[cfg(test)]
 mod tests {
     use super::{MODELS, OPENCODE_GO_MODELS};
-    use nuo_provider::effort_ladders;
     use nuo_protocol::model::{BaselineModels, resolve};
+    use nuo_provider::effort_ladders;
 
     /// A discovered id with no baseline entry falls back to the 128k/no-effort
     /// conservative default (`nuo_protocol::model::fallback_model`), which

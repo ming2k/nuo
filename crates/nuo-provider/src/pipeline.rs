@@ -9,11 +9,11 @@
 //!   Phase 3: `RequestSignerPhase` (Final immutable request inspection and cryptographic signing)
 use std::fmt;
 
-use nuo_protocol::auth::{PreflightValidator, ResolvedAuth};
-use nuo_protocol::dialects::OpenAiChatDialect;
 use crate::error::{ProviderError, ProviderErrorKind};
 use crate::transport::RequestBuilder;
 use crate::wire::{EncodedRequest, WireRequest};
+use nuo_protocol::auth::{PreflightValidator, ResolvedAuth};
+use nuo_protocol::dialects::OpenAiChatDialect;
 
 /// Phase 1: Structural JSON body transformation (e.g. AgentChat envelope).
 pub trait EnvelopePhase: Send + Sync {

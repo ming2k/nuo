@@ -1,9 +1,15 @@
-//! Canonical model provider specification, capability definitions, and dynamic registry
-//! for the Nuo agent ecosystem.
+//! Canonical model-provider specification, capability definitions, and dynamic
+//! registry for the Nuo agent ecosystem.
 //!
-//! Directly mirrors `nuo-tool` as a zero-agent-runtime, zero-heavy-persistence contract crate (ADR-0015).
-//! High-level runtimes (`nuo-harness`, `nuo-agent`, `nuo-server`, `nuo-tui`) depend solely on
-//! the abstractions and metadata exposed by this crate.
+//! `nuo-provider` is a zero-agent-runtime contract crate (ADR-0015). It owns
+//! concrete provider specs, credential/OAuth machinery, catalog transport, and
+//! the provider factory ports. Provider-neutral vocabulary (`Model`, `Effort`,
+//! `Provider`, `ToolSpec`, pricing, wire dialects) is owned by
+//! `nuo-protocol`; canonical imports point there
+//! ([ADR-0180](../../docs/adr/0180-single-ownership-of-shared-vocabulary.md)).
+//!
+//! Consumers are the composition root (`nuo-server`), the cognitive runtime
+//! (`nuo-engine`), and the concrete `providers/nuo-provider-*` leaves.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
@@ -59,8 +65,6 @@ pub use spec::{
 };
 
 pub use auth::*;
-
-
 
 pub use transport::{
     Client, Http, HttpResponse, NetTransport, Reply, Request, RequestBuilder, RequestParts,

@@ -19,9 +19,9 @@ pub(crate) fn enter_panel(
         return false;
     }
     let first = app.open_dialog(id);
-    app.selection = SelectionState::None;
-    app.focus.browse();
-    app.drag.cancel();
+    app.transcript.selection = SelectionState::None;
+    app.transcript.focus.browse();
+    app.transcript.drag.cancel();
 
     if first {
         match id {
@@ -30,44 +30,49 @@ pub(crate) fn enter_panel(
                 let index = rows
                     .iter()
                     .position(|row| {
-                        row.provider_id == app.current_provider
-                            && row.model == app.current_model
+                        row.provider_id == app.session.current_provider
+                            && row.model == app.session.current_model
                             && row.usable
                     })
                     .or_else(|| rows.iter().position(|r| r.usable))
                     .unwrap_or(0);
                 let m = &mut app
                     .surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
                 m.search = false;
                 m.follow = true;
                 m.index = index;
-                app.suggestion_index = None;
+                app.composer.suggestion_index = None;
             }
             DialogKind::Connections => {
                 let ranked = app.providers_filtered();
-                let default_id = app.provider_picker.default_id.clone();
+                let default_id = app.surfaces.provider_picker.default_id.clone();
                 let index = ranked
                     .iter()
-                    .position(|row| row.id == app.current_provider)
+                    .position(|row| row.id == app.session.current_provider)
                     .or_else(|| ranked.iter().position(|row| row.id == default_id))
                     .unwrap_or(0);
                 let c = &mut app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>();
                 c.search = false;
                 c.follow = true;
                 c.index = index;
-                app.suggestion_index = None;
+                app.composer.suggestion_index = None;
             }
             DialogKind::HistorySearch => {
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                     .index = 0;
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                     .scroll = 0;
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                     .follow = true;
             }
@@ -89,7 +94,7 @@ pub(crate) fn enter_panel(
                 paused: true,
             });
         }
-        app.queue_exit_session = Some((
+        app.session.queue_exit_session = Some((
             viewed_session_id.to_string(),
             if was_paused {
                 crate::shell::app::QueuePauseOrigin::UserOwned
@@ -114,6 +119,7 @@ pub(crate) fn enter_panel(
         }
         DialogKind::Quotas => {
             let filter = app
+                .telemetry
                 .provider_quotas
                 .as_ref()
                 .and_then(|q| q.provider_filter.clone());
@@ -126,8 +132,10 @@ pub(crate) fn enter_panel(
             provider: None,
             force_refresh: false,
         }),
-        DialogKind::ThreadStats | DialogKind::SessionTrace if app.token_ledger.is_none() => {
-            if app.token_report.is_none() {
+        DialogKind::ThreadStats | DialogKind::SessionTrace
+            if app.telemetry.token_ledger.is_none() =>
+        {
+            if app.telemetry.token_report.is_none() {
                 Some(AgentRequest::QueryTokenUsage {
                     thread_id: viewed_session_id.to_string(),
                 })
@@ -153,9 +161,6 @@ pub(crate) fn enter_panel(
     let _ = runtime;
     first
 }
-
-/// Activate a tab at `index`: updates the surfaces selection and MRU history,
-/// entering the appropriate scene or arming a cross-session switch.
 
 pub(crate) fn enter_scene(
     app: &mut App,
@@ -183,40 +188,40 @@ pub(crate) fn enter_scene(
             app.switch_scene(scene);
         }
     }
-    app.selection = SelectionState::None;
-    app.focus.enter_composer();
-    app.drag.cancel();
+    app.transcript.selection = SelectionState::None;
+    app.transcript.focus.enter_composer();
+    app.transcript.drag.cancel();
 
     let request = match scene {
         SceneKind::Settings => {
-            app.config_focus = crate::shell::overlays::ConfigFocus::Categories;
-            app.config_category = 0;
-            app.config_hover_index = None;
+            app.surfaces.config_focus = crate::shell::overlays::ConfigFocus::Categories;
+            app.surfaces.config_category = 0;
+            app.surfaces.config_hover_index = None;
             let active_category =
-                crate::shell::overlays::ConfigCategory::from_index(app.config_category);
+                crate::shell::overlays::ConfigCategory::from_index(app.surfaces.config_category);
             if active_category == crate::shell::overlays::ConfigCategory::Appearance {
-                app.config_detail_index = crate::shell::config::color_scheme_index(
-                    &app.color_scheme,
-                    if app.current_workspace.is_empty() {
+                app.surfaces.config_detail_index = crate::shell::config::color_scheme_index(
+                    &app.surfaces.color_scheme,
+                    if app.session.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&app.current_workspace))
+                        Some(std::path::Path::new(&app.session.current_workspace))
                     },
                 );
             } else {
-                app.config_detail_index = 0;
+                app.surfaces.config_detail_index = 0;
             }
-            app.config_scroll = 0;
-            app.config_detail_scroll = 0;
-            app.config_dropdown = None;
+            app.surfaces.config_scroll = 0;
+            app.surfaces.config_detail_scroll = 0;
+            app.surfaces.config_dropdown = None;
             Some(AgentRequest::QueryWebSearchConfig)
         }
         SceneKind::Dashboard => {
-            app.host_modal_follow = true;
-            app.host_focus = crate::shell::overlays::DashboardFocus::Detail;
-            app.host_console_log.clear();
-            app.host_kill_confirm = None;
-            app.host_kill_confirm_id = None;
+            app.surfaces.host_modal_follow = true;
+            app.surfaces.host_focus = crate::shell::overlays::DashboardFocus::Detail;
+            app.transcript.host_console_log.clear();
+            app.surfaces.host_kill_confirm = None;
+            app.surfaces.host_kill_confirm_id = None;
             None
         }
         // The log scene reads state the transcript already holds; entering it

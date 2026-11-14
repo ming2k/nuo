@@ -10,8 +10,8 @@
 use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
+use nuo_protocol::surface::RemoteCatalogSource;
 use nuo_provider::*;
-use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 
 /// Seed model ids for the domestic line, in activation order.
 pub const CODEBUDDY_CN_BUILTIN_MODELS: &[&str] = &[

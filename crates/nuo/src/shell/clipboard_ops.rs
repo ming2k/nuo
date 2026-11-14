@@ -19,7 +19,7 @@ use nuo_view::composer_attachments::{image_chip, paste_chip, paste_line_count, s
 /// `None` = undeclared: the client must not gate on it.
 ///
 /// This is the paste gate's question, and it is deliberately not
-/// [`App::active_model_supports_vision`]: that one answers the permissive
+/// `App::active_model_supports_vision`: that one answers the permissive
 /// *request* policy ("would images travel?"), while a paste may only be
 /// refused when a layer actually said the route rejects them. The authority is
 /// still the server-built picker snapshot — the full
@@ -99,9 +99,10 @@ pub(super) fn copy(
 
 /// Show the outcome of a copy request that had nothing to copy.
 pub(super) fn show_copy_failure(app: &mut App, message: &str) {
-    app.copy_toast_message = message.to_string();
-    app.copy_toast_failed = true;
-    app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(2600));
+    app.surfaces.copy_toast_message = message.to_string();
+    app.surfaces.copy_toast_failed = true;
+    app.surfaces.copy_toast_until =
+        Some(std::time::Instant::now() + std::time::Duration::from_millis(2600));
 }
 
 /// Show a copy receipt. Superseded by the clipboard result toast
@@ -109,9 +110,10 @@ pub(super) fn show_copy_failure(app: &mut App, message: &str) {
 /// still reports honestly rather than leaving the optimistic sentence on
 /// screen forever.
 fn show_copy_receipt(app: &mut App, message: String) {
-    app.copy_toast_message = message;
-    app.copy_toast_failed = false;
-    app.copy_toast_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
+    app.surfaces.copy_toast_message = message;
+    app.surfaces.copy_toast_failed = false;
+    app.surfaces.copy_toast_until =
+        Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
 }
 
 /// Read the system clipboard in a background task and deliver the result to
@@ -148,7 +150,7 @@ pub(super) fn apply_clipboard_paste(app: &mut App, read: ClipboardRead) {
     {
         return apply_question_other_paste(app, read);
     }
-    if let Some(overlay) = app.surfaces.active_overlay() {
+    if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
         match overlay {
             OverlaySurface::Dialog(
                 DialogKind::HistorySearch | DialogKind::Models | DialogKind::Connections,
@@ -178,18 +180,18 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
             // accepts images is exactly the kind of fact most of them do not
             // publish, so the client must not guess it on their behalf.
             if active_route_vision_declaration(app) == Some(false) {
-                app.copy_toast_message = format!(
+                app.surfaces.copy_toast_message = format!(
                     "{} does not support images — paste ignored ({VISION_OVERRIDE_HINT})",
-                    app.current_model,
+                    app.session.current_model,
                 );
-                app.copy_toast_failed = true;
-                app.copy_toast_until =
+                app.surfaces.copy_toast_failed = true;
+                app.surfaces.copy_toast_until =
                     Some(std::time::Instant::now() + Duration::from_millis(2500));
                 return;
             }
             let raw_size = data.len();
             let encoded = clipboard::base64_image(&data);
-            app.pending_images.push(ImagePart {
+            app.composer.pending_images.push(ImagePart {
                 mime,
                 data: encoded,
             });
@@ -199,15 +201,16 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
             // paste. The trailing space keeps the cursor on a word boundary
             // so typing resumes naturally. The size badge is the identifier's
             // payload info: the raw byte count of the image.
-            let n = app.pending_images.len();
+            let n = app.composer.pending_images.len();
             insert_chip_at_cursor(app, &image_chip(n, raw_size));
-            app.copy_toast_message = format!(
+            app.surfaces.copy_toast_message = format!(
                 "{n} image{} attached — enter to send{}",
                 if n == 1 { "" } else { "s" },
                 vision_unverified_suffix(app),
             );
-            app.copy_toast_failed = false;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1800));
+            app.surfaces.copy_toast_failed = false;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1800));
         }
         ClipboardRead::Files(paths) => {
             apply_composer_files_paste(app, paths);
@@ -235,32 +238,34 @@ fn apply_composer_paste(app: &mut App, read: ClipboardRead) {
             // line count and byte size in the label tell the user exactly
             // how much text the chip hides.
             if should_chip_paste(&text) {
-                let n = app.pending_text_pastes.len() + 1;
+                let n = app.composer.pending_text_pastes.len() + 1;
                 let line_count = paste_line_count(&text);
                 let size_bytes = text.len();
-                app.pending_text_pastes.push(text);
+                app.composer.pending_text_pastes.push(text);
                 insert_chip_at_cursor(app, &paste_chip(n, line_count, size_bytes));
-                app.copy_toast_message = format!(
+                app.surfaces.copy_toast_message = format!(
                     "pasted {line_count} line{} as a chip",
                     if line_count == 1 { "" } else { "s" }
                 );
             } else {
                 let chars_to_insert = text.chars().count();
-                let byte_pos = app.cursor_position.min(app.input.len());
-                app.input.insert_str(byte_pos, &text);
+                let byte_pos = app.composer.cursor_position.min(app.composer.input.len());
+                app.composer.input.insert_str(byte_pos, &text);
                 app.set_cursor(byte_pos + text.len());
-                app.copy_toast_message = format!(
+                app.surfaces.copy_toast_message = format!(
                     "pasted {chars_to_insert} char{}",
                     if chars_to_insert == 1 { "" } else { "s" }
                 );
             }
-            app.copy_toast_failed = false;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_failed = false;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Empty => {
-            app.copy_toast_message = "clipboard is empty".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "clipboard is empty".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
     }
 }
@@ -286,18 +291,18 @@ fn apply_composer_files_paste(app: &mut App, paths: Vec<std::path::PathBuf>) {
         }
         let raw_size = data.len();
         let encoded = clipboard::base64_image(&data);
-        app.pending_images.push(ImagePart {
+        app.composer.pending_images.push(ImagePart {
             mime,
             data: encoded,
         });
-        let n = app.pending_images.len();
+        let n = app.composer.pending_images.len();
         insert_chip_at_cursor(app, &image_chip(n, raw_size));
         attached = Some(n);
     }
 
-    app.copy_toast_message = match (attached, skipped, vision_blocked) {
+    app.surfaces.copy_toast_message = match (attached, skipped, vision_blocked) {
         (Some(_), 0, false) => {
-            let n = app.pending_images.len();
+            let n = app.composer.pending_images.len();
             format!(
                 "{n} image{} attached — enter to send{}",
                 if n == 1 { "" } else { "s" },
@@ -307,7 +312,7 @@ fn apply_composer_files_paste(app: &mut App, paths: Vec<std::path::PathBuf>) {
         (Some(_), skipped, false) => {
             format!(
                 "{} attached — skipped {skipped} non-image file{}",
-                if app.pending_images.len() == 1 {
+                if app.composer.pending_images.len() == 1 {
                     "1 image"
                 } else {
                     "images"
@@ -323,11 +328,11 @@ fn apply_composer_files_paste(app: &mut App, paths: Vec<std::path::PathBuf>) {
         }
         (_, _, true) => format!(
             "{} does not support images — paste ignored ({VISION_OVERRIDE_HINT})",
-            app.current_model,
+            app.session.current_model,
         ),
     };
-    app.copy_toast_failed = !matches!((attached, vision_blocked), (Some(_), false));
-    app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(2000));
+    app.surfaces.copy_toast_failed = !matches!((attached, vision_blocked), (Some(_), false));
+    app.surfaces.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(2000));
 }
 
 /// Extension→MIME map for paste-attachable raster images. Shared by the
@@ -379,8 +384,8 @@ fn apply_question_other_paste(app: &mut App, read: ClipboardRead) {
             if chars == 0 {
                 return;
             }
-            if let Some(qm) = app.question.take() {
-                app.question = Some(
+            if let Some(qm) = app.human.question.take() {
+                app.human.question = Some(
                     qm.update(crate::shell::question_model::QuestionAction::Paste(
                         stripped,
                     ))
@@ -389,27 +394,31 @@ fn apply_question_other_paste(app: &mut App, read: ClipboardRead) {
                 // A paste can span many lines once wrapped; re-arm follow so the
                 // body scrolls to keep the caret (end of the pasted text) on
                 // screen.
-                app.question_modal_follow = true;
+                app.human.question_modal_follow = true;
             }
-            app.copy_toast_message =
+            app.surfaces.copy_toast_message =
                 format!("pasted {chars} char{}", if chars == 1 { "" } else { "s" });
-            app.copy_toast_failed = false;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_failed = false;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Image { .. } => {
-            app.copy_toast_message = "can't paste image into this field".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "can't paste image into this field".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Files(..) => {
-            app.copy_toast_message = "can't paste files into this field".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "can't paste files into this field".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Empty => {
-            app.copy_toast_message = "clipboard is empty".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "clipboard is empty".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
     }
 }
@@ -428,70 +437,74 @@ fn apply_modal_field_paste(app: &mut App, read: ClipboardRead) {
             if chars_to_insert == 0 {
                 return;
             }
-            let byte_pos = app.cursor_position.min(app.input.len());
-            app.input.insert_str(byte_pos, &stripped);
+            let byte_pos = app.composer.cursor_position.min(app.composer.input.len());
+            app.composer.input.insert_str(byte_pos, &stripped);
             app.set_cursor(byte_pos + stripped.len());
-            app.copy_toast_message = format!(
+            app.surfaces.copy_toast_message = format!(
                 "pasted {chars_to_insert} char{}",
                 if chars_to_insert == 1 { "" } else { "s" }
             );
-            app.copy_toast_failed = false;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_failed = false;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Image { .. } => {
             // Modal fields are single-line text; images are not attachable
             // here. Surface a brief toast so the paste is not silently lost.
-            app.copy_toast_message = "can't paste image into this field".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "can't paste image into this field".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Files(..) => {
-            app.copy_toast_message = "can't paste files into this field".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "can't paste files into this field".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
         ClipboardRead::Empty => {
-            app.copy_toast_message = "clipboard is empty".to_string();
-            app.copy_toast_failed = true;
-            app.copy_toast_until = Some(std::time::Instant::now() + Duration::from_millis(1200));
+            app.surfaces.copy_toast_message = "clipboard is empty".to_string();
+            app.surfaces.copy_toast_failed = true;
+            app.surfaces.copy_toast_until =
+                Some(std::time::Instant::now() + Duration::from_millis(1200));
         }
     }
 }
 
-/// Splice `chip` followed by a single space into [`App::input`] at the
+/// Splice `chip` followed by a single space into `App::input` at the
 /// cursor, advancing the cursor past both. Shared by the image and large-
 /// text paste paths so the chip's surrounding whitespace stays consistent —
 /// the trailing space is what lets the chip-aware Backspace erase the whole
 /// paste in one keystroke.
 fn insert_chip_at_cursor(app: &mut App, chip: &str) {
-    let byte_pos = app.cursor_position.min(app.input.len());
+    let byte_pos = app.composer.cursor_position.min(app.composer.input.len());
     let mut spliced = String::with_capacity(chip.len() + 1);
     spliced.push_str(chip);
     spliced.push(' ');
     let extra_len = spliced.len();
-    app.input.insert_str(byte_pos, &spliced);
+    app.composer.input.insert_str(byte_pos, &spliced);
     app.set_cursor(byte_pos + extra_len);
 }
 
 pub(super) fn set_copy_feedback(app: &mut App, result: Result<CopyOutcome, String>) {
     match result {
         Ok(CopyOutcome::Native) => {
-            app.copy_toast_message = "copied to clipboard".to_string();
-            app.copy_toast_failed = false;
+            app.surfaces.copy_toast_message = "copied to clipboard".to_string();
+            app.surfaces.copy_toast_failed = false;
         }
         Ok(CopyOutcome::Osc52) => {
-            app.copy_toast_message = "copy sent via OSC52".to_string();
-            app.copy_toast_failed = false;
+            app.surfaces.copy_toast_message = "copy sent via OSC52".to_string();
+            app.surfaces.copy_toast_failed = false;
         }
         Err(error) => {
             let mut chars = error.chars();
             let prefix = chars.by_ref().take(48).collect::<String>();
-            app.copy_toast_message = if chars.next().is_some() {
+            app.surfaces.copy_toast_message = if chars.next().is_some() {
                 format!("copy failed: {}...", prefix)
             } else {
                 format!("copy failed: {}", prefix)
             };
-            app.copy_toast_failed = true;
+            app.surfaces.copy_toast_failed = true;
         }
     }
 }

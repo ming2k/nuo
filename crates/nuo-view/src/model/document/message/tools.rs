@@ -153,11 +153,7 @@ impl TranscriptMessage {
     ///
     /// Returns whether the step matched, so the caller can distinguish "previewed an
     /// in-flight step" from "no step exists yet".
-    pub fn set_tool_preview(
-        &mut self,
-        call_id: &str,
-        preview: nuo_tool::PreviewResult,
-    ) -> bool {
+    pub fn set_tool_preview(&mut self, call_id: &str, preview: nuo_tool::PreviewResult) -> bool {
         let MessageKind::ToolStep { id, structured, .. } = &mut self.kind else {
             return false;
         };
@@ -273,10 +269,7 @@ impl TranscriptMessage {
         // an explicit `failed` flag — classification is now fully data-driven.
         // Permission denial gets its own status so the UI shows it distinctly
         // from a runtime error.
-        *status = if matches!(
-            structured,
-            nuo_tool::ToolOutput::PermissionDenied { .. }
-        ) {
+        *status = if matches!(structured, nuo_tool::ToolOutput::PermissionDenied { .. }) {
             ToolStepStatus::Denied
         } else if matches!(
             &structured,
@@ -464,7 +457,7 @@ impl TranscriptMessage {
         }
     }
 
-    /// The tool name a [`search::Facet::ToolNamed`] selection can match.
+    /// The tool name a [`crate::model::search::Facet::ToolNamed`] selection can match.
     ///
     /// Subagent tasks report their bound profile (`explore`, `plan`, …) because
     /// that is the name the step is labelled with on screen and the one a user

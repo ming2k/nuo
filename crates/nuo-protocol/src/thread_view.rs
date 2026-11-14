@@ -3,14 +3,13 @@
 //! A [`ThreadWindow`] is a bounded, branch-scoped slice of facts. A
 //! [`RequestView`] is the model-facing message projection built from that
 //! window. Neither type is durable and neither may write back into a thread.
-use nuo_tool::Message;
+use crate::estimate_message_tokens;
 use crate::observation::{ObservationLifecycle, ObservationMetrics};
 use crate::thread::{
     BlobRef, BranchId, FactId, FactPayload, Thread, ThreadError, ThreadFact, ThreadRevision,
 };
-use crate::{estimate_message_tokens};
-use nuo_tool::{Role};
-
+use nuo_tool::Message;
+use nuo_tool::Role;
 
 /// Bounded branch-scoped fact window.
 #[derive(Debug, Clone, PartialEq)]

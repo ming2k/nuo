@@ -13,9 +13,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use nuo_protocol::{SubAgentProfile};
+use nuo_protocol::SubAgentProfile;
 
-use nuo_tool::{Tool};
+use nuo_tool::Tool;
 
 use serde_json::json;
 use tokio_util::sync::CancellationToken;

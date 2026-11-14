@@ -1,15 +1,15 @@
 //! Canonical wire-level message framing, envelopes, and session communication
-//! types for Nuo — plus the shared domain contracts (capability traits,
-//! conversation and tool-output types, the context-pressure model, subagent
-//! profiles, skills/MCP config schemas, and the events exchanged by sessions
-//! and frontends).
+//! types for Nuo — plus the provider-neutral domain contracts (the `Provider`
+//! execution trait, `ModelRequest`/`ToolSpec`, model/pricing vocabulary, the
+//! context-pressure model, thread/SSOT types, policy schemas, and the events
+//! exchanged by sessions and frontends).
 //!
 //! Conforming to ADR-0005, this crate is a **zero-I/O, zero-async-runtime**
-//! contract layer: no filesystem, no network. It owns the serialized byte
-//! envelopes exchanged across local IPC and network boundaries, and the domain
-//! values (`TokenUsage`, `TodoList`, the `Provider`/`Tool` capability traits,
-//! …) shared by independent layers. Pure logic owned only by the agent belongs
-//! in `nuo-engine` (ADR-0057 → ADR-0066).
+//! contract layer: no filesystem, no network. Tool-facing vocabulary (`Tool`,
+//! `ToolOutput`, `Message`, `Role`, `TodoList`, …) is owned by `nuo-tool` and
+//! imported from there; provider transport and concrete specs are owned by
+//! `nuo-provider` ([ADR-0180](../../docs/adr/0180-single-ownership-of-shared-vocabulary.md)).
+//! Pure cognition belongs in `nuo-engine` (ADR-0057 → ADR-0066).
 //!
 //! Consolidated from the former `nuo-contracts` crate: ADR-0001 mandated that
 //! crate's dismantling (`[INV-ARCH-01]` bans catch-all `contracts`/`common`/
@@ -60,7 +60,6 @@ pub use error::{
     TransportDiagnostic,
 };
 
-
 pub mod transcript;
 pub use transcript::{
     CHECKPOINT_HEADER, CompactionMeta, DirectiveKind, DirectivePayload, EntryKind, EntryOrigin,
@@ -99,15 +98,11 @@ pub use thread_store::{
 };
 pub use thread_view::{FactSummary, FoldReason, FoldRecord, RequestView, ThreadWindow};
 
-
-
-
 pub mod auth;
 pub use auth::{
     ChatGptAuthMetadata, CopilotAuthMetadata, CredentialSource, ExtensionMap, GoogleAuthMetadata,
     PreflightValidator, ResolvedAuth, StaticCredentialSource, static_credential,
 };
-
 
 pub mod capability;
 pub mod connection_auth;
@@ -127,14 +122,14 @@ pub use reasoning::{ReasoningMode, ReasoningSupport};
 pub mod dynamic;
 pub mod events;
 pub use events::*;
-pub mod hooks;
-pub mod mcp;
-pub mod model;
 pub mod agent_kind;
 pub mod agent_role;
 pub mod cognitive;
 pub mod execution_policy;
 pub mod extension;
+pub mod hooks;
+pub mod mcp;
+pub mod model;
 pub use extension::{Extension, HookPhase};
 pub mod job;
 pub mod subagent;
@@ -194,8 +189,8 @@ pub mod session_title;
 pub mod context_policy;
 pub use context_policy::{
     CONTEXT_POLICY_SCHEMA_VERSION, ContextPolicy, DEFAULT_MAX_INPUT_TOKENS,
-    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS,
-    PolicyError, WatermarkError, WatermarkPolicy,
+    DEFAULT_RECENT_OBSERVATION_PROTECT_TOKENS, DEFAULT_TOOL_OUTPUT_RETENTION_TOKENS, PolicyError,
+    WatermarkError, WatermarkPolicy,
 };
 
 pub mod session_tree;
@@ -209,15 +204,15 @@ pub use capability::{
     ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
     ProviderTextStream, ProviderTurnContext, ToolSpec, VariantSelection, empty_variant_selection,
 };
-pub use dialects::{
-    AnthropicMessagesDialect, Channel, GoogleGenerateContentDialect, GoogleInteractionsDialect,
-    OpenAiChatDialect, OpenAiResponsesDialect, ProviderDialect, ProviderEntry, Transport,
-};
 pub use connection_auth::{ConnectionAuth, Entitlement, LoginMethod, WirePlacement};
 pub use connection_detail::{
     BalanceQuota, ConnectionDetail, ConnectionQuotaEntry, ConnectionUsageState,
     ModelAvailabilityRule, PeriodicQuota, ProviderQuotaData, ProviderQuotaSnapshot, ProviderUsage,
     QuotaWindowBucket, QuotaWindowKind, RateLimitSpec, UsageMetric,
+};
+pub use dialects::{
+    AnthropicMessagesDialect, Channel, GoogleGenerateContentDialect, GoogleInteractionsDialect,
+    OpenAiChatDialect, OpenAiResponsesDialect, ProviderDialect, ProviderEntry, Transport,
 };
 pub use dynamic::{DynamicCatalog, DynamicToolSink};
 pub use provider_state::{
@@ -234,9 +229,7 @@ pub use dialects::{
     DiscoveredModel, ModelListError, ResponsesState, clean_model_display_name,
     format_model_display_name,
 };
-pub use hooks::{
-    Hook, HookContext, HookEvent, HookOutcome, HookStartSource, RestorePoint,
-};
+pub use hooks::{Hook, HookContext, HookEvent, HookOutcome, HookStartSource, RestorePoint};
 pub use identity::AgentIdentity;
 pub use job::{
     AdoptionInfo, BackgroundJobInfo, BackgroundJobOutcome, BackgroundJobService, CrateChildBridge,
@@ -268,9 +261,9 @@ pub use session_title::{TITLE_MAX_LEN, ThreadTitle, clean_title};
 /// that imported `count_tokens` for budget-fitting (summary truncation)
 /// must measure in the same unit as the projection thresholds.
 pub use tool_registry::{
-    Capability, ToolCapabilityAudit, ToolFactoryContext, ToolFactoryContextBuilder, ToolDeclaration, ToolFactory,
-    ToolPool, ToolPoolSnapshot, CapabilityScope, ToolSelection, ToolSet, WorkspaceRoot, WorkspaceRoots,
-    collect_toolset,
+    Capability, CapabilityScope, ToolCapabilityAudit, ToolDeclaration, ToolFactory,
+    ToolFactoryContext, ToolFactoryContextBuilder, ToolPool, ToolPoolSnapshot, ToolSelection,
+    ToolSet, WorkspaceRoot, WorkspaceRoots, collect_toolset,
 };
 pub use web_config::{
     BOCHA_SEARCH_ENDPOINT, DUCKDUCKGO_HTML_ENDPOINT, DUCKDUCKGO_LITE_ENDPOINT, EXA_SEARCH_ENDPOINT,

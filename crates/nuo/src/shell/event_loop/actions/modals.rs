@@ -3,6 +3,7 @@
 //! ↑/↓ modal navigation. Extracted verbatim from the corresponding arms of
 //! `dispatch_action`'s match; only `SubmitModelEditor`'s arm-level `continue`
 //! became an [`ActionFlow`] value (it already was, inside `dispatch_action`).
+#![allow(clippy::items_after_test_module)]
 use std::sync::atomic::Ordering;
 
 use nuo_protocol::AgentRequest;
@@ -16,17 +17,22 @@ use super::ActionFlow;
 /// Loop stage (input dispatch): the `SubmitCustomProvider` arm.
 #[allow(clippy::expect_used)] // The editor only exposes registered protocol choices.
 pub(crate) fn handle_submit_custom_provider(app: &mut App) {
-    if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
+    if app
+        .surfaces
+        .surfaces
+        .contains_sheet(SheetKind::CustomProvider)
+    {
         // Commit the focused text field's live value first.
         app.stash_custom_field();
-        let name = app.custom_name.trim().to_string();
+        let name = app.provider_editor.custom_name.trim().to_string();
         let protocol = app
+            .provider_editor
             .custom_protocol_wire
             .parse::<nuo_protocol::WireProtocol>()
             .expect("provider editor must carry a registered wire protocol");
-        let base_url = app.custom_base_url.trim().to_string();
-        let api_key = nuo_protocol::SecretString::from(app.custom_token.trim());
-        if let Some(key) = app.custom_edit_id.clone() {
+        let base_url = app.provider_editor.custom_base_url.trim().to_string();
+        let api_key = nuo_protocol::SecretString::from(app.provider_editor.custom_token.trim());
+        if let Some(key) = app.provider_editor.custom_edit_id.clone() {
             // Edit mode: update meta (models stay managed in
             // the Models picker). A name is still required.
             // ADR-0046: effort/thinking are no longer
@@ -39,10 +45,12 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                 // transaction; the metadata edit itself stays keyed by the
                 // current name.
                 let provider = app
+                    .provider_editor
                     .custom_provider_id
                     .clone()
                     .or_else(|| {
-                        app.provider_picker
+                        app.surfaces
+                            .provider_picker
                             .rows
                             .iter()
                             .find(|r| r.id == key)
@@ -53,6 +61,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                 // Only a custom provider owns its wire/endpoint; a curated
                 // provider derives both from its spec.
                 let base_url = app
+                    .provider_editor
                     .custom_fields
                     .contains(&crate::CustomField::BaseUrl)
                     .then(|| base_url.clone())
@@ -80,15 +89,15 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     provider,
                     api_key,
                     headers: None,
-                    budget: app.custom_budget.clone(),
+                    budget: app.provider_editor.custom_budget.clone(),
                     entitlement: None,
                 });
                 // Phase 3: the chain ends at chat. Pop the nav
                 // frame (the picker this editor was opened over) and hand
                 // the composer draft back from that view's per-view slot.
                 app.restore_chat_after_editor_chain();
-                app.custom_field = 0;
-                app.custom_edit_id = None;
+                app.provider_editor.custom_field = 0;
+                app.provider_editor.custom_edit_id = None;
             }
         } else {
             // Create mode: the model list comes from the template's
@@ -97,14 +106,20 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
             // ADR-0046: new channels start with thinking off;
             // reasoning is opted in per model from the Models
             // picker.
-            let models: Vec<String> = if app.custom_fields.contains(&crate::CustomField::Model) {
-                app.custom_model
+            let models: Vec<String> = if app
+                .provider_editor
+                .custom_fields
+                .contains(&crate::CustomField::Model)
+            {
+                app.provider_editor
+                    .custom_model
                     .split(',')
                     .map(|m| m.trim().to_string())
                     .filter(|m| !m.is_empty())
                     .collect()
             } else {
-                app.custom_models
+                app.provider_editor
+                    .custom_models
                     .iter()
                     .map(|m| m.trim().to_string())
                     .collect()
@@ -120,9 +135,14 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                 // trimmed — the server rejects a duplicate with a suggested
                 // alternative (surfaced as `AgentResponse::Error`) instead of
                 // the client silently suffixing it.
-                let provider = app.custom_provider_id.take().unwrap_or_default();
+                let provider = app
+                    .provider_editor
+                    .custom_provider_id
+                    .take()
+                    .unwrap_or_default();
                 let is_custom = provider == nuo_view::providers::CUSTOM_TEMPLATE.id;
                 let base_url = app
+                    .provider_editor
                     .custom_fields
                     .contains(&crate::CustomField::BaseUrl)
                     .then(|| base_url.clone())
@@ -135,7 +155,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                             label: Some(name.clone()),
                             root_url: url,
                             protocol: Some(protocol),
-                            user_agent: app.custom_user_agent.clone(),
+                            user_agent: app.provider_editor.custom_user_agent.clone(),
                             headers: None,
                             catalog_format: None,
                             dialect: None,
@@ -145,7 +165,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                 } else {
                     provider
                 };
-                let auth = app.custom_auth.clone();
+                let auth = app.provider_editor.custom_auth.clone();
                 app.send_intent(AgentRequest::AddConnection {
                     name,
                     provider: provider_id,
@@ -153,11 +173,11 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
                     models,
                     auth,
                     headers: None,
-                    budget: app.custom_budget.clone(),
+                    budget: app.provider_editor.custom_budget.clone(),
                     entitlement: None,
                 });
                 app.restore_chat_after_editor_chain();
-                app.custom_field = 0;
+                app.provider_editor.custom_field = 0;
             }
         }
     }
@@ -167,6 +187,7 @@ pub(crate) fn handle_submit_custom_provider(app: &mut App) {
 pub(crate) fn handle_open_model_detail(app: &mut App) {
     if app.active_dialog() == Some(DialogKind::Models) {
         let dlg = app
+            .surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
         dlg.info_detail = true;
@@ -190,18 +211,18 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             let is_builtin = !app.provider_is_custom(&row.provider_id);
             // Phase 3: the picker that opened this editor goes on
             // the navigation stack; its Esc/submit pops back to it.
-            app.surfaces.present_sheet(SheetKind::ModelEditor);
-            app.editor_target = Some(row.provider_id.clone());
-            app.editor_model = row.model.clone();
-            app.editor_model_settings_only = true;
-            app.editor_target_is_builtin = is_builtin;
-            app.editor_key.clear();
+            app.surfaces.surfaces.present_sheet(SheetKind::ModelEditor);
+            app.provider_editor.editor_target = Some(row.provider_id.clone());
+            app.provider_editor.editor_model = row.model.clone();
+            app.provider_editor.editor_model_settings_only = true;
+            app.provider_editor.editor_target_is_builtin = is_builtin;
+            app.provider_editor.editor_key.clear();
             // Load the stored capability overrides (layer 1) so
             // the editor shows what is already forced, if anything. The read
             // is a server round-trip now: open with the defaults
             // cleared and prefill when the `RouteSettings` answer lands.
-            app.editor_vision_override = None;
-            app.editor_tool_override = None;
+            app.provider_editor.editor_vision_override = None;
+            app.provider_editor.editor_tool_override = None;
             app.send_intent(nuo_protocol::AgentRequest::QueryRouteSettings {
                 provider_id: row.provider_id.clone(),
                 model: row.model.clone(),
@@ -216,20 +237,22 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             //
             // `row.effort` is therefore already clamped onto `row.effort_levels`
             // by the server; the open value is a plain read.
-            app.editor_effort_levels = row.effort_levels.clone();
-            app.editor_effort = row.effort.clone().unwrap_or_default();
-            app.editor_thinking_available = row.thinking.is_some();
-            app.editor_thinking = row.thinking.unwrap_or(false);
-            app.editor_field = if !app.editor_effort_levels.is_empty() || row.effort.is_some() {
-                1
-            } else if app.editor_thinking_available {
-                2
-            } else {
-                3
-            };
-            app.input = app.editor_effort.clone();
+            app.provider_editor.editor_effort_levels = row.effort_levels.clone();
+            app.provider_editor.editor_effort = row.effort.clone().unwrap_or_default();
+            app.provider_editor.editor_thinking_available = row.thinking.is_some();
+            app.provider_editor.editor_thinking = row.thinking.unwrap_or(false);
+            app.provider_editor.editor_field =
+                if !app.provider_editor.editor_effort_levels.is_empty() || row.effort.is_some() {
+                    1
+                } else if app.provider_editor.editor_thinking_available {
+                    2
+                } else {
+                    3
+                };
+            app.composer.input = app.provider_editor.editor_effort.clone();
             app.set_cursor_end();
             app.surfaces
+                .surfaces
                 .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
                 .search = false;
         }
@@ -247,27 +270,29 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
             .map(|row| (row.id.clone(), row.model.clone(), row.builtin));
         if let Some((id, model, builtin)) = target {
             if builtin {
-                app.surfaces.present_sheet(SheetKind::ModelEditor);
-                app.editor_target = Some(id);
-                app.editor_field = 0;
-                app.editor_key.clear();
-                app.editor_model = model;
-                app.editor_model_settings_only = false;
-                app.editor_target_is_builtin = false;
-                app.editor_effort = "high".to_string();
-                app.editor_effort_levels.clear();
-                app.editor_thinking_available = false;
-                app.editor_vision_override = None;
-                app.editor_tool_override = None;
-                app.editor_thinking = true;
-                app.input.clear();
+                app.surfaces.surfaces.present_sheet(SheetKind::ModelEditor);
+                app.provider_editor.editor_target = Some(id);
+                app.provider_editor.editor_field = 0;
+                app.provider_editor.editor_key.clear();
+                app.provider_editor.editor_model = model;
+                app.provider_editor.editor_model_settings_only = false;
+                app.provider_editor.editor_target_is_builtin = false;
+                app.provider_editor.editor_effort = "high".to_string();
+                app.provider_editor.editor_effort_levels.clear();
+                app.provider_editor.editor_thinking_available = false;
+                app.provider_editor.editor_vision_override = None;
+                app.provider_editor.editor_tool_override = None;
+                app.provider_editor.editor_thinking = true;
+                app.composer.input.clear();
                 app.set_cursor(0);
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
                     .search = false;
             } else {
                 // Pre-fill the edit form from the snapshot row.
                 let row = app
+                    .surfaces
                     .provider_picker
                     .rows
                     .iter()
@@ -291,6 +316,7 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                         true,
                     ));
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
                     .search = false;
                 app.open_edit_provider_editor(
@@ -300,7 +326,8 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
                     base_url,
                     auth,
                     curated,
-                    app.connection_detail
+                    app.surfaces
+                        .connection_detail
                         .as_ref()
                         .map(|d| d.budget.clone())
                         .unwrap_or_default(),
@@ -312,12 +339,16 @@ pub(crate) fn handle_open_model_editor(app: &mut App) {
 
 /// Loop stage (input dispatch): the `SubmitModelEditor` arm.
 pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
-    if (app.surfaces.contains_sheet(SheetKind::ModelEditor) || app.editor_model_settings_only)
-        && let Some(target) = app.editor_target.clone()
+    if (app.surfaces.surfaces.contains_sheet(SheetKind::ModelEditor)
+        || app.provider_editor.editor_model_settings_only)
+        && let Some(target) = app.provider_editor.editor_target.clone()
     {
         if let Some(payload) = target.strip_prefix("web_credential:") {
-            let Some(expected_revision) =
-                app.websearch_config.as_ref().map(|config| config.revision)
+            let Some(expected_revision) = app
+                .surfaces
+                .websearch_config
+                .as_ref()
+                .map(|config| config.revision)
             else {
                 return ActionFlow::NextEvent;
             };
@@ -334,70 +365,77 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                     credential: Some(nuo_protocol::WebCredentialUpdate {
                         axis,
                         provider_id,
-                        value: app.input.trim().to_string(),
+                        value: app.composer.input.trim().to_string(),
                     }),
                     ..Default::default()
                 },
             )));
-            app.input.clear();
+            app.composer.input.clear();
             app.set_cursor(0);
-            app.editor_target = None;
+            app.provider_editor.editor_target = None;
             app.pop_transient_surface();
             return ActionFlow::NextEvent;
         }
 
         if target == "web_endpoint:searxng" {
-            let Some(expected_revision) =
-                app.websearch_config.as_ref().map(|config| config.revision)
+            let Some(expected_revision) = app
+                .surfaces
+                .websearch_config
+                .as_ref()
+                .map(|config| config.revision)
             else {
                 return ActionFlow::NextEvent;
             };
             app.send_intent(AgentRequest::UpdateWebSearchConfig(Box::new(
                 nuo_protocol::WebSearchConfigUpdate {
                     expected_revision,
-                    searxng_url: Some(app.input.trim().to_string()),
+                    searxng_url: Some(app.composer.input.trim().to_string()),
                     ..Default::default()
                 },
             )));
-            app.input.clear();
+            app.composer.input.clear();
             app.set_cursor(0);
-            app.editor_target = None;
+            app.provider_editor.editor_target = None;
             app.pop_transient_surface();
             return ActionFlow::NextEvent;
         }
 
         let id = target;
-        let model = if app.editor_model.trim().is_empty() {
-            app.provider_picker
+        let model = if app.provider_editor.editor_model.trim().is_empty() {
+            app.surfaces
+                .provider_picker
                 .rows
                 .iter()
                 .find(|r| r.id == id)
                 .map(|r| r.model.clone())
                 .unwrap_or_default()
         } else {
-            app.editor_model.trim().to_string()
+            app.provider_editor.editor_model.trim().to_string()
         };
-        if app.editor_model_settings_only {
+        if app.provider_editor.editor_model_settings_only {
             // Per-model settings editor (opened from the Models
             // picker). Flush the focused field's
             // live text into its buffer before reading, so a
             // submit while effort is focused captures the value.
             // Field 2 (thinking) is a toggle with no text.
-            if app.editor_field == 1 {
-                app.editor_effort = app.input.clone();
+            if app.provider_editor.editor_field == 1 {
+                app.provider_editor.editor_effort = app.composer.input.clone();
             }
-            let effort = app.editor_effort.clone();
+            let effort = app.provider_editor.editor_effort.clone();
             // Built-in models persist to `[model_reasoning]` (no
             // user-editable channel); user-defined models persist
             // to their channel. ADR-0045.
-            if app.editor_target_is_builtin {
+            if app.provider_editor.editor_target_is_builtin {
                 app.send_intent(AgentRequest::EditModelReasoning {
                     model,
                     effort: Some(effort),
-                    thinking: app.editor_thinking_available.then_some(app.editor_thinking),
+                    thinking: app
+                        .provider_editor
+                        .editor_thinking_available
+                        .then_some(app.provider_editor.editor_thinking),
                     overrides: Some(nuo_protocol::CapabilityOverrides {
-                        vision: app.editor_vision_override,
-                        tool_call: app.editor_tool_override,
+                        vision: app.provider_editor.editor_vision_override,
+                        tool_call: app.provider_editor.editor_tool_override,
                         ..Default::default()
                     }),
                 });
@@ -406,25 +444,28 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
                     connection: id,
                     model,
                     effort: Some(effort),
-                    thinking: app.editor_thinking_available.then_some(app.editor_thinking),
+                    thinking: app
+                        .provider_editor
+                        .editor_thinking_available
+                        .then_some(app.provider_editor.editor_thinking),
                     overrides: Some(nuo_protocol::CapabilityOverrides {
-                        vision: app.editor_vision_override,
-                        tool_call: app.editor_tool_override,
+                        vision: app.provider_editor.editor_vision_override,
+                        tool_call: app.provider_editor.editor_tool_override,
                         ..Default::default()
                     }),
                 });
             }
-            app.input.clear();
+            app.composer.input.clear();
             app.set_cursor(0);
-            app.editor_target = None;
-            app.editor_model_settings_only = false;
-            app.editor_target_is_builtin = false;
-            app.editor_thinking_available = false;
-            app.editor_vision_override = None;
-            app.editor_tool_override = None;
+            app.provider_editor.editor_target = None;
+            app.provider_editor.editor_model_settings_only = false;
+            app.provider_editor.editor_target_is_builtin = false;
+            app.provider_editor.editor_thinking_available = false;
+            app.provider_editor.editor_vision_override = None;
+            app.provider_editor.editor_tool_override = None;
             app.set_picker_search(false);
             app.set_active_follow(true);
-            if app.surfaces.contains_sheet(SheetKind::ModelEditor) {
+            if app.surfaces.surfaces.contains_sheet(SheetKind::ModelEditor) {
                 app.pop_transient_surface();
             }
             return ActionFlow::NextEvent;
@@ -435,7 +476,7 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
         // level, so switching now carries only the key
         // (effort/thinking are set per model from the Models
         // picker `e` editor).
-        let key = app.input.trim().to_string();
+        let key = app.composer.input.trim().to_string();
         app.send_intent(AgentRequest::SwitchConnection {
             provider: id,
             model,
@@ -450,9 +491,9 @@ pub(crate) fn handle_submit_model_editor(app: &mut App) -> ActionFlow {
         // nav frame (the picker the editor was opened over) and hand the
         // composer draft back from that view's per-view slot.
         app.restore_chat_after_editor_chain();
-        app.editor_target = None;
-        app.editor_model_settings_only = false;
-        app.editor_target_is_builtin = false;
+        app.provider_editor.editor_target = None;
+        app.provider_editor.editor_model_settings_only = false;
+        app.provider_editor.editor_target_is_builtin = false;
     }
     ActionFlow::Handled
 }
@@ -474,7 +515,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
     // can no longer drift apart. A view with a sub-layer open stays up.
     if app.pop_sublayer() {
         // Sub-layer closed; the parent view keeps the surface.
-    } else if app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+    } else if app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(DialogKind::Threads)
     {
         // `nuo attach` (no id) opened the picker at startup
@@ -483,7 +524,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
         // (not a sub-view — those are handled above) must quit
         // the program rather than drop into an empty chat.
         tracing::info!(reason = "startup_picker_cancelled", "app exiting");
-        app.should_quit.store(true, Ordering::SeqCst);
+        app.link.should_quit.store(true, Ordering::SeqCst);
     } else {
         // Retained browse dialogs hide instead of closing, and the
         // quick switcher cancels back to its origin surface — both via the
@@ -491,20 +532,32 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
         if app.dismiss_surface() {
             return;
         }
-        if app.surfaces.contains_sheet(SheetKind::ModelEditor) {
-            app.editor_target = None;
-            app.editor_model_settings_only = false;
-            app.editor_target_is_builtin = false;
-            app.input.clear();
+        if app.surfaces.surfaces.contains_sheet(SheetKind::ModelEditor) {
+            app.provider_editor.editor_target = None;
+            app.provider_editor.editor_model_settings_only = false;
+            app.provider_editor.editor_target_is_builtin = false;
+            app.composer.input.clear();
             app.set_cursor(0);
             app.set_picker_search(false);
             app.set_active_follow(true);
             app.pop_transient_surface();
-        } else if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
+        } else if app
+            .surfaces
+            .surfaces
+            .contains_sheet(SheetKind::CustomProvider)
+        {
             app.cancel_custom_provider();
-        } else if app.surfaces.contains_sheet(SheetKind::OAuthPending) {
+        } else if app
+            .surfaces
+            .surfaces
+            .contains_sheet(SheetKind::OAuthPending)
+        {
             app.cancel_oauth_pending();
-        } else if app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
+        } else if app
+            .surfaces
+            .surfaces
+            .contains_sheet(SheetKind::ProviderPreset)
+        {
             app.cancel_preset_chooser();
         }
         // Nothing left to dismiss: the gesture is spent. The Scene beneath is
@@ -526,7 +579,7 @@ pub(crate) fn handle_close_modal(app: &mut App, _viewed_session_id: &str) {
 /// after the scene itself declined to navigate. Returns `true` when it handled
 /// the exit by quiting.
 pub(crate) fn quit_standalone_scene_at_startup(app: &mut App) -> bool {
-    let reason = match app.startup_overlay {
+    let reason = match app.surfaces.startup_overlay {
         crate::shell::StartupOverlay::Dashboard if app.current_scene() == SceneKind::Dashboard => {
             "startup_dashboard_cancelled"
         }
@@ -538,62 +591,66 @@ pub(crate) fn quit_standalone_scene_at_startup(app: &mut App) -> bool {
         _ => return false,
     };
     tracing::info!(reason, "app exiting");
-    app.should_quit.store(true, Ordering::SeqCst);
+    app.link.should_quit.store(true, Ordering::SeqCst);
     true
 }
 
 /// Loop stage (input dispatch): the `ModalUp` arm (per-modal ↑ navigation).
 pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
     if app.active_dialog().is_some() {
-        if let Some(mut ent) = app.surfaces.take_active_view() {
+        if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
             let _ = ent.handle_input(
                 &crate::shell::input::InputAction::ModalUp,
                 app,
                 viewed_session_id,
             );
-            app.surfaces.put_active_view(ent);
+            app.surfaces.surfaces.put_active_view(ent);
         }
     } else {
         match app.current_scene() {
             SceneKind::Dashboard => {
-                if app.host_focus == crate::shell::overlays::DashboardFocus::List {
+                if app.surfaces.host_focus == crate::shell::overlays::DashboardFocus::List {
                     super::super::actions::host::cancel_kill_confirm(app);
-                    let count = app.host_sessions.len();
-                    app.modal_index = if count == 0 {
+                    let count = app.session.host_sessions.len();
+                    app.surfaces.modal_index = if count == 0 {
                         0
-                    } else if app.modal_index == 0 {
+                    } else if app.surfaces.modal_index == 0 {
                         count - 1
                     } else {
-                        app.modal_index - 1
+                        app.surfaces.modal_index - 1
                     };
-                    app.host_modal_follow = true;
+                    app.surfaces.host_modal_follow = true;
                 } else {
-                    app.host_detail_scroll = app.host_detail_scroll.saturating_sub(1);
+                    app.surfaces.host_detail_scroll =
+                        app.surfaces.host_detail_scroll.saturating_sub(1);
                 }
             }
-            SceneKind::Settings => match app.config_focus {
+            SceneKind::Settings => match app.surfaces.config_focus {
                 crate::shell::overlays::ConfigFocus::Categories => {
                     let count = crate::shell::overlays::ConfigCategory::ALL.len();
-                    app.config_category = (app.config_category + count - 1) % count;
-                    app.config_detail_index = 0;
-                    app.config_detail_scroll = 0;
-                    app.config_hover_index = None;
+                    app.surfaces.config_category =
+                        (app.surfaces.config_category + count - 1) % count;
+                    app.surfaces.config_detail_index = 0;
+                    app.surfaces.config_detail_scroll = 0;
+                    app.surfaces.config_hover_index = None;
                 }
                 crate::shell::overlays::ConfigFocus::Detail => {
-                    let ws_path = if app.current_workspace.is_empty() {
+                    let ws_path = if app.session.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&app.current_workspace))
+                        Some(std::path::Path::new(&app.session.current_workspace))
                     };
-                    let active_category =
-                        crate::shell::overlays::ConfigCategory::from_index(app.config_category);
+                    let active_category = crate::shell::overlays::ConfigCategory::from_index(
+                        app.surfaces.config_category,
+                    );
                     let count = active_category.detail_item_count(
                         ws_path,
-                        app.websearch_config.as_ref(),
-                        &app.profile,
+                        app.surfaces.websearch_config.as_ref(),
+                        &app.surfaces.profile,
                     );
                     if count > 0 {
-                        app.config_detail_index = (app.config_detail_index + count - 1) % count;
+                        app.surfaces.config_detail_index =
+                            (app.surfaces.config_detail_index + count - 1) % count;
                     }
                 }
             },
@@ -608,49 +665,52 @@ pub(crate) fn handle_modal_up(app: &mut App, viewed_session_id: &str) {
 /// Loop stage (input dispatch): the `ModalDown` arm (per-modal ↓ navigation).
 pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
     if app.active_dialog().is_some() {
-        if let Some(mut ent) = app.surfaces.take_active_view() {
+        if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
             let _ = ent.handle_input(
                 &crate::shell::input::InputAction::ModalDown,
                 app,
                 viewed_session_id,
             );
-            app.surfaces.put_active_view(ent);
+            app.surfaces.surfaces.put_active_view(ent);
         }
     } else {
         match app.current_scene() {
             SceneKind::Dashboard => {
-                if app.host_focus == crate::shell::overlays::DashboardFocus::List {
+                if app.surfaces.host_focus == crate::shell::overlays::DashboardFocus::List {
                     super::super::actions::host::cancel_kill_confirm(app);
-                    let count = app.host_sessions.len().max(1);
-                    app.modal_index = (app.modal_index + 1) % count;
-                    app.host_modal_follow = true;
+                    let count = app.session.host_sessions.len().max(1);
+                    app.surfaces.modal_index = (app.surfaces.modal_index + 1) % count;
+                    app.surfaces.host_modal_follow = true;
                 } else {
-                    app.host_detail_scroll = app.host_detail_scroll.saturating_add(1);
+                    app.surfaces.host_detail_scroll =
+                        app.surfaces.host_detail_scroll.saturating_add(1);
                 }
             }
-            SceneKind::Settings => match app.config_focus {
+            SceneKind::Settings => match app.surfaces.config_focus {
                 crate::shell::overlays::ConfigFocus::Categories => {
                     let count = crate::shell::overlays::ConfigCategory::ALL.len();
-                    app.config_category = (app.config_category + 1) % count;
-                    app.config_detail_index = 0;
-                    app.config_detail_scroll = 0;
-                    app.config_hover_index = None;
+                    app.surfaces.config_category = (app.surfaces.config_category + 1) % count;
+                    app.surfaces.config_detail_index = 0;
+                    app.surfaces.config_detail_scroll = 0;
+                    app.surfaces.config_hover_index = None;
                 }
                 crate::shell::overlays::ConfigFocus::Detail => {
-                    let ws_path = if app.current_workspace.is_empty() {
+                    let ws_path = if app.session.current_workspace.is_empty() {
                         None
                     } else {
-                        Some(std::path::Path::new(&app.current_workspace))
+                        Some(std::path::Path::new(&app.session.current_workspace))
                     };
-                    let active_category =
-                        crate::shell::overlays::ConfigCategory::from_index(app.config_category);
+                    let active_category = crate::shell::overlays::ConfigCategory::from_index(
+                        app.surfaces.config_category,
+                    );
                     let count = active_category.detail_item_count(
                         ws_path,
-                        app.websearch_config.as_ref(),
-                        &app.profile,
+                        app.surfaces.websearch_config.as_ref(),
+                        &app.surfaces.profile,
                     );
                     if count > 0 {
-                        app.config_detail_index = (app.config_detail_index + 1) % count;
+                        app.surfaces.config_detail_index =
+                            (app.surfaces.config_detail_index + 1) % count;
                     }
                 }
             },
@@ -672,11 +732,16 @@ pub(crate) fn handle_modal_down(app: &mut App, viewed_session_id: &str) {
 /// server owns, which is how the footer once disagreed with the wire
 /// (ADR-0126).
 pub(crate) fn effective_reasoning_effort(app: &App) -> Option<&str> {
-    app.provider_picker
+    app.surfaces
+        .provider_picker
         .rows
         .iter()
-        .find(|row| row.id == app.current_provider)
-        .and_then(|row| row.model_info.iter().find(|m| m.model == app.current_model))
+        .find(|row| row.id == app.session.current_provider)
+        .and_then(|row| {
+            row.model_info
+                .iter()
+                .find(|m| m.model == app.session.current_model)
+        })
         .and_then(|m| m.effort.as_deref())
 }
 
@@ -697,17 +762,17 @@ pub(crate) fn activate_picked_model(app: &mut App, id: String, model: String, ke
         app.send_intent(AgentRequest::ConnectConnection { name: id, method });
         app.dismiss_surface();
     } else {
-        app.surfaces.present_sheet(SheetKind::ModelEditor);
-        app.editor_target = Some(id);
-        app.editor_field = 0;
-        app.editor_key.clear();
-        app.editor_model = model;
-        app.editor_model_settings_only = false;
-        app.editor_target_is_builtin = false;
-        app.editor_effort = "high".to_string();
-        app.editor_effort_levels.clear();
-        app.editor_thinking = true;
-        app.input.clear();
+        app.surfaces.surfaces.present_sheet(SheetKind::ModelEditor);
+        app.provider_editor.editor_target = Some(id);
+        app.provider_editor.editor_field = 0;
+        app.provider_editor.editor_key.clear();
+        app.provider_editor.editor_model = model;
+        app.provider_editor.editor_model_settings_only = false;
+        app.provider_editor.editor_target_is_builtin = false;
+        app.provider_editor.editor_effort = "high".to_string();
+        app.provider_editor.editor_effort_levels.clear();
+        app.provider_editor.editor_thinking = true;
+        app.composer.input.clear();
         app.set_cursor(0);
         app.set_picker_search(false);
     }
@@ -717,40 +782,44 @@ pub(crate) async fn handle_permission_submit(
     app: &mut App,
     _runtime: &crate::shell::event_loop::runtime::UiRuntime,
 ) {
-    let one_off = app.pending_permission.as_ref().is_some_and(|r| r.one_off);
+    let one_off = app
+        .human
+        .pending_permission
+        .as_ref()
+        .is_some_and(|r| r.one_off);
     let reject_idx = if one_off { 1 } else { 2 };
     let details_idx = if one_off { 2 } else { 3 };
-    if app.permission_confirm_always {
-        if app.modal_index == 1 {
-            app.permission_confirm_always = false;
-            app.modal_index = 1;
+    if app.human.permission_confirm_always {
+        if app.surfaces.modal_index == 1 {
+            app.human.permission_confirm_always = false;
+            app.surfaces.modal_index = 1;
             return;
         }
     } else {
-        if app.modal_index == details_idx {
-            app.permission_show_details = !app.permission_show_details;
-            app.permission_scroll = 0;
+        if app.surfaces.modal_index == details_idx {
+            app.human.permission_show_details = !app.human.permission_show_details;
+            app.human.permission_scroll = 0;
             return;
         }
-        if !one_off && app.modal_index == 1 {
-            app.permission_confirm_always = true;
-            app.permission_show_details = false;
-            app.modal_index = 0;
+        if !one_off && app.surfaces.modal_index == 1 {
+            app.human.permission_confirm_always = true;
+            app.human.permission_show_details = false;
+            app.surfaces.modal_index = 0;
             return;
         }
     }
-    if let Some(request) = app.pending_permission.take() {
-        let decision = if app.permission_confirm_always {
+    if let Some(request) = app.human.pending_permission.take() {
+        let decision = if app.human.permission_confirm_always {
             nuo_protocol::PermissionDecision::Always
         } else {
-            match app.modal_index {
+            match app.surfaces.modal_index {
                 0 => nuo_protocol::PermissionDecision::Once,
                 i if i == reject_idx => nuo_protocol::PermissionDecision::Reject,
                 _ => nuo_protocol::PermissionDecision::Reject,
             }
         };
         let request_id = request.id;
-        let parent_call_id = app.subagent_permission_parent.remove(&request_id);
+        let parent_call_id = app.human.subagent_permission_parent.remove(&request_id);
         app.send_intent(AgentRequest::PermissionReply {
             request_id: request_id.clone(),
             decision,
@@ -758,37 +827,37 @@ pub(crate) async fn handle_permission_submit(
         });
         if decision == nuo_protocol::PermissionDecision::Reject {
             let queued: Vec<nuo_tool::PermissionRequest> =
-                app.pending_permissions.drain(..).collect();
+                app.human.pending_permissions.drain(..).collect();
             for pending in queued {
-                let parent_call_id = app.subagent_permission_parent.remove(&pending.id);
+                let parent_call_id = app.human.subagent_permission_parent.remove(&pending.id);
                 app.send_intent(AgentRequest::PermissionReply {
                     request_id: pending.id,
                     decision: nuo_protocol::PermissionDecision::Reject,
                     parent_call_id,
                 });
             }
-            app.pending_permission = None;
+            app.human.pending_permission = None;
             app.pop_transient_surface();
         } else {
-            app.pending_permissions.retain(|r| r.id != request_id);
-            app.pending_permission = app.pending_permissions.front().cloned();
-            if app.pending_permission.is_none() {
+            app.human.pending_permissions.retain(|r| r.id != request_id);
+            app.human.pending_permission = app.human.pending_permissions.front().cloned();
+            if app.human.pending_permission.is_none() {
                 app.pop_transient_surface();
             }
         }
-        app.modal_index = 0;
-        app.permission_scroll = 0;
-        app.permission_max_scroll = 0;
-        app.permission_confirm_always = false;
-        app.permission_show_details = false;
+        app.surfaces.modal_index = 0;
+        app.human.permission_scroll = 0;
+        app.human.permission_max_scroll = 0;
+        app.human.permission_confirm_always = false;
+        app.human.permission_show_details = false;
     }
 }
 
 pub(crate) fn modal_page_step(app: &App) -> usize {
-    let h = if app.modal_body_height > 0 {
-        app.modal_body_height
+    let h = if app.transcript.modal_body_height > 0 {
+        app.transcript.modal_body_height
     } else {
-        app.view_height
+        app.transcript.view_height
     };
     h.saturating_sub(1).max(1) as usize
 }
@@ -826,7 +895,7 @@ pub(crate) mod question_effects {
                         // nothing" means "refuse everything that was asked
                         // about", and sending an empty list with `Deny` would
                         // record no refusal at all and let the gate re-open.
-                        let offered = app.workspace_security.domains_needing_review();
+                        let offered = app.session.workspace_security.domains_needing_review();
                         let decision = if selected.is_empty() {
                             nuo_protocol::TrustDecision::Deny
                         } else {
@@ -840,7 +909,7 @@ pub(crate) mod question_effects {
                         app.send_intent(AgentRequest::TrustWorkspace { domains, decision });
                         continue;
                     }
-                    let parent_call_id = app.subagent_question_parent.remove(request_id);
+                    let parent_call_id = app.human.subagent_question_parent.remove(request_id);
                     app.send_intent(AgentRequest::UserQuestionReply {
                         request_id: request_id.clone(),
                         answers: answers.clone(),
@@ -853,7 +922,7 @@ pub(crate) mod question_effects {
                         runtime.trust_gate_dismissed.store(true, Ordering::SeqCst);
                         continue;
                     }
-                    let parent_call_id = app.subagent_question_parent.remove(request_id);
+                    let parent_call_id = app.human.subagent_question_parent.remove(request_id);
                     app.send_intent(AgentRequest::UserQuestionReply {
                         request_id: request_id.clone(),
                         answers: Vec::new(),
@@ -861,9 +930,9 @@ pub(crate) mod question_effects {
                     });
                 }
                 crate::shell::question_model::QuestionEffect::Closed { request_id } => {
-                    app.pending_questions.retain(|r| r.id != *request_id);
-                    if app.pending_questions.is_empty() {
-                        app.question = None;
+                    app.human.pending_questions.retain(|r| r.id != *request_id);
+                    if app.human.pending_questions.is_empty() {
+                        app.human.question = None;
                         // The sheet is composer-slot state,
                         // not router foreground identity: unmount it via
                         // `dismiss_sheet`, never `pop_transient_surface`.
@@ -876,7 +945,7 @@ pub(crate) mod question_effects {
                         if app.active_sheet() == Some(crate::shell::sheet::SheetKind::Question) {
                             app.dismiss_sheet();
                         }
-                        app.modal_index = 0;
+                        app.surfaces.modal_index = 0;
                     }
                 }
             }
@@ -937,11 +1006,11 @@ mod tests {
                 origin: None,
             }
         };
-        app.question = Some(QuestionModel::open(request));
+        app.human.question = Some(QuestionModel::open(request));
         app.push_sheet_surface(SheetKind::Question);
 
         let effects = {
-            let qm = app.question.take().expect("question mounted");
+            let qm = app.human.question.take().expect("question mounted");
             let (_qm, effects) = qm.update(QuestionAction::Submit);
             effects
         };
@@ -951,14 +1020,14 @@ mod tests {
 
         super::question_effects::apply(&effects, &mut app, &runtime).await;
 
-        assert!(app.question.is_none(), "model dropped");
+        assert!(app.human.question.is_none(), "model dropped");
         assert_eq!(
             app.active_sheet(),
             None,
             "sheet must unmount so the composer slot is handed back"
         );
         assert_eq!(
-            app.surfaces.active_overlay(),
+            app.surfaces.surfaces.active_overlay(),
             None,
             "the session scene must stay mounted underneath"
         );
@@ -1009,7 +1078,7 @@ pub(crate) async fn apply_pre_attach_decision(
                 // grant is in flight), so there is nothing to refuse. Unmount:
                 // leaving the surface up would block a session with nothing left
                 // to decide.
-                app.pre_attach = None;
+                app.surfaces.pre_attach = None;
                 return;
             }
             // `decision: Deny` is what makes this a refusal. Sending the domains

@@ -9,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::subagent::SubAgentProfile;
 use crate::{AgentIdentity, ToolSelection};
-use nuo_tool::{BuiltinTool};
-
+use nuo_tool::BuiltinTool;
 
 /// User-tunable agent runtime behaviour.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

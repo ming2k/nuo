@@ -11,8 +11,7 @@ use nuo_engine::orchestration::round_response;
 use nuo_persistence::config::Config;
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, CommandResult, LoopStatus, RoundEvent};
-use nuo_tool::{AgentNotice};
-
+use nuo_tool::AgentNotice;
 
 pub(crate) async fn supersede_for_session_switch(
     lifecycle: &RoundLifecycle,

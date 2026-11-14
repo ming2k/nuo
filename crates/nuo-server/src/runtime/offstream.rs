@@ -12,9 +12,8 @@ use nuo_engine::runtime::offstream::{
 };
 use nuo_persistence::blobs::BlobStore;
 use nuo_persistence::db::get_persistence_handle;
-use nuo_protocol::{FactPayload};
-use nuo_tool::{Role};
-
+use nuo_protocol::FactPayload;
+use nuo_tool::Role;
 
 /// Pagination and text filtering helper for offstream sources.
 pub fn paginate_text(
@@ -117,10 +116,10 @@ impl OffstreamSource for SubagentSource {
                     .iter()
                     .map(|fact| match &fact.payload {
                         FactPayload::Message { message } => message.content.len(),
-                        FactPayload::Observation { lifecycle, .. } => match lifecycle {
-                            nuo_protocol::ObservationLifecycle::Raw { content } => content.len(),
-                            _ => 0,
-                        },
+                        FactPayload::Observation {
+                            lifecycle: nuo_protocol::ObservationLifecycle::Raw { content },
+                            ..
+                        } => content.len(),
                         FactPayload::Compaction { summary, .. } => summary.len(),
                         _ => 0,
                     })

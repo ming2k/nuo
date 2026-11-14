@@ -10,24 +10,28 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // 1. List dialogs (Queue): ScrollDown increments scroll and clears follow.
     app.open_dialog(crate::shell::surfaces::DialogKind::Queue);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::QueueDialog>()
         .follow = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::QueueDialog>()
         .scroll = 0;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::QueueDialog>()
             .scroll,
         1
     );
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::QueueDialog>()
             .follow
     );
@@ -35,15 +39,17 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // 2. Pure-scroll dialog (UsageStats): ScrollDown increments scroll.
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
         .scroll = 5;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
             .scroll,
         6
@@ -52,35 +58,42 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // 3. ThreadsDialog: in list view, scrolls list and clears follow.
     app.open_dialog(crate::shell::surfaces::DialogKind::Threads);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
         .follow = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
         .scroll = 2;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
         .info_detail = false;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
         .info_scroll = 0;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
             .scroll,
         3
     );
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
             .follow
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
             .info_scroll,
         0
@@ -89,15 +102,17 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // 4. ThreadsDialog sub-view parity [INV-SURFACE-08]: when info_detail is active,
     // scrolls info_scroll independently, leaving the main list scroll intact!
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
         .info_detail = true;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
             .info_scroll,
         1,
@@ -105,6 +120,7 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadsDialog>()
             .scroll,
         3,
@@ -115,27 +131,32 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // scrolls info_scroll independently.
     app.open_dialog(crate::shell::surfaces::DialogKind::Connections);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_detail = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_scroll = 4;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .scroll = 10;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .info_scroll,
         5
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
             .scroll,
         10
@@ -144,26 +165,29 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
     // 6. HelpDialog: pure-scroll dialog, ScrollDown increments and ScrollUp decrements.
     app.open_dialog(crate::shell::surfaces::DialogKind::Help);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::HelpDialog>()
         .scroll = 3;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll,
         4
     );
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollUp, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll,
         3
@@ -176,12 +200,12 @@ fn dialogs_autonomously_handle_scroll_actions_and_sub_views() {
         "dialogs do not use modal_scroll_field"
     );
 
-    app.surfaces.dismiss_all_overlays();
+    app.surfaces.surfaces.dismiss_all_overlays();
     app.switch_scene(crate::shell::surfaces::SceneKind::Settings);
     let (s, f) = app.modal_scroll_field().expect("settings scene scrolls");
     assert!(f.is_none());
     *s = 7;
-    assert_eq!(app.config_scroll, 7);
+    assert_eq!(app.surfaces.config_scroll, 7);
 
     app.reset_to_thread();
     assert!(app.modal_scroll_field().is_none());
@@ -195,62 +219,67 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
     // Initial scroll is 0
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll,
         0
     );
 
     // ModalDown (arrow down) scrolls down
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ModalDown, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll,
         1
     );
 
     // ModalUp (arrow up) scrolls up
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ModalUp, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll,
         0
     );
 
     // Page scrolling
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(
             &crate::shell::input::InputAction::ScrollPageDown,
             &mut app,
             "",
         );
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll
             > 0
     );
 
     // ScrollTop
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(&crate::shell::input::InputAction::ScrollTop, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HelpDialog>()
             .scroll,
         0
@@ -258,16 +287,16 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
 
     // Mount Help overlay on UI and test footer dismissal click
     let modal_rect = nuotc::layout::Rect::new(10, 5, 60, 20);
-    app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-    app.ui.mount(
+    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.transcript.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Help,
         )),
         modal_rect,
     );
-    app.ui.commit();
+    app.transcript.ui.commit();
     let footer_y = modal_rect.y + modal_rect.height - 1;
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(
             &crate::shell::input::InputAction::SelectionStart {
                 x: modal_rect.x + 5,
@@ -277,7 +306,7 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
             "",
         );
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Dismiss);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
 
     // Populate HelpDialog.actions and test row-click to execute
@@ -285,16 +314,17 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
         crate::shell::surfaces::SceneKind::Thread,
         Some("session-1"),
         0,
-        &app.key_overrides,
-        &app.surface_overrides,
-        &app.theme,
+        &app.surfaces.key_overrides,
+        &app.surfaces.surface_overrides,
+        &app.surfaces.theme,
     );
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::HelpDialog>()
         .actions = entries.iter().map(|e| e.action).collect();
 
     // Line 1 is Notices in Thread scene (body_top is y = 5 + 3 = 8, so line 1 is y = 8 + 1 = 9)
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let outcome = ent.handle_input(
             &crate::shell::input::InputAction::SelectionStart {
                 x: modal_rect.x + 5,
@@ -304,10 +334,10 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
             "",
         );
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Dismiss);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
-        app.pending_help_action,
+        app.surfaces.pending_help_action,
         Some(crate::shell::overlays::help::HelpActionKind::Notices)
     );
 }
@@ -318,7 +348,7 @@ fn help_dialog_scroll_and_footer_click_lifecycle() {
 fn dialog_spatial_click_to_select_and_models_section_headers() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
-    app.provider_picker = ProviderPickerSnapshot {
+    app.surfaces.provider_picker = ProviderPickerSnapshot {
         default_id: "openai".to_string(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "openai".to_string(),
@@ -349,16 +379,17 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
     };
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
-    app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-    app.ui.mount(
+    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.transcript.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Models,
         )),
         nuotc::Rect::new(10, 5, 60, 15),
     );
-    app.ui.commit();
+    app.transcript.ui.commit();
 
     let models_dlg = app
+        .surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
     models_dlg.index = 0;
@@ -366,20 +397,22 @@ fn dialog_spatial_click_to_select_and_models_section_headers() {
 
     // Body starts at y = 5 + 3 = 8.
     // Line 0 is section header "All models", Line 1 is model row 0.
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let action = crate::shell::input::InputAction::SelectionStart { x: 20, y: 9 };
         let outcome = ent.handle_input(&action, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .index,
         0
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .follow
     );
@@ -394,17 +427,17 @@ fn modal_page_step_tracks_body_height_and_floors_at_one() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
     // No body height captured yet → falls back to view_height, floored at 1.
-    app.view_height = 0;
-    app.modal_body_height = 0;
+    app.transcript.view_height = 0;
+    app.transcript.modal_body_height = 0;
     assert_eq!(modal_page_step(&app), 1);
 
     // Transcript height known, modal not yet rendered → uses view_height - 1.
-    app.view_height = 24;
+    app.transcript.view_height = 24;
     assert_eq!(modal_page_step(&app), 23);
 
     // Once the modal body height is captured, it wins over view_height so a
     // page advance matches the actual modal, not the transcript behind it.
-    app.modal_body_height = 10;
+    app.transcript.modal_body_height = 10;
     assert_eq!(
         modal_page_step(&app),
         9,
@@ -412,7 +445,7 @@ fn modal_page_step_tracks_body_height_and_floors_at_one() {
     );
 
     // A 1-row modal body still yields a step of 1 (never 0).
-    app.modal_body_height = 1;
+    app.transcript.modal_body_height = 1;
     assert_eq!(modal_page_step(&app), 1);
 }
 
@@ -432,25 +465,28 @@ fn startup_picker_flag_governs_sessions_modal_quit_and_resets_on_open() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
     // Default: an in-session App never treats the picker as a startup gate.
-    assert_eq!(app.startup_overlay, crate::shell::StartupOverlay::None);
+    assert_eq!(
+        app.surfaces.startup_overlay,
+        crate::shell::StartupOverlay::None
+    );
 
     // Simulate the startup path (`nuo attach` with no id): the picker
     // opens and `startup_overlay` is armed. Closing it must quit.
-    app.startup_overlay = crate::shell::StartupOverlay::SessionsPicker;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::SessionsPicker;
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
     assert!(
-        app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+        app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
             && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Sessions)
     );
     // The quit gate is `should_quit`; it is still clear until a close happens.
-    assert!(!app.should_quit.load(Ordering::SeqCst));
+    assert!(!app.link.should_quit.load(Ordering::SeqCst));
 
     // Open a session from the picker: the overlay clears so a later `/sessions`
     // modal behaves as a normal transient overlay.
-    app.startup_overlay = crate::shell::StartupOverlay::None;
+    app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
     app.reset_to_thread();
     assert_eq!(
-        app.startup_overlay,
+        app.surfaces.startup_overlay,
         crate::shell::StartupOverlay::None,
         "opening a session drops the startup gate"
     );
@@ -512,14 +548,14 @@ fn disclosure_toggle_latches_scroll_settle() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     // The settle path only runs when the auto-scroll behavior is enabled
     // (`[tui] expand_auto_scroll`, default off).
-    app.expand_auto_scroll = true;
+    app.transcript.expand_auto_scroll = true;
     let mut messages = vec![
         TranscriptMessage::new(Role::User, "hi"),
         TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
     // No toggle happened yet: nothing to settle.
-    assert!(!app.scroll_settle_pending);
+    assert!(!app.transcript.scroll_settle_pending);
 
     // Expanding (collapsed by default) both flips the pin and latches the
     // settle request — the loop must not paint the expand's scroll target
@@ -527,7 +563,7 @@ fn disclosure_toggle_latches_scroll_settle() {
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(true));
     assert!(
-        app.scroll_settle_pending,
+        app.transcript.scroll_settle_pending,
         "expand must latch the settle request"
     );
 
@@ -535,20 +571,20 @@ fn disclosure_toggle_latches_scroll_settle() {
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(false));
     assert!(
-        app.scroll_settle_pending,
+        app.transcript.scroll_settle_pending,
         "collapse must latch the settle request"
     );
 
     // The settle is one frame deep: once the loop has staged and settled the
     // frame, the latch clears (mirrored here the way the event loop consumes
     // it — a no-op toggle target keeps the latch off).
-    app.scroll_settle_pending = false;
+    app.transcript.scroll_settle_pending = false;
 
     // A toggle that resolves to nothing (index out of range) latches nothing
     // and leaves the messages untouched.
-    let before = app.scroll_settle_pending;
+    let before = app.transcript.scroll_settle_pending;
     assert!(!app.toggle_step_pinned(&mut messages, 9));
-    assert_eq!(app.scroll_settle_pending, before);
+    assert_eq!(app.transcript.scroll_settle_pending, before);
 }
 
 /// The default configuration (`[tui] expand_auto_scroll = false`, the
@@ -563,7 +599,7 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert!(
-        !app.expand_auto_scroll,
+        !app.transcript.expand_auto_scroll,
         "expand_auto_scroll defaults to disabled"
     );
     let mut messages = vec![
@@ -571,24 +607,27 @@ fn disclosure_toggle_disabled_by_default_leaves_scroll_untouched() {
         TranscriptMessage::tool_step("call_1", "read", r#"{"path":"README.md"}"#),
     ];
 
-    app.scroll = 12;
-    let scroll_before = app.scroll;
+    app.transcript.scroll = 12;
+    let scroll_before = app.transcript.scroll;
 
     // Expand: the pin flips, the scroll offset does not move. A settle frame
     // is still requested — not to scroll, but to re-validate the untouched
     // offset against the new height.
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(true));
-    assert_eq!(app.scroll, scroll_before, "scroll must not move on expand");
+    assert_eq!(
+        app.transcript.scroll, scroll_before,
+        "scroll must not move on expand"
+    );
 
     // Collapsing clears follow-bottom (reading history pauses auto-follow,
     // matching every other transcript interaction) but still leaves the
     // offset where the user had it.
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert!(messages[1].tool_step_expanded() == Some(false));
-    assert!(!app.follow_bottom, "toggle pauses bottom-follow");
+    assert!(!app.transcript.follow_bottom, "toggle pauses bottom-follow");
     assert_eq!(
-        app.scroll, scroll_before,
+        app.transcript.scroll, scroll_before,
         "scroll must not move on collapse"
     );
 }
@@ -609,33 +648,44 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     assert_eq!(messages[1].tool_step_expanded(), Some(true));
 
     // Simulate sticky anchor active for step 1 at line 50
-    app.sticky_step = Some(1);
-    app.sticky_summary_line = Some(50);
-    app.scroll = 100;
-    app.follow_bottom = true;
+    app.transcript.sticky_step = Some(1);
+    app.transcript.sticky_summary_line = Some(50);
+    app.transcript.scroll = 100;
+    app.transcript.follow_bottom = true;
 
     // Collapse sticky bar
     assert!(app.toggle_step_pinned(&mut messages, 1));
     assert_eq!(messages[1].tool_step_expanded(), Some(false));
-    assert!(!app.follow_bottom, "collapsing sticky pauses follow_bottom");
-    assert_eq!(app.scroll, 50, "scroll re-anchors to summary line 50");
+    assert!(
+        !app.transcript.follow_bottom,
+        "collapsing sticky pauses follow_bottom"
+    );
     assert_eq!(
-        app.pin_summary_line,
+        app.transcript.scroll, 50,
+        "scroll re-anchors to summary line 50"
+    );
+    assert_eq!(
+        app.transcript.pin_summary_line,
         Some(50),
         "pin_summary_line latches to preserve summary at Row 0"
     );
 
     // Case A: Total content is smaller than viewport (e.g. 10 lines in a 30-line viewport).
     // The entire conversation fits on screen, so scroll must collapse to 0.
-    app.content_lines = 10;
-    app.view_height = 30;
-    app.max_scroll = 0;
-    let limit_fit = if app.content_lines <= app.view_height as usize {
+    app.transcript.content_lines = 10;
+    app.transcript.view_height = 30;
+    app.transcript.max_scroll = 0;
+    let limit_fit = if app.transcript.content_lines <= app.transcript.view_height as usize {
         0
     } else {
-        app.pin_summary_line
-            .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
-            .unwrap_or(app.max_scroll)
+        app.transcript
+            .pin_summary_line
+            .map(|line| {
+                app.transcript
+                    .max_scroll
+                    .max(line.min(u16::MAX as usize) as u16)
+            })
+            .unwrap_or(app.transcript.max_scroll)
     };
     assert_eq!(
         limit_fit, 0,
@@ -645,15 +695,20 @@ fn sticky_collapse_anchors_summary_at_top_and_respects_viewport_underflow() {
     // Case B: Content overflows viewport (e.g. 60 lines in a 30-line viewport, max_scroll = 30).
     // Summary is at line 50. pin_summary_line allows scrolling up to 50 so summary stays at Row 0,
     // accepting bottom underflow (lines 51..60 at rows 1..10, rows 11..30 blank).
-    app.content_lines = 60;
-    app.view_height = 30;
-    app.max_scroll = 30;
-    let limit_overflow = if app.content_lines <= app.view_height as usize {
+    app.transcript.content_lines = 60;
+    app.transcript.view_height = 30;
+    app.transcript.max_scroll = 30;
+    let limit_overflow = if app.transcript.content_lines <= app.transcript.view_height as usize {
         0
     } else {
-        app.pin_summary_line
-            .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
-            .unwrap_or(app.max_scroll)
+        app.transcript
+            .pin_summary_line
+            .map(|line| {
+                app.transcript
+                    .max_scroll
+                    .max(line.min(u16::MAX as usize) as u16)
+            })
+            .unwrap_or(app.transcript.max_scroll)
     };
     assert_eq!(
         limit_overflow, 50,
@@ -666,23 +721,27 @@ fn adopt_caret_head_and_tail_break_selection() {
     let mut app = app_with_input_selection("hello");
     // Park the visible caret somewhere stale — the adopt must override it,
     // proving the relay wins over the stale position.
-    app.cursor_position = 1;
+    app.composer.cursor_position = 1;
 
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Head));
-    assert_eq!(app.cursor_position, 5, "head edge = buffer end");
-    assert_eq!(app.selection, SelectionState::None, "selection must break");
+    assert_eq!(app.composer.cursor_position, 5, "head edge = buffer end");
+    assert_eq!(
+        app.transcript.selection,
+        SelectionState::None,
+        "selection must break"
+    );
 
     // Re-arm and adopt the tail edge.
-    app.selection = SelectionState::Block {
+    app.transcript.selection = SelectionState::Block {
         message_idx: crate::shell::render::INPUT_MSG_IDX,
         block_idx: 0,
     };
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Tail));
-    assert_eq!(app.cursor_position, 0, "tail edge = buffer start");
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.cursor_position, 0, "tail edge = buffer start");
+    assert_eq!(app.transcript.selection, SelectionState::None);
 
     // Range selection: head is the release point, tail is the anchor point.
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -695,11 +754,14 @@ fn adopt_caret_head_and_tail_break_selection() {
         ),
     };
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Head));
-    assert_eq!(app.cursor_position, 4, "head edge adopts head cursor");
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(
+        app.composer.cursor_position, 4,
+        "head edge adopts head cursor"
+    );
+    assert_eq!(app.transcript.selection, SelectionState::None);
 
     // Backward drag: anchor is 4, head is 1 (mouse released at 1).
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -712,8 +774,11 @@ fn adopt_caret_head_and_tail_break_selection() {
         ),
     };
     assert!(app.adopt_caret_from_input_selection(SelectionEdge::Head));
-    assert_eq!(app.cursor_position, 1, "head edge adopts release position");
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(
+        app.composer.cursor_position, 1,
+        "head edge adopts release position"
+    );
+    assert_eq!(app.transcript.selection, SelectionState::None);
 
     // No selection → no-op, reports false.
     assert!(!app.adopt_caret_from_input_selection(SelectionEdge::Head));
@@ -723,7 +788,7 @@ fn adopt_caret_head_and_tail_break_selection() {
 fn modal_over_dialog_dismiss_restores_underlying_dialog() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Sessions);
-    app.modal_index = 2;
+    app.surfaces.modal_index = 2;
 
     // Opening Usage stats over the Sessions dialog
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
@@ -732,7 +797,7 @@ fn modal_over_dialog_dismiss_restores_underlying_dialog() {
         Some(crate::shell::surfaces::DialogKind::UsageStats)
     );
     assert_eq!(
-        app.surfaces.underlying_dialog(),
+        app.surfaces.surfaces.underlying_dialog(),
         Some(crate::shell::surfaces::DialogKind::Sessions)
     );
 
@@ -742,7 +807,10 @@ fn modal_over_dialog_dismiss_restores_underlying_dialog() {
         app.active_dialog(),
         Some(crate::shell::surfaces::DialogKind::Sessions)
     );
-    assert_eq!(app.modal_index, 2, "Sessions selection index is preserved");
+    assert_eq!(
+        app.surfaces.modal_index, 2,
+        "Sessions selection index is preserved"
+    );
 }
 
 #[test]
@@ -796,12 +864,14 @@ fn modal_arrows_route_through_the_dialog_entity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::ThreadStats);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadStatsDialog>()
         .scroll = 5;
 
     crate::shell::event_loop::actions::handle_modal_up(&mut app, "test-session");
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadStatsDialog>()
             .scroll,
         4,
@@ -810,6 +880,7 @@ fn modal_arrows_route_through_the_dialog_entity() {
     crate::shell::event_loop::actions::handle_modal_down(&mut app, "test-session");
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadStatsDialog>()
             .scroll,
         5
@@ -824,19 +895,25 @@ fn dialog_reads_see_the_entity_while_it_is_rendered() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
         .search = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
         .query
         .text = "claude".to_string();
 
-    let taken = app.surfaces.take_active_view().expect("models is open");
+    let taken = app
+        .surfaces
+        .surfaces
+        .take_active_view()
+        .expect("models is open");
     assert_eq!(
         app.picker_query(),
         "claude",
         "read sees the entity's query during render"
     );
-    app.surfaces.put_active_view(taken);
+    app.surfaces.surfaces.put_active_view(taken);
     assert_eq!(app.picker_query(), "claude");
 }

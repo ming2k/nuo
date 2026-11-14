@@ -26,7 +26,6 @@ use futures::stream::BoxStream;
 use nuo_protocol::capability::{ModelRequest, Provider, ProviderPromptHints, ProviderStreamEvent};
 use nuo_protocol::{CredentialSource, ProviderError, ResolvedAuth};
 
-
 use crate::request::COPILOT_CLIENT_HEADERS;
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};

@@ -6,16 +6,17 @@ use super::*;
 /// Render one dialog entity from its own state plus the injected immutable
 /// context (`DialogView::render`). The entity's fields are the only mutable
 /// dialog state; `ctx` carries read-only server model data and layout context.
+/// Inspection and stats dialogs: one self-contained family that only reads
+/// the live session/telemetry model. Returns `None` when the view is a
+/// different family, `Some(result)` when this family owns it.
 #[allow(clippy::expect_used)]
-pub(super) fn render_dialog(
+fn render_inspection_dialog(
     view: &mut dyn DialogView,
     frame: &mut Frame,
-    area: Rect,
     ctx: &mut DialogRenderCtx<'_>,
-) -> Option<Rect> {
-    let _ = area;
+) -> Option<Option<Rect>> {
     let app = ctx.app;
-    match view.kind() {
+    Some(match view.kind() {
         DialogKind::Tools => {
             let d = view
                 .as_any_mut()
@@ -23,7 +24,7 @@ pub(super) fn render_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_tools_modal(
                 frame,
-                app.session_context.as_ref(),
+                app.session.session_context.as_ref(),
                 d.index,
                 &mut d.scroll,
                 d.follow,
@@ -36,7 +37,7 @@ pub(super) fn render_dialog(
             let d = view.as_any_mut().downcast_mut::<McpDialog>().expect("kind");
             Some(crate::shell::overlays::draw_mcp_modal(
                 frame,
-                app.session_context.as_ref(),
+                app.session.session_context.as_ref(),
                 d.index,
                 &mut d.scroll,
                 d.follow,
@@ -50,7 +51,7 @@ pub(super) fn render_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_skills_modal(
                 frame,
-                app.session_context.as_ref(),
+                app.session.session_context.as_ref(),
                 d.index,
                 d.expanded,
                 &mut d.scroll,
@@ -64,7 +65,7 @@ pub(super) fn render_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_permissions_manager(
                 frame,
-                app.session_context.as_ref(),
+                app.session.session_context.as_ref(),
                 d.index,
                 &mut d.scroll,
                 ctx.theme,
@@ -75,8 +76,8 @@ pub(super) fn render_dialog(
                 .as_any_mut()
                 .downcast_mut::<UsageStatsDialog>()
                 .expect("kind");
-            let loading = app.usage_stats.is_none();
-            let report = app.usage_stats.clone().unwrap_or_default();
+            let loading = app.telemetry.usage_stats.is_none();
+            let report = app.telemetry.usage_stats.clone().unwrap_or_default();
             Some(crate::shell::overlays::draw_usage_stats_modal(
                 frame,
                 &report,
@@ -92,10 +93,10 @@ pub(super) fn render_dialog(
                 .as_any_mut()
                 .downcast_mut::<QuotasDialog>()
                 .expect("kind");
-            let loading = app.provider_quotas.is_none();
+            let loading = app.telemetry.provider_quotas.is_none();
             Some(crate::shell::overlays::draw_quotas_modal(
                 frame,
-                app.provider_quotas.as_ref(),
+                app.telemetry.provider_quotas.as_ref(),
                 loading,
                 d.index,
                 &mut d.scroll,
@@ -111,16 +112,16 @@ pub(super) fn render_dialog(
                 .downcast_mut::<ThreadStatsDialog>()
                 .expect("kind");
             let report = app.token_source_report(ctx.viewed_session_id);
-            let loading = app.token_ledger.is_none() && report.is_none();
+            let loading = app.telemetry.token_ledger.is_none() && report.is_none();
             let report = report.unwrap_or_default();
             Some(crate::shell::overlays::draw_thread_stats_modal(
                 frame,
                 &report,
                 crate::shell::render::ContextUsageProps {
-                    snapshot: app.context_tokens,
+                    snapshot: app.telemetry.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: nuo_tool::count_tokens(&app.input),
-                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.input),
+                    draft_content_tokens: nuo_tool::count_tokens(&app.composer.input),
+                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.composer.input),
                 },
                 loading,
                 &mut d.scroll,
@@ -135,23 +136,23 @@ pub(super) fn render_dialog(
                 .downcast_mut::<SessionTraceDialog>()
                 .expect("kind");
             let report = app.token_source_report(ctx.viewed_session_id);
-            let loading = app.token_ledger.is_none() && report.is_none();
+            let loading = app.telemetry.token_ledger.is_none() && report.is_none();
             let report = report.unwrap_or_default();
             Some(crate::shell::overlays::draw_session_trace_modal(
                 frame,
                 &report,
                 crate::shell::render::ContextUsageProps {
-                    snapshot: app.context_tokens,
+                    snapshot: app.telemetry.context_tokens,
                     window_tokens: Some(app.active_model_context_window()),
-                    draft_content_tokens: nuo_tool::count_tokens(&app.input),
-                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.input),
+                    draft_content_tokens: nuo_tool::count_tokens(&app.composer.input),
+                    draft_tokens: nuo_protocol::estimate_draft_tokens(&app.composer.input),
                 },
                 d.index
                     .min(crate::shell::render::telemetry_round_count(&report).saturating_sub(1)),
                 d.detail,
                 d.turn,
                 d.turn_cursor,
-                app.last_submit_ms,
+                app.composer.last_submit_ms,
                 loading,
                 &mut d.scroll,
                 ctx.theme,
@@ -189,20 +190,37 @@ pub(super) fn render_dialog(
                 ctx.theme,
             ))
         }
+        _ => return None,
+    })
+}
+
+#[allow(clippy::expect_used)]
+pub(super) fn render_dialog(
+    view: &mut dyn DialogView,
+    frame: &mut Frame,
+    area: Rect,
+    ctx: &mut DialogRenderCtx<'_>,
+) -> Option<Rect> {
+    let _ = area;
+    if let Some(result) = render_inspection_dialog(view, frame, ctx) {
+        return result;
+    }
+    let app = ctx.app;
+    match view.kind() {
         DialogKind::Threads => {
             let d = view
                 .as_any_mut()
                 .downcast_mut::<ThreadsDialog>()
                 .expect("kind");
             let projected_count = crate::shell::overlays::session::project_session_rows(
-                &app.sessions_overview,
+                &app.session.sessions_overview,
                 Some(&d.expanded),
             )
             .len();
             Some(crate::shell::overlays::draw_sessions_modal(
                 frame,
                 crate::shell::overlays::session::SessionsModalProps {
-                    sessions: &app.sessions_overview,
+                    sessions: &app.session.sessions_overview,
                     expanded_sessions: Some(&d.expanded),
                     selected: d.index.min(projected_count.saturating_sub(1)),
                     scroll: &mut d.scroll,
@@ -210,10 +228,10 @@ pub(super) fn render_dialog(
                     startup_picker: ctx.startup_picker,
                     spinner_phase: ctx.spinner_phase,
                     session_info_detail: d.info_detail,
-                    session_detail: app.session_detail.as_ref(),
+                    session_detail: app.session.session_detail.as_ref(),
                     session_info_scroll: &mut d.info_scroll,
                     sessions_loading: d.loading,
-                    running_sessions: Some(&app.running_sessions),
+                    running_sessions: Some(&app.session.running_sessions),
                 },
                 ctx.theme,
                 ctx.selection,
@@ -227,7 +245,7 @@ pub(super) fn render_dialog(
                 .expect("kind");
             Some(crate::shell::overlays::draw_tree_modal(
                 frame,
-                &app.session_tree,
+                &app.session.session_tree,
                 d.index,
                 &mut d.scroll,
                 d.follow,
@@ -253,12 +271,12 @@ pub(super) fn render_dialog(
                     search: d.search,
                     show_caret: ctx.overlay_owns_caret,
                     connection_info_detail: d.info_detail,
-                    connection_detail: app.connection_detail.as_ref(),
+                    connection_detail: app.surfaces.connection_detail.as_ref(),
                     connection_info_scroll: &mut d.info_scroll,
                     spinner_phase: ctx.spinner_phase,
                     connection_info_standalone: d.info_standalone,
                     refreshing: d.refreshing,
-                    connection_usages: Some(&app.connection_usages),
+                    connection_usages: Some(&app.telemetry.connection_usages),
                 },
                 ctx.theme,
                 ctx.selection,
@@ -317,7 +335,7 @@ pub(super) fn render_dialog(
             crate::shell::overlays::draw_history_panel(
                 frame,
                 crate::shell::overlays::history::HistoryPanelProps {
-                    history: &app.input_history,
+                    history: &app.composer.input_history,
                     ranked: &ranked,
                     modal_index: d.index,
                     scroll: &mut d.scroll,
@@ -337,20 +355,21 @@ pub(super) fn render_dialog(
                 has_overlay: true,
                 active_dialog: app
                     .surfaces
+                    .surfaces
                     .underlying_dialog()
                     .or_else(|| app.active_dialog()),
                 is_responding: app.viewed_chrome().responding,
-                has_selection: !matches!(app.selection, SelectionState::None),
+                has_selection: !matches!(app.transcript.selection, SelectionState::None),
                 has_running_task: app.viewed_chrome().responding,
                 has_notices: !!app.has_notices(),
-                has_focused_entry: app.focus.entry().is_some(),
+                has_focused_entry: app.transcript.focus.entry().is_some(),
                 queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             };
             let entries = crate::shell::overlays::command_palette::filter_palette_commands(
                 &d.query.text,
-                &app.recent_commands,
+                &app.composer.recent_commands,
                 &app_ctx,
             );
             let show_caret =
@@ -402,8 +421,8 @@ pub(super) fn render_dialog(
                 app.current_scene(),
                 Some(ctx.viewed_session_id),
                 unread_faults,
-                &app.key_overrides,
-                &app.surface_overrides,
+                &app.surfaces.key_overrides,
+                &app.surfaces.surface_overrides,
                 &mut d.scroll,
                 &mut d.actions,
                 ctx.theme,
@@ -422,5 +441,6 @@ pub(super) fn render_dialog(
                 ctx.theme,
             ))
         }
+        _ => None,
     }
 }

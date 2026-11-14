@@ -5,9 +5,8 @@ use serde_json::json;
 
 use acp::{AgentAddress, AgentEnvelope, AgentManifest, Fabric, MessageIntent, SteerAction};
 use nuo_engine::{Agent, AgentIdentity};
-use nuo_protocol::{MonitorAction};
-use nuo_tool::{Tool};
-
+use nuo_protocol::MonitorAction;
+use nuo_tool::Tool;
 
 use crate::runtime::registry::ThreadRegistry;
 

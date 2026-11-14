@@ -45,6 +45,12 @@ jobs:
       - name: clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # The ACP model-facing tool surface is feature-gated in nuo-server; the
+      # nuo binary must forward it, or the shipped build silently omits it
+      # (ADR-0009 / [INV-VOCAB-02]).
+      - name: collaboration feature
+        run: cargo check -p nuo --features collaboration
+
       # ADR-0178: the test pyramid is selected mechanically, not by package
       # lists. L1 is the fast inner loop; L2 owns crate boundaries and the
       # architecture/contract gates; L3 runs in its own job.
@@ -56,6 +62,12 @@ jobs:
 
       - name: test architecture
         run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::test_architecture::)'
+
+      # ADR-0180 – ADR-0188: single vocabulary ownership, no facades, engine
+      # capability budget, grouped server topology, storybook retirement, and
+      # size/documentation ceilings.
+      - name: architecture convergence
+        run: cargo nextest run -p nuo-tests --profile integration -E 'test(governance::architecture_convergence::)'
 
       # `Cargo.toml` denies broken/private intra-doc links and invalid HTML
       # (`[workspace.lints.rustdoc]`); rustdoc evaluates those lints, so this is

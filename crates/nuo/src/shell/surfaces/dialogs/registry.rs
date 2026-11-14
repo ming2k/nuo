@@ -160,7 +160,7 @@ impl Dialogs {
 
     /// Take the entity for `kind` out of the registry (leaving a fresh
     /// placeholder), so the caller can invoke its `render`/`handle_input`
-    /// against a disjoint `&App` borrow. Must be paired with [`Self::put`].
+    /// against a disjoint `&App` borrow. Must be paired with `Self::put`.
     #[allow(clippy::expect_used)]
     pub fn take(&mut self, kind: DialogKind) -> Box<dyn DialogView> {
         // Move the entity out, leaving a `Default` placeholder; the stack owns
@@ -189,7 +189,7 @@ impl Dialogs {
         }
     }
 
-    /// Put an entity taken with [`Self::take`] back into the registry.
+    /// Put an entity taken with `Self::take` back into the registry.
     #[allow(clippy::expect_used)]
     pub fn put(&mut self, kind: DialogKind, view: Box<dyn DialogView>) {
         match kind {

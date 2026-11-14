@@ -1,6 +1,6 @@
 //! Role-scoped listings and switch candidates.
 
-use super::helpers::{load_session_full, save_session_full};
+use super::helpers::save_session_full;
 use super::*;
 
 #[test]

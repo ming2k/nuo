@@ -169,9 +169,7 @@ pub(super) fn format_results(query: &str, source: &str, results: Vec<SearchResul
     out
 }
 
-pub(crate) fn results_to_hits(
-    results: Vec<SearchResult>,
-) -> (Vec<nuo_tool::WebSearchHit>, bool) {
+pub(crate) fn results_to_hits(results: Vec<SearchResult>) -> (Vec<nuo_tool::WebSearchHit>, bool) {
     let hits = results
         .into_iter()
         .map(|r| {

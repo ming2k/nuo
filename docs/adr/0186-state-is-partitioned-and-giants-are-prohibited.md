@@ -86,6 +86,8 @@ The fields become private; accessors are the only way in.
 - A non-test source file must be **≤ 2,000 physical lines**.
 - A module that exceeds a ceiling must be split by responsibility, not by
   adding `#[allow]`.
+- Shipped migration bodies are exempt: they are immutable history, and editing
+  a migration to satisfy a style gate is itself the defect.
 
 A governance test parses the workspace with `syn` and fails on a violation.
 Test modules are exempt from the function/file ceiling but not from the

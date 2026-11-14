@@ -8,7 +8,6 @@ use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::ModelProviderSpec;
 
-
 /// Empty seed: the ChatGPT Subscription backend's model set is fully
 /// catalog-derived from the account's live Codex catalog
 /// (`/backend-api/codex/models`). The static seed never guesses

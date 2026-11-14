@@ -736,13 +736,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_tool::CommandCatalog 
                 let mut subs: Vec<nuo_tool::CommandSubcommandSpec> = spec
                     .subcommands
                     .iter()
-                    .map(
-                        |(name, summary, effect)| nuo_tool::CommandSubcommandSpec {
-                            name: (*name).to_string(),
-                            summary: (*summary).to_string(),
-                            effect: *effect,
-                        },
-                    )
+                    .map(|(name, summary, effect)| nuo_tool::CommandSubcommandSpec {
+                        name: (*name).to_string(),
+                        summary: (*summary).to_string(),
+                        effect: *effect,
+                    })
                     .collect();
                 if spec.name == "/role" {
                     // A user role id is an act, exactly like a built-in role id:
@@ -765,24 +763,20 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_tool::CommandCatalog 
             },
         })
         .collect::<Vec<_>>();
-    commands.extend(
-        custom
-            .iter()
-            .map(|(name, summary)| nuo_tool::CommandSpec {
-                name: name.clone(),
-                summary: summary.clone(),
-                usage: vec![name.clone()],
-                examples: Vec::new(),
-                intent_keywords: Vec::new(),
-                category: Some("Project".to_string()),
-                // A project command prompt dispatches a model turn: an act, the
-                // same over-recording default `effect_for` applies to any name
-                // outside the built-in vocabulary.
-                effect: nuo_tool::CommandEffect::Mutation,
-                verb_effect: nuo_tool::CommandEffect::Mutation,
-                subcommands: Vec::new(),
-            }),
-    );
+    commands.extend(custom.iter().map(|(name, summary)| nuo_tool::CommandSpec {
+        name: name.clone(),
+        summary: summary.clone(),
+        usage: vec![name.clone()],
+        examples: Vec::new(),
+        intent_keywords: Vec::new(),
+        category: Some("Project".to_string()),
+        // A project command prompt dispatches a model turn: an act, the
+        // same over-recording default `effect_for` applies to any name
+        // outside the built-in vocabulary.
+        effect: nuo_tool::CommandEffect::Mutation,
+        verb_effect: nuo_tool::CommandEffect::Mutation,
+        subcommands: Vec::new(),
+    }));
 
     nuo_tool::CommandCatalog {
         commands,
@@ -808,13 +802,11 @@ pub fn command_catalog(custom: &[(String, String)]) -> nuo_tool::CommandCatalog 
         .collect(),
         suggestions: TRIGGER_WORD_SUGGESTIONS
             .iter()
-            .map(
-                |(trigger, target, reason)| nuo_tool::CommandSuggestion {
-                    trigger: (*trigger).to_string(),
-                    target: (*target).to_string(),
-                    reason: (*reason).to_string(),
-                },
-            )
+            .map(|(trigger, target, reason)| nuo_tool::CommandSuggestion {
+                trigger: (*trigger).to_string(),
+                target: (*target).to_string(),
+                reason: (*reason).to_string(),
+            })
             .collect(),
     }
 }

@@ -93,7 +93,10 @@ impl ThreadRegistry {
     /// resolve the same shared channel after a switch); with no hosted
     /// session the round runs on the last-bound channel or refuses via the
     /// `NoProvider` sentinel.
-    pub async fn ask_archivist(&self, text: String) -> crate::runtime::archivist_service::ArchivistAnswer {
+    pub async fn ask_archivist(
+        &self,
+        text: String,
+    ) -> crate::runtime::archivist_service::ArchivistAnswer {
         let provider: Option<Arc<dyn nuo_protocol::Provider>> = {
             let map = self.sessions.lock().await;
             map.values()
@@ -184,7 +187,10 @@ impl ThreadRegistry {
                             r.publish_host_event(MonitorEvent::TaskUpdated(task.clone()));
                         }
                     }
-                    Ok(crate::runtime::background_jobs::BackgroundJobEvent::Progress { job_id, line }) => {
+                    Ok(crate::runtime::background_jobs::BackgroundJobEvent::Progress {
+                        job_id,
+                        line,
+                    }) => {
                         let changed = {
                             let mut guard = rows.lock().unwrap();
                             if let Some(row) = guard.get_mut(&job_id.0) {
@@ -284,7 +290,6 @@ impl ThreadRegistry {
             row.latest_output = Some(o.summary.clone());
         }
     }
-    /// Look up an active hosted thread by its ID.
 
     pub async fn set_monitor_meta(&self, project_root: String, started_at: u64) {
         *self.meta.lock().await = MonitorMeta {
@@ -292,11 +297,6 @@ impl ThreadRegistry {
             started_at,
         };
     }
-    /// Resolve an attach. `caller_project` scopes creation and lazy resume
-    /// `New` / `Attach(None)` create in the caller's project;
-    /// `Attach(Some(id))` first looks up every hosted session globally, then
-    /// lazy-resumes from the caller's project on disk.
-
     pub(super) async fn overview_arcs(&self, entries: &[Arc<HostedThread>]) -> Vec<ThreadOverview> {
         let mut out = Vec::with_capacity(entries.len());
         for e in entries {

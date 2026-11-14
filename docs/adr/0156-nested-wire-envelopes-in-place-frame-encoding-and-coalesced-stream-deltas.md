@@ -14,7 +14,7 @@ negative_knowledge: true
 - Date: 2026-11-07
 - Deciders: Nuo Architecture Working Group
 - Consulted: Protocol, Server Transport, TUI Runtime, Performance Engineering
-- Amends: [ADR-0136](0136-wire-frame-outcome-taxonomy-and-unknown-variant-tolerance.md) (the per-frame outcome taxonomy stands; the envelope shape and codec cost model change)
+- Amends: [ADR-0136](0136-wire-drift-is-a-frame-not-a-disconnect.md) (the per-frame outcome taxonomy stands; the envelope shape and codec cost model change)
 - Complements: [ADR-0122](0122-provider-retry-is-chrome-typed-state-machine-and-turn-outcome-anchors.md)
 
 ---

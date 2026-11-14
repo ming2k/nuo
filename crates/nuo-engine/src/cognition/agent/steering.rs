@@ -19,7 +19,11 @@ impl Agent {
     /// whose `updated_at_round` lags the current round by more than
     /// `TODO_STALE_TURN_THRESHOLD`).
     pub fn round_count(&self) -> u64 {
-        *self.round_counter.lock().unwrap_or_else(|e| e.into_inner())
+        *self
+            .context
+            .round_counter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Human-decision pause time accumulated by the current round, in
@@ -27,14 +31,19 @@ impl Agent {
     /// stops, and seeded back on resume, so tokens/sec stays honest across
     /// the stop.
     pub fn round_paused_ms(&self) -> u64 {
-        self.round_paused_ms
+        self.queues
+            .round_paused_ms
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Advance the round counter. Called once per `execute_round`. The TUI
     /// reads the resulting value to compute "not updated for N rounds".
     pub fn bump_round(&self) {
-        let mut g = self.round_counter.lock().unwrap_or_else(|e| e.into_inner());
+        let mut g = self
+            .context
+            .round_counter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         *g = g.saturating_add(1);
     }
 
@@ -43,27 +52,31 @@ impl Agent {
     /// session's todo stale-detector comparisons reset to 0 and go stale
     /// immediately.
     pub fn restore_round_count(&self, count: u64) {
-        *self.round_counter.lock().unwrap_or_else(|e| e.into_inner()) = count;
+        *self
+            .context
+            .round_counter
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = count;
     }
 
     pub fn unattended(&self) -> bool {
-        self.permissions.unattended()
+        self.context.permissions.unattended()
     }
 
     pub fn is_confined(&self) -> bool {
-        self.confinement.is_confined()
+        self.context.confinement.is_confined()
     }
 
     pub fn set_confined(&self, confined: bool) {
-        self.confinement.set_confined(confined);
+        self.context.confinement.set_confined(confined);
     }
 
     pub fn shared_confinement(&self) -> nuo_protocol::SharedConfinement {
-        self.confinement.clone()
+        self.context.confinement.clone()
     }
 
     pub fn bind_shared_confinement(&mut self, confinement: nuo_protocol::SharedConfinement) {
-        self.confinement = confinement;
+        self.context.confinement = confinement;
     }
 
     /// Whether a human can currently answer this agent's parked
@@ -72,7 +85,7 @@ impl Agent {
     /// channel accountant bound (hosted sessions), this is the live OR over
     /// attached clients; otherwise the static declared posture.
     pub fn human_posture(&self) -> nuo_protocol::human_request::HumanChannelPosture {
-        self.interaction.human_posture()
+        self.control.interaction.human_posture()
     }
 
     /// Bind a live channel source (hosted sessions). The agent's
@@ -81,49 +94,53 @@ impl Agent {
         &self,
         accountant: std::sync::Arc<nuo_protocol::human_request::HumanChannelAccountant>,
     ) {
-        self.interaction.set_human_channel(Some(accountant));
+        self.control.interaction.set_human_channel(Some(accountant));
     }
 
     /// How an autonomous session settles a parked question.
     /// Sourced from `[agent] ask_user_fallback` config; defaults to
     /// fail-closed (a missing human is an error, not an opinion).
     pub fn autonomous_fallback_policy(&self) -> AutonomousFallbackPolicy {
-        self.interaction.autonomous_fallback_policy()
+        self.control.interaction.autonomous_fallback_policy()
     }
 
     /// Configure the autonomous fallback policy (see
     /// [`Self::autonomous_fallback_policy`]).
     pub fn set_autonomous_fallback_policy(&self, policy: AutonomousFallbackPolicy) {
-        self.interaction.set_autonomous_fallback_policy(policy);
+        self.control
+            .interaction
+            .set_autonomous_fallback_policy(policy);
     }
 
     /// Declare this agent's human-channel posture. Attaching
     /// clients' declarations are OR-ed at the session level; subagents inherit
     /// their parent's posture at spawn.
     pub fn set_human_posture(&self, posture: nuo_protocol::human_request::HumanChannelPosture) {
-        self.interaction.set_human_posture(posture);
+        self.control.interaction.set_human_posture(posture);
     }
 
     pub fn set_unattended(&self, enabled: bool) {
-        self.permissions.set_unattended(enabled);
-        self.interaction.set_unattended(enabled);
+        self.context.permissions.set_unattended(enabled);
+        self.control.interaction.set_unattended(enabled);
     }
 
     pub fn set_workspace_security(&self, snapshot: nuo_protocol::WorkspaceSecuritySnapshot) {
         *self
+            .context
             .workspace_security
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = snapshot;
     }
 
     pub fn set_project_rules(&self, rules: impl Into<String>) {
-        if let Ok(mut current) = self.project_rules.write() {
+        if let Ok(mut current) = self.context.project_rules.write() {
             *current = rules.into();
         }
     }
 
     pub fn workspace_security(&self) -> nuo_protocol::WorkspaceSecuritySnapshot {
-        self.workspace_security
+        self.context
+            .workspace_security
             .lock()
             .map(|snapshot| snapshot.clone())
             .unwrap_or_default()
@@ -132,7 +149,7 @@ impl Agent {
     pub fn workspace_security_handle(
         &self,
     ) -> Arc<std::sync::Mutex<nuo_protocol::WorkspaceSecuritySnapshot>> {
-        Arc::clone(&self.workspace_security)
+        Arc::clone(&self.context.workspace_security)
     }
 
     /// Bind a child agent to the parent's live workspace authority cell. This
@@ -142,7 +159,7 @@ impl Agent {
         &mut self,
         handle: Arc<std::sync::Mutex<nuo_protocol::WorkspaceSecuritySnapshot>>,
     ) {
-        self.workspace_security = handle;
+        self.context.workspace_security = handle;
     }
 
     /// Apply a declarative agent preset (ADR-0053) — set every knob an
@@ -188,7 +205,8 @@ impl Agent {
 
     /// Execution policy governing this agent's runtime posture, delegation limits, and depth.
     pub fn execution_policy(&self) -> nuo_protocol::ExecutionPolicy {
-        self.execution_policy
+        self.control
+            .execution_policy
             .read()
             .map(|p| p.clone())
             .unwrap_or_else(|_| nuo_protocol::ExecutionPolicy::root_default())
@@ -196,7 +214,7 @@ impl Agent {
 
     /// Set this agent's execution policy.
     pub fn set_execution_policy(&self, policy: nuo_protocol::ExecutionPolicy) {
-        if let Ok(mut guard) = self.execution_policy.write() {
+        if let Ok(mut guard) = self.control.execution_policy.write() {
             *guard = policy;
         }
     }
@@ -213,12 +231,12 @@ impl Agent {
 
     /// Shared handle to the agent's tool pool.
     pub fn tool_pool(&self) -> Arc<std::sync::RwLock<nuo_protocol::ToolPool>> {
-        self.pool.clone()
+        self.tools.pool.clone()
     }
 
     /// Record an agent's requirement declaration against the pool.
     pub fn declare_tools(&self, declaration: &nuo_protocol::ToolDeclaration) {
-        if let Ok(pool_guard) = self.pool.read() {
+        if let Ok(pool_guard) = self.tools.pool.read() {
             pool_guard.declare(declaration.clone());
         }
     }
@@ -235,8 +253,11 @@ impl Agent {
 
     /// Idempotent over defaults: applies an [`nuo_protocol::AgentRoleProfile`].
     pub fn apply_profile(&self, profile: &nuo_protocol::AgentRoleProfile) {
-        *self.active_role.write().unwrap_or_else(|e| e.into_inner()) =
-            Some(profile.name.to_string());
+        *self
+            .context
+            .active_role
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(profile.name.to_string());
         self.set_identity(profile.identity.clone());
         self.set_tools(profile.tools.clone());
         self.set_admit_mcp(profile.admit_mcp.clone());
@@ -246,8 +267,11 @@ impl Agent {
         self.set_skip_interactive_input(profile.config.skip_interactive_input);
         self.set_unattended(profile.unattended);
         if !profile.extensions.is_empty() {
-            *self.extensions.write().unwrap_or_else(|e| e.into_inner()) =
-                profile.extensions.clone();
+            *self
+                .control
+                .extensions
+                .write()
+                .unwrap_or_else(|e| e.into_inner()) = profile.extensions.clone();
         }
     }
 
@@ -297,7 +321,11 @@ impl Agent {
                 ));
             }
             self.apply_profile(&profile);
-            *self.extensions.write().unwrap_or_else(|e| e.into_inner()) = profile.extensions;
+            *self
+                .control
+                .extensions
+                .write()
+                .unwrap_or_else(|e| e.into_inner()) = profile.extensions;
             return Some(SwitchedRole {
                 id: trimmed.to_string(),
                 name: user_role.name.clone(),
@@ -313,7 +341,11 @@ impl Agent {
         let mut profile = nuo_protocol::AgentRoleProfile::from_role(resolved, &base);
         self.equip_preset_extensions(&mut profile, resolved);
         self.apply_profile(&profile);
-        *self.extensions.write().unwrap_or_else(|e| e.into_inner()) = profile.extensions;
+        *self
+            .control
+            .extensions
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = profile.extensions;
 
         Some(SwitchedRole {
             id: resolved.as_str().to_string(),
@@ -324,7 +356,8 @@ impl Agent {
 
     /// Active staffing role for this agent (e.g. "developer", "philosophist").
     pub fn active_role(&self) -> Option<String> {
-        self.active_role
+        self.context
+            .active_role
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
@@ -332,7 +365,11 @@ impl Agent {
 
     /// Set the active staffing role for this agent.
     pub fn set_active_role(&self, role: Option<String>) {
-        *self.active_role.write().unwrap_or_else(|e| e.into_inner()) = role;
+        *self
+            .context
+            .active_role
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = role;
     }
 
     /// A snapshot of this agent's identity (name + mission, or a persona
@@ -372,12 +409,14 @@ impl Agent {
     /// `receiver.await` so the round exit gate can subtract it from the
     /// wall-clock for an honest tokens/sec. No-op after saturating at `u64::MAX`.
     pub(super) fn book_pause(&self, ms: u64) {
-        self.round_paused_ms
+        self.queues
+            .round_paused_ms
             .fetch_add(ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn thread_id(&self) -> Option<String> {
-        self.thread_id
+        self.context
+            .thread_id
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone()
@@ -386,14 +425,17 @@ impl Agent {
     pub fn reply_permission(&self, request_id: &str, decision: PermissionDecision) -> bool {
         // Settles through the broker — wire replies carry
         // provenance-User by construction.
-        self.human_broker
+        self.control
+            .human_broker
             .reply_user(request_id, HumanReply::Permission(decision))
     }
 
     pub fn reject_pending_permissions(&self) {
         // Teardown cancels route through the broker for uniform
         // metrics and exactly-once settlement.
-        self.human_broker.cancel_kind(HumanRequestKind::Permission);
+        self.control
+            .human_broker
+            .cancel_kind(HumanRequestKind::Permission);
     }
 
     /// Resolve a parked `ask_user` request. An empty outer vector means the
@@ -410,7 +452,8 @@ impl Agent {
                 answers,
             })
         };
-        self.human_broker
+        self.control
+            .human_broker
             .reply_user(request_id, HumanReply::Question(reply))
     }
 
@@ -419,7 +462,9 @@ impl Agent {
         // exactly-once settlement stay uniform across the three protocols.
         // Only questions are drained here; permission/input teardowns have
         // their own callers. `false` means nothing was parked.
-        self.human_broker.cancel_kind(HumanRequestKind::Question);
+        self.control
+            .human_broker
+            .cancel_kind(HumanRequestKind::Question);
     }
 
     /// Resolve a parked interactive-input request (L3.5 β) with the operator's
@@ -429,7 +474,7 @@ impl Agent {
     /// closed stdin and fails fast.
     pub fn reply_input(&self, request_id: &str, text: String) -> bool {
         // Settles via the broker; wire replies are provenance-User.
-        self.human_broker.reply_user(
+        self.control.human_broker.reply_user(
             request_id,
             HumanReply::Stdin(Some(StdinReply {
                 request_id: request_id.to_string(),
@@ -444,22 +489,24 @@ impl Agent {
     pub fn reject_pending_inputs(&self) {
         // Routed through the broker for uniform metrics and
         // exactly-once settlement.
-        self.human_broker.cancel_kind(HumanRequestKind::Stdin);
+        self.control
+            .human_broker
+            .cancel_kind(HumanRequestKind::Stdin);
     }
 
     pub fn allowed_tools(&self) -> Vec<String> {
-        self.permissions.allowed_tools()
+        self.context.permissions.allowed_tools()
     }
 
     pub fn clear_allowed_tools(&self) {
-        self.permissions.clear_allowed();
+        self.context.permissions.clear_allowed();
     }
 
     /// Revoke a single cached "always allow" rule. Returns whether a rule was
     /// actually removed (false if the rule was never cached). Powers the
     /// session modal's per-row revoke.
     pub fn revoke_allowed_tool(&self, tool: &str, scope: &str) -> bool {
-        self.permissions.revoke_allowed(tool, scope)
+        self.context.permissions.revoke_allowed(tool, scope)
     }
 
     /// Install (or reuse) the steering inbox and return a [`SubagentHandle`]
@@ -475,14 +522,22 @@ impl Agent {
     /// inbox — its interrupt path is the `CancellationToken` passed to the run,
     /// and its permission/ask_user replies go through the harness directly.
     pub fn install_inbox(self: &Arc<Self>) -> SubagentHandle {
-        let mut tx_guard = self.inbox_tx.lock().unwrap_or_else(|e| e.into_inner());
+        let mut tx_guard = self
+            .queues
+            .inbox_tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tx = match tx_guard.clone() {
             Some(existing) => existing,
             None => {
                 let (tx, rx) = mpsc::unbounded_channel();
                 *tx_guard = Some(tx.clone());
                 drop(tx_guard);
-                *self.inbox_rx.lock().unwrap_or_else(|e| e.into_inner()) = Some(rx);
+                *self
+                    .queues
+                    .inbox_rx
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()) = Some(rx);
                 tx
             }
         };
@@ -499,7 +554,8 @@ impl Agent {
     /// installed ([`Agent::install_inbox`] was not called) or the receiver was
     /// dropped.
     pub fn submit(&self, op: AgentOp) -> bool {
-        self.inbox_tx
+        self.queues
+            .inbox_tx
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
@@ -508,12 +564,17 @@ impl Agent {
 
     /// Steering mode currently configured on this agent.
     pub fn steering_mode(&self) -> nuo_protocol::QueueMode {
-        *self.steering_mode.read().unwrap_or_else(|e| e.into_inner())
+        *self
+            .queues
+            .steering_mode
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     /// Set the steering mode.
     pub fn set_steering_mode(&self, mode: nuo_protocol::QueueMode) {
         *self
+            .queues
             .steering_mode
             .write()
             .unwrap_or_else(|e| e.into_inner()) = mode;
@@ -522,6 +583,7 @@ impl Agent {
     /// Follow-up mode currently configured on this agent.
     pub fn follow_up_mode(&self) -> nuo_protocol::QueueMode {
         *self
+            .queues
             .follow_up_mode
             .read()
             .unwrap_or_else(|e| e.into_inner())
@@ -530,6 +592,7 @@ impl Agent {
     /// Set the follow-up mode.
     pub fn set_follow_up_mode(&self, mode: nuo_protocol::QueueMode) {
         *self
+            .queues
             .follow_up_mode
             .write()
             .unwrap_or_else(|e| e.into_inner()) = mode;
@@ -549,6 +612,7 @@ impl Agent {
         let steering_mode = self.steering_mode();
         let follow_up_mode = self.follow_up_mode();
         let previous = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -569,6 +633,7 @@ impl Agent {
     /// `false` once the round has atomically closed its admission gate.
     pub fn steer(&self, session_id: &str, input: nuo_protocol::QueuedMessage) -> bool {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -583,6 +648,7 @@ impl Agent {
     /// `false` once the round has atomically closed its admission gate.
     pub fn follow_up(&self, session_id: &str, input: nuo_protocol::QueuedMessage) -> bool {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -602,6 +668,7 @@ impl Agent {
         input_id: &str,
     ) -> Option<nuo_protocol::QueuedMessage> {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -616,6 +683,7 @@ impl Agent {
         input_id: &str,
     ) -> Option<nuo_protocol::QueuedMessage> {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -626,6 +694,7 @@ impl Agent {
     /// Remove all queued steering messages for a session.
     pub fn clear_steering_queue(&self, session_id: &str) {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -637,6 +706,7 @@ impl Agent {
     /// Remove all queued follow-up messages for a session.
     pub fn clear_follow_up_queue(&self, session_id: &str) {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -648,6 +718,7 @@ impl Agent {
     /// Remove all queued messages for a session.
     pub fn clear_all_queues(&self, session_id: &str) {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -667,6 +738,7 @@ impl Agent {
         Vec<nuo_protocol::QueuedMessage>,
     ) {
         let mut queues = self
+            .queues
             .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner());
@@ -681,7 +753,8 @@ impl Agent {
     }
 
     pub(super) fn session_queue_generation(&self) -> Option<u64> {
-        self.session_queues
+        self.queues
+            .session_queues
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
@@ -702,6 +775,7 @@ impl Agent {
     {
         let inputs = {
             let mut queues = self
+                .queues
                 .session_queues
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
@@ -754,6 +828,7 @@ impl Agent {
     {
         let inputs = {
             let mut queues = self
+                .queues
                 .session_queues
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
@@ -856,7 +931,7 @@ mod tests {
         assert!(agent.apply_role("developer").is_some());
         assert_eq!(agent.extensions().len(), 1);
         assert_eq!(agent.extensions()[0].id(), "code_intelligence");
-        let tools_scope = agent.tools.lock().unwrap().scope.clone();
+        let tools_scope = agent.tools.tools.lock().unwrap().scope.clone();
         let nuo_protocol::CapabilityScope::Only(names) = tools_scope else {
             panic!("developer role must have explicit scoped tools");
         };

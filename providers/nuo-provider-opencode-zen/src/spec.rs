@@ -6,8 +6,8 @@ use nuo_inference_wire::WireProtocol;
 use nuo_protocol::Model;
 use nuo_protocol::reasoning::ReasoningSupport;
 
-use nuo_provider::*;
 use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
+use nuo_provider::*;
 
 /// Curated seed models offered by the OpenCode Zen preset.
 pub use nuo_protocol::model_providers::OPENCODE_ZEN_MODELS;

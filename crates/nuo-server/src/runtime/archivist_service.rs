@@ -162,10 +162,7 @@ impl ArchivistService {
         {
             let answer = collected.lock().await.clone();
             let mut scratch = self.scratch.lock().await;
-            scratch.push(nuo_tool::Message::new(
-                nuo_tool::Role::Assistant,
-                answer,
-            ));
+            scratch.push(nuo_tool::Message::new(nuo_tool::Role::Assistant, answer));
             scratch.push(nuo_tool::Message::new(
                 nuo_tool::Role::User,
                 text.to_string(),

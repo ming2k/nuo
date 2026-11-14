@@ -201,7 +201,7 @@ fn command_ledger_has_exactly_one_writer() {
 #[test]
 fn command_effects_are_declared_not_inferred() {
     let root = workspace_root();
-    let startup = read(&root.join("crates/nuo-server/src/startup.rs"));
+    let startup = read(&root.join("crates/nuo-server/src/composition/startup.rs"));
 
     // Every entry states both effects.
     let entries = startup.matches("effect: { bare:").count();
@@ -239,7 +239,9 @@ fn command_effects_are_declared_not_inferred() {
     let tail = &events[variant..];
     let close = tail.find("\n    },").expect("variant must close");
     assert!(
-        tail[..close].contains("effect: crate::CommandEffect"),
+        (tail[..close].contains("effect: crate::CommandEffect")
+            || tail[..close].contains("effect: nuo_tool::CommandEffect")
+            || tail[..close].contains("effect: CommandEffect")),
         "RoundEvent::CommandResult must carry the declared effect (ADR-0140 [INV-CMD-08])"
     );
 }

@@ -26,7 +26,7 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
@@ -48,12 +48,13 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
             auth: Default::default(),
         }],
     };
-    app.current_provider = "p1".to_string();
-    app.current_model = "m1".to_string();
+    app.session.current_provider = "p1".to_string();
+    app.session.current_model = "m1".to_string();
 
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         0,
@@ -61,14 +62,15 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
     );
 
     // ModalDown: should skip index 1 (locked) and jump directly to index 2
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let action = crate::shell::input::InputAction::ModalDown;
         let outcome = ent.handle_input(&action, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         2,
@@ -76,14 +78,15 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
     );
 
     // ModalDown again: wraps around to index 0, skipping locked index 1
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let action = crate::shell::input::InputAction::ModalDown;
         let outcome = ent.handle_input(&action, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         0,
@@ -91,14 +94,15 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
     );
 
     // ModalUp: wraps backward to index 2, skipping locked index 1
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let action = crate::shell::input::InputAction::ModalUp;
         let outcome = ent.handle_input(&action, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         2,
@@ -106,14 +110,15 @@ fn models_dialog_arrow_navigation_skips_unusable_models() {
     );
 
     // ModalUp again: moves to index 0, skipping locked index 1
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         let action = crate::shell::input::InputAction::ModalUp;
         let outcome = ent.handle_input(&action, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         0,
@@ -147,7 +152,7 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
@@ -168,20 +173,21 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
             auth: Default::default(),
         }],
     };
-    app.current_provider = "p1".to_string();
-    app.current_model = "m1".to_string();
+    app.session.current_provider = "p1".to_string();
+    app.session.current_model = "m1".to_string();
 
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
-    app.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
-    app.ui.mount(
+    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 24));
+    app.transcript.ui.mount(
         crate::shell::ui::UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
             crate::shell::surfaces::DialogKind::Models,
         )),
         nuotc::Rect::new(10, 5, 60, 15),
     );
-    app.ui.commit();
+    app.transcript.ui.commit();
 
     let models_dlg = app
+        .surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
     models_dlg.index = 0;
@@ -189,16 +195,17 @@ fn models_dialog_click_on_unusable_model_is_ignored() {
 
     // Body starts at y = 5 + 3 = 8.
     // Line 0 is section header "All models", Line 1 is model row 0 (usable), Line 2 is model row 1 (locked).
-    if let Some(mut ent) = app.surfaces.take_active_view() {
+    if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
         // Click on Line 2 (locked row m2) at y = 10
         let action = crate::shell::input::InputAction::SelectionStart { x: 20, y: 10 };
         let outcome = ent.handle_input(&action, &mut app, "");
         assert_eq!(outcome, crate::shell::surfaces::DialogOutcome::Consumed);
-        app.surfaces.put_active_view(ent);
+        app.surfaces.surfaces.put_active_view(ent);
     }
     // Index must NOT have changed to 1
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         0,
@@ -230,7 +237,7 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
@@ -255,6 +262,7 @@ fn models_dialog_reset_picker_nav_lands_on_first_usable_model() {
     app.reset_picker_nav();
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .index,
         1,
@@ -288,7 +296,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
         advertised: None,
         availability_stale: false,
     };
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "p1".into(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "p1".into(),
@@ -313,6 +321,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );
@@ -321,6 +330,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     crate::shell::event_loop::actions::handle_open_model_detail(&mut app);
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );
@@ -329,26 +339,32 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     crate::shell::event_loop::actions::handle_open_model_editor(&mut app);
     assert!(
         app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::ModelEditor)
     );
-    assert_eq!(app.editor_effort, "medium");
-    assert!(app.editor_thinking);
+    assert_eq!(app.provider_editor.editor_effort, "medium");
+    assert!(app.provider_editor.editor_thinking);
 
     // Adjust effort live inside the editor
-    let levels: &[String] = &app.editor_effort_levels;
-    let cur = levels.iter().position(|l| l == &app.editor_effort).unwrap() as isize;
+    let levels: &[String] = &app.provider_editor.editor_effort_levels;
+    let cur = levels
+        .iter()
+        .position(|l| l == &app.provider_editor.editor_effort)
+        .unwrap() as isize;
     let next = ((cur + 1).rem_euclid(levels.len() as isize)) as usize;
-    app.editor_effort = levels[next].clone();
-    assert_eq!(app.editor_effort, "high");
+    app.provider_editor.editor_effort = levels[next].clone();
+    assert_eq!(app.provider_editor.editor_effort, "high");
 
     // Pop the editor sheet; returns cleanly to the underlying detail sub-view
     app.pop_transient_surface();
     assert!(
         !app.surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::ModelEditor)
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );
@@ -357,12 +373,14 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     assert!(app.pop_sublayer());
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );
 
     // 4. Enter on locked model opens detail view rather than being a silent dead end
     let models_dlg = app
+        .surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
     models_dlg.index = 1; // point at m2 (locked)
@@ -372,6 +390,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     crate::shell::event_loop::actions::handle_open_model_detail(&mut app);
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );
@@ -380,6 +399,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
     assert!(app.pop_sublayer());
     assert!(
         !app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .info_detail
     );
@@ -388,7 +408,7 @@ fn models_dialog_two_tier_drill_in_and_pop_sublayer() {
 #[test]
 fn browse_connection_models_transitions_to_models_dialog() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.connection_detail = Some(nuo_protocol::ConnectionDetail {
+    app.surfaces.connection_detail = Some(nuo_protocol::ConnectionDetail {
         name: "google-antigravity".to_string(),
         provider: "google".to_string(),
         provider_label: "Google Antigravity".to_string(),
@@ -398,17 +418,20 @@ fn browse_connection_models_transitions_to_models_dialog() {
 
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Connections));
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
         .info_detail = true;
 
     // Simulate BrowseConnectionModels action
     let filter = app
+        .surfaces
         .connection_detail
         .as_ref()
         .map(|d| d.provider_label.clone())
         .unwrap();
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     let models_dlg = app
+        .surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
     models_dlg.info_detail = false;
@@ -422,6 +445,7 @@ fn browse_connection_models_transitions_to_models_dialog() {
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .query
             .text,
@@ -429,6 +453,7 @@ fn browse_connection_models_transitions_to_models_dialog() {
     );
     assert!(
         app.surfaces
+            .surfaces
             .dlg::<crate::shell::surfaces::ModelsDialog>()
             .search
     );
@@ -439,6 +464,7 @@ async fn models_dialog_query_edit_reanchors_cursor_to_top_match() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     assert!(app.open_dialog(crate::shell::surfaces::DialogKind::Models));
     let models_dlg = app
+        .surfaces
         .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
     models_dlg.search = true;
@@ -452,7 +478,10 @@ async fn models_dialog_query_edit_reanchors_cursor_to_top_match() {
     ));
     crate::shell::event_loop::process_event_for_test(&mut app, &event, "").await;
 
-    let dlg = app.surfaces.dlg::<crate::shell::surfaces::ModelsDialog>();
+    let dlg = app
+        .surfaces
+        .surfaces
+        .dlg::<crate::shell::surfaces::ModelsDialog>();
     assert_eq!(
         dlg.index, 0,
         "query edit must re-anchor cursor to top match"

@@ -1,3 +1,13 @@
+---
+id: ADR-0159
+title: "Causal Lineage Is Write-Once; Derived Views Repair on Read"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0159: Causal Lineage Is Write-Once; Derived Views Repair on Read
 
 - **Status:** Accepted; §INV-IR-04 amended by [ADR-0160](0160-compaction-is-a-transcript-fact-and-the-causal-node-is-a-derive.md)

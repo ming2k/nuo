@@ -93,11 +93,7 @@ fn overview(id: &str, parent: Option<&str>, created_at: u64) -> nuo_protocol::Th
         message_count: 1,
         active: false,
         parent_id: parent.map(str::to_string),
-        origin: if parent.is_some() {
-            nuo_protocol::ThreadOrigin::Trunk
-        } else {
-            nuo_protocol::ThreadOrigin::Trunk
-        },
+        origin: nuo_protocol::ThreadOrigin::Trunk,
         digest: None,
     }
 }

@@ -103,6 +103,7 @@ pub struct TcpManager {
 }
 
 impl TcpManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         port: Arc<AtomicU16>,
         token: Arc<RwLock<Option<String>>>,

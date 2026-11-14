@@ -8,9 +8,9 @@
 use super::provider::{OAuthProvider, oauth_config};
 use super::session::{ACCESS_TOKEN_REFRESH_SKEW_MS, OAuth, access_token_is_expiring};
 use crate::credentials::{CredentialHost, CredentialSession, CredentialStore, TokenSet};
-use nuo_protocol::{ConnectionAuth, CredentialSource, ResolvedAuth};
 use futures::future::BoxFuture;
 use nuo_host::SecretString;
+use nuo_protocol::{ConnectionAuth, CredentialSource, ResolvedAuth};
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock, Weak};

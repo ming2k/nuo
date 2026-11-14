@@ -1,0 +1,868 @@
+//! Partitioned `App` state.
+//!
+//! Each group owns one concern; `App` is a composition of these groups
+//! ([ADR-0186](../../../../docs/adr/0186-state-is-partitioned-and-giants-are-prohibited.md)).
+use super::*;
+
+/// `session` state.
+pub struct SessionState {
+    /// Per-session chrome (activity text, responding flag, round/turn
+    /// counters) for every session this client has observed, keyed by
+    /// `session_id`.
+    pub session_chrome: std::collections::HashMap<String, SessionChrome>,
+    /// The **live primary session id** (M1): the harness repoints
+    /// its shared store on `/new`, `/session open`, `/resume`, and `/fork`;
+    /// the translator reports each repoint here and session-scoped client
+    /// state (the ↑/↓ prompt history's origin above all) follows.
+    pub live_session_id: String,
+    pub current_provider: String,
+    pub current_model: String,
+    /// Raw current working directory captured at startup. Used to resolve
+    /// `@path` mention completions against the real filesystem.
+    pub cwd: std::path::PathBuf,
+    /// The id of the session the TUI is currently viewing (`primary_session_id`
+    /// outside a side view, the side id inside one). Learned each frame from
+    /// the session source and stamped onto every recorded input-history entry
+    /// so the inline ↑/↓ recall can walk this session's prompts only, while
+    /// Ctrl+R searches the whole cross-session history.
+    pub current_session_id: String,
+    /// The workspace label for the current session — the project root's
+    /// display path (already tilde-shortened), or empty when no workspace is bound.
+    pub current_workspace: String,
+    /// The active staffing role for the current session (e.g. "developer", "philosophist").
+    pub current_role: Option<String>,
+    /// Latest session-context snapshot for the Tools / Mcp / Skills /
+    /// Permissions managers, or `None` before the first `QuerySessionContext`
+    /// round-trip completes. Refreshed each frame from the response listener.
+    pub session_context: Option<nuo_protocol::ThreadContextSnapshot>,
+    pub loop_status: LoopStatus,
+    /// Whether the primary session has a stopped round parked for `/retry`
+    /// Mirrored from the session-scoped harness snapshot — the
+    /// durable resume point — and consumed by `Self::viewed_chrome` to
+    /// build the primary's retry affordance. A background session reads its
+    /// own `SessionChrome::can_retry`.
+    pub harness_retry_pending: bool,
+    /// Typed activity-bar phase for the primary session (`None` = idle /
+    /// bar hidden). Never holds transport setbacks — see `nuo_view::phase`.
+    pub phase: Option<nuo_view::phase::Phase>,
+    /// The primary session's transport setback (retry countdown), rendered as a
+    /// clause beside `App::phase`. The primary's slot, mirroring
+    /// [`SessionChrome::transport_setback`] for the primary view exactly as
+    /// `phase` mirrors [`SessionChrome::phase`]; a background session keeps its
+    /// own in its chrome entry. Write it only through `App::set_phase`, which
+    /// owns the clause's lifetime.
+    pub provider_retry: Option<ProviderRetryState>,
+    /// Durability-health banner state (D4): the server's
+    /// persistence-writer degradation, folded from the monitor stream.
+    /// `None` / `Healthy` renders no banner.
+    pub persistence_health: Option<nuo_protocol::monitor::PersistenceHealth>,
+    /// Whether all tool permissions are auto-approved this session
+    /// (`--unattended` / `/unattended on`). Mirrored from the harness snapshot.
+    pub unattended: bool,
+    /// Whether workspace filesystem confinement is enforced this session
+    /// (`/confinement on|off`). Mirrored from the harness snapshot.
+    pub confined: bool,
+    /// Harness round counter, mirrored each frame.
+    pub round_count: u64,
+    /// Current turn within the active round (1-indexed for display:
+    /// `0` means the round has started but no model request has fired yet —
+    /// e.g. the "queued" / "preparing context" phase).
+    pub current_turn: u64,
+    /// Wall-clock instant the current round started, or `None` between rounds.
+    /// Drives the muted `<elapsed>` segment in the activity bar.
+    pub round_started_at: Option<std::time::Instant>,
+    /// Server-attested readiness of the attached thread (ADR-0133
+    /// `[INV-ATTACH-04]`). Input is gated on `Ready`; `Failed` is a recoverable
+    /// disclosure, never a reason to exit.
+    pub session_phase: nuo_protocol::ThreadPhase,
+    /// When switching threads, holds the short id of the target thread being loaded.
+    pub switching_session: Option<String>,
+    /// Sessions whose last interactive round reached its natural completion
+    /// event and whose harness has subsequently reported idle. Both facts are
+    /// tracked separately so errors/interrupts never auto-run follow-ups.
+    pub running_sessions: std::collections::HashSet<String>,
+    /// Sessions whose outbox pause is on. While paused the **driver** ships
+    /// nothing for that session, even after natural completion + idle. The
+    /// queue modal pauses a session on open (so items can be managed safely)
+    /// and resumes on close; `Ctrl+P` and `/queue block` toggle it.
+    ///
+    /// This is the optimistic projection of the server's authoritative flag:
+    /// every writer here is paired with a `QueuePaused` intent, and a
+    /// `QueueUpdated` snapshot overwrites it. It is not a local gate — there is
+    /// no client-side drain to gate.
+    pub queue_blocked_sessions: std::collections::HashSet<String>,
+    /// The latest harness workspace-security snapshot (trust-gate state).
+    pub workspace_security: nuo_protocol::WorkspaceSecuritySnapshot,
+    /// Rows shown in the threads picker (`/threads` or `nuo attach`).
+    pub sessions_overview: Vec<nuo_protocol::ThreadOverview>,
+    /// Live monitor snapshot for the thread fleet orchestrator dashboard
+    /// mirrored from `UiRuntime::host_sessions` each frame.
+    pub host_sessions: Vec<nuo_protocol::MonitoredThread>,
+    /// The session whose outbox the Queue view auto-paused on entry, **and
+    /// whether that auto-pause is still the state we owe a release for**.
+    ///
+    /// `dismiss_active_dialog` is an `&mut App` method that cannot see the
+    /// loop's `viewed_session_id`, so the pause site records the target here and
+    /// the exit hook consumes it.
+    ///
+    /// The `bool` is what keeps the hook symmetric rather than overreaching: it
+    /// is `true` only while the pause currently in effect is the one this open
+    /// set. If the user resumed it with `Ctrl+P` / `/queue block`, the close has
+    /// nothing to release (and must not silently undo a pause the user re-armed
+    /// either) — an unconditional resume on close turns the modal into a
+    /// forced-resume button (`[INV-OUTBOX-04]`).
+    pub(crate) queue_exit_session: Option<(String, QueuePauseOrigin)>,
+    /// Thread DAG tree representation for `/tree` visualization.
+    pub session_tree: nuo_protocol::ThreadTree,
+    /// Full detail for the thread under the info sub-view cursor. Populated by
+    /// an on-demand `QueryThreadDetail` round-trip when the sub-view opens
+    /// (`i`) and refreshed whenever the selection moves while in the sub-view.
+    /// `None` while the round-trip is in flight.
+    pub session_detail: Option<nuo_protocol::ThreadDetail>,
+    /// The effective TUI config (the applier's disclosure defaults read it;
+    /// the translator no longer carries config clones).
+    pub tui_config: crate::shell::config::TuiConfig,
+}
+
+/// `transcript` state.
+pub struct TranscriptState {
+    /// Structured transcript messages (semantic document model).
+    pub messages: Vec<TranscriptMessage>,
+    /// Version of the shared runtime buffer that `messages` was last synced
+    /// from. The loop re-clones the buffer only when the runtime version moves
+    /// past this, so an unchanged transcript costs no per-frame deep clone.
+    /// Starts at 0 (the `Versioned` sentinel) so the first frame always syncs.
+    /// O(1) streaming-delta target for `messages` (id, index); reset on
+    /// wholesale replacement.
+    /// Per-message laid-out height cache (Stage 2). Lets the transcript renderer
+    /// skip re-wrapping off-screen messages, making per-frame layout O(visible)
+    /// instead of O(transcript). Cleared whenever the transcript changes
+    /// so a cached height is only ever read while the message's content is unchanged.
+    pub layout_height_cache: crate::shell::render::HeightCache,
+    pub scroll: u16,
+    /// Whether the view follows the newest content (auto-scroll to bottom).
+    pub follow_bottom: bool,
+    /// Last measured stream height in lines and viewport height, used to pin
+    /// the view to the bottom while following.
+    pub content_lines: usize,
+    pub view_height: u16,
+    pub max_scroll: u16,
+    /// Expanded step pinned under the HUD bar (its message index + screen rect),
+    /// when its body is scrolled into view. Clicks inside the rect collapse it.
+    pub sticky_step: Option<usize>,
+    /// Set by the applier when a transcript document changed; the loop
+    /// consumes it for bottom-follow scroll staging.
+    pub transcript_changed_pending: bool,
+    /// Effective default-expand state for a reasoning trace
+    /// (`[tui.default_expanded] thinking`, M1: applier-owned).
+    pub reasoning_default_expanded: bool,
+    /// Content-line index of the sticky step's real summary. Used to re-anchor
+    /// the scroll offset when the user collapses the pinned step so the summary
+    /// lands at the top of the viewport instead of jumping to unrelated content.
+    pub sticky_summary_line: Option<usize>,
+    /// Content-line the user asked to keep pinned at the top of the viewport by
+    /// collapsing a sticky summary. While set, the per-frame scroll clamp is
+    /// allowed to scroll past the natural `max_scroll` so a short tail of
+    /// content below the collapsed step does not yank the header back down.
+    /// Cleared on any manual scroll, view reset, or when auto-follow resumes.
+    pub pin_summary_line: Option<usize>,
+    /// Latched when a disclosure toggle (expand/collapse of a tool step,
+    /// command result, thinking, provider-retry, or notice card) changed the
+    /// transcript's height, so the event loop's next frame must be *staged*
+    /// — laid out to measure the new `content_lines` — before the toggle's
+    /// target scroll offset is applied. The staged pass emits no terminal
+    /// bytes, so the terminal only ever sees the final viewport, never an
+    /// intermediate one that gets re-clamped a frame later (the source of the
+    /// expand/collapse flicker).
+    ///
+    /// Cleared by the loop once the settled offset has been painted, by any
+    /// manual scroll, and by view resets — the same lifecycle as
+    /// `Self::pin_summary_line`.
+    pub scroll_settle_pending: bool,
+    /// Semantic selection state.
+    pub selection: SelectionState,
+    /// Drag gesture state.
+    pub drag: SelectionDrag,
+    /// Mounted UI instances and committed semantic geometry.
+    pub ui: crate::shell::ui::ComponentTree,
+    /// Message index of the step (tool step or reasoning trace) whose header
+    /// currently rests under the mouse pointer (inline or sticky pinned), so
+    /// the next draw lights it up to the intermediate hover tone as a click
+    /// affordance. `None` whenever the pointer is elsewhere or an overlay
+    /// modal is open.
+    pub hovered_step: Option<usize>,
+    /// Which **peer surface** of the chat scene owns the keyboard
+    /// ([ADR-0145](../../../../docs/adr/0145-composer-and-transcript-are-peer-focus-planes.md)).
+    ///
+    /// The Thread scene hosts two coequal surfaces: the composer (drafting) and
+    /// the transcript (inspecting). Neither is the other's mode, and exactly one
+    /// owns the keyboard at any instant. `Shift-Tab` crosses between them and is the
+    /// only chord that does — a second, one-way "escape" chord would reintroduce
+    /// the asymmetry this model removes (`[INV-FOCUS-01]`).
+    ///
+    /// The value carries the transcript plane's own sub-state
+    /// ([`crate::shell::TranscriptFocus`]) across a crossing, which is what makes
+    /// the toggle lossless: leaving for the composer and returning lands on the
+    /// same highlighted entry.
+    pub focus: Focus,
+    /// Stack of nested zoom frames (subagent tasks). Empty means the root
+    /// thread is shown; the top frame is the currently focused view.
+    /// Each frame carries the parent's scroll snapshot, restored on exit.
+    pub focus_stack: Vec<ZoomFrame>,
+    /// Which layout strategy arranges the transcript message stream. Selected
+    /// via `[tui] transcript_layout`; defaults to the turn-banded layout (each
+    /// tool-bearing ReAct turn grouped under a labelled header). See
+    /// `crate::shell::render::layout::Strategy`.
+    pub transcript_layout: crate::shell::render::layout::Strategy,
+    /// Whether a disclosure toggle (expand/collapse) auto-scrolls to keep the
+    /// toggled card well-placed. From `[tui] expand_auto_scroll` (default
+    /// `false`): when false, the toggle changes only the card's height and the
+    /// scroll offset is left exactly where the user put it; when true, the
+    /// expand path shifts the summary toward the viewport top and the collapse
+    /// path keeps a scrolled-past summary visible. Enabled toggles settle
+    /// through the staged measure-then-paint path (`scroll_settle_pending`),
+    /// so the auto-scroll itself never flickers.
+    pub expand_auto_scroll: bool,
+    /// Epoch the breathing indicator is timed against. The spinner phase is
+    /// derived from wall-clock elapsed time since this instant rather than a
+    /// per-frame counter, so the breathing cadence stays constant regardless of
+    /// how often the loop redraws (mouse movement, streaming, paste, etc. all
+    /// wake the loop at irregular intervals and would otherwise jitter it).
+    pub spinner_epoch: std::time::Instant,
+    /// Epoch the empty-state help carousel is timed against. The
+    /// slide index is derived from wall-clock elapsed time since this instant
+    /// (same pattern as `Self::spinner_epoch`) so the rotation cadence stays
+    /// constant regardless of draw frequency.
+    pub carousel_epoch: std::time::Instant,
+    /// The command log the `log` scene is showing, if any.
+    ///
+    /// Held on `App` rather than on the router because it is *content*: the log
+    /// is derived from one transcript step, and re-deriving it when the step's
+    /// payload changes is the transcript's business, not a navigation entity's.
+    /// `None` means the scene has nothing to show — every read path states that
+    /// rather than painting an empty page that looks like a failure.
+    pub command_log: Option<nuo_view::model::command_log::CommandLog>,
+    /// Per-surface receipt logs (ADR-0116): the layer that replaced "append it
+    /// to the transcript" for operations, diagnostics and dialog receipts.
+    /// Addressable, capped, ephemeral, and unreachable from persistence.
+    pub logs: nuo_view::model::log::SurfaceLogs,
+    /// The dashboard console's receipt transcript: one entry
+    /// per dispatched directive plus the server's answer. Lives for the
+    /// dashboard's open lifetime (cleared on open) — it is a cockpit log,
+    /// not history.
+    pub host_console_log: Vec<crate::shell::overlays::ConsoleLine>,
+    /// The body (scrollable content) height of the currently-open overlay
+    /// modal, captured each render from the rect the modal renderer paints
+    /// its body into. This is the per-modal equivalent of `view_height` (which
+    /// measures the transcript viewport) and is what `ScrollPageUp` /
+    /// `ScrollPageDown` use as the page step so a page advance always matches
+    /// the actual modal body rather than the transcript behind it. `0` when
+    /// no modal is open (or before the first render after one opens), in
+    /// which case page handlers fall back to `view_height`.
+    pub modal_body_height: u16,
+}
+
+/// `composer` state.
+pub struct ComposerState {
+    pub input: String,
+    /// Caret position as a **byte** offset into `input` — the unit every local
+    /// consumer uses (editor motions, the composer grid, the `@`-mention
+    /// scanner). The completion wire contract is a **Unicode scalar** index;
+    /// `Self::wire_cursor` is the one conversion between them.
+    pub cursor_position: usize,
+    pub input_scroll: usize,
+    /// Whether the next composer render should move the input viewport to
+    /// keep the logical caret visible. Editing and caret movement re-arm
+    /// following; wheel browsing and drag-selection edge autoscroll suspend
+    /// it so a render cannot immediately undo the user's scroll gesture.
+    pub input_scroll_follow_cursor: bool,
+    /// Edge-autoscroll direction armed while a mouse selection drag that
+    /// started inside the composer leaves the input's text rows: `Some(true)`
+    /// scrolls up (pointer above), `Some(false)` down. Stepped by the event
+    /// loop's heartbeat tick so holding the pointer still at the edge keeps
+    /// scrolling, and cleared when the pointer re-enters or the drag ends.
+    pub input_drag_scroll: Option<bool>,
+    /// Latched whenever the user finishes a completion: an `Enter` commit (any
+    /// kind), an `Esc` dismiss, **or a slash-command accept via Tab/Enter**
+    /// (a terminal accept — see `Self::accept_completion`). While `true`,
+    /// the completion popup is suppressed even if `completion_kind()` would
+    /// otherwise show one — so accepting a command does not immediately flash
+    /// a subcommand menu or a collapsed single-exact-match list. Cleared by
+    /// the next `InsertChar` / `Backspace` (the user is editing again, so
+    /// live completions are once again useful). `@path` accepts via Tab do
+    /// **not** latch — Tab is meant to keep cycling path candidates.
+    pub completion_dismissed: bool,
+    pub suggestion_index: Option<usize>,
+    /// Backend-owned slash-command vocabulary published by the server.
+    pub command_catalog: nuo_tool::CommandCatalog,
+    /// Latest race-checked completion rows returned by the server.
+    pub backend_completions: Vec<nuo_tool::InputCompletion>,
+    /// Backend completion round-trip awaiting consumption by the loop.
+    pub(crate) backend_completion_signal: Option<crate::shell::event_loop::CompletionSignal>,
+    pub completion_response_input: Option<String>,
+    pub completion_response_cursor: usize,
+    pub completion_requested: Option<(String, usize)>,
+    pub completion_request_id: u64,
+    /// Images pasted (Ctrl+V) and waiting to be sent with the next message.
+    /// Each entry is paired 1-to-1 with an `[Image #N]` chip inside
+    /// `App::input`; the chip's `#N` is `index + 1` after
+    /// `App::reconcile_attachments` has run.
+    pub pending_images: Vec<ImagePart>,
+    /// Large pasted text blocks staged behind `[Pasted text #N +M lines]`
+    /// chips inside `App::input`. Each entry is the full original paste;
+    /// the matching chip in the input is just a short label so the input
+    /// box stays compact. Order matches the chip numbering.
+    pub pending_text_pastes: Vec<String>,
+    /// Atomic draft capsule snapshot captured on entering transient sub-modes (ADR-0051 [INV-COMP-03]).
+    pub draft_capsule: nuo_view::composer_mode::DraftCapsule,
+    /// In-memory attachment cache for recorded history entries, keyed by
+    /// `(text, session_id)` — see [`HistoryAttachments`]. Seeded by
+    /// `Self::record_input_history`, consumed by the ↑/↓ and Ctrl+R recall
+    /// paths so re-sending an interrupted or completed message restores its
+    /// images and large pastes instead of shipping a bare chip label.
+    pub history_attachments: HashMap<(String, Option<String>), HistoryAttachments>,
+    /// FIFO insertion order of `Self::history_attachments` keys, so the
+    /// cache can be pruned oldest-first when it outgrows its cap.
+    pub history_attachments_order: VecDeque<(String, Option<String>)>,
+    pub input_history: Vec<nuo_protocol::HistoryEntry>,
+    /// **Derived** prompt rows for the viewed session, reconstructed from the
+    /// transcript (see `Self::backfill_session_history`). Never persisted:
+    /// the session file is the durable source of truth for thread
+    /// content (ADR-0018), so these rows exist only so the inline ↑/↓ recall
+    /// can walk a resumed thread's prompts without this client having
+    /// recorded them. Indexed by `input_history.len() + i` in
+    /// `Self::current_session_history` — see `Self::history_entry`.
+    /// Ordered oldest-first (transcript append order) so growth never shifts
+    /// existing indices.
+    pub session_history_backfill: Vec<nuo_protocol::HistoryEntry>,
+    /// How many transcript messages `Self::backfill_session_history` has
+    /// already consumed for the current session, so a long streaming session
+    /// rescans only its tail. Reset to `0` on every viewed-session change.
+    pub session_history_backfill_cursor: usize,
+    /// Whether identical prompt text collapses to one history entry across
+    /// sessions (`[input_history] dedup`, default `true`). Read by
+    /// `Self::record_input_history` and threaded into the persisted merge.
+    pub input_history_dedup: bool,
+    /// Whether `/slash` command invocations are recorded into the input
+    /// history (`[input_history] record_commands`, default `false`).
+    pub input_history_record_commands: bool,
+    /// Whether `record_input_history` actually touches
+    /// SQLite storage. Production keeps this `true` (set from
+    /// `main`'s TUI entry point); tests construct `App` directly and default
+    /// it to `false`, so a unit test can never write (or truncate!) the
+    /// user's real database — a bug that once
+    /// polluted it with synthetic `prompt N` rows stamped `session-a`.
+    /// In-memory history still behaves identically; only the database write is
+    /// suppressed.
+    pub input_history_persist: bool,
+    /// The inline ↑/↓ history **pointer**. Together with the stashed draft
+    /// this forms the input-history pointer model:
+    ///
+    /// - `None` — the composer shows the **draft** (the live, editable, remembered
+    ///   input slot). This is the "newest" position: the input that has **not
+    ///   been successfully sent** (still being composed, restored by a Phase-1
+    ///   unsend, inserted from Ctrl+R, or recalled from the queue).
+    /// - `Some(p)` — the composer shows history row `p` of the current session's
+    ///   newest-first slice (`Self::current_session_history`), as a **read-only
+    ///   snapshot**: edits made on a history row are temporary and are discarded
+    ///   when the pointer moves away — coming back to the row reloads the
+    ///   original text.
+    ///
+    /// ↑ moves the pointer toward older rows (and stashes the draft into
+    /// its stash slot on the first press); ↓ moves it back toward the
+    /// newest row and, past it, back to `None` (restoring the draft). A
+    /// successful send clears the draft, because the input has been historicised
+    /// and is no longer "unsent".
+    /// The in-place history traversal cursor (ADR-0051 [INV-COMP-02]).
+    pub history_index: Option<usize>,
+    /// Target queue mode for the live composer while a round is running.
+    pub composer_send_mode: ComposerSendMode,
+    /// Pending steer items the user *deleted* (QueueDelete `D` in the modal)
+    /// rather than recalled. `SteerCancelled` restores the text to the
+    /// composer for a recall, but a deletion must not resurrect the text; the
+    /// cancelled arm consults this set and skips the restore (ADR-0137).
+    pub suppress_steer_restore: std::collections::HashSet<(String, String)>,
+    /// Session-affine outbox — the **next-round queue projection**. Pending
+    /// items are never appended to the transcript; the activity strip shows the
+    /// count/preview and the queue modal manages them.
+    ///
+    /// Ownership is split by state (see `QueuedDispatchState`): `Waiting` rows
+    /// are a projection of the driver's `FollowUpQueue` — the server decides
+    /// when they ship, and `QueueUpdated` rewrites them — while `Dispatching`
+    /// and `Steering` rows exist only here (an in-flight ack, and a steer held
+    /// in the running round). The client never dispatches this queue itself.
+    pub pending_dispatch: VecDeque<QueuedDispatch>,
+    /// The composer draft parked while the input-injection sheet
+    /// (L3.5 β) borrows the input line. The
+    /// picker flows (Models / Connections / History) park their drafts in
+    /// per-view slots on the `PanelRegistry`; this remaining global slot
+    /// serves the one request-driven borrowed-line surface, whose
+    /// lifecycle (queue-front arrival → reply) never coexists with a
+    /// picker's.
+    pub injection_stashed_input: String,
+    /// Epoch milliseconds of the last composer submission. The ledger records
+    /// when the provider was dispatched; together they let the latency timeline
+    /// show what happened *before* dispatch (queue, context projection, hooks).
+    pub last_submit_ms: Option<u64>,
+    /// The caret's vertical-motion memory: the display column ↑/↓ aim for.
+    /// Owned by the composer buffer, so it survives keystrokes but is
+    /// invalidated by any move the caret makes on its own — see
+    /// [`CaretMotion`].
+    pub(crate) caret_motion: CaretMotion,
+    /// Recently executed commands for MRU display in Command Palette.
+    pub(crate) recent_commands: Vec<String>,
+    /// Requests the operator submitted before the thread reached `Ready`.
+    /// Flushed in order on the `Ready` transition; the server also buffers
+    /// defensively, but the client-side queue keeps the UI honest.
+    pub pending_prompts: Vec<nuo_protocol::AgentRequest>,
+}
+
+/// `human` state.
+pub struct HumanState {
+    /// Human-in-the-loop request queues (M1): the applier owns the
+    /// queues; `pending_permission` / `pending_question` / `pending_input`
+    /// remain the *mounted front* projections the sheets render.
+    pub pending_permissions: std::collections::VecDeque<PermissionRequest>,
+    pub pending_questions: std::collections::VecDeque<UserQuestionRequest>,
+    pub pending_inputs: std::collections::VecDeque<nuo_protocol::InputRequest>,
+    /// Full-duplex (ADR-0029): which subagent (by parent tool-call id)
+    /// surfaced a given permission / ask_user request, so the modal's reply
+    /// can be tagged for down-routing.
+    pub subagent_permission_parent: HashMap<String, String>,
+    pub subagent_question_parent: HashMap<String, String>,
+    pub pending_permission: Option<PermissionRequest>,
+    /// The interaction sheet currently mounted in the composer slot, if any
+    /// The slot's two sibling components — the draft editor
+    /// and an AI-initiated sheet — are mutually exclusive: `Some(kind)` means
+    /// the sheet has replaced the composer. App-level slot state, *not*
+    /// router foreground identity.
+    pub active_sheet: Option<crate::shell::sheet::SheetKind>,
+    /// How many permission requests are queued in the runtime (front
+    /// mirrored into `pending_permission`). `> 1` renders the `N queued`
+    /// sheet badge.
+    pub pending_permission_depth: usize,
+    /// How many user questions are queued in the runtime behind the one
+    /// mirrored into `App::question`. `> 0` renders the `+N` sheet badge.
+    pub pending_question_depth: usize,
+    /// The pending interactive-input request (L3.5 β) from an interactive
+    /// `bash` command, or `None`. Set when a `RoundEvent::InputRequest` arrives;
+    /// the input-injection modal reads it for its prompt/command/secret.
+    pub pending_input: Option<nuo_protocol::InputRequest>,
+    /// The open question (ask_user) modal's self-contained MVU state, or
+    /// `None` when no question modal is open. Replaces the four separate
+    /// `question_*` fields that previously scattered the modal's state across
+    /// `App`; all interaction now flows through `QuestionModel::update`.
+    pub question: Option<crate::shell::question_model::QuestionModel>,
+    /// Scroll offset inside `Modal::Question`. Reset to 0 each time a question
+    /// modal opens; clamped each frame by the modal's body renderer and, when
+    /// `question_modal_follow` is set, nudged so the highlighted option stays on
+    /// screen.
+    pub question_scroll: usize,
+    /// When true, the question modal's body scroll follows the ↑/↓ option
+    /// highlight (the default after open / navigation). Cleared the moment the
+    /// user scrolls manually (wheel / page keys) so they can browse a long
+    /// option list freely, and re-set the moment they navigate again. Mirrors
+    /// `session_modal_follow` / `history_modal_follow`.
+    pub question_modal_follow: bool,
+    pub permission_confirm_always: bool,
+    /// Whether the inline permission sheet is expanded to show the full
+    /// description + arguments. Collapsed by default so the prompt stays
+    /// brief; "Details" toggles this.
+    pub permission_show_details: bool,
+    pub permission_scroll: usize,
+    pub permission_max_scroll: usize,
+}
+
+/// `surfaces` state.
+pub struct SurfacesState {
+    /// Selection cursor for the **sheet/scene** surfaces (permission and
+    /// question sheets, the input-injection prompt, and the Dashboard's host
+    /// list). Floating dialogs no longer share it: each dialog entity owns its
+    /// own cursor (`SurfaceRouter::dialogs`), so this is no longer a
+    /// cross-dialog scratchpad field (ADR-0035, `[INV-SURFACE-01]`).
+    pub modal_index: usize,
+    /// Body scroll offset of the config category list.
+    pub config_scroll: usize,
+    /// Which pane of the `/config` Settings View currently owns the keyboard.
+    pub config_focus: crate::shell::overlays::ConfigFocus,
+    /// Selected category in the `/config` Settings View (0..5).
+    pub config_category: usize,
+    /// Selected item/field index in the active category's detail pane.
+    pub config_detail_index: usize,
+    /// Detail row currently under the mouse pointer in the Settings detail
+    /// pane, if any. Drives the row's hover band so the pointer and the keyboard
+    /// cursor share one affordance; recomputed on pointer motion and cleared
+    /// whenever the pointer leaves the pane or the category changes.
+    pub config_hover_index: Option<usize>,
+    /// Scroll offset for the `/config` detail pane body.
+    pub config_detail_scroll: usize,
+    /// Latest authoritative `[web]` selection/readiness snapshot from the harness.
+    /// Refreshed when the Settings view opens (`QueryWebSearchConfig`) and
+    /// on every `WebSearchConfigUpdated` ack.
+    pub websearch_config: Option<nuo_protocol::WebSearchConfigView>,
+    /// Floating dropdown state and anchor for settings popup selectors (e.g.
+    /// Web Search provider and Web Fetch reader selectors).
+    pub config_dropdown: Option<(
+        nuo_ui_primitives::components::dropdown::DropdownState<String>,
+        nuo_ui_primitives::components::dropdown::DropdownAnchor,
+    )>,
+    /// Authoritative screen rectangle of the active settings detail row,
+    /// updated during settings render to anchor popovers precisely.
+    pub config_selected_rect: Option<nuotc::Rect>,
+    /// Live search filter substring for the dashboard thread fleet table.
+    pub dashboard_filter: String,
+    /// Whether the `/` inline filter search input is open on the dashboard.
+    pub dashboard_filtering: bool,
+    /// Whether the dashboard is currently displaying the Model Usage & Analytics view
+    /// (`true`) or the Threads Fleet Orchestration view (`false`, default) (ADR-0129).
+    pub dashboard_view_usage: bool,
+    /// Scroll slot + selection-follow for the `/host` panel body.
+    pub host_scroll: usize,
+    pub host_modal_follow: bool,
+    /// Which pane of the `/host` session dashboard owns the keyboard: the
+    /// console/input region (default) or the sessions dock (`Tab` toggles).
+    pub host_focus: crate::shell::overlays::DashboardFocus,
+    /// Scroll offset for the dashboard's console pane.
+    pub host_detail_scroll: usize,
+    /// The dashboard's session preview modal: the session id
+    /// opened by Enter on a dock selection. Selection alone never opens it;
+    /// Esc closes. Read-only.
+    pub host_preview: Option<String>,
+    /// Scroll offset for the preview modal body.
+    pub host_preview_scroll: usize,
+    /// Whether the dashboard's inline new-session prompt is open. While true,
+    /// the composer input buffer is the task description and Enter creates a
+    /// session instead of attaching.
+    pub host_prompting: bool,
+    /// What the open dashboard prompt does on submit: `true` = create a new
+    /// session (from `n`), `false` = prompt the selected session (from `p`).
+    pub host_prompt_new: bool,
+    /// Whether the dashboard's kill confirmation is armed: `k` on a dock
+    /// selection asks first (`k` again confirms within the window, anything
+    /// else cancels). Killing is irreversible, so it stays a two-surface
+    /// gesture like the queue's `Shift+D`.
+    pub host_kill_confirm: Option<String>,
+    /// Id the armed kill confirmation refers to (kept separately so a dock
+    /// selection move between presses can be compared against it).
+    pub host_kill_confirm_id: Option<String>,
+    /// Scroll offset of the log scene's body.
+    pub command_log_scroll: usize,
+    /// `/host` Enter on a hosted session: the id to switch to, read by the
+    /// caller after the TUI exits to re-attach.
+    pub switch_to_target: Option<String>,
+    /// Pending action requested by clicking a row in the Help dialog.
+    pub pending_help_action: Option<crate::shell::overlays::help::HelpActionKind>,
+    /// Pending "copy the rows this fold hides" request, published by a click on
+    /// a folded command body's `copy` verb.
+    ///
+    /// The pointer handler holds no clipboard channel (the write is an async task
+    /// owned by the action loop), so the click states the *intent* and the loop
+    /// serves it — the same resolution the keyboard path uses, which is what keeps
+    /// one verb from having two different copy implementations.
+    pub pending_fold_copy: Option<usize>,
+    /// Request the runner to create and attach to a brand-new thread.
+    pub switch_to_new: bool,
+    /// Optional opening prompt to submit immediately upon attaching to the new thread.
+    pub switch_to_new_prompt: Option<String>,
+    /// Optional opening prompt to submit after re-attaching to a forked child
+    /// (`switch_to_target`). Set when a retired `/btw <prompt>` steer forks,
+    /// so the aside's question lands in the new branch (`[INV-DEPR-01]`).
+    pub switch_to_prompt: Option<String>,
+    /// Which full-screen overlay (if any) the TUI opened straight into at
+    /// startup instead of a thread view. In that mode the overlay is not
+    /// a transient modal — there is no thread the user asked for behind
+    /// it — so closing it must quit the program rather than drop into an empty
+    /// chat. Cleared (set to [`crate::shell::StartupOverlay::None`]) once a
+    /// session is opened from the picker. Always `None` for the in-session
+    /// `/sessions` modal, which just dismisses on Esc/click-out.
+    pub startup_overlay: crate::shell::StartupOverlay,
+    /// The PreAttach interstitial state, mounted when the attaching
+    /// workspace's first-contact trust snapshot is `Quarantined`
+    /// `Some` means the chat surface is gated and the
+    /// per-frame render paints a full-screen black interstitial
+    /// instead of chat; the per-frame sync clears it once a
+    /// subsequent `HarnessState` reports `aggregate() == Trusted`.
+    /// Force-mounted by `NUO_FORCE_PRE_ATTACH=1` for acceptance.
+    pub pre_attach: Option<crate::shell::PreAttachState>,
+    /// Lowercase provider name → whether a usable API key is configured.
+    pub key_status: HashMap<String, bool>,
+    /// Live model-picker snapshot (default id + per-model favorite / key-ready
+    /// / last-used). Drives the `/models` and `/connections` pickers' rendering
+    /// and sort order. Refreshed from the response listener each frame.
+    pub provider_picker: ProviderPickerSnapshot,
+    /// Theme.
+    pub theme: Theme,
+    /// Terminal capability profile (ADR-0053).
+    pub profile: nuotc::TerminalProfile,
+    /// User-supplied ASCII logo lines loaded at startup from
+    /// `$XDG_CONFIG_HOME/nuo/logo.txt` (clamped to the empty-state bounding
+    /// box). `None` when no user logo is present → built-in wordmark is used.
+    /// Passed into the empty-state hero via `TranscriptProps::logo`.
+    pub logo: Option<Vec<String>>,
+    /// User remaps of the full-screen-view surface verbs (`session.*` dotted
+    /// keys). The Session/Subagent/Side resolvers and the composer
+    /// hint row consult it.
+    pub surface_overrides: crate::shell::keymap::SurfaceOverrides,
+    /// Canonical active color-scheme id (`zen`, a built-in preset, or
+    /// `custom`). The renderer theme is rebuilt from this value immediately
+    /// when the Appearance page applies a choice.
+    pub color_scheme: String,
+    /// Last persisted custom semantic palette. Retained while a preset is
+    /// active so switching schemes never discards the user's colors.
+    pub custom_color_scheme: nuo_ui_primitives::ColorSchemeConfig,
+
+    /// Whether clicking outside a dismissable modal closes it (mirroring Esc).
+    /// From `[tui] click_outside_dismiss` (default `true`): when true, an
+    /// outside click dismisses a dismissable modal like Esc (the draft is
+    /// parked, so nothing is lost). Modals holding precious in-progress input
+    /// are never click-dismissable regardless of this flag, and the `nuo
+    /// resume` startup picker's click-outside still quits. Esc / Ctrl+C always
+    /// close/quit regardless of this flag.
+    pub click_outside_dismiss: bool,
+    /// User remaps of the global chords (`[keybindings]` config).
+    /// Resolution and the visible keycaps both consult it, so a remapped
+    /// binding fires and advertises consistently.
+    pub key_overrides: crate::shell::keymap::GlobalOverrides,
+    /// Show a brief "copied" toast. Held until this deadline elapses so the
+    /// duration is wall-clock consistent regardless of the event-loop cadence.
+    pub copy_toast_until: Option<std::time::Instant>,
+    pub copy_toast_message: String,
+    pub copy_toast_failed: bool,
+    /// A transient notice toast (command acknowledgments such as
+    /// `/delegate on`, routed to the toast layer by `nuo_view::model::layer`). Unlike the
+    /// inline `MessageKind::Notice`, this never enters the transcript: it
+    /// renders as a top-right bubble that fades on its own, mirroring the copy
+    /// toast. Severity drives the bubble's accent color. Held until
+    /// `notice_toast_until` elapses so the duration is wall-clock consistent
+    /// regardless of the loop cadence. A newer toast replaces an in-flight one.
+    pub notice_toast_until: Option<std::time::Instant>,
+    pub notice_toast_message: String,
+    /// The subsystem tag painted on the fault bubble (`backend`, `copy`, …) so
+    /// the bubble names the same topic the viewer will show.
+    pub notice_toast_topic: String,
+    pub notice_toast_severity: NoticeSeverity,
+    /// When set (e.g. via `NUO_DEV_TOAST`), keeps the toast pinned during keypresses for visual dev inspection.
+    pub dev_toast_pinned: bool,
+    /// Deadline until which a second Ctrl+C quits. Wall-clock based (like
+    /// the copy/notice toasts) so the quit window is a real duration —
+    /// previously this was a per-tick counter, which stretched the intended
+    /// ~2s window to ~20s whenever the loop idled at its 1s heartbeat.
+    pub ctrl_c_armed_until: Option<std::time::Instant>,
+    /// Deadline until which a second Esc interrupts the running task.
+    /// Wall-clock based for the same reason as `ctrl_c_armed_until`: the
+    /// loop wakes far more often than its 100ms animation heartbeat (every
+    /// keystroke, mouse move, stream delta, and dirty-notify), so the old
+    /// 20-tick counter burned the intended ~2s window in a few hundred
+    /// milliseconds — the "Esc again interrupts" toast flashed and vanished
+    /// before a second press could land.
+    pub esc_armed_until: Option<std::time::Instant>,
+    /// Pending provider-delete confirmation overlay. `Some(id)` means the
+    /// confirm dialog is open over the Connections list: the provider
+    /// `id` is staged for deletion and waits on the user's choice. Set when
+    /// `Shift+D` lands on a deletable custom provider; cleared on Cancel, Esc,
+    /// outside-click, and after a confirmed Delete dispatches the request.
+    pub pending_provider_delete: Option<String>,
+    /// Focused button in the provider-delete confirm overlay. Defaults to
+    /// [`ProviderDeleteChoice::Cancel`] (the safe choice) each time the overlay
+    /// opens; ←/→/Tab move between the two buttons.
+    pub provider_delete_focus: ProviderDeleteChoice,
+    /// Authoritative foreground surface: the root Scene plus the LIFO overlay
+    /// stack floating over it. The router is the single navigation
+    /// truth — there is no parallel `active_modal` / `active_panel` /
+    /// `current_view` mirror to read instead.
+    pub(crate) surfaces: crate::shell::surfaces::SurfaceRouter,
+    /// MRU open order for the quick switcher. Dialog *state* lives in the
+    /// encapsulated entities (`SurfaceRouter::dialogs`); this store only tracks
+    /// which dialogs have been opened and in what order (ADR-0035).
+    pub(crate) surface_store: crate::shell::surfaces::SurfaceStore,
+    /// Full detail and usage for the connection under the detail sub-view. Populated by
+    /// an on-demand `QueryConnectionDetail` round-trip when the sub-view opens (Enter).
+    /// `None` while the round-trip is in flight.
+    pub connection_detail: Option<nuo_protocol::ConnectionDetail>,
+}
+
+/// `provider_editor` state.
+pub struct ProviderEditorState {
+    /// Provider id targeted by the unified key editor (`Modal::ModelEditor`).
+    pub editor_target: Option<String>,
+    /// Which editor field is focused. `0` = API key (text entry); `1` = effort
+    /// (←/→ cycling); `2` = thinking (Space toggle, when available). The
+    /// effort/thinking rows are only shown for models that expose those controls,
+    /// so `editor_field` is clamped to `0` otherwise.
+    pub editor_field: u8,
+    /// API-key buffer for the editor (the input line is borrowed for the
+    /// focused field).
+    pub editor_key: String,
+    /// Wire model id the key editor will activate once a key is entered (carried
+    /// from the Models-picker selection or the provider's current model; not
+    /// user-editable).
+    pub editor_model: String,
+    /// When true, `Modal::ModelEditor` edits the selected provider model's
+    /// channel settings only (for example OpenAI effort or Anthropic
+    /// effort/thinking), not the provider API key or active provider.
+    pub editor_model_settings_only: bool,
+    /// When `editor_model_settings_only` is true, whether the edited model is
+    /// **built-in** (served by a built-in provider like `anthropic`). A built-in
+    /// model's per-model reasoning knobs persist to the `[model_reasoning]`
+    /// table via `EditModelReasoning`; a user-defined model's knobs persist to
+    /// its channel via `EditConnectionModel` (ADR-0045).
+    pub editor_target_is_builtin: bool,
+    /// Current reasoning-effort selection in the key editor, as a lowercase wire
+    /// string. Defaults to `"high"`; cycled with ←/→ over the selected model's
+    /// supported levels.
+    pub editor_effort: String,
+    /// The effort ladder the edited route actually supports, as wire strings in
+    /// ascending depth. Captured from the picker snapshot when the editor opens
+    /// (the server's resolution), **not** re-derived client-side: this
+    /// binary does not link `nuo-providers`, so `resolve_model` sees no
+    /// baseline table and would render an empty ladder (the node slider would
+    /// collapse to a bare value row). Empty means the route exposes no effort
+    /// knob, and the editor shows the value-only fallback.
+    pub editor_effort_levels: Vec<String>,
+    /// Whether the selected model exposes a separate thinking on/off switch.
+    /// OpenAI GPT effort has no separate thinking field, so this is false
+    /// there; Anthropic adaptive channels set it true.
+    pub editor_thinking_available: bool,
+    /// Current extended-thinking on/off selection in the key editor. Defaults
+    /// to `true` (adaptive thinking on — the recommended mode for Claude).
+    /// Toggled with Space when `Self::editor_thinking_available` is true;
+    /// orthogonal to effort.
+    pub editor_thinking: bool,
+    /// Capability-override tri-state for **vision** (layer 1), shown
+    /// in the per-model settings editor. Cycled with Space: `None` = inherit
+    /// (no override) → `Some(true)` force on → `Some(false)` force off.
+    pub editor_vision_override: Option<bool>,
+    /// Capability-override tri-state for **tool calling**, same cycling and
+    /// semantics as `Self::editor_vision_override`.
+    pub editor_tool_override: Option<bool>,
+    /// Focused field of the provider editor (`Modal::CustomProvider`) as an
+    /// index into `Self::custom_fields` — the per-template visible field set
+    /// (Name / Base URL / Token / Model / Protocol / Client Identity). Text
+    /// fields borrow the composer line; selectors are cycled inline.
+    pub custom_field: u8,
+    /// The ordered visible fields of the provider editor, chosen by the active
+    /// template (create) or the edited connection's provider (edit). Empty when
+    /// no editor is open.
+    pub custom_fields: Vec<CustomField>,
+    /// Wire protocol of the connection being created/edited. Curated providers
+    /// carry their fixed wire; the `custom` provider exposes this as an inline
+    /// selector.
+    pub custom_protocol_wire: String,
+    /// Connection budget policy configured in create/edit modal (ADR-0065).
+    pub custom_budget: nuo_protocol::ConnectionBudget,
+    /// Models seeded by the active template (create mode). Submitted as the
+    /// provider's model list unless the editor exposes a free-text Model field
+    /// (then the single typed model is submitted instead). Empty in edit mode.
+    pub custom_models: Vec<String>,
+    /// Base URL placeholder for the active template (the expected endpoint shape).
+    pub custom_url_hint: String,
+    /// Template-specific user agent carried into newly-created channels.
+    pub custom_user_agent: Option<String>,
+    /// How newly-created connections authenticate (from the selected template).
+    pub custom_auth: nuo_protocol::ConnectionAuth,
+    /// The **model provider id** the active create flow was seeded from, or
+    /// `None` in edit mode / when no template is active. Sent as
+    /// `AddConnection::provider` (the wire field): it is the
+    /// connection's durable provider binding, and the catalog resolves the
+    /// connection's models from it on later startups.
+    pub custom_provider_id: Option<String>,
+    /// True while an "Add curated connection → OAuth" flow is in flight.
+    pub awaiting_oauth_add: bool,
+    pub oauth_pending_message: String,
+    pub oauth_pending_url: String,
+    pub oauth_pending_user_code: String,
+    pub oauth_pending_error: Option<String>,
+    /// Selected copyable card in OAuth Pending modal (0 = URL, 1 = Code).
+    pub oauth_selected_item: usize,
+    /// Scroll offset for the OAuth pending modal body. Reset when the modal
+    /// opens or its content changes.
+    pub oauth_scroll: usize,
+    /// Scroll offset for the custom-provider editor body. Rendered body sets
+    /// the upper bound automatically.
+    pub custom_scroll: usize,
+    /// When `Some(id)`, the provider editor is **editing** the existing user
+    /// provider `id` (meta only: Name/Base URL/Token; models stay managed in the
+    /// Models picker). `None` is create mode.
+    pub custom_edit_id: Option<String>,
+    /// Provider-editor buffers holding the unfocused text fields (the focused one
+    /// lives in the borrowed composer line). Name / Base URL / Token / Model.
+    pub custom_name: String,
+    pub custom_base_url: String,
+    pub custom_token: String,
+    pub custom_model: String,
+    /// Selected row of the provider-template chooser (`Modal::ProviderPreset`),
+    /// indexing `crate::PROVIDER_PRESETS`. Cycled with `↑/↓`.
+    pub preset_choice: usize,
+    /// Scroll offset for the template-chooser body. The rendered body
+    /// sets the upper bound automatically (via `render_body`), and `↑/↓` move
+    /// the selection so the chosen template stays on-screen.
+    pub preset_scroll: usize,
+}
+
+/// `telemetry` state.
+pub struct TelemetryState {
+    /// Shared token-source ledger (reported vs. estimated token accounting),
+    /// read by the Telemetry modal. `Some` in the standalone path (the
+    /// in-process harness shares this ledger); `None` in attach mode, where
+    /// the accounting lives server-side and the modal renders the on-demand
+    /// `Self::token_report` snapshot instead.
+    pub token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
+    /// Token-source report fetched on demand from the harness for the viewed
+    /// session. Populated by a `QueryTokenUsage` round-trip when the
+    /// Telemetry modal opens in attach mode (`token_ledger` is `None`);
+    /// `None` while the round-trip is in flight (the modal renders a loading
+    /// placeholder). Cleared when the viewed session switches.
+    pub token_report: Option<nuo_protocol::TokenSourceReport>,
+    /// Latest session-scoped AI context snapshot from the harness. This is a
+    /// provider usage/projection value, never a persisted transcript estimate.
+    pub context_tokens: Option<nuo_protocol::ContextTokenSnapshot>,
+    /// Per-session context snapshots (M1): the applier keys them by
+    /// session; the render loop projects the *viewed* session's value into
+    /// `context_tokens` each frame.
+    pub context_tokens_by_session: HashMap<String, nuo_protocol::ContextTokenSnapshot>,
+    /// Cross-session usage-statistics report (ADR-0129 [INV-USAGE-01]).
+    /// Session-independent: it aggregates the durable store under `data/usage/`,
+    /// which survives session cleanup.
+    pub usage_stats: Option<nuo_protocol::usage_stats::UsageStatsReport>,
+    /// Whether an on-demand usage report fetch is currently in flight.
+    pub usage_loading: bool,
+    /// Scroll offset for the model usage statistics report view.
+    pub usage_scroll: usize,
+    /// Provider quota pool snapshot (`QueryProviderQuotas`, ADR-0036).
+    pub provider_quotas: Option<nuo_protocol::ProviderQuotaSnapshot>,
+    /// Cached connection usage states for ambient indicators.
+    pub connection_usages: std::collections::HashMap<String, nuo_protocol::ConnectionUsageState>,
+}
+
+/// `link` state.
+pub struct LinkState {
+    pub tx: mpsc::UnboundedSender<AgentRequest>,
+    pub should_quit: Arc<AtomicBool>,
+    /// Wall-clock instant of the last user key press or input edit. Used by
+    /// the event loop to quiesce background animation redraws while active
+    /// composition / typing is in progress.
+    pub last_key_press: std::time::Instant,
+    /// Dead-link latch (D6): set the first time an outbox send
+    /// fails (the session driver's receiver is gone). A dead link is a
+    /// visible chrome state — the activity bar reports it — never a
+    /// swallowed send. It does not clear: with the driver gone nothing can
+    /// acknowledge recovery, and pretending otherwise would be a lie.
+    pub link_down: bool,
+    /// The link died and the attach loop should re-dial (ADR-0136).
+    ///
+    /// Distinct from `Self::link_down`, which is a *rendered* state that
+    /// latches. This one is a *request*: the event loop ends the current
+    /// attachment, the runner re-checks the server and attaches again, and the
+    /// transcript/tabs survive because they live on `TuiOutcome`.
+    ///
+    /// Without it, `link_down` was a dead end — the chrome said "server link
+    /// lost" and stayed that way, because the only thing that could reconnect
+    /// was an operator restarting the client by hand.
+    pub relink_requested: bool,
+    /// Background tasks tracking for the TasksBar.
+    pub background_tasks: Vec<BackgroundTaskItem>,
+    /// One-shot backend navigation signals (M1): the applier latches
+    /// them; the loop consumes and clears when it mounts the surface.
+    pub open_sessions_signal: bool,
+    pub open_tree_signal: bool,
+}

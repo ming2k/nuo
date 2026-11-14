@@ -8,10 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
-use nuo_protocol::{AgentRequest};
+use nuo_protocol::AgentRequest;
 
-use nuo_tool::{Role};
-
+use nuo_tool::Role;
 
 use crate::shell::surfaces::{DialogKind, SceneKind, SheetKind};
 use crate::shell::{App, clipboard, clipboard_ops};
@@ -49,17 +48,17 @@ pub(super) async fn handle_send_chat(
     // `HistoryInsert` action so the chosen entry lands in the
     // input box for editing instead of being sent immediately.
     app.reset_to_thread();
-    app.suggestion_index = None;
-    app.input_scroll = 0;
+    app.composer.suggestion_index = None;
+    app.composer.input_scroll = 0;
     // The latency timeline starts here: the server records dispatch, this
     // records the moment the user pressed Enter.
-    app.last_submit_ms = std::time::SystemTime::now()
+    app.composer.last_submit_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
         .map(|elapsed| elapsed.as_millis() as u64);
 
-    let images = std::mem::take(&mut app.pending_images);
-    let text_pastes = std::mem::take(&mut app.pending_text_pastes);
+    let images = std::mem::take(&mut app.composer.pending_images);
+    let text_pastes = std::mem::take(&mut app.composer.pending_text_pastes);
 
     // Stage the chips' backing payloads so they ship with
     // this message. The text is expanded into the real paste
@@ -74,11 +73,11 @@ pub(super) async fn handle_send_chat(
         // `[INV-ATTACH-04]` (ADR-0133): a turn must not be submitted before the
         // server attests `Ready`. Queue it locally (the server also buffers
         // defensively) and flush on the transition.
-        if app.session_phase != nuo_protocol::ThreadPhase::Ready {
+        if app.session.session_phase != nuo_protocol::ThreadPhase::Ready {
             let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
             let expanded = composer_attachments::strip_orphan_image_chips(&expanded, images.len());
             app.record_input_history(text.clone(), images.clone(), text_pastes);
-            app.pending_prompts.push(AgentRequest::Prompt {
+            app.composer.pending_prompts.push(AgentRequest::Prompt {
                 text: expanded,
                 images,
                 sent_at_ms: Some(now_epoch_ms()),
@@ -89,8 +88,8 @@ pub(super) async fn handle_send_chat(
             );
             return;
         }
-        if app.running_sessions.contains(viewed_session_id) {
-            match app.composer_send_mode {
+        if app.session.running_sessions.contains(viewed_session_id) {
+            match app.composer.composer_send_mode {
                 crate::shell::app::ComposerSendMode::Steer => {
                     let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
                     let expanded =
@@ -98,15 +97,16 @@ pub(super) async fn handle_send_chat(
                     let id = app.new_insert_id();
                     app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
                     app.clear_history_draft();
-                    app.follow_bottom = true;
-                    app.pin_summary_line = None;
+                    app.transcript.follow_bottom = true;
+                    app.transcript.pin_summary_line = None;
                     let queued_at_ms = now_epoch_ms();
                     // ADR-0137: a busy-Enter steer is staged in the outbox,
                     // never in the transcript. The transcript gains a row only
                     // when the harness admits it (`SteerAdmitted`), at the
                     // seam head; the optimistic in-thread panel was removed so
                     // the live story cannot diverge from the persisted one.
-                    app.pending_dispatch
+                    app.composer
+                        .pending_dispatch
                         .push_back(crate::shell::app::QueuedDispatch {
                             id: id.clone(),
                             session_id: viewed_session_id.to_string(),
@@ -138,7 +138,8 @@ pub(super) async fn handle_send_chat(
                     let expanded = composer_attachments::expand_paste_chips(&text, &text_pastes);
                     let expanded =
                         composer_attachments::strip_orphan_image_chips(&expanded, images.len());
-                    app.pending_dispatch
+                    app.composer
+                        .pending_dispatch
                         .push_back(crate::shell::app::QueuedDispatch {
                             id: id.clone(),
                             session_id: viewed_session_id.to_string(),
@@ -150,8 +151,8 @@ pub(super) async fn handle_send_chat(
                         });
                     app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
                     app.clear_history_draft();
-                    app.follow_bottom = true;
-                    app.pin_summary_line = None;
+                    app.transcript.follow_bottom = true;
+                    app.transcript.pin_summary_line = None;
                     app.send_intent(AgentRequest::FollowUp {
                         thread_id: viewed_session_id.to_string(),
                         message: nuo_protocol::QueuedMessage {
@@ -164,7 +165,7 @@ pub(super) async fn handle_send_chat(
                     });
                 }
             }
-            app.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
+            app.composer.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
         } else {
             // Expand `[Pasted text #N +M lines]` chips into
             // their full staged text right before dispatch so
@@ -183,38 +184,40 @@ pub(super) async fn handle_send_chat(
             // the transport-wait phase, so this also retires any setback
             // clause left over from an earlier round.
             app.set_phase(Some(nuo_view::phase::Phase::Queued));
-            app.running_sessions.insert(viewed_session_id.to_string());
+            app.session
+                .running_sessions
+                .insert(viewed_session_id.to_string());
             let sent_at_ms = now_epoch_ms();
-            let target_round = app.round_count.saturating_add(1);
+            let target_round = app.session.round_count.saturating_add(1);
             let sent = TranscriptMessage::new(Role::User, text.clone())
                 .with_sent_at_ms(sent_at_ms)
                 .with_round(target_round)
                 .sending();
-            app.messages.push(sent);
-            app.layout_height_cache.clear();
-            app.transcript_changed_pending = true;
+            app.transcript.messages.push(sent);
+            app.transcript.layout_height_cache.clear();
+            app.transcript.transcript_changed_pending = true;
             app.record_input_history(text.clone(), images.clone(), text_pastes.clone());
             // The draft's content has been sent — it is now a
             // history row, not the unsent slot.
             app.clear_history_draft();
-            app.follow_bottom = true;
-            app.pin_summary_line = None;
+            app.transcript.follow_bottom = true;
+            app.transcript.pin_summary_line = None;
             app.send_intent(AgentRequest::Prompt {
                 text: expanded,
                 images,
                 sent_at_ms: Some(sent_at_ms),
             });
         }
-    } else if let Some((start, end)) = app.selection.active_normalized_range() {
+    } else if let Some((start, end)) = app.transcript.selection.active_normalized_range() {
         // Enter on a selected step: navigate into a subagent
         // task, otherwise toggle that step's expansion.
         if start.message_idx == end.message_idx {
             let mi = start.message_idx;
-            let mut messages = std::mem::take(&mut app.messages);
+            let mut messages = std::mem::take(&mut app.transcript.messages);
             // An subagent task navigates into its view instead
             // of expanding.
-            let enter_id =
-                resolve_focused_mut(&mut messages, &app.focus_stack, mi).and_then(|message| {
+            let enter_id = resolve_focused_mut(&mut messages, &app.transcript.focus_stack, mi)
+                .and_then(|message| {
                     if message.is_subagent_task() {
                         message.tool_step_call_id().map(String::from)
                     } else {
@@ -222,15 +225,15 @@ pub(super) async fn handle_send_chat(
                     }
                 });
             if let Some(id) = enter_id {
-                app.messages = messages;
+                app.transcript.messages = messages;
                 app.enter_subagent(id);
             } else {
                 let toggled = app.toggle_step_pinned(&mut messages, mi);
-                app.messages = messages;
-                app.layout_height_cache.clear();
-                app.transcript_changed_pending = true;
+                app.transcript.messages = messages;
+                app.transcript.layout_height_cache.clear();
+                app.transcript.transcript_changed_pending = true;
                 if toggled {
-                    app.selection = SelectionState::None;
+                    app.transcript.selection = SelectionState::None;
                 }
             }
         }
@@ -245,8 +248,8 @@ pub(crate) async fn handle_send_slash(
     _session: &crate::shell::HookStartSource,
     cmd: String,
 ) -> ActionFlow {
-    app.suggestion_index = None;
-    app.input_scroll = 0;
+    app.composer.suggestion_index = None;
+    app.composer.input_scroll = 0;
     // A command is a synchronous control-plane operation, not a round
     // it never enters the round state machine, so it must not
     // arm the activity bar's liveness surface — no `is_responding`, no
@@ -254,8 +257,8 @@ pub(crate) async fn handle_send_slash(
     // a dispatch that cannot be interrupted. The pending command row pushed
     // below is the in-flight feedback for a command; a running
     // round keeps owning the bar through its own events.
-    app.follow_bottom = true;
-    app.pin_summary_line = None;
+    app.transcript.follow_bottom = true;
+    app.transcript.pin_summary_line = None;
     let sent_at_ms = now_epoch_ms();
     // The command component owns its input AND its output, but only for an
     // **act** (ADR-0140): a mutation stages the optimistic row pushed below —
@@ -278,8 +281,13 @@ pub(crate) async fn handle_send_slash(
     // command later succeeds on the server as an act, `SettleCommandResult` uses its
     // fallback mechanism to materialize the row upon completion.
     let (cmd_name, cmd_args) = split_command_word(&cmd);
-    let is_known = app.command_catalog.find(&format!("/{cmd_name}")).is_some();
+    let is_known = app
+        .composer
+        .command_catalog
+        .find(&format!("/{cmd_name}"))
+        .is_some();
     let effect = app
+        .composer
         .command_catalog
         .effect_for(&format!("/{cmd_name}"), cmd_args.split_whitespace().next());
     let stages_row = is_known && effect == nuo_tool::CommandEffect::Mutation;
@@ -304,25 +312,25 @@ pub(crate) async fn handle_send_slash(
                 handle_send_chat(
                     app,
                     runtime,
-                    &app.current_session_id.clone(),
+                    &app.session.current_session_id.clone(),
                     prompt_args.to_string(),
                 )
                 .await;
                 return ActionFlow::Handled;
             }
             // Bare reset in place without adding a new tab.
-            app.messages.push(
+            app.transcript.messages.push(
                 TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms),
             );
             app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
             return ActionFlow::Handled;
         } else {
             // Current thread has conversations: preserve current tab and create a fresh thread in a new tab.
-            app.switch_to_new = true;
+            app.surfaces.switch_to_new = true;
             if !prompt_args.is_empty() {
-                app.switch_to_new_prompt = Some(prompt_args.to_string());
+                app.surfaces.switch_to_new_prompt = Some(prompt_args.to_string());
             }
-            app.should_quit.store(true, Ordering::SeqCst);
+            app.link.should_quit.store(true, Ordering::SeqCst);
             return ActionFlow::Handled;
         }
     }
@@ -336,14 +344,14 @@ pub(crate) async fn handle_send_slash(
             .next()
             .unwrap_or(cmd_args.trim());
         let short_id = crate::shell::session::short_session_id(target);
-        app.switching_session = Some(short_id);
-        app.messages.clear();
-        app.layout_height_cache.clear();
-        app.transcript_changed_pending = true;
-        app.scroll = 0;
+        app.session.switching_session = Some(short_id);
+        app.transcript.messages.clear();
+        app.transcript.layout_height_cache.clear();
+        app.transcript.transcript_changed_pending = true;
+        app.transcript.scroll = 0;
     }
     if stages_row {
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::pending_command(cmd_name, cmd_args).with_sent_at_ms(sent_at_ms),
         );
     }
@@ -358,7 +366,7 @@ pub(crate) async fn handle_send_steer(
     viewed_session_id: &str,
     text: String,
 ) {
-    app.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
+    app.composer.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
     handle_send_chat(app, runtime, viewed_session_id, text).await;
 }
 
@@ -368,7 +376,7 @@ pub(super) async fn handle_queue_follow_up(
     viewed_session_id: &str,
     text: String,
 ) {
-    app.composer_send_mode = crate::shell::app::ComposerSendMode::FollowUp;
+    app.composer.composer_send_mode = crate::shell::app::ComposerSendMode::FollowUp;
     handle_send_chat(app, runtime, viewed_session_id, text).await;
 }
 
@@ -381,29 +389,31 @@ pub(crate) fn handle_ctrl_c(
     copy_pending: &Arc<AtomicUsize>,
 ) -> ActionFlow {
     if let Some(text) = extract_selection_text(
-        &app.selection,
+        &app.transcript.selection,
         app.focused_messages(),
-        &app.input,
-        &app.ui.document,
-        app.drag.cell_info.as_ref(),
+        &app.composer.input,
+        &app.transcript.ui.document,
+        app.transcript.drag.cell_info.as_ref(),
     ) {
         clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
     } else if app.active_dialog() == Some(DialogKind::HistorySearch) {
         // [ADR-0044] Single Input SSOT: Composer is the live query input.
         // Ctrl+C clears the query, or cancels history search and restores draft if already empty.
-        if !app.input.is_empty() {
-            app.input.clear();
-            app.cursor_position = 0;
+        if !app.composer.input.is_empty() {
+            app.composer.input.clear();
+            app.composer.cursor_position = 0;
             app.surfaces
+                .surfaces
                 .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                 .index = 0;
             app.surfaces
+                .surfaces
                 .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                 .follow = true;
         } else {
             app.dismiss_surface();
         }
-    } else if app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+    } else if app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(DialogKind::Threads)
     {
         // `nuo attach` (no id) opened the picker at startup:
@@ -414,12 +424,16 @@ pub(crate) fn handle_ctrl_c(
         // bare empty chat (which a stray /models then persisted
         // as an empty-session file).
         tracing::info!(reason = "startup_picker_cancelled", "app exiting");
-        app.should_quit.store(true, Ordering::SeqCst);
-    } else if app.surfaces.contains_sheet(SheetKind::OAuthPending) {
-        let text = if !app.oauth_pending_url.is_empty() {
-            app.oauth_pending_url.clone()
-        } else if !app.oauth_pending_user_code.is_empty() {
-            app.oauth_pending_user_code.clone()
+        app.link.should_quit.store(true, Ordering::SeqCst);
+    } else if app
+        .surfaces
+        .surfaces
+        .contains_sheet(SheetKind::OAuthPending)
+    {
+        let text = if !app.provider_editor.oauth_pending_url.is_empty() {
+            app.provider_editor.oauth_pending_url.clone()
+        } else if !app.provider_editor.oauth_pending_user_code.is_empty() {
+            app.provider_editor.oauth_pending_user_code.clone()
         } else {
             String::new()
         };
@@ -439,10 +453,10 @@ pub(crate) fn handle_ctrl_c(
         // app-wide double-press — first press arms a 2s quit
         // window (the "press Ctrl+C again to exit" toast), the
         // second exits the whole TUI.
-        if app.host_prompting && !app.input.is_empty() {
+        if app.surfaces.host_prompting && !app.composer.input.is_empty() {
             // First Ctrl+C clears the staged text. Clearing does not
             // arm quit, avoiding accidental exits on rapid clear gestures.
-            app.input.clear();
+            app.composer.input.clear();
             app.set_cursor(0);
             app.arm_ctrl_c(None);
             show_local_toast(
@@ -453,15 +467,15 @@ pub(crate) fn handle_ctrl_c(
             );
         } else if app.ctrl_c_armed() {
             tracing::info!(reason = "dashboard_ctrl_c_double_press", "app exiting");
-            if app.startup_overlay == crate::shell::StartupOverlay::Dashboard
+            if app.surfaces.startup_overlay == crate::shell::StartupOverlay::Dashboard
                 || matches!(
-                    app.startup_overlay,
+                    app.surfaces.startup_overlay,
                     crate::shell::StartupOverlay::Settings { .. }
                 )
             {
                 // Standalone entry (`nuo dashboard` or `nuo settings`) opened this
                 // screen without an attached thread: quit cleanly.
-                app.should_quit.store(true, Ordering::SeqCst);
+                app.link.should_quit.store(true, Ordering::SeqCst);
             } else {
                 // Client detach (ADR-0038 [INV-ACTION-02]).
                 tracing::info!(reason = "ctrl_c_dashboard", "client detaching");
@@ -470,10 +484,10 @@ pub(crate) fn handle_ctrl_c(
         } else {
             // Arm the real 2s window in which a second Ctrl+C
             // quits (the toast renders over the dashboard).
-            app.copy_toast_until = None;
+            app.surfaces.copy_toast_until = None;
             app.arm_ctrl_c(Some(std::time::Instant::now() + App::CTRL_C_ARM_WINDOW));
         }
-    } else if app.surfaces.active_overlay().is_some() {
+    } else if app.surfaces.surfaces.active_overlay().is_some() {
         // Ctrl+C over a surface is the same dismiss as Esc:
         // retained browse views hide with state saved, the quick switcher
         // cancels to its origin, everything else falls to plain close.
@@ -502,7 +516,7 @@ pub(crate) fn handle_ctrl_c(
         // Arm a real 2s window (wall-clock) in which a second Ctrl+C
         // quits. Clear any transient informational toast so the armed
         // confirmation shows immediately.
-        app.copy_toast_until = None;
+        app.surfaces.copy_toast_until = None;
         app.arm_ctrl_c(Some(std::time::Instant::now() + App::CTRL_C_ARM_WINDOW));
     }
     ActionFlow::Handled
@@ -536,24 +550,24 @@ pub(crate) fn handle_esc_interrupt(app: &mut App, target: InterruptTarget) -> bo
         }
         InterruptTarget::Primary => {}
     }
-    let target_session_id = if !app.current_session_id.is_empty() {
-        Some(app.current_session_id.clone())
+    let target_session_id = if !app.session.current_session_id.is_empty() {
+        Some(app.session.current_session_id.clone())
     } else {
         None
     };
     if let Some(ref sid) = target_session_id {
         app.block_queue(sid);
-        app.running_sessions.remove(sid);
+        app.session.running_sessions.remove(sid);
     }
     app.clear_responding();
-    // Immediately mark any in-flight prompt in `app.messages` as cancelled
+    // Immediately mark any in-flight prompt in `app.transcript.messages` as cancelled
     // so the TUI updates its status and styling with zero blocking.
-    if let Some(msg) = app.messages.iter_mut().rev().find(|m| {
+    if let Some(msg) = app.transcript.messages.iter_mut().rev().find(|m| {
         m.role == Role::User
             && (m.is_sending() || (m.delivery == DeliveryStatus::Delivered && m.round.is_none()))
     }) {
         if msg.round.is_none() {
-            msg.round = Some(app.round_count.saturating_add(1));
+            msg.round = Some(app.session.round_count.saturating_add(1));
         }
         msg.cancel_prompt();
     }
@@ -581,13 +595,13 @@ pub(crate) async fn handle_esc_interrupt_with_runtime(
     // The round is being stopped: no request is in flight any more, so the
     // transport-setback clause goes with the phase.
     app.set_phase(None);
-    let msgs = &mut app.messages;
+    let msgs = &mut app.transcript.messages;
     if let Some(m) = msgs.iter_mut().rev().find(|m| {
         m.role == Role::User
             && (m.is_sending() || (m.delivery == DeliveryStatus::Delivered && m.round.is_none()))
     }) {
         if m.round.is_none() {
-            m.round = Some(app.round_count.saturating_add(1));
+            m.round = Some(app.session.round_count.saturating_add(1));
         }
         m.cancel_prompt();
     }

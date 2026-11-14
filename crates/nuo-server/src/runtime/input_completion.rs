@@ -5,7 +5,7 @@
 //! commands, project-file discovery, and explicit-path expansion all live here
 //! so terminal and browser apps cannot drift into separate completion products.
 use ignore::WalkBuilder;
-use nuo_protocol::{AgentResponse};
+use nuo_protocol::AgentResponse;
 use nuo_tool::{CommandCatalog, CommandSpec, InputCompletion, InputCompletionKind};
 
 use std::path::{Path, PathBuf};

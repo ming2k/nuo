@@ -38,7 +38,6 @@ use nuo_engine::{
 use nuo_protocol::{PermissionDecision, SubAgentProfile, ToolPolicy};
 use nuo_tool::{Tool, ToolOutput};
 
-
 /// `stream_chat` emits "done" with no tool calls (the default
 /// `stream_chat_events` wraps it into one `TextDelta`). Used by the inject
 /// test, where only the transcript mutation matters.

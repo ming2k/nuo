@@ -476,6 +476,495 @@ fn draw_step_dispatch(
     }
 }
 
+/// The vertical slice occupied by the three-tier head band (ADR-0062) and the
+/// transcript viewport left beneath it.
+#[derive(Clone, Copy)]
+struct HeadBandRects {
+    /// Tier 1: client-global tab bar.
+    tab: Option<Rect>,
+    /// Tier 2: polymorphic scene bar.
+    scene: Option<Rect>,
+    /// Tier 3: sovereign thread-context bar.
+    context: Option<Rect>,
+    /// Remaining viewport after the head band.
+    viewport: Rect,
+}
+
+/// Hit-test rects produced while painting the head band.
+struct HeadBandNavRects {
+    tab: TabBarNavRects,
+    scene: SceneNavRects,
+}
+
+/// The footer rows the current frame needs. Visibility is decided before the
+/// row heights, so the two stay in lockstep.
+struct FooterVisibility {
+    queue_row_needed: bool,
+    tasks_row_needed: bool,
+    activity_strip_needed: bool,
+}
+
+/// A measured footer stack: the declared rows, their total height, and the
+/// visibility flags the activity row projects into its props.
+struct FooterPlan {
+    rows: Vec<FooterRow>,
+    height: u16,
+    visibility: FooterVisibility,
+    input_box_height: u16,
+    hint_height: u16,
+}
+
+/// Height-cache output for one non-empty transcript pass. `skip_rows` and
+/// `content_lines` are the stream's starting scroll accounting.
+struct TranscriptWindow {
+    message_start: usize,
+    message_end: usize,
+    content_lines: usize,
+    skip_rows: usize,
+    virtual_total_lines: Option<usize>,
+    anchor_lookup: Option<nuo_view::model::layout::ScrollAnchor>,
+}
+
+/// Inputs for the height-cached, layout-strategy-driven transcript pass.
+struct TranscriptStreamDraw<'a, 'f> {
+    frame: &'a mut Frame<'f>,
+    layout_map: &'a mut LayoutMap,
+    band: Rect,
+    messages: &'a [TranscriptMessage],
+    strategy: layout::Strategy,
+    scroll: u16,
+    height_cache: &'a mut HeightCache,
+    selection: &'a SelectionState,
+    cell_selection: Option<&'a CellDragInfo>,
+    hovered_step: Option<usize>,
+    focused_entry: Option<InteractiveTarget>,
+    workspace_root: Option<&'a std::path::Path>,
+    theme: &'a Theme,
+}
+
+/// State recovered from a transcript layout pass for the post-processing
+/// stages (sticky anchors and the interactive content rect).
+struct TranscriptStreamResult {
+    content_lines: usize,
+    sticky_anchors: Vec<StickyAnchor>,
+}
+
+/// The activity-strip projection of the footer's live state. Bundled so the
+/// row painter takes one contract instead of a long positional argument list.
+struct ActivityStripRow<'a, 'p> {
+    plan: &'a FooterPlan,
+    activity: &'a str,
+    backoff: Option<&'a nuo_view::retry::RetryProgress>,
+    awaiting_permission: bool,
+    queue_bar: &'a QueueBarProps<'p>,
+    tasks_bar: &'a TasksBarProps<'p>,
+    interrupt_key: Option<crate::shell::keymap::Key>,
+    spinner_phase: usize,
+    round_started_at: Option<std::time::Instant>,
+}
+
+/// Carve the top rows of the terminal into the polymorphic three-tier head
+/// band (ADR-0062):
+/// - row 1 is the Client Global TabBar (`draw_tab_bar`)
+/// - row 2 is the Polymorphic SceneBar (`draw_scene_bar`)
+/// - row 3 is the sovereign ThreadContextBar (`draw_thread_context_bar`, thread-only)
+///
+/// The band is a sibling of the transcript, not content inside it, so it
+/// replaces the viewport's top margin rather than nesting under it.
+fn compute_head_band(
+    frame: &Frame<'_>,
+    tab_bar: Option<&TabBarProps<'_>>,
+    page_hints: Option<&ViewHints<'_>>,
+    thread_context: Option<&ThreadContext<'_>>,
+) -> HeadBandRects {
+    let tab_rows = u16::from(tab_bar.is_some());
+    let scene_rows = u16::from(page_hints.is_some());
+    let context_rows = u16::from(
+        thread_context.is_some()
+            && page_hints.is_some_and(|h| h.kind == crate::shell::surfaces::SceneKind::Thread),
+    );
+    if tab_rows + scene_rows + context_rows > 0 {
+        debug_assert!(
+            tab_rows + scene_rows + context_rows <= PAGE_HEADER_ROWS,
+            "the head band is at most {PAGE_HEADER_ROWS} rows"
+        );
+        let full = frame.area();
+        let sub = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(tab_rows),
+                Constraint::Length(scene_rows),
+                Constraint::Length(context_rows),
+                Constraint::Min(0),
+            ])
+            .split(full);
+        HeadBandRects {
+            tab: (tab_rows > 0).then_some(sub[0]),
+            scene: (scene_rows > 0).then_some(sub[1]),
+            context: (context_rows > 0).then_some(sub[2]),
+            // The remaining area keeps the bottom viewport margin (0) but
+            // drops the top one (the head owns those rows now).
+            viewport: Rect::new(
+                sub[3].x,
+                sub[3].y,
+                sub[3].width,
+                sub[3].height.saturating_sub(VIEWPORT_BOTTOM_MARGIN),
+            ),
+        }
+    } else {
+        HeadBandRects {
+            tab: None,
+            scene: None,
+            context: None,
+            viewport: viewport_rect(frame),
+        }
+    }
+}
+
+/// Paint the head band's three tiers and return their interactive rects.
+fn draw_head_band(
+    frame: &mut Frame<'_>,
+    rects: &HeadBandRects,
+    tab_bar: Option<&TabBarProps<'_>>,
+    page_hints: Option<&ViewHints<'_>>,
+    thread_id: Option<&str>,
+    thread_context: Option<&ThreadContext<'_>>,
+    theme: &Theme,
+) -> HeadBandNavRects {
+    let tab = if let (Some(bar), Some(rect)) = (tab_bar, rects.tab) {
+        draw_tab_bar(frame, rect, bar, theme)
+    } else {
+        TabBarNavRects::default()
+    };
+    let scene = if let (Some(hints), Some(rect)) = (page_hints, rects.scene) {
+        draw_scene_bar(frame, rect, thread_id, hints, theme)
+    } else {
+        SceneNavRects::default()
+    };
+    if let (Some(ctx), Some(rect)) = (thread_context, rects.context) {
+        draw_thread_context_bar(frame, rect, ctx, theme);
+    }
+    HeadBandNavRects { tab, scene }
+}
+
+/// Decide which footer rows are visible.
+///
+/// The activity bar (animated spinner + activity text) is shown for every
+/// active phase — including streaming ("responding"), the longest phase and
+/// the one where the breathing dot's liveness signal matters most — and hidden
+/// only when the harness is idle, so the row returns to the transcript.
+///
+/// A pending permission request is an exception: the permission sheet replaces
+/// the input box and the bars beneath it, so the activity bar is the only live
+/// status surface left. Force it on so the user always has a visible "awaiting
+/// permission" anchor above the sheet — even if the loop has nominally gone
+/// idle (e.g. right after an interrupt that rejects permissions but before the
+/// stale round's terminal snapshot lands).
+fn footer_visibility(
+    chrome_hidden: bool,
+    in_subagent: bool,
+    activity: &str,
+    awaiting_permission: bool,
+    queue_bar: &QueueBarProps<'_>,
+    tasks_bar: &TasksBarProps<'_>,
+) -> FooterVisibility {
+    let activity_active = !chrome_hidden
+        && !in_subagent
+        && (awaiting_permission || (!activity.is_empty() && activity != "idle"));
+    // Consolidated single-row activity strip (ADR-0062 [INV-FOOTER-02]):
+    // strictly bounded to at most 1 row above Composer. Appears if any
+    // activity, pending queue items, or active background tasks exist.
+    let queue_row_needed = !chrome_hidden && !in_subagent && !queue_bar.items.is_empty();
+    let tasks_row_needed =
+        !chrome_hidden && !in_subagent && tasks_bar.tasks.iter().any(|t| !t.dismissed);
+    FooterVisibility {
+        queue_row_needed,
+        tasks_row_needed,
+        activity_strip_needed: activity_active || queue_row_needed || tasks_row_needed,
+    }
+}
+
+/// Measure the declared footer stack. The input box grows with its content,
+/// up to roughly half the terminal, so the transcript history always stays
+/// visible; the hint bar stays a single row pinned flush below it.
+fn plan_footer(
+    viewport: Rect,
+    input: &str,
+    chrome_hidden: bool,
+    in_subagent: bool,
+    visibility: FooterVisibility,
+) -> FooterPlan {
+    let activity_strip_height: u16 = if visibility.activity_strip_needed {
+        ACTIVITY_STRIP_ROWS
+    } else {
+        0
+    };
+    let input_box_height = if in_subagent {
+        0
+    } else {
+        calculate_composer_height(viewport, input)
+    };
+    let hint_height: u16 = if chrome_hidden || in_subagent {
+        0
+    } else {
+        MODEL_BAR_ROWS
+    };
+    // The footer stack is declared once, in draw order (ADR-0062).
+    // Order, top → bottom: top gap, notice dock, consolidated activity strip,
+    // input box, hint bar.
+    let rows: Vec<FooterRow> = if chrome_hidden || in_subagent {
+        Vec::new()
+    } else {
+        vec![
+            FooterRow {
+                id: FooterRowId::TopGap,
+                height: FOOTER_TOP_GAP_ROWS,
+            },
+            FooterRow {
+                id: FooterRowId::ActivityStrip,
+                height: activity_strip_height,
+            },
+            FooterRow {
+                id: FooterRowId::Composer,
+                height: input_box_height,
+            },
+            FooterRow {
+                id: FooterRowId::ModelBar,
+                height: hint_height,
+            },
+        ]
+    };
+    let height = footer_stack::measure(&rows);
+    FooterPlan {
+        rows,
+        height,
+        visibility,
+        input_box_height,
+        hint_height,
+    }
+}
+
+/// Stage 2 height-cache bookkeeping. Heights are wrap-width-dependent, so
+/// drop the cache on a resize; within a stable width + unchanged transcript
+/// every entry reproduces a fresh layout exactly, so off-screen messages can
+/// be advanced from their cached height instead of being re-wrapped.
+///
+/// A `prepare` that saw a width change armed a resolve pass: the anchor
+/// captured at the previous width must be mapped back onto this layout so the
+/// reading position survives the resize (scroll anchoring). A resolve pass
+/// walks the **full** transcript (virtualization is skipped): a large reflow
+/// can move the anchored content far from the stale raw offset, well outside
+/// the virtual window that offset would select, and a windowed walk would then
+/// never measure it.
+fn begin_transcript_window(
+    height_cache: &mut HeightCache,
+    messages: &[TranscriptMessage],
+    strategy: layout::Strategy,
+    band: Rect,
+    scroll: u16,
+) -> TranscriptWindow {
+    height_cache.prepare(band.width);
+    let anchor_lookup = height_cache.pending_anchor();
+    let mut window = TranscriptWindow {
+        message_start: 0,
+        message_end: messages.len(),
+        content_lines: 0,
+        skip_rows: scroll as usize,
+        virtual_total_lines: None,
+        anchor_lookup,
+    };
+    if anchor_lookup.is_none()
+        && let Some(virtual_window) =
+            height_cache.virtual_window(messages, strategy, scroll as usize, band.height)
+    {
+        window.message_start = virtual_window.message_start;
+        window.message_end = virtual_window.message_end;
+        window.content_lines = virtual_window.prefix_lines;
+        window.skip_rows = virtual_window.skip_rows;
+        if virtual_window.is_full {
+            window.virtual_total_lines = Some(virtual_window.total_lines);
+        }
+    }
+    window
+}
+
+/// Run the selected layout strategy over the cached transcript window and
+/// publish its scroll-anchor outputs back onto the cache the app loop owns.
+fn draw_transcript_stream(draw: TranscriptStreamDraw<'_, '_>) -> TranscriptStreamResult {
+    let TranscriptStreamDraw {
+        frame,
+        layout_map,
+        band,
+        messages,
+        strategy,
+        scroll,
+        height_cache,
+        selection,
+        cell_selection,
+        hovered_step,
+        focused_entry,
+        workspace_root,
+        theme,
+    } = draw;
+    let window = begin_transcript_window(height_cache, messages, strategy, band, scroll);
+    // The `Stream` carries every piece of shared render state (scroll/Y
+    // accounting, layout map, height cache, theme, hover/focus) and exposes
+    // `badge` / `dispatch` / `gap` as the sanctioned mutations, so every
+    // layout agrees on scroll semantics.
+    let mut stream = layout::Stream {
+        frame,
+        band,
+        messages,
+        theme,
+        layout_map,
+        // Reborrow so `height_cache` is still usable after the Stream is
+        // dropped, to publish the anchor outputs below.
+        height_cache: &mut *height_cache,
+        selection,
+        cell_selection,
+        hovered_step,
+        focused_entry,
+        workspace_root,
+        message_start: window.message_start,
+        message_end: window.message_end,
+        virtual_total_lines: window.virtual_total_lines,
+        viewport_top: scroll as usize,
+        anchor_lookup: window.anchor_lookup,
+        anchor_capture: None,
+        anchor_resolved_line: None,
+        current_y: band.y,
+        skip_rows: window.skip_rows,
+        content_lines: window.content_lines,
+        sticky_anchors: Vec::new(),
+        step_draw: Some(draw_step_dispatch),
+    };
+    strategy.build().run(&mut stream);
+    // Recover the loop state the post-processing below needs.
+    // (`skip_rows` and `current_y` are loop-internal and are not read after
+    // the layout returns, so they are not recovered.)
+    let result = TranscriptStreamResult {
+        content_lines: stream.content_lines,
+        sticky_anchors: stream.sticky_anchors,
+    };
+    // Publish the anchor outputs: the captured top-of-viewport identity is
+    // stored for the next resize; a resolved lookup is handed to the app loop,
+    // which re-anchors `App::scroll` before the frame commits.
+    let anchor_capture = stream.anchor_capture;
+    let anchor_resolved = stream.anchor_resolved_line;
+    height_cache.set_anchor(anchor_capture);
+    height_cache.set_resolved(anchor_resolved);
+    result
+}
+
+/// Place and paint the single-row activity strip. Its geometry still comes
+/// from the footer stack; the row only supplies the live projection.
+fn draw_activity_row(
+    frame: &mut Frame<'_>,
+    placed_footer: &PlacedFooter,
+    row: ActivityStripRow<'_, '_>,
+    theme: &Theme,
+) {
+    let ActivityStripRow {
+        plan,
+        activity,
+        backoff,
+        awaiting_permission,
+        queue_bar,
+        tasks_bar,
+        interrupt_key,
+        spinner_phase,
+        round_started_at,
+    } = row;
+    footer_stack::rect_of(placed_footer, FooterRowId::ActivityStrip)
+        .filter(|_| plan.visibility.activity_strip_needed)
+        .and_then(|rect| {
+            draw_activity_strip(
+                frame,
+                rect,
+                round_started_at,
+                ActivityStripProps {
+                    status: activity,
+                    backoff,
+                    awaiting_permission,
+                    queued_count: if plan.visibility.queue_row_needed {
+                        queue_bar.items.len()
+                    } else {
+                        0
+                    },
+                    queued_preview: queue_bar.items.first().map(|i| i.text.as_str()),
+                    queued_first_is_steer: queue_bar
+                        .items
+                        .first()
+                        .map(|i| i.is_steer)
+                        .unwrap_or(false),
+                    queue_blocked: queue_bar.blocked,
+                    tasks_count: if plan.visibility.tasks_row_needed {
+                        tasks_bar.tasks.iter().filter(|t| !t.dismissed).count()
+                    } else {
+                        0
+                    },
+                    tasks_preview: tasks_bar
+                        .tasks
+                        .iter()
+                        .find(|t| !t.dismissed)
+                        .map(|t| t.label.as_str()),
+                    queue_key: queue_bar.expand_key,
+                },
+                interrupt_key,
+                spinner_phase,
+                theme,
+            )
+        });
+}
+
+/// Resolve the composer and model-bar rects from the placed footer stack.
+fn footer_content_rects(placed_footer: &PlacedFooter, plan: &FooterPlan) -> (Rect, Rect) {
+    let input_rect = footer_stack::rect_of(placed_footer, FooterRowId::Composer)
+        .filter(|_| plan.input_box_height > 0)
+        .unwrap_or_default();
+    let hint_rect = footer_stack::rect_of(placed_footer, FooterRowId::ModelBar)
+        .filter(|_| plan.hint_height > 0)
+        .unwrap_or_default();
+    (input_rect, hint_rect)
+}
+
+/// Paint the transcript plane's own focus cue (ADR-0145, amended), in two
+/// scales, last so nothing can punch a hole in it:
+///
+/// 1. The **pane wash** — the whole viewport lifted one quiet step. It is a
+///    restyle pass rather than a paint pass because the transcript is composed
+///    of dozens of renderers that each pad their own tails with the page tone;
+///    a wash drawn first would be covered by the very content it sits under.
+/// 2. The **entry marker** — one cell in the highlighted entry's gutter, read
+///    back from the layout map (the sentinel row each entry kind already
+///    records) rather than from any renderer's cursor, so all five entry kinds
+///    answer identically and an off-screen entry simply has no marker.
+///
+/// Both are zero-layout: no row added, no column moved. The marker is painted
+/// from the **base** theme: it is a fixed absolute mark, not a surface, so it
+/// must not be lifted (and on a lifted theme its own derivation would report
+/// the pane as wash-less).
+fn draw_pane_focus_cues(
+    frame: &mut Frame<'_>,
+    layout_map: &LayoutMap,
+    transcript_area: Rect,
+    band: Rect,
+    focus_plane: FocusPlane,
+    focused_entry: Option<InteractiveTarget>,
+    base_theme: &Theme,
+) {
+    nuo_view::focus_plane::draw_pane_focus(frame, transcript_area, band, focus_plane, base_theme);
+    if let Some(header) = focused_entry.and_then(|target| layout_map.entry_header_rect(target)) {
+        nuo_view::focus_plane::draw_entry_marker(
+            frame,
+            transcript_area,
+            band,
+            header.y,
+            base_theme,
+        );
+    }
+}
+
 /// Draw the main transcript area, recording layout info.
 pub fn draw_transcript(
     frame: &mut Frame,
@@ -556,142 +1045,28 @@ pub fn draw_transcript(
         };
     }
 
-    // The head band is a polymorphic three-tier structure (ADR-0062):
-    // - row 1 is the Client Global TabBar (`draw_tab_bar`)
-    // - row 2 is the Polymorphic SceneBar (`draw_scene_bar`)
-    // - row 3 is the sovereign ThreadContextBar (`draw_thread_context_bar`, thread-only)
-    let page_hints_view = page_hints;
-
-    // The band occupies the top rows of the terminal directly — it is a sibling
-    // of the transcript, not content inside it, so it replaces the viewport's
-    // top margin rather than nesting under it.
-    let tab_rows = u16::from(tab_bar.is_some());
-    let scene_rows = u16::from(page_hints_view.is_some());
-    let context_rows = u16::from(
-        thread_context.is_some()
-            && page_hints_view
-                .as_ref()
-                .is_some_and(|h| h.kind == crate::shell::surfaces::SceneKind::Thread),
+    let head_band = compute_head_band(
+        frame,
+        tab_bar.as_ref(),
+        page_hints.as_ref(),
+        thread_context.as_ref(),
     );
-    let (tab_rect, scene_rect, context_rect, viewport) = if tab_rows + scene_rows + context_rows > 0
-    {
-        debug_assert!(
-            tab_rows + scene_rows + context_rows <= PAGE_HEADER_ROWS,
-            "the head band is at most {PAGE_HEADER_ROWS} rows"
-        );
-        let full = frame.area();
-        let sub = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(tab_rows),
-                Constraint::Length(scene_rows),
-                Constraint::Length(context_rows),
-                Constraint::Min(0),
-            ])
-            .split(full);
-        (
-            (tab_rows > 0).then_some(sub[0]),
-            (scene_rows > 0).then_some(sub[1]),
-            (context_rows > 0).then_some(sub[2]),
-            // The remaining area keeps the bottom viewport margin (0) but
-            // drops the top one (the head owns those rows now).
-            Rect::new(
-                sub[3].x,
-                sub[3].y,
-                sub[3].width,
-                sub[3].height.saturating_sub(VIEWPORT_BOTTOM_MARGIN),
-            ),
-        )
-    } else {
-        (None, None, None, viewport_rect(frame))
-    };
-
-    let size = viewport;
+    let size = head_band.viewport;
 
     // When zoomed into a subagent task, the footer (status bar, plan panel,
     // input box, hint bar) is hidden: the task detail page is a read-only view
     // whose only chrome is its page header.
     let in_subagent = subagent_bar.is_some();
-
-    // The activity bar (animated spinner + activity text) sits directly above the
-    // input box, below the ambient todo/queue meta bars. It is shown for every
-    // active phase — including streaming ("responding"), which is the longest
-    // phase and the one where the breathing dot's liveness signal matters most
-    // — and hidden only when the harness is idle, so the row returns to the
-    // transcript.
-    //
-    // A pending permission request is an exception: the permission sheet
-    // replaces the input box and the bars beneath it, so the activity bar is
-    // the only live status surface left. Force it on so the user always has a
-    // visible "awaiting permission" anchor above the sheet — even if the loop
-    // has nominally gone idle (e.g. right after an interrupt that rejects
-    // permissions but before the stale round's terminal snapshot lands).
-    let activity_active = !chrome_hidden
-        && !in_subagent
-        && (awaiting_permission || (!activity.is_empty() && activity != "idle"));
-    // The activity bar is purely transient now: it shows only while a round is
-    // active and hides when idle, so the row returns to the transcript.
-    let activity_row_needed = activity_active;
-
-    // Consolidated single-row activity strip (ADR-0062 [INV-FOOTER-02]):
-    // Strictly bounded to at most 1 row above Composer. Appears if any activity,
-    // pending queue items, or active background tasks exist.
-    let queue_row_needed = !chrome_hidden && !in_subagent && !queue_bar.items.is_empty();
-    let tasks_row_needed =
-        !chrome_hidden && !in_subagent && tasks_bar.tasks.iter().any(|t| !t.dismissed);
-    let activity_strip_needed = activity_row_needed || queue_row_needed || tasks_row_needed;
-    let activity_strip_height: u16 = if activity_strip_needed {
-        ACTIVITY_STRIP_ROWS
-    } else {
-        0
-    };
-
-    // The input box grows with its content: the typed text wraps onto new
-    // lines and the box expands to fit, up to roughly half the terminal so the
-    // transcript history always stays visible. The inner text width reserves the
-    // footer insets, the `> ` prompt prefix, and the matching right pad so the
-    // height calculation wraps at the same width the composer renders.
-    let input_box_height = if in_subagent {
-        0
-    } else {
-        calculate_composer_height(size, input)
-    };
-    // The hint bar is a single-line status strip pinned flush below the input
-    // box — the composer's own bottom panel-bg padding row is all the
-    // separation it needs (COMPOSER_HINT_GAP_ROWS = 0). It carries the
-    // next Enter action plus ambient model/context info. Hidden alongside the
-    // rest of the chrome while an overlay is open.
-    let hint_height: u16 = if chrome_hidden || in_subagent {
-        0
-    } else {
-        MODEL_BAR_ROWS
-    };
-    // The footer stack is declared once, in draw order (ADR-0062).
-    // Order, top → bottom: top gap, notice dock, consolidated activity strip,
-    // input box, hint bar.
-    let footer_rows: Vec<FooterRow> = if chrome_hidden || in_subagent {
-        Vec::new()
-    } else {
-        vec![
-            FooterRow {
-                id: FooterRowId::TopGap,
-                height: FOOTER_TOP_GAP_ROWS,
-            },
-            FooterRow {
-                id: FooterRowId::ActivityStrip,
-                height: activity_strip_height,
-            },
-            FooterRow {
-                id: FooterRowId::Composer,
-                height: input_box_height,
-            },
-            FooterRow {
-                id: FooterRowId::ModelBar,
-                height: hint_height,
-            },
-        ]
-    };
-    let footer_height: u16 = footer_stack::measure(&footer_rows);
+    let visibility = footer_visibility(
+        chrome_hidden,
+        in_subagent,
+        activity,
+        awaiting_permission,
+        &queue_bar,
+        &tasks_bar,
+    );
+    let footer_plan = plan_footer(size, input, chrome_hidden, in_subagent, visibility);
+    let footer_height = footer_plan.height;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -703,20 +1078,15 @@ pub fn draw_transcript(
     // 1. Head band — drawn at the very top of the terminal, before the
     // transcript (ADR-0062).
     // Row 1 carries the Client TabBar; row 2 the SceneBar; row 3 the sovereign ThreadContextBar.
-    let tab_rects = if let (Some(bar), Some(rect)) = (tab_bar.as_ref(), tab_rect) {
-        draw_tab_bar(frame, rect, bar, theme)
-    } else {
-        TabBarNavRects::default()
-    };
-    let scene_nav_rects = if let (Some(hints), Some(rect)) = (page_hints_view.as_ref(), scene_rect)
-    {
-        draw_scene_bar(frame, rect, thread_id, hints, theme)
-    } else {
-        SceneNavRects::default()
-    };
-    if let (Some(ctx), Some(rect)) = (thread_context.as_ref(), context_rect) {
-        draw_thread_context_bar(frame, rect, ctx, theme);
-    }
+    let head_nav = draw_head_band(
+        frame,
+        &head_band,
+        tab_bar.as_ref(),
+        page_hints.as_ref(),
+        thread_id,
+        thread_context.as_ref(),
+        theme,
+    );
 
     // 2. Transcript History — the transcript area is the whole `chunks[0]`
     // when a head is present (it was already accounted for above), or the
@@ -770,18 +1140,6 @@ pub fn draw_transcript(
             transcript_area,
         );
     }
-    // Account for scroll. Owned by the layout `Stream` once the loop runs; not
-    // mutated locally here unless a virtual index selects a later chunk.
-    let mut skip_rows = scroll as usize;
-    // Total stream height, counted independently of the viewport clip so the
-    // app loop can follow the bottom.
-    let mut content_lines: usize = 0;
-    let mut message_start = 0usize;
-    let mut message_end = messages.len();
-    let mut virtual_total_lines = None;
-    // Expanded disclosure cards collected during the pass, for the sticky anchor.
-    let mut sticky_anchors: Vec<StickyAnchor> = Vec::new();
-
     // Empty-state replacement (ADR-0033): when the session has no messages and
     // no subagent/side view is open, the transcript is replaced by a centered
     // logo hero rather than rendering an empty stream. This is a component
@@ -801,13 +1159,13 @@ pub fn draw_transcript(
     // Skipped for the empty-state hero, which is not a transcript content
     // surface.
 
-    if show_empty_state {
+    let (content_lines, sticky_anchors) = if show_empty_state {
         // Account for the hero so the app loop does not treat the session as a
         // zero-height stream (which would mis-pin the scroll position). The
         // renderer returns the rows it actually painted — the logo may have
         // been dropped for lack of room — so the accounting cannot drift from
         // the painted hero.
-        content_lines = empty_state::draw_empty_state(
+        let content_lines = empty_state::draw_empty_state(
             frame,
             transcript_area,
             logo,
@@ -815,95 +1173,30 @@ pub fn draw_transcript(
             carousel_index,
             theme,
         );
+        (content_lines, Vec::new())
     } else {
-        // Stage 2: heights are wrap-width-dependent, so drop the cache on a
-        // resize. Within a stable width + unchanged transcript every entry
-        // reproduces a fresh layout exactly, so off-screen messages can be
-        // advanced from their cached height instead of being re-wrapped.
-        height_cache.prepare(band.width);
-        // A `prepare` that saw a width change armed a resolve pass: the anchor
-        // captured at the previous width must be mapped back onto this layout
-        // so the reading position survives the resize (scroll anchoring).
-        let anchor_lookup = height_cache.pending_anchor();
-
-        // A resolve pass walks the **full** transcript (virtualization is
-        // skipped): a large reflow can move the anchored content far from the
-        // stale raw offset, well outside the virtual window that offset would
-        // select, and a windowed walk would then never measure it. The cost is
-        // one O(messages) pass per resize — heights still resolve through the
-        // cache, so off-screen messages are advanced without re-wrapping — and
-        // virtualization resumes on the very next frame.
-        if anchor_lookup.is_none()
-            && let Some(window) =
-                height_cache.virtual_window(messages, layout, scroll as usize, band.height)
-        {
-            message_start = window.message_start;
-            message_end = window.message_end;
-            content_lines = window.prefix_lines;
-            skip_rows = window.skip_rows;
-            if window.is_full {
-                virtual_total_lines = Some(window.total_lines);
-            }
-        }
-
-        // Delegate message arrangement to the selected layout strategy. The
-        // `Stream` carries every piece of shared render state (scroll/Y
-        // accounting, layout map, height cache, theme, hover/focus) and
-        // exposes `badge` / `dispatch` / `gap` as the sanctioned mutations, so
-        // every layout agrees on scroll semantics. The layout leaves
-        // `content_lines` and `sticky_steps` populated for the
-        // post-processing below.
         let workspace_root = thread_context
             .as_ref()
             .map(|c| c.workspace)
             .filter(|w| !w.is_empty())
             .map(std::path::Path::new);
-
-        let mut stream = layout::Stream {
+        let outcome = draw_transcript_stream(TranscriptStreamDraw {
             frame,
+            layout_map,
             band,
             messages,
-            theme,
-            layout_map,
-            // Reborrow so `height_cache` is still usable after the Stream is
-            // dropped, to publish the anchor outputs below.
-            height_cache: &mut *height_cache,
+            strategy: layout,
+            scroll,
+            height_cache,
             selection,
             cell_selection,
             hovered_step,
             focused_entry,
             workspace_root,
-            message_start,
-            message_end,
-            virtual_total_lines,
-            viewport_top: scroll as usize,
-            anchor_lookup,
-            anchor_capture: None,
-            anchor_resolved_line: None,
-            current_y: band.y,
-            skip_rows,
-            content_lines,
-            sticky_anchors,
-            step_draw: Some(draw_step_dispatch),
-        };
-        layout.build().run(&mut stream);
-        // Recover the loop state the post-processing below needs.
-        // (`skip_rows` and `current_y` are loop-internal and are not read
-        // after the layout returns, so they are not recovered.)
-        content_lines = stream.content_lines;
-        sticky_anchors = stream.sticky_anchors;
-        // Publish the anchor outputs: the captured top-of-viewport identity is
-        // stored for the next resize; a resolved lookup is handed to the app
-        // loop, which re-anchors `App::scroll` before the frame commits.
-        // (`stream` is not dropped explicitly — `sticky_steps` above is a
-        // partial move and `Stream` has no `Drop` impl; its borrow ends here.)
-        let anchor_capture = stream.anchor_capture;
-        let anchor_resolved = stream.anchor_resolved_line;
-        // Publish onto the cache the app loop owns; it re-anchors
-        // `App::scroll` from `take_resolved` before committing the frame.
-        height_cache.set_anchor(anchor_capture);
-        height_cache.set_resolved(anchor_resolved);
-    } // end else (non-empty transcript branch)
+            theme,
+        });
+        (outcome.content_lines, outcome.sticky_anchors)
+    };
 
     // Record the interactive transcript rect so clicks on any blank
     // transcript space — gap rows between messages, the empty region below
@@ -934,7 +1227,7 @@ pub fn draw_transcript(
     // offsets can no longer drift apart — they are the same traversal now.
     // `place` applies the shared `FOOTER_H_INSET` extent itself, so no
     // hand-derived `footer_x`/`footer_w` remains.
-    let placed_footer = footer_stack::place(chunks[1], &footer_rows);
+    let placed_footer = footer_stack::place(chunks[1], &footer_plan.rows);
 
     // The notice dock (ADR-0121) is *placed* here and painted by the event loop,
     // which is where `UiKey` lives. The stack still owns its geometry: the row's
@@ -946,61 +1239,30 @@ pub fn draw_transcript(
     // The consolidated activity strip (ADR-0062 [INV-FOOTER-02]) sits directly above
     // the input box, strictly bounded to at most 1 row. It projects the active round
     // status and/or queued/tasks indicators in a single unified strip.
-    footer_stack::rect_of(&placed_footer, FooterRowId::ActivityStrip)
-        .filter(|_| activity_strip_needed)
-        .and_then(|rect| {
-            draw_activity_strip(
-                frame,
-                rect,
-                round_started_at,
-                ActivityStripProps {
-                    status: activity,
-                    backoff,
-                    awaiting_permission,
-                    queued_count: if queue_row_needed {
-                        queue_bar.items.len()
-                    } else {
-                        0
-                    },
-                    queued_preview: queue_bar.items.first().map(|i| i.text.as_str()),
-                    queued_first_is_steer: queue_bar
-                        .items
-                        .first()
-                        .map(|i| i.is_steer)
-                        .unwrap_or(false),
-                    queue_blocked: queue_bar.blocked,
-                    tasks_count: if tasks_row_needed {
-                        tasks_bar.tasks.iter().filter(|t| !t.dismissed).count()
-                    } else {
-                        0
-                    },
-                    tasks_preview: tasks_bar
-                        .tasks
-                        .iter()
-                        .find(|t| !t.dismissed)
-                        .map(|t| t.label.as_str()),
-                    queue_key: queue_bar.expand_key,
-                },
-                interrupt_key,
-                spinner_phase,
-                theme,
-            )
-        });
+    draw_activity_row(
+        frame,
+        &placed_footer,
+        ActivityStripRow {
+            plan: &footer_plan,
+            activity,
+            backoff,
+            awaiting_permission,
+            queue_bar: &queue_bar,
+            tasks_bar: &tasks_bar,
+            interrupt_key,
+            spinner_phase,
+            round_started_at,
+        },
+        theme,
+    );
 
     // The input box sits flush directly below the activity bar — the
     // composer's top panel-bg padding row already separates its text from
     // the live status line, so no `surface` gap row is reserved between them.
-    let input_rect = footer_stack::rect_of(&placed_footer, FooterRowId::Composer)
-        .filter(|_| input_box_height > 0)
-        .unwrap_or_default();
-
-    // The model bar sits directly below the input box, carrying the ambient
-    // gauges (model/context/rate). Its rect is computed even though its draw
-    // call is delegated to the app loop (which owns the context-token
-    // source); composer-owned rows live inside `input_rect` itself.
-    let hint_rect = footer_stack::rect_of(&placed_footer, FooterRowId::ModelBar)
-        .filter(|_| hint_height > 0)
-        .unwrap_or_default();
+    // The model bar sits directly below it, carrying the ambient gauges
+    // (model/context/rate); its draw call is delegated to the app loop, which
+    // owns the context-token source.
+    let (input_rect, hint_rect) = footer_content_rects(&placed_footer, &footer_plan);
 
     // Sticky pinned summary: if an expanded step's body covers the top of the
     // viewport (its summary is scrolled out of view), pin its summary to the
@@ -1011,48 +1273,22 @@ pub fn draw_transcript(
     // design exists to avoid.
     let sticky_info = draw_sticky_anchor_if_needed(frame, band, &sticky_anchors, scroll, theme);
 
-    // The transcript plane's own focus cue (ADR-0145, amended), in two scales,
-    // painted last so nothing can punch a hole in it:
-    //
-    // 1. The **pane wash** — the whole viewport lifted one quiet step. It is a
-    //    restyle pass rather than a paint pass because the transcript is composed
-    //    of dozens of renderers that each pad their own tails with the page tone;
-    //    a wash drawn first would be covered by the very content it sits under.
-    //    The restyle is **additive**: every background in the pane shifts by the
-    //    page's own delta, so a code band's or a sent-message panel's elevation
-    //    above the page survives. Repainting only the page cells would raise the
-    //    page to meet those bands and flatten the document.
-    // 2. The **entry marker** — one cell in the highlighted entry's gutter, read
-    //    back from the layout map (the sentinel row each entry kind already
-    //    records) rather than from any renderer's cursor, so all five entry kinds
-    //    answer identically and an off-screen entry simply has no marker.
-    //
-    // Both are zero-layout: no row added, no column moved, so crossing planes
-    // never reflows the pane. Both are skipped for the empty-state hero, which is
-    // not a transcript content surface.
+    // The transcript plane's focus cue is painted last so nothing can punch a
+    // hole in it; skipped for the empty-state hero, which is not a transcript
+    // content surface.
     if !show_empty_state {
-        nuo_view::focus_plane::draw_pane_focus(
+        draw_pane_focus_cues(
             frame,
+            layout_map,
             transcript_area,
             band,
             focus_plane,
+            focused_entry,
             base_theme,
         );
-        if let Some(header) = focused_entry.and_then(|target| layout_map.entry_header_rect(target))
-        {
-            // The marker is painted from the **base** theme: it is a fixed absolute mark,
-            // not a surface, so it must not be lifted (and on a lifted theme its own
-            // derivation would report the pane as wash-less).
-            nuo_view::focus_plane::draw_entry_marker(
-                frame,
-                transcript_area,
-                band,
-                header.y,
-                base_theme,
-            );
-        }
     }
 
+    let HeadBandNavRects { tab, scene } = head_nav;
     TranscriptRender {
         input_rect,
         hint_rect,
@@ -1060,15 +1296,15 @@ pub fn draw_transcript(
         content_lines,
         view_height: transcript_area.height,
         sticky: sticky_info,
-        tab_rects: tab_rects.tab_rects,
-        tab_bar_rect: tab_rect,
-        tab_prev_rect: tab_rects.prev_rect,
-        tab_next_rect: tab_rects.next_rect,
-        tab_overflow_rect: tab_rects.overview_rect,
-        tab_notices_rect: tab_rects.notices_rect,
-        tab_help_rect: tab_rects.help_rect,
-        scene_bar_rect: scene_rect,
-        scene_nav_rects,
+        tab_rects: tab.tab_rects,
+        tab_bar_rect: head_band.tab,
+        tab_prev_rect: tab.prev_rect,
+        tab_next_rect: tab.next_rect,
+        tab_overflow_rect: tab.overview_rect,
+        tab_notices_rect: tab.notices_rect,
+        tab_help_rect: tab.help_rect,
+        scene_bar_rect: head_band.scene,
+        scene_nav_rects: scene,
     }
 }
 

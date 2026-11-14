@@ -24,8 +24,10 @@ pub(super) fn handle_provider_action(
 ) -> Option<ActionFlow> {
     match action {
         InputAction::ProviderPickerActivate => {
-            let key_ready = |app: &App, id: &str| app.key_status.get(id).copied().unwrap_or(true);
+            let key_ready =
+                |app: &App, id: &str| app.surfaces.key_status.get(id).copied().unwrap_or(true);
             let in_detail = app
+                .surfaces
                 .surfaces
                 .dlg::<crate::shell::surfaces::ModelsDialog>()
                 .info_detail;
@@ -40,6 +42,7 @@ pub(super) fn handle_provider_action(
                             return Some(ActionFlow::Handled);
                         }
                         app.surfaces
+                            .surfaces
                             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
                             .info_detail = false;
                         Some((row.provider_id.clone(), row.model.clone()))
@@ -65,31 +68,51 @@ pub(super) fn handle_provider_action(
             Some(ActionFlow::Handled)
         }
         InputAction::CustomProviderNextField => {
-            if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
+            if app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::CustomProvider)
+            {
                 app.cycle_custom_field(true);
             }
             Some(ActionFlow::Handled)
         }
         InputAction::CustomProviderPrevField => {
-            if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
+            if app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::CustomProvider)
+            {
                 app.cycle_custom_field(false);
             }
             Some(ActionFlow::Handled)
         }
         InputAction::ScrollCustomProvider { forward } => {
-            if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
+            if app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::CustomProvider)
+            {
                 app.scroll_custom_provider(forward);
             }
             Some(ActionFlow::Handled)
         }
         InputAction::CycleCustomProviderChoice { forward } => {
-            if app.surfaces.contains_sheet(SheetKind::CustomProvider) {
+            if app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::CustomProvider)
+            {
                 app.cycle_custom_choice(forward);
             }
             Some(ActionFlow::Handled)
         }
         InputAction::MovePresetChoice { forward } => {
-            if app.surfaces.contains_sheet(SheetKind::ProviderPreset) {
+            if app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::ProviderPreset)
+            {
                 app.move_preset_choice(forward);
             }
             Some(ActionFlow::Handled)
@@ -107,23 +130,27 @@ pub(super) fn handle_provider_action(
             Some(ActionFlow::Handled)
         }
         InputAction::CycleOauthSelection => {
-            if app.surfaces.contains_sheet(SheetKind::OAuthPending) {
+            if app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::OAuthPending)
+            {
                 app.cycle_oauth_selection();
             }
             Some(ActionFlow::Handled)
         }
         InputAction::CopyOauthContent { target } => {
             if let Some(text) = extract_selection_text(
-                &app.selection,
+                &app.transcript.selection,
                 app.focused_messages(),
-                &app.input,
-                &app.ui.document,
-                app.drag.cell_info.as_ref(),
+                &app.composer.input,
+                &app.transcript.ui.document,
+                app.transcript.drag.cell_info.as_ref(),
             ) {
                 clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                app.copy_toast_message = "Selection copied to clipboard".to_string();
-                app.copy_toast_failed = false;
-                app.copy_toast_until =
+                app.surfaces.copy_toast_message = "Selection copied to clipboard".to_string();
+                app.surfaces.copy_toast_failed = false;
+                app.surfaces.copy_toast_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
                 return Some(ActionFlow::Handled);
             }
@@ -134,18 +161,19 @@ pub(super) fn handle_provider_action(
             };
             let (text, label) = match actual_target {
                 input::OauthCopyTarget::UserCode => (
-                    app.oauth_pending_user_code.clone(),
+                    app.provider_editor.oauth_pending_user_code.clone(),
                     "Code copied to clipboard",
                 ),
-                input::OauthCopyTarget::Url | input::OauthCopyTarget::Selected => {
-                    (app.oauth_pending_url.clone(), "Link copied to clipboard")
-                }
+                input::OauthCopyTarget::Url | input::OauthCopyTarget::Selected => (
+                    app.provider_editor.oauth_pending_url.clone(),
+                    "Link copied to clipboard",
+                ),
             };
             if !text.is_empty() {
                 clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-                app.copy_toast_message = label.to_string();
-                app.copy_toast_failed = false;
-                app.copy_toast_until =
+                app.surfaces.copy_toast_message = label.to_string();
+                app.surfaces.copy_toast_failed = false;
+                app.surfaces.copy_toast_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
             }
             Some(ActionFlow::Handled)
@@ -192,10 +220,10 @@ pub(super) fn handle_provider_action(
                 Some(DialogKind::Connections | DialogKind::Models)
             ) {
                 app.set_picker_search(false);
-                app.input.clear();
+                app.composer.input.clear();
                 app.set_cursor(0);
-                app.input_scroll = 0;
-                app.suggestion_index = None;
+                app.composer.input_scroll = 0;
+                app.composer.suggestion_index = None;
                 app.reset_picker_nav();
             }
             Some(ActionFlow::Handled)
@@ -234,39 +262,39 @@ pub(super) fn handle_provider_action(
             Some(ActionFlow::Handled)
         }
         InputAction::ModelEditorNextField => {
-            if app.editor_model_settings_only {
-                let has_overrides = app.editor_model_settings_only;
-                match app.editor_field {
-                    1 if app.editor_thinking_available => {
-                        app.editor_effort = app.input.clone();
-                        app.input.clear();
+            if app.provider_editor.editor_model_settings_only {
+                let has_overrides = app.provider_editor.editor_model_settings_only;
+                match app.provider_editor.editor_field {
+                    1 if app.provider_editor.editor_thinking_available => {
+                        app.provider_editor.editor_effort = app.composer.input.clone();
+                        app.composer.input.clear();
                         app.set_cursor(0);
-                        app.editor_field = 2;
+                        app.provider_editor.editor_field = 2;
                     }
-                    2 if app.editor_thinking_available => {
-                        app.input = app.editor_effort.clone();
+                    2 if app.provider_editor.editor_thinking_available => {
+                        app.composer.input = app.provider_editor.editor_effort.clone();
                         app.set_cursor_end();
                         if has_overrides {
-                            app.editor_field = 3;
+                            app.provider_editor.editor_field = 3;
                         } else {
-                            app.editor_field = 1;
+                            app.provider_editor.editor_field = 1;
                         }
                     }
                     3 => {
-                        app.editor_field = 4;
+                        app.provider_editor.editor_field = 4;
                     }
                     4 => {
-                        app.input = app.editor_effort.clone();
+                        app.composer.input = app.provider_editor.editor_effort.clone();
                         app.set_cursor_end();
-                        app.editor_field = 1;
+                        app.provider_editor.editor_field = 1;
                     }
                     _ => {
-                        app.input = app.editor_effort.clone();
+                        app.composer.input = app.provider_editor.editor_effort.clone();
                         app.set_cursor_end();
                         if has_overrides {
-                            app.editor_field = 3;
+                            app.provider_editor.editor_field = 3;
                         } else {
-                            app.editor_field = 1;
+                            app.provider_editor.editor_field = 1;
                         }
                     }
                 }
@@ -274,13 +302,13 @@ pub(super) fn handle_provider_action(
             Some(ActionFlow::Handled)
         }
         InputAction::ModelEditorEffortCycle { delta } => {
-            let levels: &[String] = &app.editor_effort_levels;
+            let levels: &[String] = &app.provider_editor.editor_effort_levels;
             if levels.is_empty() {
                 return Some(ActionFlow::NextEvent);
             }
             let cur = levels
                 .iter()
-                .position(|l| l == &app.editor_effort)
+                .position(|l| l == &app.provider_editor.editor_effort)
                 .unwrap_or_else(|| {
                     levels
                         .iter()
@@ -290,31 +318,33 @@ pub(super) fn handle_provider_action(
                 }) as isize;
             let n = levels.len() as isize;
             let next = ((cur + delta as isize).rem_euclid(n)) as usize;
-            app.editor_effort = levels[next].clone();
-            app.input = app.editor_effort.clone();
+            app.provider_editor.editor_effort = levels[next].clone();
+            app.composer.input = app.provider_editor.editor_effort.clone();
             app.set_cursor_end();
             Some(ActionFlow::Handled)
         }
         InputAction::ModelEditorEffortJump { index } => {
-            if let Some(level) = app.editor_effort_levels.get(index).cloned() {
-                app.editor_effort = level;
-                app.input = app.editor_effort.clone();
+            if let Some(level) = app.provider_editor.editor_effort_levels.get(index).cloned() {
+                app.provider_editor.editor_effort = level;
+                app.composer.input = app.provider_editor.editor_effort.clone();
                 app.set_cursor_end();
             }
             Some(ActionFlow::Handled)
         }
         InputAction::ModelEditorThinkingToggle => {
-            if app.editor_thinking_available {
-                app.editor_thinking = !app.editor_thinking;
+            if app.provider_editor.editor_thinking_available {
+                app.provider_editor.editor_thinking = !app.provider_editor.editor_thinking;
             }
             Some(ActionFlow::Handled)
         }
         InputAction::ModelEditorVisionCycle => {
-            app.editor_vision_override = cycle_tri_state(app.editor_vision_override);
+            app.provider_editor.editor_vision_override =
+                cycle_tri_state(app.provider_editor.editor_vision_override);
             Some(ActionFlow::Handled)
         }
         InputAction::ModelEditorToolCycle => {
-            app.editor_tool_override = cycle_tri_state(app.editor_tool_override);
+            app.provider_editor.editor_tool_override =
+                cycle_tri_state(app.provider_editor.editor_tool_override);
             Some(ActionFlow::Handled)
         }
         InputAction::SubmitModelEditor => Some(modals::handle_submit_model_editor(app)),

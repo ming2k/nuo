@@ -54,6 +54,7 @@ impl Agent {
                         // presentation). The guard is dropped before the
                         // await so the future stays `Send`.
                         let observer = agent
+                            .control
                             .title_established
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())

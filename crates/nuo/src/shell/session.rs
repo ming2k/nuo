@@ -60,7 +60,7 @@ pub struct SceneKeys {
     pub completion_dismissed: bool,
     /// Whether the composer still holds text a completion menu could anchor
     /// to — a partial `/command` or an `@mention` under the caret. Together
-    /// with [`Self::completion_dismissed`] it decides whether Tab can bring
+    /// with `Self::completion_dismissed` it decides whether Tab can bring
     /// a dismissed popup back: re-opening makes sense only when the trigger
     /// text survived.
     pub has_trigger_text: bool,
@@ -98,7 +98,7 @@ pub struct SceneKeys {
     pub composer_text_width: usize,
     /// Whether the subagent the Subagent scene is focused on (the top of the
     /// focus stack) currently has a live round. Scene-local, exactly like the
-    /// side view's [`Self::is_responding`]: the Subagent scene owns its own
+    /// side view's `Self::is_responding`: the Subagent scene owns its own
     /// `Esc` interrupt, and it must NOT read the primary's
     /// `is_responding` (which would advertise an interrupt for an
     /// already-finished child whenever the parent round still runs).

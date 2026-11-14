@@ -1,7 +1,10 @@
 use super::*;
 
 fn catalog() -> CommandCatalog {
-    crate::composition::startup::command_catalog(&[("/project-check".into(), "Check project".into())])
+    crate::composition::startup::command_catalog(&[(
+        "/project-check".into(),
+        "Check project".into(),
+    )])
 }
 
 #[tokio::test]

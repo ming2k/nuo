@@ -66,7 +66,7 @@ fn a_lost_link_is_disclosed_and_never_quits_the_client() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    assert!(!app.link_down, "fixture starts with a live link");
+    assert!(!app.link.link_down, "fixture starts with a live link");
     let notices_before = app.notice_log().len();
 
     let repainted = crate::shell::event_loop::apply::apply(
@@ -79,18 +79,20 @@ fn a_lost_link_is_disclosed_and_never_quits_the_client() {
 
     assert!(repainted, "a lost link changes what the chrome must show");
     assert!(
-        app.link_down,
+        app.link.link_down,
         "the dead link must latch, so the activity bar states it instead of \
          painting a live-looking chrome over a closed socket"
     );
     assert!(
-        app.relink_requested,
+        app.link.relink_requested,
         "the attach loop must be asked to re-dial: a latched `link_down` on its \
          own is a dead end — the chrome says the link is gone and nothing can \
          ever restore it without the operator restarting the client"
     );
     assert!(
-        !app.should_quit.load(std::sync::atomic::Ordering::SeqCst),
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst),
         "a lost link must never quit the client: the session is still hosted \
          and the operator did not ask to leave"
     );
@@ -126,11 +128,13 @@ fn a_server_exit_instruction_still_quits() {
     crate::shell::event_loop::apply::apply(&mut app, &runtime, AppMutation::Quit);
 
     assert!(
-        app.should_quit.load(std::sync::atomic::Ordering::SeqCst),
+        app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst),
         "`/exit`, a killed thread, or a server drain must still end the client"
     );
     assert!(
-        !app.link_down,
+        !app.link.link_down,
         "an instructed exit is not a fault and must not be reported as one"
     );
 }
@@ -146,10 +150,10 @@ fn a_server_exit_does_not_request_a_relink() {
     crate::shell::event_loop::apply::apply(&mut app, &runtime, AppMutation::Quit);
 
     assert!(
-        !app.relink_requested,
+        !app.link.relink_requested,
         "an instructed exit ends the session; re-dialing would fight the server"
     );
-    assert!(!app.link_down, "an instructed exit is not a fault");
+    assert!(!app.link.link_down, "an instructed exit is not a fault");
 }
 
 /// The disclosure must carry the *real* transport error, not a canned string.
@@ -188,15 +192,15 @@ fn the_link_loss_disclosure_repeats_the_transport_error() {
 fn failed_outbox_send_requests_relink_and_records_notice() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
-    assert!(!app.link_down);
-    assert!(!app.relink_requested);
+    assert!(!app.link.link_down);
+    assert!(!app.link.relink_requested);
     let notices_before = app.notice_log().len();
 
     let delivered = app.send_intent(AgentRequest::Interrupt);
     assert!(!delivered, "send to dropped receiver must fail");
-    assert!(app.link_down, "link_down must latch on send failure");
+    assert!(app.link.link_down, "link_down must latch on send failure");
     assert!(
-        app.relink_requested,
+        app.link.relink_requested,
         "relink_requested must be set so runner can auto-relink"
     );
     assert_eq!(

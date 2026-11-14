@@ -86,7 +86,7 @@ impl ClientTopic {
 /// One structural disclosure the client produces.
 ///
 /// Every variant owns its severity and topic; the wording lives in
-/// [`Self::render`] so "what does the client say when the link dies?" has one
+/// `Self::render` so "what does the client say when the link dies?" has one
 /// answer. Dynamic detail is carried as typed data, never pre-formatted at the
 /// call site.
 #[derive(Debug, Clone, PartialEq, Eq)]

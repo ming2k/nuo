@@ -25,14 +25,13 @@ use nuo_persistence::connections::Connection;
 use nuo_persistence::connections::Connections;
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
+use nuo_protocol::RemoteCatalogSource;
 use nuo_protocol::model::CapabilityOverrides;
 use nuo_protocol::{
     ConnectionFilterPolicy, NamedFilterPolicy, ProviderDialect, SecretString, WireProtocol,
 };
 use nuo_provider::catalog::{Channel, ProviderEntry, Transport};
 use nuo_provider::{CredentialHost, model_provider_spec};
-use nuo_protocol::{RemoteCatalogSource};
-
 
 /// Everything a derivation reads. Borrowed, never lifted from disk here.
 pub struct DerivationInputs<'a> {

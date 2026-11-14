@@ -13,9 +13,9 @@ mod tests;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
 
-use crate::runtime::mcp::McpRuntime;
-use crate::handlers::slash_handler::SlashCommandRegistry;
 use crate::composition::startup::ThreadStart;
+use crate::handlers::slash_handler::SlashCommandRegistry;
+use crate::runtime::mcp::McpRuntime;
 use nuo_engine::cognition::skills::SkillRegistry;
 use nuo_engine::{Agent, RoundLifecycle};
 use nuo_persistence::{

@@ -11,7 +11,6 @@ use nuo_protocol::surface::{CatalogShape, RemoteCatalogSource};
 use nuo_provider::effort_ladders;
 use nuo_provider::spec::{ModelProviderSpec, PromptCachePolicy};
 
-
 /// Per-model `max_tokens` for the Anthropic `/messages` surface. The Messages
 /// API requires `max_tokens`; capping the response at the model's registered
 /// output limit (rather than a flat 8192) lets long agent turns from

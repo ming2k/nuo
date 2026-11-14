@@ -91,6 +91,10 @@ pub(crate) fn grid_rows(grid: &nuotc::CellGrid) -> Vec<String> {
         .collect()
 }
 
+use crate::shell::app::state::{
+    ComposerState, HumanState, LinkState, ProviderEditorState, SessionState, SurfacesState,
+    TelemetryState, TranscriptState,
+};
 use nuo_protocol::{AgentRequest, AgentResponse, LoopStatus, ProviderPickerSnapshot, RoundEvent};
 
 use nuo_tool::{Message, Role};
@@ -355,36 +359,8 @@ pub(crate) fn stream_discard_edit(
     }
 }
 
-pub(crate) async fn run_tui_with_input(
-    terminal: &mut Terminal<io::Stdout>,
-    tx: mpsc::UnboundedSender<AgentRequest>,
-    rx: mpsc::UnboundedReceiver<AgentResponse>,
-    link_lost: crate::shell::client::LinkLostMarker,
-    config: TuiLaunchConfig,
-    input: &mut event_loop::input_reader::InputSource,
-) -> Result<TuiOutcome, Box<dyn Error>> {
-    let TuiLaunchConfig {
-        initial_provider,
-        initial_model,
-        input_history,
-        initial_messages,
-        initial_commands,
-        initial_round_count,
-        command_catalog,
-        initial_round_interrupts,
-        tui_config,
-        input_history_config,
-        session,
-        token_ledger,
-        startup_overlay,
-        initial_tabs,
-        initial_tab_history,
-        startup_notices,
-        initial_phase,
-        initial_prompt,
-    } = config;
-    let session_phase_init = initial_phase.clone();
-    let initial_pending_prompts: Vec<nuo_protocol::AgentRequest> = initial_prompt
+fn pending_prompts(initial_prompt: Option<String>) -> Vec<nuo_protocol::AgentRequest> {
+    initial_prompt
         .map(|text| {
             vec![nuo_protocol::AgentRequest::Prompt {
                 text,
@@ -392,16 +368,42 @@ pub(crate) async fn run_tui_with_input(
                 sent_at_ms: None,
             }]
         })
-        .unwrap_or_default();
-    let profile = terminal::detect_terminal_profile();
-    let tui_config = Arc::new(tui_config);
-    let mut restored = transcript_messages_from_core(initial_messages, &tui_config);
+        .unwrap_or_default()
+}
+
+fn restore_transcript(
+    initial_messages: Vec<Message>,
+    initial_commands: Vec<nuo_protocol::CommandRecord>,
+    initial_round_interrupts: Vec<nuo_protocol::RoundInterrupt>,
+    initial_round_count: u64,
+    tui_config: &config::TuiConfig,
+) -> Vec<nuo_view::model::document::TranscriptMessage> {
+    let mut restored = transcript_messages_from_core(initial_messages, tui_config);
     restored = merge_command_rows(restored, transcript_commands_from_ledger(initial_commands));
     restored = merge_round_interrupt_rows(
         restored,
         transcript_interrupts_from_records(initial_round_interrupts),
     );
     rebase_transcript_rounds(&mut restored, initial_round_count);
+    restored
+}
+
+async fn start_ui_runtime(
+    tui_config: config::TuiConfig,
+    session: &crate::shell::HookStartSource,
+    rx: mpsc::UnboundedReceiver<AgentResponse>,
+    link_lost: crate::shell::client::LinkLostMarker,
+    initial_provider: &str,
+    initial_model: &str,
+    initial_round_count: u64,
+) -> (
+    Arc<config::TuiConfig>,
+    event_loop::UiRuntime,
+    String,
+    Arc<AtomicBool>,
+    tokio::sync::mpsc::Receiver<event_loop::AppMutation>,
+) {
+    let tui_config = Arc::new(tui_config);
     // M1: the response translator and the monitor client own **no**
     // application state. They consume wire frames and produce typed
     // `AppMutation`s onto a bounded channel; the event loop — the sole
@@ -438,7 +440,6 @@ pub(crate) async fn run_tui_with_input(
         mutations,
     };
 
-    // Spawn stream translators (M1).
     event_loop::translators::spawn_monitor_translator(&runtime);
     event_loop::translators::spawn_response_translator(
         event_loop::translators::ResponseTranslatorConfig {
@@ -446,300 +447,418 @@ pub(crate) async fn run_tui_with_input(
             runtime: runtime.clone(),
             link_lost,
             tui_config: tui_config.clone(),
-            initial_provider: initial_provider.clone(),
-            initial_model: initial_model.clone(),
+            initial_provider: initial_provider.to_string(),
+            initial_model: initial_model.to_string(),
             initial_round_count,
             live_session: live_session_init.clone(),
         },
     );
 
-    let mut app = App {
-        pending_fold_copy: None,
-        command_log: None,
-        command_log_scroll: 0,
-        logs: nuo_view::model::log::SurfaceLogs::new(),
-        last_submit_ms: None,
-        surface_store: crate::shell::surfaces::SurfaceStore::new(),
-        dev_toast_pinned: std::env::var("NUO_DEV_TOAST")
-            .map(|v| !v.is_empty() && v != "0")
-            .unwrap_or(false),
-        surfaces: match startup_overlay {
-            StartupOverlay::SessionsPicker => crate::shell::surfaces::SurfaceRouter::with_dialog(
-                crate::shell::surfaces::DialogKind::Sessions,
-            ),
-            StartupOverlay::Settings { .. } => crate::shell::surfaces::SurfaceRouter::with_scene(
-                crate::shell::surfaces::SceneKind::Settings,
-            ),
-            _ => crate::shell::surfaces::SurfaceRouter::new(),
-        },
-        queue_exit_session: None,
-        recent_commands: Vec::new(),
-        input: String::new(),
-        messages: restored,
-        layout_height_cache: Default::default(),
-        session_chrome: std::collections::HashMap::new(),
-        session_tree: nuo_protocol::ThreadTree::default(),
-        scroll: 0,
-        follow_bottom: true,
-        content_lines: 0,
-        view_height: 0,
-        max_scroll: 0,
-        sticky_step: None,
-        token_ledger,
-        token_report: None,
-        context_tokens: None,
-        usage_stats: None,
-        usage_loading: false,
-        usage_scroll: 0,
-        provider_quotas: None,
-        connection_usages: std::collections::HashMap::new(),
-        modal_body_height: 0,
-        sticky_summary_line: None,
-        pin_summary_line: None,
-        scroll_settle_pending: false,
-        focus_stack: Vec::new(),
-        tx: tx.clone(),
+    (
+        tui_config,
+        runtime,
+        live_session_init,
         should_quit,
-        live_session_id: live_session_init.clone(),
-        pending_permissions: std::collections::VecDeque::new(),
-        pending_questions: std::collections::VecDeque::new(),
-        pending_inputs: std::collections::VecDeque::new(),
-        subagent_permission_parent: HashMap::new(),
-        subagent_question_parent: HashMap::new(),
-        workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
-        context_tokens_by_session: HashMap::new(),
-        open_sessions_signal: false,
-        open_tree_signal: false,
-        transcript_changed_pending: false,
-        reasoning_default_expanded: crate::shell::config::reasoning_default_expanded(&tui_config),
-        backend_completion_signal: None,
-        tui_config: (*tui_config).clone(),
-        suggestion_index: None,
-        completion_dismissed: false,
-        command_catalog,
-        backend_completions: Vec::new(),
-        completion_response_input: None,
-        completion_response_cursor: 0,
-        completion_requested: None,
-        completion_request_id: 0,
-        cursor_position: 0,
-        caret_motion: crate::shell::composer_grid::CaretMotion::default(),
-        input_scroll: 0,
-        input_scroll_follow_cursor: true,
-        input_drag_scroll: None,
-        modal_index: 0,
-        last_key_press: std::time::Instant::now(),
-        session_detail: None,
-        connection_detail: None,
-        config_scroll: 0,
-        config_focus: crate::shell::overlays::ConfigFocus::Categories,
-        config_category: match startup_overlay {
-            StartupOverlay::Settings {
-                category: Some(cat),
-            } => cat.min(
-                crate::shell::views::ConfigCategory::ALL
-                    .len()
-                    .saturating_sub(1),
+        mutation_rx,
+    )
+}
+
+/// Every captured launch input the initial [`App`] literal reads.
+///
+/// Grouped so [`build_app`] stays a pure constructor: the orchestrator decides
+/// what the boot *is*, the helper decides how it is wired into sub-states.
+struct AppBoot<'a> {
+    live_session_init: &'a String,
+    initial_provider: String,
+    initial_model: String,
+    session_phase_init: nuo_protocol::ThreadPhase,
+    restored: Vec<TranscriptMessage>,
+    tui_config: Arc<config::TuiConfig>,
+    command_catalog: nuo_tool::CommandCatalog,
+    initial_pending_prompts: Vec<nuo_protocol::AgentRequest>,
+    input_history: Vec<nuo_protocol::HistoryEntry>,
+    input_history_config: config::InputHistoryConfig,
+    startup_overlay: StartupOverlay,
+    profile: nuotc::TerminalProfile,
+    token_ledger: Option<Arc<nuo_protocol::TokenSourceLedger>>,
+    tx: mpsc::UnboundedSender<AgentRequest>,
+    should_quit: Arc<AtomicBool>,
+}
+
+/// Build the initial [`App`] from a captured [`AppBoot`].
+///
+/// The literal is kept whole (rather than spread across per-sub-state
+/// constructors) so the initial values and their order stay auditable in one
+/// place; [`run_tui_with_input`] remains startup/teardown orchestration.
+fn build_app(boot: AppBoot<'_>) -> App {
+    App {
+        session: SessionState {
+            queue_exit_session: None,
+            session_chrome: std::collections::HashMap::new(),
+            session_tree: nuo_protocol::ThreadTree::default(),
+            live_session_id: boot.live_session_init.clone(),
+            workspace_security: nuo_protocol::WorkspaceSecuritySnapshot::default(),
+            tui_config: (*boot.tui_config).clone(),
+            session_detail: None,
+            current_provider: boot.initial_provider,
+            current_model: boot.initial_model,
+            cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+            current_session_id: "test-session".to_string(),
+            session_phase: boot.session_phase_init.clone(),
+            switching_session: (boot.session_phase_init != nuo_protocol::ThreadPhase::Ready)
+                .then(|| boot.live_session_init.clone()),
+            current_workspace: String::new(),
+            current_role: None,
+            session_context: None,
+            loop_status: LoopStatus::Idle,
+            harness_retry_pending: false,
+            phase: None,
+            provider_retry: None,
+            persistence_health: None,
+            unattended: false,
+            confined: true,
+            round_count: 0,
+            current_turn: 0,
+            round_started_at: None,
+            sessions_overview: Vec::new(),
+            host_sessions: Vec::new(),
+            queue_blocked_sessions: std::collections::HashSet::new(),
+            running_sessions: std::collections::HashSet::new(),
+        },
+        transcript: TranscriptState {
+            command_log: None,
+            logs: nuo_view::model::log::SurfaceLogs::new(),
+            messages: boot.restored,
+            layout_height_cache: Default::default(),
+            scroll: 0,
+            follow_bottom: true,
+            content_lines: 0,
+            view_height: 0,
+            max_scroll: 0,
+            sticky_step: None,
+            modal_body_height: 0,
+            sticky_summary_line: None,
+            pin_summary_line: None,
+            scroll_settle_pending: false,
+            focus_stack: Vec::new(),
+            transcript_changed_pending: false,
+            reasoning_default_expanded: crate::shell::config::reasoning_default_expanded(
+                &boot.tui_config,
             ),
-            _ => 0,
+            host_console_log: Vec::new(),
+            selection: SelectionState::None,
+            drag: SelectionDrag::default(),
+            ui: crate::shell::ui::ComponentTree::new(),
+            hovered_step: None,
+            focus: Focus::composer(),
+            transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
+            expand_auto_scroll: boot.tui_config.expand_auto_scroll,
+            spinner_epoch: std::time::Instant::now(),
+            carousel_epoch: std::time::Instant::now(),
         },
-        config_detail_index: 0,
-        config_hover_index: None,
+        composer: ComposerState {
+            last_submit_ms: None,
+            recent_commands: Vec::new(),
+            input: String::new(),
+            backend_completion_signal: None,
+            suggestion_index: None,
+            completion_dismissed: false,
+            command_catalog: boot.command_catalog,
+            backend_completions: Vec::new(),
+            completion_response_input: None,
+            completion_response_cursor: 0,
+            completion_requested: None,
+            completion_request_id: 0,
+            cursor_position: 0,
+            caret_motion: crate::shell::composer_grid::CaretMotion::default(),
+            input_scroll: 0,
+            input_scroll_follow_cursor: true,
+            input_drag_scroll: None,
+            pending_prompts: boot.initial_pending_prompts,
+            input_history: if boot.input_history_config.record_commands {
+                boot.input_history
+            } else {
+                // `[input_history] record_commands = false` (default): scrub any
+                // legacy `/slash` invocations from the loaded history so they stop
+                // showing in the picker, and — since this list is what gets
+                // `save_history`d on exit — the on-disk file heals itself too.
+                boot.input_history
+                    .into_iter()
+                    .filter(|e| !e.text.starts_with('/'))
+                    .collect()
+            },
+            history_index: None,
+            draft_capsule: nuo_view::composer_mode::DraftCapsule::default(),
+            history_attachments: std::collections::HashMap::new(),
+            history_attachments_order: std::collections::VecDeque::new(),
+            session_history_backfill: Vec::new(),
+            session_history_backfill_cursor: 0,
+            input_history_dedup: boot.input_history_config.dedup,
+            input_history_record_commands: boot.input_history_config.record_commands,
+            input_history_persist: true,
+            pending_images: Vec::new(),
+            pending_text_pastes: Vec::new(),
+            pending_dispatch: std::collections::VecDeque::new(),
+            composer_send_mode: crate::shell::app::ComposerSendMode::default(),
+            suppress_steer_restore: std::collections::HashSet::new(),
+            injection_stashed_input: String::new(),
+        },
+        human: HumanState {
+            pending_permissions: std::collections::VecDeque::new(),
+            pending_questions: std::collections::VecDeque::new(),
+            pending_inputs: std::collections::VecDeque::new(),
+            subagent_permission_parent: HashMap::new(),
+            subagent_question_parent: HashMap::new(),
+            pending_permission: None,
+            active_sheet: None,
+            pending_permission_depth: 0,
+            pending_question_depth: 0,
+            pending_input: None,
+            question: None,
+            question_scroll: 0,
+            question_modal_follow: true,
+            permission_confirm_always: false,
+            permission_show_details: false,
+            permission_scroll: 0,
+            permission_max_scroll: 0,
+        },
+        surfaces: SurfacesState {
+            pending_fold_copy: None,
+            command_log_scroll: 0,
+            surface_store: crate::shell::surfaces::SurfaceStore::new(),
+            dev_toast_pinned: std::env::var("NUO_DEV_TOAST")
+                .map(|v| !v.is_empty() && v != "0")
+                .unwrap_or(false),
+            surfaces: match boot.startup_overlay {
+                StartupOverlay::SessionsPicker => {
+                    crate::shell::surfaces::SurfaceRouter::with_dialog(
+                        crate::shell::surfaces::DialogKind::Sessions,
+                    )
+                }
+                StartupOverlay::Settings { .. } => {
+                    crate::shell::surfaces::SurfaceRouter::with_scene(
+                        crate::shell::surfaces::SceneKind::Settings,
+                    )
+                }
+                _ => crate::shell::surfaces::SurfaceRouter::new(),
+            },
+            modal_index: 0,
+            connection_detail: None,
+            config_scroll: 0,
+            config_focus: crate::shell::overlays::ConfigFocus::Categories,
+            config_category: match boot.startup_overlay {
+                StartupOverlay::Settings {
+                    category: Some(cat),
+                } => cat.min(
+                    crate::shell::views::ConfigCategory::ALL
+                        .len()
+                        .saturating_sub(1),
+                ),
+                _ => 0,
+            },
+            config_detail_index: 0,
+            config_hover_index: None,
+            config_detail_scroll: 0,
+            websearch_config: None,
+            config_dropdown: None,
+            config_selected_rect: None,
+            pre_attach: pre_attach_initial(),
+            dashboard_filter: String::new(),
+            dashboard_filtering: false,
+            dashboard_view_usage: false,
+            host_scroll: 0,
+            host_modal_follow: true,
+            host_focus: crate::shell::overlays::DashboardFocus::Detail,
+            host_detail_scroll: 0,
+            host_preview: None,
+            host_preview_scroll: 0,
+            host_prompting: false,
+            host_prompt_new: false,
+            host_kill_confirm: None,
+            host_kill_confirm_id: None,
+            switch_to_target: None,
+            pending_help_action: None,
+            switch_to_new: false,
+            switch_to_new_prompt: None,
+            switch_to_prompt: None,
+            startup_overlay: boot.startup_overlay,
+            color_scheme: Theme::normalize_color_scheme(&boot.tui_config.color_scheme).to_string(),
+            custom_color_scheme: boot.tui_config.custom_color_scheme.clone(),
+            click_outside_dismiss: boot.tui_config.click_outside_dismiss,
+            key_overrides: boot.tui_config.global_key_overrides(),
+            surface_overrides: boot.tui_config.surface_key_overrides(),
+            copy_toast_until: None,
+            copy_toast_message: String::new(),
+            copy_toast_failed: false,
+            notice_toast_until: None,
+            notice_toast_message: String::new(),
+            notice_toast_topic: String::new(),
+            notice_toast_severity: nuo_view::model::document::NoticeSeverity::Info,
+            ctrl_c_armed_until: None,
+            esc_armed_until: None,
+            pending_provider_delete: None,
+            provider_delete_focus: ProviderDeleteChoice::default(),
+            key_status: HashMap::new(),
+            provider_picker: ProviderPickerSnapshot::default(),
+            theme: crate::shell::config::resolve_theme_with_profile(
+                &boot.tui_config.color_scheme,
+                &boot.tui_config.custom_color_scheme,
+                None,
+                &boot.profile,
+            ),
+            profile: boot.profile,
+            logo: load_user_logo(),
+        },
+        provider_editor: ProviderEditorState {
+            editor_target: None,
+            editor_field: 0,
+            editor_key: String::new(),
+            editor_model: String::new(),
+            editor_model_settings_only: false,
+            editor_target_is_builtin: false,
+            editor_effort: "high".to_string(),
+            editor_effort_levels: Vec::new(),
+            editor_thinking_available: false,
+            editor_thinking: true,
+            editor_vision_override: None,
+            editor_tool_override: None,
+            custom_field: 0,
+            custom_fields: Vec::new(),
+            custom_protocol_wire: String::new(),
+            custom_budget: nuo_protocol::ConnectionBudget::default(),
+            custom_models: Vec::new(),
+            custom_url_hint: String::new(),
+            custom_user_agent: None,
+            custom_auth: nuo_protocol::ConnectionAuth::Static,
+            custom_provider_id: None,
+            awaiting_oauth_add: false,
+            oauth_pending_message: String::new(),
+            oauth_pending_url: String::new(),
+            oauth_pending_user_code: String::new(),
+            oauth_pending_error: None,
+            oauth_selected_item: 0,
+            oauth_scroll: 0,
+            custom_scroll: 0,
+            custom_edit_id: None,
+            custom_name: String::new(),
+            custom_base_url: String::new(),
+            custom_token: String::new(),
+            custom_model: String::new(),
+            preset_choice: 0,
+            preset_scroll: 0,
+        },
+        telemetry: TelemetryState {
+            token_ledger: boot.token_ledger,
+            token_report: None,
+            context_tokens: None,
+            usage_stats: None,
+            usage_loading: false,
+            usage_scroll: 0,
+            provider_quotas: None,
+            connection_usages: std::collections::HashMap::new(),
+            context_tokens_by_session: HashMap::new(),
+        },
+        link: LinkState {
+            tx: boot.tx.clone(),
+            should_quit: boot.should_quit,
+            open_sessions_signal: false,
+            open_tree_signal: false,
+            last_key_press: std::time::Instant::now(),
+            link_down: false,
+            relink_requested: false,
+            background_tasks: Vec::new(),
+        },
+    }
+}
 
-        config_detail_scroll: 0,
-        websearch_config: None,
-        config_dropdown: None,
-        config_selected_rect: None,
-        current_provider: initial_provider,
-        current_model: initial_model,
-        cwd: std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")),
-        current_session_id: "test-session".to_string(),
-        session_phase: session_phase_init.clone(),
-        pending_prompts: initial_pending_prompts,
-        switching_session: (session_phase_init != nuo_protocol::ThreadPhase::Ready)
-            .then(|| live_session_init.clone()),
-        current_workspace: String::new(),
-        current_role: None,
-        session_context: None,
-        loop_status: LoopStatus::Idle,
-        harness_retry_pending: false,
-        phase: None,
-        provider_retry: None,
-        persistence_health: None,
-        link_down: false,
-        relink_requested: false,
-        unattended: false,
-        confined: true,
-        round_count: 0,
-        current_turn: 0,
-        round_started_at: None,
-        pending_permission: None,
-        active_sheet: None,
-        pending_permission_depth: 0,
-        // `NUO_FORCE_PRE_ATTACH=1` force-mounts the
-        // PreAttach interstitial at startup so operators can verify
-        // the surface — wording, highlight, navigation, transition —
-        // without preparing a quarantined workspace. Resolved to
-        // `None` later in this function based on the resolved startup
-        // intent; this initializer is the no-forcing default.
-        pre_attach: pre_attach_initial(),
-        pending_question_depth: 0,
-        pending_input: None,
-        question: None,
-        question_scroll: 0,
-        question_modal_follow: true,
-        sessions_overview: Vec::new(),
-        host_sessions: Vec::new(),
-        dashboard_filter: String::new(),
-        dashboard_filtering: false,
-        dashboard_view_usage: false,
-        host_scroll: 0,
-        host_modal_follow: true,
-        host_focus: crate::shell::overlays::DashboardFocus::Detail,
-        host_detail_scroll: 0,
-        host_preview: None,
-        host_preview_scroll: 0,
-        host_prompting: false,
-        host_prompt_new: false,
-        host_console_log: Vec::new(),
-        host_kill_confirm: None,
-        host_kill_confirm_id: None,
-        switch_to_target: None,
-        pending_help_action: None,
-        switch_to_new: false,
-        switch_to_new_prompt: None,
-        switch_to_prompt: None,
+pub(crate) async fn run_tui_with_input(
+    terminal: &mut Terminal<io::Stdout>,
+    tx: mpsc::UnboundedSender<AgentRequest>,
+    rx: mpsc::UnboundedReceiver<AgentResponse>,
+    link_lost: crate::shell::client::LinkLostMarker,
+    config: TuiLaunchConfig,
+    input: &mut event_loop::input_reader::InputSource,
+) -> Result<TuiOutcome, Box<dyn Error>> {
+    let TuiLaunchConfig {
+        initial_provider,
+        initial_model,
+        input_history,
+        initial_messages,
+        initial_commands,
+        initial_round_count,
+        command_catalog,
+        initial_round_interrupts,
+        tui_config,
+        input_history_config,
+        session,
+        token_ledger,
         startup_overlay,
-        permission_confirm_always: false,
-        permission_show_details: false,
-        permission_scroll: 0,
-        permission_max_scroll: 0,
-        input_history: if input_history_config.record_commands {
-            input_history
-        } else {
-            // `[input_history] record_commands = false` (default): scrub any
-            // legacy `/slash` invocations from the loaded history so they stop
-            // showing in the picker, and — since this list is what gets
-            // `save_history`d on exit — the on-disk file heals itself too.
-            input_history
-                .into_iter()
-                .filter(|e| !e.text.starts_with('/'))
-                .collect()
-        },
-        history_index: None,
-        draft_capsule: nuo_view::composer_mode::DraftCapsule::default(),
-        history_attachments: std::collections::HashMap::new(),
-        history_attachments_order: std::collections::VecDeque::new(),
-        session_history_backfill: Vec::new(),
-        session_history_backfill_cursor: 0,
-        input_history_dedup: input_history_config.dedup,
-        input_history_record_commands: input_history_config.record_commands,
-        // This is the production TUI path (see `main` → `run_tui`): the
-        // process owns the user's real database, so SQLite persistence
-        // is enabled. Tests build `App` directly and keep this `false` so
-        // they never write to (or truncate) the user's state directory.
-        input_history_persist: true,
-        pending_images: Vec::new(),
-        pending_text_pastes: Vec::new(),
-        pending_dispatch: std::collections::VecDeque::new(),
-        composer_send_mode: crate::shell::app::ComposerSendMode::default(),
-        queue_blocked_sessions: std::collections::HashSet::new(),
-        suppress_steer_restore: std::collections::HashSet::new(),
-        running_sessions: std::collections::HashSet::new(),
-        selection: SelectionState::None,
-        drag: SelectionDrag::default(),
-        ui: crate::shell::ui::ComponentTree::new(),
-        hovered_step: None,
-        focus: Focus::composer(),
-        transcript_layout: crate::shell::render::layout::Strategy::TurnBand,
-        color_scheme: Theme::normalize_color_scheme(&tui_config.color_scheme).to_string(),
-        custom_color_scheme: tui_config.custom_color_scheme.clone(),
+        initial_tabs,
+        initial_tab_history,
+        startup_notices,
+        initial_phase,
+        initial_prompt,
+    } = config;
+    let session_phase_init = initial_phase.clone();
+    let initial_pending_prompts = pending_prompts(initial_prompt);
+    let profile = terminal::detect_terminal_profile();
+    let restored = restore_transcript(
+        initial_messages,
+        initial_commands,
+        initial_round_interrupts,
+        initial_round_count,
+        &tui_config,
+    );
+    let (tui_config, runtime, live_session_init, should_quit, mutation_rx) = start_ui_runtime(
+        tui_config,
+        &session,
+        rx,
+        link_lost,
+        &initial_provider,
+        &initial_model,
+        initial_round_count,
+    )
+    .await;
 
-        click_outside_dismiss: tui_config.click_outside_dismiss,
-        expand_auto_scroll: tui_config.expand_auto_scroll,
-        key_overrides: tui_config.global_key_overrides(),
-        surface_overrides: tui_config.surface_key_overrides(),
-        copy_toast_until: None,
-        copy_toast_message: String::new(),
-        copy_toast_failed: false,
-        notice_toast_until: None,
-        notice_toast_message: String::new(),
-        notice_toast_topic: String::new(),
-        notice_toast_severity: nuo_view::model::document::NoticeSeverity::Info,
-        ctrl_c_armed_until: None,
-        esc_armed_until: None,
-        spinner_epoch: std::time::Instant::now(),
-        carousel_epoch: std::time::Instant::now(),
-        injection_stashed_input: String::new(),
-        editor_target: None,
-        editor_field: 0,
-        editor_key: String::new(),
-        editor_model: String::new(),
-        editor_model_settings_only: false,
-        editor_target_is_builtin: false,
-        editor_effort: "high".to_string(),
-        editor_effort_levels: Vec::new(),
-        editor_thinking_available: false,
-        editor_thinking: true,
-        editor_vision_override: None,
-        editor_tool_override: None,
-        custom_field: 0,
-        custom_fields: Vec::new(),
-        custom_protocol_wire: String::new(),
-        custom_budget: nuo_protocol::ConnectionBudget::default(),
-        custom_models: Vec::new(),
-        custom_url_hint: String::new(),
-        custom_user_agent: None,
-        custom_auth: nuo_protocol::ConnectionAuth::Static,
-        custom_provider_id: None,
-        awaiting_oauth_add: false,
-        oauth_pending_message: String::new(),
-        oauth_pending_url: String::new(),
-        oauth_pending_user_code: String::new(),
-        oauth_pending_error: None,
-        oauth_selected_item: 0,
-        oauth_scroll: 0,
-        custom_scroll: 0,
-        custom_edit_id: None,
-        custom_name: String::new(),
-        custom_base_url: String::new(),
-        custom_token: String::new(),
-        custom_model: String::new(),
-        preset_choice: 0,
-        preset_scroll: 0,
-        pending_provider_delete: None,
-        provider_delete_focus: ProviderDeleteChoice::default(),
-        key_status: HashMap::new(),
-        provider_picker: ProviderPickerSnapshot::default(),
-        theme: crate::shell::config::resolve_theme_with_profile(
-            &tui_config.color_scheme,
-            &tui_config.custom_color_scheme,
-            None,
-            &profile,
-        ),
+    let boot = AppBoot {
+        live_session_init: &live_session_init,
+        initial_provider,
+        initial_model,
+        session_phase_init,
+        restored,
+        tui_config,
+        command_catalog,
+        initial_pending_prompts,
+        input_history,
+        input_history_config,
+        startup_overlay,
         profile,
-        logo: load_user_logo(),
-        background_tasks: Vec::new(),
+        token_ledger,
+        tx,
+        should_quit,
     };
+    let mut app = build_app(boot);
 
     // Mount tabs: restore preserved tabs if re-attaching, or mount initial thread tab (ADR-0039, ADR-0058)
     if let Some(tabs) = initial_tabs {
         for tab in tabs {
-            app.surfaces.open_tab(tab);
+            app.surfaces.surfaces.open_tab(tab);
         }
         if let Some(history) = initial_tab_history {
-            app.surfaces.set_tab_mru_history(history);
+            app.surfaces.surfaces.set_tab_mru_history(history);
         }
         if let Some(pos) = app
+            .surfaces
             .surfaces
             .tabs()
             .iter()
             .position(|t| t.thread_id() == Some(live_session_init.as_str()))
         {
-            app.surfaces.select_tab(pos);
+            app.surfaces.surfaces.select_tab(pos);
             app.restore_active_tab_context();
         } else {
             app.surfaces
+                .surfaces
                 .open_tab(crate::shell::surfaces::ClientTab::thread(
                     &live_session_init,
                     None::<String>,
@@ -747,21 +866,25 @@ pub(crate) async fn run_tui_with_input(
         }
     } else {
         app.surfaces
+            .surfaces
             .open_tab(crate::shell::surfaces::ClientTab::thread(
                 &live_session_init,
                 None::<String>,
             ));
         if matches!(startup_overlay, StartupOverlay::Dashboard) {
             app.surfaces
+                .surfaces
                 .open_tab(crate::shell::surfaces::ClientTab::dashboard());
         } else if matches!(startup_overlay, StartupOverlay::Settings { .. }) {
             app.surfaces
+                .surfaces
                 .open_tab(crate::shell::surfaces::ClientTab::settings());
         }
     }
 
     if startup_overlay == StartupOverlay::SessionsPicker {
-        app.surface_store
+        app.surfaces
+            .surface_store
             .open(crate::shell::surfaces::DialogKind::Sessions);
     }
     // Replay the attach loop's pre-mount disclosures (ADR-0123
@@ -811,21 +934,21 @@ pub(crate) async fn run_tui_with_input(
         return Err(err.into());
     }
 
-    let switch = app.switch_to_target.take();
-    let switch_to_new = app.switch_to_new;
-    let switch_to_new_prompt = app.switch_to_new_prompt.take();
-    let switch_to_prompt = app.switch_to_prompt.take();
-    let tabs = Some(app.surfaces.tabs().to_vec());
-    let tab_history = Some(app.surfaces.tab_mru_history().to_vec());
+    let switch = app.surfaces.switch_to_target.take();
+    let switch_to_new = app.surfaces.switch_to_new;
+    let switch_to_new_prompt = app.surfaces.switch_to_new_prompt.take();
+    let switch_to_prompt = app.surfaces.switch_to_prompt.take();
+    let tabs = Some(app.surfaces.surfaces.tabs().to_vec());
+    let tab_history = Some(app.surfaces.surfaces.tab_mru_history().to_vec());
     Ok(TuiOutcome {
-        history: app.input_history,
+        history: app.composer.input_history,
         switch_to: switch,
         switch_to_new,
         switch_to_new_prompt,
         switch_to_prompt,
         tabs,
         tab_history,
-        relink_requested: app.relink_requested,
+        relink_requested: app.link.relink_requested,
     })
 }
 

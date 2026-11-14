@@ -73,6 +73,7 @@ async fn a_component_joining_a_stamped_turn_adopts_its_time() {
     );
 
     let step = app
+        .transcript
         .messages
         .iter()
         .find(|message| message.is_tool_step())
@@ -115,6 +116,7 @@ async fn adoption_is_scoped_to_the_component_own_turn() {
     );
 
     let step = app
+        .transcript
         .messages
         .iter()
         .find(|message| message.is_tool_step())
@@ -156,6 +158,7 @@ async fn an_explicit_stamp_is_never_overwritten() {
     );
 
     let step = app
+        .transcript
         .messages
         .iter()
         .find(|message| message.is_tool_step())
@@ -192,7 +195,7 @@ async fn an_admitted_turn_band_paints_the_turn_time() {
         },
     );
 
-    let grid = render_grid(&app.messages, 72, 16);
+    let grid = render_grid(&app.transcript.messages, 72, 16);
     let header = grid
         .lines()
         .find(|row| row.contains("› turn 1"))

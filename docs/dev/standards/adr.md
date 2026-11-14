@@ -68,7 +68,7 @@ negative_knowledge: true
 
 # NNNN. [Title of Decision]
 
-- Status: Draft | Accepted | Superseded by [ADR-NNNN](NNNN-slug.md) | Rejected
+- Status: Draft | Accepted | Superseded by `ADR-NNNN` (`NNNN-slug.md`) | Rejected
 - Date: YYYY-MM-DD
 - Amends: [Optional links to amended ADRs]
 

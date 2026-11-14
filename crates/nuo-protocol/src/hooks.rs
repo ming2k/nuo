@@ -210,7 +210,10 @@ pub trait Hook: Send + Sync {
     /// Describe the runtime authority required to fire this hook. Hooks that
     /// perform no external action may return `None`; command/network hooks
     /// must submit the same hazard metadata as an equivalent tool call.
-    fn permission_submission(&self, _ctx: &HookContext) -> Option<nuo_tool::ToolPermissionSubmission> {
+    fn permission_submission(
+        &self,
+        _ctx: &HookContext,
+    ) -> Option<nuo_tool::ToolPermissionSubmission> {
         None
     }
     async fn fire(&self, ctx: &HookContext) -> HookOutcome;

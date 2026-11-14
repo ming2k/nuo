@@ -35,6 +35,12 @@
 
 pub use nuo_engine;
 
+// The composition root is the only capability link root (ADR-0183). These
+// crates are not referenced by name in this file's code, but their `inventory`
+// registrations are the shipped toolset, so force-link them here.
+use nuo_tool_ast as _;
+use nuo_tool_web as _;
+
 pub mod api;
 pub mod composition;
 pub mod handlers;
@@ -55,14 +61,14 @@ pub use transport::serve;
 pub use transport::serve_discovery;
 pub use transport::ui_bridge;
 
+pub use composition::credentials_host::{host as credential_host, store as credential_store};
+pub use composition::kernel_host::kernel_host;
+pub use composition::skills_host::DurableWorkspaceTrust;
 pub use runtime::archivist::{archivist_address, build_archivist};
 pub use runtime::background_jobs::{BackgroundJobEvent, BackgroundJobManager, SessionJobService};
-pub use composition::credentials_host::{host as credential_host, store as credential_store};
 pub use runtime::hypervisor::Hypervisor;
-pub use composition::kernel_host::kernel_host;
 pub use runtime::mcp::{McpCatalog, McpRuntime};
 pub use runtime::registry::{HostedThread, ThreadRegistry};
-pub use composition::skills_host::DurableWorkspaceTrust;
 pub use runtime::thread_driver::ThreadDriver;
 pub use transport::ui_bridge::{CopyOutcome, UiBridge};
 

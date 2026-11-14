@@ -62,7 +62,7 @@ pub fn resolve_thinking(
 /// Translate a clamped [`Effort`](nuo_protocol::Effort) into a Gemini 2.5
 /// `thinkingBudget` integer — the form that surface accepts instead of an
 /// enum. The model's ceiling is `max_budget` (`gemini-2.5-flash` tops out at
-/// `24576`, `gemini-2.5-pro` at `32768`; see [`max_thinking_budget`]).
+/// `24576`, `gemini-2.5-pro` at `32768`; see [`super::url::max_thinking_budget`]).
 ///
 /// A chosen depth **pins** the budget: it is a deliberate request, never "let
 /// the server decide". (Gemini's own dynamic value is `-1`, which is the

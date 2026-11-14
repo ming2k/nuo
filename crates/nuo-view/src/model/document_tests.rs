@@ -820,12 +820,7 @@ fn cancel_all_running_is_a_defensive_sweep_that_skips_terminal_steps() {
     let mut a = TranscriptMessage::tool_step("a", "read", "{}");
     let mut b = TranscriptMessage::tool_step("b", "read", "{}");
     // `b` already finished successfully; the sweep must not clobber it.
-    assert!(b.finish_tool_step(
-        "b",
-        "contents",
-        nuo_tool::ToolOutput::text("contents"),
-        5
-    ));
+    assert!(b.finish_tool_step("b", "contents", nuo_tool::ToolOutput::text("contents"), 5));
     assert_eq!(b.tool_step_status(), Some(ToolStepStatus::Ok));
 
     // The sweep cancels a running step and is then a no-op on it.

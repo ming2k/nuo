@@ -4,7 +4,6 @@ use super::super::types::*;
 use super::TranscriptMessage;
 use nuo_tool::{Role, SubagentEvent};
 
-
 impl TranscriptMessage {
     /// Append a subagent event as a nested child of this tool step.
     ///

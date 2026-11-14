@@ -1,8 +1,18 @@
+---
+id: ADR-0162
+title: "Stream Restarts Are a Separate Budget and Every Failed Attempt Is Discarded"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0162: Stream Restarts Are a Separate Budget and Every Failed Attempt Is Discarded
 
 - **Status:** Accepted
 - **Date:** 2026-11-08
-- **Related:** [ADR-0026](0026-streamed-tool-input-progress.md), [ADR-0122](0122-provider-retry-is-chrome-typed-state-machine-and-turn-outcome-anchors.md), [ADR-0163](0163-a-turns-tool-call-batch-is-a-bounded-contract-and-arguments-are-loop-guarded.md)
+- **Related:** [ADR-0026](0026-streamed-tool-input-progress.md), [ADR-0122](0122-provider-retry-is-chrome-typed-state-machine-and-turn-outcome-anchors.md), [ADR-0163](0163-tool-call-argument-streams-are-loop-guarded-and-batch-size-is-the-models-decision.md)
 - **Supersedes in part:** ADR-0122 §"one attempt vocabulary" (the pair now describes the active budget, not one global attempt count)
 
 ## Context

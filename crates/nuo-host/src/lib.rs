@@ -22,7 +22,6 @@ pub mod lock;
 pub mod opener;
 pub mod paths;
 pub mod process;
-pub mod secret;
 pub mod secure_file;
 pub mod shell;
 pub mod supervised;
@@ -31,7 +30,7 @@ pub mod workspace_sandbox;
 
 pub use environment::{detect_device_fingerprint, detect_runtime_environment, generate_session_id};
 pub use fs_watcher::{FsEvent, FsEventKind, FsWatcher};
-pub use secret::SecretString;
+pub use nuo_protocol::SecretString;
 // The protocol layer owns these zero-I/O contracts. Host keeps the module
 // paths as re-exports so a host consumer names one owner, not a copy.
 pub use nuo_protocol::{security, shared_roots, web_config};

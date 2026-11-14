@@ -1,5 +1,6 @@
 //! Provider static specifications, route resolutions, and prompt-cache policies (ADR-0015).
 
+use nuo_inference_wire::WireProtocol;
 use nuo_protocol::cache::{PromptCacheCapabilities, PromptCacheSpec};
 use nuo_protocol::dialects::{
     ProviderDialect, ResponsesState, clean_model_display_name, format_model_display_name,
@@ -8,7 +9,6 @@ use nuo_protocol::model::Model;
 use nuo_protocol::model_providers::{UserDeclaredProvider, canonical_provider_id};
 use nuo_protocol::surface::CatalogShape;
 pub use nuo_protocol::surface::{ApiRoot, ProviderPromptCache, RemoteCatalogSource};
-use nuo_inference_wire::WireProtocol;
 use std::borrow::Cow;
 use std::sync::{Arc, RwLock};
 

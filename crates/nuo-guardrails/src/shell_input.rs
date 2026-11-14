@@ -17,7 +17,7 @@ impl ShellInputKind {
     }
 }
 
-/// Build the advisory [`InputExpectation`] for a command the classifier
+/// Build the advisory [`nuo_tool::InputExpectation`] for a command the classifier
 /// recognized. Used to seed the operator input panel's prompt text and masking
 /// before the runtime examiner confirms the wait.
 pub fn expectation(command: &str, kind: ShellInputKind) -> nuo_tool::InputExpectation {

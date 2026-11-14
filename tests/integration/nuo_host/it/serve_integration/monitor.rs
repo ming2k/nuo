@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use nuo_server::transport::serve::{self, AttachAction, Wire};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::{AgentResponse, MonitorAction, MonitorEvent, RoundEvent};
+use nuo_server::transport::serve::{self, AttachAction, Wire};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 

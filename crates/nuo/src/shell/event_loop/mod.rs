@@ -130,6 +130,204 @@ pub(crate) fn tool_verb_for(name: &str) -> nuo_view::phase::ToolVerb {
     }
 }
 
+/// One pass of the frozen (terminal-too-small) state.
+///
+/// Below the usable minimum the whole UI is replaced by a centered notice.
+/// Server mutations are still applied so a streaming round is never lost, but
+/// user-originated clipboard results are discarded and only a resize or Ctrl-C
+/// is allowed through. Geometry is re-read by the caller every iteration, so a
+/// resize out of the minimum lifts the freeze on the next pass. The struct
+/// borrows the loop's resources for exactly one pass; `run` reports the
+/// passthrough event's flow so the caller can honor `Exit`.
+struct FrozenFrame<'a, W: io::Write> {
+    app: &'a mut App,
+    terminal: &'a mut Terminal<W>,
+    runtime: &'a UiRuntime,
+    session: &'a crate::shell::HookStartSource,
+    input: &'a mut input_reader::InputSource,
+    mutation_rx: &'a mut mpsc::Receiver<AppMutation>,
+    copy_rx: &'a mut mpsc::UnboundedReceiver<Result<clipboard::CopyOutcome, String>>,
+    paste_rx: &'a mut mpsc::UnboundedReceiver<clipboard::ClipboardRead>,
+    copy_tx: &'a mpsc::UnboundedSender<Result<clipboard::CopyOutcome, String>>,
+    copy_pending: &'a Arc<AtomicUsize>,
+    paste_tx: &'a mpsc::UnboundedSender<clipboard::ClipboardRead>,
+    sgr_guard: &'a mut input::SgrLeakGuard,
+    input_redraw_pending: &'a mut bool,
+    terminal_resized: &'a mut bool,
+    frozen_notice_painted: &'a mut bool,
+}
+
+impl<W: io::Write> FrozenFrame<'_, W> {
+    async fn run(self) -> io::Result<actions::ActionFlow> {
+        // Server-owned state stays current even while frozen.
+        while let Ok(mutation) = self.mutation_rx.try_recv() {
+            apply::apply(self.app, self.runtime, mutation);
+        }
+        // Clipboard results are user-originated; drop them rather than apply a
+        // paste the user cannot see. The unbounded channels are drained each
+        // pass so they cannot accumulate.
+        while self.copy_rx.try_recv().is_ok() {}
+        while self.paste_rx.try_recv().is_ok() {}
+
+        // Repaint the notice on entry and whenever the geometry changed (the
+        // retained grid was invalidated by the resize).
+        if !*self.frozen_notice_painted || *self.terminal_resized {
+            self.terminal
+                .draw(|f| crate::shell::render::draw_too_small(f, &self.app.surfaces.theme))?;
+            *self.frozen_notice_painted = true;
+            *self.terminal_resized = false;
+        }
+
+        let mut frozen_batch: Vec<Event> = Vec::with_capacity(8);
+        tokio::select! {
+            biased;
+            Some(first_event) = self.input.recv() => {
+                frozen_batch.push(first_event);
+                while let Ok(ev) = self.input.try_recv() {
+                    frozen_batch.push(ev);
+                }
+            }
+            _ = self.runtime.dirty_notify.notified() => {}
+            _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
+        }
+        for event in frozen_batch {
+            if matches!(event, Event::Resize(..)) {
+                *self.terminal_resized = true;
+            }
+            if !frozen_event_passthrough(&event) {
+                if let Event::Key(_) = &event {
+                    // Keep the SGR-leak tracker fed for dropped input too, so
+                    // a stranded mouse sequence cannot leak on resume.
+                    let _ = self.sgr_guard.feed(&event);
+                }
+                continue;
+            }
+            // Only a resize or Ctrl-C reaches here; resolve the live session
+            // id exactly as the unfrozen path does.
+            let viewed_session_id = self.session.session_id().await;
+            let flow = process_one_event(
+                &event,
+                self.app,
+                self.terminal,
+                self.runtime,
+                self.session,
+                &viewed_session_id,
+                self.copy_tx,
+                self.copy_pending,
+                self.paste_tx,
+                self.sgr_guard,
+                self.input_redraw_pending,
+            )
+            .await?;
+            if matches!(flow, actions::ActionFlow::Exit) {
+                return Ok(flow);
+            }
+        }
+        Ok(actions::ActionFlow::Handled)
+    }
+}
+
+/// Drain the background channels and the per-frame surface timers.
+///
+/// Returns whether anything changed state that the next render must show.
+/// Ordering matters: clipboard feedback lands before translator mutations, and
+/// surface sync, toast expiry and drag motion run after the applier has written
+/// the frame's server-originated state.
+fn drain_background_channels(
+    app: &mut App,
+    runtime: &UiRuntime,
+    mutation_rx: &mut mpsc::Receiver<AppMutation>,
+    copy_rx: &mut mpsc::UnboundedReceiver<Result<clipboard::CopyOutcome, String>>,
+    paste_rx: &mut mpsc::UnboundedReceiver<clipboard::ClipboardRead>,
+) -> bool {
+    let mut frame_dirty = false;
+
+    while let Ok(result) = copy_rx.try_recv() {
+        clipboard_ops::set_copy_feedback(app, result);
+        app.surfaces.copy_toast_until =
+            Some(std::time::Instant::now() + std::time::Duration::from_millis(1800));
+        frame_dirty = true;
+    }
+
+    while let Ok(read) = paste_rx.try_recv() {
+        clipboard_ops::apply_clipboard_paste(app, read);
+        frame_dirty = true;
+    }
+
+    // M1: drain every pending translator mutation into `App`.
+    // The applier is the sole `App` writer for server-originated state;
+    // this pass runs before any reconciliation or render.
+    while let Ok(mutation) = mutation_rx.try_recv() {
+        if apply::apply(app, runtime, mutation) {
+            frame_dirty = true;
+        }
+    }
+
+    sync_request_surfaces(app, runtime);
+
+    if tick_toast_timers(app) {
+        frame_dirty = true;
+    }
+
+    if app.step_input_drag_scroll() {
+        frame_dirty = true;
+    }
+
+    frame_dirty
+}
+
+/// How long the loop may sleep before it must wake to service animation or a
+/// toast/notice/escape timeout. `empty_state_showing` adds the carousel slide
+/// boundary so the empty state advances on time even while otherwise idle.
+fn next_poll_interval(
+    app: &App,
+    animating: bool,
+    empty_state_showing: bool,
+) -> std::time::Duration {
+    if animating {
+        // Heartbeat aligned with spinner updates (100ms) and coalesced
+        // streaming deltas.
+        return std::time::Duration::from_millis(100);
+    }
+
+    let mut next_timeout = std::time::Duration::from_millis(1000);
+
+    // Toast / armed timeouts to wake exactly when state needs to clear
+    let now = std::time::Instant::now();
+    if let Some(until) = app.surfaces.copy_toast_until {
+        next_timeout = next_timeout.min(
+            until
+                .saturating_duration_since(now)
+                .max(std::time::Duration::from_millis(10)),
+        );
+    }
+    if let Some(until) = app.surfaces.notice_toast_until {
+        next_timeout = next_timeout.min(
+            until
+                .saturating_duration_since(now)
+                .max(std::time::Duration::from_millis(10)),
+        );
+    }
+    if let Some(until) = app.surfaces.esc_armed_until {
+        next_timeout = next_timeout.min(
+            until
+                .saturating_duration_since(now)
+                .max(std::time::Duration::from_millis(10)),
+        );
+    }
+
+    // Empty-state carousel: sleep until the next slide boundary (up to
+    // CAROUSEL_SLIDE_SECS).
+    if empty_state_showing {
+        let slide_ms = (nuo_view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
+        let elapsed_ms = app.transcript.carousel_epoch.elapsed().as_millis();
+        let rem_ms = slide_ms.saturating_sub(elapsed_ms % slide_ms);
+        next_timeout = next_timeout.min(std::time::Duration::from_millis((rem_ms as u64).max(50)));
+    }
+
+    next_timeout
+}
+
 pub(crate) async fn run_app_loop(
     terminal: &mut Terminal<std::io::Stdout>,
     app: &mut App,
@@ -158,7 +356,7 @@ pub(crate) async fn run_app_loop(
     let mut frozen_notice_painted = false;
 
     loop {
-        if app.should_quit.load(Ordering::SeqCst) {
+        if app.link.should_quit.load(Ordering::SeqCst) {
             tracing::info!(reason = "should_quit_flag", "app exiting");
             return Ok(());
         }
@@ -168,82 +366,37 @@ pub(crate) async fn run_app_loop(
         // transcript, tabs and history ride `TuiOutcome` across the gap
         // (ADR-0136). Recovering here rather than on the next user gesture means
         // a transient socket failure costs the operator nothing.
-        if app.relink_requested {
+        if app.link.relink_requested {
             tracing::warn!("link lost; ending attachment so the runner can re-dial");
             return Ok(());
         }
 
         // Freeze guard. Below the usable minimum the whole UI is replaced by a
-        // centered notice. While frozen we keep applying server mutations (so
-        // a streaming round is never lost) but block every user-originated
-        // event except a resize and Ctrl-C, and paint nothing but the notice —
-        // no spinner, carousel, or scroll motion can move state the user
-        // cannot see. The live geometry is re-read every iteration, so a
-        // resize out of the minimum lifts the freeze on the next pass.
+        // centered notice; `FrozenFrame` owns that pass so the normal path
+        // below only ever runs with visible chrome.
         let (frozen_w, frozen_h) = terminal.size();
         if nuo_ui_primitives::design::below_minimum(frozen_w, frozen_h) {
-            // Server-owned state stays current even while frozen.
-            while let Ok(mutation) = mutation_rx.try_recv() {
-                apply::apply(app, &runtime, mutation);
+            let flow = FrozenFrame {
+                app,
+                terminal,
+                runtime: &runtime,
+                session: &session,
+                input,
+                mutation_rx: &mut mutation_rx,
+                copy_rx: &mut copy_rx,
+                paste_rx: &mut paste_rx,
+                copy_tx: &copy_tx,
+                copy_pending: &copy_pending,
+                paste_tx: &paste_tx,
+                sgr_guard: &mut sgr_guard,
+                input_redraw_pending: &mut input_redraw_pending,
+                terminal_resized: &mut terminal_resized,
+                frozen_notice_painted: &mut frozen_notice_painted,
             }
-            // Clipboard results are user-originated; drop them rather than
-            // apply a paste the user cannot see. The unbounded channels are
-            // drained each pass so they cannot accumulate.
-            while copy_rx.try_recv().is_ok() {}
-            while paste_rx.try_recv().is_ok() {}
-
-            // Repaint the notice on entry and whenever the geometry changed
-            // (the retained grid was invalidated by the resize).
-            if !frozen_notice_painted || terminal_resized {
-                terminal.draw(|f| crate::shell::render::draw_too_small(f, &app.theme))?;
-                frozen_notice_painted = true;
-                terminal_resized = false;
-            }
-
-            let mut frozen_batch: Vec<Event> = Vec::with_capacity(8);
-            tokio::select! {
-                biased;
-                Some(first_event) = input.recv() => {
-                    frozen_batch.push(first_event);
-                    while let Ok(ev) = input.try_recv() {
-                        frozen_batch.push(ev);
-                    }
-                }
-                _ = runtime.dirty_notify.notified() => {}
-                _ = tokio::time::sleep(std::time::Duration::from_millis(250)) => {}
-            }
-            for event in frozen_batch {
-                if matches!(event, Event::Resize(..)) {
-                    terminal_resized = true;
-                }
-                if !frozen_event_passthrough(&event) {
-                    if let Event::Key(_) = &event {
-                        // Keep the SGR-leak tracker fed for dropped input too,
-                        // so a stranded mouse sequence cannot leak on resume.
-                        let _ = sgr_guard.feed(&event);
-                    }
-                    continue;
-                }
-                // Only a resize or Ctrl-C reaches here; resolve the live
-                // session id exactly as the unfrozen path does.
-                let viewed_session_id = session.session_id().await;
-                let flow = process_one_event(
-                    &event,
-                    app,
-                    terminal,
-                    &runtime,
-                    &session,
-                    &viewed_session_id,
-                    &copy_tx,
-                    &copy_pending,
-                    &paste_tx,
-                    &mut sgr_guard,
-                    &mut input_redraw_pending,
-                )
-                .await?;
-                if matches!(flow, actions::ActionFlow::Exit) {
-                    return Ok(());
-                }
+            .run()
+            .await?;
+            if matches!(flow, actions::ActionFlow::Exit) {
+                return Ok(());
             }
             continue;
         }
@@ -257,34 +410,7 @@ pub(crate) async fn run_app_loop(
         let mut frame_dirty = input_redraw_pending;
         input_redraw_pending = false;
 
-        while let Ok(result) = copy_rx.try_recv() {
-            clipboard_ops::set_copy_feedback(app, result);
-            app.copy_toast_until =
-                Some(std::time::Instant::now() + std::time::Duration::from_millis(1800));
-            frame_dirty = true;
-        }
-
-        while let Ok(read) = paste_rx.try_recv() {
-            clipboard_ops::apply_clipboard_paste(app, read);
-            frame_dirty = true;
-        }
-
-        // M1: drain every pending translator mutation into `App`.
-        // The applier is the sole `App` writer for server-originated state;
-        // this pass runs before any reconciliation or render.
-        while let Ok(mutation) = mutation_rx.try_recv() {
-            if apply::apply(app, &runtime, mutation) {
-                frame_dirty = true;
-            }
-        }
-
-        sync_request_surfaces(app, &runtime);
-
-        if tick_toast_timers(app) {
-            frame_dirty = true;
-        }
-
-        if app.step_input_drag_scroll() {
+        if drain_background_channels(app, &runtime, &mut mutation_rx, &mut copy_rx, &mut paste_rx) {
             frame_dirty = true;
         }
 
@@ -324,7 +450,7 @@ pub(crate) async fn run_app_loop(
             term_w,
             term_h.saturating_sub(nuo_ui_primitives::design::PAGE_HEADER_ROWS),
         );
-        let in_subagent = !app.focus_stack.is_empty();
+        let in_subagent = !app.transcript.focus_stack.is_empty();
         // A full-screen scene replaces the chat pane entirely. The log scene
         // belongs here: it paints its own page over the whole frame, so reserving
         // composer height behind it would leave the layout measuring a pane
@@ -337,23 +463,25 @@ pub(crate) async fn run_app_loop(
         );
         let composer_active = !is_fullscreen_scene && !in_subagent;
         let current_composer_height = if composer_active {
-            crate::shell::render::calculate_composer_height(viewport_rect, &app.input)
+            crate::shell::render::calculate_composer_height(viewport_rect, &app.composer.input)
         } else {
             0
         };
         let composer_resized =
             last_composer_height.is_some_and(|prev| prev != current_composer_height);
         if let Some(prev_h) = last_composer_height {
-            if prev_h != current_composer_height && app.view_height > 0 {
+            if prev_h != current_composer_height && app.transcript.view_height > 0 {
                 let delta = current_composer_height as i32 - prev_h as i32;
-                let estimated_view_height = (app.view_height as i32 - delta).max(1) as u16;
-                app.view_height = estimated_view_height;
-                app.max_scroll = app
+                let estimated_view_height =
+                    (app.transcript.view_height as i32 - delta).max(1) as u16;
+                app.transcript.view_height = estimated_view_height;
+                app.transcript.max_scroll = app
+                    .transcript
                     .content_lines
                     .saturating_sub(estimated_view_height as usize)
                     .min(u16::MAX as usize) as u16;
-                if !app.follow_bottom {
-                    app.scroll_settle_pending = true;
+                if !app.transcript.follow_bottom {
+                    app.transcript.scroll_settle_pending = true;
                 }
                 frame_dirty = true;
             }
@@ -362,14 +490,16 @@ pub(crate) async fn run_app_loop(
 
         let viewport_geometry_changed = resized_this_frame || composer_resized;
 
-        if app.follow_bottom && !resized_this_frame {
-            app.scroll = app.max_scroll;
+        if app.transcript.follow_bottom && !resized_this_frame {
+            app.transcript.scroll = app.transcript.max_scroll;
         }
 
-        let empty_state_showing = app.focused_messages().is_empty() && app.focus_stack.is_empty();
+        let empty_state_showing =
+            app.focused_messages().is_empty() && app.transcript.focus_stack.is_empty();
         if empty_state_showing {
-            let current_carousel_index =
-                nuo_view::empty_state::carousel_page_for(app.carousel_epoch.elapsed().as_millis());
+            let current_carousel_index = nuo_view::empty_state::carousel_page_for(
+                app.transcript.carousel_epoch.elapsed().as_millis(),
+            );
             if current_carousel_index != last_carousel_index {
                 last_carousel_index = current_carousel_index;
                 frame_dirty = true;
@@ -386,21 +516,24 @@ pub(crate) async fn run_app_loop(
             && {
                 let d = app
                     .surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
                 d.refreshing || d.reveal_active
             };
         let animating = viewed_animating
             || app.has_live_transport_setback()
-            || !app.pending_images.is_empty()
-            || app.input_drag_scroll.is_some()
+            || !app.composer.pending_images.is_empty()
+            || app.composer.input_drag_scroll.is_some()
             || models_live
             || (app
+                .surfaces
                 .surfaces
                 .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
                 .refreshing
                 && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Connections));
 
-        let is_typing_active = app.last_key_press.elapsed() < std::time::Duration::from_millis(150);
+        let is_typing_active =
+            app.link.last_key_press.elapsed() < std::time::Duration::from_millis(150);
         let animation_draw = animating && !is_typing_active;
 
         let needs_draw = frame_dirty
@@ -409,17 +542,17 @@ pub(crate) async fn run_app_loop(
             || runtime.dirty.swap(false, Ordering::AcqRel);
         was_animating = animation_draw;
 
-        let stage_bottom_follow =
-            (displayed_transcript_changed || viewport_geometry_changed) && app.follow_bottom;
-        let stage_settle = app.scroll_settle_pending && !stage_bottom_follow;
+        let stage_bottom_follow = (displayed_transcript_changed || viewport_geometry_changed)
+            && app.transcript.follow_bottom;
+        let stage_settle = app.transcript.scroll_settle_pending && !stage_bottom_follow;
 
-        let painted_scroll = app.scroll;
+        let painted_scroll = app.transcript.scroll;
         if needs_draw {
             if stage_bottom_follow || stage_settle {
                 terminal.stage(|f| render::render_frame(app, f, &viewed_session_id))?;
             } else {
                 terminal.draw(|f| render::render_frame(app, f, &viewed_session_id))?;
-                app.ui.commit();
+                app.transcript.ui.commit();
             }
         }
 
@@ -434,45 +567,50 @@ pub(crate) async fn run_app_loop(
         // lingering value must not leak into a later, unrelated settle.
         if needs_draw {
             if stage_settle {
-                if let Some(resolved) = app.layout_height_cache.take_resolved() {
-                    app.scroll = resolved.min(u16::MAX as usize) as u16;
+                if let Some(resolved) = app.transcript.layout_height_cache.take_resolved() {
+                    app.transcript.scroll = resolved.min(u16::MAX as usize) as u16;
                 }
             } else {
-                app.layout_height_cache.take_resolved();
+                app.transcript.layout_height_cache.take_resolved();
             }
         }
 
         // The renderer measured `max_scroll` from this frame's content and
         // viewport. Keep a manual position in bounds while preserving the
         // sticky-header exception used by collapsed subagent summaries.
-        if !app.follow_bottom {
+        if !app.transcript.follow_bottom {
             // A collapsed sticky header may leave too little content below it
             // for `max_scroll` to reach the header line; while a pin is
             // active, allow scrolling up to that line so the header stays at
             // the top of the viewport instead of being dragged back down.
             // When total content fits within the viewport, scroll collapses to 0.
-            let limit = if app.content_lines <= app.view_height as usize {
+            let limit = if app.transcript.content_lines <= app.transcript.view_height as usize {
                 0
             } else {
-                app.pin_summary_line
-                    .map(|line| app.max_scroll.max(line.min(u16::MAX as usize) as u16))
-                    .unwrap_or(app.max_scroll)
+                app.transcript
+                    .pin_summary_line
+                    .map(|line| {
+                        app.transcript
+                            .max_scroll
+                            .max(line.min(u16::MAX as usize) as u16)
+                    })
+                    .unwrap_or(app.transcript.max_scroll)
             };
-            app.scroll = app.scroll.min(limit);
+            app.transcript.scroll = app.transcript.scroll.min(limit);
         } else {
-            app.scroll = app.max_scroll;
+            app.transcript.scroll = app.transcript.max_scroll;
         }
 
         // The staged pass above measured the new content but emitted no bytes.
         // If the bottom moved, redraw immediately at the final offset. If it
         // did not, commit the already-final staged grid without a second layout.
         if stage_bottom_follow && needs_draw {
-            if app.scroll != painted_scroll {
+            if app.transcript.scroll != painted_scroll {
                 input_redraw_pending = true;
                 continue;
             }
             terminal.commit_staged()?;
-            app.ui.commit();
+            app.transcript.ui.commit();
             // Committed: the staged rect observation is now the published
             // geometry. Nothing to do — the snapshot is simply dropped.
         }
@@ -483,64 +621,24 @@ pub(crate) async fn run_app_loop(
         // staged grid, which is already laid out at the correct offset,
         // without a second layout pass.
         if stage_settle && needs_draw {
-            app.scroll_settle_pending = false;
-            if app.scroll != painted_scroll {
+            app.transcript.scroll_settle_pending = false;
+            if app.transcript.scroll != painted_scroll {
                 input_redraw_pending = true;
                 continue;
             }
             terminal.commit_staged()?;
-            app.ui.commit();
+            app.transcript.ui.commit();
         }
         // A transcript shrink can clamp a manually positioned viewport after
         // a normal draw. Repaint once at the newly valid offset instead of
         // leaving the just-painted frame beyond the new end of the content.
-        if needs_draw && app.scroll != painted_scroll {
+        if needs_draw && app.transcript.scroll != painted_scroll {
             input_redraw_pending = true;
             continue;
         }
         app.retain_visible_focused_target();
 
-        let poll_interval = if animating {
-            // Heartbeat aligned with spinner updates (100ms) and coalesced streaming deltas
-            std::time::Duration::from_millis(100)
-        } else {
-            let mut next_timeout = std::time::Duration::from_millis(1000);
-
-            // Toast / armed timeouts to wake exactly when state needs to clear
-            let now = std::time::Instant::now();
-            if let Some(until) = app.copy_toast_until {
-                next_timeout = next_timeout.min(
-                    until
-                        .saturating_duration_since(now)
-                        .max(std::time::Duration::from_millis(10)),
-                );
-            }
-            if let Some(until) = app.notice_toast_until {
-                next_timeout = next_timeout.min(
-                    until
-                        .saturating_duration_since(now)
-                        .max(std::time::Duration::from_millis(10)),
-                );
-            }
-            if let Some(until) = app.esc_armed_until {
-                next_timeout = next_timeout.min(
-                    until
-                        .saturating_duration_since(now)
-                        .max(std::time::Duration::from_millis(10)),
-                );
-            }
-
-            // Empty-state carousel: sleep until the next slide boundary (up to CAROUSEL_SLIDE_SECS)
-            if empty_state_showing {
-                let slide_ms = (nuo_view::empty_state::CAROUSEL_SLIDE_SECS as u128) * 1000;
-                let elapsed_ms = app.carousel_epoch.elapsed().as_millis();
-                let rem_ms = slide_ms.saturating_sub(elapsed_ms % slide_ms);
-                next_timeout =
-                    next_timeout.min(std::time::Duration::from_millis((rem_ms as u64).max(50)));
-            }
-
-            next_timeout
-        };
+        let poll_interval = next_poll_interval(app, animating, empty_state_showing);
 
         tokio::select! {
             biased;
@@ -587,7 +685,7 @@ pub(crate) async fn run_app_loop(
             }
             Some(copy_result) = copy_rx.recv() => {
                 clipboard_ops::set_copy_feedback(app, copy_result);
-                app.copy_toast_until =
+                app.surfaces.copy_toast_until =
                     Some(std::time::Instant::now() + std::time::Duration::from_millis(1800));
                 input_redraw_pending = true;
             }
@@ -619,6 +717,228 @@ fn dismisses_notice_bubble(event: &Event) -> bool {
     matches!(key.code, crossterm::event::KeyCode::Esc)
 }
 
+/// The buffer that receives this event's text edits.
+#[derive(Clone, Copy, PartialEq)]
+enum EditBuffer {
+    Composer,
+    Models,
+    Connections,
+}
+
+/// Pick the edit target: a picker's embedded search field while its search
+/// sub-layer is active, otherwise the composer's own buffer (ADR-0035,
+/// `[INV-SURFACE-01]`).
+fn edit_buffer(app: &mut App) -> EditBuffer {
+    if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Models)
+        && app
+            .surfaces
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
+            .search
+    {
+        EditBuffer::Models
+    } else if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Connections)
+        && app
+            .surfaces
+            .surfaces
+            .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
+            .search
+    {
+        EditBuffer::Connections
+    } else {
+        EditBuffer::Composer
+    }
+}
+
+/// Length and caret position of the active edit buffer. Comparing the state
+/// before and after dispatch detects whether the buffer changed, which is what
+/// re-arms the composer's follow-the-caret scroll.
+fn edit_buffer_state(app: &mut App, buffer: EditBuffer) -> (usize, usize) {
+    match buffer {
+        EditBuffer::Composer => (app.composer.input.len(), app.composer.cursor_position),
+        EditBuffer::Models => (
+            app.surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
+                .query
+                .text
+                .len(),
+            app.surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
+                .query
+                .cursor,
+        ),
+        EditBuffer::Connections => (
+            app.surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
+                .query
+                .text
+                .len(),
+            app.surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
+                .query
+                .cursor,
+        ),
+    }
+}
+
+/// Query text captured before dispatch.
+///
+/// `route_event` edits a picker's embedded search field through the dialog
+/// entity, so the only way to tell the query changed is to compare against a
+/// pre-dispatch copy. `reconcile` re-anchors a changed result list at its first
+/// row.
+struct QuerySnapshots {
+    history: Option<String>,
+    models: Option<String>,
+    connections: Option<String>,
+}
+
+impl QuerySnapshots {
+    fn capture(app: &App) -> Self {
+        let history =
+            if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch) {
+                Some(app.composer.input.clone())
+            } else {
+                None
+            };
+        let models = if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Models)
+            && app
+                .surfaces
+                .surfaces
+                .dlg::<crate::shell::surfaces::ModelsDialog>()
+                .search
+        {
+            Some(
+                app.surfaces
+                    .surfaces
+                    .dlg::<crate::shell::surfaces::ModelsDialog>()
+                    .query
+                    .text
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        let connections = if app.active_dialog()
+            == Some(crate::shell::surfaces::DialogKind::Connections)
+            && app
+                .surfaces
+                .surfaces
+                .dlg::<crate::shell::surfaces::ConnectionsDialog>()
+                .search
+        {
+            Some(
+                app.surfaces
+                    .surfaces
+                    .dlg::<crate::shell::surfaces::ConnectionsDialog>()
+                    .query
+                    .text
+                    .clone(),
+            )
+        } else {
+            None
+        };
+        Self {
+            history,
+            models,
+            connections,
+        }
+    }
+
+    fn reconcile(self, app: &mut App) {
+        if let Some(before) = self.history
+            && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch)
+            && before != app.composer.input
+        {
+            let d = &mut app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>();
+            d.index = 0;
+            d.scroll = 0;
+            d.follow = true;
+        }
+        if let Some(before) = self.models
+            && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Models)
+            && before
+                != app
+                    .surfaces
+                    .surfaces
+                    .dlg::<crate::shell::surfaces::ModelsDialog>()
+                    .query
+                    .text
+        {
+            let d = &mut app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
+            d.index = 0;
+            d.scroll = 0;
+            d.follow = true;
+        }
+        if let Some(before) = self.connections
+            && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Connections)
+            && before
+                != app
+                    .surfaces
+                    .surfaces
+                    .dlg::<crate::shell::surfaces::ConnectionsDialog>()
+                    .query
+                    .text
+        {
+            let d = &mut app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>();
+            d.index = 0;
+            d.scroll = 0;
+            d.follow = true;
+        }
+    }
+}
+
+/// Detail-pane toggles read from the dialogs before dispatch.
+///
+/// `ModalKeys` needs all four by value; bundling the dialog reads keeps the
+/// pre-dispatch snapshot in one place.
+struct DialogInfoDetails {
+    session_info_detail: bool,
+    connection_info_detail: bool,
+    tools_info_detail: bool,
+    model_info_detail: bool,
+}
+
+impl DialogInfoDetails {
+    fn capture(app: &mut App) -> Self {
+        Self {
+            session_info_detail: app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
+                .info_detail,
+            connection_info_detail: app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
+                .info_detail,
+            tools_info_detail: app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ToolsDialog>()
+                .info_detail,
+            model_info_detail: app
+                .surfaces
+                .surfaces
+                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
+                .info_detail,
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Keeps event-loop resources borrowed without a second state bundle.
 async fn process_one_event<W: io::Write>(
     event: &Event,
@@ -634,7 +954,7 @@ async fn process_one_event<W: io::Write>(
     input_redraw_pending: &mut bool,
 ) -> io::Result<actions::ActionFlow> {
     if let Event::Key(_) = event {
-        app.last_key_press = std::time::Instant::now();
+        app.link.last_key_press = std::time::Instant::now();
         if matches!(sgr_guard.feed(event), input::Feed::Drop) {
             return Ok(actions::ActionFlow::Handled);
         }
@@ -657,25 +977,25 @@ async fn process_one_event<W: io::Write>(
     // interruption and the place it points at. The same reasoning covers an open
     // overlay or sheet, where `Esc` means "back out of this".
     if let Event::Key(_) | Event::Paste(_) = event
-        && !app.dev_toast_pinned
+        && !app.surfaces.dev_toast_pinned
     {
-        app.copy_toast_until = None;
-        if app.notice_toast_severity.is_fault() {
+        app.surfaces.copy_toast_until = None;
+        if app.surfaces.notice_toast_severity.is_fault() {
             if dismisses_notice_bubble(event)
                 && !app.notice_viewer_open()
-                && app.surfaces.active_overlay().is_none()
-                && app.surfaces.active_sheet().is_none()
+                && app.surfaces.surfaces.active_overlay().is_none()
+                && app.surfaces.surfaces.active_sheet().is_none()
             {
-                app.notice_toast_until = None;
+                app.surfaces.notice_toast_until = None;
             }
-        } else if app.notice_toast_until.is_some() {
-            app.notice_toast_until = None;
+        } else if app.surfaces.notice_toast_until.is_some() {
+            app.surfaces.notice_toast_until = None;
         }
     }
 
-    let focus_plane = app.focus.plane();
-    let event_family = input::event_family(event, &app.ui, focus_plane);
-    let keyboard_path = app.ui.keyboard_path_for(event_family);
+    let focus_plane = app.transcript.focus.plane();
+    let event_family = input::event_family(event, &app.transcript.ui, focus_plane);
+    let keyboard_path = app.transcript.ui.keyboard_path_for(event_family);
     let active_overlay = match keyboard_path.first().copied() {
         Some(crate::shell::ui::UiKey::Overlay(overlay)) => Some(overlay),
         Some(crate::shell::ui::UiKey::ProviderDelete) => {
@@ -683,12 +1003,12 @@ async fn process_one_event<W: io::Write>(
                 crate::shell::surfaces::DialogKind::Connections,
             ))
         }
-        _ => app.surfaces.active_overlay(),
+        _ => app.surfaces.surfaces.active_overlay(),
     };
     let is_responding = app.viewed_chrome().responding;
     // Scene-local liveness for the Subagent scene's Esc interrupt:
     // the viewed child's own round state, precomputed here so it does not fight
-    // the `&mut app.input` borrow in the dispatch call below.
+    // the `&mut app.composer.input` borrow in the dispatch call below.
     let focused_subagent_running = app.focused_subagent_running();
     let completion_kind = app.completion_kind();
     let active_sheet = keyboard_path.iter().find_map(|key| match key {
@@ -707,60 +1027,48 @@ async fn process_one_event<W: io::Write>(
     let suggestion_count = completions.len();
     let has_exact_suggestion = completions
         .iter()
-        .any(|c| c.insert_text == app.input || c.label == app.input);
-    let suggestion_index = app.suggestion_index;
-    let completion_dismissed = app.completion_dismissed;
+        .any(|c| c.insert_text == app.composer.input || c.label == app.composer.input);
+    let suggestion_index = app.composer.suggestion_index;
+    let completion_dismissed = app.composer.completion_dismissed;
     let has_trigger_text = app.completion_trigger_text_present();
-    let permission_confirm_always = app.permission_confirm_always;
-    let permission_show_details = app.permission_show_details;
-    let in_history_recall = app.history_index.is_some();
+    let permission_confirm_always = app.human.permission_confirm_always;
+    let permission_show_details = app.human.permission_show_details;
+    let in_history_recall = app.composer.history_index.is_some();
     let history_searching =
         app.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch);
     let model_searching = app.picker_search();
     let custom_provider_field = if app
         .surfaces
+        .surfaces
         .contains_sheet(crate::shell::surfaces::SheetKind::CustomProvider)
         && app.custom_text_field_focused()
     {
-        Some(app.custom_field)
+        Some(app.provider_editor.custom_field)
     } else {
         None
     };
     let editor_field = if app
         .surfaces
+        .surfaces
         .contains_sheet(crate::shell::surfaces::SheetKind::ModelEditor)
     {
-        Some(app.editor_field)
+        Some(app.provider_editor.editor_field)
     } else {
         None
     };
     let question_other_highlighted = app
+        .human
         .question
         .as_ref()
         .is_some_and(|q| q.is_other_highlighted());
-    let host_prompting = app.host_prompting;
-    let session_info_detail = app
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
-        .info_detail;
-    let connection_info_detail = app
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-        .info_detail;
-    let tools_info_detail = app
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::ToolsDialog>()
-        .info_detail;
-    let model_info_detail = app
-        .surfaces
-        .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
-        .info_detail;
+    let host_prompting = app.surfaces.host_prompting;
+    let dialog_details = DialogInfoDetails::capture(app);
 
     let modal_cmd_history: Option<String> = if matches!(event, Event::Key(k) if k.code == crossterm::event::KeyCode::Enter)
-        && app.surfaces.active_overlay().is_none()
-        && app.input.starts_with('/')
+        && app.surfaces.surfaces.active_overlay().is_none()
+        && app.composer.input.starts_with('/')
     {
-        Some(app.input.clone())
+        Some(app.composer.input.clone())
     } else {
         None
     };
@@ -770,94 +1078,9 @@ async fn process_one_event<W: io::Write>(
     // own buffer — except while a picker's search sub-layer is active, where
     // the dialog entity owns its embedded field and the composer line is never
     // borrowed (ADR-0035, `[INV-SURFACE-01]`).
-    #[derive(Clone, Copy, PartialEq)]
-    enum EditBuffer {
-        Composer,
-        Models,
-        Connections,
-    }
-    let edit_buffer = if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Models)
-        && app
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
-            .search
-    {
-        EditBuffer::Models
-    } else if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Connections)
-        && app
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-            .search
-    {
-        EditBuffer::Connections
-    } else {
-        EditBuffer::Composer
-    };
-    let composer_edit_state_before = match edit_buffer {
-        EditBuffer::Composer => (app.input.len(), app.cursor_position),
-        EditBuffer::Models => (
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
-                .query
-                .text
-                .len(),
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
-                .query
-                .cursor,
-        ),
-        EditBuffer::Connections => (
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-                .query
-                .text
-                .len(),
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-                .query
-                .cursor,
-        ),
-    };
-    let history_query_before =
-        if app.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch) {
-            Some(app.input.clone())
-        } else {
-            None
-        };
-    let models_query_before = if app.active_dialog()
-        == Some(crate::shell::surfaces::DialogKind::Models)
-        && app
-            .surfaces
-            .dlg::<crate::shell::surfaces::ModelsDialog>()
-            .search
-    {
-        Some(
-            app.surfaces
-                .dlg::<crate::shell::surfaces::ModelsDialog>()
-                .query
-                .text
-                .clone(),
-        )
-    } else {
-        None
-    };
-    let connections_query_before = if app.active_dialog()
-        == Some(crate::shell::surfaces::DialogKind::Connections)
-        && app
-            .surfaces
-            .dlg::<crate::shell::surfaces::ConnectionsDialog>()
-            .search
-    {
-        Some(
-            app.surfaces
-                .dlg::<crate::shell::surfaces::ConnectionsDialog>()
-                .query
-                .text
-                .clone(),
-        )
-    } else {
-        None
-    };
+    let edit_buffer = edit_buffer(app);
+    let composer_edit_state_before = edit_buffer_state(app, edit_buffer);
+    let queries_before = QuerySnapshots::capture(app);
     let composer_owned_before = app.caret_owner() == crate::shell::CaretOwner::Composer;
     let current_scene = app.current_scene();
 
@@ -868,9 +1091,9 @@ async fn process_one_event<W: io::Write>(
         let dispatch = input::Dispatch {
             overlay: active_overlay,
             sheet: active_sheet,
-            pre_attach: app.pre_attach.is_some(),
+            pre_attach: app.surfaces.pre_attach.is_some(),
             scene: current_scene,
-            key_overrides: app.key_overrides.clone(),
+            key_overrides: app.surfaces.key_overrides.clone(),
             focus: focus_plane,
             scene_blocked: matches!(
                 keyboard_path.first(),
@@ -886,11 +1109,11 @@ async fn process_one_event<W: io::Write>(
             history_searching,
             custom_provider_field,
             editor_field,
-            config_focus: app.config_focus,
-            session_info_detail,
-            connection_info_detail,
-            tools_info_detail,
-            model_info_detail,
+            config_focus: app.surfaces.config_focus,
+            session_info_detail: dialog_details.session_info_detail,
+            connection_info_detail: dialog_details.connection_info_detail,
+            tools_info_detail: dialog_details.tools_info_detail,
+            model_info_detail: dialog_details.model_info_detail,
             host_prompting,
             dialog_keys: app.dialog_keys(),
         };
@@ -905,7 +1128,7 @@ async fn process_one_event<W: io::Write>(
             // The caret's ↑/↓ walk the composer's *wrapped* rows, so the
             // resolver gets the geometry the panel is drawn at this frame.
             composer_text_width: app.composer_grid_width(),
-            composer_send_mode: app.composer_send_mode,
+            composer_send_mode: app.composer.composer_send_mode,
             completion_kind,
             completion_dismissed,
             has_trigger_text,
@@ -913,22 +1136,22 @@ async fn process_one_event<W: io::Write>(
             suggestion_index,
             has_exact_suggestion,
             in_history_recall,
-            surface_overrides: app.surface_overrides.clone(),
+            surface_overrides: app.surfaces.surface_overrides.clone(),
             focus: focus_plane,
-            entry_focus: app.focus.entry(),
+            entry_focus: app.transcript.focus.entry(),
             focused_subagent_running,
         };
         match edit_buffer {
             EditBuffer::Composer => input::route_event_motion(
                 event.clone(),
-                &mut app.input,
-                &mut app.cursor_position,
-                &mut app.caret_motion,
+                &mut app.composer.input,
+                &mut app.composer.cursor_position,
+                &mut app.composer.caret_motion,
                 dispatch,
                 &modal_keys,
                 &sheet_keys,
                 &scene_keys,
-                &mut app.drag,
+                &mut app.transcript.drag,
             ),
             // The modal query fields are single-line: they have no visual row
             // to walk, so the arrow keys keep their list/edge meaning and the
@@ -936,6 +1159,7 @@ async fn process_one_event<W: io::Write>(
             EditBuffer::Models => {
                 let mut motion = crate::shell::composer_grid::CaretMotion::default();
                 let d = &mut app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
                 input::route_event_motion(
@@ -947,12 +1171,13 @@ async fn process_one_event<W: io::Write>(
                     &modal_keys,
                     &sheet_keys,
                     &scene_keys,
-                    &mut app.drag,
+                    &mut app.transcript.drag,
                 )
             }
             EditBuffer::Connections => {
                 let mut motion = crate::shell::composer_grid::CaretMotion::default();
                 let d = &mut app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>();
                 input::route_event_motion(
@@ -964,7 +1189,7 @@ async fn process_one_event<W: io::Write>(
                     &modal_keys,
                     &sheet_keys,
                     &scene_keys,
-                    &mut app.drag,
+                    &mut app.transcript.drag,
                 )
             }
         }
@@ -1013,91 +1238,25 @@ async fn process_one_event<W: io::Write>(
     // pointer handler holds no clipboard channel). Serve it here, through the
     // same `fold_hidden_rows_copy` resolution the identical keyboard verb uses —
     // one verb, one implementation, one receipt.
-    if let Some(mi) = app.pending_fold_copy.take() {
+    if let Some(mi) = app.surfaces.pending_fold_copy.take() {
         if let Some((text, feedback)) = crate::shell::copy::fold_hidden_rows_copy(app, mi) {
             clipboard_ops::spawn_clipboard_copy(copy_tx, copy_pending.clone(), text);
-            app.copy_toast_message = feedback;
-            app.copy_toast_failed = false;
-            app.copy_toast_until =
+            app.surfaces.copy_toast_message = feedback;
+            app.surfaces.copy_toast_failed = false;
+            app.surfaces.copy_toast_until =
                 Some(std::time::Instant::now() + std::time::Duration::from_millis(1500));
         } else {
             clipboard_ops::show_copy_failure(app, "this step has nothing hidden to copy");
         }
     }
 
-    let edit_state_after = match edit_buffer {
-        EditBuffer::Composer => (app.input.len(), app.cursor_position),
-        EditBuffer::Models => (
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
-                .query
-                .text
-                .len(),
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
-                .query
-                .cursor,
-        ),
-        EditBuffer::Connections => (
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-                .query
-                .text
-                .len(),
-            app.surfaces
-                .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>()
-                .query
-                .cursor,
-        ),
-    };
+    let edit_state_after = edit_buffer_state(app, edit_buffer);
     if edit_state_after != composer_edit_state_before
         || (composer_owned_before && event_rearms_composer_follow(event))
     {
-        app.input_scroll_follow_cursor = true;
+        app.composer.input_scroll_follow_cursor = true;
     }
-    if let Some(before) = history_query_before
-        && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch)
-        && before != app.input
-    {
-        let d = &mut app
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>();
-        d.index = 0;
-        d.scroll = 0;
-        d.follow = true;
-    }
-    if let Some(before) = models_query_before
-        && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Models)
-        && before
-            != app
-                .surfaces
-                .dlg::<crate::shell::surfaces::ModelsDialog>()
-                .query
-                .text
-    {
-        let d = &mut app
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::ModelsDialog>();
-        d.index = 0;
-        d.scroll = 0;
-        d.follow = true;
-    }
-    if let Some(before) = connections_query_before
-        && app.active_dialog() == Some(crate::shell::surfaces::DialogKind::Connections)
-        && before
-            != app
-                .surfaces
-                .dlg::<crate::shell::surfaces::ConnectionsDialog>()
-                .query
-                .text
-    {
-        let d = &mut app
-            .surfaces
-            .dlg_mut::<crate::shell::surfaces::ConnectionsDialog>();
-        d.index = 0;
-        d.scroll = 0;
-        d.follow = true;
-    }
+    queries_before.reconcile(app);
 
     if matches!(
         event,

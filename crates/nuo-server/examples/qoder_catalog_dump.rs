@@ -23,11 +23,11 @@
 #![allow(clippy::expect_used, clippy::panic)]
 
 use nuo_protocol::CatalogShape;
+use nuo_protocol::{ConnectionAuth, CredentialSource as _};
 use nuo_provider::CatalogSigning;
 use nuo_provider::auth::OAuthCredentialSource;
 use nuo_provider::catalog_root_for_connection;
 use nuo_provider::transport::{Http, Request};
-use nuo_protocol::{ConnectionAuth, CredentialSource as _};
 
 use nuo_provider_catalog::models_endpoint_for;
 use nuo_provider_qoder::QoderCatalogSigning;

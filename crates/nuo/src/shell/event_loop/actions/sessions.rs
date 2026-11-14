@@ -18,13 +18,13 @@ pub(super) async fn handle_session_action(
 ) -> Option<ActionFlow> {
     match action {
         InputAction::SessionSelect { forward } => {
-            if let Some(mut ent) = app.surfaces.take_active_view() {
+            if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
                 let _ = ent.handle_input(
                     &InputAction::SessionSelect { forward },
                     app,
                     viewed_session_id,
                 );
-                app.surfaces.put_active_view(ent);
+                app.surfaces.surfaces.put_active_view(ent);
             }
             Some(ActionFlow::Handled)
         }
@@ -37,9 +37,10 @@ pub(super) async fn handle_session_action(
         InputAction::OpenSelectedSession => {
             let target = {
                 let rows = crate::shell::overlays::session::project_session_rows(
-                    &app.sessions_overview,
+                    &app.session.sessions_overview,
                     Some(
                         &app.surfaces
+                            .surfaces
                             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                             .expanded,
                     ),
@@ -53,11 +54,11 @@ pub(super) async fn handle_session_action(
             if let Some((id, title)) = target {
                 app.dismiss_active_dialog();
                 app.set_active_index(0);
-                app.startup_overlay = crate::shell::StartupOverlay::None;
+                app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
 
                 if id == viewed_session_id {
-                    if app.running_sessions.contains(&id) {
-                        app.scroll = 0;
+                    if app.session.running_sessions.contains(&id) {
+                        app.transcript.scroll = 0;
                     }
                 } else {
                     let is_empty = app.is_current_thread_empty();
@@ -66,12 +67,16 @@ pub(super) async fn handle_session_action(
                         app.send_intent(AgentRequest::DeleteThread {
                             id: viewed_session_id.to_string(),
                         });
-                        let active_idx = app.surfaces.active_tab_index();
+                        let active_idx = app.surfaces.surfaces.active_tab_index();
                         if let Some(existing_pos) =
-                            app.surfaces.tabs().iter().position(|t| match &t.kind {
-                                crate::shell::surfaces::TabKind::Thread(tid) => tid == &id,
-                                _ => false,
-                            })
+                            app.surfaces
+                                .surfaces
+                                .tabs()
+                                .iter()
+                                .position(|t| match &t.kind {
+                                    crate::shell::surfaces::TabKind::Thread(tid) => tid == &id,
+                                    _ => false,
+                                })
                         {
                             app.close_tab(active_idx);
                             let new_pos = if existing_pos > active_idx {
@@ -79,7 +84,7 @@ pub(super) async fn handle_session_action(
                             } else {
                                 existing_pos
                             };
-                            app.surfaces.select_tab(new_pos);
+                            app.surfaces.surfaces.select_tab(new_pos);
                         } else {
                             app.replace_tab(active_idx, tab);
                         }
@@ -87,17 +92,18 @@ pub(super) async fn handle_session_action(
                         app.open_tab(tab);
                     }
 
-                    app.switch_to_target = Some(id);
-                    app.should_quit.store(true, Ordering::SeqCst);
+                    app.surfaces.switch_to_target = Some(id);
+                    app.link.should_quit.store(true, Ordering::SeqCst);
                 }
             }
             Some(ActionFlow::Handled)
         }
         InputAction::DeleteSelectedSession => {
             let rows = crate::shell::overlays::session::project_session_rows(
-                &app.sessions_overview,
+                &app.session.sessions_overview,
                 Some(
                     &app.surfaces
+                        .surfaces
                         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                         .expanded,
                 ),
@@ -105,15 +111,17 @@ pub(super) async fn handle_session_action(
             let idx = app.active_index().min(rows.len().saturating_sub(1));
             if let Some(item) = rows.get(idx) {
                 let id = item.session().id.clone();
-                app.sessions_overview.retain(|s| s.id != id);
+                app.session.sessions_overview.retain(|s| s.id != id);
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                     .expanded
                     .remove(&id);
                 let new_rows = crate::shell::overlays::session::project_session_rows(
-                    &app.sessions_overview,
+                    &app.session.sessions_overview,
                     Some(
                         &app.surfaces
+                            .surfaces
                             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                             .expanded,
                     ),
@@ -124,21 +132,22 @@ pub(super) async fn handle_session_action(
             Some(ActionFlow::Handled)
         }
         InputAction::CreateNewSession => {
-            app.startup_overlay = crate::shell::StartupOverlay::None;
+            app.surfaces.startup_overlay = crate::shell::StartupOverlay::None;
             app.dismiss_active_dialog();
             if app.is_current_thread_empty() {
                 app.send_intent(AgentRequest::SlashCommand("/new".to_string()));
             } else {
-                app.switch_to_new = true;
-                app.should_quit.store(true, Ordering::SeqCst);
+                app.surfaces.switch_to_new = true;
+                app.link.should_quit.store(true, Ordering::SeqCst);
             }
             Some(ActionFlow::Handled)
         }
         InputAction::OpenSessionInfo => {
             let rows = crate::shell::overlays::session::project_session_rows(
-                &app.sessions_overview,
+                &app.session.sessions_overview,
                 Some(
                     &app.surfaces
+                        .surfaces
                         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                         .expanded,
                 ),
@@ -146,10 +155,12 @@ pub(super) async fn handle_session_action(
             if let Some(item) = rows.get(app.active_index().min(rows.len().saturating_sub(1))) {
                 let session = item.session();
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                     .info_detail = true;
-                app.session_detail = None;
+                app.session.session_detail = None;
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                     .info_scroll = 0;
                 app.send_intent(AgentRequest::QueryThreadDetail {
@@ -160,9 +171,10 @@ pub(super) async fn handle_session_action(
         }
         InputAction::ToggleSessionTimelineExpand => {
             let rows = crate::shell::overlays::session::project_session_rows(
-                &app.sessions_overview,
+                &app.session.sessions_overview,
                 Some(
                     &app.surfaces
+                        .surfaces
                         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                         .expanded,
                 ),
@@ -173,11 +185,13 @@ pub(super) async fn handle_session_action(
                     let id = item.session().id.clone();
                     let collapsed = app
                         .surfaces
+                        .surfaces
                         .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                         .expanded
                         .remove(&id);
                     if !collapsed {
                         app.surfaces
+                            .surfaces
                             .dlg_mut::<crate::shell::surfaces::SessionsDialog>()
                             .expanded
                             .insert(id);
@@ -189,23 +203,28 @@ pub(super) async fn handle_session_action(
         InputAction::ViewSwitcherFilter { ch } => {
             if app.active_dialog() == Some(DialogKind::Switcher) {
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .query
                     .text
                     .push(ch);
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .query
                     .cursor = app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .query
                     .text
                     .len();
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .selected = 0;
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .scroll = 0;
             }
@@ -216,6 +235,7 @@ pub(super) async fn handle_session_action(
                 {
                     let q = &mut app
                         .surfaces
+                        .surfaces
                         .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                         .query;
                     if !q.is_empty() {
@@ -225,6 +245,7 @@ pub(super) async fn handle_session_action(
                     q.cursor = q.text.len();
                 }
                 let d = app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>();
                 d.selected = 0;
@@ -237,9 +258,11 @@ pub(super) async fn handle_session_action(
                 app.dismiss_surface();
             } else {
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>()
                     .begin();
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>()
                     .loading = true;
                 app.open_dialog(DialogKind::PortShare);
@@ -251,9 +274,11 @@ pub(super) async fn handle_session_action(
             if app.active_dialog() == Some(DialogKind::PortShare) {
                 let current_active = app
                     .surfaces
+                    .surfaces
                     .dlg::<crate::shell::surfaces::PortShareDialog>()
                     .active;
                 let d = app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>();
                 d.loading = true;
@@ -268,6 +293,7 @@ pub(super) async fn handle_session_action(
         InputAction::CopyPortConnectInfo => {
             if app.active_dialog() == Some(DialogKind::PortShare) {
                 let d = app
+                    .surfaces
                     .surfaces
                     .dlg_mut::<crate::shell::surfaces::PortShareDialog>();
                 if d.active && d.port > 0 {
@@ -288,6 +314,7 @@ pub(super) async fn handle_session_action(
             } else if app.can_open_switcher() {
                 app.open_dialog(DialogKind::Switcher);
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .begin();
             }
@@ -297,36 +324,39 @@ pub(super) async fn handle_session_action(
             if app.active_dialog() != Some(DialogKind::Switcher) {
                 return Some(ActionFlow::Handled);
             }
-            let is_busy = app.running_sessions.contains(viewed_session_id);
+            let is_busy = app.session.running_sessions.contains(viewed_session_id);
             let app_ctx = crate::shell::keymap::AppContext {
-                has_overlay: app.surfaces.active_overlay().is_some(),
+                has_overlay: app.surfaces.surfaces.active_overlay().is_some(),
                 active_dialog: app
+                    .surfaces
                     .surfaces
                     .underlying_dialog()
                     .or_else(|| app.active_dialog()),
                 is_responding: is_busy,
                 has_selection: !matches!(
-                    app.selection,
+                    app.transcript.selection,
                     nuo_view::model::selection::SelectionState::None
                 ),
                 has_running_task: is_busy,
                 has_notices: !!app.has_notices(),
-                has_focused_entry: app.focus.entry().is_some(),
+                has_focused_entry: app.transcript.focus.entry().is_some(),
                 queue_count: app.outbox_total(),
                 has_session: app.has_session(),
                 scene: app.current_scene(),
             };
             let entries = crate::shell::overlays::command_palette::filter_palette_commands(
                 &app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                     .query
                     .text,
-                &app.recent_commands,
+                &app.composer.recent_commands,
                 &app_ctx,
             );
             if let Some(entry) = entries
                 .get(
                     app.surfaces
+                        .surfaces
                         .dlg_mut::<crate::shell::surfaces::SwitcherDialog>()
                         .selected,
                 )
@@ -337,12 +367,17 @@ pub(super) async fn handle_session_action(
                 )
             {
                 let cmd_key = entry.slash.clone().unwrap_or_else(|| entry.label.clone());
-                if let Some(pos) = app.recent_commands.iter().position(|id| id == &cmd_key) {
-                    app.recent_commands.remove(pos);
+                if let Some(pos) = app
+                    .composer
+                    .recent_commands
+                    .iter()
+                    .position(|id| id == &cmd_key)
+                {
+                    app.composer.recent_commands.remove(pos);
                 }
-                app.recent_commands.insert(0, cmd_key);
-                if app.recent_commands.len() > 10 {
-                    app.recent_commands.truncate(10);
+                app.composer.recent_commands.insert(0, cmd_key);
+                if app.composer.recent_commands.len() > 10 {
+                    app.composer.recent_commands.truncate(10);
                 }
 
                 app.pop_transient_surface();

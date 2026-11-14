@@ -43,7 +43,6 @@
 use nuo_protocol::{TrustDomain, WorkspaceSecuritySnapshot, WorkspaceTrustState};
 use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
-
 /// Request id marking the synthesized trust-gate question. Recognized by the
 /// reply path (`super::event_loop`) and never sent to the server as a
 /// `UserQuestionReply`.

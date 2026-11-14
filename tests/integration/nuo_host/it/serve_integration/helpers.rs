@@ -79,7 +79,9 @@ pub(super) async fn prehosted_with_catalog(
     let tap_tracker = tracker.clone();
     let mut tap_rx = bc_tx.subscribe();
     let registry_for_tap = registry.clone();
-    let sync_buffer = Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new()));
+    let sync_buffer = Arc::new(Mutex::new(
+        nuo_server::transport::serve::AttachSyncBuffer::new(),
+    ));
     let sync_buffer_for_tap = sync_buffer.clone();
     tokio::spawn(async move {
         while let Ok(response) = tap_rx.recv().await {
@@ -165,7 +167,9 @@ pub(super) async fn host_with_project(
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
             command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
@@ -214,7 +218,9 @@ pub(super) async fn host_bare(
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
             command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),

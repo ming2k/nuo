@@ -80,7 +80,7 @@ pub struct AgentConfig {
     /// mistake the recommendation for a human decision.
     #[serde(default)]
     pub ask_user_fallback: nuo_protocol::human_request::AutonomousFallbackPolicy,
-    /// Trajectory-guard configuration (`nuo_harness::trajectory_guard`).
+    /// Trajectory-guard configuration (`nuo_guardrails::trajectory_guard`).
     /// Default **enabled** (`window: 16`, `threshold: 4`, `cognitive_review: true`).
     #[serde(default)]
     pub trajectory_guard: TrajectoryGuardConfig,

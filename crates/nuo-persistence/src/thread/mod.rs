@@ -886,10 +886,8 @@ pub fn build_excerpt_summary(
         if remaining < 16 {
             break;
         }
-        let excerpt = nuo_tool::tokenizer::truncate_str_to_tokens(
-            content,
-            remaining.min(EXCERPT_CAP_TOKENS),
-        );
+        let excerpt =
+            nuo_tool::tokenizer::truncate_str_to_tokens(content, remaining.min(EXCERPT_CAP_TOKENS));
         output.push_str(label);
         output.push_str(": ");
         output.push_str(excerpt);
@@ -1328,8 +1326,6 @@ mod fields;
 mod history;
 pub(crate) use history::{thread_from_session_data, transcript_from_thread};
 
-#[cfg(test)]
-pub(crate) use history::rebuild_transcript_from_messages as rebuild_for_test;
 pub use history::{CommitBasis, CommitTurn, ForkTarget};
 mod store;
 #[cfg(test)]

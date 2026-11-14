@@ -1,6 +1,6 @@
 //! End-to-end gesture input tests: one click / one chord must be enough.
 //!
-//! These drive the **real** dispatch path (`render_frame` → `app.ui.commit()` →
+//! These drive the **real** dispatch path (`render_frame` → `app.transcript.ui.commit()` →
 //! [`process_one_event`](crate::shell::event_loop::process_one_event)) rather
 //! than a hand-mounted component tree, so the presented scene — the sole
 //! pointer hit-test authority — and the component/keyboard routing are exactly
@@ -23,7 +23,7 @@ fn paint(app: &mut crate::shell::App, terminal: &mut nuotc::TestTerminal) {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(app, f, "s1");
     });
-    app.ui.commit();
+    app.transcript.ui.commit();
 }
 
 async fn send(app: &mut crate::shell::App, terminal: &mut nuotc::TestTerminal, event: Event) {
@@ -47,14 +47,14 @@ fn key(code: KeyCode, modifiers: KeyModifiers) -> Event {
 /// Three tabs: thread (x 0..11), dashboard (x 11..23), settings (x 23..33).
 fn seeded_app() -> (crate::shell::App, tempfile::TempDir) {
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "s1".to_string();
+    app.session.current_session_id = "s1".to_string();
     app.open_tab(crate::shell::surfaces::ClientTab::thread(
         "s1",
         Some("Thread 1"),
     ));
     app.open_tab(crate::shell::surfaces::ClientTab::dashboard());
     app.open_tab(crate::shell::surfaces::ClientTab::settings());
-    app.surfaces.select_tab(0);
+    app.surfaces.surfaces.select_tab(0);
     (app, tmp)
 }
 
@@ -75,7 +75,7 @@ async fn every_single_click_switches() {
         )
         .await;
         assert_eq!(
-            app.surfaces.active_tab_index(),
+            app.surfaces.surfaces.active_tab_index(),
             expected,
             "click at x={x} must activate tab {expected} on the first click"
         );
@@ -179,7 +179,11 @@ async fn help_dialog_mouse_row_click_executes_action() {
     let modal_key = UiKey::Overlay(crate::shell::surfaces::OverlaySurface::Dialog(
         crate::shell::surfaces::DialogKind::Help,
     ));
-    let bounds = app.ui.bounds(modal_key).expect("help modal mounted");
+    let bounds = app
+        .transcript
+        .ui
+        .bounds(modal_key)
+        .expect("help modal mounted");
 
     // Line 1 in Thread scene is Notices (body_top is at bounds.y + 3, line 1 is at bounds.y + 4)
     let notices_y = bounds.y + 4;
@@ -209,9 +213,9 @@ async fn help_dialog_mouse_row_click_executes_action() {
 #[tokio::test]
 async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
     let (mut app, _tmp) = seeded_app();
-    app.surfaces.select_tab(2);
+    app.surfaces.surfaces.select_tab(2);
     let dropdown = crate::shell::views::settings::build_websearch_provider_dropdown("exa", None);
-    app.config_dropdown = Some((
+    app.surfaces.config_dropdown = Some((
         dropdown,
         nuo_ui_primitives::components::dropdown::DropdownAnchor::center_screen(),
     ));
@@ -219,7 +223,11 @@ async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     paint(&mut app, &mut terminal);
     assert!(
-        app.ui.scene().id(&UiKey::ConfigDropdown).is_some(),
+        app.transcript
+            .ui
+            .scene()
+            .id(&UiKey::ConfigDropdown)
+            .is_some(),
         "the open dropdown is a mounted modal component (inputs: keyboard path [ConfigDropdown])"
     );
 
@@ -230,7 +238,7 @@ async fn click_dismisses_an_open_dropdown_through_the_real_dispatch() {
     )
     .await;
     assert!(
-        app.config_dropdown.is_none(),
+        app.surfaces.config_dropdown.is_none(),
         "a click outside the popup dismisses it"
     );
 }

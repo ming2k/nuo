@@ -9,7 +9,6 @@
 //! - Hidden and system messages are skipped. Subagent transcripts are summarised inline.
 use nuo_tool::{Message, Role, SubagentMeta, ToolCall};
 
-
 /// Metadata carried from the harness into the exporter so the header reflects
 /// the live session state at the moment of export.
 #[derive(Debug, Clone)]

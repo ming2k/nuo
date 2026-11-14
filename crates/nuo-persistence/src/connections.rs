@@ -27,8 +27,8 @@ use nuo_protocol::model_providers::is_known_model_provider;
 use nuo_protocol::{ConnectionAuth, ConnectionBudget};
 use serde::{Deserialize, Serialize};
 
-use nuo_host::fsutil;
 use crate::model_providers::ModelProviders;
+use nuo_host::fsutil;
 use nuo_host::paths;
 
 pub use nuo_protocol::model::{

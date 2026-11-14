@@ -6,7 +6,7 @@ use nuo_persistence::connections::{Connection, Connections};
 use nuo_persistence::model_providers::ModelProviders;
 use nuo_persistence::route_settings::RouteSettingsStore;
 use nuo_protocol::{AgentResponse, RoundEvent, SecretString, WireProtocol};
-use nuo_tool::{AgentNotice};
+use nuo_tool::AgentNotice;
 
 use tokio::sync::mpsc;
 
@@ -221,7 +221,9 @@ pub(crate) async fn add(
         creds.set_api_key(&name, Some(SecretString::from(trimmed_key)));
         let save_err = creds.save().err().map(|e| e.to_string());
         if let Some(error_msg) = save_err {
-            if stored_oauth && let Ok(mut store) = crate::composition::credentials_host::store().lock().await {
+            if stored_oauth
+                && let Ok(mut store) = crate::composition::credentials_host::store().lock().await
+            {
                 store.remove(&name);
                 let _ = store.commit().await;
             }
@@ -295,7 +297,9 @@ pub(crate) async fn add(
     let conn_save_err = connections.save().err().map(|e| e.to_string());
     if let Some(error_msg) = conn_save_err {
         tracing::error!(%error_msg, "add: could not persist connection; rolling back credentials");
-        if stored_oauth && let Ok(mut store) = crate::composition::credentials_host::store().lock().await {
+        if stored_oauth
+            && let Ok(mut store) = crate::composition::credentials_host::store().lock().await
+        {
             store.remove(&name);
             let _ = store.commit().await;
         }

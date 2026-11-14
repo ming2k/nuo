@@ -85,7 +85,8 @@ pub async fn stop_server() -> Result<(), Box<dyn std::error::Error>> {
                         uds_path: Some(nuo_server::transport::serve_discovery::default_uds_path()),
                         #[cfg(not(unix))]
                         uds_path: None,
-                        local_endpoint: nuo_server::transport::serve_discovery::default_local_endpoint().ok(),
+                        local_endpoint:
+                            nuo_server::transport::serve_discovery::default_local_endpoint().ok(),
                         version: None,
                         grace_secs: None,
                         protocol: None,
@@ -156,7 +157,9 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
     // When running with zero_tcp or without an explicit port/env, do not bind TCP.
     let disable_tcp =
         flags.zero_tcp || (flags.port.is_none() && std::env::var("NUO_PORT").is_err());
-    let port = flags.port.unwrap_or(nuo::composition::startup::env_default_port());
+    let port = flags
+        .port
+        .unwrap_or(nuo::composition::startup::env_default_port());
     let preset = agent_code();
     let outcome = nuo::runtime::host::run_with_gate(
         nuo::runtime::host::HostIdentity {
@@ -176,7 +179,8 @@ pub async fn run_server_foreground(flags: ServerStart) -> Result<(), Box<dyn std
                 && nuo_persistence::config::Config::load().server.local_auth,
             port_fallback: flags.port.is_none(),
             local_endpoint: Some(
-                nuo_server::transport::serve_discovery::default_local_endpoint().map_err(std::io::Error::other)?,
+                nuo_server::transport::serve_discovery::default_local_endpoint()
+                    .map_err(std::io::Error::other)?,
             ),
             disable_tcp,
         },

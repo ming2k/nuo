@@ -5,8 +5,8 @@ impl App {
     /// The double-press confirmation policy for *time-windowed* gestures:
     /// the first press arms a wall-clock window, and a second press inside
     /// it fires (a later press starts a fresh window instead). Two gestures
-    /// use this shape — Ctrl+C ×2 quit ([`Self::CTRL_C_ARM_WINDOW`]) and
-    /// Esc ×2 interrupt ([`Self::ESC_ARM_WINDOW`]) — both frequent, reversible
+    /// use this shape — Ctrl+C ×2 quit (`Self::CTRL_C_ARM_WINDOW`) and
+    /// Esc ×2 interrupt (`Self::ESC_ARM_WINDOW`) — both frequent, reversible
     /// intents where a lapsed window must silently re-arm rather than trap.
     /// The rarer, destructive confirms (Ctrl+X → `y` history wipe, the
     /// dashboard's `k` kill) use the complementary *keystroke-armed* policy
@@ -14,7 +14,7 @@ impl App {
     /// a stray `y` an hour later must never wipe history.
     pub const CTRL_C_ARM_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
     /// The Esc interrupt double-press window — see
-    /// [`Self::CTRL_C_ARM_WINDOW`] for the shared confirmation policy.
+    /// `Self::CTRL_C_ARM_WINDOW` for the shared confirmation policy.
     pub const ESC_ARM_WINDOW: std::time::Duration = std::time::Duration::from_secs(2);
     /// Record an input-history entry with the on-disk cap mirrored in memory:
     /// `HISTORY_CAP` bounds the persisted union, so an unbounded in-memory
@@ -22,10 +22,10 @@ impl App {
     /// but a multi-day session with heavy prompt reuse is unbounded anyway).
     /// Evicts from the oldest end.
     pub(super) fn push_history(&mut self, entry: nuo_protocol::HistoryEntry) {
-        self.input_history.push(entry);
-        if self.input_history.len() > nuo_protocol::history::HISTORY_CAP {
-            let overflow = self.input_history.len() - nuo_protocol::history::HISTORY_CAP;
-            self.input_history.drain(..overflow);
+        self.composer.input_history.push(entry);
+        if self.composer.input_history.len() > nuo_protocol::history::HISTORY_CAP {
+            let overflow = self.composer.input_history.len() - nuo_protocol::history::HISTORY_CAP;
+            self.composer.input_history.drain(..overflow);
         }
     }
 
@@ -34,10 +34,10 @@ impl App {
     /// on-demand harness snapshot (attach path). `None` in attach mode while
     /// the `QueryTokenUsage` round-trip is still in flight.
     pub fn token_source_report(&self, session_id: &str) -> Option<nuo_protocol::TokenSourceReport> {
-        if let Some(ledger) = &self.token_ledger {
+        if let Some(ledger) = &self.telemetry.token_ledger {
             Some(ledger.snapshot_for_session(session_id))
         } else {
-            self.token_report.clone()
+            self.telemetry.token_report.clone()
         }
     }
 
@@ -45,28 +45,30 @@ impl App {
     /// before the deadline quits). Wall-clock based; an elapsed deadline
     /// reads as disarmed.
     pub fn ctrl_c_armed(&self) -> bool {
-        self.ctrl_c_armed_until
+        self.surfaces
+            .ctrl_c_armed_until
             .is_some_and(|until| std::time::Instant::now() < until)
     }
 
     /// Arm the Ctrl+C quit window until the given deadline, or disarm it
     /// entirely when called with `None`.
     pub fn arm_ctrl_c(&mut self, until: Option<std::time::Instant>) {
-        self.ctrl_c_armed_until = until;
+        self.surfaces.ctrl_c_armed_until = until;
     }
 
     /// Whether the Esc interrupt window is currently armed (a second Esc
     /// before the deadline interrupts the viewed session's running round).
     /// Wall-clock based; an elapsed deadline reads as disarmed.
     pub fn esc_armed(&self) -> bool {
-        self.esc_armed_until
+        self.surfaces
+            .esc_armed_until
             .is_some_and(|until| std::time::Instant::now() < until)
     }
 
     /// Arm the Esc interrupt window until the given deadline, or disarm it
     /// entirely when called with `None`.
     pub fn arm_esc(&mut self, until: Option<std::time::Instant>) {
-        self.esc_armed_until = until;
+        self.surfaces.esc_armed_until = until;
     }
 
     /// Register one Esc press in the interrupt-confirmation flow: the first
@@ -75,10 +77,10 @@ impl App {
     /// lapsed starts a fresh window instead of firing a stale confirmation.
     pub fn esc_press(&mut self) -> bool {
         if self.esc_armed() {
-            self.esc_armed_until = None;
+            self.surfaces.esc_armed_until = None;
             true
         } else {
-            self.esc_armed_until = Some(std::time::Instant::now() + Self::ESC_ARM_WINDOW);
+            self.surfaces.esc_armed_until = Some(std::time::Instant::now() + Self::ESC_ARM_WINDOW);
             false
         }
     }
@@ -95,10 +97,10 @@ impl App {
     /// arm must lapse the moment *that child* settles even while the parent
     /// keeps running.
     pub fn tick_esc_arm(&mut self) {
-        if let Some(until) = self.esc_armed_until
+        if let Some(until) = self.surfaces.esc_armed_until
             && std::time::Instant::now() >= until
         {
-            self.esc_armed_until = None;
+            self.surfaces.esc_armed_until = None;
         }
         if !self.esc_armed() {
             return;
@@ -107,16 +109,17 @@ impl App {
         {
             self.focused_subagent_running()
         } else {
-            self.running_sessions
-                .contains(self.current_session_id.as_str())
+            self.session
+                .running_sessions
+                .contains(self.session.current_session_id.as_str())
         };
         if !target_running {
-            self.esc_armed_until = None;
+            self.surfaces.esc_armed_until = None;
         }
     }
 
     pub fn byte_cursor(&self) -> usize {
-        self.cursor_position.min(self.input.len())
+        self.composer.cursor_position.min(self.composer.input.len())
     }
 
     /// The composer caret in **wire units**: a Unicode scalar (char) index into
@@ -135,11 +138,11 @@ impl App {
     /// mid-paragraph in (say) Chinese never opens its menu. Convert here, at the
     /// one boundary where local byte offsets meet the wire contract.
     pub fn wire_cursor(&self) -> usize {
-        let mut byte = self.cursor_position.min(self.input.len());
-        while byte > 0 && !self.input.is_char_boundary(byte) {
+        let mut byte = self.composer.cursor_position.min(self.composer.input.len());
+        while byte > 0 && !self.composer.input.is_char_boundary(byte) {
             byte -= 1;
         }
-        self.input[..byte].chars().count()
+        self.composer.input[..byte].chars().count()
     }
 
     /// The width the composer lays its text out at, or `0` before the first
@@ -150,7 +153,8 @@ impl App {
     /// the grid then falls back to [`TextGrid::unwrapped`], one row per
     /// logical line, instead of guessing a width.
     pub fn composer_grid_width(&self) -> usize {
-        self.ui
+        self.transcript
+            .ui
             .bounds(crate::shell::ui::UiKey::Composer)
             .map_or(0, |rect| {
                 crate::shell::composer::composer_text_width(rect.width as usize)
@@ -162,8 +166,8 @@ impl App {
     /// its rows here, so none of them can disagree with the renderer.
     pub fn composer_grid(&self) -> TextGrid {
         match self.composer_grid_width() {
-            0 => TextGrid::unwrapped(&self.input),
-            width => TextGrid::new(&self.input, width),
+            0 => TextGrid::unwrapped(&self.composer.input),
+            width => TextGrid::new(&self.composer.input, width),
         }
     }
 
@@ -171,9 +175,12 @@ impl App {
     /// size: wrapped rows minus visible rows. `None` when no composer rect
     /// is known (nothing drawn yet, or an overlay owns the surface).
     pub fn input_scroll_max(&self) -> Option<usize> {
-        let rect = self.ui.bounds(crate::shell::ui::UiKey::Composer)?;
+        let rect = self
+            .transcript
+            .ui
+            .bounds(crate::shell::ui::UiKey::Composer)?;
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
-        let rows = TextGrid::new(&self.input, text_width).row_count();
+        let rows = TextGrid::new(&self.composer.input, text_width).row_count();
         let visible = (rect.height as usize)
             .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
             .max(1);
@@ -192,15 +199,15 @@ impl App {
             return None;
         }
         let target = if up {
-            self.input_scroll.saturating_sub(lines)
+            self.composer.input_scroll.saturating_sub(lines)
         } else {
-            (self.input_scroll + lines).min(max)
+            (self.composer.input_scroll + lines).min(max)
         };
-        if target != self.input_scroll {
-            self.input_scroll = target;
-            self.input_scroll_follow_cursor = false;
+        if target != self.composer.input_scroll {
+            self.composer.input_scroll = target;
+            self.composer.input_scroll_follow_cursor = false;
         }
-        Some(self.input_scroll)
+        Some(self.composer.input_scroll)
     }
 
     /// Whether a selection-drag pointer at row `y` should arm composer
@@ -214,14 +221,18 @@ impl App {
     /// drag should follow it normally.
     pub fn input_drag_scroll_edge(&self, y: u16) -> Option<bool> {
         let anchored_in_input = self
+            .transcript
             .drag
             .anchor
             .as_ref()
             .is_some_and(|a| a.message_idx == crate::shell::render::INPUT_MSG_IDX);
-        if !(self.drag.active && anchored_in_input) {
+        if !(self.transcript.drag.active && anchored_in_input) {
             return None;
         }
-        let rect = self.ui.bounds(crate::shell::ui::UiKey::Composer)?;
+        let rect = self
+            .transcript
+            .ui
+            .bounds(crate::shell::ui::UiKey::Composer)?;
         let max = self.input_scroll_max()?;
         if max == 0 {
             return None; // every wrapped row is visible; nothing to scroll to
@@ -231,9 +242,9 @@ impl App {
             + rect
                 .height
                 .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS);
-        if y < text_top && self.input_scroll > 0 {
+        if y < text_top && self.composer.input_scroll > 0 {
             Some(true)
-        } else if y >= text_bottom_exclusive && self.input_scroll < max {
+        } else if y >= text_bottom_exclusive && self.composer.input_scroll < max {
             Some(false)
         } else {
             None
@@ -247,39 +258,39 @@ impl App {
     /// loop's heartbeat tick (so holding the pointer still at the edge keeps
     /// scrolling); lazily disarms itself if the drag is no longer active.
     pub fn step_input_drag_scroll(&mut self) -> bool {
-        let Some(up) = self.input_drag_scroll else {
+        let Some(up) = self.composer.input_drag_scroll else {
             return false;
         };
-        if !self.drag.active {
-            self.input_drag_scroll = None;
+        if !self.transcript.drag.active {
+            self.composer.input_drag_scroll = None;
             return false;
         }
         let Some(max) = self.input_scroll_max() else {
             return false;
         };
         let target = if up {
-            self.input_scroll.saturating_sub(1)
+            self.composer.input_scroll.saturating_sub(1)
         } else {
-            (self.input_scroll + 1).min(max)
+            (self.composer.input_scroll + 1).min(max)
         };
-        if target == self.input_scroll {
+        if target == self.composer.input_scroll {
             return false;
         }
-        self.input_scroll = target;
-        self.input_scroll_follow_cursor = false;
+        self.composer.input_scroll = target;
+        self.composer.input_scroll_follow_cursor = false;
 
         // Resolve the newly-exposed viewport edge through the same wrap the
         // renderer uses, and pin the selection head to its byte — hidden rows
         // are not in the layout map, so the head cannot be resolved from the
         // pointer; the edge *is* the pointer as far as the selection cares.
-        let Some(rect) = self.ui.bounds(crate::shell::ui::UiKey::Composer) else {
+        let Some(rect) = self.transcript.ui.bounds(crate::shell::ui::UiKey::Composer) else {
             return false;
         };
         let text_width = crate::shell::composer::composer_text_width(rect.width as usize);
         let visible = (rect.height as usize)
             .saturating_sub(nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS as usize)
             .max(1);
-        let grid = TextGrid::new(&self.input, text_width);
+        let grid = TextGrid::new(&self.composer.input, text_width);
         let wrapped = grid.rows();
         if wrapped.is_empty() {
             return false;
@@ -292,10 +303,10 @@ impl App {
         let byte = if up {
             wrapped[edge_row].start_byte
         } else {
-            wrapped[edge_row].end_byte.min(self.input.len())
+            wrapped[edge_row].end_byte.min(self.composer.input.len())
         };
-        self.drag.update_to_cursor(
-            &mut self.selection,
+        self.transcript.drag.update_to_cursor(
+            &mut self.transcript.selection,
             nuo_view::model::layout::SemanticCursor::new(
                 crate::shell::render::INPUT_MSG_IDX,
                 0,
@@ -306,7 +317,7 @@ impl App {
             // The pointer is still held, but no hidden row remains in this
             // direction. Stop the animation heartbeat now; a later mouse-drag
             // report will re-arm it if geometry or direction changes.
-            self.input_drag_scroll = None;
+            self.composer.input_drag_scroll = None;
         }
         true
     }
@@ -314,16 +325,16 @@ impl App {
     /// Set the logical input caret position. Physical cursor placement has one
     /// writer only: the next frame's terminal commit transaction.
     pub fn set_cursor(&mut self, pos: usize) {
-        self.cursor_position = pos;
-        self.input_scroll_follow_cursor = true;
+        self.composer.cursor_position = pos;
+        self.composer.input_scroll_follow_cursor = true;
     }
 
-    /// Set the input caret to the end of `self.input` (common case after a
+    /// Set the input caret to the end of `self.composer.input` (common case after a
     /// programmatic input replacement: history navigation, modal restore,
-    /// paste). Equivalent to `set_cursor(self.input.chars().count())` but
+    /// paste). Equivalent to `set_cursor(self.composer.input.chars().count())` but
     /// reads as intent at the call site.
     pub fn set_cursor_end(&mut self) {
-        let end = self.input.len();
+        let end = self.composer.input.len();
         self.set_cursor(end);
     }
 
@@ -332,10 +343,10 @@ impl App {
     /// Supports whole-input selections (`Block` on `INPUT_MSG_IDX`) and
     /// drag-selected ranges (`Range` on `INPUT_MSG_IDX`).
     pub fn has_input_selection(&self) -> bool {
-        if !self.selection.is_active() {
+        if !self.transcript.selection.is_active() {
             return false;
         }
-        match &self.selection {
+        match &self.transcript.selection {
             SelectionState::Block { message_idx, .. } => {
                 *message_idx == crate::shell::render::INPUT_MSG_IDX
             }
@@ -359,15 +370,15 @@ impl App {
     /// `Head` is the release point where the mouse drag finished, while `Tail`
     /// is the anchor point where the drag began.
     ///
-    /// No-op (returns `false`) unless [`Self::has_input_selection`].
+    /// No-op (returns `false`) unless `Self::has_input_selection`.
     pub fn adopt_caret_from_input_selection(&mut self, edge: SelectionEdge) -> bool {
         if !self.has_input_selection() {
             return false;
         }
-        let pos = match &self.selection {
+        let pos = match &self.transcript.selection {
             SelectionState::Block { .. } => match edge {
                 SelectionEdge::Tail => 0,
-                SelectionEdge::Head => self.input.len(),
+                SelectionEdge::Head => self.composer.input.len(),
             },
             SelectionState::InputRange {
                 anchor_byte,
@@ -377,25 +388,28 @@ impl App {
                     SelectionEdge::Tail => *anchor_byte,
                     SelectionEdge::Head => *head_byte,
                 };
-                nuo_view::model::selection::floor_grapheme_boundary(&self.input, byte)
-                    .min(self.input.len())
+                nuo_view::model::selection::floor_grapheme_boundary(&self.composer.input, byte)
+                    .min(self.composer.input.len())
             }
             SelectionState::Range { anchor, head } => {
                 let cursor = match edge {
                     SelectionEdge::Tail => *anchor,
                     SelectionEdge::Head => *head,
                 };
-                nuo_view::model::selection::floor_grapheme_boundary(&self.input, cursor.byte_offset)
-                    .min(self.input.len())
+                nuo_view::model::selection::floor_grapheme_boundary(
+                    &self.composer.input,
+                    cursor.byte_offset,
+                )
+                .min(self.composer.input.len())
             }
             _ => match edge {
                 SelectionEdge::Tail => 0,
-                SelectionEdge::Head => self.cursor_position,
+                SelectionEdge::Head => self.composer.cursor_position,
             },
         };
-        self.selection = SelectionState::None;
-        self.drag.cancel();
-        self.set_cursor(pos.min(self.input.len()));
+        self.transcript.selection = SelectionState::None;
+        self.transcript.drag.cancel();
+        self.set_cursor(pos.min(self.composer.input.len()));
         true
     }
 
@@ -412,18 +426,18 @@ impl App {
 
     /// Delete the composer text the active input selection covers (the standard
     /// editor behaviour: Backspace/Del over a selection replaces it).
-    /// No-op (returns `false`) unless [`Self::has_input_selection`].
+    /// No-op (returns `false`) unless `Self::has_input_selection`.
     pub fn delete_input_selection(&mut self) -> bool {
         if !self.has_input_selection() {
             return false;
         }
-        match &self.selection {
+        match &self.transcript.selection {
             SelectionState::Block { message_idx, .. }
                 if *message_idx == crate::shell::render::INPUT_MSG_IDX =>
             {
-                self.input.clear();
-                self.selection = SelectionState::None;
-                self.drag.cancel();
+                self.composer.input.clear();
+                self.transcript.selection = SelectionState::None;
+                self.transcript.drag.cancel();
                 self.set_cursor(0);
                 true
             }
@@ -431,46 +445,50 @@ impl App {
                 anchor_byte,
                 head_byte,
             } => {
-                let start = (*anchor_byte).min(*head_byte).min(self.input.len());
-                let end = (*anchor_byte).max(*head_byte).min(self.input.len());
+                let start = (*anchor_byte)
+                    .min(*head_byte)
+                    .min(self.composer.input.len());
+                let end = (*anchor_byte)
+                    .max(*head_byte)
+                    .min(self.composer.input.len());
                 if start < end {
-                    self.input.replace_range(start..end, "");
+                    self.composer.input.replace_range(start..end, "");
                 }
                 let new_cursor = start;
-                self.selection = SelectionState::None;
-                self.drag.cancel();
+                self.transcript.selection = SelectionState::None;
+                self.transcript.drag.cancel();
                 self.set_cursor(new_cursor);
                 true
             }
             SelectionState::Range { .. } => {
-                if let Some((start, end)) = self.selection.active_normalized_range() {
+                if let Some((start, end)) = self.transcript.selection.active_normalized_range() {
                     let start_byte = nuo_view::model::selection::floor_grapheme_boundary(
-                        &self.input,
+                        &self.composer.input,
                         start.byte_offset,
                     )
-                    .min(self.input.len());
+                    .min(self.composer.input.len());
                     let end_byte = nuo_view::model::selection::inclusive_grapheme_end(
-                        &self.input,
+                        &self.composer.input,
                         end.byte_offset,
                     )
-                    .min(self.input.len());
+                    .min(self.composer.input.len());
                     if start_byte < end_byte {
-                        self.input.replace_range(start_byte..end_byte, "");
+                        self.composer.input.replace_range(start_byte..end_byte, "");
                     }
                     let new_cursor = start_byte;
-                    self.selection = SelectionState::None;
-                    self.drag.cancel();
+                    self.transcript.selection = SelectionState::None;
+                    self.transcript.drag.cancel();
                     self.set_cursor(new_cursor);
                     true
                 } else {
-                    self.selection = SelectionState::None;
-                    self.drag.cancel();
+                    self.transcript.selection = SelectionState::None;
+                    self.transcript.drag.cancel();
                     false
                 }
             }
             _ => {
-                self.selection = SelectionState::None;
-                self.drag.cancel();
+                self.transcript.selection = SelectionState::None;
+                self.transcript.drag.cancel();
                 false
             }
         }
@@ -480,7 +498,7 @@ impl App {
     /// this frame. See [`CaretOwner`].
     ///
     /// This is a pure function of active surface and edit mode — never of the
-    /// selection, which is folded in separately by [`Self::caret_visible`].
+    /// selection, which is folded in separately by `Self::caret_visible`.
     /// Authoritative Stage-Scene-Overlay caret ownership.
     ///
     /// The input hierarchy strictly dictates which surface owns the physical cursor:
@@ -495,13 +513,13 @@ impl App {
     ///    - Non-thread scenes without composer claim `CaretOwner::None`.
     pub fn caret_owner(&self) -> CaretOwner {
         use crate::shell::surfaces::{DialogKind, SheetKind};
-        if self.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
+        if self.surfaces.surfaces.active_overlay().is_some() || self.active_sheet().is_some() {
             // Dialog key reference overlay suppresses caret
             if self.dialog_keys() {
                 return CaretOwner::None;
             }
             // Confirmation sub-layers suppress caret
-            if self.pending_provider_delete.is_some() {
+            if self.surfaces.pending_provider_delete.is_some() {
                 return CaretOwner::None;
             }
             // The history panel is a composer extension (ADR-0044):
@@ -525,28 +543,38 @@ impl App {
                 };
             }
             // Provider/Model key editor form
-            if self.surfaces.contains_sheet(SheetKind::ModelEditor) {
-                return if !self.editor_model_settings_only && self.editor_field == 0 {
+            if self
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::ModelEditor)
+            {
+                return if !self.provider_editor.editor_model_settings_only
+                    && self.provider_editor.editor_field == 0
+                {
                     CaretOwner::Overlay
                 } else {
                     CaretOwner::None
                 };
             }
             if self.active_sheet() == Some(crate::shell::sheet::SheetKind::InputInjection)
-                && self.surfaces.active_overlay().is_none()
+                && self.surfaces.surfaces.active_overlay().is_none()
             {
                 return CaretOwner::Overlay;
             }
             // Unified Command Palette (Switcher) and Custom Provider forms
             if matches!(self.active_dialog(), Some(DialogKind::Switcher))
-                || self.surfaces.contains_sheet(SheetKind::CustomProvider)
+                || self
+                    .surfaces
+                    .surfaces
+                    .contains_sheet(SheetKind::CustomProvider)
             {
                 return CaretOwner::Overlay;
             }
             // Question Sheet's "Other" free-text entry
             if self.active_sheet() == Some(crate::shell::sheet::SheetKind::Question)
-                && self.surfaces.active_overlay().is_none()
+                && self.surfaces.surfaces.active_overlay().is_none()
                 && self
+                    .human
                     .question
                     .as_ref()
                     .is_some_and(|q| q.is_other_highlighted())
@@ -559,7 +587,7 @@ impl App {
         // Scene layer: the composer owns the caret unless the transcript — its
         // peer plane — holds the keyboard (ADR-0145).
         if self.current_scene() == crate::shell::surfaces::SceneKind::Dashboard
-            && self.host_prompting
+            && self.surfaces.host_prompting
         {
             // The Dashboard's inline prompt borrows the composer buffer but
             // renders in the scene's own footer band, so the scene — not the
@@ -567,7 +595,7 @@ impl App {
             return CaretOwner::Scene;
         }
         if self.current_scene() != crate::shell::surfaces::SceneKind::Thread
-            || self.focus.is_transcript()
+            || self.transcript.focus.is_transcript()
             || self.in_subagent_view()
         {
             CaretOwner::None
@@ -577,12 +605,12 @@ impl App {
     }
 
     /// Whether the terminal cursor should be visible right now —
-    /// [`Self::caret_owner`] plus the one extra rule that an active text
+    /// `Self::caret_owner` plus the one extra rule that an active text
     /// selection hides the cursor (a block cursor would clash with the
     /// selection background). This is what every cursor site consults; no
     /// call site should re-derive visibility from raw fields.
     pub fn caret_visible(&self) -> bool {
-        !self.selection.is_active() && self.caret_owner() != CaretOwner::None
+        !self.transcript.selection.is_active() && self.caret_owner() != CaretOwner::None
     }
 
     /// Whether the composer currently has input focus (owns the caret).
@@ -592,25 +620,25 @@ impl App {
 
     /// Whether the composer has any draft text, active history recall, or staged attachments.
     pub fn has_composer_content(&self) -> bool {
-        !self.input.is_empty()
-            || self.history_index.is_some()
-            || !self.draft_capsule.is_empty()
-            || !self.pending_images.is_empty()
-            || !self.pending_text_pastes.is_empty()
+        !self.composer.input.is_empty()
+            || self.composer.history_index.is_some()
+            || !self.composer.draft_capsule.is_empty()
+            || !self.composer.pending_images.is_empty()
+            || !self.composer.pending_text_pastes.is_empty()
     }
 
     /// Clear the live composer buffer, attachments, scroll offset, and active history recall state.
     pub fn clear_composer(&mut self) {
-        self.input.clear();
+        self.composer.input.clear();
         self.set_cursor(0);
-        self.input_scroll = 0;
-        self.history_index = None;
+        self.composer.input_scroll = 0;
+        self.composer.history_index = None;
         self.clear_stashed_draft();
-        self.suggestion_index = None;
-        self.completion_dismissed = true;
-        self.pending_images.clear();
-        self.pending_text_pastes.clear();
-        self.selection = SelectionState::None;
+        self.composer.suggestion_index = None;
+        self.composer.completion_dismissed = true;
+        self.composer.pending_images.clear();
+        self.composer.pending_text_pastes.clear();
+        self.transcript.selection = SelectionState::None;
         self.arm_ctrl_c(None);
     }
 
@@ -654,9 +682,9 @@ impl App {
         policy: DraftAdoption,
     ) {
         if policy == DraftAdoption::StashCurrent
-            && (!self.input.is_empty()
-                || !self.pending_images.is_empty()
-                || !self.pending_text_pastes.is_empty())
+            && (!self.composer.input.is_empty()
+                || !self.composer.pending_images.is_empty()
+                || !self.composer.pending_text_pastes.is_empty())
         {
             // Capture before the overwrite: the capsule is an atomic
             // (text, cursor, attachments) triple, so the composer's previous
@@ -666,69 +694,69 @@ impl App {
             // installed below. The capsule must NOT then be re-pointed at that
             // content — the whole point is that ↓ brings back what the user was
             // writing, so the capsule keeps the *previous* draft.
-            self.history_index = None;
-            self.input = text;
+            self.composer.history_index = None;
+            self.composer.input = text;
             self.set_cursor_end();
             if !images.is_empty() {
-                self.pending_images = images;
+                self.composer.pending_images = images;
             }
             if !text_pastes.is_empty() {
-                self.pending_text_pastes = text_pastes;
+                self.composer.pending_text_pastes = text_pastes;
             }
-            self.suggestion_index = None;
-            self.completion_dismissed = true;
+            self.composer.suggestion_index = None;
+            self.composer.completion_dismissed = true;
             return;
         }
-        self.history_index = None;
-        self.input = text;
+        self.composer.history_index = None;
+        self.composer.input = text;
         self.set_cursor_end();
         if !images.is_empty() {
-            self.pending_images = images;
+            self.composer.pending_images = images;
         }
         if !text_pastes.is_empty() {
-            self.pending_text_pastes = text_pastes;
+            self.composer.pending_text_pastes = text_pastes;
         }
-        self.draft_capsule = nuo_view::composer_mode::DraftCapsule::capture(
-            self.input.clone(),
-            self.cursor_position,
-            self.pending_images.clone(),
-            self.pending_text_pastes.clone(),
+        self.composer.draft_capsule = nuo_view::composer_mode::DraftCapsule::capture(
+            self.composer.input.clone(),
+            self.composer.cursor_position,
+            self.composer.pending_images.clone(),
+            self.composer.pending_text_pastes.clone(),
         );
         // Programmatic input replacement: latch the completion dismissal so
         // the popup doesn't flash until the next real edit.
-        self.suggestion_index = None;
-        self.completion_dismissed = true;
+        self.composer.suggestion_index = None;
+        self.composer.completion_dismissed = true;
     }
 
     /// Atomic capture of current prompt and attachments into `draft_capsule` (ADR-0051 [INV-COMP-03]).
     pub fn stash_draft(&mut self) {
-        self.draft_capsule = nuo_view::composer_mode::DraftCapsule::capture(
-            std::mem::take(&mut self.input),
-            self.cursor_position,
-            std::mem::take(&mut self.pending_images),
-            std::mem::take(&mut self.pending_text_pastes),
+        self.composer.draft_capsule = nuo_view::composer_mode::DraftCapsule::capture(
+            std::mem::take(&mut self.composer.input),
+            self.composer.cursor_position,
+            std::mem::take(&mut self.composer.pending_images),
+            std::mem::take(&mut self.composer.pending_text_pastes),
         );
-        self.cursor_position = 0;
+        self.composer.cursor_position = 0;
     }
 
     /// Atomic restoration of `draft_capsule` into live prompt and attachments (ADR-0051 [INV-COMP-03]).
     pub fn restore_stashed_draft(&mut self) {
-        self.draft_capsule.restore_into(
-            &mut self.input,
-            &mut self.pending_images,
-            &mut self.pending_text_pastes,
-            &mut self.cursor_position,
+        self.composer.draft_capsule.restore_into(
+            &mut self.composer.input,
+            &mut self.composer.pending_images,
+            &mut self.composer.pending_text_pastes,
+            &mut self.composer.cursor_position,
         );
     }
 
     /// Clear the stashed draft capsule (ADR-0051 [INV-COMP-03]).
     pub fn clear_stashed_draft(&mut self) {
-        self.draft_capsule.clear();
+        self.composer.draft_capsule.clear();
     }
 
     /// Whether an atomic draft capsule is currently held.
     pub fn has_stashed_draft(&self) -> bool {
-        !self.draft_capsule.is_empty()
+        !self.composer.draft_capsule.is_empty()
     }
 
     /// The currently active `ComposerExtensionKind`, if any.
@@ -742,14 +770,15 @@ impl App {
         if self.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch) {
             return Some(crate::shell::composer_extension::ComposerExtensionKind::HistorySearch);
         }
-        if self.surfaces.active_overlay().is_none() && !self.completion_dismissed {
+        if self.surfaces.surfaces.active_overlay().is_none() && !self.composer.completion_dismissed
+        {
             match self.completion_kind() {
                 crate::shell::completion::CompletionKind::Slash => {
                     let completions = self.completions();
                     let exact_match = completions.iter().any(|c| {
                         c.replace_start == 0
-                            && c.replace_end == self.input.len()
-                            && c.label == self.input
+                            && c.replace_end == self.composer.input.len()
+                            && c.label == self.composer.input
                     });
                     if !completions.is_empty() && !exact_match {
                         Some(crate::shell::composer_extension::ComposerExtensionKind::SlashCompletion)
@@ -761,8 +790,8 @@ impl App {
                     let completions = self.completions();
                     let exact_match = completions.iter().any(|c| {
                         c.replace_start == 0
-                            && c.replace_end == self.input.len()
-                            && c.label == self.input
+                            && c.replace_end == self.composer.input.len()
+                            && c.label == self.composer.input
                     });
                     if !completions.is_empty() && !exact_match {
                         Some(
@@ -785,14 +814,15 @@ impl App {
         if self.active_dialog() == Some(crate::shell::surfaces::DialogKind::HistorySearch) {
             let selected_index = self
                 .surfaces
+                .surfaces
                 .dlg::<crate::shell::surfaces::HistorySearchDialog>()
                 .index;
             return ComposerMode::Search {
-                query: self.input.clone(),
+                query: self.composer.input.clone(),
                 selected_index,
             };
         }
-        if let Some(history_index) = self.history_index {
+        if let Some(history_index) = self.composer.history_index {
             return ComposerMode::Recall { history_index };
         }
         if let Some(ext) = self.active_composer_extension() {
@@ -800,24 +830,25 @@ impl App {
                 crate::shell::composer_extension::ComposerExtensionKind::SlashCompletion => {
                     return ComposerMode::Complete {
                         kind: CompleteKind::Command,
-                        needle: self.input.clone(),
-                        selected_index: self.suggestion_index.unwrap_or(0),
+                        needle: self.composer.input.clone(),
+                        selected_index: self.composer.suggestion_index.unwrap_or(0),
                     };
                 }
                 crate::shell::composer_extension::ComposerExtensionKind::PathCompletion => {
                     return ComposerMode::Complete {
                         kind: CompleteKind::Context,
-                        needle: self.input.clone(),
-                        selected_index: self.suggestion_index.unwrap_or(0),
+                        needle: self.composer.input.clone(),
+                        selected_index: self.composer.suggestion_index.unwrap_or(0),
                     };
                 }
                 crate::shell::composer_extension::ComposerExtensionKind::HistorySearch => {
                     let selected_index = self
                         .surfaces
+                        .surfaces
                         .dlg::<crate::shell::surfaces::HistorySearchDialog>()
                         .index;
                     return ComposerMode::Search {
-                        query: self.input.clone(),
+                        query: self.composer.input.clone(),
                         selected_index,
                     };
                 }
@@ -832,7 +863,7 @@ impl App {
     /// user resumes typing what they were typing before Ctrl+M. The stack
     /// is cleared: nothing between chat and here is reachable via Esc.
     pub(crate) fn restore_chat_after_editor_chain(&mut self) {
-        while self.active_dialog().is_none() && self.surfaces.active_overlay().is_some() {
+        while self.active_dialog().is_none() && self.surfaces.surfaces.active_overlay().is_some() {
             self.pop_transient_surface();
         }
         if let Some(id) = self.active_dialog() {
@@ -840,8 +871,8 @@ impl App {
         }
         // The editor chain ends at the dialog it started from; if even that
         // is gone, reveal the full-screen scene beneath.
-        if self.active_dialog().is_none() && self.surfaces.active_dialog().is_none() {
-            self.surfaces.dismiss_all_overlays();
+        if self.active_dialog().is_none() && self.surfaces.surfaces.active_dialog().is_none() {
+            self.surfaces.surfaces.dismiss_all_overlays();
         }
     }
 
@@ -849,20 +880,20 @@ impl App {
     /// the input-injection modal (L3.5 β) can borrow it for free-text entry.
     /// Mirrors the stash half of the provider/history pickers.
     pub fn park_input_draft(&mut self) {
-        self.injection_stashed_input = std::mem::take(&mut self.input);
+        self.composer.injection_stashed_input = std::mem::take(&mut self.composer.input);
         self.set_cursor(0);
-        self.input_scroll = 0;
-        self.suggestion_index = None;
+        self.composer.input_scroll = 0;
+        self.composer.suggestion_index = None;
     }
 
     /// Tear down the input-injection modal's borrowed state: hand the parked
     /// composer draft back. Does **not** touch the overlay stack.
     pub fn restore_input_draft(&mut self) {
-        self.input = std::mem::take(&mut self.injection_stashed_input);
+        self.composer.input = std::mem::take(&mut self.composer.injection_stashed_input);
         self.set_cursor_end();
-        self.input_scroll = 0;
-        self.suggestion_index = None;
-        self.modal_index = 0;
+        self.composer.input_scroll = 0;
+        self.composer.suggestion_index = None;
+        self.surfaces.modal_index = 0;
     }
 
     /// The active fuzzy query for the picker: the picker entity's own embedded
@@ -873,10 +904,12 @@ impl App {
             Some(crate::shell::surfaces::DialogKind::Models)
                 if self
                     .surfaces
+                    .surfaces
                     .dlg::<crate::shell::surfaces::ModelsDialog>()
                     .search =>
             {
                 self.surfaces
+                    .surfaces
                     .dlg::<crate::shell::surfaces::ModelsDialog>()
                     .query
                     .text
@@ -885,10 +918,12 @@ impl App {
             Some(crate::shell::surfaces::DialogKind::Connections)
                 if self
                     .surfaces
+                    .surfaces
                     .dlg::<crate::shell::surfaces::ConnectionsDialog>()
                     .search =>
             {
                 self.surfaces
+                    .surfaces
                     .dlg::<crate::shell::surfaces::ConnectionsDialog>()
                     .query
                     .text

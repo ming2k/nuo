@@ -22,7 +22,6 @@ use nuo_persistence::thread::CommitBasis;
 use nuo_persistence::thread::{CommitTurn, ThreadSession};
 use nuo_tool::{Message, Role};
 
-
 fn sandbox(tag: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("nuo-{tag}-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();

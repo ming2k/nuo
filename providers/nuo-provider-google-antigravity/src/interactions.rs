@@ -10,9 +10,12 @@ use nuo_protocol::capability::{
     ModelRequest, Provider, ProviderEventStream, ProviderPromptHints, ProviderStreamEvent,
     ProviderTextStream,
 };
+use nuo_protocol::{
+    CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta,
+    ProviderError, RequestDelivery,
+};
 use nuo_provider::transport::{Client, HttpResponse, RequestBuilder};
 use nuo_provider::transport::{decode_response_json, ensure_success};
-use nuo_protocol::{CredentialSource, Effort, ModelCapabilities, ProviderCompletion, ProviderCompletionMeta, ProviderError, RequestDelivery};
 
 use nuo_provider::{Endpoint, PromptCacheConfig};
 use nuo_tool::{Message, Role, TokenUsage};

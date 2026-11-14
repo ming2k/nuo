@@ -357,9 +357,11 @@ fn outbox_count_and_addressing_are_session_scoped() {
     // this queue itself (the driver owns shipping, M4), so what must be
     // session-scoped is the *addressable* set, not a local FIFO drain.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("b-next", "session-b", "other"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("a-next", "session-a", "follow up"));
 
     assert_eq!(app.pending_count("session-a"), 1);
@@ -387,18 +389,18 @@ fn outbox_count_and_addressing_are_session_scoped() {
 #[tokio::test]
 async fn sending_clears_the_remembered_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
     app.record_input_history("older prompt".to_string(), Vec::new(), Vec::new());
 
     // Compose a draft, walk ↑ into history and back ↓ — the draft is stashed
     // in the remembered slot and restored into the composer.
-    app.input = "my draft".to_string();
+    app.composer.input = "my draft".to_string();
     let rows = app.current_session_history();
     assert!(app.history_prev(&rows));
     assert!(!app.history_next(&rows));
     assert_eq!(
-        app.input, "my draft",
+        app.composer.input, "my draft",
         "draft content restored into the composer on ↓ past the newest row"
     );
     // The remembered slot is a *lazy* stash (shell-style): after a restore the
@@ -407,17 +409,23 @@ async fn sending_clears_the_remembered_draft() {
 
     // Send: the input is taken out of the composer, historicised (recorded),
     // and the draft slot cleared — exactly the SendChat handler's sequence.
-    let sent = std::mem::take(&mut app.input);
+    let sent = std::mem::take(&mut app.composer.input);
     app.record_input_history(sent, Vec::new(), Vec::new());
     app.clear_history_draft();
-    assert!(app.draft_capsule.is_empty());
-    assert!(app.input.is_empty(), "composer is blank after a send");
+    assert!(app.composer.draft_capsule.is_empty());
+    assert!(
+        app.composer.input.is_empty(),
+        "composer is blank after a send"
+    );
 
     // A later ↑→↓ round-trip restores an empty composer, not the sent text.
     let rows = app.current_session_history();
     assert!(app.history_prev(&rows));
     assert!(!app.history_next(&rows));
-    assert_eq!(app.input, "", "no stale draft may return after a send");
+    assert_eq!(
+        app.composer.input, "",
+        "no stale draft may return after a send"
+    );
 }
 
 /// The async restore must not *lose* input in either direction.
@@ -430,11 +438,11 @@ async fn sending_clears_the_remembered_draft() {
 #[tokio::test]
 async fn unsent_restore_stashes_the_in_progress_draft_instead_of_dropping_either() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "session-a".to_string();
-    app.current_workspace = "~/p".to_string();
+    app.session.current_session_id = "session-a".to_string();
+    app.session.current_workspace = "~/p".to_string();
 
     // The user was mid-composition when the interrupt landed.
-    app.input = "half-typed next message".to_string();
+    app.composer.input = "half-typed next message".to_string();
     app.adopt_as_draft(
         "interrupted input".to_string(),
         Vec::new(),
@@ -443,40 +451,40 @@ async fn unsent_restore_stashes_the_in_progress_draft_instead_of_dropping_either
     );
 
     assert_eq!(
-        app.input, "interrupted input",
+        app.composer.input, "interrupted input",
         "the restore is never silently dropped: that was the OnlyIfIdle defect"
     );
     assert!(
         app.has_stashed_draft(),
         "the in-progress draft is captured, not discarded"
     );
-    assert_eq!(app.history_index, None);
+    assert_eq!(app.composer.history_index, None);
 
     // The stashed draft is the user's own composition, intact — that is the
     // property the old policy destroyed. (Restoring it is ↓'s job once history
     // holds a row; this fixture records none, so the capsule content is what is
     // asserted here.)
     assert_eq!(
-        app.draft_capsule.text.clone(),
+        app.composer.draft_capsule.text.clone(),
         "half-typed next message",
         "the stashed draft returns on ↓"
     );
 
     // Explicit gestures (queue recall) keep replacing even a busy composer.
-    app.input = "another half-typed".to_string();
+    app.composer.input = "another half-typed".to_string();
     app.adopt_as_draft(
         "recalled from queue".to_string(),
         Vec::new(),
         Vec::new(),
         crate::shell::app::DraftAdoption::Replace,
     );
-    assert_eq!(app.input, "recalled from queue");
+    assert_eq!(app.composer.input, "recalled from queue");
 }
 
 #[test]
 fn render_frame_computes_max_scroll_for_overflowing_transcript() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
+    app.session.current_session_id = "test-session".to_string();
 
     // Create enough messages to overflow the viewport
     let mut messages = Vec::new();
@@ -486,7 +494,7 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
             format!("Message line {i}: some reasonably long content that takes up vertical space in the transcript area"),
         ));
     }
-    app.messages = messages;
+    app.transcript.messages = messages;
 
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     terminal.draw(|f| {
@@ -494,17 +502,18 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
     });
 
     assert!(
-        app.content_lines > app.view_height as usize,
+        app.transcript.content_lines > app.transcript.view_height as usize,
         "content should exceed view height"
     );
     assert!(
-        app.max_scroll > 0,
+        app.transcript.max_scroll > 0,
         "max_scroll should be non-zero when content overflows viewport"
     );
     assert_eq!(
-        app.max_scroll,
-        app.content_lines
-            .saturating_sub(app.view_height as usize)
+        app.transcript.max_scroll,
+        app.transcript
+            .content_lines
+            .saturating_sub(app.transcript.view_height as usize)
             .min(u16::MAX as usize) as u16,
         "max_scroll must equal content_lines - view_height"
     );
@@ -514,11 +523,11 @@ fn render_frame_computes_max_scroll_for_overflowing_transcript() {
 async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
-    app.current_session_id = "session-a".to_string();
-    app.running_sessions.insert("session-a".to_string());
-    app.phase = Some(nuo_view::phase::Phase::Queued);
-    app.round_started_at = Some(std::time::Instant::now());
+    app.link.tx = tx;
+    app.session.current_session_id = "session-a".to_string();
+    app.session.running_sessions.insert("session-a".to_string());
+    app.session.phase = Some(nuo_view::phase::Phase::Queued);
+    app.session.round_started_at = Some(std::time::Instant::now());
 
     // User prompt is sending in transcript
     let prompt = nuo_view::model::document::TranscriptMessage::new(
@@ -526,10 +535,11 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
         "write a fibonacci function",
     )
     .sending();
-    app.messages.push(prompt);
+    app.transcript.messages.push(prompt);
 
     // Press Esc Esc to interrupt
-    app.esc_armed_until = Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
+    app.surfaces.esc_armed_until =
+        Some(std::time::Instant::now() + std::time::Duration::from_secs(1));
     crate::shell::event_loop::handle_esc_interrupt(
         &mut app,
         crate::shell::event_loop::InterruptTarget::Primary,
@@ -540,19 +550,19 @@ async fn interrupt_marks_in_flight_prompt_cancelled_without_retracting() {
     assert!(matches!(req, nuo_protocol::AgentRequest::Interrupt));
 
     // UI state is immediately cleared (not blocked)
-    assert!(!app.running_sessions.contains("session-a"));
+    assert!(!app.session.running_sessions.contains("session-a"));
     assert!(!app.viewed_chrome().responding);
 
     // The prompt is NOT popped/retracted — it stays in the transcript!
-    assert_eq!(app.messages.len(), 1);
+    assert_eq!(app.transcript.messages.len(), 1);
     assert_eq!(
-        app.messages[0].delivery,
+        app.transcript.messages[0].delivery,
         nuo_view::model::document::DeliveryStatus::Cancelled,
         "prompt status must transition to Cancelled"
     );
 
     // Composer input is NOT clobbered with the cancelled prompt
-    assert!(app.input.is_empty());
+    assert!(app.composer.input.is_empty());
 }
 
 #[tokio::test]
@@ -569,7 +579,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     let prompt =
         nuo_view::model::document::TranscriptMessage::new(nuo_tool::Role::User, "calculate pi")
             .sending();
-    app.messages.push(prompt);
+    app.transcript.messages.push(prompt);
 
     // The producer parks the round in the transport-wait phase and publishes
     // the setback clause — chrome only, no transcript row.
@@ -585,7 +595,7 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
         crate::shell::event_loop::AppMutation::SetProviderRetry(state),
     );
     assert_eq!(
-        app.messages.len(),
+        app.transcript.messages.len(),
         1,
         "a scheduled retry must not append a transcript row"
     );
@@ -608,13 +618,17 @@ async fn an_interrupted_round_records_one_anchor_and_no_transport_payload() {
     );
 
     // [0] the cancelled prompt, [1] the one interrupt anchor. No retry row.
-    assert_eq!(app.messages.len(), 2, "one anchor per stopped round");
     assert_eq!(
-        app.messages[0].delivery,
+        app.transcript.messages.len(),
+        2,
+        "one anchor per stopped round"
+    );
+    assert_eq!(
+        app.transcript.messages[0].delivery,
         nuo_view::model::document::DeliveryStatus::Cancelled
     );
 
-    let anchor = &app.messages[1];
+    let anchor = &app.transcript.messages[1];
     assert!(anchor.is_round_interrupt());
     assert_eq!(
         anchor.raw,
@@ -643,7 +657,7 @@ async fn tool_result_does_not_forge_reasoning_phase() {
         ))),
     );
     assert_eq!(
-        app.phase,
+        app.session.phase,
         Some(nuo_view::phase::Phase::Tool(
             nuo_view::phase::ToolVerb::Running
         ))
@@ -656,19 +670,22 @@ async fn tool_result_does_not_forge_reasoning_phase() {
         crate::shell::event_loop::AppMutation::SetPhase(Some(nuo_view::phase::Phase::Preparing)),
     );
     assert_ne!(
-        app.phase,
+        app.session.phase,
         Some(nuo_view::phase::Phase::Reasoning),
         "tool completion must not set thinking/reasoning phase"
     );
-    assert_eq!(app.phase, Some(nuo_view::phase::Phase::Preparing));
-    assert_eq!(app.phase.as_ref().unwrap().label(), "preparing context");
+    assert_eq!(app.session.phase, Some(nuo_view::phase::Phase::Preparing));
+    assert_eq!(
+        app.session.phase.as_ref().unwrap().label(),
+        "preparing context"
+    );
 }
 
 #[test]
 fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
-    app.follow_bottom = true;
+    app.session.current_session_id = "test-session".to_string();
+    app.transcript.follow_bottom = true;
 
     // Fill initial transcript with an assistant message followed by a queued user message
     let mut messages = Vec::new();
@@ -685,7 +702,7 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
     let queued = TranscriptMessage::new(Role::User, "Queued follow-up / steer")
         .with_origin(nuo_view::model::document::UserMessageOrigin::Steer);
     messages.push(queued);
-    app.messages = messages;
+    app.transcript.messages = messages;
 
     // Frame 1: first layout pass calculates initial max_scroll under follow_bottom
     let mut terminal = nuotc::TestTerminal::new(80, 24);
@@ -693,47 +710,48 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
 
-    let initial_max_scroll = app.max_scroll;
+    let initial_max_scroll = app.transcript.max_scroll;
     assert!(initial_max_scroll > 0);
-    app.scroll = initial_max_scroll;
+    app.transcript.scroll = initial_max_scroll;
 
     // Render at max_scroll (bottom-follow steady state)
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
-    let initial_content_lines = app.content_lines;
+    let initial_content_lines = app.transcript.content_lines;
 
     // Frame 2 simulation: stream text delta arrives for assistant message above the queued message
     let id = crate::shell::append_stream_text_delta(
-        &mut app.messages,
+        &mut app.transcript.messages,
         Some(1),
         Some(1),
         "\n\nLine 2\n\nLine 3\n\nLine 4\n\nLine 5\n\n",
     )
     .expect("must append to streaming assistant message");
-    app.layout_height_cache
+    app.transcript
+        .layout_height_cache
         .invalidate_messages(std::iter::once(id));
 
     // Measure what stage pass produces:
-    let painted_scroll = app.scroll;
+    let painted_scroll = app.transcript.scroll;
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "test-session");
     });
 
     assert!(
-        app.content_lines > initial_content_lines,
+        app.transcript.content_lines > initial_content_lines,
         "content lines must have grown from streaming delta"
     );
     assert!(
-        app.max_scroll > initial_max_scroll,
+        app.transcript.max_scroll > initial_max_scroll,
         "max_scroll must have grown from streaming delta"
     );
-    // Under bottom-follow, app.scroll is updated to app.max_scroll.
-    // The event loop must detect that `app.scroll != painted_scroll` (bottom moved),
+    // Under bottom-follow, app.transcript.scroll is updated to app.transcript.max_scroll.
+    // The event loop must detect that `app.transcript.scroll != painted_scroll` (bottom moved),
     // and skip committing the staged frame to avoid flickering the queued message.
-    app.scroll = app.max_scroll;
+    app.transcript.scroll = app.transcript.max_scroll;
     assert_ne!(
-        app.scroll, painted_scroll,
+        app.transcript.scroll, painted_scroll,
         "stage_bottom_follow must detect that painted_scroll is stale"
     );
 }
@@ -744,11 +762,13 @@ fn streaming_appends_with_queued_message_at_bottom_advances_max_scroll() {
 #[test]
 fn busy_enter_steer_is_staged_out_of_thread() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "test-session".to_string();
-    app.running_sessions.insert("test-session".to_string());
-    app.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
-    app.input = "use rg instead".to_string();
-    let before = app.messages.len();
+    app.session.current_session_id = "test-session".to_string();
+    app.session
+        .running_sessions
+        .insert("test-session".to_string());
+    app.composer.composer_send_mode = crate::shell::app::ComposerSendMode::Steer;
+    app.composer.input = "use rg instead".to_string();
+    let before = app.transcript.messages.len();
 
     futures::executor::block_on(
         crate::shell::event_loop::actions::commands::handle_send_steer(
@@ -761,13 +781,14 @@ fn busy_enter_steer_is_staged_out_of_thread() {
 
     // The transcript is untouched.
     assert_eq!(
-        app.messages.len(),
+        app.transcript.messages.len(),
         before,
         "a pending steer must not enter the transcript (ADR-0137 [INV-STEER-01])"
     );
     // The outbox holds exactly one Steering item for the session.
     assert_eq!(app.pending_count("test-session"), 1);
     let item = app
+        .composer
         .pending_dispatch
         .iter()
         .find(|d| d.session_id == "test-session")
@@ -789,13 +810,13 @@ fn retracting_a_pending_call_removes_the_provisional_row() {
     use nuo_view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
-    app.messages.push(
+    app.transcript.messages.push(
         TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1),
     );
     assert_eq!(
-        app.messages[0].tool_step_status(),
+        app.transcript.messages[0].tool_step_status(),
         Some(ToolStepStatus::Ingesting)
     );
 
@@ -808,7 +829,7 @@ fn retracting_a_pending_call_removes_the_provisional_row() {
 
     assert!(applied);
     assert!(
-        app.messages.is_empty(),
+        app.transcript.messages.is_empty(),
         "the provisional row is removed, not terminalized"
     );
 }
@@ -822,7 +843,7 @@ fn retraction_is_scoped_to_the_named_call() {
 
     let mut app = new_app_for_relay_tests();
     for call_id in ["call_1", "call_2"] {
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::tool_step_announced(call_id, "edit_text")
                 .with_round(1)
                 .with_turn(1),
@@ -836,8 +857,11 @@ fn retraction_is_scoped_to_the_named_call() {
         },
     );
 
-    assert_eq!(app.messages.len(), 1);
-    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_2"));
+    assert_eq!(app.transcript.messages.len(), 1);
+    assert_eq!(
+        app.transcript.messages[0].tool_step_call_id(),
+        Some("call_2")
+    );
 }
 
 /// A dispatch for a call the buffer does not know (a retracted attempt, or a
@@ -859,8 +883,11 @@ fn a_dispatch_for_an_unknown_call_is_inserted() {
         TranscriptEdit::ToolStepUpsert { message: dispatch },
     );
 
-    assert_eq!(app.messages.len(), 1);
-    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_1"));
+    assert_eq!(app.transcript.messages.len(), 1);
+    assert_eq!(
+        app.transcript.messages[0].tool_step_call_id(),
+        Some("call_1")
+    );
 }
 
 /// ADR-0166 `[INV-TOOL-ID-02]`: the reducer is idempotent. Replaying the same
@@ -883,7 +910,7 @@ fn a_duplicate_announcement_does_not_insert_a_second_step() {
     }
 
     assert_eq!(
-        app.messages.len(),
+        app.transcript.messages.len(),
         1,
         "one call is one row, however many times it is announced"
     );
@@ -920,10 +947,13 @@ fn retraction_after_dispatch_leaves_the_dispatched_step() {
         },
     );
 
-    assert_eq!(app.messages.len(), 1);
-    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_1"));
+    assert_eq!(app.transcript.messages.len(), 1);
     assert_eq!(
-        app.messages[0].tool_step_status(),
+        app.transcript.messages[0].tool_step_call_id(),
+        Some("call_1")
+    );
+    assert_eq!(
+        app.transcript.messages[0].tool_step_status(),
         Some(ToolStepStatus::Executing)
     );
 }
@@ -939,12 +969,12 @@ fn a_settled_round_retracts_every_ingesting_step() {
     use nuo_view::model::document::ToolStepStatus;
 
     let mut app = new_app_for_relay_tests();
-    app.messages.push(
+    app.transcript.messages.push(
         TranscriptMessage::tool_step_announced("call_1", "edit_text")
             .with_round(1)
             .with_turn(1),
     );
-    app.messages.push(
+    app.transcript.messages.push(
         TranscriptMessage::tool_step_announced("call_2", "execute_command")
             .with_round(1)
             .with_turn(1),
@@ -952,17 +982,24 @@ fn a_settled_round_retracts_every_ingesting_step() {
     let dispatched = TranscriptMessage::tool_step("call_3", "read", "{}")
         .with_round(1)
         .with_turn(1);
-    app.messages.push(dispatched);
+    app.transcript.messages.push(dispatched);
 
     assert!(apply_transcript(
         &mut app,
         TranscriptEdit::RetractPendingToolSteps
     ));
 
-    assert_eq!(app.messages.len(), 1, "only the dispatched call survives");
-    assert_eq!(app.messages[0].tool_step_call_id(), Some("call_3"));
     assert_eq!(
-        app.messages[0].tool_step_status(),
+        app.transcript.messages.len(),
+        1,
+        "only the dispatched call survives"
+    );
+    assert_eq!(
+        app.transcript.messages[0].tool_step_call_id(),
+        Some("call_3")
+    );
+    assert_eq!(
+        app.transcript.messages[0].tool_step_status(),
         Some(ToolStepStatus::Executing)
     );
 }
@@ -995,9 +1032,10 @@ mod command_reply_filing {
     #[test]
     fn reading_appends_a_receipt_and_no_thread_row() {
         let mut app = new_app_for_relay_tests();
-        app.messages
+        app.transcript
+            .messages
             .push(TranscriptMessage::new(Role::User, "why is it slow?").with_round(1));
-        let before = app.messages.len();
+        let before = app.transcript.messages.len();
         let receipts_before = app.notice_count();
 
         // The filing decision the event arm makes for a reading.
@@ -1005,7 +1043,7 @@ mod command_reply_filing {
         app.record_notice(rendered);
 
         assert_eq!(
-            app.messages.len(),
+            app.transcript.messages.len(),
             before,
             "a reading must never enter the thread — it is not a thing that was said"
         );
@@ -1031,11 +1069,11 @@ mod command_reply_filing {
         let receipts_before = app.notice_count();
 
         // Stage the optimistic row, as `handle_send_slash` does for an act.
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::pending_command("unattended", "on")
                 .with_sent_at_ms(1_700_000_000_000),
         );
-        let before = app.messages.len();
+        let before = app.transcript.messages.len();
 
         // The reply settles that row in place.
         let applied = crate::shell::event_loop::apply::apply_transcript(
@@ -1052,12 +1090,15 @@ mod command_reply_filing {
 
         assert!(applied);
         assert_eq!(
-            app.messages.len(),
+            app.transcript.messages.len(),
             before,
             "the row is settled, not appended"
         );
         assert_eq!(
-            app.messages.last().and_then(|m| m.command_result_text()),
+            app.transcript
+                .messages
+                .last()
+                .and_then(|m| m.command_result_text()),
             Some("Unattended mode ON".to_string()),
             "the act's reply is the row's body"
         );
@@ -1148,15 +1189,16 @@ mod command_reply_filing {
     #[test]
     fn a_reading_withdraws_its_own_staged_row() {
         let mut app = new_app_for_relay_tests();
-        app.messages
+        app.transcript
+            .messages
             .push(TranscriptMessage::new(Role::User, "why is it slow?").with_round(1));
-        let dialogue_before = app.messages.len();
+        let dialogue_before = app.transcript.messages.len();
 
         // Staged on a wrong prediction (empty catalog at dispatch time).
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::pending_command("usage", "").with_sent_at_ms(1_700_000_000_000),
         );
-        assert_eq!(app.messages.len(), dialogue_before + 1);
+        assert_eq!(app.transcript.messages.len(), dialogue_before + 1);
 
         // The event is authority: withdraw, then file the receipt.
         let applied = crate::shell::event_loop::apply::apply_transcript(
@@ -1169,13 +1211,16 @@ mod command_reply_filing {
 
         assert!(applied);
         assert_eq!(
-            app.messages.len(),
+            app.transcript.messages.len(),
             dialogue_before,
             "the predicted row is gone — the thread holds only what was said"
         );
         assert!(
-            app.messages.iter().all(|m| m.command_result_phase()
-                != Some(nuo_view::model::document::CommandPhase::Pending)),
+            app.transcript
+                .messages
+                .iter()
+                .all(|m| m.command_result_phase()
+                    != Some(nuo_view::model::document::CommandPhase::Pending)),
             "no pending row survives, so `CancelPendingCommands` has nothing to mark cancelled"
         );
     }
@@ -1185,11 +1230,11 @@ mod command_reply_filing {
     #[test]
     fn withdrawal_leaves_other_pending_rows_alone() {
         let mut app = new_app_for_relay_tests();
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::pending_command("unattended", "on")
                 .with_sent_at_ms(1_700_000_000_000),
         );
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::pending_command("usage", "").with_sent_at_ms(1_700_000_000_001),
         );
 
@@ -1201,9 +1246,11 @@ mod command_reply_filing {
             },
         );
 
-        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.transcript.messages.len(), 1);
         assert_eq!(
-            app.messages[0].command_result_summary().as_deref(),
+            app.transcript.messages[0]
+                .command_result_summary()
+                .as_deref(),
             Some("/unattended on"),
             "the act's optimistic row must survive a reading's withdrawal"
         );
@@ -1215,13 +1262,13 @@ mod command_reply_filing {
     #[test]
     fn withdrawal_with_restore_draft_returns_invocation_to_empty_composer() {
         let mut app = new_app_for_relay_tests();
-        assert!(app.input.is_empty());
+        assert!(app.composer.input.is_empty());
 
         // Optimistically staged on unknown command dispatch
-        app.messages.push(
+        app.transcript.messages.push(
             TranscriptMessage::pending_command("modles", "").with_sent_at_ms(1_700_000_000_000),
         );
-        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.transcript.messages.len(), 1);
 
         let applied = crate::shell::event_loop::apply::apply_transcript(
             &mut app,
@@ -1233,17 +1280,17 @@ mod command_reply_filing {
 
         assert!(applied);
         assert_eq!(
-            app.messages.len(),
+            app.transcript.messages.len(),
             0,
             "staged row was withdrawn, keeping L0 transcript completely clean"
         );
         assert_eq!(
-            app.input, "/modles",
+            app.composer.input, "/modles",
             "the invocation draft was restored to the composer"
         );
         assert_eq!(
-            app.cursor_position,
-            app.input.len(),
+            app.composer.cursor_position,
+            app.composer.input.len(),
             "cursor placed at end for immediate backspace editing"
         );
     }
@@ -1254,7 +1301,7 @@ mod command_reply_filing {
     #[tokio::test]
     async fn unknown_slash_command_never_stages_and_surfaces_error_headline() {
         let mut app = new_app_for_relay_tests();
-        app.command_catalog = nuo_server::composition::startup::command_catalog(&[]);
+        app.composer.command_catalog = nuo_server::composition::startup::command_catalog(&[]);
         let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
         let session = crate::shell::HookStartSource::Remote {
             session_id: "test-session".to_string(),
@@ -1270,7 +1317,7 @@ mod command_reply_filing {
         .await;
 
         assert!(
-            app.messages.is_empty(),
+            app.transcript.messages.is_empty(),
             "an unknown slash command must NEVER stage an optimistic row in L0 transcript"
         );
 
@@ -1300,15 +1347,16 @@ mod command_reply_filing {
         // Recording the notice displays it in toast and records to surface log
         app.record_notice(rendered);
         assert_eq!(
-            app.notice_toast_severity,
+            app.surfaces.notice_toast_severity,
             nuo_view::model::document::NoticeSeverity::Error
         );
         assert!(
-            app.notice_toast_message
+            app.surfaces
+                .notice_toast_message
                 .starts_with("Unknown command: /modles. Did you mean /models?")
         );
         assert!(
-            app.notice_toast_until.is_some(),
+            app.surfaces.notice_toast_until.is_some(),
             "notice toast is armed for display"
         );
     }

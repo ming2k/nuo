@@ -1,13 +1,13 @@
 //! Provider and credential construction factory ports (ADR-0015).
 
+use nuo_host::SecretString;
 use nuo_protocol::auth::{CredentialSource, static_credential};
 use nuo_protocol::connection_auth::ConnectionAuth;
 use nuo_protocol::dialects::{Channel, ProviderDialect};
-use nuo_host::SecretString;
 use std::sync::Arc;
 
-use nuo_protocol::capability::Provider;
 use crate::credentials::CredentialHost;
+use nuo_protocol::capability::Provider;
 
 /// Factory port constructing concrete `Provider` and `CredentialSource` instances.
 pub trait ProviderFactory: Send + Sync {

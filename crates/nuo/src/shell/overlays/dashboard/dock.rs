@@ -103,11 +103,7 @@ pub(crate) fn workspace_basename(project_root: &str) -> String {
         .to_string()
 }
 
-/// Draw the full-screen dashboard and return its sub-rects.
-///
-/// `rows` is the live monitor snapshot (re-sorted internally by creation
-/// order for the dock); `selected` indexes the *creation-ordered* dock
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn draw_compact_cards(
     frame: &mut Frame,
     area: Rect,

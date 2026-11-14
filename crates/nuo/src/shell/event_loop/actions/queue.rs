@@ -7,7 +7,7 @@ use nuo_protocol::AgentRequest;
 pub(super) fn handle_queue_action(app: &mut App, viewed_session_id: &str, action: InputAction) {
     match action {
         InputAction::ToggleSendMode => {
-            app.composer_send_mode = match app.composer_send_mode {
+            app.composer.composer_send_mode = match app.composer.composer_send_mode {
                 crate::shell::app::ComposerSendMode::Steer => {
                     crate::shell::app::ComposerSendMode::FollowUp
                 }
@@ -83,7 +83,7 @@ pub(super) fn handle_queue_action(app: &mut App, viewed_session_id: &str, action
             // reads this and stays out of the way (`[INV-OUTBOX-04]`).
             let paused = !app.is_queue_blocked(viewed_session_id);
             app.set_queue_blocked(viewed_session_id, paused);
-            if let Some((sid, origin)) = app.queue_exit_session.as_mut()
+            if let Some((sid, origin)) = app.session.queue_exit_session.as_mut()
                 && sid == viewed_session_id
             {
                 *origin = crate::shell::app::QueuePauseOrigin::UserOwned;
@@ -118,7 +118,8 @@ pub(super) fn handle_queue_action(app: &mut App, viewed_session_id: &str, action
                             thread_id: viewed_session_id.to_string(),
                             input_id: item.id.clone(),
                         });
-                        app.suppress_steer_restore
+                        app.composer
+                            .suppress_steer_restore
                             .insert((viewed_session_id.to_string(), item.id));
                     }
                     Some(item) => {
@@ -137,6 +138,7 @@ pub(super) fn handle_queue_action(app: &mut App, viewed_session_id: &str, action
                     app.set_active_index(count - 1);
                 }
                 app.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::QueueDialog>()
                     .follow = true;
             }
@@ -174,6 +176,7 @@ pub(super) fn handle_queue_action(app: &mut App, viewed_session_id: &str, action
                             (idx as i32 + delta).clamp(0, count as i32 - 1) as usize
                         );
                         app.surfaces
+                            .surfaces
                             .dlg_mut::<crate::shell::surfaces::QueueDialog>()
                             .follow = true;
                     }

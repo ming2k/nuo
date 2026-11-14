@@ -18,7 +18,7 @@
 //!
 //! # One registry, one answer
 //!
-//! The log itself is an ordinary [`SurfaceLog`] in [`App::logs`], addressed by
+//! The log itself is an ordinary [`SurfaceLog`] in `App::logs`, addressed by
 //! [`SurfaceId::NOTICES`] — the same tier, the same cap, the same residency
 //! contract as any other surface's receipts ([ADR-0116]). This module adds no
 //! storage of its own: it is the *typed vocabulary* the shell speaks when it
@@ -133,20 +133,24 @@ impl App {
     /// states its own bound at creation (`entry_with_cap`) rather than
     /// inheriting one.
     pub(crate) fn notice_log(&mut self) -> &mut SurfaceLog {
-        self.logs.entry_with_cap(Self::notice_surface(), CAPACITY)
+        self.transcript
+            .logs
+            .entry_with_cap(Self::notice_surface(), CAPACITY)
     }
 
     /// The retained notices, oldest first.
     pub(crate) fn notice_lines(&self) -> &std::collections::VecDeque<SurfaceLine> {
         static EMPTY: std::collections::VecDeque<SurfaceLine> = std::collections::VecDeque::new();
-        self.logs
+        self.transcript
+            .logs
             .get(Self::notice_surface())
             .map_or(&EMPTY, |log| log.lines())
     }
 
     /// How many notices are retained.
     pub(crate) fn notice_count(&self) -> usize {
-        self.logs
+        self.transcript
+            .logs
             .get(Self::notice_surface())
             .map_or(0, SurfaceLog::len)
     }
@@ -159,14 +163,16 @@ impl App {
 
     /// How many notices arrived since the viewer last acknowledged the log.
     pub(crate) fn unread_notices(&self) -> usize {
-        self.logs
+        self.transcript
+            .logs
             .get(Self::notice_surface())
             .map_or(0, SurfaceLog::unread)
     }
 
     /// Whether an unread notice is a fault — the badge's only trigger.
     pub(crate) fn has_unread_notice_fault(&self) -> bool {
-        self.logs
+        self.transcript
+            .logs
             .get(Self::notice_surface())
             .is_some_and(SurfaceLog::has_unread_fault)
     }
@@ -174,20 +180,25 @@ impl App {
     /// Whether the log holds any fault at all.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn has_notice_fault(&self) -> bool {
-        self.logs
+        self.transcript
+            .logs
             .get(Self::notice_surface())
             .is_some_and(SurfaceLog::has_fault)
     }
 
     /// Acknowledge everything retained: the viewer was opened.
     pub(crate) fn mark_notices_read(&mut self) {
-        self.logs.entry(Self::notice_surface()).mark_read();
+        self.transcript
+            .logs
+            .entry(Self::notice_surface())
+            .mark_read();
     }
 
     /// Forget every retained notice (the viewer's clear verb).
     pub(crate) fn clear_notices(&mut self) {
-        self.logs.entry(Self::notice_surface()).clear();
+        self.transcript.logs.entry(Self::notice_surface()).clear();
         *self
+            .surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::NoticesDialog>() = Default::default();
     }
@@ -195,7 +206,7 @@ impl App {
     /// The retained notices as a paste-ready diagnostic block.
     pub(crate) fn render_notices(&self, thread_id: Option<&str>) -> Option<String> {
         let log_path = crate::shell::copy::client_log_path_for_report();
-        let log = self.logs.get(Self::notice_surface())?;
+        let log = self.transcript.logs.get(Self::notice_surface())?;
         render(log, thread_id, log_path.as_deref())
     }
 }

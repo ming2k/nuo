@@ -28,7 +28,7 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
         "precondition: the static registry must not know this id"
     );
 
-    app.provider_picker = ProviderPickerSnapshot {
+    app.surfaces.provider_picker = ProviderPickerSnapshot {
         default_id: "relay".to_string(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "relay".to_string(),
@@ -53,18 +53,18 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
         }],
     };
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
-    app.modal_index = 0;
+    app.surfaces.modal_index = 0;
 
     // Open the editor the way `e` does on a Models row.
     crate::shell::event_loop::actions::handle_open_model_editor(&mut app);
 
     assert_eq!(
-        app.editor_effort_levels, levels,
+        app.provider_editor.editor_effort_levels, levels,
         "the snapshot ladder must be captured, not re-resolved"
     );
     // A route with a configured effort opens on exactly that value.
     assert_eq!(
-        app.editor_effort, "high",
+        app.provider_editor.editor_effort, "high",
         "the model's own configured effort passes through unchanged"
     );
 
@@ -80,13 +80,13 @@ fn model_editor_effort_slider_uses_the_snapshot_ladder() {
     // (`thinking` is set so the row stays openable — a row opens when it
     // exposes effort *or* thinking. The sheet must be dismissed first: the
     // handler only acts while the Models dialog is the active surface.)
-    app.provider_picker.rows[0].model_info[0].effort = None;
-    app.provider_picker.rows[0].model_info[0].thinking = Some(true);
+    app.surfaces.provider_picker.rows[0].model_info[0].effort = None;
+    app.surfaces.provider_picker.rows[0].model_info[0].thinking = Some(true);
     app.dismiss_surface();
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
     crate::shell::event_loop::actions::handle_open_model_editor(&mut app);
     assert_eq!(
-        app.editor_effort, "",
+        app.provider_editor.editor_effort, "",
         "no server-resolved depth means an empty editor, never a client-invented tier"
     );
 
@@ -202,9 +202,9 @@ fn enumerate_explicit_path_completion_expands_to_absolute() {
     std::fs::create_dir_all(&project).unwrap();
     let (mut app, _proj_tmp) = app_in_tempdir(&[], &[]);
     // Override the captured cwd to the project subdir so `../` escapes it.
-    app.cwd = project.clone();
-    app.input = "@../sib".to_string();
-    app.cursor_position = app.input.chars().count();
+    app.session.cwd = project.clone();
+    app.composer.input = "@../sib".to_string();
+    app.composer.cursor_position = app.composer.input.chars().count();
     let completions = app.completions();
     let sibling = completions
         .iter()
@@ -226,14 +226,17 @@ fn enumerate_explicit_path_completion_expands_to_absolute() {
         .unwrap();
     app.accept_completion(idx);
     assert!(
-        !app.input.contains('@'),
+        !app.composer.input.contains('@'),
         "@ trigger must be dropped on accept: {}",
-        app.input
+        app.composer.input
     );
     assert!(
-        app.input.trim().ends_with("sibling.md"),
+        app.composer.input.trim().ends_with("sibling.md"),
         "absolute path spliced: {}",
-        app.input
+        app.composer.input
     );
-    assert!(app.completion_dismissed, "explicit accept is terminal");
+    assert!(
+        app.composer.completion_dismissed,
+        "explicit accept is terminal"
+    );
 }

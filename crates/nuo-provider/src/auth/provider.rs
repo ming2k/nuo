@@ -12,11 +12,11 @@ use super::enricher::{OAuthTokenEnricher, StandardOAuthEnricher};
 use super::error::AuthError;
 use super::session::OAuthLoginPrompt;
 use super::token::TokenResponse;
-use nuo_protocol::auth::ResolvedAuth;
 use crate::credentials::{CredentialSession, TokenSet};
 use crate::transport::Http;
 use async_trait::async_trait;
 use futures::future::BoxFuture;
+use nuo_protocol::auth::ResolvedAuth;
 
 /// A begun vendor device login: the prompt to show the user plus the future
 /// that completes the grant and returns tokens.

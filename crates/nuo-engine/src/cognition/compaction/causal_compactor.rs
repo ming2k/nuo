@@ -15,7 +15,7 @@ use super::split_compaction::{
     compact_facts, find_cut_point_facts, find_tail_preserving_cut_point,
 };
 use nuo_protocol::{BranchId, FactId, FactPayload, Provider, Thread};
-use nuo_tool::{Role};
+use nuo_tool::Role;
 
 use std::sync::Arc;
 
@@ -247,8 +247,7 @@ fn build_deterministic_excerpt(
 mod tests {
     use super::*;
     use nuo_protocol::{FactContext, ThreadId, ThreadStatus};
-    use nuo_tool::{Message};
-
+    use nuo_tool::Message;
 
     fn thread_with_rounds(rounds: u64) -> Thread {
         let mut thread = Thread::new(ThreadId::new("test-thread"), 1000);

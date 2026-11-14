@@ -21,30 +21,81 @@ use super::transcript::display_status;
 /// Invoked through `Terminal::stage` (bottom-follow measurement pass) or
 /// `Terminal::draw`; extracted verbatim from the `render_frame` closure.
 pub(crate) fn render_frame(app: &mut App, f: &mut nuotc::Frame<'_>, viewed_session_id: &str) {
-    let mut ui = std::mem::take(&mut app.ui);
+    let mut ui = std::mem::take(&mut app.transcript.ui);
     compose_frame(app, f, viewed_session_id, &mut ui);
-    app.ui = ui;
+    app.transcript.ui = ui;
 }
 
+/// Compose one frame. The orchestrator owns only modality pre-registration
+/// and the ordering of the surface families; each family below is a verbatim
+/// slice of the historical single-function body, so draw order, hit-map
+/// registration, and styling are unchanged.
 fn compose_frame(
     app: &mut App,
     f: &mut nuotc::Frame<'_>,
     viewed_session_id: &str,
-    mut ui: &mut crate::shell::ui::ComponentTree,
+    ui: &mut crate::shell::ui::ComponentTree,
 ) {
     ui.begin(f.area());
     // Modality is scene-owned: a modal owns keys because the
     // mounted component declares `Modal` policy, not because an app flag says
     // so. The mount here pre-registers the modal at viewport size; the modal
     // renderer places it at its drawn rect further down.
-    if let Some(overlay) = app.surfaces.active_overlay() {
+    if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
         ui.mount(UiKey::Overlay(overlay), f.area());
     }
-    if app.config_dropdown.is_some() {
+    if app.surfaces.config_dropdown.is_some() {
         ui.mount(UiKey::ConfigDropdown, f.area());
     }
     let mut layout_map = LayoutMap::new();
 
+    if draw_startup_surface(app, f, ui, &mut layout_map) {
+        return;
+    }
+
+    let transcript = draw_transcript_surface(app, f, viewed_session_id, ui, &mut layout_map);
+    let slot = ComposerSlot {
+        input_rect: transcript.input_rect,
+        hint_rect: transcript.hint_rect,
+    };
+
+    draw_model_bar_surface(app, f, viewed_session_id, ui, slot);
+    draw_composer_surface(app, f, viewed_session_id, ui, &mut layout_map, slot);
+    persist_transcript_layout(app, ui, &transcript);
+    draw_interaction_sheets(app, f, ui, slot);
+    draw_completion_popup(app, f, ui, &mut layout_map, slot);
+
+    let surface =
+        draw_recessed_surface(app, f, viewed_session_id, ui, &mut layout_map, &transcript);
+
+    draw_provider_delete_confirm(app, f, ui);
+    draw_toasts(app, f);
+    finish_frame(app, ui, &mut layout_map, surface);
+}
+
+/// The composer/hint slot resolved by the transcript pass and shared by every
+/// bottom-anchored surface drawn after it.
+#[derive(Clone, Copy)]
+struct ComposerSlot {
+    input_rect: nuotc::Rect,
+    hint_rect: nuotc::Rect,
+}
+
+/// Measurements a scene/overlay pass reports to the frame tail.
+struct SurfaceDraw {
+    modal_rect: Option<nuotc::Rect>,
+    dashboard_list_body_height: Option<u16>,
+}
+
+/// Startup guards. The PreAttach interstitial and the isolated `nuo attach`
+/// sessions picker both own the whole frame and suppress chat chrome.
+/// Returns `true` when one of them painted, in which case the frame is done.
+fn draw_startup_surface(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+) -> bool {
     // PreAttach interstitial takes over the terminal before
     // any chat/composer/transcript chrome is painted. The render
     // early-returns, exactly like the SessionsPicker guard below, so
@@ -52,17 +103,17 @@ fn compose_frame(
     // workspace trust decision is still pending. The only interactive
     // surface on this frame is the trust prompt rendered by
     // `draw_pre_attach`.
-    if let Some(pre_attach_state) = app.pre_attach.as_ref() {
-        crate::shell::pre_attach::draw_pre_attach(f, pre_attach_state, &app.theme);
+    if let Some(pre_attach_state) = app.surfaces.pre_attach.as_ref() {
+        crate::shell::pre_attach::draw_pre_attach(f, pre_attach_state, &app.surfaces.theme);
         ui.mount(crate::shell::ui::UiKey::PreAttach, f.area());
         // Layout map / modal rect / modal hit map stay empty — there
         // is no chrome to interact with, and the PreAttach surface
         // owns its own hit-testing (it does not consume LayoutMap).
-        ui.stage_document(layout_map);
-        return;
+        ui.stage_document(std::mem::take(layout_map));
+        return true;
     }
 
-    if app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
+    if app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker
         && app.active_dialog() == Some(DialogKind::Threads)
     {
         // `nuo attach` (no id): initial launch opens ONLY the sessions picker
@@ -70,28 +121,31 @@ fn compose_frame(
         // composer input box, status bar, or header components until a session is selected.
         f.render_widget(
             &mut nuotc::widgets::Block::default()
-                .style(nuotc::Style::default().bg(app.theme.app_bg)),
+                .style(nuotc::Style::default().bg(app.surfaces.theme.app_bg)),
             f.area(),
         );
 
-        let spinner_phase = (app.spinner_epoch.elapsed().as_millis() / 100) as usize;
+        let spinner_phase = (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize;
         let projected_count = crate::shell::overlays::session::project_session_rows(
-            &app.sessions_overview,
+            &app.session.sessions_overview,
             Some(
                 &app.surfaces
+                    .surfaces
                     .dlg::<crate::shell::surfaces::SessionsDialog>()
                     .expanded,
             ),
         )
         .len();
-        let startup_picker = app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker;
+        let startup_picker =
+            app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker;
         let sessions = app
+            .surfaces
             .surfaces
             .dlg_mut::<crate::shell::surfaces::SessionsDialog>();
         let drawn_modal_rect = render::draw_sessions_modal(
             f,
             crate::shell::overlays::session::SessionsModalProps {
-                sessions: &app.sessions_overview,
+                sessions: &app.session.sessions_overview,
                 expanded_sessions: Some(&sessions.expanded),
                 selected: sessions.index.min(projected_count.saturating_sub(1)),
                 scroll: &mut sessions.scroll,
@@ -99,18 +153,18 @@ fn compose_frame(
                 startup_picker,
                 spinner_phase,
                 session_info_detail: sessions.info_detail,
-                session_detail: app.session_detail.as_ref(),
+                session_detail: app.session.session_detail.as_ref(),
                 session_info_scroll: &mut sessions.info_scroll,
                 sessions_loading: sessions.loading,
-                running_sessions: Some(&app.running_sessions),
+                running_sessions: Some(&app.session.running_sessions),
             },
-            &app.theme,
-            &app.selection,
-            &mut layout_map,
+            &app.surfaces.theme,
+            &app.transcript.selection,
+            layout_map,
         );
 
-        ui.stage_document(layout_map);
-        app.modal_body_height = drawn_modal_rect.height.saturating_sub(
+        ui.stage_document(std::mem::take(layout_map));
+        app.transcript.modal_body_height = drawn_modal_rect.height.saturating_sub(
             nuo_ui_primitives::primitives::modal_chrome_rows(
                 nuo_ui_primitives::primitives::ModalSpec {
                     width_percent: 0,
@@ -119,17 +173,31 @@ fn compose_frame(
                 },
             ),
         );
-        if let Some(overlay) = app.surfaces.active_overlay() {
+        if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
             ui.mount(UiKey::Overlay(overlay), drawn_modal_rect);
         }
-        return;
+        return true;
     }
 
+    false
+}
+
+/// Transcript family: head band, message stream, footer placement, and every
+/// hit-test rect the transcript pass registered. Also derives the per-view
+/// chrome state (status, transport setback, queue preview, empty-state
+/// guidance) that only this surface consumes.
+fn draw_transcript_surface(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    viewed_session_id: &str,
+    ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+) -> render::TranscriptRender {
     // Borrow the height cache out of `app` for the duration of the draw:
     // `view_messages` borrows `app` immutably below, so the cache cannot
     // also be reached through `app` at the same time. It is restored once
     // `view_messages` is no longer borrowed (see below).
-    let mut height_cache = std::mem::take(&mut app.layout_height_cache);
+    let mut height_cache = std::mem::take(&mut app.transcript.layout_height_cache);
     // View-scoped chrome: render the phase of whichever session the user is
     // viewing, from that session's own chrome entry. This is the per-view
     // activity-bar fix: the displayed bar tracks the *viewed* session, never a
@@ -137,12 +205,13 @@ fn compose_frame(
     // sheet overrides the phase with its gate label (warning hue downstream).
     let viewed_chrome = app.viewed_chrome();
     let gate_phase = app
+        .human
         .pending_permission
         .is_some()
         .then_some(nuo_view::phase::Phase::AwaitingUser);
-    let status = if let Some(ref target) = app.switching_session {
+    let status = if let Some(ref target) = app.session.switching_session {
         format!("loading session {target}…")
-    } else if app.link_down {
+    } else if app.link.link_down {
         // Dead-link chrome state (D6): the server link is gone, so
         // user intents cannot be delivered. The live-status bar is the
         // visible anchor; it stays until the process exits, because nothing
@@ -150,7 +219,7 @@ fn compose_frame(
         "server link lost".to_string()
     } else {
         let base_status = display_status(
-            app.loop_status,
+            app.session.loop_status,
             gate_phase.as_ref().or(viewed_chrome.phase.as_ref()),
         );
         // Prioritize system lifecycle (e.g. MCP connecting progress) when round is idle.
@@ -175,61 +244,32 @@ fn compose_frame(
     // Passed as the typed state: the renderer owns the choice between the full
     // and compact forms, and both come from this value.
     let backoff = viewed_chrome.transport_setback.as_ref();
-
     // Compute the displayed input text first so the transcript layout can
     // reserve the right height for a wrapping, growing input box. Only the text
     // is masked: the box's height is a function of the wrapped row count, so no
     // caret offset has to be mapped through the mask any more — the composer
     // itself draws its caret from the real buffer.
-    let masked_input =
-        if app.surfaces.contains_sheet(SheetKind::ModelEditor) && app.editor_field == 0 {
-            // Mask the API key everywhere it could be rendered (the editor
-            // field itself, and any layout pass that inspects the input).
-            "•".repeat(app.input.chars().count())
-        } else {
-            app.input.clone()
-        };
-
+    let masked_input = if app.surfaces.surfaces.contains_sheet(SheetKind::ModelEditor)
+        && app.provider_editor.editor_field == 0
+    {
+        // Mask the API key everywhere it could be rendered (the editor
+        // field itself, and any layout pass that inspects the input).
+        "•".repeat(app.composer.input.chars().count())
+    } else {
+        app.composer.input.clone()
+    };
     let is_fullscreen_scene = matches!(
         app.current_scene(),
         SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
     );
-    let has_overlay = app.surfaces.active_overlay().is_some();
     let chrome_hidden = is_fullscreen_scene;
-    let recess = if is_fullscreen_scene {
-        Recess::Takeover
-    } else if app.surfaces.active_overlay()
-        == Some(OverlaySurface::Dialog(DialogKind::HistorySearch))
-    {
-        Recess::None
-    } else if has_overlay {
-        Recess::Dim
-    } else {
-        Recess::None
-    };
-
-    // The frame-level caret arbitration. Exactly one layer owns the
-    // physical terminal cursor; every overlay renderer receives this single
-    // verdict (`App::caret_visible` + `App::caret_owner`) instead of
-    // re-deriving it from its own local flags — which is how a suspended
-    // surface could previously park the cursor inside itself while a different
-    // layer was the keyboard foreground.
-    let overlay_owns_caret =
-        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
-    let scene_owns_caret =
-        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Composer;
-    // A non-thread scene's own inline prompt (the Dashboard task line)
-    // owns the cursor through its scene chrome rather than through SceneKeys.
-    let scene_prompt_owns_caret =
-        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Scene;
-
     // When zoomed into a Subagent, render its child messages and
     // show a contextual first-row header; otherwise render the
     // root thread.
     let view_messages = app.focused_messages();
-    let viewed_running = app.running_sessions.contains(viewed_session_id);
-    let subagent_bar = app.focus_stack.last().and_then(|current| {
+    let subagent_bar = app.transcript.focus_stack.last().and_then(|current| {
         let tasks: Vec<&TranscriptMessage> = app
+            .transcript
             .messages
             .iter()
             .filter(|message| message.is_subagent_task())
@@ -276,7 +316,8 @@ fn compose_frame(
             false,
         )
     };
-    let (breadcrumbs, can_back, can_forward) = if let Some(tab) = app.surfaces.active_tab() {
+    let (breadcrumbs, can_back, can_forward) = if let Some(tab) = app.surfaces.surfaces.active_tab()
+    {
         (Some(tab.breadcrumbs()), tab.can_back(), tab.can_forward())
     } else {
         (None, false, false)
@@ -289,7 +330,6 @@ fn compose_frame(
         can_back,
         can_forward,
     };
-
     // Empty-state guidance policy (ADR-0057/0104): the app shell picks the
     // variant, the view paints it. A setup blocker beats the tour — nothing
     // rotates until a keyed provider exists. The blocker reads from
@@ -302,29 +342,30 @@ fn compose_frame(
     // warning at an already-configured user. A genuinely provider-less
     // install is indistinguishable until its snapshot lands; the cost is a
     // few tour frames before the blocker appears, never a false warning.
-    let has_keyed_provider = app
-        .provider_picker
-        .rows
-        .iter()
-        .any(|row| row.key_ready || app.key_status.get(&row.id).copied().unwrap_or(true))
-        || app.provider_picker.rows.is_empty();
-    let guidance = if let Some(ref target) = app.switching_session {
+    let has_keyed_provider = app.surfaces.provider_picker.rows.iter().any(|row| {
+        row.key_ready
+            || app
+                .surfaces
+                .key_status
+                .get(&row.id)
+                .copied()
+                .unwrap_or(true)
+    }) || app.surfaces.provider_picker.rows.is_empty();
+    let guidance = if let Some(ref target) = app.session.switching_session {
         render::EmptyStateGuidance::LoadingSession(target.clone())
     } else if has_keyed_provider {
         render::EmptyStateGuidance::Tour
     } else {
         render::EmptyStateGuidance::NeedsProvider
     };
-
     // Suppress the hover affordance whenever a full-overlay modal is
     // open so no stale highlight bleeds through. The foreground
     // permission sheet keeps the transcript interactive, so it is
     // exempted; a coexisting modal covers it and restores the suppression.
-    let chrome_interactive = app.surfaces.active_overlay().is_none()
+    let chrome_interactive = app.surfaces.surfaces.active_overlay().is_none()
         && app
             .active_sheet()
             .is_none_or(|kind| kind == crate::shell::sheet::SheetKind::Permission);
-
     // Project the viewed session's outbox into the small view the activity
     // strip renders. Dispatch order (front pops first) is preserved, so the
     // strip previews the genuine next item to ship. The items are owned
@@ -345,25 +386,24 @@ fn compose_frame(
             is_steer: item.state == crate::shell::app::QueuedDispatchState::Steering,
         })
         .collect();
-
     let transcript_render = ui.paint(f, UiKey::Root, |f| {
         render::draw_transcript(
             f,
-            &mut layout_map,
+            layout_map,
             render::TranscriptProps {
                 messages: view_messages,
-                scroll: app.scroll,
-                selection: &app.selection,
-                cell_selection: app.drag.cell_info.as_ref(),
+                scroll: app.transcript.scroll,
+                selection: &app.transcript.selection,
+                cell_selection: app.transcript.drag.cell_info.as_ref(),
                 activity: &status,
                 backoff,
                 // A pending permission request forces the activity bar on (and
                 // tints it warning) so it stays the visible anchor above the
                 // permission sheet even if the loop has gone idle.
-                awaiting_permission: app.pending_permission.is_some(),
+                awaiting_permission: app.human.pending_permission.is_some(),
                 // ~100ms per phase keeps one breathing cycle near 1.2s
                 // (SPINNER_PHASES steps); `breathing_color` wraps modulo.
-                spinner_phase: (app.spinner_epoch.elapsed().as_millis() / 100) as usize,
+                spinner_phase: (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize,
                 input: &masked_input,
                 chrome_hidden,
                 queue_bar: render::QueueBarProps {
@@ -375,22 +415,24 @@ fn compose_frame(
                     // The legend's keycap comes from the registry, never a
                     // literal: the bar can only advertise a chord that fires
                     expand_key: app
+                        .surfaces
                         .key_overrides
                         .effective_binding(crate::shell::keymap::CommandId::OpenQueue),
                 },
                 tasks_bar: render::TasksBarProps {
-                    tasks: &app.background_tasks,
+                    tasks: &app.link.background_tasks,
                 },
                 // The armed interrupt repeats the *resolved* chord, so remapping
                 // `CancelOrBack` moves the keycap rather than leaving a stale one.
                 interrupt_key: app
+                    .surfaces
                     .key_overrides
                     .effective_binding(crate::shell::keymap::CommandId::CancelOrBack),
                 subagent_bar,
                 page_hints: Some(page_hints),
                 tab_bar: Some(render::TabBarProps {
-                    tabs: Some(app.surfaces.tabs()),
-                    active_tab: app.surfaces.active_tab_index(),
+                    tabs: Some(app.surfaces.surfaces.tabs()),
+                    active_tab: app.surfaces.surfaces.active_tab_index(),
                     unread_faults: if app.has_unread_notice_fault() {
                         app.unread_notices()
                     } else {
@@ -399,38 +441,40 @@ fn compose_frame(
                 }),
                 thread_id: Some(viewed_session_id),
                 thread_context: Some(render::ThreadContext {
-                    role: app.current_role.as_deref(),
-                    workspace: &app.current_workspace,
-                    unattended: app.unattended,
-                    confined: app.confined,
+                    role: app.session.current_role.as_deref(),
+                    workspace: &app.session.current_workspace,
+                    unattended: app.session.unattended,
+                    confined: app.session.confined,
                 }),
                 // View-scoped: the elapsed-timer origin belongs to the viewed
                 // session's round (a background view times its own round, not
                 // the primary's).
                 round_started_at: viewed_chrome.round_started_at,
-                hovered_step: chrome_interactive.then_some(app.hovered_step).flatten(),
-                focused_entry: chrome_interactive.then_some(app.focus.entry()).flatten(),
-                focus_plane: if app.focus.is_transcript() {
+                hovered_step: chrome_interactive
+                    .then_some(app.transcript.hovered_step)
+                    .flatten(),
+                focused_entry: chrome_interactive
+                    .then_some(app.transcript.focus.entry())
+                    .flatten(),
+                focus_plane: if app.transcript.focus.is_transcript() {
                     render::FocusPlane::Transcript
                 } else {
                     render::FocusPlane::Composer
                 },
-                logo: app.logo.as_deref(),
+                logo: app.surfaces.logo.as_deref(),
                 guidance,
                 carousel_index: nuo_view::empty_state::carousel_page_for(
-                    app.carousel_epoch.elapsed().as_millis(),
+                    app.transcript.carousel_epoch.elapsed().as_millis(),
                 ),
-                theme: &app.theme,
-                layout: app.transcript_layout,
+                theme: &app.surfaces.theme,
+                layout: app.transcript.transcript_layout,
                 height_cache: Some(&mut height_cache),
             },
         )
     });
-    let input_rect = transcript_render.input_rect;
-    let hint_rect = transcript_render.hint_rect;
-    let content_lines = transcript_render.content_lines;
-    let view_height = transcript_render.view_height;
-    let sticky = transcript_render.sticky;
+    // The transcript draw is the only consumer of the height cache; restore
+    // it immediately so the rest of the frame sees the refreshed entries.
+    app.transcript.layout_height_cache = height_cache;
     for (key, rect) in &transcript_render.footer.rows {
         let key = match key {
             render::FooterRowId::TopGap => continue,
@@ -477,11 +521,30 @@ fn compose_frame(
         ui.mount(UiKey::Transcript, rect);
     }
 
+    transcript_render
+}
+
+/// Footer hint family: the input-action hint line, with model, provider,
+/// reasoning-effort, and context-window metadata on the right.
+fn draw_model_bar_surface(
+    app: &App,
+    f: &mut nuotc::Frame<'_>,
+    viewed_session_id: &str,
+    ui: &mut crate::shell::ui::ComponentTree,
+    slot: ComposerSlot,
+) {
+    let hint_rect = slot.hint_rect;
+    let viewed_chrome = app.viewed_chrome();
+    let is_fullscreen_scene = matches!(
+        app.current_scene(),
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+    );
+    let chrome_hidden = is_fullscreen_scene;
     // The input-action hint bar (with model/context metadata on
     // the right) lives directly below the input box. It is drawn
     // before the composer because it borrows `view_messages` (an
     // immutable borrow of `app`) while `draw_composer` needs a
-    // mutable borrow of `app.input_scroll`.
+    // mutable borrow of `app.composer.input_scroll`.
     // The permission sheet takes over the hint line as well as the
     // input box, so suppress the hint bar while it is open.
     if !chrome_hidden
@@ -498,10 +561,11 @@ fn compose_frame(
         // whenever the model exposes one; Google never. `None`
         // otherwise — non-reasoning models keep the bar quiet.
         let active_provider_row = app
+            .surfaces
             .provider_picker
             .rows
             .iter()
-            .find(|row| row.id == app.current_provider);
+            .find(|row| row.id == app.session.current_provider);
         // The `@<instance>` suffix after the model name — the
         // instance's display name, so identical models served by
         // different instances stay attributable.
@@ -518,12 +582,12 @@ fn compose_frame(
         let hint_reasoning = effective_reasoning_effort(app);
         let active_info = app.active_model_info();
         let in_models = active_provider_row
-            .is_none_or(|row| row.models.iter().any(|m| m == &app.current_model));
+            .is_none_or(|row| row.models.iter().any(|m| m == &app.session.current_model));
         let model_usable = active_info
             .and_then(|info| info.availability.as_ref())
             .is_none_or(|avail| avail.usable);
         let model_available = in_models && model_usable;
-        let busy = app.running_sessions.contains(viewed_session_id);
+        let busy = app.session.running_sessions.contains(viewed_session_id);
         let _ = busy; // keys-row input; consumed by the composer draw below
         // `/retry` affordance: offered exactly while the viewed
         // session has a stopped round parked for retry — mirrored from the
@@ -537,16 +601,16 @@ fn compose_frame(
                 f,
                 hint_rect,
                 render::ModelBarProps {
-                    current_model: &app.current_model,
+                    current_model: &app.session.current_model,
                     model_label: hint_label,
                     model_available,
                     provider_name: hint_instance,
                     reasoning_effort: hint_reasoning,
-                    context_tokens: app.context_tokens.map(|snapshot| snapshot.tokens),
+                    context_tokens: app.telemetry.context_tokens.map(|snapshot| snapshot.tokens),
                     context_window: app.active_model_context_window(),
                 },
-                &app.theme,
-                &app.key_overrides,
+                &app.surfaces.theme,
+                &app.surfaces.key_overrides,
             )
         });
         for (key, rect) in [
@@ -558,7 +622,30 @@ fn compose_frame(
             }
         }
     }
+}
 
+/// Composer family: the inline permission sheet that replaces the composer
+/// slot, or the live composer (resolved-command highlighting, ghost text,
+/// hints, images, and pastes).
+fn draw_composer_surface(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    viewed_session_id: &str,
+    ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+    slot: ComposerSlot,
+) {
+    let input_rect = slot.input_rect;
+    let hint_rect = slot.hint_rect;
+    let viewed_chrome = app.viewed_chrome();
+    let is_fullscreen_scene = matches!(
+        app.current_scene(),
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+    );
+    let has_overlay = app.surfaces.surfaces.active_overlay().is_some();
+    let chrome_hidden = is_fullscreen_scene;
+    let scene_owns_caret =
+        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Composer;
     // The input box is only shown when no overlay modal is open. The
     // `focused` flag drops the panel to its dim "blurred" palette and
     // hides the caret whenever keyboard focus is on the thread
@@ -567,7 +654,7 @@ fn compose_frame(
     // request replaces the composer with the inline permission sheet.
     if !chrome_hidden {
         if app.active_sheet() == Some(crate::shell::sheet::SheetKind::Permission) {
-            if let Some(request) = app.pending_permission.as_ref() {
+            if let Some(request) = app.human.pending_permission.as_ref() {
                 // Extend the slot down by the composer/hint gap plus
                 // the hint-line height so the sheet also covers
                 // (replaces) the bar below the input.
@@ -583,28 +670,34 @@ fn compose_frame(
                     f,
                     ui,
                     request,
-                    app.modal_index,
-                    app.permission_confirm_always,
-                    app.permission_show_details,
-                    app.permission_scroll,
-                    app.pending_permission_depth,
+                    app.surfaces.modal_index,
+                    app.human.permission_confirm_always,
+                    app.human.permission_show_details,
+                    app.human.permission_scroll,
+                    app.human.pending_permission_depth,
                     permission_rect,
-                    &app.theme,
-                    &app.selection,
-                    &mut layout_map,
+                    &app.surfaces.theme,
+                    &app.transcript.selection,
+                    layout_map,
                 );
-                app.permission_max_scroll = max_scroll;
-                app.permission_scroll = app.permission_scroll.min(app.permission_max_scroll);
+                app.human.permission_max_scroll = max_scroll;
+                app.human.permission_scroll = app
+                    .human
+                    .permission_scroll
+                    .min(app.human.permission_max_scroll);
             }
         } else if matches!(
             app.active_dialog(),
             Some(DialogKind::Connections | DialogKind::Models)
-        ) || app.surfaces.contains_sheet(SheetKind::ModelEditor)
-            || app.surfaces.contains_sheet(SheetKind::CustomProvider)
+        ) || app.surfaces.surfaces.contains_sheet(SheetKind::ModelEditor)
+            || app
+                .surfaces
+                .surfaces
+                .contains_sheet(SheetKind::CustomProvider)
         {
             // These modals borrow the input line as their own field
             // (filter / key+model / history-query), so the composer
-            // underneath would only duplicate the same `app.input` the
+            // underneath would only duplicate the same `app.composer.input` the
             // modal already shows — and, since both are bound to the
             // one buffer, would read as a second live input field
             // accepting the same keystrokes. Its rect stays mounted
@@ -641,7 +734,7 @@ fn compose_frame(
             // One question, one answer: does the transcript plane own the
             // keyboard? Both its sub-states agree, so there is no separate
             // "step selected" and "browsing" pair to keep in sync here.
-            let transcript_owns_keyboard = app.focus.is_transcript();
+            let transcript_owns_keyboard = app.transcript.focus.is_transcript();
             let show_caret = scene_owns_caret && !transcript_owns_keyboard;
             let composer_focused = !transcript_owns_keyboard
                 && (!has_overlay || scene_owns_caret || active_extension.is_some());
@@ -649,28 +742,30 @@ fn compose_frame(
             // accent color so it reads as a resolved command
             // rather than prose; an unmatched `/`-prefix keeps
             // the normal text color.
-            let slash_len = resolved_slash_command_len(&app.input, &app.command_catalog);
+            let slash_len =
+                resolved_slash_command_len(&app.composer.input, &app.composer.command_catalog);
             let byte_cursor = app.byte_cursor();
-            let image_count = app.pending_images.len();
-            let paste_count = app.pending_text_pastes.len();
+            let image_count = app.composer.pending_images.len();
+            let paste_count = app.composer.pending_text_pastes.len();
             // Compose-target derivation happens while `&app` borrows are
             // still immutable; the result is an owned value the composer can
             // consume after taking its mutable borrows.
-            let busy = app.running_sessions.contains(viewed_session_id);
+            let busy = app.session.running_sessions.contains(viewed_session_id);
             let composer_hints = {
                 use crate::shell::composer_hints::{ComposerHints, compose_target_for_extension};
                 ComposerHints {
                     compose_target: compose_target_for_extension(
                         busy,
-                        Some(app.composer_send_mode),
-                        slash_len.is_some() || app.input.starts_with('/'),
+                        Some(app.composer.composer_send_mode),
+                        slash_len.is_some() || app.composer.input.starts_with('/'),
                         active_extension,
-                        app.history_index.is_some(),
+                        app.composer.history_index.is_some(),
                     ),
                     can_retry: !busy && viewed_chrome.can_retry,
                     history_recall: app.history_recall_badge(),
-                    recall_draft_saved: !app.draft_capsule.is_empty(),
+                    recall_draft_saved: !app.composer.draft_capsule.is_empty(),
                     toggle_mode_key: app
+                        .surfaces
                         .surface_overrides
                         .effective_binding(crate::shell::keymap::SurfaceVerb::ToggleSendMode),
                     focused_entry: app.focused_entry_kind(),
@@ -681,10 +776,11 @@ fn compose_frame(
                     let ranked = app.history_rows();
                     let idx = app
                         .surfaces
+                        .surfaces
                         .dlg::<crate::shell::surfaces::HistorySearchDialog>()
                         .index;
                     let pick = ranked.get(idx).or_else(|| ranked.first());
-                    pick.and_then(|(orig_idx, _)| app.input_history.get(*orig_idx))
+                    pick.and_then(|(orig_idx, _)| app.composer.input_history.get(*orig_idx))
                         .map(|e| e.text.clone())
                 } else {
                     None
@@ -692,7 +788,7 @@ fn compose_frame(
             let composer_options = render::ComposerDrawOptions {
                 focused: composer_focused,
                 show_caret,
-                follow_caret: app.input_scroll_follow_cursor,
+                follow_caret: app.composer.input_scroll_follow_cursor,
                 record: true,
                 image_count,
                 paste_count,
@@ -704,29 +800,29 @@ fn compose_frame(
                     ComposerProps {
                         frame: f,
                         input_rect,
-                        theme: &app.theme,
-                        layout_map: &mut layout_map,
-                        input_scroll: &mut app.input_scroll,
-                        selection: &app.selection,
+                        theme: &app.surfaces.theme,
+                        layout_map,
+                        input_scroll: &mut app.composer.input_scroll,
+                        selection: &app.transcript.selection,
                     },
                     ComposerText {
-                        input: &app.input,
+                        input: &app.composer.input,
                         byte_cursor,
                     },
                     composer_options,
                     len,
                 ),
-                None if app.input_scroll_follow_cursor => render::draw_composer(
+                None if app.composer.input_scroll_follow_cursor => render::draw_composer(
                     ComposerProps {
                         frame: f,
                         input_rect,
-                        theme: &app.theme,
-                        layout_map: &mut layout_map,
-                        input_scroll: &mut app.input_scroll,
-                        selection: &app.selection,
+                        theme: &app.surfaces.theme,
+                        layout_map,
+                        input_scroll: &mut app.composer.input_scroll,
+                        selection: &app.transcript.selection,
                     },
                     ComposerText {
-                        input: &app.input,
+                        input: &app.composer.input,
                         byte_cursor,
                     },
                     composer_focused,
@@ -740,13 +836,13 @@ fn compose_frame(
                     ComposerProps {
                         frame: f,
                         input_rect,
-                        theme: &app.theme,
-                        layout_map: &mut layout_map,
-                        input_scroll: &mut app.input_scroll,
-                        selection: &app.selection,
+                        theme: &app.surfaces.theme,
+                        layout_map,
+                        input_scroll: &mut app.composer.input_scroll,
+                        selection: &app.transcript.selection,
                     },
                     ComposerText {
-                        input: &app.input,
+                        input: &app.composer.input,
                         byte_cursor,
                     },
                     composer_options,
@@ -754,17 +850,20 @@ fn compose_frame(
             }
         }
     }
+}
 
-    // Now that `view_messages` is no longer borrowed, persist the
-    // per-frame layout state back onto `app` for the next iteration
-    // and for click routing.
-    // Restore the height cache (populated/refreshed during this draw)
-    // so the next frame can reuse it.
-    app.layout_height_cache = height_cache;
-    app.content_lines = content_lines;
-    app.view_height = view_height;
-    app.max_scroll = content_lines
-        .saturating_sub(view_height as usize)
+/// Persist the transcript pass's frame measurements back onto `app` for the
+/// next iteration and click routing, and mount the sticky header target.
+fn persist_transcript_layout(
+    app: &mut App,
+    ui: &mut crate::shell::ui::ComponentTree,
+    transcript: &render::TranscriptRender,
+) {
+    app.transcript.content_lines = transcript.content_lines;
+    app.transcript.view_height = transcript.view_height;
+    app.transcript.max_scroll = transcript
+        .content_lines
+        .saturating_sub(transcript.view_height as usize)
         .min(u16::MAX as usize) as u16;
     // Hit-test rects for the footer bars, resolved from the one registry the
     // renderer placed this frame (`TranscriptRender::footer`) — one source
@@ -773,18 +872,36 @@ fn compose_frame(
     // ticks and selection edge-autoscroll inside the box drive the input's
     // viewport, not the transcript). Zero-height / absent rows resolve to
     // `None` — a collapsed or hidden composer owns no pointer cell.
-    match sticky {
+    match &transcript.sticky {
         Some(info) => {
-            app.sticky_step = Some(info.message_idx);
+            app.transcript.sticky_step = Some(info.message_idx);
             ui.mount(UiKey::Sticky, info.rect);
-            app.sticky_summary_line = Some(info.summary_line);
+            app.transcript.sticky_summary_line = Some(info.summary_line);
         }
         None => {
-            app.sticky_step = None;
-            app.sticky_summary_line = None;
+            app.transcript.sticky_step = None;
+            app.transcript.sticky_summary_line = None;
         }
     }
+}
 
+/// Interaction sheets family: the AI-initiated question and input-injection
+/// sheets sit in the composer slot while the transcript stays live.
+fn draw_interaction_sheets(
+    app: &App,
+    f: &mut nuotc::Frame<'_>,
+    ui: &mut crate::shell::ui::ComponentTree,
+    slot: ComposerSlot,
+) {
+    let input_rect = slot.input_rect;
+    let hint_rect = slot.hint_rect;
+    let is_fullscreen_scene = matches!(
+        app.current_scene(),
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+    );
+    let chrome_hidden = is_fullscreen_scene;
+    let overlay_owns_caret =
+        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
     // Interaction sheets: the AI-initiated sheets occupy the
     // composer slot — the same bottom edge, extended over the hint bar —
     // while the transcript behind them stays live. The question and
@@ -793,7 +910,7 @@ fn compose_frame(
     if !chrome_hidden {
         match app.active_sheet() {
             Some(crate::shell::sheet::SheetKind::Question) => {
-                if let Some(ref qmodel) = app.question {
+                if let Some(ref qmodel) = app.human.question {
                     let question_rect = nuotc::Rect::new(
                         input_rect.x,
                         input_rect.y,
@@ -804,13 +921,13 @@ fn compose_frame(
                     );
                     let props = crate::shell::overlays::ask_user::AskUserProps {
                         request: qmodel.request().clone(),
-                        queue_depth: app.pending_question_depth,
-                        follow_highlight: app.question_modal_follow,
+                        queue_depth: app.human.pending_question_depth,
+                        follow_highlight: app.human.question_modal_follow,
                         show_caret: overlay_owns_caret,
                     };
                     let state = crate::shell::overlays::ask_user::AskUserState {
                         model: qmodel.clone(),
-                        scroll: app.question_scroll,
+                        scroll: app.human.question_scroll,
                     };
                     crate::shell::overlays::ask_user::AskUser::render_with_tree(
                         &props,
@@ -818,12 +935,12 @@ fn compose_frame(
                         f,
                         ui,
                         question_rect,
-                        &app.theme,
+                        &app.surfaces.theme,
                     );
                 }
             }
             Some(crate::shell::sheet::SheetKind::InputInjection) => {
-                if let Some(ref req) = app.pending_input {
+                if let Some(ref req) = app.human.pending_input {
                     ui.mount(
                         UiKey::Sheet(crate::shell::sheet::SheetKind::InputInjection),
                         input_rect,
@@ -831,17 +948,28 @@ fn compose_frame(
                     render::draw_input_injection(
                         f,
                         req,
-                        &app.input,
-                        app.cursor_position,
+                        &app.composer.input,
+                        app.composer.cursor_position,
                         input_rect,
-                        &app.theme,
+                        &app.surfaces.theme,
                     );
                 }
             }
             _ => {}
         }
     }
+}
 
+/// Completion family: the slash-command / `@path` mention popup anchored to
+/// the active trigger token.
+fn draw_completion_popup(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    mut ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+    slot: ComposerSlot,
+) {
+    let input_rect = slot.input_rect;
     // Completion menu: slash commands or `@path` file mentions.
     // Honors `completion_dismissed` so Esc / Enter-commit keep the
     // popup hidden until the next edit clears the latch. Also
@@ -850,9 +978,9 @@ fn compose_frame(
     // composer paints it bold + accent), the popup has nothing left
     // to offer, and ↑/↓ keep walking history instead of cycling a
     // single pinned row.
-    if app.surfaces.active_overlay().is_none()
+    if app.surfaces.surfaces.active_overlay().is_none()
         && app.active_sheet().is_none()
-        && !app.completion_dismissed
+        && !app.composer.completion_dismissed
         && app.completion_kind() != CompletionKind::None
     {
         let completions = app.completions();
@@ -864,7 +992,9 @@ fn compose_frame(
         // candidate; a stale index clamps; nothing visible clears.
         app.anchor_completion_selection(&completions);
         let exact_match = completions.iter().any(|c| {
-            c.replace_start == 0 && c.replace_end == app.input.len() && c.label == app.input
+            c.replace_start == 0
+                && c.replace_end == app.composer.input.len()
+                && c.label == app.composer.input
         });
         if !completions.is_empty() && !exact_match {
             // Anchor the popup relative to the active trigger token
@@ -872,461 +1002,550 @@ fn compose_frame(
             // tracking the cursor's wrapped row and scroll offset so the menu
             // hovers immediately above the line being typed.
             let anchor = completion_anchor(
-                &app.input,
+                &app.composer.input,
                 app.byte_cursor(),
                 input_rect,
-                app.input_scroll,
+                app.composer.input_scroll,
                 app.completion_kind(),
             );
             render::draw_completion_menu(
                 f,
-                &mut layout_map,
+                layout_map,
                 Some(&mut ui),
                 &completions,
-                app.suggestion_index,
+                app.composer.suggestion_index,
                 anchor,
-                &app.theme,
+                &app.surfaces.theme,
             );
         }
     }
+}
 
-    // Recess the live surface for the open modal: darken it in place
-    // (Dim), occlude it fully (Takeover), or leave it untouched (None).
-    // Done after the transcript + chrome are drawn and before the modal
-    // panel so the panel overpaints its own crisp area on top of the
-    // recessed background.
-    //
-    // The recess is a read-modify-write of cells that are *already* on the
-    // grid, so it paints straight into the frame rather than through the
-    // scene's scratch/clip path.
+/// Recess the live surface and dispatch to the active overlay or the
+/// full-screen scene. The recess is a read-modify-write of cells already on
+/// the grid, so it paints straight into the frame.
+fn draw_recessed_surface(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    viewed_session_id: &str,
+    ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+    transcript: &render::TranscriptRender,
+) -> SurfaceDraw {
+    let is_fullscreen_scene = matches!(
+        app.current_scene(),
+        SceneKind::Dashboard | SceneKind::Settings | SceneKind::CommandLog
+    );
+    let has_overlay = app.surfaces.surfaces.active_overlay().is_some();
+    let recess = if is_fullscreen_scene {
+        Recess::Takeover
+    } else if app.surfaces.surfaces.active_overlay()
+        == Some(OverlaySurface::Dialog(DialogKind::HistorySearch))
+    {
+        Recess::None
+    } else if has_overlay {
+        Recess::Dim
+    } else {
+        Recess::None
+    };
     ui.mount(UiKey::Backdrop, f.area());
-    render::recess_backdrop(f, recess, &app.theme);
+    render::recess_backdrop(f, recess, &app.surfaces.theme);
 
-    let spinner_phase = (app.spinner_epoch.elapsed().as_millis() / 100) as usize;
+    if let Some(overlay) = app.surfaces.surfaces.active_overlay() {
+        SurfaceDraw {
+            modal_rect: draw_active_overlay(
+                app,
+                f,
+                viewed_session_id,
+                ui,
+                layout_map,
+                overlay,
+                transcript,
+            ),
+            dashboard_list_body_height: None,
+        }
+    } else {
+        draw_scene(app, f, viewed_session_id, ui, layout_map)
+    }
+}
 
-    // The dashboard reports its true list-body height through this
-    // slot (its body is not the centered panel-minus-chrome the
-    // shared post-match math assumes). Reset each frame; only the
-    // `SceneKind::Dashboard` arm sets it.
-    let mut dashboard_list_body_height: Option<u16> = None;
+/// Overlay family: dialogs (the `?` keys view or the entity's own view) and
+/// provider sheets. Returns the panel rect the renderer painted, used for
+/// modal-body sizing and backdrop hit-testing.
+fn draw_active_overlay(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    viewed_session_id: &str,
+    mut ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+    overlay: OverlaySurface,
+    transcript: &render::TranscriptRender,
+) -> Option<nuotc::Rect> {
+    let viewed_running = app.session.running_sessions.contains(viewed_session_id);
+    let overlay_owns_caret =
+        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Overlay;
+    let spinner_phase = (app.transcript.spinner_epoch.elapsed().as_millis() / 100) as usize;
+    let input_rect = transcript.input_rect;
+    let activity_height =
+        render::footer_rect(&transcript.footer, render::FooterRowId::ActivityStrip)
+            .map_or(0, |r| r.height);
 
-    // Overlays and Scenes
-    let drawn_modal_rect = if let Some(overlay) = app.surfaces.active_overlay() {
-        match overlay {
-            OverlaySurface::Dialog(d) if app.dialog_keys() => {
-                let app_ctx = crate::shell::keymap::AppContext {
-                    has_overlay: true,
-                    active_dialog: Some(d),
-                    is_responding: viewed_running,
-                    has_selection: !matches!(
-                        app.selection,
-                        nuo_view::model::selection::SelectionState::None
-                    ),
-                    has_running_task: viewed_running,
-                    has_notices: !!app.has_notices(),
-                    has_focused_entry: app.focus.entry().is_some(),
-                    queue_count: app.outbox_total(),
-                    has_session: app.has_session(),
-                    scene: app.current_scene(),
-                };
-                Some(render::draw_dialog_keys(
-                    f,
-                    d,
-                    app.surfaces.dialogs.keys_scroll_mut(d),
-                    &app_ctx,
-                    &app.theme,
-                    &app.selection,
-                    &mut layout_map,
-                ))
-            }
-            OverlaySurface::Dialog(_) => {
-                // Route through the encapsulated entity's `DialogView::render`
-                // (ADR-0035 §1). The entity is taken out of its stack entry so
-                // it can render against a disjoint `&App` borrow, then put back.
-                if let Some(mut ent) = app.surfaces.take_active_view() {
-                    let startup_picker =
-                        app.startup_overlay == crate::shell::StartupOverlay::SessionsPicker;
-                    let activity_height = render::footer_rect(
-                        &transcript_render.footer,
-                        render::FooterRowId::ActivityStrip,
-                    )
-                    .map_or(0, |r| r.height);
-                    let rect = {
-                        let mut ctx = crate::shell::surfaces::DialogRenderCtx {
-                            app,
-                            layout_map: &mut layout_map,
-                            selection: &app.selection,
-                            theme: &app.theme,
-                            spinner_phase,
-                            viewed_session_id,
-                            startup_picker,
-                            input_rect: Some(input_rect),
-                            activity_height,
-                            overlay_owns_caret,
-                        };
-                        ent.render(f, f.area(), &mut ctx)
+    match overlay {
+        OverlaySurface::Dialog(d) if app.dialog_keys() => {
+            let app_ctx = crate::shell::keymap::AppContext {
+                has_overlay: true,
+                active_dialog: Some(d),
+                is_responding: viewed_running,
+                has_selection: !matches!(
+                    app.transcript.selection,
+                    nuo_view::model::selection::SelectionState::None
+                ),
+                has_running_task: viewed_running,
+                has_notices: !!app.has_notices(),
+                has_focused_entry: app.transcript.focus.entry().is_some(),
+                queue_count: app.outbox_total(),
+                has_session: app.has_session(),
+                scene: app.current_scene(),
+            };
+            Some(render::draw_dialog_keys(
+                f,
+                d,
+                app.surfaces.surfaces.dialogs.keys_scroll_mut(d),
+                &app_ctx,
+                &app.surfaces.theme,
+                &app.transcript.selection,
+                layout_map,
+            ))
+        }
+        OverlaySurface::Dialog(_) => {
+            // Route through the encapsulated entity's `DialogView::render`
+            // (ADR-0035 §1). The entity is taken out of its stack entry so
+            // it can render against a disjoint `&App` borrow, then put back.
+            if let Some(mut ent) = app.surfaces.surfaces.take_active_view() {
+                let startup_picker =
+                    app.surfaces.startup_overlay == crate::shell::StartupOverlay::SessionsPicker;
+                let rect = {
+                    let mut ctx = crate::shell::surfaces::DialogRenderCtx {
+                        app,
+                        layout_map,
+                        selection: &app.transcript.selection,
+                        theme: &app.surfaces.theme,
+                        spinner_phase,
+                        viewed_session_id,
+                        startup_picker,
+                        input_rect: Some(input_rect),
+                        activity_height,
+                        overlay_owns_caret,
                     };
-                    app.surfaces.put_active_view(ent);
-                    rect
-                } else {
-                    None
-                }
+                    ent.render(f, f.area(), &mut ctx)
+                };
+                app.surfaces.surfaces.put_active_view(ent);
+                rect
+            } else {
+                None
             }
-            OverlaySurface::Sheet(s) => match s {
-                SheetKind::ModelEditor => {
-                    if let Some(target) = app.editor_target.as_deref()
-                        && (target.starts_with("web_credential:")
-                            || target.starts_with("web_endpoint:"))
-                    {
-                        let endpoint = target.starts_with("web_endpoint:");
-                        Some(render::draw_web_value_editor(
-                            f,
-                            &format!("Configure {}", app.editor_model),
-                            if endpoint { "Endpoint" } else { "API token" },
-                            &app.input,
-                            app.cursor_position,
-                            !endpoint,
-                            overlay_owns_caret,
-                            &app.theme,
-                        ))
+        }
+        OverlaySurface::Sheet(s) => match s {
+            SheetKind::ModelEditor => {
+                if let Some(target) = app.provider_editor.editor_target.as_deref()
+                    && (target.starts_with("web_credential:")
+                        || target.starts_with("web_endpoint:"))
+                {
+                    let endpoint = target.starts_with("web_endpoint:");
+                    Some(render::draw_web_value_editor(
+                        f,
+                        &format!("Configure {}", app.provider_editor.editor_model),
+                        if endpoint { "Endpoint" } else { "API token" },
+                        &app.composer.input,
+                        app.composer.cursor_position,
+                        !endpoint,
+                        overlay_owns_caret,
+                        &app.surfaces.theme,
+                    ))
+                } else {
+                    let title = if app.provider_editor.editor_model_settings_only {
+                        app.provider_editor.editor_model.clone()
                     } else {
-                        let title = if app.editor_model_settings_only {
-                            app.editor_model.clone()
-                        } else {
-                            app.editor_target
-                                .as_deref()
-                                .and_then(|id| app.provider_picker.rows.iter().find(|r| r.id == id))
-                                .map(|r| r.name.clone())
-                                .unwrap_or_else(|| "model".to_string())
-                        };
-                        let effort = app
-                            .editor_model_settings_only
-                            .then_some(app.editor_effort.as_str());
-                        // The ladder captured from the snapshot when the editor
-                        // opened. Deliberately NOT re-derived with
-                        // `resolve_model`: this binary does not link
-                        // `nuo-providers`, so the provider baseline tables are
-                        // absent and a client-side resolve returns an empty
-                        // ladder — which collapsed the node slider to the
-                        // value-only row. Empty stays empty (a route with no
-                        // effort knob keeps the value-only fallback).
-                        let effort_levels: Vec<String> = if app.editor_model_settings_only {
-                            app.editor_effort_levels.clone()
+                        app.provider_editor
+                            .editor_target
+                            .as_deref()
+                            .and_then(|id| {
+                                app.surfaces
+                                    .provider_picker
+                                    .rows
+                                    .iter()
+                                    .find(|r| r.id == id)
+                            })
+                            .map(|r| r.name.clone())
+                            .unwrap_or_else(|| "model".to_string())
+                    };
+                    let effort = app
+                        .provider_editor
+                        .editor_model_settings_only
+                        .then_some(app.provider_editor.editor_effort.as_str());
+                    // The ladder captured from the snapshot when the editor
+                    // opened. Deliberately NOT re-derived with
+                    // `resolve_model`: this binary does not link
+                    // `nuo-providers`, so the provider baseline tables are
+                    // absent and a client-side resolve returns an empty
+                    // ladder — which collapsed the node slider to the
+                    // value-only row. Empty stays empty (a route with no
+                    // effort knob keeps the value-only fallback).
+                    let effort_levels: Vec<String> =
+                        if app.provider_editor.editor_model_settings_only {
+                            app.provider_editor.editor_effort_levels.clone()
                         } else {
                             Vec::new()
                         };
-                        let thinking = app
-                            .editor_model_settings_only
-                            .then_some(app.editor_thinking)
-                            .filter(|_| app.editor_thinking_available);
-                        let overrides = app
-                            .editor_model_settings_only
-                            .then_some((app.editor_vision_override, app.editor_tool_override));
-                        Some(render::draw_model_editor(
-                            f,
-                            &title,
-                            &app.input,
-                            app.cursor_position,
-                            !app.editor_model_settings_only,
-                            app.editor_field,
-                            overlay_owns_caret,
-                            effort,
-                            &effort_levels,
-                            thinking,
-                            overrides,
-                            &app.theme,
-                        ))
-                    }
-                }
-                SheetKind::ProviderPreset => Some(render::draw_preset_chooser(
-                    app.preset_choice,
-                    f,
-                    &app.theme,
-                    &mut app.preset_scroll,
-                )),
-                SheetKind::OAuthPending => {
-                    let title: &'static str = match &app.custom_auth {
-                        nuo_protocol::ConnectionAuth::Negotiated { provider } => {
-                            match provider.as_ref() {
-                                "chatgpt" => "ChatGPT Subscription",
-                                "copilot" => "Copilot",
-                                "xai" => "xAI",
-                                "google-antigravity" => "Google Antigravity",
-                                "qoder" => "Qoder",
-                                _ => "Subscription",
-                            }
-                        }
-                        nuo_protocol::ConnectionAuth::Static => "OAuth",
-                    };
-                    Some(render::draw_oauth_pending(
-                        title,
-                        &app.oauth_pending_message,
-                        &app.oauth_pending_url,
-                        &app.oauth_pending_user_code,
-                        app.oauth_pending_error.as_deref(),
-                        app.oauth_selected_item,
+                    let thinking = app
+                        .provider_editor
+                        .editor_model_settings_only
+                        .then_some(app.provider_editor.editor_thinking)
+                        .filter(|_| app.provider_editor.editor_thinking_available);
+                    let overrides = app.provider_editor.editor_model_settings_only.then_some((
+                        app.provider_editor.editor_vision_override,
+                        app.provider_editor.editor_tool_override,
+                    ));
+                    Some(render::draw_model_editor(
                         f,
-                        &app.theme,
-                        &mut app.oauth_scroll,
-                        Some(&mut ui),
-                        &app.selection,
-                        &mut layout_map,
-                    ))
-                }
-                SheetKind::CustomProvider => {
-                    let editing = app.custom_is_editing();
-                    let title = if editing {
-                        format!("Edit — {}", app.custom_name)
-                    } else {
-                        crate::provider_label_for(app.custom_provider_id.as_deref())
-                    };
-                    let protocol_display = app
-                        .custom_protocol_wire
-                        .parse::<nuo_protocol::WireProtocol>()
-                        .map(|p| p.display_name())
-                        .unwrap_or(&app.custom_protocol_wire);
-                    let budget_display = match &app.custom_budget {
-                        nuo_protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
-                        nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
-                            format!("Local ({}, {})", limit.format_usd(), period.label())
-                        }
-                    };
-                    Some(render::draw_custom_provider_editor(
-                        render::CustomEditorProps {
-                            fields: &app.custom_fields,
-                            field: app.custom_field,
-                            editing,
-                            custom: app.custom_provider_id.as_deref()
-                                == Some(nuo_view::providers::CUSTOM_TEMPLATE.id),
-                            title: &title,
-                            name_buf: &app.custom_name,
-                            base_url_buf: &app.custom_base_url,
-                            token_buf: &app.custom_token,
-                            model_buf: &app.custom_model,
-                            protocol_display,
-                            budget_display: &budget_display,
-                            url_hint: &app.custom_url_hint,
-                            input: &app.input,
-                            cursor_position: app.cursor_position,
-                        },
-                        f,
-                        &app.theme,
-                        &mut app.custom_scroll,
+                        &title,
+                        &app.composer.input,
+                        app.composer.cursor_position,
+                        !app.provider_editor.editor_model_settings_only,
+                        app.provider_editor.editor_field,
                         overlay_owns_caret,
+                        effort,
+                        &effort_levels,
+                        thinking,
+                        overrides,
+                        &app.surfaces.theme,
                     ))
                 }
-                _ => None,
-            },
-        }
-    } else {
-        let scene_unread_faults = if app.has_unread_notice_fault() {
-            app.unread_notices()
-        } else {
-            0
-        };
-        match app.current_scene() {
-            SceneKind::Dashboard => {
-                let rects = render::draw_dashboard(
-                    f,
-                    crate::shell::overlays::dashboard::DashboardProps {
-                        rows: &app.host_sessions,
-                        selected: app
-                            .modal_index
-                            .min(app.host_sessions.len().saturating_sub(1)),
-                        focus: app.host_focus,
-                        list_scroll: &mut app.host_scroll,
-                        list_follow: app.host_modal_follow,
-                        detail_scroll: &mut app.host_detail_scroll,
-                        log: &app.host_console_log,
-                        prompting: app.host_prompting,
-                        prompt_create_new: app.host_prompt_new,
-                        prompt_text: &app.input,
-                        cursor_position: app.cursor_position,
-                        current_session_id: viewed_session_id,
-                        show_caret: scene_prompt_owns_caret,
-                        tab_bar: Some(render::TabBarProps {
-                            tabs: Some(app.surfaces.tabs()),
-                            active_tab: app.surfaces.active_tab_index(),
-                            unread_faults: scene_unread_faults,
-                        }),
-                        filter: &app.dashboard_filter,
-                        filtering: app.dashboard_filtering,
-                        view_usage: app.dashboard_view_usage,
-                        usage_report: app.usage_stats.as_ref(),
-                        usage_loading: app.usage_loading,
-                        usage_scroll: app.usage_scroll,
-                    },
-                    &app.theme,
-                );
-                dashboard_list_body_height = Some(rects.list_body.height);
-                if let Some(rect) = rects.tab_bar_rect {
-                    ui.mount(UiKey::TabBar, rect);
-                }
-                for (idx, tab_rect) in &rects.tab_rects {
-                    ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
-                }
-                if let Some(rect) = rects.tab_prev_rect {
-                    ui.mount(UiKey::TabBarPrev, rect);
-                }
-                if let Some(rect) = rects.tab_next_rect {
-                    ui.mount(UiKey::TabBarNext, rect);
-                }
-                if let Some(rect) = rects.tab_overflow_rect {
-                    ui.mount(UiKey::TabBarOverview, rect);
-                }
-                if let Some(rect) = rects.tab_notices_rect {
-                    ui.mount(UiKey::NoticesBadge, rect);
-                }
-                if let Some(rect) = rects.tab_help_rect {
-                    ui.mount(UiKey::HelpBadge, rect);
-                }
-                if let Some(preview_id) = &app.host_preview {
-                    let row = app.host_sessions.iter().find(|r| &r.id == preview_id);
-                    render::draw_session_preview(f, row, &mut app.host_preview_scroll, &app.theme);
-                }
-                Some(rects.area)
             }
-            SceneKind::Settings => {
-                let breadcrumbs_str = if app.in_subagent_view() {
-                    "Main › Subagent › Settings"
-                } else {
-                    "Main › Settings"
-                };
-                let rects = render::draw_settings_view(
-                    f,
-                    render::SettingsProps {
-                        category_index: app.config_category,
-                        detail_index: app.config_detail_index,
-                        hover_index: app.config_hover_index,
-                        focus: app.config_focus,
-                        color_scheme: &app.color_scheme,
-                        custom_color_scheme: &app.custom_color_scheme,
-                        websearch: app.websearch_config.as_ref(),
-                        workspace: &app.current_workspace,
-                        category_scroll: &mut app.config_scroll,
-                        detail_scroll: &mut app.config_detail_scroll,
-                        breadcrumbs: Some(breadcrumbs_str),
-                        theme: &app.theme,
-                        profile: &app.profile,
-                        tui_config: &app.tui_config,
-                        tab_bar: Some(render::TabBarProps {
-                            tabs: Some(app.surfaces.tabs()),
-                            active_tab: app.surfaces.active_tab_index(),
-                            unread_faults: scene_unread_faults,
-                        }),
-                    },
-                );
-                app.config_selected_rect = rects.selected_row_rect;
-                if let Some(rect) = rects.tab_bar_rect {
-                    ui.mount(UiKey::TabBar, rect);
-                }
-                for (idx, tab_rect) in &rects.tab_rects {
-                    ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
-                }
-                if let Some(rect) = rects.tab_prev_rect {
-                    ui.mount(UiKey::TabBarPrev, rect);
-                }
-                if let Some(rect) = rects.tab_next_rect {
-                    ui.mount(UiKey::TabBarNext, rect);
-                }
-                if let Some(rect) = rects.tab_overflow_rect {
-                    ui.mount(UiKey::TabBarOverview, rect);
-                }
-                if let Some(rect) = rects.tab_notices_rect {
-                    ui.mount(UiKey::NoticesBadge, rect);
-                }
-                if let Some(rect) = rects.tab_help_rect {
-                    ui.mount(UiKey::HelpBadge, rect);
-                }
-                for (index, cat_rect) in rects.category_rects {
-                    ui.mount(UiKey::SettingsCategory(index), cat_rect);
-                }
-                if let Some(row_rect) = rects.selected_row_rect {
-                    ui.mount(UiKey::SettingsOption(app.config_detail_index), row_rect);
-                }
-                // Full-block pointer targets for every visible row, so the row
-                // under the mouse (label *or* description line) lights up. Mounted
-                // after the cursor's own target so the taller block wins the hit
-                // test; both resolve to the same row index, so the choice is moot.
-                for (index, row_rect) in rects.row_rects {
-                    ui.mount(UiKey::SettingsRow(index), row_rect);
-                }
-                if let Some((ref mut state, ref mut anchor)) = app.config_dropdown {
-                    if let Some(target_rect) = app.config_selected_rect
-                        && anchor.placement
-                            != nuo_ui_primitives::components::dropdown::DropdownPlacement::CenterScreen
-                    {
-                        anchor.target_rect = target_rect;
+            SheetKind::ProviderPreset => Some(render::draw_preset_chooser(
+                app.provider_editor.preset_choice,
+                f,
+                &app.surfaces.theme,
+                &mut app.provider_editor.preset_scroll,
+            )),
+            SheetKind::OAuthPending => {
+                let title: &'static str = match &app.provider_editor.custom_auth {
+                    nuo_protocol::ConnectionAuth::Negotiated { provider } => {
+                        match provider.as_ref() {
+                            "chatgpt" => "ChatGPT Subscription",
+                            "copilot" => "Copilot",
+                            "xai" => "xAI",
+                            "google-antigravity" => "Google Antigravity",
+                            "qoder" => "Qoder",
+                            _ => "Subscription",
+                        }
                     }
-                    let popup_area = nuo_ui_primitives::components::dropdown::draw_dropdown(
-                        f,
-                        state,
-                        anchor,
-                        &app.theme,
-                        f.area(),
-                    );
-                    ui.mount(UiKey::ConfigDropdown, popup_area);
-                }
-                Some(rects.area)
-            }
-            SceneKind::CommandLog => {
-                // The log reads one step's payload; a log whose step vanished
-                // (transcript rebuild) is a stated empty state, not a panic and
-                // not a silently blank page.
-                let rects = render::draw_command_log_scene(
+                    nuo_protocol::ConnectionAuth::Static => "OAuth",
+                };
+                Some(render::draw_oauth_pending(
+                    title,
+                    &app.provider_editor.oauth_pending_message,
+                    &app.provider_editor.oauth_pending_url,
+                    &app.provider_editor.oauth_pending_user_code,
+                    app.provider_editor.oauth_pending_error.as_deref(),
+                    app.provider_editor.oauth_selected_item,
                     f,
-                    render::LogSceneProps {
-                        log: app.command_log.as_ref(),
-                        scroll: &mut app.command_log_scroll,
-                        thread_id: Some(viewed_session_id),
-                        tab_bar: Some(render::TabBarProps {
-                            tabs: Some(app.surfaces.tabs()),
-                            active_tab: app.surfaces.active_tab_index(),
-                            unread_faults: scene_unread_faults,
-                        }),
-                    },
-                    &mut layout_map,
-                    &app.theme,
-                );
-                if let Some(rect) = rects.tab_bar_rect {
-                    ui.mount(UiKey::TabBar, rect);
-                }
-                for (idx, tab_rect) in &rects.tab_rects {
-                    ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
-                }
-                if let Some(rect) = rects.tab_prev_rect {
-                    ui.mount(UiKey::TabBarPrev, rect);
-                }
-                if let Some(rect) = rects.tab_next_rect {
-                    ui.mount(UiKey::TabBarNext, rect);
-                }
-                if let Some(rect) = rects.tab_overflow_rect {
-                    ui.mount(UiKey::TabBarOverview, rect);
-                }
-                if let Some(rect) = rects.tab_notices_rect {
-                    ui.mount(UiKey::NoticesBadge, rect);
-                }
-                if let Some(rect) = rects.tab_help_rect {
-                    ui.mount(UiKey::HelpBadge, rect);
-                }
-                // The dashboard's list-body slot stays unset: this scene's scroll
-                // is its own field and its page step is derived from the body
-                // rect the renderer just clamped against.
-                Some(rects.area)
+                    &app.surfaces.theme,
+                    &mut app.provider_editor.oauth_scroll,
+                    Some(&mut ui),
+                    &app.transcript.selection,
+                    layout_map,
+                ))
             }
-            SceneKind::Thread | SceneKind::Subagent => None,
+            SheetKind::CustomProvider => {
+                let editing = app.custom_is_editing();
+                let title = if editing {
+                    format!("Edit — {}", app.provider_editor.custom_name)
+                } else {
+                    crate::provider_label_for(app.provider_editor.custom_provider_id.as_deref())
+                };
+                let protocol_display = app
+                    .provider_editor
+                    .custom_protocol_wire
+                    .parse::<nuo_protocol::WireProtocol>()
+                    .map(|p| p.display_name())
+                    .unwrap_or(&app.provider_editor.custom_protocol_wire);
+                let budget_display = match &app.provider_editor.custom_budget {
+                    nuo_protocol::ConnectionBudget::Remote => "Remote (Upstream)".to_string(),
+                    nuo_protocol::ConnectionBudget::Local { limit, period, .. } => {
+                        format!("Local ({}, {})", limit.format_usd(), period.label())
+                    }
+                };
+                Some(render::draw_custom_provider_editor(
+                    render::CustomEditorProps {
+                        fields: &app.provider_editor.custom_fields,
+                        field: app.provider_editor.custom_field,
+                        editing,
+                        custom: app.provider_editor.custom_provider_id.as_deref()
+                            == Some(nuo_view::providers::CUSTOM_TEMPLATE.id),
+                        title: &title,
+                        name_buf: &app.provider_editor.custom_name,
+                        base_url_buf: &app.provider_editor.custom_base_url,
+                        token_buf: &app.provider_editor.custom_token,
+                        model_buf: &app.provider_editor.custom_model,
+                        protocol_display,
+                        budget_display: &budget_display,
+                        url_hint: &app.provider_editor.custom_url_hint,
+                        input: &app.composer.input,
+                        cursor_position: app.composer.cursor_position,
+                    },
+                    f,
+                    &app.surfaces.theme,
+                    &mut app.provider_editor.custom_scroll,
+                    overlay_owns_caret,
+                ))
+            }
+            _ => None,
+        },
+    }
+}
+
+/// Full-screen scene family: dashboard/host list, settings, and the command
+/// log. The dashboard additionally reports its true list-body height.
+fn draw_scene(
+    app: &mut App,
+    f: &mut nuotc::Frame<'_>,
+    viewed_session_id: &str,
+    ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+) -> SurfaceDraw {
+    let scene_unread_faults = if app.has_unread_notice_fault() {
+        app.unread_notices()
+    } else {
+        0
+    };
+    let scene_prompt_owns_caret =
+        app.caret_visible() && app.caret_owner() == crate::shell::CaretOwner::Scene;
+    let mut dashboard_list_body_height: Option<u16> = None;
+    let modal_rect = match app.current_scene() {
+        SceneKind::Dashboard => {
+            let rects = render::draw_dashboard(
+                f,
+                crate::shell::overlays::dashboard::DashboardProps {
+                    rows: &app.session.host_sessions,
+                    selected: app
+                        .surfaces
+                        .modal_index
+                        .min(app.session.host_sessions.len().saturating_sub(1)),
+                    focus: app.surfaces.host_focus,
+                    list_scroll: &mut app.surfaces.host_scroll,
+                    list_follow: app.surfaces.host_modal_follow,
+                    detail_scroll: &mut app.surfaces.host_detail_scroll,
+                    log: &app.transcript.host_console_log,
+                    prompting: app.surfaces.host_prompting,
+                    prompt_create_new: app.surfaces.host_prompt_new,
+                    prompt_text: &app.composer.input,
+                    cursor_position: app.composer.cursor_position,
+                    current_session_id: viewed_session_id,
+                    show_caret: scene_prompt_owns_caret,
+                    tab_bar: Some(render::TabBarProps {
+                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        active_tab: app.surfaces.surfaces.active_tab_index(),
+                        unread_faults: scene_unread_faults,
+                    }),
+                    filter: &app.surfaces.dashboard_filter,
+                    filtering: app.surfaces.dashboard_filtering,
+                    view_usage: app.surfaces.dashboard_view_usage,
+                    usage_report: app.telemetry.usage_stats.as_ref(),
+                    usage_loading: app.telemetry.usage_loading,
+                    usage_scroll: app.telemetry.usage_scroll,
+                },
+                &app.surfaces.theme,
+            );
+            dashboard_list_body_height = Some(rects.list_body.height);
+            if let Some(rect) = rects.tab_bar_rect {
+                ui.mount(UiKey::TabBar, rect);
+            }
+            for (idx, tab_rect) in &rects.tab_rects {
+                ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+            }
+            if let Some(rect) = rects.tab_prev_rect {
+                ui.mount(UiKey::TabBarPrev, rect);
+            }
+            if let Some(rect) = rects.tab_next_rect {
+                ui.mount(UiKey::TabBarNext, rect);
+            }
+            if let Some(rect) = rects.tab_overflow_rect {
+                ui.mount(UiKey::TabBarOverview, rect);
+            }
+            if let Some(rect) = rects.tab_notices_rect {
+                ui.mount(UiKey::NoticesBadge, rect);
+            }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::HelpBadge, rect);
+            }
+            if let Some(preview_id) = &app.surfaces.host_preview {
+                let row = app
+                    .session
+                    .host_sessions
+                    .iter()
+                    .find(|r| &r.id == preview_id);
+                render::draw_session_preview(
+                    f,
+                    row,
+                    &mut app.surfaces.host_preview_scroll,
+                    &app.surfaces.theme,
+                );
+            }
+            Some(rects.area)
         }
+        SceneKind::Settings => {
+            let breadcrumbs_str = if app.in_subagent_view() {
+                "Main › Subagent › Settings"
+            } else {
+                "Main › Settings"
+            };
+            let rects = render::draw_settings_view(
+                f,
+                render::SettingsProps {
+                    category_index: app.surfaces.config_category,
+                    detail_index: app.surfaces.config_detail_index,
+                    hover_index: app.surfaces.config_hover_index,
+                    focus: app.surfaces.config_focus,
+                    color_scheme: &app.surfaces.color_scheme,
+                    custom_color_scheme: &app.surfaces.custom_color_scheme,
+                    websearch: app.surfaces.websearch_config.as_ref(),
+                    workspace: &app.session.current_workspace,
+                    category_scroll: &mut app.surfaces.config_scroll,
+                    detail_scroll: &mut app.surfaces.config_detail_scroll,
+                    breadcrumbs: Some(breadcrumbs_str),
+                    theme: &app.surfaces.theme,
+                    profile: &app.surfaces.profile,
+                    tui_config: &app.session.tui_config,
+                    tab_bar: Some(render::TabBarProps {
+                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        active_tab: app.surfaces.surfaces.active_tab_index(),
+                        unread_faults: scene_unread_faults,
+                    }),
+                },
+            );
+            app.surfaces.config_selected_rect = rects.selected_row_rect;
+            if let Some(rect) = rects.tab_bar_rect {
+                ui.mount(UiKey::TabBar, rect);
+            }
+            for (idx, tab_rect) in &rects.tab_rects {
+                ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+            }
+            if let Some(rect) = rects.tab_prev_rect {
+                ui.mount(UiKey::TabBarPrev, rect);
+            }
+            if let Some(rect) = rects.tab_next_rect {
+                ui.mount(UiKey::TabBarNext, rect);
+            }
+            if let Some(rect) = rects.tab_overflow_rect {
+                ui.mount(UiKey::TabBarOverview, rect);
+            }
+            if let Some(rect) = rects.tab_notices_rect {
+                ui.mount(UiKey::NoticesBadge, rect);
+            }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::HelpBadge, rect);
+            }
+            for (index, cat_rect) in rects.category_rects {
+                ui.mount(UiKey::SettingsCategory(index), cat_rect);
+            }
+            if let Some(row_rect) = rects.selected_row_rect {
+                ui.mount(
+                    UiKey::SettingsOption(app.surfaces.config_detail_index),
+                    row_rect,
+                );
+            }
+            // Full-block pointer targets for every visible row, so the row
+            // under the mouse (label *or* description line) lights up. Mounted
+            // after the cursor's own target so the taller block wins the hit
+            // test; both resolve to the same row index, so the choice is moot.
+            for (index, row_rect) in rects.row_rects {
+                ui.mount(UiKey::SettingsRow(index), row_rect);
+            }
+            if let Some((ref mut state, ref mut anchor)) = app.surfaces.config_dropdown {
+                if let Some(target_rect) = app.surfaces.config_selected_rect
+                    && anchor.placement
+                        != nuo_ui_primitives::components::dropdown::DropdownPlacement::CenterScreen
+                {
+                    anchor.target_rect = target_rect;
+                }
+                let popup_area = nuo_ui_primitives::components::dropdown::draw_dropdown(
+                    f,
+                    state,
+                    anchor,
+                    &app.surfaces.theme,
+                    f.area(),
+                );
+                ui.mount(UiKey::ConfigDropdown, popup_area);
+            }
+            Some(rects.area)
+        }
+        SceneKind::CommandLog => {
+            // The log reads one step's payload; a log whose step vanished
+            // (transcript rebuild) is a stated empty state, not a panic and
+            // not a silently blank page.
+            let rects = render::draw_command_log_scene(
+                f,
+                render::LogSceneProps {
+                    log: app.transcript.command_log.as_ref(),
+                    scroll: &mut app.surfaces.command_log_scroll,
+                    thread_id: Some(viewed_session_id),
+                    tab_bar: Some(render::TabBarProps {
+                        tabs: Some(app.surfaces.surfaces.tabs()),
+                        active_tab: app.surfaces.surfaces.active_tab_index(),
+                        unread_faults: scene_unread_faults,
+                    }),
+                },
+                layout_map,
+                &app.surfaces.theme,
+            );
+            if let Some(rect) = rects.tab_bar_rect {
+                ui.mount(UiKey::TabBar, rect);
+            }
+            for (idx, tab_rect) in &rects.tab_rects {
+                ui.mount(UiKey::TabBarItem(*idx), *tab_rect);
+            }
+            if let Some(rect) = rects.tab_prev_rect {
+                ui.mount(UiKey::TabBarPrev, rect);
+            }
+            if let Some(rect) = rects.tab_next_rect {
+                ui.mount(UiKey::TabBarNext, rect);
+            }
+            if let Some(rect) = rects.tab_overflow_rect {
+                ui.mount(UiKey::TabBarOverview, rect);
+            }
+            if let Some(rect) = rects.tab_notices_rect {
+                ui.mount(UiKey::NoticesBadge, rect);
+            }
+            if let Some(rect) = rects.tab_help_rect {
+                ui.mount(UiKey::HelpBadge, rect);
+            }
+            // The dashboard's list-body slot stays unset: this scene's scroll
+            // is its own field and its page step is derived from the body
+            // rect the renderer just clamped against.
+            Some(rects.area)
+        }
+        SceneKind::Thread | SceneKind::Subagent => None,
     };
 
-    // Provider-delete confirm overlay: a sub-layer painted *on top
-    // of* the Connections list. Drawn after the picker so it
-    // overpaints its own dimmed backdrop + centered panel, leaving
-    // the list visible (dimmed) behind it. Only present while a
-    // deletion is staged from `Shift+D`.
+    SurfaceDraw {
+        modal_rect,
+        dashboard_list_body_height,
+    }
+}
+
+/// Provider-delete confirmation family: painted on top of the Connections
+/// list only while a deletion is staged from `Shift+D`.
+fn draw_provider_delete_confirm(
+    app: &App,
+    f: &mut nuotc::Frame<'_>,
+    ui: &mut crate::shell::ui::ComponentTree,
+) {
     if app.active_dialog() == Some(DialogKind::Connections)
-        && let Some(ref pending_id) = app.pending_provider_delete
+        && let Some(ref pending_id) = app.surfaces.pending_provider_delete
     {
         let provider_name = app
+            .surfaces
             .provider_picker
             .rows
             .iter()
@@ -1336,30 +1555,31 @@ fn compose_frame(
         let rect = render::draw_provider_delete_confirm(
             f,
             &provider_name,
-            match app.provider_delete_focus {
+            match app.surfaces.provider_delete_focus {
                 ProviderDeleteChoice::Cancel => ConfirmChoice::Cancel,
                 ProviderDeleteChoice::Delete => ConfirmChoice::Delete,
             },
-            &app.theme,
+            &app.surfaces.theme,
         );
         ui.mount(UiKey::ProviderDelete, rect);
     }
+}
 
-    // Urgent confirmation toasts (Esc interrupt confirmation or Ctrl+C quit confirmation)
-    // take precedence over informational toasts (copy, command acknowledgment)
-    // so active safety prompts are never obscured.
+/// Toast family: urgent confirmation toasts take precedence over
+/// informational toasts, since they share one top-right slot.
+fn draw_toasts(app: &App, f: &mut nuotc::Frame<'_>) {
     if app.esc_armed() {
-        render::draw_armed_toast(f, "Esc again interrupts", &app.theme);
+        render::draw_armed_toast(f, "Esc again interrupts", &app.surfaces.theme);
     } else if app.ctrl_c_armed() {
-        render::draw_armed_toast(f, "press Ctrl-c again to detach", &app.theme);
-    } else if app.copy_toast_until.is_some() {
+        render::draw_armed_toast(f, "press Ctrl-c again to detach", &app.surfaces.theme);
+    } else if app.surfaces.copy_toast_until.is_some() {
         render::draw_copy_toast(
             f,
-            &app.copy_toast_message,
-            app.copy_toast_failed,
-            &app.theme,
+            &app.surfaces.copy_toast_message,
+            app.surfaces.copy_toast_failed,
+            &app.surfaces.theme,
         );
-    } else if app.notice_toast_until.is_some() {
+    } else if app.surfaces.notice_toast_until.is_some() {
         // A fault bubble, or a command acknowledgment. Rendered only when no
         // higher-priority toast is showing, since they share the same top-right
         // slot. The hint row names the viewer: a bubble is a pointer to the
@@ -1367,14 +1587,24 @@ fn compose_frame(
         let hint = app.notice_bubble_hint();
         render::draw_notice_toast(
             f,
-            &app.notice_toast_message,
-            app.notice_toast_severity,
-            &app.theme,
+            &app.surfaces.notice_toast_message,
+            app.surfaces.notice_toast_severity,
+            &app.surfaces.theme,
             hint.as_deref(),
         );
     }
+}
 
-    ui.stage_document(layout_map);
+/// Frame tail: stage the hit-test document, record the open modal's body
+/// height for page-step sizing, and mount the painted panel rect so a click
+/// on the backdrop outside it can dismiss.
+fn finish_frame(
+    app: &mut App,
+    ui: &mut crate::shell::ui::ComponentTree,
+    layout_map: &mut LayoutMap,
+    surface: SurfaceDraw,
+) {
+    ui.stage_document(std::mem::take(layout_map));
 
     // Capture the open modal's body height for page-scroll step
     // sizing. The renderer returns the full panel rect; the body is
@@ -1385,11 +1615,12 @@ fn compose_frame(
     // for modals that return no rect (Permission sheet, which
     // scrolls the transcript behind it via `view_height` instead),
     // so the page step falls back to the transcript height there.
-    app.modal_body_height = match dashboard_list_body_height {
+    app.transcript.modal_body_height = match surface.dashboard_list_body_height {
         // The dashboard's scroll body is its list pane, whose height
         // was reported directly by the renderer.
         Some(h) => h,
-        None => drawn_modal_rect
+        None => surface
+            .modal_rect
             .map(|r| {
                 r.height
                     .saturating_sub(nuo_ui_primitives::primitives::modal_chrome_rows(
@@ -1407,14 +1638,16 @@ fn compose_frame(
     // dismissable) so a click on the backdrop outside it can close it.
     // The rect comes from the renderer that just painted the panel, so
     // dynamic-height modals and click hit-tests cannot drift apart.
-    if let (Some(rect), Some(overlay)) = (drawn_modal_rect, app.surfaces.active_overlay()) {
+    if let (Some(rect), Some(overlay)) =
+        (surface.modal_rect, app.surfaces.surfaces.active_overlay())
+    {
         ui.mount(UiKey::Overlay(overlay), rect);
     }
 }
 
 /// [INV-MCP-04]: Extract in-flight MCP connection status during system bootstrapping.
 fn mcp_connecting_status(app: &App) -> Option<String> {
-    let snapshot = app.session_context.as_ref()?;
+    let snapshot = app.session.session_context.as_ref()?;
     if snapshot.mcp.is_empty() {
         return None;
     }

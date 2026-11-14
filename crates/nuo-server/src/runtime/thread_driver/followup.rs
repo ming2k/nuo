@@ -250,8 +250,14 @@ mod followup_queue_tests {
         let (wake_tx, mut wake_rx) = mpsc::channel::<String>(8);
 
         // Pausing: no wake — nothing can ship while paused anyway.
-        crate::handlers::handlers_chat::queue_paused(&tx, &mut queue, &wake_tx, "primary".to_string(), true)
-            .await;
+        crate::handlers::handlers_chat::queue_paused(
+            &tx,
+            &mut queue,
+            &wake_tx,
+            "primary".to_string(),
+            true,
+        )
+        .await;
         assert!(
             wake_rx.try_recv().is_err(),
             "a pause must not schedule a ship pass"
@@ -259,8 +265,14 @@ mod followup_queue_tests {
         assert!(queue.is_paused("primary"));
 
         // Resuming: exactly one wake for the target.
-        crate::handlers::handlers_chat::queue_paused(&tx, &mut queue, &wake_tx, "primary".to_string(), false)
-            .await;
+        crate::handlers::handlers_chat::queue_paused(
+            &tx,
+            &mut queue,
+            &wake_tx,
+            "primary".to_string(),
+            false,
+        )
+        .await;
         assert_eq!(
             wake_rx.try_recv().ok(),
             Some("primary".to_string()),
@@ -272,8 +284,14 @@ mod followup_queue_tests {
         );
 
         // Resuming an empty queue is not worth a pass.
-        crate::handlers::handlers_chat::queue_paused(&tx, &mut queue, &wake_tx, "nobody".to_string(), false)
-            .await;
+        crate::handlers::handlers_chat::queue_paused(
+            &tx,
+            &mut queue,
+            &wake_tx,
+            "nobody".to_string(),
+            false,
+        )
+        .await;
         assert!(
             wake_rx.try_recv().is_err(),
             "no items, no wake: the ship pass would find nothing"

@@ -16,7 +16,6 @@ pub(crate) fn draw_console(
 }
 
 /// Render the focused thread's cognitive mission dossier and live telemetry (ADR-0129).
-
 pub(crate) fn draw_console_log(
     frame: &mut Frame,
     area: Rect,
@@ -43,8 +42,6 @@ pub(crate) fn draw_console_log(
     render_scrollable(frame, body, lines, scroll, None, theme);
     body
 }
-
-/// Render the decoupled Model Usage & System Analytics view on the dashboard (ADR-0129 [INV-USAGE-01]).
 
 // the console's command grammar
 

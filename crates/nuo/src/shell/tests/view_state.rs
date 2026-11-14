@@ -35,8 +35,8 @@ fn composer_paste_still_chips_large_text_on_main_prompt() {
     // modal-aware branching did not regress the composer behaviour.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
     let big = format!("line\n{}", "x".repeat(2048));
 
     clipboard_ops::apply_clipboard_paste(
@@ -45,11 +45,11 @@ fn composer_paste_still_chips_large_text_on_main_prompt() {
     );
 
     assert!(
-        app.input.contains("Pasted text #1"),
+        app.composer.input.contains("Pasted text #1"),
         "large paste on the main prompt should produce a chip"
     );
-    assert_eq!(app.pending_text_pastes.len(), 1);
-    assert_eq!(app.pending_text_pastes[0], big);
+    assert_eq!(app.composer.pending_text_pastes.len(), 1);
+    assert_eq!(app.composer.pending_text_pastes[0], big);
 }
 
 #[test]
@@ -66,9 +66,9 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
     // server.) ADR-0126: one authority per fact, and the server owns this one.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "mock".to_string();
-    app.current_model = "glm-5.2".to_string();
-    app.provider_picker = nuo_protocol::ProviderPickerSnapshot {
+    app.session.current_provider = "mock".to_string();
+    app.session.current_model = "glm-5.2".to_string();
+    app.surfaces.provider_picker = nuo_protocol::ProviderPickerSnapshot {
         default_id: "mock".to_string(),
         rows: vec![nuo_protocol::ProviderPickerRow {
             id: "mock".to_string(),
@@ -93,8 +93,8 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
             }],
         }],
     };
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
@@ -105,24 +105,26 @@ fn composer_image_paste_rejected_when_model_lacks_vision() {
     );
 
     assert!(
-        app.pending_images.is_empty(),
+        app.composer.pending_images.is_empty(),
         "non-vision model must not stage image attachments"
     );
     assert!(
-        app.copy_toast_failed,
+        app.surfaces.copy_toast_failed,
         "non-vision model should toast a failure on image paste"
     );
     assert!(
-        app.copy_toast_message.contains("does not support images"),
+        app.surfaces
+            .copy_toast_message
+            .contains("does not support images"),
         "toast should say the model doesn't support images, got: {}",
-        app.copy_toast_message,
+        app.surfaces.copy_toast_message,
     );
     assert!(
-        app.copy_toast_message.contains("model editor"),
+        app.surfaces.copy_toast_message.contains("model editor"),
         "the rejection must name the escape hatch (layer-1 override), got: {}",
-        app.copy_toast_message,
+        app.surfaces.copy_toast_message,
     );
-    assert!(app.copy_toast_until.is_some());
+    assert!(app.surfaces.copy_toast_until.is_some());
 }
 
 #[test]
@@ -132,10 +134,10 @@ fn composer_image_paste_accepted_when_model_vision_is_undeclared() {
     // no grounds to refuse it, and the provider answers if it cannot take it.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "mock".to_string();
-    app.current_model = "mystery-relay-model".to_string();
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.session.current_provider = "mock".to_string();
+    app.session.current_model = "mystery-relay-model".to_string();
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     assert_eq!(
         clipboard_ops::active_route_vision_declaration(&app),
@@ -152,16 +154,16 @@ fn composer_image_paste_accepted_when_model_vision_is_undeclared() {
     );
 
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "an undeclared route must not have its image paste rejected"
     );
-    assert!(!app.copy_toast_failed);
+    assert!(!app.surfaces.copy_toast_failed);
     assert!(
-        app.copy_toast_message.contains("unverified"),
+        app.surfaces.copy_toast_message.contains("unverified"),
         "accepting a paste on an undeclared route must not read as a promise \
          that the model will see the image, got: {}",
-        app.copy_toast_message,
+        app.surfaces.copy_toast_message,
     );
 }
 
@@ -173,10 +175,10 @@ fn composer_image_paste_accepted_when_model_has_vision() {
     // the in-process static registry (gpt-4o baseline: vision: true).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "mock".to_string();
-    app.current_model = "gpt-4o".to_string(); // vision: true
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.session.current_provider = "mock".to_string();
+    app.session.current_model = "gpt-4o".to_string(); // vision: true
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
@@ -187,30 +189,30 @@ fn composer_image_paste_accepted_when_model_has_vision() {
     );
 
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "vision-capable model should stage the image attachment"
     );
     assert!(
-        app.input.contains("Image #1"),
+        app.composer.input.contains("Image #1"),
         "image chip should be inserted into the input, got: {}",
-        app.input,
+        app.composer.input,
     );
     assert!(
-        !app.copy_toast_failed,
+        !app.surfaces.copy_toast_failed,
         "vision-capable model should show a success toast"
     );
-    assert!(app.copy_toast_until.is_some());
+    assert!(app.surfaces.copy_toast_until.is_some());
 }
 
 #[test]
 fn composer_image_paste_accepted_for_commandcode_deepseek_flash() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "commandcode".to_string();
-    app.current_model = "deepseek/deepseek-v4.1-flash".to_string();
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.session.current_provider = "commandcode".to_string();
+    app.session.current_model = "deepseek/deepseek-v4.1-flash".to_string();
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
@@ -221,12 +223,12 @@ fn composer_image_paste_accepted_for_commandcode_deepseek_flash() {
     );
 
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "commandcode deepseek flash must accept image paste"
     );
-    assert!(app.input.contains("Image #1"));
-    assert!(!app.copy_toast_failed);
+    assert!(app.composer.input.contains("Image #1"));
+    assert!(!app.surfaces.copy_toast_failed);
 }
 
 #[test]
@@ -238,9 +240,10 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     // wrongly reject the paste).
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "gogo".to_string();
-    app.current_model = "omen-alpha".to_string();
-    app.provider_picker
+    app.session.current_provider = "gogo".to_string();
+    app.session.current_model = "omen-alpha".to_string();
+    app.surfaces
+        .provider_picker
         .rows
         .push(nuo_protocol::ProviderPickerRow {
             id: "gogo".to_string(),
@@ -275,8 +278,8 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
             last_used_ms: None,
             auth: nuo_protocol::ConnectionAuth::Static,
         });
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
@@ -287,12 +290,12 @@ fn composer_image_paste_follows_picker_snapshot_vision() {
     );
 
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "snapshot vision=true must unlock the paste even though the \
          in-process registry does not know the model"
     );
-    assert!(!app.copy_toast_failed);
+    assert!(!app.surfaces.copy_toast_failed);
 }
 
 #[test]
@@ -302,9 +305,10 @@ fn active_model_context_window_follows_picker_snapshot_for_relay_models() {
     // baseline in the TUI client process. The client must not fall back to 0.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "opencode-go".to_string();
-    app.current_model = "glm-5.3".to_string();
-    app.provider_picker
+    app.session.current_provider = "opencode-go".to_string();
+    app.session.current_model = "glm-5.3".to_string();
+    app.surfaces
+        .provider_picker
         .rows
         .push(nuo_protocol::ProviderPickerRow {
             id: "opencode-go".to_string(),
@@ -354,9 +358,10 @@ fn composer_image_paste_snapshot_override_forces_off() {
     // though the in-process registry says the model takes images.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_provider = "mock".to_string();
-    app.current_model = "gpt-4o".to_string();
-    app.provider_picker
+    app.session.current_provider = "mock".to_string();
+    app.session.current_model = "gpt-4o".to_string();
+    app.surfaces
+        .provider_picker
         .rows
         .push(nuo_protocol::ProviderPickerRow {
             id: "mock".to_string(),
@@ -391,8 +396,8 @@ fn composer_image_paste_snapshot_override_forces_off() {
             last_used_ms: None,
             auth: nuo_protocol::ConnectionAuth::Static,
         });
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
@@ -403,11 +408,11 @@ fn composer_image_paste_snapshot_override_forces_off() {
     );
 
     assert!(
-        app.pending_images.is_empty(),
+        app.composer.pending_images.is_empty(),
         "snapshot vision=false (user override) must veto the paste even \
          though the static baseline says vision=true"
     );
-    assert!(app.copy_toast_failed);
+    assert!(app.surfaces.copy_toast_failed);
 }
 
 #[test]
@@ -419,9 +424,9 @@ fn composer_text_paste_of_image_file_path_stages_attachment() {
     // `file://` URI forms a terminal's text flavor produces.
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.current_model = "gpt-4o".to_string(); // vision: true
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.session.current_model = "gpt-4o".to_string(); // vision: true
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
     let png = tmp.path().join("shot.png");
     std::fs::write(&png, [0x89, 0x50, 0x4e, 0x47]).expect("write png");
 
@@ -431,29 +436,33 @@ fn composer_text_paste_of_image_file_path_stages_attachment() {
     );
 
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "bare image path paste should stage an attachment"
     );
     assert!(
-        app.input.contains("Image #1"),
+        app.composer.input.contains("Image #1"),
         "image chip should be inserted, got: {}",
-        app.input
+        app.composer.input
     );
 
     // `file://` URI form, with the trailing newline uri-lists carry.
-    app.input.clear();
-    app.cursor_position = 0;
+    app.composer.input.clear();
+    app.composer.cursor_position = 0;
     clipboard_ops::apply_clipboard_paste(
         &mut app,
         crate::shell::clipboard::ClipboardRead::Text(format!("file://{}\n", png.display())),
     );
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         2,
         "file:// URI paste should stage another attachment"
     );
-    assert!(app.input.contains("Image #2"), "got: {}", app.input);
+    assert!(
+        app.composer.input.contains("Image #2"),
+        "got: {}",
+        app.composer.input
+    );
 }
 
 #[test]
@@ -463,8 +472,8 @@ fn composer_text_paste_of_non_image_or_prose_stays_verbatim() {
     // the attachment pipeline.
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
     app.reset_to_thread();
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
     let source = tmp.path().join("main.rs");
     std::fs::write(&source, b"fn main() {}").expect("write file");
 
@@ -473,16 +482,23 @@ fn composer_text_paste_of_non_image_or_prose_stays_verbatim() {
         crate::shell::clipboard::ClipboardRead::Text(source.to_str().unwrap().to_string()),
     );
 
-    assert!(app.pending_images.is_empty(), "no image, no attachment");
-    assert_eq!(app.input, source.to_str().unwrap());
+    assert!(
+        app.composer.pending_images.is_empty(),
+        "no image, no attachment"
+    );
+    assert_eq!(app.composer.input, source.to_str().unwrap());
 
     let prose = format!("look at {} please", source.display());
     clipboard_ops::apply_clipboard_paste(
         &mut app,
         crate::shell::clipboard::ClipboardRead::Text(prose.clone()),
     );
-    assert!(app.pending_images.is_empty(), "prose stays prose");
-    assert!(app.input.contains(&prose), "got: {}", app.input);
+    assert!(app.composer.pending_images.is_empty(), "prose stays prose");
+    assert!(
+        app.composer.input.contains(&prose),
+        "got: {}",
+        app.composer.input
+    );
 }
 
 /// The view reset that follows a focus change (subagent zoom enter/exit) must
@@ -491,10 +507,10 @@ fn composer_text_paste_of_non_image_or_prose_stays_verbatim() {
 #[test]
 fn view_reset_clears_pending_scroll_settle() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.scroll_settle_pending = true;
+    app.transcript.scroll_settle_pending = true;
     app.reset_view_state();
     assert!(
-        !app.scroll_settle_pending,
+        !app.transcript.scroll_settle_pending,
         "reset_view_state must clear a pending settle"
     );
 }
@@ -514,17 +530,19 @@ fn browse_view_reopen_restores_scroll_and_selection() {
     assert_eq!(app.active_index(), 0);
 
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
         .scroll = 42;
     app.set_active_index(3);
     assert!(app.dismiss_surface());
-    assert!(app.surfaces.active_overlay().is_none());
+    assert!(app.surfaces.surfaces.active_overlay().is_none());
 
     // Reopen: the entity's state is retained across the hide.
     assert!(!app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats));
     assert_eq!(app.active_index(), 3, "selection retained across hide");
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
             .scroll,
         42,
@@ -539,6 +557,7 @@ fn browse_view_state_is_per_view() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Permissions);
     app.set_active_index(2);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::PermissionsDialog>()
         .scroll = 7;
     assert!(app.dismiss_surface());
@@ -546,6 +565,7 @@ fn browse_view_state_is_per_view() {
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
     app.set_active_index(1);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
         .scroll = 9;
     assert!(app.dismiss_surface());
@@ -555,6 +575,7 @@ fn browse_view_state_is_per_view() {
         (
             app.active_index(),
             app.surfaces
+                .surfaces
                 .dlg_mut::<crate::shell::surfaces::PermissionsDialog>()
                 .scroll
         ),
@@ -565,6 +586,7 @@ fn browse_view_state_is_per_view() {
         (
             app.active_index(),
             app.surfaces
+                .surfaces
                 .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
                 .scroll
         ),
@@ -577,12 +599,14 @@ fn view_follow_mode_is_per_view_entity() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::Tools);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ToolsDialog>()
         .follow = false;
 
     app.open_dialog(crate::shell::surfaces::DialogKind::Mcp);
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::McpDialog>()
             .follow,
         "Mcp's own follow starts true"
@@ -591,6 +615,7 @@ fn view_follow_mode_is_per_view_entity() {
     app.open_dialog(crate::shell::surfaces::DialogKind::Tools);
     assert!(
         !app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ToolsDialog>()
             .follow,
         "Tools' follow is its own entity state, not a shared field"
@@ -604,12 +629,15 @@ fn session_change_isolates_session_scoped_dialogs() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
         .scroll = 5;
     app.set_active_index(1);
     app.surfaces
+        .surfaces
         .present_dialog(crate::shell::surfaces::DialogKind::ThreadStats);
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ThreadStatsDialog>()
         .scroll = 8;
 
@@ -617,6 +645,7 @@ fn session_change_isolates_session_scoped_dialogs() {
 
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::UsageStatsDialog>()
             .scroll,
         5,
@@ -624,6 +653,7 @@ fn session_change_isolates_session_scoped_dialogs() {
     );
     assert_eq!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ThreadStatsDialog>()
             .scroll,
         0,
@@ -631,11 +661,13 @@ fn session_change_isolates_session_scoped_dialogs() {
     );
     assert!(
         !app.surfaces
+            .surfaces
             .contains_dialog(crate::shell::surfaces::DialogKind::ThreadStats),
         "session dialog unwound"
     );
     assert!(
         app.surfaces
+            .surfaces
             .contains_dialog(crate::shell::surfaces::DialogKind::UsageStats),
         "global dialog preserved"
     );
@@ -669,14 +701,16 @@ fn pickers_never_borrow_the_composer_line() {
     // `[INV-SURFACE-01]`: Models/Connections/HistorySearch embed their own
     // query field; the composer draft is never parked or stolen.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "models draft".to_string();
+    app.composer.input = "models draft".to_string();
     app.open_dialog(crate::shell::surfaces::DialogKind::Models);
-    assert_eq!(app.input, "models draft", "composer untouched");
+    assert_eq!(app.composer.input, "models draft", "composer untouched");
 
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
         .search = true;
     app.surfaces
+        .surfaces
         .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
         .query
         .text = "gpt".to_string();
@@ -686,9 +720,13 @@ fn pickers_never_borrow_the_composer_line() {
         "the picker filters by its own embedded field"
     );
     assert!(app.dismiss_surface());
-    assert_eq!(app.input, "models draft", "draft intact after dismiss");
+    assert_eq!(
+        app.composer.input, "models draft",
+        "draft intact after dismiss"
+    );
     assert!(
         app.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::ModelsDialog>()
             .query
             .is_empty(),

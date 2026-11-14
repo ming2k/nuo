@@ -2275,6 +2275,7 @@ dependencies = [
  "nuo-tool-web",
  "nuo-view",
  "proc-macro2",
+ "regex",
  "serde",
  "serde_json",
  "syn 2.0.119",

@@ -1,7 +1,7 @@
 //! Policy-chain permission model (full async chain).
 //!
 //! Replaces the harness's hand-coded sequence of "gates" inside
-//! [`execute_tool`](crate::Agent) with a single ordered chain of
+//! `execute_tool` with a single ordered chain of
 //! [`PermissionPolicy`] implementations — every gate, sync and async alike,
 //! becomes a policy. The chain evaluates first-non-`Pass`-wins, exactly
 //! mirroring kimi-code's `PermissionManager` + `policies/` design.
@@ -52,7 +52,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use nuo_protocol::{HookOutcome, RestorePoint};
 use nuo_tool::{ScopeTarget, Tool, ToolOutput};
-
 
 use super::scoped_tools::ScopedToolDisable;
 use crate::bash_policy::BashPolicyMatch;
@@ -320,10 +319,7 @@ impl PermissionPolicy for SchemaPolicy {
         "schema"
     }
     async fn evaluate(&self, ctx: &PolicyContext<'_>) -> PolicyDecision {
-        match nuo_tool::validation::validate_tool_arguments(
-            &ctx.tool.parameters(),
-            ctx.arguments,
-        ) {
+        match nuo_tool::validation::validate_tool_arguments(&ctx.tool.parameters(), ctx.arguments) {
             Ok(()) => PolicyDecision::Pass,
             Err(message) => PolicyDecision::Deny {
                 output: ToolOutput::Error {

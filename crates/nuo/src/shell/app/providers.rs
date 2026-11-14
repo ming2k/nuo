@@ -9,10 +9,11 @@ impl App {
     /// stays clear.
     pub fn open_preset_chooser(&mut self) {
         self.surfaces
+            .surfaces
             .present_sheet(crate::shell::surfaces::SheetKind::ProviderPreset);
-        self.preset_choice = 0;
-        self.preset_scroll = 0;
-        self.input.clear();
+        self.provider_editor.preset_choice = 0;
+        self.provider_editor.preset_scroll = 0;
+        self.composer.input.clear();
         self.set_cursor(0);
     }
 
@@ -23,8 +24,9 @@ impl App {
     pub fn open_custom_connection_editor(&mut self) {
         self.seed_custom_provider_from_template(&nuo_view::providers::CUSTOM_TEMPLATE);
         self.surfaces
+            .surfaces
             .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
-        self.input.clear();
+        self.composer.input.clear();
         self.set_cursor(0);
     }
 
@@ -34,28 +36,30 @@ impl App {
         if n == 0 {
             return;
         }
-        self.preset_choice = if forward {
-            (self.preset_choice + 1) % n
+        self.provider_editor.preset_choice = if forward {
+            (self.provider_editor.preset_choice + 1) % n
         } else {
-            (self.preset_choice + n - 1) % n
+            (self.provider_editor.preset_choice + n - 1) % n
         };
     }
 
     /// Seed create-mode buffers from `template` without opening the editor.
     pub fn seed_custom_provider_from_template(&mut self, template: &ConnectionTemplate) {
-        self.custom_edit_id = None;
-        self.custom_fields = template.fields();
-        self.custom_field = 0;
-        self.custom_protocol_wire = template.protocol.to_string();
-        self.custom_models = template.models.iter().map(|m| m.to_string()).collect();
-        self.custom_url_hint = template.url_hint.to_string();
-        self.custom_user_agent = template.user_agent.map(str::to_string);
-        self.custom_auth = template.auth.clone();
-        self.custom_provider_id = Some(template.id.to_string());
-        self.custom_name.clear();
-        self.custom_base_url = template.default_url.map(str::to_string).unwrap_or_default();
-        self.custom_token.clear();
-        self.custom_model.clear();
+        self.provider_editor.custom_edit_id = None;
+        self.provider_editor.custom_fields = template.fields();
+        self.provider_editor.custom_field = 0;
+        self.provider_editor.custom_protocol_wire = template.protocol.to_string();
+        self.provider_editor.custom_models =
+            template.models.iter().map(|m| m.to_string()).collect();
+        self.provider_editor.custom_url_hint = template.url_hint.to_string();
+        self.provider_editor.custom_user_agent = template.user_agent.map(str::to_string);
+        self.provider_editor.custom_auth = template.auth.clone();
+        self.provider_editor.custom_provider_id = Some(template.id.to_string());
+        self.provider_editor.custom_name.clear();
+        self.provider_editor.custom_base_url =
+            template.default_url.map(str::to_string).unwrap_or_default();
+        self.provider_editor.custom_token.clear();
+        self.provider_editor.custom_model.clear();
     }
 
     /// Open the provider editor seeded from `template` (create mode) on the Name
@@ -63,8 +67,9 @@ impl App {
     pub fn open_custom_provider_editor(&mut self, template: &ConnectionTemplate) {
         self.seed_custom_provider_from_template(template);
         self.surfaces
+            .surfaces
             .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
-        self.input.clear();
+        self.composer.input.clear();
         self.set_cursor(0);
     }
 
@@ -75,34 +80,36 @@ impl App {
         method: nuo_protocol::LoginMethod,
     ) {
         self.seed_custom_provider_from_template(template);
-        self.awaiting_oauth_add = true;
+        self.provider_editor.awaiting_oauth_add = true;
         // The default message mirrors the selected login method: the device
         // flow prints a URL + user code,
         // while the browser flow opens a loopback callback. The auth subagent
         // overwrites this with the live URL/code as soon as the device-code
         // request returns.
-        self.oauth_pending_message = match method {
+        self.provider_editor.oauth_pending_message = match method {
             nuo_protocol::LoginMethod::Device => "Requesting device code…".to_string(),
             nuo_protocol::LoginMethod::Browser => {
                 "Complete authorization in your browser (or open the link below).".to_string()
             }
         };
-        self.oauth_pending_url.clear();
-        self.oauth_pending_user_code.clear();
-        self.oauth_pending_error = None;
-        self.oauth_scroll = 0;
-        self.selection = SelectionState::None;
-        self.drag.cancel();
-        self.focus.enter_composer();
-        self.ui.runtime.release_pointer();
+        self.provider_editor.oauth_pending_url.clear();
+        self.provider_editor.oauth_pending_user_code.clear();
+        self.provider_editor.oauth_pending_error = None;
+        self.provider_editor.oauth_scroll = 0;
+        self.transcript.selection = SelectionState::None;
+        self.transcript.drag.cancel();
+        self.transcript.focus.enter_composer();
+        self.transcript.ui.runtime.release_pointer();
         if !self
+            .surfaces
             .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending)
         {
             self.surfaces
+                .surfaces
                 .present_sheet(crate::shell::surfaces::SheetKind::OAuthPending);
         }
-        self.input.clear();
+        self.composer.input.clear();
         self.set_cursor(0);
     }
 
@@ -110,34 +117,37 @@ impl App {
     /// in-flight auth — "xAI" for SuperGrok, "ChatGPT Subscription" for the
     /// ChatGPT plan).
     pub fn open_oauth_instance_name_editor(&mut self) {
-        self.awaiting_oauth_add = false;
-        self.oauth_pending_url.clear();
-        self.oauth_pending_user_code.clear();
-        self.oauth_pending_message.clear();
-        self.oauth_pending_error = None;
-        self.oauth_scroll = 0;
+        self.provider_editor.awaiting_oauth_add = false;
+        self.provider_editor.oauth_pending_url.clear();
+        self.provider_editor.oauth_pending_user_code.clear();
+        self.provider_editor.oauth_pending_message.clear();
+        self.provider_editor.oauth_pending_error = None;
+        self.provider_editor.oauth_scroll = 0;
 
         // Dismiss OAuthPending from the stack so it does not linger as a zombie layer
         self.surfaces
+            .surfaces
             .dismiss_sheet_kind(crate::shell::surfaces::SheetKind::OAuthPending);
 
         // Reset all mouse selection, drag, and focus states so the user can immediately type!
-        self.selection = SelectionState::None;
-        self.drag.cancel();
-        self.focus.enter_composer();
-        self.ui.runtime.release_pointer();
+        self.transcript.selection = SelectionState::None;
+        self.transcript.drag.cancel();
+        self.transcript.focus.enter_composer();
+        self.transcript.ui.runtime.release_pointer();
 
         if !self
+            .surfaces
             .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::CustomProvider)
         {
             self.surfaces
+                .surfaces
                 .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
         }
-        self.custom_fields = vec![CustomField::Name];
-        self.custom_field = 0;
-        self.custom_edit_id = None;
-        let default_name = match &self.custom_auth {
+        self.provider_editor.custom_fields = vec![CustomField::Name];
+        self.provider_editor.custom_field = 0;
+        self.provider_editor.custom_edit_id = None;
+        let default_name = match &self.provider_editor.custom_auth {
             nuo_protocol::ConnectionAuth::Negotiated { provider } => match provider.as_ref() {
                 "chatgpt" => "ChatGPT Subscription",
                 "copilot" => "Copilot",
@@ -147,14 +157,16 @@ impl App {
             },
             nuo_protocol::ConnectionAuth::Static => "Custom",
         };
-        self.custom_name = default_name.to_string();
-        self.input = default_name.to_string();
+        self.provider_editor.custom_name = default_name.to_string();
+        self.composer.input = default_name.to_string();
         self.set_cursor_end();
     }
 
     /// Return which OAuth target is currently selected.
     pub fn oauth_selected_target(&self) -> crate::shell::input::OauthCopyTarget {
-        if self.oauth_selected_item == 1 && !self.oauth_pending_user_code.is_empty() {
+        if self.provider_editor.oauth_selected_item == 1
+            && !self.provider_editor.oauth_pending_user_code.is_empty()
+        {
             crate::shell::input::OauthCopyTarget::UserCode
         } else {
             crate::shell::input::OauthCopyTarget::Url
@@ -165,21 +177,24 @@ impl App {
     pub fn cancel_oauth_pending(&mut self) {
         if self
             .surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::OAuthPending)
         {
             self.send_intent(nuo_protocol::AgentRequest::CancelAuthorizeOAuth);
-            self.awaiting_oauth_add = false;
-            self.oauth_pending_url.clear();
-            self.oauth_pending_user_code.clear();
-            self.oauth_pending_message.clear();
-            self.oauth_pending_error = None;
-            self.selection = SelectionState::None;
-            self.drag.cancel();
-            self.focus.enter_composer();
-            self.ui.runtime.release_pointer();
+            self.provider_editor.awaiting_oauth_add = false;
+            self.provider_editor.oauth_pending_url.clear();
+            self.provider_editor.oauth_pending_user_code.clear();
+            self.provider_editor.oauth_pending_message.clear();
+            self.provider_editor.oauth_pending_error = None;
+            self.transcript.selection = SelectionState::None;
+            self.transcript.drag.cancel();
+            self.transcript.focus.enter_composer();
+            self.transcript.ui.runtime.release_pointer();
             self.surfaces
+                .surfaces
                 .dismiss_sheet_kind(crate::shell::surfaces::SheetKind::OAuthPending);
             if !self
+                .surfaces
                 .surfaces
                 .contains_sheet(crate::shell::surfaces::SheetKind::ProviderPreset)
                 && self.active_dialog() != Some(crate::shell::surfaces::DialogKind::Connections)
@@ -193,14 +208,15 @@ impl App {
     pub fn cancel_preset_chooser(&mut self) {
         if self
             .surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::ProviderPreset)
         {
-            self.input.clear();
+            self.composer.input.clear();
             self.set_cursor(0);
-            self.selection = SelectionState::None;
-            self.drag.cancel();
-            self.focus.enter_composer();
-            self.ui.runtime.release_pointer();
+            self.transcript.selection = SelectionState::None;
+            self.transcript.drag.cancel();
+            self.transcript.focus.enter_composer();
+            self.transcript.ui.runtime.release_pointer();
             self.pop_transient_surface();
             self.set_picker_search(false);
             self.reset_picker_nav();
@@ -211,16 +227,17 @@ impl App {
     pub fn cancel_custom_provider(&mut self) {
         if self
             .surfaces
+            .surfaces
             .contains_sheet(crate::shell::surfaces::SheetKind::CustomProvider)
         {
-            self.input.clear();
+            self.composer.input.clear();
             self.set_cursor(0);
-            self.custom_field = 0;
-            self.custom_edit_id = None;
-            self.selection = SelectionState::None;
-            self.drag.cancel();
-            self.focus.enter_composer();
-            self.ui.runtime.release_pointer();
+            self.provider_editor.custom_field = 0;
+            self.provider_editor.custom_edit_id = None;
+            self.transcript.selection = SelectionState::None;
+            self.transcript.drag.cancel();
+            self.transcript.focus.enter_composer();
+            self.transcript.ui.runtime.release_pointer();
             self.pop_transient_surface();
             self.set_picker_search(false);
             self.reset_picker_nav();
@@ -229,16 +246,22 @@ impl App {
 
     /// Cycle selection between URL (0) and Code (1) in OAuth Pending sheet.
     pub fn cycle_oauth_selection(&mut self) {
-        if !self.oauth_pending_user_code.is_empty() {
-            self.oauth_selected_item = if self.oauth_selected_item == 0 { 1 } else { 0 };
+        if !self.provider_editor.oauth_pending_user_code.is_empty() {
+            self.provider_editor.oauth_selected_item =
+                if self.provider_editor.oauth_selected_item == 0 {
+                    1
+                } else {
+                    0
+                };
         } else {
-            self.oauth_selected_item = 0;
+            self.provider_editor.oauth_selected_item = 0;
         }
     }
 
     /// Auth mode of a provider picker row (for OAuth re-connect routing).
     pub fn provider_row_auth(&self, id: &str) -> nuo_protocol::ConnectionAuth {
-        self.provider_picker
+        self.surfaces
+            .provider_picker
             .rows
             .iter()
             .find(|r| r.id == id)
@@ -269,50 +292,56 @@ impl App {
         budget: nuo_protocol::ConnectionBudget,
     ) {
         self.surfaces
+            .surfaces
             .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
-        self.custom_edit_id = Some(key);
-        self.custom_fields = edit_fields(curated, auth.clone());
-        self.custom_field = 0;
-        self.custom_protocol_wire = protocol;
-        self.custom_budget = budget;
-        self.custom_models.clear();
-        self.custom_url_hint.clear();
-        self.custom_user_agent = None;
-        self.custom_auth = auth;
+        self.provider_editor.custom_edit_id = Some(key);
+        self.provider_editor.custom_fields = edit_fields(curated, auth.clone());
+        self.provider_editor.custom_field = 0;
+        self.provider_editor.custom_protocol_wire = protocol;
+        self.provider_editor.custom_budget = budget;
+        self.provider_editor.custom_models.clear();
+        self.provider_editor.custom_url_hint.clear();
+        self.provider_editor.custom_user_agent = None;
+        self.provider_editor.custom_auth = auth;
         // Edit mode never carries a provider id: edits to an existing
         // connection are sent as `EditConnection`, which is keyed by the
         // connection name, and a stray id here must not leak into a later
         // create flow.
-        self.custom_provider_id = None;
-        self.custom_name = name.clone();
-        self.custom_base_url = base_url;
-        self.custom_token.clear();
-        self.custom_model.clear();
-        self.input = name;
+        self.provider_editor.custom_provider_id = None;
+        self.provider_editor.custom_name = name.clone();
+        self.provider_editor.custom_base_url = base_url;
+        self.provider_editor.custom_token.clear();
+        self.provider_editor.custom_model.clear();
+        self.composer.input = name;
         self.set_cursor_end();
     }
 
     /// Whether the provider editor is editing an existing provider.
     pub fn custom_is_editing(&self) -> bool {
-        self.custom_edit_id.is_some()
+        self.provider_editor.custom_edit_id.is_some()
     }
 
     /// The currently focused editor field, or `None` when no editor is open.
     pub fn current_custom_field(&self) -> Option<CustomField> {
-        self.custom_fields.get(self.custom_field as usize).copied()
+        self.provider_editor
+            .custom_fields
+            .get(self.provider_editor.custom_field as usize)
+            .copied()
     }
 
     /// Number of visible fields the editor exposes for the active template.
     fn custom_field_count(&self) -> u8 {
-        self.custom_fields.len().max(1) as u8
+        self.provider_editor.custom_fields.len().max(1) as u8
     }
 
     /// Scroll the custom editor body with `↑` / `↓`.
     pub fn scroll_custom_provider(&mut self, forward: bool) {
         if forward {
-            self.custom_scroll = self.custom_scroll.saturating_add(1);
+            self.provider_editor.custom_scroll =
+                self.provider_editor.custom_scroll.saturating_add(1);
         } else {
-            self.custom_scroll = self.custom_scroll.saturating_sub(1);
+            self.provider_editor.custom_scroll =
+                self.provider_editor.custom_scroll.saturating_sub(1);
         }
     }
 
@@ -328,6 +357,7 @@ impl App {
                     nuo_protocol::WireProtocol::GoogleInteractions,
                 ];
                 let current = self
+                    .provider_editor
                     .custom_protocol_wire
                     .parse::<nuo_protocol::WireProtocol>()
                     .unwrap_or_default();
@@ -340,7 +370,7 @@ impl App {
                 } else {
                     (index + PROTOCOLS.len() - 1) % PROTOCOLS.len()
                 };
-                self.custom_protocol_wire = PROTOCOLS[next].to_string();
+                self.provider_editor.custom_protocol_wire = PROTOCOLS[next].to_string();
             }
             Some(CustomField::Budget) => {
                 let options = [
@@ -351,14 +381,14 @@ impl App {
                 ];
                 let index = options
                     .iter()
-                    .position(|value| *value == self.custom_budget)
+                    .position(|value| *value == self.provider_editor.custom_budget)
                     .unwrap_or(0);
                 let next = if forward {
                     (index + 1) % options.len()
                 } else {
                     (index + options.len() - 1) % options.len()
                 };
-                self.custom_budget = options[next].clone();
+                self.provider_editor.custom_budget = options[next].clone();
             }
             _ => {}
         }
@@ -377,12 +407,12 @@ impl App {
     /// Save the composer line into the focused text field's buffer (Name / Base
     /// URL / Token / Model). Selector fields do not own a text value.
     pub fn stash_custom_field(&mut self) {
-        let value = std::mem::take(&mut self.input);
+        let value = std::mem::take(&mut self.composer.input);
         match self.current_custom_field() {
-            Some(CustomField::Name) => self.custom_name = value,
-            Some(CustomField::BaseUrl) => self.custom_base_url = value,
-            Some(CustomField::Token) => self.custom_token = value,
-            Some(CustomField::Model) => self.custom_model = value,
+            Some(CustomField::Name) => self.provider_editor.custom_name = value,
+            Some(CustomField::BaseUrl) => self.provider_editor.custom_base_url = value,
+            Some(CustomField::Token) => self.provider_editor.custom_token = value,
+            Some(CustomField::Model) => self.provider_editor.custom_model = value,
             _ => {}
         }
     }
@@ -390,11 +420,11 @@ impl App {
     /// Load the focused field into the composer line: the buffer for a text
     /// field. Inline selector fields leave the composer empty.
     pub fn load_custom_field(&mut self) {
-        self.input = match self.current_custom_field() {
-            Some(CustomField::Name) => self.custom_name.clone(),
-            Some(CustomField::BaseUrl) => self.custom_base_url.clone(),
-            Some(CustomField::Token) => self.custom_token.clone(),
-            Some(CustomField::Model) => self.custom_model.clone(),
+        self.composer.input = match self.current_custom_field() {
+            Some(CustomField::Name) => self.provider_editor.custom_name.clone(),
+            Some(CustomField::BaseUrl) => self.provider_editor.custom_base_url.clone(),
+            Some(CustomField::Token) => self.provider_editor.custom_token.clone(),
+            Some(CustomField::Model) => self.provider_editor.custom_model.clone(),
             _ => String::new(),
         };
         self.set_cursor_end();
@@ -405,10 +435,10 @@ impl App {
     pub fn cycle_custom_field(&mut self, forward: bool) {
         self.stash_custom_field();
         let n = self.custom_field_count();
-        self.custom_field = if forward {
-            (self.custom_field + 1) % n
+        self.provider_editor.custom_field = if forward {
+            (self.provider_editor.custom_field + 1) % n
         } else {
-            (self.custom_field + n - 1) % n
+            (self.provider_editor.custom_field + n - 1) % n
         };
         self.load_custom_field();
     }
@@ -417,7 +447,7 @@ impl App {
     /// `providers_filtered_from` so the input handler and the renderer share
     /// one filter+sort implementation.
     pub fn providers_filtered(&self) -> Vec<RankedProvider> {
-        providers_filtered_from(&self.provider_picker, self.picker_query())
+        providers_filtered_from(&self.surfaces.provider_picker, self.picker_query())
     }
 
     /// Compute the **flat Models** rows — every (provider, model) pair in the
@@ -426,25 +456,26 @@ impl App {
     /// share one filter+sort implementation.
     pub fn models_flat_filtered(&self) -> Vec<RankedModel> {
         models_flat_filtered_from_with_quotas(
-            &self.provider_picker,
-            &self.current_provider,
-            &self.current_model,
+            &self.surfaces.provider_picker,
+            &self.session.current_provider,
+            &self.session.current_model,
             self.picker_query(),
-            self.provider_quotas.as_ref(),
+            self.telemetry.provider_quotas.as_ref(),
         )
     }
 
     /// Return the authoritative model info for the currently active route
     /// (current_provider, current_model) as projected by the server.
     pub fn active_model_info(&self) -> Option<&nuo_protocol::ProviderModelInfo> {
-        self.provider_picker
+        self.surfaces
+            .provider_picker
             .rows
             .iter()
-            .find(|row| row.id == self.current_provider)
+            .find(|row| row.id == self.session.current_provider)
             .and_then(|row| {
                 row.model_info
                     .iter()
-                    .find(|info| info.model == self.current_model)
+                    .find(|info| info.model == self.session.current_model)
             })
     }
 
@@ -459,7 +490,7 @@ impl App {
         if let Some(info) = self.active_model_info() {
             return info.context_window;
         }
-        nuo_protocol::model::resolve(&self.current_model).context_window
+        nuo_protocol::model::resolve(&self.session.current_model).context_window
     }
 
     /// Whether images would travel to the active route.
@@ -481,7 +512,8 @@ impl App {
     /// curated provider). Drives the Connections `e`/`Shift+D` routing and the
     /// Models `d` (remove-model) gate.
     pub fn provider_is_custom(&self, id: &str) -> bool {
-        self.provider_picker
+        self.surfaces
+            .provider_picker
             .rows
             .iter()
             .find(|row| row.id == id)
@@ -504,13 +536,13 @@ impl App {
     }
 
     /// Stage the highlighted user-defined connection for deletion: open the
-    /// confirm overlay ([`App::pending_provider_delete`]) over the Connections
+    /// confirm overlay (`App::pending_provider_delete`) over the Connections
     /// list without destroying anything yet. No-op for curated providers or when
     /// an overlay is already open (prevents re-staging). Driven by the `Shift+D`
     /// → `DeleteProvider` input action.
     pub fn stage_provider_delete(&mut self) {
         if self.active_dialog() != Some(crate::shell::surfaces::DialogKind::Connections)
-            || self.pending_provider_delete.is_some()
+            || self.surfaces.pending_provider_delete.is_some()
         {
             return;
         }
@@ -518,8 +550,8 @@ impl App {
         if let Some(row) = ranked.get(self.active_index()).or_else(|| ranked.first())
             && !row.builtin
         {
-            self.pending_provider_delete = Some(row.id.clone());
-            self.provider_delete_focus = ProviderDeleteChoice::default();
+            self.surfaces.pending_provider_delete = Some(row.id.clone());
+            self.surfaces.provider_delete_focus = ProviderDeleteChoice::default();
         }
     }
 
@@ -530,10 +562,10 @@ impl App {
     /// Enter-on-Delete. Decrementing `modal_index` mirrors the picker's other
     /// removal paths so the cursor lands on a valid row once this row vanishes.
     pub fn confirm_provider_delete(&mut self) -> Option<AgentRequest> {
-        let name = self.pending_provider_delete.take()?;
+        let name = self.surfaces.pending_provider_delete.take()?;
         let idx = self.active_index().saturating_sub(1);
         self.set_active_index(idx);
-        self.provider_delete_focus = ProviderDeleteChoice::default();
+        self.surfaces.provider_delete_focus = ProviderDeleteChoice::default();
         Some(AgentRequest::DeleteConnection { name })
     }
 
@@ -541,7 +573,7 @@ impl App {
     /// focus to the Connections list. The modal itself stays open.
     /// Driven by the overlay's Esc / Ctrl+C / Enter-on-Cancel.
     pub fn cancel_provider_delete(&mut self) {
-        self.pending_provider_delete = None;
-        self.provider_delete_focus = ProviderDeleteChoice::default();
+        self.surfaces.pending_provider_delete = None;
+        self.surfaces.provider_delete_focus = ProviderDeleteChoice::default();
     }
 }

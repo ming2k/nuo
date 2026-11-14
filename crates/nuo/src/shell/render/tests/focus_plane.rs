@@ -626,8 +626,7 @@ fn a_focused_row_under_the_pointer_still_shows_the_hover_cue() {
 #[test]
 fn every_shipped_scheme_announces_the_transcript_plane() {
     let messages = vec![
-        TranscriptMessage::new(nuo_tool::Role::User, "selectable prose for the pane")
-            .with_round(1),
+        TranscriptMessage::new(nuo_tool::Role::User, "selectable prose for the pane").with_round(1),
         step("read", true),
     ];
     let target = nuo_view::model::layout::InteractiveTarget::tool_step(1);

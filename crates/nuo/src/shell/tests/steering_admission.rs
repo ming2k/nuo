@@ -54,8 +54,8 @@ fn long_thread() -> Vec<TranscriptMessage> {
 #[test]
 fn admitted_steer_lands_at_the_seam_after_existing_history() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.messages = long_thread();
-    let before = app.messages.len();
+    app.transcript.messages = long_thread();
+    let before = app.transcript.messages.len();
 
     let admitted = TranscriptMessage::new(Role::User, "pivot please")
         .with_origin(nuo_view::model::document::UserMessageOrigin::Steer)
@@ -68,18 +68,18 @@ fn admitted_steer_lands_at_the_seam_after_existing_history() {
     ));
 
     assert_eq!(
-        app.messages.len(),
+        app.transcript.messages.len(),
         before + 1,
         "admission appends exactly one fact"
     );
     assert_eq!(
-        app.messages.last().unwrap().raw,
+        app.transcript.messages.last().unwrap().raw,
         "pivot please",
         "the admitted steer must sit at the seam (the buffer tail at admission), \
          not at the head of the thread"
     );
     assert_eq!(
-        app.messages[0].raw, "prompt 1",
+        app.transcript.messages[0].raw, "prompt 1",
         "existing history must keep its order: round 1 stays first"
     );
 }
@@ -94,9 +94,11 @@ fn admitted_steer_lands_at_the_seam_after_existing_history() {
 #[test]
 fn outbox_display_index_and_mutation_index_address_the_same_item() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("f-up", "s", "a follow-up"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "a steer"));
 
     // Every addressing helper must agree on what row 1 is.
@@ -113,7 +115,12 @@ fn outbox_display_index_and_mutation_index_address_the_same_item() {
         removed.id, "st-1",
         "delete must address the same item the modal displayed"
     );
-    let survivors: Vec<&str> = app.pending_dispatch.iter().map(|d| d.id.as_str()).collect();
+    let survivors: Vec<&str> = app
+        .composer
+        .pending_dispatch
+        .iter()
+        .map(|d| d.id.as_str())
+        .collect();
     assert_eq!(
         survivors,
         vec!["f-up"],
@@ -126,9 +133,11 @@ fn outbox_display_index_and_mutation_index_address_the_same_item() {
 #[test]
 fn recall_index_matches_the_displayed_row() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "steer first"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("f-up", "s", "follow-up second"));
 
     let recalled = app.recall_queued_at("s", 0).expect("row 0");
@@ -139,7 +148,7 @@ fn recall_index_matches_the_displayed_row() {
     );
     assert_eq!(app.pending_count("s"), 1);
     assert_eq!(
-        app.pending_dispatch.front().unwrap().id,
+        app.composer.pending_dispatch.front().unwrap().id,
         "f-up",
         "the untouched follow-up remains"
     );
@@ -151,9 +160,11 @@ fn recall_index_matches_the_displayed_row() {
 #[test]
 fn pending_steer_is_counted_and_previewed_by_the_strip() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "use rg not find"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-2", "s", "and be terse"));
 
     assert_eq!(app.pending_count("s"), 2, "steers are outbox items");
@@ -169,14 +180,16 @@ fn pending_steer_is_counted_and_previewed_by_the_strip() {
 #[test]
 fn every_outbox_surface_reports_the_same_population() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("f-up", "s", "follow-up"));
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "steer"));
     // A row whose round-start request is in flight: not addressable yet.
     let mut dispatching = queued_dispatch("in-flight", "s", "dispatching");
     dispatching.state = QueuedDispatchState::Dispatching;
-    app.pending_dispatch.push_back(dispatching);
+    app.composer.pending_dispatch.push_back(dispatching);
 
     let visible = app.outbox_projection("s").len();
     assert_eq!(visible, 2, "the in-flight row is not an outbox row");
@@ -206,9 +219,11 @@ fn every_outbox_surface_reports_the_same_population() {
 #[test]
 fn deletion_intent_is_cleared_when_the_item_leaves() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "steer"));
-    app.suppress_steer_restore
+    app.composer
+        .suppress_steer_restore
         .insert(("s".to_string(), "st-1".to_string()));
 
     // The item leaves through the terminal mutation (admitted, not cancelled).
@@ -222,7 +237,7 @@ fn deletion_intent_is_cleared_when_the_item_leaves() {
     ));
 
     assert!(
-        app.suppress_steer_restore.is_empty(),
+        app.composer.suppress_steer_restore.is_empty(),
         "a flag for a departed item is a leak: it would suppress a later \
          recall for a reused id"
     );
@@ -242,13 +257,15 @@ fn queue_snapshot_preserves_client_owned_rows() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
 
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "use rg not find"));
     let mut dispatching = queued_dispatch("in-flight", "s", "follow up");
     dispatching.state = QueuedDispatchState::Dispatching;
-    app.pending_dispatch.push_back(dispatching);
+    app.composer.pending_dispatch.push_back(dispatching);
     // A `Waiting` row IS the server's — the snapshot is authoritative for it.
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(queued_dispatch("srv-old", "s", "stale projection"));
 
     let _ = crate::shell::event_loop::apply::apply(
@@ -268,6 +285,7 @@ fn queue_snapshot_preserves_client_owned_rows() {
     );
 
     let ids: Vec<(&str, QueuedDispatchState)> = app
+        .composer
         .pending_dispatch
         .iter()
         .map(|d| (d.id.as_str(), d.state))
@@ -294,15 +312,15 @@ fn queue_snapshot_preserves_client_owned_rows() {
 fn steer_text_survives_a_snapshot_then_a_missed_round() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.live_session_id = "s".to_string();
-    app.current_session_id = "s".to_string();
+    app.session.live_session_id = "s".to_string();
+    app.session.current_session_id = "s".to_string();
 
     let mut steer = steer_dispatch("st-1", "s", "use rg not find");
     steer.images = vec![nuo_tool::ImagePart {
         mime: "image/png".to_string(),
         data: "base64".to_string(),
     }];
-    app.pending_dispatch.push_back(steer);
+    app.composer.pending_dispatch.push_back(steer);
 
     let _ = crate::shell::event_loop::apply::apply(
         &mut app,
@@ -323,16 +341,16 @@ fn steer_text_survives_a_snapshot_then_a_missed_round() {
     );
 
     assert_eq!(
-        app.input, "use rg not find",
+        app.composer.input, "use rg not find",
         "the steer text must come back to the composer"
     );
     assert_eq!(
-        app.pending_images.len(),
+        app.composer.pending_images.len(),
         1,
         "and so must its attachments: the row is the payload"
     );
     assert!(
-        app.pending_dispatch.is_empty(),
+        app.composer.pending_dispatch.is_empty(),
         "the row is consumed once its content is restored"
     );
 }
@@ -346,8 +364,8 @@ fn steer_text_survives_a_snapshot_then_a_missed_round() {
 fn an_unrecoverable_steer_is_disclosed_in_the_notice_log() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.live_session_id = "s".to_string();
-    app.current_session_id = "s".to_string();
+    app.session.live_session_id = "s".to_string();
+    app.session.current_session_id = "s".to_string();
     let before = app.notice_log().len();
 
     let _ = crate::shell::event_loop::apply::apply(
@@ -364,7 +382,10 @@ fn an_unrecoverable_steer_is_disclosed_in_the_notice_log() {
         "an unrecoverable steer must leave a retained disclosure \
          ([INV-NOTICE-05]): a prompt must never disappear silently"
     );
-    assert!(app.input.is_empty(), "there was nothing to restore");
+    assert!(
+        app.composer.input.is_empty(),
+        "there was nothing to restore"
+    );
 }
 
 /// The deletion intent survives a lost race while its item is still staged, and
@@ -377,14 +398,16 @@ fn an_unrecoverable_steer_is_disclosed_in_the_notice_log() {
 fn a_lost_cancel_keeps_the_deletion_intent_until_the_item_leaves() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.live_session_id = "s".to_string();
-    app.current_session_id = "s".to_string();
+    app.session.live_session_id = "s".to_string();
+    app.session.current_session_id = "s".to_string();
 
     // Case 1: the row is still staged, so the admission that follows will end
     // the id — the flag is still meaningful.
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "delete me"));
-    app.suppress_steer_restore
+    app.composer
+        .suppress_steer_restore
         .insert(("s".to_string(), "st-1".to_string()));
     let _ = crate::shell::event_loop::apply::apply(
         &mut app,
@@ -395,7 +418,8 @@ fn a_lost_cancel_keeps_the_deletion_intent_until_the_item_leaves() {
         },
     );
     assert!(
-        app.suppress_steer_restore
+        app.composer
+            .suppress_steer_restore
             .contains(&("s".to_string(), "st-1".to_string())),
         "a lost race must not forget that the user asked to delete this steer"
     );
@@ -410,13 +434,14 @@ fn a_lost_cancel_keeps_the_deletion_intent_until_the_item_leaves() {
         },
     );
     assert!(
-        app.suppress_steer_restore.is_empty(),
+        app.composer.suppress_steer_restore.is_empty(),
         "the flag cannot outlive its item"
     );
 
     // Case 2: the row is already gone (deleted before the race resolved), so
     // nothing will end this id again — the flag must be released here.
-    app.suppress_steer_restore
+    app.composer
+        .suppress_steer_restore
         .insert(("s".to_string(), "st-2".to_string()));
     let _ = crate::shell::event_loop::apply::apply(
         &mut app,
@@ -427,7 +452,7 @@ fn a_lost_cancel_keeps_the_deletion_intent_until_the_item_leaves() {
         },
     );
     assert!(
-        app.suppress_steer_restore.is_empty(),
+        app.composer.suppress_steer_restore.is_empty(),
         "an id that can never end again must not leave a flag behind"
     );
 }
@@ -442,12 +467,14 @@ fn a_lost_cancel_keeps_the_deletion_intent_until_the_item_leaves() {
 fn a_deleted_steer_is_not_restored_when_its_round_ends() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let runtime = crate::shell::event_loop::UiRuntime::minimal_for_test();
-    app.live_session_id = "s".to_string();
-    app.current_session_id = "s".to_string();
+    app.session.live_session_id = "s".to_string();
+    app.session.current_session_id = "s".to_string();
 
-    app.pending_dispatch
+    app.composer
+        .pending_dispatch
         .push_back(steer_dispatch("st-1", "s", "delete me"));
-    app.suppress_steer_restore
+    app.composer
+        .suppress_steer_restore
         .insert(("s".to_string(), "st-1".to_string()));
 
     let _ = crate::shell::event_loop::apply::apply(
@@ -460,16 +487,16 @@ fn a_deleted_steer_is_not_restored_when_its_round_ends() {
     );
 
     assert!(
-        app.input.is_empty(),
+        app.composer.input.is_empty(),
         "a deleted steer must not reappear in the composer (got {:?})",
-        app.input
+        app.composer.input
     );
     assert!(
-        app.pending_dispatch.is_empty(),
+        app.composer.pending_dispatch.is_empty(),
         "and its row is gone either way"
     );
     assert!(
-        app.suppress_steer_restore.is_empty(),
+        app.composer.suppress_steer_restore.is_empty(),
         "the flag still cannot outlive the item"
     );
 }

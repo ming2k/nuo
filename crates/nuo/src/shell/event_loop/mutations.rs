@@ -25,7 +25,6 @@ use nuo_protocol::{InputRequest, ProviderPickerSnapshot, ThreadOverview};
 
 use nuo_tool::{PermissionRequest, SubagentEvent, ToolStream, UserQuestionRequest};
 
-
 use crate::shell::app::{OauthAddSignal, ProviderRetryState};
 use crate::shell::pre_attach::PreAttachSignal;
 use nuo_view::model::document::TranscriptMessage;
@@ -438,7 +437,7 @@ pub(crate) enum AppMutation {
     Quit,
     /// The attach link died with the session still live (ADR-0136).
     ///
-    /// Distinct from [`Self::Quit`] by construction. The rung this replaces
+    /// Distinct from `Self::Quit` by construction. The rung this replaces
     /// synthesized `AgentResponse::Exit` whenever the reader task stopped —
     /// including when it stopped *because it could not decode one frame* — so a
     /// protocol skew and a user typing `/exit` were the same message, and the
@@ -477,7 +476,7 @@ impl MutationSink {
         let _ = self.tx.send(mutation).await;
     }
 
-    /// Blocking-task counterpart to [`Self::send`]. This is only for
+    /// Blocking-task counterpart to `Self::send`. This is only for
     /// producers already running on Tokio's blocking pool.
     pub(crate) fn blocking_send(&self, mutation: AppMutation) {
         let _ = self.tx.blocking_send(mutation);

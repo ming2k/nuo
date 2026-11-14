@@ -15,22 +15,23 @@ fn apply_phase(app: &mut crate::shell::app::App, phase: nuo_protocol::ThreadPhas
 #[test]
 fn client_queues_until_ready_then_flushes() {
     let mut app = new_app_for_relay_tests();
-    app.session_phase = nuo_protocol::ThreadPhase::Preparing {
+    app.session.session_phase = nuo_protocol::ThreadPhase::Preparing {
         stage: nuo_protocol::PrepareStage::Skills,
     };
-    app.pending_prompts
+    app.composer
+        .pending_prompts
         .push(nuo_protocol::AgentRequest::Prompt {
             text: "hello".to_string(),
             images: Vec::new(),
             sent_at_ms: None,
         });
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     apply_phase(&mut app, nuo_protocol::ThreadPhase::Ready);
 
-    assert_eq!(app.session_phase, nuo_protocol::ThreadPhase::Ready);
-    assert!(app.pending_prompts.is_empty());
+    assert_eq!(app.session.session_phase, nuo_protocol::ThreadPhase::Ready);
+    assert!(app.composer.pending_prompts.is_empty());
     assert!(matches!(
         rx.try_recv(),
         Ok(nuo_protocol::AgentRequest::Prompt { text, .. }) if text == "hello"
@@ -40,7 +41,7 @@ fn client_queues_until_ready_then_flushes() {
 #[test]
 fn post_welcome_failure_is_disclosed_and_never_quits() {
     let mut app = new_app_for_relay_tests();
-    app.switching_session = Some("abc".to_string());
+    app.session.switching_session = Some("abc".to_string());
 
     apply_phase(
         &mut app,
@@ -50,13 +51,15 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
         },
     );
 
-    assert!(app.switching_session.is_none());
+    assert!(app.session.switching_session.is_none());
     assert!(matches!(
-        app.session_phase,
+        app.session.session_phase,
         nuo_protocol::ThreadPhase::Failed { .. }
     ));
     assert!(
-        !app.should_quit.load(std::sync::atomic::Ordering::SeqCst),
+        !app.link
+            .should_quit
+            .load(std::sync::atomic::Ordering::SeqCst),
         "a post-Welcome assembly failure must not terminate the client"
     );
     assert!(
@@ -79,12 +82,12 @@ fn post_welcome_failure_is_disclosed_and_never_quits() {
 #[test]
 fn ready_re_reads_the_authoritative_queue() {
     let mut app = new_app_for_relay_tests();
-    app.current_session_id = "s1".to_string();
-    app.session_phase = nuo_protocol::ThreadPhase::Preparing {
+    app.session.current_session_id = "s1".to_string();
+    app.session.session_phase = nuo_protocol::ThreadPhase::Preparing {
         stage: nuo_protocol::PrepareStage::Skills,
     };
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    app.tx = tx;
+    app.link.tx = tx;
 
     apply_phase(&mut app, nuo_protocol::ThreadPhase::Ready);
 

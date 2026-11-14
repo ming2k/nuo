@@ -37,20 +37,20 @@ fn paste_in_readonly_modal_is_dropped_silently() {
     // drop a paste silently — no insertion, no toast, no attachment.
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.open_dialog(crate::shell::surfaces::DialogKind::UsageStats);
-    app.input = String::new();
-    app.cursor_position = 0;
+    app.composer.input = String::new();
+    app.composer.cursor_position = 0;
 
     clipboard_ops::apply_clipboard_paste(
         &mut app,
         crate::shell::clipboard::ClipboardRead::Text("ignored".to_string()),
     );
 
-    assert!(app.input.is_empty());
+    assert!(app.composer.input.is_empty());
     assert!(
-        app.copy_toast_until.is_none(),
+        app.surfaces.copy_toast_until.is_none(),
         "readonly modal paste should not toast"
     );
-    assert!(app.pending_text_pastes.is_empty());
+    assert!(app.composer.pending_text_pastes.is_empty());
 }
 
 // Caret ownership / visibility (IME anchor)
@@ -73,7 +73,8 @@ fn caret_owner_composer_by_default() {
 #[test]
 fn caret_owner_none_when_step_focused() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(0),
         ));
@@ -109,7 +110,7 @@ fn caret_owner_scene_for_the_dashboard_inline_prompt() {
         CaretOwner::None,
         "the dashboard is a read-only console until its prompt opens"
     );
-    app.host_prompting = true;
+    app.surfaces.host_prompting = true;
     assert_eq!(
         app.caret_owner(),
         CaretOwner::Scene,
@@ -121,6 +122,7 @@ fn caret_owner_scene_for_the_dashboard_inline_prompt() {
     );
     // An overlay above the scene still wins: the scene prompt is suspended.
     app.surfaces
+        .surfaces
         .present_dialog(crate::shell::surfaces::DialogKind::UsageStats);
     assert_eq!(
         app.caret_owner(),
@@ -133,6 +135,7 @@ fn caret_owner_scene_for_the_dashboard_inline_prompt() {
 fn caret_owner_modal_for_caret_modals() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     app.surfaces
+        .surfaces
         .present_sheet(crate::shell::surfaces::SheetKind::CustomProvider);
     assert_eq!(
         app.caret_owner(),
@@ -207,7 +210,6 @@ fn caret_owner_question_owns_caret_only_on_other() {
     use crate::shell::question_model::{QuestionAction, QuestionModel};
     use nuo_tool::{UserQuestion, UserQuestionOption, UserQuestionRequest};
 
-
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
     let req = UserQuestionRequest {
         id: "q".into(),
@@ -231,7 +233,7 @@ fn caret_owner_question_owns_caret_only_on_other() {
     // Open: highlight on row 0 (a real option) → no caret, cursor hidden.
     let model = QuestionModel::open(req);
     app.set_active_sheet_for_test(crate::shell::sheet::SheetKind::Question);
-    app.question = Some(model.clone());
+    app.human.question = Some(model.clone());
     assert_eq!(
         app.caret_owner(),
         CaretOwner::None,
@@ -245,7 +247,7 @@ fn caret_owner_question_owns_caret_only_on_other() {
     // Navigate down to "Other" (index 2) → caret owned, cursor visible.
     let model = model.update(QuestionAction::Down).0; // -> b (1)
     let model = model.update(QuestionAction::Down).0; // -> Other (2)
-    app.question = Some(model);
+    app.human.question = Some(model);
     assert_eq!(
         app.caret_owner(),
         CaretOwner::Overlay,
@@ -257,8 +259,14 @@ fn caret_owner_question_owns_caret_only_on_other() {
     );
 
     // Navigate back to a real option → ownership reverts to None.
-    let model = app.question.take().unwrap().update(QuestionAction::Up).0;
-    app.question = Some(model);
+    let model = app
+        .human
+        .question
+        .take()
+        .unwrap()
+        .update(QuestionAction::Up)
+        .0;
+    app.human.question = Some(model);
     assert_eq!(
         app.caret_owner(),
         CaretOwner::None,
@@ -273,7 +281,7 @@ fn caret_hidden_while_selection_active_even_for_composer() {
     // so it does not clash with the selection background. Ownership is
     // unaffected; only visibility folds in the selection.
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(0, 0, 0),
         head: nuo_view::model::layout::SemanticCursor::new(0, 0, 3),
     };
@@ -290,7 +298,7 @@ fn has_input_selection_detects_both_block_and_range() {
     assert!(app.has_input_selection());
 
     // A transcript selection never binds the composer.
-    app.selection = SelectionState::Block {
+    app.transcript.selection = SelectionState::Block {
         message_idx: 0,
         block_idx: 0,
     };
@@ -300,7 +308,7 @@ fn has_input_selection_detects_both_block_and_range() {
     );
 
     // An active Range on INPUT_MSG_IDX is an input selection.
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -315,7 +323,7 @@ fn has_input_selection_detects_both_block_and_range() {
     assert!(app.has_input_selection());
 
     // A collapsed Range (anchor == head) is not active and does not count.
-    app.selection = SelectionState::Range {
+    app.transcript.selection = SelectionState::Range {
         anchor: nuo_view::model::layout::SemanticCursor::new(
             crate::shell::render::INPUT_MSG_IDX,
             0,
@@ -339,7 +347,8 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
     // A transcript step holding focus means the composer no longer owns the
     // caret: arrows mean step navigation, so the relay must stand down even
     // though a selection is technically active.
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             nuo_view::model::layout::InteractiveTarget::tool_step(0),
         ));
@@ -358,13 +367,13 @@ fn input_selection_relays_arrows_only_when_composer_owns_caret() {
 fn app_with_input_viewport(rows: usize, visible: usize) -> (App, tempfile::TempDir) {
     let (mut app, tmp) = app_in_tempdir(&[], &[]);
     let height = visible as u16 + nuo_ui_primitives::design::COMPOSER_VERTICAL_CHROME_ROWS;
-    app.ui.begin(nuotc::Rect::new(0, 0, 80, 60));
-    app.ui.mount(
+    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 60));
+    app.transcript.ui.mount(
         crate::shell::ui::UiKey::Composer,
         nuotc::Rect::new(0, 40, 60, height),
     );
-    app.ui.commit();
-    app.input = (0..rows)
+    app.transcript.ui.commit();
+    app.composer.input = (0..rows)
         .map(|i| char::from(b'a' + (i % 26) as u8).to_string())
         .collect::<Vec<_>>()
         .join("\n");
@@ -379,7 +388,7 @@ fn input_viewport_wheel_steps_clamp_to_hidden_rows() {
 
     assert_eq!(app.step_input_scroll(false, 4), Some(4));
     assert!(
-        !app.input_scroll_follow_cursor,
+        !app.composer.input_scroll_follow_cursor,
         "manual scrolling suspends caret-follow until the next edit"
     );
     assert_eq!(
@@ -395,13 +404,13 @@ fn input_viewport_wheel_steps_clamp_to_hidden_rows() {
     );
     app.set_cursor(0);
     assert!(
-        app.input_scroll_follow_cursor,
+        app.composer.input_scroll_follow_cursor,
         "caret movement re-arms viewport following"
     );
 
     // No composer on screen (overlay modal, first frame): not scrollable.
-    app.ui.begin(nuotc::Rect::new(0, 0, 80, 60));
-    app.ui.commit();
+    app.transcript.ui.begin(nuotc::Rect::new(0, 0, 80, 60));
+    app.transcript.ui.commit();
     assert_eq!(app.input_scroll_max(), None);
     assert_eq!(app.step_input_scroll(false, 1), None);
 }
@@ -415,7 +424,7 @@ fn input_viewport_does_not_consume_wheel_when_every_row_is_visible() {
         None,
         "a non-scrollable composer must let the wheel fall through to the transcript"
     );
-    assert!(app.input_scroll_follow_cursor);
+    assert!(app.composer.input_scroll_follow_cursor);
 }
 
 #[test]
@@ -423,11 +432,11 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     // 8 rows, 2 visible; viewport scrolled to the end (rows 6–7 visible,
     // text rows at screen y 41–42, chrome at 43–44 on a height-5 panel).
     let (mut app, _tmp) = app_with_input_viewport(8, 2);
-    app.input_scroll = 6;
+    app.composer.input_scroll = 6;
 
     // A selection drag anchored in the composer's second row.
-    app.drag.begin_range(
-        &mut app.selection,
+    app.transcript.drag.begin_range(
+        &mut app.transcript.selection,
         nuo_view::model::layout::SemanticCursor::new(crate::shell::render::INPUT_MSG_IDX, 0, 2),
     );
 
@@ -437,18 +446,18 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     // loop's SelectionUpdate arm stores the direction before stepping; the
     // test mirrors that hand-off.)
     assert_eq!(app.input_drag_scroll_edge(40), Some(true));
-    app.input_drag_scroll = Some(true);
+    app.composer.input_drag_scroll = Some(true);
     assert!(app.step_input_drag_scroll());
-    assert_eq!(app.input_scroll, 5);
+    assert_eq!(app.composer.input_scroll, 5);
     assert!(
-        !app.input_scroll_follow_cursor,
+        !app.composer.input_scroll_follow_cursor,
         "edge-autoscroll must survive the next composer render"
     );
-    let SelectionState::Range { head, .. } = &app.selection else {
+    let SelectionState::Range { head, .. } = &app.transcript.selection else {
         panic!("selection survives the edge step");
     };
     let wrapped = crate::shell::composer_grid::TextGrid::new(
-        &app.input,
+        &app.composer.input,
         crate::shell::composer::composer_text_width(60),
     )
     .rows()
@@ -465,11 +474,14 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     // Pointer at/below the last text row (the gap/hint chrome): arms
     // downward while rows hide below, stepping to the bottom clamp.
     assert_eq!(app.input_drag_scroll_edge(43), Some(false));
-    app.input_drag_scroll = Some(false);
+    app.composer.input_drag_scroll = Some(false);
     while app.step_input_drag_scroll() {}
-    assert_eq!(app.input_scroll, 6, "down-arm marches to the max scroll");
     assert_eq!(
-        app.input_drag_scroll, None,
+        app.composer.input_scroll, 6,
+        "down-arm marches to the max scroll"
+    );
+    assert_eq!(
+        app.composer.input_drag_scroll, None,
         "reaching the viewport boundary must stop the animation heartbeat"
     );
     assert_eq!(
@@ -479,33 +491,33 @@ fn input_edge_autoscroll_arms_beyond_text_rows_and_extends_selection() {
     );
 
     // Ending the drag disarms the autoscroll; the heartbeat step no-ops.
-    app.drag.finish(&mut app.selection);
-    app.input_drag_scroll = None;
+    app.transcript.drag.finish(&mut app.transcript.selection);
+    app.composer.input_drag_scroll = None;
     assert!(!app.step_input_drag_scroll());
 }
 
 #[test]
 fn input_edge_autoscroll_ignores_transcript_anchored_drags() {
     let (mut app, _tmp) = app_with_input_viewport(8, 2);
-    app.input_scroll = 0;
+    app.composer.input_scroll = 0;
     // A drag anchored in transcript content never drives the input viewport,
     // however far above the input the pointer climbs.
-    app.drag.begin_range(
-        &mut app.selection,
+    app.transcript.drag.begin_range(
+        &mut app.transcript.selection,
         nuo_view::model::layout::SemanticCursor::new(0, 0, 5),
     );
     assert_eq!(app.input_drag_scroll_edge(0), None);
     assert!(!app.step_input_drag_scroll());
-    assert_eq!(app.input_scroll, 0);
+    assert_eq!(app.composer.input_scroll, 0);
 }
 
 #[test]
 fn failed_intent_send_latches_the_server_link_down_state() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
 
-    assert!(!app.link_down);
+    assert!(!app.link.link_down);
     assert!(!app.send_intent(AgentRequest::Interrupt));
-    assert!(app.link_down);
+    assert!(app.link.link_down);
 }
 
 fn relay_key(
@@ -526,7 +538,7 @@ fn shift_right_selects_characters_and_extracts() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     app.set_cursor(0);
 
     // Shift+Right selects first char 'h'
@@ -539,16 +551,22 @@ fn shift_right_selects_characters_and_extracts() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 1);
+    assert_eq!(app.composer.cursor_position, 1);
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         SelectionState::InputRange {
             anchor_byte: 0,
             head_byte: 1,
         }
     );
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("h".to_string())
     );
 
@@ -562,9 +580,15 @@ fn shift_right_selects_characters_and_extracts() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 2);
+    assert_eq!(app.composer.cursor_position, 2);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("he".to_string())
     );
 
@@ -578,9 +602,15 @@ fn shift_right_selects_characters_and_extracts() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 1);
+    assert_eq!(app.composer.cursor_position, 1);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("h".to_string())
     );
 
@@ -594,8 +624,8 @@ fn shift_right_selects_characters_and_extracts() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 0);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.cursor_position, 0);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 }
 
 #[test]
@@ -604,7 +634,7 @@ fn shift_left_backwards_selection() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     app.set_cursor(5); // parked after "hello"
 
     // Shift+Left selects 'o' backwards
@@ -617,16 +647,22 @@ fn shift_left_backwards_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 4);
+    assert_eq!(app.composer.cursor_position, 4);
     assert_eq!(
-        app.selection,
+        app.transcript.selection,
         SelectionState::InputRange {
             anchor_byte: 5,
             head_byte: 4,
         }
     );
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("o".to_string())
     );
 
@@ -640,9 +676,15 @@ fn shift_left_backwards_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 3);
+    assert_eq!(app.composer.cursor_position, 3);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("lo".to_string())
     );
 
@@ -656,9 +698,15 @@ fn shift_left_backwards_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 4);
+    assert_eq!(app.composer.cursor_position, 4);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("o".to_string())
     );
 
@@ -672,8 +720,8 @@ fn shift_left_backwards_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 5);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.cursor_position, 5);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 
     // Shift+Right again selects forwards: ' ' (space)
     let action = relay_key(
@@ -685,9 +733,15 @@ fn shift_left_backwards_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 6);
+    assert_eq!(app.composer.cursor_position, 6);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some(" ".to_string())
     );
 }
@@ -698,7 +752,7 @@ fn shift_ctrl_left_and_right_word_selection() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     app.set_cursor(0);
 
     // Shift+Ctrl+Right selects "hello"
@@ -711,9 +765,15 @@ fn shift_ctrl_left_and_right_word_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 5);
+    assert_eq!(app.composer.cursor_position, 5);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("hello".to_string())
     );
 
@@ -727,9 +787,15 @@ fn shift_ctrl_left_and_right_word_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 11);
+    assert_eq!(app.composer.cursor_position, 11);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("hello world".to_string())
     );
 }
@@ -740,7 +806,7 @@ fn shift_up_and_down_multiline_selection() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello\nworld".to_string();
+    app.composer.input = "hello\nworld".to_string();
     // 'r' is index 8 (hello=5, \n=6, w=6, o=7, r=8)
     app.set_cursor(8);
 
@@ -750,9 +816,15 @@ fn shift_up_and_down_multiline_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 2);
+    assert_eq!(app.composer.cursor_position, 2);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("llo\nwo".to_string())
     );
 
@@ -766,8 +838,8 @@ fn shift_up_and_down_multiline_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.cursor_position, 8);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.cursor_position, 8);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 }
 
 #[test]
@@ -775,7 +847,7 @@ fn shift_selection_delete_and_backspace() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     app.set_cursor(6);
 
     // Select "world"
@@ -784,7 +856,7 @@ fn shift_selection_delete_and_backspace() {
         crossterm::event::KeyCode::End,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, 11);
+    assert_eq!(app.composer.cursor_position, 11);
 
     // Backspace replaces the selected text
     let action = relay_key(
@@ -796,9 +868,9 @@ fn shift_selection_delete_and_backspace() {
         action,
         Some(crate::shell::input::InputAction::Backspace)
     ));
-    assert_eq!(app.input, "hello ");
-    assert_eq!(app.cursor_position, 6);
-    assert_eq!(app.selection, SelectionState::None);
+    assert_eq!(app.composer.input, "hello ");
+    assert_eq!(app.composer.cursor_position, 6);
+    assert_eq!(app.transcript.selection, SelectionState::None);
 }
 
 #[test]
@@ -807,7 +879,7 @@ fn shift_selection_cjk() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "你好世界".to_string();
+    app.composer.input = "你好世界".to_string();
     app.set_cursor(0);
 
     // Shift+Right selects "你"
@@ -816,9 +888,15 @@ fn shift_selection_cjk() {
         crossterm::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, "你".len());
+    assert_eq!(app.composer.cursor_position, "你".len());
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("你".to_string())
     );
 
@@ -828,9 +906,15 @@ fn shift_selection_cjk() {
         crossterm::event::KeyCode::Right,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, "你好".len());
+    assert_eq!(app.composer.cursor_position, "你好".len());
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("你好".to_string())
     );
 }
@@ -841,7 +925,7 @@ fn shift_home_and_end_selection() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     app.set_cursor(5);
 
     // Shift+Home selects to start
@@ -850,9 +934,15 @@ fn shift_home_and_end_selection() {
         crossterm::event::KeyCode::Home,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, 0);
+    assert_eq!(app.composer.cursor_position, 0);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some("hello".to_string())
     );
 
@@ -862,9 +952,15 @@ fn shift_home_and_end_selection() {
         crossterm::event::KeyCode::End,
         KeyModifiers::SHIFT,
     );
-    assert_eq!(app.cursor_position, 11);
+    assert_eq!(app.composer.cursor_position, 11);
     assert_eq!(
-        extract_selection_text(&app.selection, &[], &app.input, &app.ui.document, None),
+        extract_selection_text(
+            &app.transcript.selection,
+            &[],
+            &app.composer.input,
+            &app.transcript.ui.document,
+            None
+        ),
         Some(" world".to_string())
     );
 }
@@ -874,7 +970,7 @@ fn esc_cancels_shift_selection() {
     use crossterm::event::KeyModifiers;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.input = "hello world".to_string();
+    app.composer.input = "hello world".to_string();
     app.set_cursor(0);
 
     relay_key(
@@ -889,34 +985,40 @@ fn esc_cancels_shift_selection() {
         action,
         Some(crate::shell::input::InputAction::None)
     ));
-    assert_eq!(app.selection, SelectionState::None);
-    assert_eq!(app.input, "hello world");
+    assert_eq!(app.transcript.selection, SelectionState::None);
+    assert_eq!(app.composer.input, "hello world");
 }
 
 #[tokio::test]
 async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    app.current_session_id = "s1".to_string();
+    app.session.current_session_id = "s1".to_string();
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::thread(
             "s1",
             Some("Thread 1"),
         ));
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::dashboard());
     app.surfaces
+        .surfaces
         .open_tab(crate::shell::surfaces::ClientTab::settings());
-    app.surfaces.select_tab(0);
+    app.surfaces.surfaces.select_tab(0);
 
     // Initial render
     let mut terminal = nuotc::TestTerminal::new(80, 24);
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
-    app.ui.commit();
+    app.transcript.ui.commit();
 
-    assert_eq!(app.surfaces.active_tab_index(), 0);
-    assert!(app.focus.is_composer(), "composer starts focused");
+    assert_eq!(app.surfaces.surfaces.active_tab_index(), 0);
+    assert!(
+        app.transcript.focus.is_composer(),
+        "composer starts focused"
+    );
 
     // 1. Single click on Dashboard tab at col 15, row 0 -> switches immediately on first click
     let click_down = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
@@ -927,12 +1029,12 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_down, "s1").await;
     assert_eq!(
-        app.surfaces.active_tab_index(),
+        app.surfaces.surfaces.active_tab_index(),
         1,
         "dashboard tab selected on first click"
     );
     assert_eq!(
-        app.surfaces.active_scene(),
+        app.surfaces.surfaces.active_scene(),
         crate::shell::surfaces::SceneKind::Dashboard
     );
 
@@ -940,7 +1042,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
-    app.ui.commit();
+    app.transcript.ui.commit();
 
     // 3. Single click on Thread 1 tab at col 5, row 0 -> switches back to Thread
     let click_thread = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
@@ -951,16 +1053,16 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_thread, "s1").await;
     assert_eq!(
-        app.surfaces.active_tab_index(),
+        app.surfaces.surfaces.active_tab_index(),
         0,
         "thread tab selected on single click"
     );
     assert_eq!(
-        app.surfaces.active_scene(),
+        app.surfaces.surfaces.active_scene(),
         crate::shell::surfaces::SceneKind::Thread
     );
     assert!(
-        app.focus.is_composer(),
+        app.transcript.focus.is_composer(),
         "entering thread scene activates composer"
     );
 
@@ -968,7 +1070,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     terminal.draw(|f| {
         crate::shell::event_loop::render_frame(&mut app, f, "s1");
     });
-    app.ui.commit();
+    app.transcript.ui.commit();
 
     // 5. Clicking on TabBar empty background (col 50, row 0) is an inert container gesture (ADR-0091 [INV-TAB-11])
     let click_tabbar_bg = crossterm::event::Event::Mouse(crossterm::event::MouseEvent {
@@ -979,7 +1081,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_tabbar_bg, "s1").await;
     assert!(
-        app.focus.is_composer(),
+        app.transcript.focus.is_composer(),
         "clicking tabbar background must not blur composer"
     );
     assert_eq!(
@@ -997,7 +1099,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_active_tab, "s1").await;
     assert!(
-        app.focus.is_composer(),
+        app.transcript.focus.is_composer(),
         "clicking active tab is idempotent and preserves composer focus"
     );
 
@@ -1010,7 +1112,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_transcript, "s1").await;
     assert!(
-        app.focus.is_transcript(),
+        app.transcript.focus.is_transcript(),
         "clicking transcript content blurs composer"
     );
     assert_eq!(
@@ -1021,6 +1123,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
 
     // 8. Clicking back on Composer input box restores composer focus
     let composer_bounds = app
+        .transcript
         .ui
         .bounds(crate::shell::ui::UiKey::Composer)
         .expect("composer mounted");
@@ -1032,7 +1135,7 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
     });
     crate::shell::event_loop::process_event_for_test(&mut app, &click_composer, "s1").await;
     assert!(
-        app.focus.is_composer(),
+        app.transcript.focus.is_composer(),
         "clicking composer restores active focus"
     );
     assert_eq!(
@@ -1053,19 +1156,19 @@ async fn single_mouse_click_switches_tab_and_clicking_outside_blurs_composer() {
 #[tokio::test]
 async fn shift_tab_crosses_planes_and_the_same_press_returns() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let sid = app.current_session_id.clone();
+    let sid = app.session.current_session_id.clone();
     let back_tab = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::BackTab,
         crossterm::event::KeyModifiers::NONE,
     ));
 
     // Start: the composer owns the keyboard.
-    assert!(app.focus.is_composer());
+    assert!(app.transcript.focus.is_composer());
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
 
     // Cross into the transcript.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
-    assert!(app.focus.is_transcript());
+    assert!(app.transcript.focus.is_transcript());
     assert_eq!(
         app.caret_owner(),
         CaretOwner::None,
@@ -1074,7 +1177,7 @@ async fn shift_tab_crosses_planes_and_the_same_press_returns() {
 
     // The same press returns — this is the symmetry, not an escape.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
-    assert!(app.focus.is_composer());
+    assert!(app.transcript.focus.is_composer());
     assert_eq!(app.caret_owner(), CaretOwner::Composer);
 }
 
@@ -1083,23 +1186,27 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
     use nuo_view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let sid = app.current_session_id.clone();
+    let sid = app.session.current_session_id.clone();
     let back_tab = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::BackTab,
         crossterm::event::KeyModifiers::NONE,
     ));
 
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(2),
         ));
-    assert_eq!(app.focus.entry(), Some(InteractiveTarget::tool_step(2)));
+    assert_eq!(
+        app.transcript.focus.entry(),
+        Some(InteractiveTarget::tool_step(2))
+    );
 
     // Glance at the composer…
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
-    assert!(app.focus.is_composer());
+    assert!(app.transcript.focus.is_composer());
     assert_eq!(
-        app.focus.entry(),
+        app.transcript.focus.entry(),
         None,
         "the composer plane reports no entry"
     );
@@ -1107,7 +1214,7 @@ async fn shift_tab_remembers_the_highlighted_entry_across_the_crossing() {
     // …and come back to the same step, not to the top of the list.
     crate::shell::event_loop::process_event_for_test(&mut app, &back_tab, &sid).await;
     assert_eq!(
-        app.focus.entry(),
+        app.transcript.focus.entry(),
         Some(InteractiveTarget::tool_step(2)),
         "the crossing is lossless: the highlighted entry is restored"
     );
@@ -1118,46 +1225,51 @@ async fn escape_never_moves_the_keyboard_off_the_transcript() {
     use nuo_view::model::layout::InteractiveTarget;
 
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let sid = app.current_session_id.clone();
+    let sid = app.session.current_session_id.clone();
     let esc = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Esc,
         crossterm::event::KeyModifiers::NONE,
     ));
 
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Entry(
             InteractiveTarget::tool_step(1),
         ));
     // Idle: Esc is spent, and the plane is untouched.
     crate::shell::event_loop::process_event_for_test(&mut app, &esc, &sid).await;
     assert!(
-        app.focus.is_transcript(),
+        app.transcript.focus.is_transcript(),
         "a spent Esc must not relocate the keyboard to the composer"
     );
-    assert_eq!(app.focus.entry(), Some(InteractiveTarget::tool_step(1)));
+    assert_eq!(
+        app.transcript.focus.entry(),
+        Some(InteractiveTarget::tool_step(1))
+    );
 }
 
 #[tokio::test]
 async fn typing_on_the_transcript_plane_never_reaches_the_draft() {
     let (mut app, _tmp) = app_in_tempdir(&[], &[]);
-    let sid = app.current_session_id.clone();
+    let sid = app.session.current_session_id.clone();
     let key = crossterm::event::Event::Key(crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Char('x'),
         crossterm::event::KeyModifiers::NONE,
     ));
 
-    app.focus
+    app.transcript
+        .focus
         .enter_transcript(crate::shell::focus::TranscriptFocus::Browse);
-    app.input.clear();
+    app.composer.input.clear();
     app.set_cursor(0);
     crate::shell::event_loop::process_event_for_test(&mut app, &key, &sid).await;
 
     assert!(
-        app.input.is_empty(),
+        app.composer.input.is_empty(),
         "the draft must not absorb the keystroke"
     );
     assert!(
-        app.focus.is_transcript(),
+        app.transcript.focus.is_transcript(),
         "typing on the transcript plane does not hand the keyboard back — \
          only Shift-Tab and the implicit gestures do"
     );

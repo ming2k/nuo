@@ -10,7 +10,7 @@ use nuotc::{
     Color, Frame, Modifier, Paragraph, Rect, Style, {Line, Span},
 };
 
-use nuo_view::composer_attachments::{ChipKind, iter_chips};
+use nuo_view::composer_attachments::{ChipKind, ChipMatch, iter_chips};
 use nuo_view::model::layout::{BlockRegion, LayoutMap};
 use nuo_view::model::selection::SelectionState;
 
@@ -20,8 +20,8 @@ use super::design::{
     COMPOSER_PROMPT_PREFIX_COLS, COMPOSER_RIGHT_PAD_COLS, COMPOSER_TEXT_ROW_OFFSET,
     COMPOSER_VERTICAL_CHROME_ROWS, INPUT_PROMPT_GLYPH,
 };
-use super::text_layout::{block_selection_range, line_selection};
-use crate::shell::composer_hints::hint_row_parts;
+use super::text_layout::{WrappedLine, block_selection_range, line_selection};
+use crate::shell::composer_hints::{ActionDensity, ComposerHints, hint_row_parts};
 
 /// Right-aligned overflow label for a chrome row (the breathing row above
 /// the text / the gap row below it): direction glyph + hidden-row count.
@@ -455,22 +455,10 @@ fn draw_composer_impl(
     } else {
         theme.muted()
     };
-    let full_w = input_rect.width as usize;
-    // Inner text budget: the full width minus the `› ` prompt prefix and the
-    // matching right pad, so text never touches either edge of the panel.
-    let text_width = full_w
-        .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + COMPOSER_RIGHT_PAD_COLS)
-        .max(1);
-    let grid = TextGrid::new(input, text_width);
-    let wrapped = grid.rows();
 
-    // Number of text rows that fit inside the box (top/bottom transition rows
-    // consume two lines). The box is sized by draw_transcript to fit the wrapped text
-    // up to half the terminal height, so when the text exceeds this height we
-    // scroll to keep the cursor visible.
-    let visible_rows = (input_rect.height as usize)
-        .saturating_sub(COMPOSER_VERTICAL_CHROME_ROWS as usize)
-        .max(1);
+    let geometry = ComposerGeometry::new(input_rect);
+    let grid = TextGrid::new(input, geometry.text_width);
+    let wrapped = grid.rows();
 
     // The caret position (and the scroll clamp that keeps it on screen) is the
     // single source of truth in [`cursor_screen_pos`]. The draw path reuses it
@@ -482,30 +470,40 @@ fn draw_composer_impl(
     // position readout: how many wrapped rows sit above / below the visible
     // window once the caret-follow clamp in [`cursor_screen_pos`] has
     // settled the scroll offset for this frame.
-    let hidden_above = *input_scroll;
-    let hidden_below = if input.is_empty() {
-        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
-            let ghost_grid = TextGrid::new(ghost, text_width);
-            let ghost_wrapped = ghost_grid.rows();
-            ghost_wrapped
-                .len()
-                .saturating_sub(*input_scroll + visible_rows)
-        } else {
-            0
-        }
-    } else {
-        wrapped.len().saturating_sub(*input_scroll + visible_rows)
+    let (hidden_above, hidden_below) = composer_hidden_rows(
+        input,
+        ghost_text,
+        geometry.text_width,
+        *input_scroll,
+        geometry.visible_rows,
+        wrapped.len(),
+    );
+
+    let paint = ComposerPaint {
+        theme,
+        hints: &hints,
+        selection,
+        input,
+        ghost_text,
+        highlight_len,
+        image_count,
+        paste_count,
+        focused,
+        scroll: *input_scroll,
+        geometry,
+        panel_bg,
+        prompt_fg,
     };
 
     let mut lines: Vec<Line> =
-        Vec::with_capacity(visible_rows + COMPOSER_VERTICAL_CHROME_ROWS as usize);
+        Vec::with_capacity(geometry.visible_rows + COMPOSER_VERTICAL_CHROME_ROWS as usize);
 
     // Row 1: blank breathing row
     // A full panel-bg padding row giving the text a line of air above. When
     // rows hide above the viewport it moonlights as the `↑ N lines`
     // indicator (see [`chrome_row`]); otherwise it presents the active mode tag.
     lines.push(top_chrome_row(
-        full_w,
+        geometry.full_w,
         panel_bg,
         theme,
         hidden_above,
@@ -513,382 +511,24 @@ fn draw_composer_impl(
         focused,
     ));
 
-    // Text rows: the first logical line opens with the `›` prompt glyph plus
-    // a gap, and every wrapped continuation indents to the same column so the
-    // box reads as a shell-style prompt on a tinted panel. Only the visible
-    // slice is rendered so overflowing content can scroll while the box stays
-    // within its terminal-sized bounds.
-    let prompt_glyph = Span::styled(
-        INPUT_PROMPT_GLYPH,
-        Style::default().bg(panel_bg).fg(prompt_fg),
-    );
-    let prompt_gap = Span::styled(
-        " ".repeat(COMPOSER_PROMPT_PREFIX_COLS - 1),
-        Style::default().bg(panel_bg),
-    );
-    let indent = Span::styled(
-        " ".repeat(COMPOSER_PROMPT_PREFIX_COLS),
-        Style::default().bg(panel_bg),
-    );
-    if input.is_empty() {
-        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
-            let ghost_style = Style::default()
-                .bg(panel_bg)
-                .fg(theme.muted())
-                .add_modifier(Modifier::DIM);
-            let ghost_grid = TextGrid::new(ghost, text_width);
-            let ghost_wrapped = ghost_grid.rows();
-            let start = *input_scroll;
-            let end = (*input_scroll + visible_rows).min(ghost_wrapped.len());
-            for (i, wl) in ghost_wrapped[start..end].iter().enumerate() {
-                let mut spans = if start + i == 0 {
-                    vec![prompt_glyph.clone(), prompt_gap.clone()]
-                } else {
-                    vec![indent.clone()]
-                };
-                spans.push(Span::styled(wl.text.clone(), ghost_style));
-                let used = COMPOSER_PROMPT_PREFIX_COLS + str_len(&wl.text);
-                let tail_cols = full_w.saturating_sub(used);
-                spans.push(Span::styled(
-                    " ".repeat(tail_cols),
-                    Style::default().bg(panel_bg),
-                ));
-                lines.push(Line::from(spans));
-            }
-        } else {
-            let used = COMPOSER_PROMPT_PREFIX_COLS;
-            // Suffix after the (empty) text: the row's remaining panel columns.
-            // used + tail = full_w.
-            let tail_cols = full_w.saturating_sub(used);
-            lines.push(Line::from(vec![
-                prompt_glyph.clone(),
-                prompt_gap.clone(),
-                Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)),
-            ]));
-        }
-    } else {
-        let start = *input_scroll;
-        let end = (*input_scroll + visible_rows).min(wrapped.len());
-        // Resolve the selection byte range for the whole input box once; each
-        // wrapped line intersects it to find its own highlighted slice. The
-        // composer records itself as a single block at `INPUT_MSG_IDX` /
-        // block 0, so a drag or triple-click inside the box resolves here.
-        let input_range_sel = match selection {
-            SelectionState::InputRange {
-                anchor_byte,
-                head_byte,
-            } if anchor_byte != head_byte => Some((
-                (*anchor_byte).min(*head_byte),
-                (*anchor_byte).max(*head_byte),
-            )),
-            _ => None,
-        };
-        let sel_range = if input_range_sel.is_none() {
-            block_selection_range(selection, INPUT_MSG_IDX, 0)
-        } else {
-            None
-        };
-        let selected_bg = theme.selected();
-        let text_fg = theme.fg();
-        let base_text = Style::default().bg(panel_bg).fg(text_fg);
-        // Resolved `/command` token: bold + accent color, echoing the
-        // completion menu's command column so the two surfaces read alike.
-        let accent_text = Style::default()
-            .bg(panel_bg)
-            .fg(theme.brand())
-            .add_modifier(Modifier::BOLD);
-        // Attachment chips (`[Image #N (size)]` / `[Pasted text #N +M lines
-        // (size)]`) render as tinted "pills" so a pasted block reads as a
-        // distinct object inside the live input instead of ordinary prose.
-        // Paste chips take the calm blue, image chips the warm amber; each is
-        // a bold colored label on a tinted band derived from the current
-        // panel, so the identifier is both informative and identifiable.
-        let chips = iter_chips(input);
-        let chip_paste_fg = theme.chip_paste_fg();
-        let chip_image_fg = theme.chip_image_fg();
-        let chip_paste_style = Style::default()
-            .bg(theme.chip_paste_bg(panel_bg))
-            .fg(chip_paste_fg)
-            .add_modifier(Modifier::BOLD);
-        let chip_image_style = Style::default()
-            .bg(theme.chip_image_bg(panel_bg))
-            .fg(chip_image_fg)
-            .add_modifier(Modifier::BOLD);
-        for (i, wl) in wrapped[start..end].iter().enumerate() {
-            let used = COMPOSER_PROMPT_PREFIX_COLS + str_len(&wl.text);
-            let mut spans = if start + i == 0 {
-                vec![prompt_glyph.clone(), prompt_gap.clone()]
-            } else {
-                vec![indent.clone()]
-            };
-            let selected = if let Some((sel_start, sel_end)) = input_range_sel {
-                let lo = sel_start.max(wl.start_byte);
-                let hi = sel_end.min(wl.end_byte);
-                if lo < hi {
-                    Some((lo - wl.start_byte, hi - wl.start_byte))
-                } else {
-                    None
-                }
-            } else {
-                line_selection(sel_range, wl)
-            };
-            // A resolved `/command` token is accented from the input's first
-            // byte; clamp to this wrapped row so the accent stops at the wrap
-            // boundary instead of bleeding into the argument text.
-            let hl_end = highlight_len
-                .filter(|_| start + i == 0)
-                .map(|len| len.min(wl.text.len()));
-            // Clamp each chip to this wrapped row, but only when the chip has
-            // a payload really staged behind it (`N <= count` for its kind).
-            // A chip split across a wrap boundary paints both fragments with
-            // the same pill, so a pasted block stays visually contiguous as
-            // it wraps. An orphan label — typed by hand, or left over after
-            // the paste was undone — has no backing payload and renders as
-            // plain text, so the colored pill never lies about an attachment
-            // that isn't there.
-            let mut chip_ranges: Vec<(usize, usize, ChipKind)> = Vec::new();
-            for chip in &chips {
-                let backed = match chip.kind {
-                    ChipKind::Image => chip.number <= image_count,
-                    ChipKind::Paste => chip.number <= paste_count,
-                };
-                if !backed || chip.end_byte <= wl.start_byte || chip.start_byte >= wl.end_byte {
-                    continue;
-                }
-                let lo = chip.start_byte.saturating_sub(wl.start_byte);
-                let hi = (chip.end_byte - wl.start_byte).min(wl.text.len());
-                if lo < hi {
-                    chip_ranges.push((lo, hi, chip.kind));
-                }
-            }
-            push_styled_runs(
-                &mut spans,
-                &wl.text,
-                hl_end,
-                &chip_ranges,
-                selected,
-                RunStyles {
-                    base: base_text,
-                    accent: accent_text,
-                    chip_paste: chip_paste_style,
-                    chip_image: chip_image_style,
-                    selected_bg,
-                    chip_paste_fg,
-                    chip_image_fg,
-                },
-            );
-            let mut ghost_cols = 0;
-            if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
-                if start + i == wrapped.len() - 1 {
-                    if let Some(suffix) = ghost.strip_prefix(input) {
-                        let ghost_first_line = match suffix.find('\n') {
-                            Some(pos) => &suffix[..pos],
-                            None => suffix,
-                        };
-                        if !ghost_first_line.is_empty() {
-                            let available = full_w.saturating_sub(used);
-                            let to_show = crate::shell::overlays::common::truncate_ellipsis(
-                                ghost_first_line,
-                                available,
-                            );
-                            ghost_cols = str_len(&to_show);
-                            spans.push(Span::styled(
-                                to_show,
-                                Style::default()
-                                    .bg(panel_bg)
-                                    .fg(theme.muted())
-                                    .add_modifier(Modifier::DIM),
-                            ));
-                        }
-                    } else if visible_rows == 1 {
-                        let ghost_first_line = match ghost.find('\n') {
-                            Some(pos) => &ghost[..pos],
-                            None => ghost,
-                        };
-                        let available = full_w.saturating_sub(used);
-                        if available > 6 {
-                            let preview = format!("  ↳ {ghost_first_line}");
-                            let to_show = crate::shell::overlays::common::truncate_ellipsis(
-                                &preview, available,
-                            );
-                            ghost_cols = str_len(&to_show);
-                            spans.push(Span::styled(
-                                to_show,
-                                Style::default()
-                                    .bg(panel_bg)
-                                    .fg(theme.muted())
-                                    .add_modifier(Modifier::DIM),
-                            ));
-                        }
-                    }
-                }
-            }
-            // Close the row with panel-bg air to the right edge.
-            // used + tail = full_w.
-            let tail_cols = full_w.saturating_sub(used + ghost_cols);
-            spans.push(Span::styled(
-                " ".repeat(tail_cols),
-                Style::default().bg(panel_bg),
-            ));
-            lines.push(Line::from(spans));
-        }
-        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
-            if !ghost.starts_with(input) {
-                let ghost_grid = TextGrid::new(ghost, text_width);
-                let ghost_wrapped = ghost_grid.rows();
-                for (gi, gw) in ghost_wrapped.iter().enumerate() {
-                    if lines.len() >= visible_rows {
-                        break;
-                    }
-                    let prefix = if gi == 0 { "↳ " } else { "  " };
-                    let preview_text = format!("{prefix}{}", gw.text);
-                    let to_show = crate::shell::overlays::common::truncate_ellipsis(
-                        &preview_text,
-                        text_width,
-                    );
-                    let text_cols = str_len(&to_show);
-                    let tail_cols = full_w.saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + text_cols);
-                    lines.push(Line::from(vec![
-                        indent.clone(),
-                        Span::styled(
-                            to_show,
-                            Style::default()
-                                .bg(panel_bg)
-                                .fg(theme.muted())
-                                .add_modifier(Modifier::DIM),
-                        ),
-                        Span::styled(" ".repeat(tail_cols), Style::default().bg(panel_bg)),
-                    ]));
-                }
-            }
-        }
-    }
+    // Text rows, wrapped and sliced to the visible window.
+    paint.push_draft_rows(&mut lines, wrapped);
 
     // Row 3: blank gap row
     // A second breathing row between the text and the meta row, so the hint
     // sentence reads as the box's own footnote rather than another text line.
     // When rows hide below the viewport it carries the `↓ N lines`
     // indicator (see [`chrome_row`]).
-    lines.push(chrome_row(full_w, panel_bg, theme, '↓', hidden_below));
+    lines.push(chrome_row(
+        geometry.full_w,
+        panel_bg,
+        theme,
+        '↓',
+        hidden_below,
+    ));
 
-    // Row 4: the hint row
-    // Navigation/actions lead on the left, execution/submit anchors on the
-    // right. Keycaps and verbs tint with `panel_bg` so they blend into the box.
-    // While unfocused the active sentence is replaced with a muted inactive indicator.
-    {
-        use crate::shell::composer_hints::ActionDensity;
-        let keys_width = full_w
-            .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + COMPOSER_RIGHT_PAD_COLS)
-            .max(8);
-        let density = ActionDensity::for_width(keys_width);
-        let mut spans: Vec<Span<'static>> = vec![indent.clone()];
-        if focused {
-            let position_label = if wrapped.len() > visible_rows {
-                let first = *input_scroll + 1;
-                let last = (*input_scroll + visible_rows).min(wrapped.len());
-                Some(format!("{first}–{last}/{} lines", wrapped.len()))
-            } else {
-                None
-            };
-            let pos_w = position_label.as_ref().map(|s| str_len(s) + 3).unwrap_or(0);
-
-            let prefix_w = COMPOSER_PROMPT_PREFIX_COLS;
-            let available = full_w.saturating_sub(COMPOSER_RIGHT_PAD_COLS);
-
-            // The row gives up affordances in a fixed order, and each rung is
-            // worth strictly more than the one below it: a denser rendering
-            // (Full → Compact) still *names* the crossing and the delivery
-            // verb, while the Floor-1 collapse (`F1 more`) names neither. So
-            // try the ladder first and collapse only if every rung overflows.
-            let rendered = |d: ActionDensity| {
-                let (left, right) = hint_row_parts(
-                    hints.can_retry,
-                    d,
-                    hints.compose_target,
-                    theme,
-                    panel_bg,
-                    hints.toggle_mode_key,
-                    hints.focused_entry,
-                );
-                let left_w: usize = left.iter().map(|s| str_len(&s.content)).sum();
-                let right_w: usize = right.iter().map(|s| str_len(&s.content)).sum();
-                (left, left_w, right, right_w)
-            };
-            let ladder = density.ladder();
-            let fits = |d: ActionDensity| {
-                let (_, left_w, _, right_w) = rendered(d);
-                available >= prefix_w + left_w + right_w + pos_w
-            };
-            // Nothing fitting keeps the densest rung's row: the Floor-1 branch
-            // below re-checks the room it needs before drawing anything.
-            let chosen = ladder
-                .iter()
-                .copied()
-                .find(|&d| fits(d))
-                .unwrap_or_else(|| ladder.last().copied().unwrap_or(density));
-            let (left_spans, left_w, right_spans, right_w) = rendered(chosen);
-            let target_right_w = right_w + pos_w;
-            let needed = prefix_w + left_w + target_right_w;
-
-            if available >= needed {
-                spans.extend(left_spans);
-                let gap = available - needed;
-                spans.push(Span::styled(" ".repeat(gap), Style::default().bg(panel_bg)));
-            } else {
-                // Width constrained: apply Floor-1 rule (ADR-0054 [INV-AFFORDANCE-02]).
-                // If left hints overflow the available budget, collapse them to `F1 more`
-                // to guarantee non-destructive discovery without layout clipping.
-                let space_for_left = available.saturating_sub(prefix_w + target_right_w + 3);
-                let overflow_affordance =
-                    nuo_ui_primitives::components::keycap::KeyAffordance::new("F1", "more");
-                let overflow_w = overflow_affordance.width();
-                if space_for_left >= overflow_w {
-                    let [k, l] = overflow_affordance.render_spans(theme, panel_bg);
-                    spans.push(k);
-                    spans.push(l);
-                    let gap = space_for_left - overflow_w + 3;
-                    spans.push(Span::styled(" ".repeat(gap), Style::default().bg(panel_bg)));
-                } else {
-                    let gap = available.saturating_sub(prefix_w + target_right_w);
-                    spans.push(Span::styled(" ".repeat(gap), Style::default().bg(panel_bg)));
-                }
-            }
-
-            if let Some(pos) = position_label
-                && available > needed
-            {
-                spans.push(Span::styled(
-                    pos,
-                    Style::default().bg(panel_bg).fg(theme.muted()),
-                ));
-                spans.push(Span::styled("   ", Style::default().bg(panel_bg)));
-            }
-
-            spans.extend(right_spans);
-        } else {
-            // The composer is not the only surface of this scene: the transcript
-            // is its peer and currently holds the keyboard (ADR-0145). The row
-            // that would have advertised the composer's own verbs therefore
-            // advertises the one gesture that comes back — a symmetric exit,
-            // named where the user is looking. The chord token comes from the
-            // shared key vocabulary rather than a literal, so this row can no
-            // more drift from the key's own name than a footer hint can.
-            spans.push(Span::styled(
-                format!("{} composer", super::keyvocab::SHIFT_TAB),
-                Style::default().bg(panel_bg).fg(theme.muted()),
-            ));
-        }
-        let used = spans
-            .iter()
-            .map(|span| str_len(&span.content))
-            .sum::<usize>();
-        let tail_cols = full_w.saturating_sub(used);
-        spans.push(Span::styled(
-            " ".repeat(tail_cols),
-            Style::default().bg(panel_bg),
-        ));
-        lines.push(Line::from(spans));
-    }
+    // Row 4: the hint row.
+    paint.push_hint_row(&mut lines, wrapped);
 
     frame.render_widget(&mut Paragraph::new(lines), input_rect);
 
@@ -896,22 +536,7 @@ fn draw_composer_impl(
     // and copy work on the live input. Skipped when the API-key modal masks
     // the display (byte offsets wouldn't match the real input).
     if record {
-        layout_map.set_composer_rect(input_rect);
-        let start = *input_scroll;
-        let end = (*input_scroll + visible_rows).min(wrapped.len());
-        for (i, wl) in wrapped[start..end].iter().enumerate() {
-            let row_y = input_rect.y + COMPOSER_TEXT_ROW_OFFSET + i as u16;
-            layout_map.push(BlockRegion {
-                message_idx: INPUT_MSG_IDX,
-                block_idx: 0,
-                start_byte: wl.start_byte,
-                end_byte: wl.end_byte,
-                text: wl.text.clone(),
-                prefix_cols: COMPOSER_PROMPT_PREFIX_COLS as u16,
-                rect: Rect::new(input_rect.x, row_y, full_w as u16, 1),
-                hidden_ranges: Vec::new(),
-            });
-        }
+        record_composer_rows(layout_map, input_rect, geometry, paint.scroll, wrapped);
     }
 
     // Position the caret relative to the visible slice, after the `> ` /
@@ -922,6 +547,612 @@ fn draw_composer_impl(
     // terminal cursor are always identical.
     if show_caret && let Some((cursor_x, cursor_y)) = cursor {
         frame.set_cursor_position((cursor_x, cursor_y));
+    }
+}
+
+/// Panel geometry derived once per frame from the target rect.
+#[derive(Clone, Copy)]
+struct ComposerGeometry {
+    full_w: usize,
+    text_width: usize,
+    visible_rows: usize,
+}
+
+impl ComposerGeometry {
+    fn new(input_rect: Rect) -> Self {
+        let full_w = input_rect.width as usize;
+        // Inner text budget: the full width minus the `› ` prompt prefix and
+        // the matching right pad, so text never touches either edge.
+        let text_width = full_w
+            .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + COMPOSER_RIGHT_PAD_COLS)
+            .max(1);
+        // Number of text rows that fit inside the box (top/bottom transition
+        // rows consume two lines). The box is sized by draw_transcript to fit
+        // the wrapped text up to half the terminal height, so when the text
+        // exceeds this height we scroll to keep the cursor visible.
+        let visible_rows = (input_rect.height as usize)
+            .saturating_sub(COMPOSER_VERTICAL_CHROME_ROWS as usize)
+            .max(1);
+        Self {
+            full_w,
+            text_width,
+            visible_rows,
+        }
+    }
+}
+
+/// Immutable per-frame paint state shared by the row builders. Grouping it
+/// keeps each builder about one band of the panel (draft rows, hint row)
+/// instead of threading the same dozen values through every call.
+struct ComposerPaint<'a> {
+    theme: &'a Theme,
+    hints: &'a ComposerHints,
+    selection: &'a SelectionState,
+    input: &'a str,
+    ghost_text: Option<&'a str>,
+    highlight_len: Option<usize>,
+    image_count: usize,
+    paste_count: usize,
+    focused: bool,
+    scroll: usize,
+    geometry: ComposerGeometry,
+    panel_bg: Color,
+    prompt_fg: Color,
+}
+
+impl ComposerPaint<'_> {
+    /// Paint the draft band: the first logical line opens with the `›` prompt
+    /// glyph plus a gap, and every wrapped continuation indents to the same
+    /// column so the box reads as a shell-style prompt on a tinted panel. Only
+    /// the visible slice is rendered so overflowing content can scroll while
+    /// the box stays within its terminal-sized bounds.
+    fn push_draft_rows(&self, lines: &mut Vec<Line>, wrapped: &[WrappedLine]) {
+        let prompt_glyph = Span::styled(
+            INPUT_PROMPT_GLYPH,
+            Style::default().bg(self.panel_bg).fg(self.prompt_fg),
+        );
+        let prompt_gap = Span::styled(
+            " ".repeat(COMPOSER_PROMPT_PREFIX_COLS - 1),
+            Style::default().bg(self.panel_bg),
+        );
+        let indent = Span::styled(
+            " ".repeat(COMPOSER_PROMPT_PREFIX_COLS),
+            Style::default().bg(self.panel_bg),
+        );
+        if self.input.is_empty() {
+            self.push_empty_draft_row(lines, &prompt_glyph, &prompt_gap, &indent);
+        } else {
+            self.push_draft_text_rows(lines, wrapped, &prompt_glyph, &prompt_gap, &indent);
+        }
+    }
+
+    /// The empty draft still owns one text row: a bare prompt (or the wrapped
+    /// ghost candidate, dimmed and scrolling like real draft text).
+    fn push_empty_draft_row(
+        &self,
+        lines: &mut Vec<Line>,
+        prompt_glyph: &Span<'static>,
+        prompt_gap: &Span<'static>,
+        indent: &Span<'static>,
+    ) {
+        if let Some(ghost) = self.ghost_text.filter(|g| !g.is_empty()) {
+            let ghost_style = Style::default()
+                .bg(self.panel_bg)
+                .fg(self.theme.muted())
+                .add_modifier(Modifier::DIM);
+            let ghost_grid = TextGrid::new(ghost, self.geometry.text_width);
+            let ghost_wrapped = ghost_grid.rows();
+            let start = self.scroll;
+            let end = (self.scroll + self.geometry.visible_rows).min(ghost_wrapped.len());
+            for (i, wl) in ghost_wrapped[start..end].iter().enumerate() {
+                let mut spans = if start + i == 0 {
+                    vec![prompt_glyph.clone(), prompt_gap.clone()]
+                } else {
+                    vec![indent.clone()]
+                };
+                spans.push(Span::styled(wl.text.clone(), ghost_style));
+                let used = COMPOSER_PROMPT_PREFIX_COLS + str_len(&wl.text);
+                let tail_cols = self.geometry.full_w.saturating_sub(used);
+                spans.push(Span::styled(
+                    " ".repeat(tail_cols),
+                    Style::default().bg(self.panel_bg),
+                ));
+                lines.push(Line::from(spans));
+            }
+        } else {
+            let used = COMPOSER_PROMPT_PREFIX_COLS;
+            // Suffix after the (empty) text: the row's remaining panel columns.
+            // used + tail = full_w.
+            let tail_cols = self.geometry.full_w.saturating_sub(used);
+            lines.push(Line::from(vec![
+                prompt_glyph.clone(),
+                prompt_gap.clone(),
+                Span::styled(" ".repeat(tail_cols), Style::default().bg(self.panel_bg)),
+            ]));
+        }
+    }
+
+    /// Paint the non-empty draft's visible wrapped rows, plus any ghost
+    /// candidate that does not share the draft's prefix and therefore needs
+    /// preview rows of its own.
+    fn push_draft_text_rows(
+        &self,
+        lines: &mut Vec<Line>,
+        wrapped: &[WrappedLine],
+        prompt_glyph: &Span<'static>,
+        prompt_gap: &Span<'static>,
+        indent: &Span<'static>,
+    ) {
+        let start = self.scroll;
+        let end = (self.scroll + self.geometry.visible_rows).min(wrapped.len());
+        // Resolve the selection byte range for the whole input box once; each
+        // wrapped line intersects it to find its own highlighted slice. The
+        // composer records itself as a single block at `INPUT_MSG_IDX` /
+        // block 0, so a drag or triple-click inside the box resolves here.
+        let input_range_sel = self.input_range_selection();
+        let sel_range = if input_range_sel.is_none() {
+            block_selection_range(self.selection, INPUT_MSG_IDX, 0)
+        } else {
+            None
+        };
+        let row_paint = DraftRowPaint {
+            chips: iter_chips(self.input),
+            styles: self.row_styles(),
+            input_range_sel,
+            sel_range,
+            prompt_glyph,
+            prompt_gap,
+            indent,
+        };
+        for (i, wl) in wrapped[start..end].iter().enumerate() {
+            let is_last_wrapped_row = start + i + 1 == wrapped.len();
+            self.push_draft_row(lines, wl, start + i == 0, is_last_wrapped_row, &row_paint);
+        }
+        self.push_ghost_preview_rows(lines, indent);
+    }
+
+    /// Paint one wrapped draft row: prompt/indent prefix, styled text runs, the
+    /// inline ghost tail on the final wrapped row, and panel-bg air to the edge.
+    fn push_draft_row(
+        &self,
+        lines: &mut Vec<Line>,
+        wl: &WrappedLine,
+        first_row: bool,
+        is_last_wrapped_row: bool,
+        paint: &DraftRowPaint<'_>,
+    ) {
+        let used = COMPOSER_PROMPT_PREFIX_COLS + str_len(&wl.text);
+        let mut spans = if first_row {
+            vec![paint.prompt_glyph.clone(), paint.prompt_gap.clone()]
+        } else {
+            vec![paint.indent.clone()]
+        };
+        let selected = paint.selected_range(wl);
+        // A resolved `/command` token is accented from the input's first
+        // byte; clamp to this wrapped row so the accent stops at the wrap
+        // boundary instead of bleeding into the argument text.
+        let hl_end = self
+            .highlight_len
+            .filter(|_| first_row)
+            .map(|len| len.min(wl.text.len()));
+        let chip_ranges = self.row_chip_ranges(wl, &paint.chips);
+        push_styled_runs(
+            &mut spans,
+            &wl.text,
+            hl_end,
+            &chip_ranges,
+            selected,
+            &paint.styles,
+        );
+        let ghost_cols = self.push_inline_ghost(&mut spans, is_last_wrapped_row, used);
+        // Close the row with panel-bg air to the right edge.
+        // used + tail = full_w.
+        let tail_cols = self.geometry.full_w.saturating_sub(used + ghost_cols);
+        spans.push(Span::styled(
+            " ".repeat(tail_cols),
+            Style::default().bg(self.panel_bg),
+        ));
+        lines.push(Line::from(spans));
+    }
+
+    /// Clamp each chip to this wrapped row, but only when the chip has a
+    /// payload really staged behind it (`N <= count` for its kind). A chip
+    /// split across a wrap boundary paints both fragments with the same pill,
+    /// so a pasted block stays visually contiguous as it wraps. An orphan
+    /// label — typed by hand, or left over after the paste was undone — has no
+    /// backing payload and renders as plain text, so the colored pill never
+    /// lies about an attachment that isn't there.
+    fn row_chip_ranges(
+        &self,
+        wl: &WrappedLine,
+        chips: &[ChipMatch],
+    ) -> Vec<(usize, usize, ChipKind)> {
+        let mut chip_ranges: Vec<(usize, usize, ChipKind)> = Vec::new();
+        for chip in chips {
+            let backed = match chip.kind {
+                ChipKind::Image => chip.number <= self.image_count,
+                ChipKind::Paste => chip.number <= self.paste_count,
+            };
+            if !backed || chip.end_byte <= wl.start_byte || chip.start_byte >= wl.end_byte {
+                continue;
+            }
+            let lo = chip.start_byte.saturating_sub(wl.start_byte);
+            let hi = (chip.end_byte - wl.start_byte).min(wl.text.len());
+            if lo < hi {
+                chip_ranges.push((lo, hi, chip.kind));
+            }
+        }
+        chip_ranges
+    }
+
+    /// The whole-box input selection, if a drag/click selection targets the
+    /// composer. Each row intersects this closed range with its own bytes.
+    fn input_range_selection(&self) -> Option<(usize, usize)> {
+        match self.selection {
+            SelectionState::InputRange {
+                anchor_byte,
+                head_byte,
+            } if anchor_byte != head_byte => Some((
+                (*anchor_byte).min(*head_byte),
+                (*anchor_byte).max(*head_byte),
+            )),
+            _ => None,
+        }
+    }
+
+    /// Text styles shared by every row of the non-empty draft.
+    fn row_styles(&self) -> RunStyles {
+        let panel_bg = self.panel_bg;
+        RunStyles {
+            base: Style::default().bg(panel_bg).fg(self.theme.fg()),
+            // Resolved `/command` token: bold + accent color, echoing the
+            // completion menu's command column so the two surfaces read alike.
+            accent: Style::default()
+                .bg(panel_bg)
+                .fg(self.theme.brand())
+                .add_modifier(Modifier::BOLD),
+            // Attachment chips (`[Image #N (size)]` / `[Pasted text #N +M
+            // lines (size)]`) render as tinted "pills" so a pasted block reads
+            // as a distinct object inside the live input instead of ordinary
+            // prose. Paste chips take the calm blue, image chips the warm
+            // amber; each is a bold colored label on a tinted band derived
+            // from the current panel, so the identifier is both informative
+            // and identifiable.
+            chip_paste: Style::default()
+                .bg(self.theme.chip_paste_bg(panel_bg))
+                .fg(self.theme.chip_paste_fg())
+                .add_modifier(Modifier::BOLD),
+            chip_image: Style::default()
+                .bg(self.theme.chip_image_bg(panel_bg))
+                .fg(self.theme.chip_image_fg())
+                .add_modifier(Modifier::BOLD),
+            selected_bg: self.theme.selected(),
+            chip_paste_fg: self.theme.chip_paste_fg(),
+            chip_image_fg: self.theme.chip_image_fg(),
+        }
+    }
+
+    /// Paint the ghost preview tail that shares the draft's last wrapped row,
+    /// returning the columns it consumed (zero when there is nothing to show).
+    fn push_inline_ghost(
+        &self,
+        spans: &mut Vec<Span<'static>>,
+        is_last_wrapped_row: bool,
+        used: usize,
+    ) -> usize {
+        if !is_last_wrapped_row {
+            return 0;
+        }
+        let Some(ghost) = self.ghost_text.filter(|g| !g.is_empty()) else {
+            return 0;
+        };
+        if let Some(suffix) = ghost.strip_prefix(self.input) {
+            let ghost_first_line = match suffix.find('\n') {
+                Some(pos) => &suffix[..pos],
+                None => suffix,
+            };
+            if ghost_first_line.is_empty() {
+                return 0;
+            }
+            let available = self.geometry.full_w.saturating_sub(used);
+            let to_show =
+                crate::shell::overlays::common::truncate_ellipsis(ghost_first_line, available);
+            let ghost_cols = str_len(&to_show);
+            spans.push(Span::styled(
+                to_show,
+                Style::default()
+                    .bg(self.panel_bg)
+                    .fg(self.theme.muted())
+                    .add_modifier(Modifier::DIM),
+            ));
+            return ghost_cols;
+        }
+        if self.geometry.visible_rows != 1 {
+            return 0;
+        }
+        let ghost_first_line = match ghost.find('\n') {
+            Some(pos) => &ghost[..pos],
+            None => ghost,
+        };
+        let available = self.geometry.full_w.saturating_sub(used);
+        if available <= 6 {
+            return 0;
+        }
+        let preview = format!("  ↳ {ghost_first_line}");
+        let to_show = crate::shell::overlays::common::truncate_ellipsis(&preview, available);
+        let ghost_cols = str_len(&to_show);
+        spans.push(Span::styled(
+            to_show,
+            Style::default()
+                .bg(self.panel_bg)
+                .fg(self.theme.muted())
+                .add_modifier(Modifier::DIM),
+        ));
+        ghost_cols
+    }
+
+    /// Append the multi-row ghost preview below a draft whose text is not a
+    /// prefix of the ghost candidate. Bounded by the visible text rows, exactly
+    /// like the draft's own slice.
+    fn push_ghost_preview_rows(&self, lines: &mut Vec<Line>, indent: &Span<'static>) {
+        let Some(ghost) = self.ghost_text.filter(|g| !g.is_empty()) else {
+            return;
+        };
+        if ghost.starts_with(self.input) {
+            return;
+        }
+        let ghost_grid = TextGrid::new(ghost, self.geometry.text_width);
+        let ghost_wrapped = ghost_grid.rows();
+        for (gi, gw) in ghost_wrapped.iter().enumerate() {
+            if lines.len() >= self.geometry.visible_rows {
+                break;
+            }
+            let prefix = if gi == 0 { "↳ " } else { "  " };
+            let preview_text = format!("{prefix}{}", gw.text);
+            let to_show = crate::shell::overlays::common::truncate_ellipsis(
+                &preview_text,
+                self.geometry.text_width,
+            );
+            let text_cols = str_len(&to_show);
+            let tail_cols = self
+                .geometry
+                .full_w
+                .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + text_cols);
+            lines.push(Line::from(vec![
+                indent.clone(),
+                Span::styled(
+                    to_show,
+                    Style::default()
+                        .bg(self.panel_bg)
+                        .fg(self.theme.muted())
+                        .add_modifier(Modifier::DIM),
+                ),
+                Span::styled(" ".repeat(tail_cols), Style::default().bg(self.panel_bg)),
+            ]));
+        }
+    }
+
+    /// Paint the meta row: navigation/actions lead on the left, execution and
+    /// submit anchors sit on the right, and the row closes with panel-bg air.
+    /// While unfocused the active sentence is replaced with the one chord that
+    /// returns to the composer.
+    fn push_hint_row(&self, lines: &mut Vec<Line>, wrapped: &[WrappedLine]) {
+        let mut spans: Vec<Span<'static>> = vec![Span::styled(
+            " ".repeat(COMPOSER_PROMPT_PREFIX_COLS),
+            Style::default().bg(self.panel_bg),
+        )];
+        if self.focused {
+            self.push_focused_hint_row(&mut spans, wrapped);
+        } else {
+            // The composer is not the only surface of this scene: the
+            // transcript is its peer and currently holds the keyboard
+            // (ADR-0145). The row that would have advertised the composer's
+            // own verbs therefore advertises the one gesture that comes back —
+            // a symmetric exit, named where the user is looking. The chord
+            // token comes from the shared key vocabulary rather than a
+            // literal, so this row can no more drift from the key's own name
+            // than a footer hint can.
+            spans.push(Span::styled(
+                format!("{} composer", super::keyvocab::SHIFT_TAB),
+                Style::default().bg(self.panel_bg).fg(self.theme.muted()),
+            ));
+        }
+        let used = spans
+            .iter()
+            .map(|span| str_len(&span.content))
+            .sum::<usize>();
+        let tail_cols = self.geometry.full_w.saturating_sub(used);
+        spans.push(Span::styled(
+            " ".repeat(tail_cols),
+            Style::default().bg(self.panel_bg),
+        ));
+        lines.push(Line::from(spans));
+    }
+
+    /// The focused composer's hint row: width ladder, Floor-1 collapse, and
+    /// the position readout, in that order of precedence.
+    fn push_focused_hint_row(&self, spans: &mut Vec<Span<'static>>, wrapped: &[WrappedLine]) {
+        let full_w = self.geometry.full_w;
+        let keys_width = full_w
+            .saturating_sub(COMPOSER_PROMPT_PREFIX_COLS + COMPOSER_RIGHT_PAD_COLS)
+            .max(8);
+        let density = ActionDensity::for_width(keys_width);
+        let position_label = if wrapped.len() > self.geometry.visible_rows {
+            let first = self.scroll + 1;
+            let last = (self.scroll + self.geometry.visible_rows).min(wrapped.len());
+            Some(format!("{first}–{last}/{} lines", wrapped.len()))
+        } else {
+            None
+        };
+        let pos_w = position_label.as_ref().map(|s| str_len(s) + 3).unwrap_or(0);
+
+        let prefix_w = COMPOSER_PROMPT_PREFIX_COLS;
+        let available = full_w.saturating_sub(COMPOSER_RIGHT_PAD_COLS);
+
+        // The row gives up affordances in a fixed order, and each rung is
+        // worth strictly more than the one below it: a denser rendering
+        // (Full → Compact) still *names* the crossing and the delivery
+        // verb, while the Floor-1 collapse (`F1 more`) names neither. So
+        // try the ladder first and collapse only if every rung overflows.
+        let rendered = |d: ActionDensity| {
+            let (left, right) = hint_row_parts(
+                self.hints.can_retry,
+                d,
+                self.hints.compose_target,
+                self.theme,
+                self.panel_bg,
+                self.hints.toggle_mode_key,
+                self.hints.focused_entry,
+            );
+            let left_w: usize = left.iter().map(|s| str_len(&s.content)).sum();
+            let right_w: usize = right.iter().map(|s| str_len(&s.content)).sum();
+            (left, left_w, right, right_w)
+        };
+        let ladder = density.ladder();
+        let fits = |d: ActionDensity| {
+            let (_, left_w, _, right_w) = rendered(d);
+            available >= prefix_w + left_w + right_w + pos_w
+        };
+        // Nothing fitting keeps the densest rung's row: the Floor-1 branch
+        // below re-checks the room it needs before drawing anything.
+        let chosen = ladder
+            .iter()
+            .copied()
+            .find(|&d| fits(d))
+            .unwrap_or_else(|| ladder.last().copied().unwrap_or(density));
+        let (left_spans, left_w, right_spans, right_w) = rendered(chosen);
+        let target_right_w = right_w + pos_w;
+        let needed = prefix_w + left_w + target_right_w;
+
+        if available >= needed {
+            spans.extend(left_spans);
+            let gap = available - needed;
+            spans.push(Span::styled(
+                " ".repeat(gap),
+                Style::default().bg(self.panel_bg),
+            ));
+        } else {
+            // Width constrained: apply Floor-1 rule (ADR-0054 [INV-AFFORDANCE-02]).
+            // If left hints overflow the available budget, collapse them to `F1 more`
+            // to guarantee non-destructive discovery without layout clipping.
+            let space_for_left = available.saturating_sub(prefix_w + target_right_w + 3);
+            let overflow_affordance =
+                nuo_ui_primitives::components::keycap::KeyAffordance::new("F1", "more");
+            let overflow_w = overflow_affordance.width();
+            if space_for_left >= overflow_w {
+                let [k, l] = overflow_affordance.render_spans(self.theme, self.panel_bg);
+                spans.push(k);
+                spans.push(l);
+                let gap = space_for_left - overflow_w + 3;
+                spans.push(Span::styled(
+                    " ".repeat(gap),
+                    Style::default().bg(self.panel_bg),
+                ));
+            } else {
+                let gap = available.saturating_sub(prefix_w + target_right_w);
+                spans.push(Span::styled(
+                    " ".repeat(gap),
+                    Style::default().bg(self.panel_bg),
+                ));
+            }
+        }
+
+        if let Some(pos) = position_label
+            && available > needed
+        {
+            spans.push(Span::styled(
+                pos,
+                Style::default().bg(self.panel_bg).fg(self.theme.muted()),
+            ));
+            spans.push(Span::styled("   ", Style::default().bg(self.panel_bg)));
+        }
+
+        spans.extend(right_spans);
+    }
+}
+
+/// Per-row inputs for [`ComposerPaint::push_draft_row`]: the chips scanned from
+/// the draft, the resolved selection ranges, the shared run styles, and the
+/// prompt prefix spans.
+struct DraftRowPaint<'a> {
+    chips: Vec<ChipMatch>,
+    styles: RunStyles,
+    input_range_sel: Option<(usize, usize)>,
+    sel_range: Option<(usize, Option<usize>)>,
+    prompt_glyph: &'a Span<'static>,
+    prompt_gap: &'a Span<'static>,
+    indent: &'a Span<'static>,
+}
+
+impl DraftRowPaint<'_> {
+    /// The highlight range for one wrapped row, relative to its text. An
+    /// explicit input-range selection is intersected with the row; otherwise
+    /// the semantic block selection resolves through [`line_selection`].
+    fn selected_range(&self, wl: &WrappedLine) -> Option<(usize, usize)> {
+        if let Some((sel_start, sel_end)) = self.input_range_sel {
+            let lo = sel_start.max(wl.start_byte);
+            let hi = sel_end.min(wl.end_byte);
+            if lo < hi {
+                Some((lo - wl.start_byte, hi - wl.start_byte))
+            } else {
+                None
+            }
+        } else {
+            line_selection(self.sel_range, wl)
+        }
+    }
+}
+
+/// Count the wrapped rows hidden above / below the visible window after the
+/// caret-follow clamp has settled the scroll offset for this frame. The ghost
+/// candidate supplies the row count while the draft itself is empty.
+fn composer_hidden_rows(
+    input: &str,
+    ghost_text: Option<&str>,
+    text_width: usize,
+    scroll: usize,
+    visible_rows: usize,
+    wrapped_len: usize,
+) -> (usize, usize) {
+    let hidden_above = scroll;
+    let hidden_below = if input.is_empty() {
+        if let Some(ghost) = ghost_text.filter(|g| !g.is_empty()) {
+            let ghost_grid = TextGrid::new(ghost, text_width);
+            let ghost_wrapped = ghost_grid.rows();
+            ghost_wrapped.len().saturating_sub(scroll + visible_rows)
+        } else {
+            0
+        }
+    } else {
+        wrapped_len.saturating_sub(scroll + visible_rows)
+    };
+    (hidden_above, hidden_below)
+}
+
+/// Record each visible draft row in the layout map so mouse drag selection and
+/// copy work on the live input.
+fn record_composer_rows(
+    layout_map: &mut LayoutMap,
+    input_rect: Rect,
+    geometry: ComposerGeometry,
+    scroll: usize,
+    wrapped: &[WrappedLine],
+) {
+    layout_map.set_composer_rect(input_rect);
+    let start = scroll;
+    let end = (scroll + geometry.visible_rows).min(wrapped.len());
+    for (i, wl) in wrapped[start..end].iter().enumerate() {
+        let row_y = input_rect.y + COMPOSER_TEXT_ROW_OFFSET + i as u16;
+        layout_map.push(BlockRegion {
+            message_idx: INPUT_MSG_IDX,
+            block_idx: 0,
+            start_byte: wl.start_byte,
+            end_byte: wl.end_byte,
+            text: wl.text.clone(),
+            prefix_cols: COMPOSER_PROMPT_PREFIX_COLS as u16,
+            rect: Rect::new(input_rect.x, row_y, geometry.full_w as u16, 1),
+            hidden_ranges: Vec::new(),
+        });
     }
 }
 
@@ -956,7 +1187,7 @@ fn push_styled_runs(
     accent_len: Option<usize>,
     chip_ranges: &[(usize, usize, ChipKind)],
     selected: Option<(usize, usize)>,
-    styles: RunStyles,
+    styles: &RunStyles,
 ) {
     if text.is_empty() {
         return;

@@ -10,10 +10,9 @@
 //! the query's terms, with a length penalty so a term-stuffed blob does not
 //! drown a focused hit.
 
-use nuo_protocol::{CommandRecord};
+use nuo_protocol::CommandRecord;
 
-use nuo_tool::{Message};
-
+use nuo_tool::Message;
 
 /// A scored hit: the rendered text plus its score.
 pub(crate) struct LexicalHit {

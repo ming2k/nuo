@@ -7,7 +7,7 @@ impl App {
     /// The composer's inline-recall **pointer badge**, derived for the
     /// composer's top chrome row (`[history 3/17 | draft saved]`).
     ///
-    /// `None` while [`Self::history_index`] is `None` — the badge must not
+    /// `None` while `Self::history_index` is `None` — the badge must not
     /// exist in draft mode: /0174's zero-mode-indication-tax stance
     /// means the only state worth announcing is the one the user can enter
     /// silently and lose work from, and the ↑/↓ recall pointer is exactly
@@ -15,7 +15,7 @@ impl App {
     ///
     /// `position` is **1-based** (`history_index + 1`) because the badge is
     /// prose for humans, not an index into the slice; `total` is the current
-    /// session's row count, computed fresh from [`Self::current_session_history`]
+    /// session's row count, computed fresh from `Self::current_session_history`
     /// (cheap: the slice rebuilds on every render anyway via the arrow paths,
     /// and a stale cached total would disagree with the live walk).
     ///
@@ -28,11 +28,11 @@ impl App {
     /// pressing ↑ and silently discarding it.
     ///
     /// The `draft saved` reassurance is *not* computed here — it is a
-    /// presentation fact about [`Self::draft_capsule`] (non-empty vs empty),
+    /// presentation fact about `Self::draft_capsule` (non-empty vs empty),
     /// appended by the renderer. This function answers only "where is the
     /// pointer and has the buffer forked".
     pub fn history_recall_badge(&self) -> Option<(usize, usize, bool)> {
-        let position = self.history_index?;
+        let position = self.composer.history_index?;
         let rows = self.current_session_history();
         if rows.is_empty() {
             // A non-None pointer over an empty slice cannot survive a
@@ -45,12 +45,12 @@ impl App {
         // lookup needs the combined-space row index the slice stores.
         let edited = self
             .history_entry(rows[position.min(rows.len() - 1)])
-            .is_some_and(|entry| entry.text != self.input);
+            .is_some_and(|entry| entry.text != self.composer.input);
         Some((position + 1, rows.len(), edited))
     }
 
     /// Rows shown in the Ctrl+R history panel, as `(original_index,
-    /// FuzzyMatch)` pairs indexing into [`App::input_history`]. The single
+    /// FuzzyMatch)` pairs indexing into `App::input_history`. The single
     /// source of truth for navigation (Up/Down clamp), Enter-accept, and
     /// rendering — they all index into this same vector so the cursor never
     /// lands on a row the user cannot see.
@@ -58,7 +58,7 @@ impl App {
     /// The list is always the **whole cross-session history**, independent of
     /// which session or workspace produced each entry — that is the entire
     /// point of Ctrl+R (the inline ↑/↓ recall, by contrast, is scoped to the
-    /// current session via [`App::current_session_history`]). Entries are
+    /// current session via `App::current_session_history`). Entries are
     /// ordered newest-first by `created_at_ms`.
     ///
     /// With an empty query (`App::input`, which the panel borrows as its live
@@ -73,7 +73,7 @@ impl App {
         // tail, so re-sort by created_at_ms (stable) to keep the panel's order
         // correct without mutating the stored Vec.
         let order: Vec<usize> = self.history_order();
-        let query = self.input.as_str();
+        let query = self.composer.input.as_str();
         if query.is_empty() {
             // Empty query → show everything newest-first, unhighlighted.
             return order
@@ -91,21 +91,24 @@ impl App {
         }
         let max_ts = order
             .first()
-            .and_then(|&i| self.input_history.get(i))
+            .and_then(|&i| self.composer.input_history.get(i))
             .map(|e| e.created_at_ms)
             .unwrap_or(0);
 
         // Zero-allocation streaming rank: matches are filtered and scored in a single
         // pass directly over the history entries without intermediate string allocations.
         // `rank_iter` preserves the input `order` on ties (stable).
-        let items = order
-            .iter()
-            .filter_map(|&i| self.input_history.get(i).map(|e| (i, e.text.as_str())));
+        let items = order.iter().filter_map(|&i| {
+            self.composer
+                .input_history
+                .get(i)
+                .map(|e| (i, e.text.as_str()))
+        });
         let mut ranked = fuzzy::rank_iter(items, query);
 
         // Blend in recency decay and current session affinity (Industry Gold Standard)
         for (orig_idx, m) in &mut ranked {
-            if let Some(entry) = self.input_history.get(*orig_idx) {
+            if let Some(entry) = self.composer.input_history.get(*orig_idx) {
                 // 1. Recency bonus: smooth decay based on age relative to newest item
                 if max_ts > 0 && entry.created_at_ms > 0 {
                     let age_ms = max_ts.saturating_sub(entry.created_at_ms);
@@ -129,8 +132,8 @@ impl App {
                 }
 
                 // 2. In-session affinity: items sent in this exact thread have high contextual relevance
-                if !self.current_session_id.is_empty()
-                    && entry.session_id.as_deref() == Some(self.current_session_id.as_str())
+                if !self.session.current_session_id.is_empty()
+                    && entry.session_id.as_deref() == Some(self.session.current_session_id.as_str())
                 {
                     m.score = m.score.saturating_add(20);
                 }
@@ -141,21 +144,21 @@ impl App {
         ranked
     }
 
-    /// The newest-first ordering of [`App::input_history`] by `created_at_ms`,
+    /// The newest-first ordering of `App::input_history` by `created_at_ms`,
     /// as original indices into that Vec. Stable on ties so the on-disk order
-    /// survives. Shared by [`Self::history_rows`] (Ctrl+R) and
-    /// [`Self::current_session_history`] (inline ↑/↓) so both surfaces agree
+    /// survives. Shared by `Self::history_rows` (Ctrl+R) and
+    /// `Self::current_session_history` (inline ↑/↓) so both surfaces agree
     /// on what "newest" means.
     pub fn history_order(&self) -> Vec<usize> {
-        let mut order: Vec<usize> = (0..self.input_history.len()).collect();
+        let mut order: Vec<usize> = (0..self.composer.input_history.len()).collect();
         // Newest-first by `created_at_ms`; entries stamped within the same
         // millisecond (a fast send burst) break ties by insertion order — the
         // later index is the newer prompt — so "newest-first" stays
         // well-defined instead of degrading to oldest-first on a tie.
         order.sort_by(|&a, &b| {
-            self.input_history[b]
+            self.composer.input_history[b]
                 .created_at_ms
-                .cmp(&self.input_history[a].created_at_ms)
+                .cmp(&self.composer.input_history[a].created_at_ms)
                 .then_with(|| b.cmp(&a))
         });
         order
@@ -163,9 +166,9 @@ impl App {
 
     /// The current session's history, newest-first. This is what the inline
     /// ↑/↓ recall walks: the union of the **persisted** history
-    /// ([`Self::input_history`], filtered to entries whose `session_id`
-    /// matches [`App::current_session_id`]) and the **derived** transcript
-    /// rows ([`Self::session_history_backfill`]), so arrow-key recall
+    /// (`Self::input_history`, filtered to entries whose `session_id`
+    /// matches `App::current_session_id`) and the **derived** transcript
+    /// rows (`Self::session_history_backfill`), so arrow-key recall
     /// surfaces exactly the prompts of *this* thread — including ones
     /// this client never recorded (a session resumed from elsewhere). Ctrl+R
     /// is unaffected — it searches the whole persisted list regardless of
@@ -173,20 +176,22 @@ impl App {
     ///
     /// Returns indices into the combined row space: `0..input_history.len()`
     /// address the persisted store, `input_history.len() + i` addresses the
-    /// `i`-th backfill row. [`Self::history_entry`] resolves either kind, so
+    /// `i`-th backfill row. `Self::history_entry` resolves either kind, so
     /// callers never branch on the boundary.
     pub fn current_session_history(&self) -> Vec<usize> {
-        let sid = self.current_session_id.as_str();
+        let sid = self.session.current_session_id.as_str();
         let mut rows: Vec<(u64, usize)> = self
+            .composer
             .input_history
             .iter()
             .enumerate()
             .filter(|(_, e)| e.session_id.as_deref() == Some(sid))
             .map(|(i, e)| (e.created_at_ms, i))
             .collect();
-        let base = self.input_history.len();
+        let base = self.composer.input_history.len();
         rows.extend(
-            self.session_history_backfill
+            self.composer
+                .session_history_backfill
                 .iter()
                 .enumerate()
                 // Walked newest-first below, so the backfill's oldest-first
@@ -202,30 +207,33 @@ impl App {
         rows.into_iter().map(|(_, i)| i).collect()
     }
 
-    /// Resolve a row index from [`Self::current_session_history`] to its
+    /// Resolve a row index from `Self::current_session_history` to its
     /// entry, transparently spanning the persisted store (`0..len`) and the
     /// session backfill (`len..`). `None` when the index is out of range.
     pub fn history_entry(&self, idx: usize) -> Option<&nuo_protocol::HistoryEntry> {
-        if idx < self.input_history.len() {
-            self.input_history.get(idx)
+        if idx < self.composer.input_history.len() {
+            self.composer.input_history.get(idx)
         } else {
-            self.session_history_backfill
-                .get(idx - self.input_history.len())
+            self.composer
+                .session_history_backfill
+                .get(idx - self.composer.input_history.len())
         }
     }
 
     /// Drop backfill rows whose text this session has since **recorded**
     /// (the send path persisted it, possibly by re-tagging an existing
     /// global-dedup row into this session). Called after
-    /// [`Self::record_input_history`] so the union the ↑/↓ walk sees never
+    /// `Self::record_input_history` so the union the ↑/↓ walk sees never
     /// contains the same prompt twice: without this, a prompt that was
     /// backfilled on resume and then re-sent through this client would
     /// surface as two adjacent rows.
     pub fn prune_backfill_after_record(&mut self, text: &str) {
-        self.session_history_backfill.retain(|e| e.text != text);
+        self.composer
+            .session_history_backfill
+            .retain(|e| e.text != text);
     }
 
-    /// Seed [`Self::session_history_backfill`] with the **viewed
+    /// Seed `Self::session_history_backfill` with the **viewed
     /// transcript's** genuine chat prompts, so the inline ↑/↓ recall reflects
     /// the thread the user is actually looking at rather than only what
     /// this client's database happens to contain.
@@ -257,8 +265,9 @@ impl App {
     /// sent_at_ms)` triples — copied out by the caller, which cannot lend
     /// the transcript while `App` is borrowed mutably here.
     pub fn backfill_session_history(&mut self, tail: &[(String, bool, u64)], now_ms: u64) {
-        let sid = self.current_session_id.as_str();
+        let sid = self.session.current_session_id.as_str();
         let recorded: HashSet<&str> = self
+            .composer
             .input_history
             .iter()
             .filter(|e| e.session_id.as_deref() == Some(sid))
@@ -272,6 +281,7 @@ impl App {
             // is one recallable row — the newest position wins, matching the
             // persisted history's newest-first contract.
             if let Some(existing) = self
+                .composer
                 .session_history_backfill
                 .iter_mut()
                 .find(|e| e.text == *text)
@@ -279,11 +289,12 @@ impl App {
                 existing.created_at_ms = (*sent_at_ms).max(existing.created_at_ms);
                 continue;
             }
-            self.session_history_backfill
+            self.composer
+                .session_history_backfill
                 .push(nuo_protocol::HistoryEntry::new(
                     text.clone(),
-                    Some(self.current_session_id.clone()),
-                    Some(self.current_workspace.clone()),
+                    Some(self.session.current_session_id.clone()),
+                    Some(self.session.current_workspace.clone()),
                     if *sent_at_ms == 0 {
                         now_ms
                     } else {
@@ -316,7 +327,7 @@ impl App {
         images: Vec<ImagePart>,
         text_pastes: Vec<String>,
     ) {
-        self.history_index = None;
+        self.composer.history_index = None;
         if entry.is_empty() && images.is_empty() && text_pastes.is_empty() {
             return;
         }
@@ -324,7 +335,7 @@ impl App {
         // not prompts: they are already visible in the transcript, and most
         // users don't want `/model` noise cluttering the Ctrl+R picker. Skip
         // them unless `[input_history] record_commands` opts them back in.
-        if entry.starts_with('/') && !self.input_history_record_commands {
+        if entry.starts_with('/') && !self.composer.input_history_record_commands {
             return;
         }
         let now = crate::shell::event_loop::now_epoch_ms();
@@ -336,6 +347,7 @@ impl App {
         // wall clock stays the baseline; when it has not advanced past the
         // newest recorded entry, nudge the stamp forward by one.
         let latest_ts = self
+            .composer
             .input_history
             .iter()
             .map(|e| e.created_at_ms)
@@ -346,25 +358,27 @@ impl App {
         } else {
             latest_ts.saturating_add(1)
         };
-        let session_id = if self.current_session_id.is_empty() {
+        let session_id = if self.session.current_session_id.is_empty() {
             None
         } else {
-            Some(self.current_session_id.clone())
+            Some(self.session.current_session_id.clone())
         };
-        let workspace = if self.current_workspace.is_empty() {
+        let workspace = if self.session.current_workspace.is_empty() {
             None
         } else {
-            Some(self.current_workspace.clone())
+            Some(self.session.current_workspace.clone())
         };
         // Cache the attachments first (before the dedup early-return) so a
         // repeat send of the same prompt refreshes the payloads a recall
         // will restore, even though no new history row is pushed.
         if !images.is_empty() || !text_pastes.is_empty() {
             let identity = (entry.clone(), session_id.clone());
-            if !self.history_attachments.contains_key(&identity) {
-                self.history_attachments_order.push_back(identity.clone());
+            if !self.composer.history_attachments.contains_key(&identity) {
+                self.composer
+                    .history_attachments_order
+                    .push_back(identity.clone());
             }
-            self.history_attachments.insert(
+            self.composer.history_attachments.insert(
                 identity,
                 HistoryAttachments {
                     images,
@@ -379,8 +393,13 @@ impl App {
         // entry bubbles to the top of the newest-first picker) and adopts the
         // newest known origin (so ↑/↓ in the session that last sent it still
         // finds it), then persists the refreshed entry.
-        if self.input_history_dedup {
-            if let Some(existing) = self.input_history.iter_mut().find(|e| e.text == entry) {
+        if self.composer.input_history_dedup {
+            if let Some(existing) = self
+                .composer
+                .input_history
+                .iter_mut()
+                .find(|e| e.text == entry)
+            {
                 existing.created_at_ms = now;
                 if session_id.is_some() {
                     existing.session_id = session_id;
@@ -393,7 +412,7 @@ impl App {
                 // transcript-derived backfill row for it so the ↑/↓ union
                 // never shows the same prompt twice.
                 self.prune_backfill_after_record(&refreshed.text);
-                if self.input_history_persist {
+                if self.composer.input_history_persist {
                     // Server-side SSOT merge: the TUI never opens
                     // the shared SQLite store itself.
                     self.send_intent(nuo_protocol::AgentRequest::RecordInputHistory {
@@ -405,7 +424,7 @@ impl App {
             }
             let recorded = nuo_protocol::HistoryEntry::new(entry, session_id, workspace, now);
             self.push_history(recorded.clone());
-            if self.input_history_persist {
+            if self.composer.input_history_persist {
                 self.send_intent(nuo_protocol::AgentRequest::RecordInputHistory {
                     entries: vec![recorded],
                     dedup: true,
@@ -435,7 +454,7 @@ impl App {
         // the new entry is enough and cheap. Off-thread: the write takes a file
         // lock and must not block the event loop. Skipped entirely when disk
         // persistence is disabled (tests).
-        if self.input_history_persist {
+        if self.composer.input_history_persist {
             self.send_intent(nuo_protocol::AgentRequest::RecordInputHistory {
                 entries: vec![recorded],
                 dedup: false,
@@ -444,19 +463,19 @@ impl App {
     }
 
     /// Drop the oldest cached attachment entries (FIFO) once the cache
-    /// exceeds [`Self::HISTORY_ATTACHMENTS_CAP`]. `history_attachments_order`
+    /// exceeds `Self::HISTORY_ATTACHMENTS_CAP`. `history_attachments_order`
     /// records first-seen order; a re-sent identity keeps its original slot.
     fn prune_history_attachments(&mut self) {
-        while self.history_attachments.len() > Self::HISTORY_ATTACHMENTS_CAP {
-            let Some(key) = self.history_attachments_order.pop_front() else {
+        while self.composer.history_attachments.len() > Self::HISTORY_ATTACHMENTS_CAP {
+            let Some(key) = self.composer.history_attachments_order.pop_front() else {
                 break;
             };
-            self.history_attachments.remove(&key);
+            self.composer.history_attachments.remove(&key);
         }
     }
 
     /// Restore the attachments cached behind the history entry at
-    /// `orig_idx` (an index into [`App::input_history`], as returned by
+    /// `orig_idx` (an index into `App::input_history`, as returned by
     /// `current_session_history` / `history_rows`) into the composer's
     /// `pending_images` / `pending_text_pastes`, or clear them when the
     /// entry has no cache (e.g. loaded from disk before this process
@@ -468,22 +487,22 @@ impl App {
             return;
         };
         let identity = (entry.text.clone(), entry.session_id.clone());
-        match self.history_attachments.get(&identity) {
+        match self.composer.history_attachments.get(&identity) {
             Some(attachments) => {
-                self.pending_images = attachments.images.clone();
-                self.pending_text_pastes = attachments.text_pastes.clone();
+                self.composer.pending_images = attachments.images.clone();
+                self.composer.pending_text_pastes = attachments.text_pastes.clone();
             }
             None => {
                 // No cached payloads: a fresh send must not inherit
                 // attachments staged for some other entry, so clear them.
-                self.pending_images.clear();
-                self.pending_text_pastes.clear();
+                self.composer.pending_images.clear();
+                self.composer.pending_text_pastes.clear();
             }
         }
     }
 
     /// Load the history entry at `orig_idx` (an index from
-    /// [`Self::current_session_history`] — spanning the persisted store and
+    /// `Self::current_session_history` — spanning the persisted store and
     /// the session backfill) into the composer: its text, its cached
     /// attachments, cursor at the end, completion popup latched closed.
     /// Shared by the ↑/↓ walk and Ctrl+R insert so every recall path stays
@@ -492,7 +511,7 @@ impl App {
         let Some(entry) = self.history_entry(orig_idx) else {
             return;
         };
-        self.input = entry.text.clone();
+        self.composer.input = entry.text.clone();
         self.set_cursor_end();
         self.restore_history_attachments(orig_idx);
         // History navigation is a programmatic input replacement, not an
@@ -500,13 +519,13 @@ impl App {
         // accept rather than re-enabling the popup the way InsertChar /
         // Backspace do. This keeps a recalled slash command from flashing
         // its completion menu until the next real keystroke clears the latch.
-        self.suggestion_index = None;
-        self.completion_dismissed = true;
+        self.composer.suggestion_index = None;
+        self.composer.completion_dismissed = true;
     }
 
     /// Advance the inline ↑/↓ history cursor one step toward **older**
     /// entries (the ↑ key). `session_rows` is the newest-first index slice
-    /// from [`App::current_session_history`], so position 0 is the newest
+    /// from `App::current_session_history`, so position 0 is the newest
     /// entry and larger positions are older.
     ///
     /// The first ↑ stashes the in-progress draft — text and any staged
@@ -521,7 +540,7 @@ impl App {
         if session_rows.is_empty() {
             return false;
         }
-        let new_pos = match self.history_index {
+        let new_pos = match self.composer.history_index {
             Some(p) => {
                 if p >= session_rows.len() - 1 {
                     return false;
@@ -536,37 +555,37 @@ impl App {
                 0
             }
         };
-        self.history_index = Some(new_pos);
+        self.composer.history_index = Some(new_pos);
         self.load_history_row(session_rows[new_pos]);
         true
     }
 
     /// Move the inline history cursor one step toward **newer** entries
-    /// (the ↓ key), mirroring [`App::history_prev`]. Walking past the
+    /// (the ↓ key), mirroring `App::history_prev`. Walking past the
     /// newest entry (position 0) restores the draft stashed on the first ↑
     /// — text and attachments together. Returns `true` when a row was
     /// loaded; `false` when the cursor is already at the newest edge (or
     /// was never armed), in which case the draft has been restored.
     pub fn history_next(&mut self, session_rows: &[usize]) -> bool {
-        let Some(pos) = self.history_index else {
+        let Some(pos) = self.composer.history_index else {
             return false;
         };
         if pos == 0 {
             // Walked back to the newest entry: restore the draft the user
             // was composing before the first ↑ — text and any staged
             // attachments together — rather than blanking the composer.
-            self.history_index = None;
+            self.composer.history_index = None;
             self.restore_stashed_draft();
             self.set_cursor_end();
             // The restored draft may be a partial slash/path the user was
             // mid-edit on, but it still arrived via navigation rather than
             // a keystroke, so hold the latch until the next edit.
-            self.suggestion_index = None;
-            self.completion_dismissed = true;
+            self.composer.suggestion_index = None;
+            self.composer.completion_dismissed = true;
             return false;
         }
         let new_pos = pos - 1;
-        self.history_index = Some(new_pos);
+        self.composer.history_index = Some(new_pos);
         self.load_history_row(session_rows[new_pos]);
         true
     }
@@ -574,34 +593,37 @@ impl App {
     /// Cancel inline history recall and restore the draft that was saved
     /// before navigation began.
     pub fn cancel_history_recall(&mut self) {
-        if self.history_index.is_some() {
-            self.history_index = None;
+        if self.composer.history_index.is_some() {
+            self.composer.history_index = None;
             self.restore_stashed_draft();
             self.set_cursor_end();
-            self.suggestion_index = None;
-            self.completion_dismissed = true;
+            self.composer.suggestion_index = None;
+            self.composer.completion_dismissed = true;
         }
     }
 
-    /// Delete an entry from input history at `orig_idx` (an index into [`App::input_history`]),
+    /// Delete an entry from input history at `orig_idx` (an index into `App::input_history`),
     /// cascading to SQLite persistence, session backfill, and attachment cache.
     pub fn delete_history_entry_at(
         &mut self,
         orig_idx: usize,
     ) -> Option<nuo_protocol::HistoryEntry> {
-        if orig_idx >= self.input_history.len() {
+        if orig_idx >= self.composer.input_history.len() {
             return None;
         }
-        let removed = self.input_history.remove(orig_idx);
+        let removed = self.composer.input_history.remove(orig_idx);
         // Cascade 1: Prune matching text from current session's backfill
-        self.session_history_backfill
+        self.composer
+            .session_history_backfill
             .retain(|e| e.text != removed.text);
         // Cascade 2: Remove cached attachments
         let identity = (removed.text.clone(), removed.session_id.clone());
-        self.history_attachments.remove(&identity);
-        self.history_attachments_order.retain(|k| k != &identity);
+        self.composer.history_attachments.remove(&identity);
+        self.composer
+            .history_attachments_order
+            .retain(|k| k != &identity);
         // Cascade 3: invalidate the server's on-disk record.
-        if self.input_history_persist {
+        if self.composer.input_history_persist {
             self.send_intent(nuo_protocol::AgentRequest::DeleteInputHistoryEntry {
                 text: removed.text.clone(),
                 created_at_ms: removed.created_at_ms,
@@ -617,6 +639,7 @@ impl App {
         let pick = ranked
             .get(
                 self.surfaces
+                    .surfaces
                     .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                     .index,
             )
@@ -626,15 +649,18 @@ impl App {
         let new_len = self.history_rows().len();
         if self
             .surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
             .index
             >= new_len
         {
             self.surfaces
+                .surfaces
                 .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
                 .index = new_len.saturating_sub(1);
         }
         self.surfaces
+            .surfaces
             .dlg_mut::<crate::shell::surfaces::HistorySearchDialog>()
             .follow = true;
         removed

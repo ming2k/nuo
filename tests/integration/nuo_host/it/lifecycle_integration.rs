@@ -24,10 +24,10 @@ use std::time::Duration;
 
 use nuo::runtime::host::{HostIdentity, HostOptions, LifecycleOptions, RunOutcome};
 use nuo::runtime::registry::{HostedThread, ThreadRegistry};
-use nuo_server::transport::serve::ServeExpose;
 use nuo::runtime::shutdown::{DrainProbe, ShutdownGate, ShutdownReason};
 use nuo_persistence::thread::ThreadSession;
 use nuo_protocol::MonitorEvent;
+use nuo_server::transport::serve::ServeExpose;
 use tokio::sync::{Mutex, broadcast, mpsc};
 
 /// Sandbox the process-wide dirs once, before any `paths::get()` call can
@@ -110,10 +110,12 @@ async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
     let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
     let id = session.id().await;
     let id_ret = id.clone();
-    let tracker = Arc::new(Mutex::new(nuo::runtime::monitor::MonitorTracker::bootstrap(
-        nuo_protocol::MonitoredThread::empty(id),
-        nuo_protocol::ThreadActivity::Idle,
-    )));
+    let tracker = Arc::new(Mutex::new(
+        nuo::runtime::monitor::MonitorTracker::bootstrap(
+            nuo_protocol::MonitoredThread::empty(id),
+            nuo_protocol::ThreadActivity::Idle,
+        ),
+    ));
     registry
         .host(HostedThread {
             workspace_root: Some(std::path::PathBuf::from(project)),
@@ -130,7 +132,9 @@ async fn host_one(registry: &Arc<ThreadRegistry>, project: &str) -> String {
             cancel: tokio_util::sync::CancellationToken::new(),
             driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
             tracker,
-            sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+            sync_buffer: Arc::new(Mutex::new(
+                nuo_server::transport::serve::AttachSyncBuffer::new(),
+            )),
             command_catalog: nuo_tool::CommandCatalog::default(),
             initial_provider: "test-provider".into(),
             initial_model: "test-model".into(),
@@ -368,10 +372,12 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
     ) {
         let (req_tx, _req_rx) = mpsc::channel::<nuo_protocol::AgentRequest>(512);
         let (bc_tx, _) = broadcast::channel::<nuo_protocol::AgentResponse>(16);
-        let tracker = Arc::new(Mutex::new(nuo::runtime::monitor::MonitorTracker::bootstrap(
-            nuo_protocol::MonitoredThread::empty(session.id().await),
-            nuo_protocol::ThreadActivity::Idle,
-        )));
+        let tracker = Arc::new(Mutex::new(
+            nuo::runtime::monitor::MonitorTracker::bootstrap(
+                nuo_protocol::MonitoredThread::empty(session.id().await),
+                nuo_protocol::ThreadActivity::Idle,
+            ),
+        ));
         registry
             .host(HostedThread {
                 workspace_root: Some(project_root.to_path_buf()),
@@ -388,7 +394,9 @@ async fn idle_suspension_spares_sessions_with_armed_schedules() {
                 cancel: tokio_util::sync::CancellationToken::new(),
                 driver_done: std::sync::Arc::new(tokio::sync::Semaphore::new(0)),
                 tracker,
-                sync_buffer: Arc::new(Mutex::new(nuo_server::transport::serve::AttachSyncBuffer::new())),
+                sync_buffer: Arc::new(Mutex::new(
+                    nuo_server::transport::serve::AttachSyncBuffer::new(),
+                )),
                 command_catalog: nuo_tool::CommandCatalog::default(),
                 initial_provider: "test-provider".into(),
                 initial_model: "test-model".into(),

@@ -153,7 +153,7 @@ nuo-provider-codebuddy-intl = { version = "0.0.87", path = "providers/nuo-provid
 nuo-mcp = { version = "0.0.87", path = "crates/nuo-mcp" }
 nuo-inference-wire = { version = "0.0.87", path = "crates/nuo-inference-wire", default-features = false }
 # Dev-only: hermetic E2E harness (sandboxed NUO_HOME, mock provider, CLI
-# runner). Never a shipped dependency; `crates/nuo/tests/test_architecture.rs`
+# runner). Never a shipped dependency; `tests/integration/governance/test_architecture.rs`
 # enforces that it stays under `[dev-dependencies]`.
 nuo-test-support = { version = "0.0.87", path = "crates/nuo-test-support" }
 
@@ -208,7 +208,8 @@ base64 = { workspace = true }
 futures = { workspace = true }
 libc = { workspace = true }
 mockito = { workspace = true }
-proc-macro2 = { workspace = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 syn = { workspace = true, features = ["visit"] }

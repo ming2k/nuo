@@ -194,9 +194,6 @@ pub(crate) fn draw_blank_rows(ctx: &mut RenderCtx<'_, '_>, style: Style, rows: u
 /// renderer then numbers the slice 1, 2, 3… The gutter width is derived from
 /// the *highest* displayed line number (not the line *count*) so an offset
 /// snippet like 100..104 still gets a 3-wide column instead of overflowing.
-#[allow(clippy::too_many_arguments)]
-
-/// Draw a full-width decorative band row — a result heading (count band) or a
 /// Draw a wrapped, selectable title band for a path heading, registering one
 /// region per wrapped line anchored at `abs_start` in the raw tool output. A
 /// title owns its own tier (the full inner width), not the gutter column the

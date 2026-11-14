@@ -1,3 +1,13 @@
+---
+id: ADR-0165
+title: "User Instructions Absorb Model Guidance as the User Source"
+status: accepted
+date: 2026-11-10
+scope: [workspace]
+superseded_by: null
+negative_knowledge: true
+---
+
 # ADR-0165: User Instructions Absorb Model Guidance as the User Source
 
 - **Status:** Accepted

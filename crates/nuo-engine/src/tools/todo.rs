@@ -16,7 +16,6 @@ use serde_json::{Value, json};
 
 use nuo_tool::{BuiltinTool, MAX_TODOS, TodoList, TodoStatus, Tool};
 
-
 const TODO_DESCRIPTION: &str = "Update the task list. Two modes, mutually exclusive: \
 (1) full replace — provide `items`, the full array ({content, status: \
 'pending'|'in_progress'|'completed'|'cancelled'}), at most one item in_progress (extras are \

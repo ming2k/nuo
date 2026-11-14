@@ -830,7 +830,7 @@ impl SurfaceRouter {
 
     /// Clear the authentic title of the thread tab representing `thread_id`.
     ///
-    /// Separate from [`Self::rebase_thread_tab`] on purpose: the two are
+    /// Separate from `Self::rebase_thread_tab` on purpose: the two are
     /// independent facts, and folding them together is what let the old
     /// positional rebase clear an unrelated tab's title.
     pub fn clear_tab_title(&mut self, thread_id: &str) {
@@ -846,7 +846,7 @@ impl SurfaceRouter {
     ///
     /// Returns the removed tab. The MRU history entry is dropped with it so a
     /// later close cannot resolve to a stale kind, and the active index is
-    /// repaired by the ordinary [`Self::close_tab`] selection rule.
+    /// repaired by the ordinary `Self::close_tab` selection rule.
     pub fn retire_thread_tab(&mut self, thread_id: &str) -> Option<ClientTab> {
         let pos = self
             .tabs
@@ -1075,7 +1075,7 @@ impl SurfaceRouter {
     /// render/input it against a disjoint borrow. A **clone** placeholder is
     /// left for dialogs whose own query drives App-side reads during render, so
     /// those reads observe the same state; the clone is overwritten by
-    /// [`Self::put_active_view`].
+    /// `Self::put_active_view`.
     pub fn take_active_view(&mut self) -> Option<Box<dyn DialogView>> {
         let entry = self.overlay_stack.last_mut()?;
         let view = entry.view.take()?;
@@ -1088,7 +1088,7 @@ impl SurfaceRouter {
         Some(view)
     }
 
-    /// Put an entity taken with [`Self::take_active_view`] back into the top
+    /// Put an entity taken with `Self::take_active_view` back into the top
     /// stack entry.
     pub fn put_active_view(&mut self, view: Box<dyn DialogView>) {
         if let Some(entry) = self.overlay_stack.last_mut() {

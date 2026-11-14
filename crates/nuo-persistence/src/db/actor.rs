@@ -915,7 +915,6 @@ async fn spawn_writer(
             // still live.
             let mut engine = Some(engine);
             let mut foreground = 0u32;
-            let mut last_scrub = Instant::now();
             // WAL pressure is managed by a thread with its own connection, so
             // no checkpoint can ever block the next command. Dropping the
             // guard stops and joins it before this generation exits.

@@ -52,7 +52,7 @@ fn a_failed_attestation_resumes_the_decision() {
     // Enter: everything is pre-selected, so the decision trusts all three
     // present domains and the surface enters its submitting state.
     let decision = {
-        let gate = app.pre_attach.as_mut().unwrap();
+        let gate = app.surfaces.pre_attach.as_mut().unwrap();
         gate.apply(crate::shell::question_model::QuestionAction::Submit)
     };
     assert_eq!(
@@ -65,7 +65,7 @@ fn a_failed_attestation_resumes_the_decision() {
             ],
         })
     );
-    assert!(app.pre_attach.as_ref().unwrap().submitting());
+    assert!(app.surfaces.pre_attach.as_ref().unwrap().submitting());
 
     // The server's outcome for the failed grant (`AgentNotice::trust_changed`
     // on the persist-failure path): the surface must show it and unblock.
@@ -77,6 +77,7 @@ fn a_failed_attestation_resumes_the_decision() {
         ),
     );
     let gate = app
+        .surfaces
         .pre_attach
         .as_ref()
         .expect("gate stays mounted on failure");
@@ -92,7 +93,7 @@ fn a_failed_attestation_resumes_the_decision() {
     // The user retries with the same (pre-selected) selection: the decision
     // is dispatched again, complete and uncorrupted.
     let retry = {
-        let gate = app.pre_attach.as_mut().unwrap();
+        let gate = app.surfaces.pre_attach.as_mut().unwrap();
         gate.apply(crate::shell::question_model::QuestionAction::Submit)
     };
     assert_eq!(
@@ -121,7 +122,10 @@ fn trust_notices_without_a_mounted_gate_are_ignored() {
             "Workspace trust failed: whatever".to_string(),
         ),
     );
-    assert!(app.pre_attach.is_none(), "no gate is conjured by a notice");
+    assert!(
+        app.surfaces.pre_attach.is_none(),
+        "no gate is conjured by a notice"
+    );
 }
 
 /// The trusted-snapshot unmount still resolves the gate: a *successful*
@@ -135,7 +139,7 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
     mount_gate(&mut app);
     // Submit, fail, then submit again — the retry is now in flight.
     {
-        let gate = app.pre_attach.as_mut().unwrap();
+        let gate = app.surfaces.pre_attach.as_mut().unwrap();
         let _ = gate.apply(crate::shell::question_model::QuestionAction::Submit);
     }
     crate::shell::event_loop::apply::apply(
@@ -146,10 +150,10 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
         ),
     );
     {
-        let gate = app.pre_attach.as_mut().unwrap();
+        let gate = app.surfaces.pre_attach.as_mut().unwrap();
         let _ = gate.apply(crate::shell::question_model::QuestionAction::Submit);
     }
-    assert!(app.pre_attach.as_ref().unwrap().submitting());
+    assert!(app.surfaces.pre_attach.as_ref().unwrap().submitting());
 
     // The server republishes a fully-trusted snapshot (the Harness mutation
     // the attach sync delivers).
@@ -176,7 +180,10 @@ fn the_trusted_snapshot_still_resolves_the_gate() {
             workspace_security: trusted,
         }),
     );
-    assert!(app.pre_attach.is_none(), "the resolved gate unmounts");
+    assert!(
+        app.surfaces.pre_attach.is_none(),
+        "the resolved gate unmounts"
+    );
 }
 
 /// A refused workspace resolves to `Denied`, which is a decision — the gate
@@ -191,7 +198,7 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
     let runtime = UiRuntime::minimal_for_test();
 
     mount_gate(&mut app);
-    assert!(app.pre_attach.is_some());
+    assert!(app.surfaces.pre_attach.is_some());
 
     // The server recorded the refusal: every offered domain is now `Denied`.
     let denied = WorkspaceSecuritySnapshot {
@@ -217,7 +224,7 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
     };
     crate::shell::event_loop::apply::apply(&mut app, &runtime, snapshot(denied.clone()));
     assert!(
-        app.pre_attach.is_none(),
+        app.surfaces.pre_attach.is_none(),
         "a recorded refusal unmounts the gate"
     );
 
@@ -225,7 +232,7 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
     // it — neither via the latch nor via the mount arm itself.
     crate::shell::event_loop::apply::apply(&mut app, &runtime, snapshot(denied.clone()));
     assert!(
-        app.pre_attach.is_none(),
+        app.surfaces.pre_attach.is_none(),
         "a denied workspace must not be re-gated on republish"
     );
     crate::shell::event_loop::apply::apply(
@@ -236,7 +243,7 @@ fn a_denied_snapshot_retires_the_gate_and_never_re_opens() {
         }),
     );
     assert!(
-        app.pre_attach.is_none(),
+        app.surfaces.pre_attach.is_none(),
         "the mount arm itself must treat Denied as settled"
     );
 }
@@ -266,6 +273,7 @@ fn changed_content_after_a_refusal_is_asked_again() {
         }),
     );
     let gate = app
+        .surfaces
         .pre_attach
         .as_ref()
         .expect("changed content after a refusal must re-open the gate");

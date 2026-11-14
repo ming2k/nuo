@@ -369,9 +369,9 @@ impl ThreadRegistry {
         // tracker at build time (its mailbox + delegation tool both bind to
         // the one tracker), so the tracker is built first and handed over.
         let fabric = acp::Fabric::new("nuo-local");
-        let archivist = Arc::new(crate::runtime::archivist_service::ArchivistService::with_fabric(
-            fabric.clone(),
-        ));
+        let archivist = Arc::new(
+            crate::runtime::archivist_service::ArchivistService::with_fabric(fabric.clone()),
+        );
         Self {
             params,
             sessions: Arc::new(Mutex::new(HashMap::new())),

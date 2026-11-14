@@ -12,10 +12,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use nuo_protocol::{ModelRequest, Provider, StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict, ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask, TrajectoryLoopVerdict};
+use nuo_protocol::{
+    ModelRequest, Provider, StreamLoopReviewInput, StreamLoopReviewerTask, StreamLoopVerdict,
+    ThreadTitleInput, ThreadTitleTask, TrajectoryLoopReviewInput, TrajectoryLoopReviewerTask,
+    TrajectoryLoopVerdict,
+};
 
 use nuo_tool::{Message, Role};
-
 
 /// Errors that can occur during a harness task consultation.
 #[derive(Debug)]

@@ -68,9 +68,10 @@ impl ThreadRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{BlobRef, FactContext, FactPayload, ObservationLifecycle, ObservationMetrics};
+    use nuo_protocol::{
+        BlobRef, FactContext, FactPayload, ObservationLifecycle, ObservationMetrics,
+    };
     use nuo_tool::{Message, Role};
-
 
     fn message(text: &str) -> FactPayload {
         FactPayload::Message {

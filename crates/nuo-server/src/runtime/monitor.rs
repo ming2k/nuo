@@ -260,9 +260,8 @@ fn truncate(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nuo_protocol::{RoundSummary};
-    use nuo_tool::{PermissionRequest};
-
+    use nuo_protocol::RoundSummary;
+    use nuo_tool::PermissionRequest;
 
     fn round_event(event: RoundEvent) -> AgentResponse {
         AgentResponse::Round {

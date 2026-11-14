@@ -13,8 +13,7 @@
 //! declaration or a message rendered as prose.
 use crate::thread_view::RequestView;
 use crate::{Block, InstructionText, ModelRequest, ToolSpec, render_blocks};
-use nuo_tool::{Message};
-
+use nuo_tool::Message;
 
 /// Request-scoped inputs that are not conversation facts.
 ///
@@ -94,8 +93,7 @@ mod tests {
     use super::*;
     use crate::thread_view::RequestView;
     use crate::{BlockRender, ThreadRevision};
-    use nuo_tool::{Role};
-
+    use nuo_tool::Role;
 
     #[test]
     fn tools_and_messages_are_moved_once_and_never_rendered_as_text() {

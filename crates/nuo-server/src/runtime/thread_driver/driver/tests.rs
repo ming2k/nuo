@@ -6,7 +6,7 @@ use super::super::recovery::{
 use super::*;
 
 use nuo_engine::RoundLifecycle;
-use nuo_protocol::{RequestUsageStatus};
+use nuo_protocol::RequestUsageStatus;
 use nuo_tool::{Message, Role};
 
 use std::sync::Arc;

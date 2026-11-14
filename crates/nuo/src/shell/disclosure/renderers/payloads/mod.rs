@@ -113,10 +113,7 @@ pub(crate) fn draw_tool_result(
     // that never reached disk and hide the actionable failure message.
     if matches!(
         structured,
-        Some(
-            nuo_tool::ToolOutput::Error { .. }
-                | nuo_tool::ToolOutput::PermissionDenied { .. }
-        )
+        Some(nuo_tool::ToolOutput::Error { .. } | nuo_tool::ToolOutput::PermissionDenied { .. })
     ) {
         draw_tool_error(ctx, mi, block_idx, output, selection, indent, inner_w);
         return;

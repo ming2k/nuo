@@ -40,7 +40,7 @@ pub(super) fn input_dialog(
         if view.keys_open() {
             return DialogOutcome::Consumed;
         }
-        let modal_bounds = app.ui.bounds(crate::shell::ui::UiKey::Overlay(
+        let modal_bounds = app.transcript.ui.bounds(crate::shell::ui::UiKey::Overlay(
             crate::shell::surfaces::OverlaySurface::Dialog(view.kind()),
         ));
         if let Some(modal_rect) = modal_bounds {
@@ -103,8 +103,16 @@ pub(super) fn input_dialog(
                 return DialogOutcome::Unhandled;
             }
             let count = match view.kind() {
-                DialogKind::Mcp => app.session_context.as_ref().map_or(0, |s| s.mcp.len()),
-                _ => app.session_context.as_ref().map_or(0, |s| s.skills.len()),
+                DialogKind::Mcp => app
+                    .session
+                    .session_context
+                    .as_ref()
+                    .map_or(0, |s| s.mcp.len()),
+                _ => app
+                    .session
+                    .session_context
+                    .as_ref()
+                    .map_or(0, |s| s.skills.len()),
             };
             if count == 0 {
                 return DialogOutcome::Unhandled;
@@ -128,6 +136,7 @@ pub(super) fn input_dialog(
         }
         DialogKind::Permissions => {
             let count = app
+                .session
                 .session_context
                 .as_ref()
                 .map_or(0, |s| s.permissions.len());
@@ -214,7 +223,7 @@ pub(super) fn input_dialog(
                 return DialogOutcome::Consumed;
             }
             let count = crate::shell::overlays::session::project_session_rows(
-                &app.sessions_overview,
+                &app.session.sessions_overview,
                 Some(&e.expanded),
             )
             .len();
@@ -226,7 +235,7 @@ pub(super) fn input_dialog(
             DialogOutcome::Consumed
         }
         DialogKind::SessionTree => {
-            let count = crate::shell::overlays::tree::flatten_tree(&app.session_tree).len();
+            let count = crate::shell::overlays::tree::flatten_tree(&app.session.session_tree).len();
             if count == 0 {
                 return DialogOutcome::Unhandled;
             }
@@ -311,6 +320,7 @@ pub(super) fn input_dialog(
                 e.follow = false;
             } else {
                 let count = app
+                    .telemetry
                     .provider_quotas
                     .as_ref()
                     .map(|q| q.entries.len())
@@ -354,7 +364,7 @@ pub(super) fn input_dialog(
                 .expect("kind");
             let count = crate::shell::overlays::command_palette::filter_palette_commands(
                 &e.query.text,
-                &app.recent_commands,
+                &app.composer.recent_commands,
                 &switcher_app_ctx(app),
             )
             .len();
