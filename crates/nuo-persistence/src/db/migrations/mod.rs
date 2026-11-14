@@ -20,3 +20,6 @@ pub use types::{
     CAS_THRESHOLD_BYTES, HistorySearchResult, MAX_RETAINED_REQUEST_PROJECTIONS, ThreadRecord,
     ThreadTranscriptView,
 };
+
+#[cfg(test)]
+mod tests;
