@@ -102,7 +102,7 @@ fn insert_fact(
         .execute(
             r#"
             INSERT OR IGNORE INTO causal_nodes (
-                id, session_id, parent_id, seq, kind, payload_json, timestamp_ms, context_json
+                id, thread_id, parent_id, seq, kind, payload_json, timestamp_ms, context_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             "#,
             params![
@@ -120,7 +120,7 @@ fn insert_fact(
     if inserted == 0 {
         let existing: Option<(String, String)> = conn
             .query_row(
-                "SELECT payload_json, context_json FROM causal_nodes WHERE session_id = ?1 AND id = ?2",
+                "SELECT payload_json, context_json FROM causal_nodes WHERE thread_id = ?1 AND id = ?2",
                 params![thread_id.0, fact.id.0],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
@@ -232,7 +232,7 @@ fn load_facts(
             r#"
             SELECT id, parent_id, seq, payload_json, timestamp_ms, context_json
               FROM causal_nodes
-             WHERE session_id = ?1
+             WHERE thread_id = ?1
              ORDER BY seq ASC
             "#,
         )
@@ -657,7 +657,7 @@ impl SqliteThreadStore {
         let mut facts_removed = 0;
         for id in eligible {
             tx.execute(
-                "DELETE FROM causal_nodes WHERE session_id = ?1 AND id = ?2",
+                "DELETE FROM causal_nodes WHERE thread_id = ?1 AND id = ?2",
                 params![thread_id.0, id.0],
             )
             .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;
@@ -692,7 +692,7 @@ fn append_in_tx(
 ) -> Result<Ack, ThreadStoreError> {
     let current: Option<(i64, i64)> = tx
         .query_row(
-            "SELECT revision, COALESCE((SELECT MAX(seq) FROM causal_nodes WHERE session_id = ?1), 0) FROM threads WHERE id = ?1",
+            "SELECT revision, COALESCE((SELECT MAX(seq) FROM causal_nodes WHERE thread_id = ?1), 0) FROM threads WHERE id = ?1",
             params![delta.thread_id.0],
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
@@ -709,7 +709,7 @@ fn append_in_tx(
             let durable: Option<(String, String, i64)> = tx
                 .query_row(
                     "SELECT payload_json, COALESCE(context_json, '{}'), seq FROM causal_nodes
-                      WHERE session_id = ?1 AND id = ?2",
+                      WHERE thread_id = ?1 AND id = ?2",
                     params![delta.thread_id.0, fact.id.0],
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )
@@ -1071,7 +1071,7 @@ pub(crate) fn persist_thread_facts(
 ) -> Result<(), ThreadStoreError> {
     if replace {
         conn.execute(
-            "DELETE FROM causal_nodes WHERE session_id = ?1",
+            "DELETE FROM causal_nodes WHERE thread_id = ?1",
             params![thread.id.0],
         )
         .map_err(|error| ThreadStoreError::Backend(error.to_string()))?;

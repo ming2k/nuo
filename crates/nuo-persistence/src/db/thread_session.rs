@@ -14,16 +14,13 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
     conn.execute(
         r#"
         INSERT INTO threads (
-            id, parent_thread_id, origin, title, msg_count, last_user_prompt,
-            digest, created_at_ms, updated_at_ms
+            id, parent_thread_id, origin, title, digest, created_at_ms, updated_at_ms
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8 * 1000, ?9 * 1000)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6 * 1000, ?7 * 1000)
         ON CONFLICT(id) DO UPDATE SET
             parent_thread_id = excluded.parent_thread_id,
             origin = excluded.origin,
             title = excluded.title,
-            msg_count = excluded.msg_count,
-            last_user_prompt = excluded.last_user_prompt,
             digest = excluded.digest,
             updated_at_ms = excluded.updated_at_ms;
         "#,
@@ -32,8 +29,6 @@ pub(crate) fn upsert_session(conn: &Connection, session: &ThreadRecord) -> Resul
             session.parent_id,
             session.origin,
             session.title.as_deref().unwrap_or(""),
-            session.msg_count,
-            session.last_user_prompt,
             session.digest,
             session.created_at_s,
             session.updated_at_s,
@@ -186,8 +181,6 @@ pub(crate) fn save_session_inner(
         .digest
         .as_ref()
         .and_then(|d| serde_json::to_string(d).ok());
-    let last_prompt = crate::thread::last_effective_prompt_from_data(data);
-    let msg_count = data.transcript.entries.len() as i64;
     let mut thread = crate::thread::thread_from_session_data(data);
     if let Some(blob_store) = blob_store {
         offload_observation_blobs(&mut thread, blob_store)?;
@@ -257,18 +250,16 @@ pub(crate) fn save_session_inner(
         conn.execute(
             r#"
             INSERT INTO threads (
-                id, parent_thread_id, origin, title, title_manual, status,
-                active_branch_id, round_counter, msg_count, last_user_prompt,
+                id, parent_thread_id, origin, title, status,
+                active_branch_id, round_counter,
                 transcript_generation, digest, digest_anchor, checksum,
                 created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, 0, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12 * 1000, ?13 * 1000)
+            ) VALUES (?1, ?2, ?3, ?4, 'idle', 'main', ?5, ?6, ?7, ?8, ?9, ?10 * 1000, ?11 * 1000)
             ON CONFLICT(id) DO UPDATE SET
                 parent_thread_id = excluded.parent_thread_id,
                 origin = excluded.origin,
                 title = excluded.title,
                 round_counter = excluded.round_counter,
-                msg_count = excluded.msg_count,
-                last_user_prompt = excluded.last_user_prompt,
                 transcript_generation = excluded.transcript_generation,
                 digest = excluded.digest,
                 digest_anchor = excluded.digest_anchor,
@@ -281,8 +272,6 @@ pub(crate) fn save_session_inner(
                 fork_str,
                 data.title.as_deref().unwrap_or(""),
                 data.round_counter as i64,
-                msg_count,
-                last_prompt,
                 data.generation,
                 digest_str,
                 data.digest_anchor.map(|a| a as i64),
@@ -297,10 +286,10 @@ pub(crate) fn save_session_inner(
             INSERT INTO thread_policies (
                 thread_id, workspace_root, system_role, unattended, provider_pin,
                 disabled_tools_json, additional_roots_json, commands_json,
-                round_interrupts_json, retry_resolutions_json, retry_pending,
+                round_interrupts_json, retry_pending,
                 role_manifest, todos_json, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                      ?14 * 1000)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+                      ?13 * 1000)
             ON CONFLICT(thread_id) DO UPDATE SET
                 workspace_root = excluded.workspace_root,
                 system_role = excluded.system_role,
@@ -310,7 +299,6 @@ pub(crate) fn save_session_inner(
                 additional_roots_json = excluded.additional_roots_json,
                 commands_json = excluded.commands_json,
                 round_interrupts_json = excluded.round_interrupts_json,
-                retry_resolutions_json = excluded.retry_resolutions_json,
                 retry_pending = excluded.retry_pending,
                 role_manifest = COALESCE(excluded.role_manifest, thread_policies.role_manifest),
                 todos_json = excluded.todos_json,
@@ -331,7 +319,6 @@ pub(crate) fn save_session_inner(
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
                 serde_json::to_string(&data.round_interrupts)
                     .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
-                "[]",
                 data.retry_pending
                     .as_ref()
                     .and_then(|s| serde_json::to_string(s).ok()),
@@ -361,11 +348,6 @@ pub(crate) fn save_session_inner(
         // same transaction as the facts they describe, so recovery can
         // always resolve an unknown outcome by operation identity.
         let committed_revision = current_revision + 1;
-        conn.execute(
-            "INSERT INTO thread_revisions(thread_id, revision) VALUES(?1, ?2)
-             ON CONFLICT(thread_id) DO UPDATE SET revision=excluded.revision",
-            params![data.id, committed_revision as i64],
-        )?;
         conn.execute(
             "UPDATE threads SET revision = ?2 WHERE id = ?1",
             params![data.id, committed_revision as i64],
@@ -497,10 +479,9 @@ fn load_usage_records(
 }
 
 /// Load a full [`crate::thread::ThreadData`] by session ID from SQLite.
-/// Entries and directives whose payloads the current binary cannot decode
-/// are preserved verbatim: they ride in memory as raw rows and
-/// round-trip through every save untouched, so a database written by a
-/// newer binary survives an older binary without loss or orphaning.
+/// Facts are the durable conversation rows; the transcript is projected from
+/// the active branch. A fact the current binary cannot decode fails the load
+/// rather than being silently reinterpreted.
 pub(crate) fn load_session_full(
     conn: &Connection,
     session_id: &str,
@@ -514,7 +495,7 @@ pub(crate) fn load_session_full(
                    t.digest, t.digest_anchor, t.transcript_generation,
                    p.provider_pin, t.round_counter, p.unattended,
                    p.disabled_tools_json, p.commands_json, p.round_interrupts_json,
-                   p.retry_resolutions_json, p.retry_pending, t.checksum,
+                   p.retry_pending, t.checksum,
                    13, p.role_manifest
             FROM threads t
             LEFT JOIN thread_policies p ON p.thread_id = t.id
@@ -541,11 +522,10 @@ pub(crate) fn load_session_full(
                     row.get::<_, String>(15)?,
                     row.get::<_, String>(16)?,
                     row.get::<_, String>(17)?,
-                    row.get::<_, String>(18)?,
-                    row.get::<_, Option<String>>(19)?,
-                    row.get::<_, Option<i64>>(20)?,
-                    row.get::<_, i64>(21)?,
-                    row.get::<_, Option<String>>(22)?,
+                    row.get::<_, Option<String>>(18)?,
+                    row.get::<_, Option<i64>>(19)?,
+                    row.get::<_, i64>(20)?,
+                    row.get::<_, Option<String>>(21)?,
                 ))
             },
         )
@@ -569,7 +549,6 @@ pub(crate) fn load_session_full(
         disabled_tools,
         commands,
         round_interrupts,
-        _retry_resolutions,
         retry_pending,
         checksum,
         schema_version,

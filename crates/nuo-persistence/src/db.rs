@@ -509,7 +509,7 @@ fn commit_payload_digest(
 /// The durable revision for a session (D3). Absent means revision 0.
 fn session_revision(conn: &Connection, session_id: &str) -> Result<u64> {
     conn.query_row(
-        "SELECT revision FROM thread_revisions WHERE thread_id=?1",
+        "SELECT revision FROM threads WHERE id=?1",
         params![session_id],
         |row| row.get::<_, i64>(0),
     )
@@ -526,7 +526,7 @@ fn latest_commit_receipt(
 ) -> Result<Option<(String, String, u64)>> {
     conn.query_row(
         "SELECT operation_id, payload_hash, revision FROM commit_receipts
-         WHERE session_id=?1 ORDER BY revision DESC LIMIT 1",
+         WHERE thread_id=?1 ORDER BY revision DESC LIMIT 1",
         params![session_id],
         |row| {
             let revision: i64 = row.get(2)?;
@@ -544,14 +544,14 @@ fn record_commit_receipt(
     payload_hash: &str,
 ) -> Result<()> {
     conn.execute(
-        "DELETE FROM commit_receipts WHERE session_id=?1 AND operation_id<>?2",
+        "DELETE FROM commit_receipts WHERE thread_id=?1 AND operation_id<>?2",
         params![session_id, operation_id],
     )?;
     conn.execute(
-        "INSERT INTO commit_receipts(operation_id, session_id, revision, payload_hash)
+        "INSERT INTO commit_receipts(operation_id, thread_id, revision, payload_hash)
          VALUES(?1, ?2, ?3, ?4)
          ON CONFLICT(operation_id) DO UPDATE SET
-             session_id=excluded.session_id, revision=excluded.revision, payload_hash=excluded.payload_hash",
+             thread_id=excluded.thread_id, revision=excluded.revision, payload_hash=excluded.payload_hash",
         params![operation_id, session_id, revision as i64, payload_hash],
     )?;
     Ok(())
@@ -574,138 +574,48 @@ fn decode_json<T: serde::de::DeserializeOwned>(value: &str) -> Result<T> {
     serde_json::from_str(value).map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
 }
 
-/// Migration-only import of one historical attempt. Conflicting historical
-/// facts for the same attempt identity are *reported* and the first record
-/// wins, instead of aborting the migration — aborting leaves `user_version`
-/// below v15, so every later open retries and fails the same import forever
-/// "report conflicting records rather than silently selecting one".
-/// The live settlement path keeps [`upsert_attempt`]'s hard refusal.
-fn import_legacy_attempt(
+/// Record one attempt under a thread, resolving its workspace bucket for the
+/// usage ledger. Runtime path: a save forwards its usage upserts through here.
+pub(crate) fn insert_usage_record_tx(
     conn: &Connection,
-    entry: &nuo_protocol::usage_stats::UsageStatRecord,
+    session_id: &str,
+    record: &nuo_protocol::RequestUsageRecord,
 ) -> Result<()> {
-    match upsert_attempt(conn, entry) {
-        Ok(_) => Ok(()),
-        Err(rusqlite::Error::InvalidParameterName(message))
-            if message.contains("conflicting reported usage") =>
-        {
-            warn!(
-                %message,
-                "usage migration: conflicting historical attempt; keeping the first record"
-            );
-            Ok(())
-        }
-        Err(error) => Err(error),
+    if record.key.session_id != session_id {
+        return Err(rusqlite::Error::InvalidParameterName(
+            "usage belongs to another session".into(),
+        ));
     }
-}
-
-fn apply_durable_attempt_schema(tx: &rusqlite::Transaction<'_>) -> Result<()> {
-    // Idempotent: an already-migrated database carries `usage_clock`. A re-run
-    // (e.g. a test that re-migrates a current schema from a stale user_version)
-    // must no-op instead of renaming `usage_records` again and colliding with
-    // the existing `usage_records_day` index.
-    if table_exists(tx, "usage_clock")? {
-        return Ok(());
-    }
-    tx.execute_batch("ALTER TABLE usage_records RENAME TO legacy_usage_records;
-        CREATE TABLE usage_records (
-            session_id TEXT NOT NULL, actor_id TEXT NOT NULL, round INTEGER NOT NULL,
-            turn INTEGER NOT NULL, attempt INTEGER NOT NULL, payload TEXT NOT NULL,
-            day TEXT NOT NULL, recorded_at_ms INTEGER NOT NULL, project TEXT NOT NULL,
-            revision INTEGER NOT NULL,
-            PRIMARY KEY(session_id, actor_id, round, turn, attempt)
-        );
-        CREATE INDEX usage_records_day ON usage_records(day, recorded_at_ms);
-        CREATE TABLE usage_clock (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
-        INSERT INTO usage_clock VALUES(1,0);
-        CREATE TABLE usage_dirty (
-            session_id TEXT NOT NULL, actor_id TEXT NOT NULL, round INTEGER NOT NULL,
-            turn INTEGER NOT NULL, attempt INTEGER NOT NULL, revision INTEGER NOT NULL,
-            PRIMARY KEY(session_id, actor_id, round, turn, attempt),
-            FOREIGN KEY(session_id, actor_id, round, turn, attempt)
-                REFERENCES usage_records ON DELETE CASCADE
-        );
-        CREATE INDEX usage_dirty_revision ON usage_dirty(revision);
-        CREATE TABLE usage_contributions (
-            session_id TEXT NOT NULL, actor_id TEXT NOT NULL, round INTEGER NOT NULL,
-            turn INTEGER NOT NULL, attempt INTEGER NOT NULL, revision INTEGER NOT NULL,
-            day TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL,
-            requests INTEGER NOT NULL, completed INTEGER NOT NULL,
-            prompt_tokens INTEGER NOT NULL, completion_tokens INTEGER NOT NULL, total_tokens INTEGER NOT NULL,
-            cache_write_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL, estimated_tokens INTEGER NOT NULL,
-            PRIMARY KEY(session_id, actor_id, round, turn, attempt),
-            FOREIGN KEY(session_id, actor_id, round, turn, attempt)
-                REFERENCES usage_records ON DELETE CASCADE
-        );
-        CREATE INDEX usage_contributions_day ON usage_contributions(day, provider, model);
-        CREATE TABLE commit_receipts (
-            operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, revision INTEGER NOT NULL,
-            payload_hash TEXT NOT NULL
-        );
-        CREATE TABLE thread_revisions (thread_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
-    ")?;
-    // Prefer historical cross-session attribution; per-session facts fill gaps.
-    // `kv_store` predates this migration on every real database, but a
-    // hand-built test schema may omit it — there is then nothing historical to
-    // import, so the import and its delete are both skipped.
-    let has_kv_store = table_exists(tx, "kv_store")?;
-    if has_kv_store {
-        let mut stmt =
-            tx.prepare("SELECT value FROM kv_store WHERE key LIKE 'usage:day:%' ORDER BY key")?;
-        let blobs = stmt
-            .query_map([], |r| r.get::<_, String>(0))?
-            .collect::<Result<Vec<_>>>()?;
-        drop(stmt);
-        #[derive(Deserialize)]
-        struct Day {
-            records: Vec<nuo_protocol::usage_stats::UsageStatRecord>,
-        }
-        for blob in blobs {
-            let day: Day = decode_json(&blob)?;
-            for entry in day.records {
-                import_legacy_attempt(tx, &entry)?;
-            }
-        }
-    }
-    let mut stmt = tx.prepare("SELECT u.payload, COALESCE(s.workspace_root,''), COALESCE(s.updated_at_s,0) FROM legacy_usage_records u LEFT JOIN sessions s ON s.id=u.session_id")?;
-    let rows = stmt
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, u64>(2)?,
-            ))
-        })?
-        .collect::<Result<Vec<_>>>()?;
-    drop(stmt);
-    for (payload, root, at) in rows {
-        let record: nuo_protocol::RequestUsageRecord = decode_json(&payload)?;
-        let at = if record.started_at_ms > 0 {
-            record.started_at_ms
-        } else {
-            at.saturating_mul(1000)
-        };
-        import_legacy_attempt(
-            tx,
-            &nuo_protocol::usage_stats::UsageStatRecord {
-                day: nuo_protocol::usage_stats::day_key_from_epoch_ms(at),
-                recorded_at_ms: at,
-                project: if root.is_empty() {
-                    String::new()
-                } else {
-                    nuo_host::paths::project_bucket_name(Path::new(&root))
-                },
-                record,
-            },
-        )?;
-    }
-    tx.execute_batch("DROP TABLE legacy_usage_records;")?;
-    if has_kv_store {
-        tx.execute_batch("DELETE FROM kv_store WHERE key LIKE 'usage:day:%';")?;
-    }
+    let root: Option<String> = conn
+        .query_row(
+            "SELECT workspace_root FROM thread_policies WHERE thread_id=?1",
+            [session_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let project = root
+        .map(|p| nuo_host::paths::project_bucket_name(Path::new(&p)))
+        .unwrap_or_default();
+    let at = if record.started_at_ms > 0 {
+        record.started_at_ms
+    } else {
+        unix_ms()
+    };
+    upsert_attempt(
+        conn,
+        &nuo_protocol::usage_stats::UsageStatRecord {
+            day: nuo_protocol::usage_stats::day_key_from_epoch_ms(at),
+            recorded_at_ms: at,
+            project,
+            record: record.clone(),
+        },
+    )?;
     Ok(())
 }
 
+/// Insert or update one usage attempt. The live settlement path refuses a
+/// conflicting terminal record for the same attempt identity.
 pub(crate) fn upsert_attempt(
     conn: &Connection,
     entry: &nuo_protocol::usage_stats::UsageStatRecord,

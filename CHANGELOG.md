@@ -8,9 +8,18 @@ the project adheres to the federated SemVer model described in
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- **Upgrading a pre-0.0.87 database no longer fails with `no such column: t.origin`.** Migration 36 called the runtime thread loader, which selects `threads.origin` (created later by migration 38) and decodes `FactPayload` rows that the migration itself is supposed to write, so every database with at least one session rolled back and stayed at schema v33. The migration now reads the legacy `entries` / `entry_memberships` transcript through a dedicated loader and projects it with `thread_from_session_data` before dropping the transcript tables.
+- **The durable schema is a single immutable baseline plus numbered migrations.** The 38-step replay chain, its `if migration.version == N` dispatch ladder, conditional interim repairs, and the `thread_revisions`/`asset_attestations` scaffolding are deleted. A fresh database applies `migrations/0001_baseline.sql` once; later changes are new numbered artifacts. This is a clean break: databases written by the retired chain have no `schema_migrations` ledger and are refused with a path-bearing error instead of being migrated ([ADR-0189](docs/adr/0189-immutable-baseline-plus-numbered-migrations.md)).
+- **Migration v2 removes derived thread columns.** `threads.msg_count` and `threads.last_user_prompt` duplicated the fact log and could disagree with it. The list projection now derives both from `causal_nodes`, and the role lookup is case-insensitive (`Role` serializes capitalized). This is the first real upgrade through the new runner and exercises its backup path.
+- **Pending migrations snapshot the database first.** An existing database is copied with `VACUUM INTO` to `<db>.pre-v<N>.<timestamp>.bak` before any pending migration; a failed snapshot refuses the upgrade ([ADR-0191](docs/adr/0191-persistence-failure-is-fail-fast-without-a-database-cli.md)).
+- **`role_memory.db` is versioned too.** The runner is schema-agnostic; role memory has its own baseline, catalog, ledger, checksum, backup, and structural verification instead of `CREATE TABLE IF NOT EXISTS` on every open ([ADR-0192](docs/adr/0192-every-durable-sqlite-file-has-a-versioned-schema.md)).
+- **The schema is verified structurally on every open.** The live `sqlite_master` (tables, indexes, views, triggers, constraints) is compared byte-for-byte with an in-memory build of the compiled catalog; a missing, extra, or edited object refuses the open and names the object and database path. The baseline uses `STRICT` tables, `json_valid` checks on JSON columns, explicit foreign-key cascades, and `thread_id` for fact/projection scope ([ADR-0190](docs/adr/0190-schema-integrity-is-verified-structurally-at-open.md)).
+- **No `nuo db` administration surface.** There is no `db status/check/repair/backup/migrate` command. Persistence failures are fail-fast, path-bearing errors handled through the existing session-preparation path; recovery is a file-level backup or moving the database aside ([ADR-0191](docs/adr/0191-persistence-failure-is-fail-fast-without-a-database-cli.md)).
+
+### Removed
+
+- The `v01_v15`, `v16_v25`, `v26_v30`, and `v31_v35` migration modules, the version-dispatch ladder, the interim-v5 repair, the `sessions` schema guard, the migration catalog fingerprint, and the legacy usage-ledger importer.
 
 ## [0.0.87] - 2026-11-14
 
