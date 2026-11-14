@@ -70,6 +70,28 @@ fn reopening_a_baseline_database_is_a_noop() {
 }
 
 #[test]
+fn upgrade_fixture_builder_can_start_before_the_baseline() {
+    let mut conn = Connection::open_in_memory().unwrap();
+    migrate_to_for_tests(&mut conn, 0).unwrap();
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 0);
+    let ledger_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(ledger_rows, 0);
+
+    migrate_schema(&mut conn).unwrap();
+    let version: u32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, CURRENT_DB_VERSION);
+}
+
+#[test]
 fn retired_pre_baseline_database_is_refused() {
     let mut conn = Connection::open_in_memory().unwrap();
     configure_connection(&mut conn).unwrap();

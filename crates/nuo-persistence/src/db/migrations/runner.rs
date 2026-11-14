@@ -18,6 +18,7 @@ use tracing::{info, warn};
 
 use super::apply::execute_body;
 use super::catalog::CURRENT_DB_VERSION;
+use super::catalog::MIGRATIONS;
 use super::history;
 use super::verify;
 
@@ -247,6 +248,30 @@ fn assert_quick_check(conn: &Connection) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// Test-only: build a database at an earlier catalog version without the
+/// latest-schema verification. Use this to create an upgrade fixture:
+///
+/// ```ignore
+/// migrate_to_for_tests(&mut conn, CURRENT_DB_VERSION - 1)?;
+/// // insert rows that the next migration must transform
+/// migrate_schema(&mut conn)?;
+/// ```
+#[cfg(test)]
+pub(crate) fn migrate_to_for_tests(conn: &mut Connection, through: u32) -> Result<()> {
+    configure_connection(conn)?;
+    history::ensure_ledger(conn)?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for migration in MIGRATIONS
+        .iter()
+        .filter(|migration| migration.version <= through)
+    {
+        execute_body(&tx, &migration.body)?;
+        history::insert_applied(&tx, migration, &migration.checksum(), now_ms(), 0)?;
+        tx.pragma_update(None, "user_version", migration.version)?;
+    }
+    tx.commit()
 }
 
 fn with_database_path(error: rusqlite::Error, db_path: &Path) -> rusqlite::Error {
