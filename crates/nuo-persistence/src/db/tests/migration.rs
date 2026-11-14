@@ -92,6 +92,36 @@ fn upgrade_fixture_builder_can_start_before_the_baseline() {
 }
 
 #[test]
+fn concurrent_openers_apply_the_baseline_once() {
+    use std::sync::{Arc, Barrier};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("nuo.db");
+    let barrier = Arc::new(Barrier::new(2));
+
+    let mut handles = Vec::new();
+    for _ in 0..2 {
+        let path = path.clone();
+        let barrier = Arc::clone(&barrier);
+        handles.push(std::thread::spawn(move || {
+            barrier.wait();
+            initialize_db(&path).map(|_| ())
+        }));
+    }
+    for handle in handles {
+        handle.join().unwrap().unwrap();
+    }
+
+    let conn = initialize_db(&path).unwrap();
+    let ledger_rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(ledger_rows, 1, "the baseline must be applied exactly once");
+}
+
+#[test]
 fn retired_pre_baseline_database_is_refused() {
     let mut conn = Connection::open_in_memory().unwrap();
     configure_connection(&mut conn).unwrap();
